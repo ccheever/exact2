@@ -136,6 +136,8 @@ pub struct Host<D: DataSource> {
     pending_layout: IdSet<NodeKey>,
     /// Each sticky node's constraint as the presenter last heard it (LLP 1083).
     stickies: IdMap<ViewId, exact_kernel::StickyConstraint>,
+    /// Each multi-column record as the presenter last heard it (LLP 1093 D7).
+    fragments: IdMap<ViewId, String>,
     ranks: IdMap<ViewId, i64>,
     roots: Vec<ViewId>,
     /// Last published common collection snapshot; refreshed only after layout.
@@ -401,6 +403,7 @@ impl<D: DataSource> Host<D> {
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
             stickies: IdMap::default(),
+            fragments: IdMap::default(),
             ranks: IdMap::default(),
             roots: Vec::new(),
             collections_json: "[]".into(),

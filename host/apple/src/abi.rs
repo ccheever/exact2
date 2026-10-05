@@ -4,8 +4,7 @@
 //!
 //! The host owns the buffers: `exact_in(len)` resizes input and returns its
 //! address; each call returns the output length, read via `exact_out()`.
-//! Text measurement and the plan font catalog call registered host functions
-//! the other way ([`crate::measure`]).
+//! Measurement, line boxes and the font catalog call host functions ([`crate::measure`]).
 //!
 //! Every export takes a runtime handle (LLP 1031 D2): `exact_create` returns
 //! a never-reused `u32` from the thread-local [`Registry`], never a pointer.
@@ -33,10 +32,11 @@ use std::rc::Rc;
 pub struct Hooks {
     /// Measures a paragraph; `None` for the monospace reference measurer.
     pub measure: Option<MeasureFn>,
-    /// Passed back to `measure`.
+    /// Passed back to `measure` and `lines`.
     pub ctx: *mut c_void,
-    /// Called on the executor's thread when a reply is queued; `None` and
-    /// replies wait for the next `exact_pump`.
+    /// A paragraph's line boxes (LLP 1093 D6); `None` keeps paragraphs whole.
+    pub lines: Option<crate::measure::LinesFn>,
+    /// Called on the executor's thread when a reply is queued; `None`: replies wait for `exact_pump`.
     pub wake: Option<crate::executor::WakeFn>,
     /// Passed back to `wake`.
     pub wake_ctx: *mut c_void,
@@ -50,6 +50,7 @@ impl Hooks {
         Hooks {
             measure: None,
             ctx: std::ptr::null_mut(),
+            lines: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
@@ -451,7 +452,7 @@ impl<D: DataSource> Bridge<D> {
             exact_runner::delivery::refuse_analysis(compat).map_err(str::to_string)?;
         }
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
-            Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx)),
+            Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx, hooks.lines)),
             None => Box::new(MonospaceMeasurer::default()),
         };
         // The app's bindings, once (LLP 1016 D6; LLP 1018 D6): the secrets it
@@ -722,7 +723,7 @@ impl<D: DataSource> Bridge<D> {
         // or runner refusal must not turn a reload into an empty window.
         let carried = carried.or_else(|| self.host.as_ref().map(Host::carry));
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
-            Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx)),
+            Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx, hooks.lines)),
             None => Box::new(MonospaceMeasurer::default()),
         };
         // A reload carries the running store (`Carried::store`). A fresh

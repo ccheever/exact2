@@ -511,6 +511,21 @@ impl Kernel {
         self.arena().frag.fragments.get(&slot).map(Vec::as_slice)
     }
 
+    /// Every node with fragments or columns, as last laid out: what a host
+    /// that keeps its own copy of the record reads after a layout.
+    pub fn fragmented(&self) -> Vec<NodeKey> {
+        let frag = &self.arena().frag;
+        let mut slots: Vec<u32> = frag
+            .fragments
+            .keys()
+            .chain(frag.multicol.keys())
+            .copied()
+            .collect();
+        slots.sort_unstable();
+        slots.dedup();
+        slots.into_iter().map(|s| self.arena().key(s)).collect()
+    }
+
     /// A multi-column container's columns as last laid out (LLP 1093 D7).
     pub fn columns(&self, key: NodeKey) -> Option<&Columns> {
         let slot = self.arena().resolve(key)?;
