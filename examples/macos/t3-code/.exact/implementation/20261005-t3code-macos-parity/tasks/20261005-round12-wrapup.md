@@ -1,7 +1,7 @@
 ---
 name: 20261005-round12-wrapup
 plan: 20261005-t3code-macos-parity
-implementation: prepared
+implementation: in-progress
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -168,7 +168,68 @@ Required environment: mc-orch worktree, pinned Bun and Hermes, lane backends; no
 
 ## Progress
 
-Prepared 2026-10-05 23:25 KST.
+Prepared 2026-10-05 23:25 KST (details below). Implemented 2026-10-06 by four parallel lanes in
+the mc-orch worktree plus coordinator hunks; **ready for `verify`**.
+
+Decisions applied during implementation (user, 2026-10-05/06): the exact2 repo itself is the
+framework reference (U1); real-input rows run through `orca computer` (U14); no pixel-perfect
+loops — behavior first, one oracle comparison per surface.
+
+### Changes (paths relative to `examples/macos/t3-code/`, mc-orch tree)
+| Item | Result | Files |
+| --- | --- | --- |
+| F3 onboarding / persisted wall time | Fixed: writers store wall-clock ISO; `${now()}` (ms since launch) replaced by `${wallTime.epochAtZero + now()}` in the welcome Finish/Import and prices-save commands; nothing is stored before the host reports the date. Old pre-2026-02-07 stamps still read as unset (differs from the reference for a client with no saved environment; recorded). | `r8-pointer-clock.ts`, `pages-welcome.ts`, `sidebar-state.ts` (comments), `r9-connect-onboarding.ts` (comment), `app.contract` (2 lines), `r13-store.test.ts` (32) |
+| F5 removed backend origin | Fixed: native `forgotten()` clears `t3.server.origin` after Remove / Forget and repairs a stale key; the client drops the focused environment's address, selection and cached threads after Remove (coordinator hunk). | `modules/apple/T3Transport.swift`, `apple/tests/transport/main.swift` (+5), `client.ts`, `client.test.ts` (+2) |
+| F4 false slow toast | Fixed: reference latency state ported (`now` argument, no timers); a request ends on its own reply, on an environment/generation/state change, or at the transport's 31 s deadline; answered-but-let-go requests end on the next shell read (coordinator hunk in `shell.ts`). | `shell-slow.ts`, `r3-protocol-reader.ts`, `shell.ts`, `request-latency.test.ts`, `shell-slow.test.ts` (23), `shell-r2.test.ts` |
+| T5 non-Git strip | Done: ported `shouldShowEnvironmentIndicator` / `shouldShowComposerContextStrip`; strip shows only "Run on" at 1280 and 840; started threads show a static machine row. | `r12-threads-strip.ts`, `composer-controls-branch.ts`, `composer-controls.contract`, `composer-shapes.contract` |
+| T1 switch machine | Done: success (draft moves to B, Send shows "Preparing machine", sends on B) and failure (toast "Could not switch machine" + error, draft stays). Root cause of the old failure was the fixture (a `scratch` file; base dir inside a git worktree). Needed `native.watch('t3.notify')` in `client.ts` (coordinator hunk). | `r12-threads-scratch.ts`, `r4-git-env.ts`, `client.ts`, `r13-threads.test.ts` (17), lane tool `tools/backend-s.sh` |
+| T3 device float on load | Done: reference rule (first snapshot is the baseline; a thread open before the first chunk takes the empty state) ported. | `r12-threads-device.ts`, `r13-panels.test.ts` (8), `r12-threads.test.ts` (hunk) |
+| T4 tab strip at 840 | Done: active tab scrolled into view with 24 pt padding; edge fades; a new tab waits to be measured. Positions match the reference (165 vs 164, 222 vs 222); tabs restored after relaunch. | `r4-surfaces.contract` |
+| F2 Files editor click | Fixed in code: the editor always takes focus when it mounts; the caret goes to the end for a press below the text (reference measured in headless Chrome). AppKit test reproduces the old failure and passes. | `modules/apple/T3PanelsNative.swift`, `apple/tests/r5-panels/main.swift` (+3) |
+| F1 wheel + thread switch | No change needed: `R9Input.swift` reviewed; r9-input 13/0; agent drive restores the same rows/offsets. | — |
+| T2 Worktree card | Re-checked: hides after retry. | — |
+
+### Development checks (coordinator, 2026-10-06, integrated tree)
+- `bun test examples/macos/t3-code`: 1147 pass, 0 fail (113 files).
+- Strict `tsc`: clean. `contract build`: OK (1865 slots, 41 resources, 41819 nodes).
+- `cargo test -p macos-t3-code-apple --lib`: 7/0.
+- AppKit binaries (`lanes/r13-integrate/tools/swift-all.sh`, mermaid against an isolated backend
+  on 16190): all pass (r5-panels 8, r9-input 13, transport and fleet suites 0 failures, mermaid
+  PASS) **except `snapshot`**, which stops at "actual current layout translates printable
+  letter" because the Mac's current input source is Korean 2-Set; no SnapShot file changed in
+  this round (archive diff). Rerun under an ASCII layout in `verify`; the dependency on the live
+  layout is a test-environment fault (related to issue X15).
+- `lane-build.mjs r13-integrate`: OK (44 s).
+
+### Not yet done (for `verify`)
+- **F1 real wheel and F2 real click** (`orca computer`): not run. Blockers seen: (1) the screen
+  locked after 300 s idle — fixed for runs with `caffeinate -d -u`; (2) another registered
+  build of the same bundle id (`lanes/r10-connect/T3 Code.app`) was relaunched by an unknown
+  bundle-id launch about 7 s after a lane app started and took focus; it was quit (user
+  approval) and unregistered from LaunchServices, but other registered copies remain;
+  (3) `orca computer` keyboard and coordinate clicks returned `window_not_focused` for the Exact
+  window even when it was frontmost, and `type-text` did not reach the pairing field
+  (accessibility presses and `set-value` work; `set-value` did not enable Pair). Pairing for
+  these runs needs another path (seed the pairing by script as the F4 lane did).
+- **F4 held request** (15–31 s → one toast that clears on reply): unit tests only; the frozen
+  backend makes the app drop its connection first. The let-go case passed in a real launch.
+- **F3 Finish-path normal launch**: blocked by the same focus problem; the saved-environment
+  path passed in a normal launch (`2026-10-05T15:25:48.202Z`).
+
+### Findings for other tickets
+- `composer-controls-branch.ts` `load()` re-sends `vcs.refreshStatus` on every re-ask (18 in
+  flight seen) → `20261005-client-activity-reporting` / composer work.
+- `composer-editor.ts:313` stamps the stash with `new Date(n || 0)` (possible 1970 stamp).
+- Lane tooling (for `20261005-clone-on-exact2-main` and U23 `tools/`): base dirs must not be
+  inside a git worktree (`tools/backend-s.sh`); address lane apps by path or pid, never by
+  bundle id; keep the display awake during real-input runs; unregister old lane builds.
+- An `orca computer` focus limitation with Exact windows (`window_not_focused`) needs a look
+  before real-input rows scale up.
+
+Evidence: `target/t3-ui-parity/lanes/{r13-store,r13-slow,r13-threads,r13-panels,r13-integrate}/`
+in the mc-orch worktree (local; not portable).
+
+Preparation record (2026-10-05 23:25 KST):
 - Checkout (environment note): mc-orch worktree
   `~/Documents/work/0.projects/exact2-worktrees/mc-orch-e88043b25805`, branch
   `mc/orch-e88043b25805` at `c1522fdac`; the app tree is untracked there (no task branch, no PR —
@@ -190,8 +251,10 @@ Prepared 2026-10-05 23:25 KST.
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 20261006-r13-lanes | mc-orch tree after the four lanes + coordinator hunks (archive diff: 23 changed, 5 new files) | dev checks above: pass except `snapshot` (input-source environment); real-input F1/F2/F3-finish and F4 held request not run | mc-orch `target/t3-ui-parity/lanes/r13-*` | real-input focus (`window_not_focused`); snapshot test needs ASCII layout |
 
 ## Next action
 
-`implement` in the mc-orch worktree (authorized by the user on 2026-10-05).
+`verify`: independent review of the changes, rerun `snapshot` under an ASCII input source, and
+the real-input rows (F1, F2, F3 Finish path) once the `orca computer` focus problem is solved or
+pairing is seeded by script; F4 held request by unit tests unless a live path is found.
