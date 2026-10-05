@@ -280,6 +280,13 @@ impl RegionInst {
         Ok(true)
     }
 
+    pub(super) fn first_root(&self) -> Option<ViewId> {
+        match &self.active {
+            Active::Arm { roots, .. } => first_root(roots),
+            Active::Rows { rows } => rows.iter().find_map(|r| first_root(&r.roots)),
+        }
+    }
+
     pub(super) fn collect_roots(&self, out: &mut Vec<ViewId>) {
         match &self.active {
             Active::Arm { roots, .. } => push_roots(roots, out),

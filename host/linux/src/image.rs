@@ -193,9 +193,8 @@ impl Images {
                 view.refusal = None;
                 view.displayed_source.clear();
                 self.bitmaps.remove(id);
-                let size = node
-                    .computed_style(exact_kernel::StyleMask::INHERITED)
-                    .font_size;
+                // The one row, read where it is set: no style copied a pass.
+                let size = node.computed_row(exact_kernel::StyleId::FontSize, |s| s.font_size);
                 if view.source != source || view.symbol_size != Some(size) {
                     reports.push((*id, (size > 0.).then_some((size, size))));
                     view.source = source.to_owned();
