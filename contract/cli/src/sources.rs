@@ -379,11 +379,11 @@ impl Loader<'_> {
                     // A used file's shape named like a roster function is
                     // renamed, or every file's call of the roster function
                     // would construct it.
-                    // `path` is the router's unless a `fn path` is in the
-                    // program: another file's call of the router's would
-                    // reach this one.
-                    let path = |name: &str| {
-                        name == "path"
+                    // A name the compiler answers (`length`, `path`, …) that
+                    // another file calls without declaring or naming it: this
+                    // file's declaration would capture that call.
+                    let captures = |name: &str| {
+                        compiler_call(name)
                             && self.units.iter().enumerate().any(|(other, unit)| {
                                 other != index
                                     && called[other].contains(name)
@@ -393,12 +393,13 @@ impl Loader<'_> {
                                         .iter()
                                         .any(|u| u.names.iter().any(|n| n.local() == name))
                                     && !unit.file.fns.iter().any(|f| f.name == name)
+                                    && !unit.file.shapes.iter().any(|s| s.name == name)
                             })
                     };
                     let roster = |name: &str| {
                         kind == Kind::Call
                             && ((index > 0 && exact_plan::Stdlib::from_name(name).is_some())
-                                || path(name)
+                                || captures(name)
                                 || bound
                                     .iter()
                                     .enumerate()

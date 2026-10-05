@@ -82,7 +82,7 @@ pub(crate) fn resolve(
             });
     }
     if spec.starts_with("./") || spec.starts_with("../") {
-        return relative(spec, dir, from, app_root);
+        return relative(spec, dir, from, app_root, consulted);
     }
     if spec.starts_with('/') || spec.contains('\\') || spec.is_empty() {
         return Err((
@@ -109,7 +109,13 @@ pub(crate) fn resolve(
     package(spec, dir, consulted)
 }
 
-fn relative(spec: &str, dir: &Path, from: &Origin, app_root: &Path) -> Result<Resolved, Refusal> {
+fn relative(
+    spec: &str,
+    dir: &Path,
+    from: &Origin,
+    app_root: &Path,
+    consulted: &mut Vec<PathBuf>,
+) -> Result<Resolved, Refusal> {
     let Some(root) = from.root(app_root) else {
         return Err((
             "contract-use-path",
@@ -128,6 +134,8 @@ fn relative(spec: &str, dir: &Path, from: &Origin, app_root: &Path) -> Result<Re
     }
     let target = dir.join(spec);
     let key = target.canonicalize().map_err(|e| {
+        // Watched, so creating it builds again.
+        consulted.push(target.clone());
         (
             "contract-use-unreadable",
             format!("{}: {e}", target.display()),
@@ -241,6 +249,7 @@ fn package(spec: &str, dir: &Path, consulted: &mut Vec<PathBuf>) -> Result<Resol
     };
     let target = found.join(relative);
     let key = target.canonicalize().map_err(|e| {
+        consulted.push(target.clone());
         (
             "contract-use-unreadable",
             format!("`{spec}`: {}: {e}", target.display()),

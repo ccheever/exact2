@@ -185,8 +185,8 @@ fn a_refused_manifest_is_still_watched() {
     let graph = contract::source_graph(&root);
     assert_eq!(graph.errors.len(), 1);
     assert_eq!(
-        graph.consulted,
-        [dir.0.join("app/node_modules/ui/package.json")]
+        graph.consulted[0],
+        dir.0.join("app/node_modules/ui/package.json")
     );
 }
 
@@ -323,5 +323,81 @@ fn compiler_intrinsics_are_never_another_files_names() {
     assert!(
         e.as_ref().is_none_or(|e| e.id != "contract-use-missing"),
         "{e:?}"
+    );
+}
+
+// Round 3 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_whole_attribute_call_resolves_as_the_type_checker_reads_it() {
+    let dir = Dir::new("attr-call");
+    dir.write(
+        "ui.contract",
+        "fn length(s: string): number = 7\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use length, Card from \"./ui.contract\"\ncomponent App\n  state length = 0\n  view\n    column\n      Card()\n      view width=length(\"hi\") height=10\n",
+    );
+    // The same program with the library's `fn` spelled apart: one plan.
+    let flat = dir.write(
+        "flat.contract",
+        "fn seven(s: string): number = 7\ncomponent App\n  state length = 0\n  view\n    column\n      text \"c\"\n      view width=seven(\"hi\") height=10\n",
+    );
+    assert_eq!(
+        contract::compile_path(&root).unwrap().encode(),
+        contract::compile_path(&flat).unwrap().encode()
+    );
+}
+
+#[test]
+fn a_number_fills_the_count_and_none_the_fill_mode() {
+    let dir = Dir::new("count-fill");
+    dir.write(
+        "ui.contract",
+        "keyframes infinite\n  to opacity=0\nkeyframes forwards\n  to opacity=0\ncomponent Card\n  view\n    column\n      view animation=\"2 1s infinite\"\n      view animation=\"none 1s forwards\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes infinite\n  to opacity=1\nkeyframes forwards\n  to opacity=1\ncomponent App\n  view\n    Card()\n",
+    );
+    let text = plan(&root);
+    assert!(text.contains("\"2 1s infinite__ui\""), "{text}");
+    assert!(text.contains("\"none 1s forwards__ui\""), "{text}");
+}
+
+#[test]
+fn a_root_shape_named_like_a_roster_function_does_not_capture_a_librarys_call() {
+    let dir = Dir::new("root-roster-shape");
+    dir.write(
+        "ui.contract",
+        "component Card\n  view\n    text `${length(\"hi\")}`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nshape length\n  n: number\ncomponent App\n  derive l = length(n=1)\n  view\n    column\n      Card()\n      text `${l.n}`\n",
+    );
+    contract::compile_path(&root).unwrap();
+}
+
+#[test]
+fn a_missing_target_is_watched_so_creating_it_builds_again() {
+    let dir = Dir::new("missing-target");
+    dir.write(
+        "app/node_modules/ui/package.json",
+        r#"{"name":"ui","exports":"./index.contract"}"#,
+    );
+    let root = dir.write(
+        "app/app.contract",
+        "use Card from \"ui\"\ncomponent App\n  view\n    Card()\n",
+    );
+    let graph = contract::source_graph(&root);
+    assert_eq!(graph.errors.len(), 1);
+    assert!(
+        graph
+            .consulted
+            .contains(&dir.0.join("app/node_modules/ui/index.contract")),
+        "{:?}",
+        graph.consulted
     );
 }

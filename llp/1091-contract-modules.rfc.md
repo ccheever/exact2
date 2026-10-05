@@ -438,6 +438,7 @@ stage 1 lands, and stage 2 waits on them.
   both SOUND WITH CHANGES), disposed below; stage 1 built against this text.
 - r3 (2026-10-04): stage 2 as built (§5) and the code review (§10).
 - r4 (2026-10-05): the code review's second round (§11).
+- r5 (2026-10-05): the code review's third round (§12).
 
 ## 9. Review dispositions (round 1)
 
@@ -614,4 +615,19 @@ repository stays byte-identical. Separately, `bun scripts/smoke.mjs deploy` pass
 | Astra 6: the bake dropped an `exports` entry that is a link inside the package | The bake stages every `.contract` file of the package (and its manifest) by the path the package offers it at |
 | Astra 2: one library under two names became two copies in the stage | The bake refuses it by name: one directory is one package |
 | Grok 4: alike fonts had to list faces in one order | Faces compare as a set |
+
+## 12. Code review round 3 dispositions
+
+The delta review of round 2's fixes (`llp/reviews/code-2026-10-05-1091-r3.{astra,grok}.md`), both
+UNSOUND, both confirming every round-2 input fixed. Every finding is taken, with cases in
+`scope_review.rs`; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1 / Grok 1: round 2's handler exception kept any whole-attribute call of a bound name, so a binding beat an imported `fn` | The exception is gone: an attribute's call resolves as any call does, as the type checker reads it (a handler's bound head is only kept when no `fn` or shape of the name is in scope, which is when the checker binds it too) |
+| Astra 2 / Grok 2: a bare number fills the count and `none` the fill mode | The shorthand reader now mirrors `motion`'s `Animations::grammar` step for step: its split, its time, easing, count, direction, fill and play slots, its `is_name` |
+| Grok 3: another file's binding renamed a `fn t` or `fn pending`, so its own calls left the intrinsic | Calls of `pending` and `failed`, and of `t` where no binding is, are never renamed: the type checker reads them first |
+| Astra 4: a root shape named like a roster function captured a library's roster call | A declaration named like a compiler call is renamed in any file, the root included, when another file calls the name without declaring or naming it |
+| Astra 3 / Astra 5 / Grok 4: copying package files into the stage split identities (an export that links inside the package), broke relative uses from a linked entry, dropped hidden directories, and staged a linked directory under one name | The bake no longer copies packages: it links `node_modules/<name>` in the stage to each package's directory, so the staged compile reads the same files by the same paths as the original; two names for one directory are two links to one package |
+| Astra 6: creating a missing export target did not rebuild the wasm loop | A target that fails to resolve is in `consulted`, so its creation is a change |
 

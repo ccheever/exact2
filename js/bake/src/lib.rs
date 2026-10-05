@@ -551,80 +551,49 @@ fn origin(root: &Path, mounts: &[(String, PathBuf)], name: &Path) -> PathBuf {
     }
 }
 
-/// The Contract packages the app's sources use (LLP 1091 D10), staged as
-/// `node_modules/<name>/…`: each one's `package.json` and the `.contract`
-/// files the compiler read from it, so the staged compile resolves them as the
-/// original did. Returns the files and, per package, its staged directory and
-/// where it lives, for mapping diagnostics and the source map back.
-type Packages = (BTreeMap<PathBuf, Vec<u8>>, Vec<(PathBuf, PathBuf)>);
-fn packages(app: &Path) -> Result<Packages, String> {
-    let graph = contract::source_graph(&app.join("app.contract"));
-    let mut files = BTreeMap::new();
-    let mut roots: Vec<(PathBuf, PathBuf)> = Vec::new();
-    for package in &graph.packages {
-        let staged = Path::new("node_modules").join(&package.name);
-        if let Some((other, _)) = roots.iter().find(|(_, root)| *root == package.root) {
-            if *other != staged {
-                // Two staged copies would be two declarations of everything
-                // the library declares; one directory is one package.
+/// The Contract packages the app's sources use (LLP 1091 D10), by each name
+/// they were reached by: the stage links `node_modules/<name>` to each, so
+/// the staged compile reads the very files the original did, by the paths
+/// it did — an export that is a link, a relative use, one directory under
+/// two names all resolve as they did outside.
+fn packages(app: &Path) -> Result<Vec<(String, PathBuf)>, String> {
+    let mut out: Vec<(String, PathBuf)> = Vec::new();
+    for package in contract::source_graph(&app.join("app.contract")).packages {
+        match out.iter().find(|(name, _)| *name == package.name) {
+            Some((_, root)) if *root != package.root => {
                 return Err(format!(
-                    "the package at {} is used under two names ({} and `{}`); the bake stages a package under one",
-                    package.root.display(),
-                    other.display(),
-                    package.name
-                ));
-            }
-            continue;
-        }
-        if let Some((_, other)) = roots.iter().find(|(at, _)| *at == staged) {
-            return Err(format!(
-                "two copies of the package `{}` ({} and {}) are used; the bake stages one",
+                "two copies of the package `{}` ({} and {}) are used; the bake links one per name",
                 package.name,
-                other.display(),
+                root.display(),
                 package.root.display()
-            ));
+            ))
+            }
+            Some(_) => {}
+            None => out.push((package.name, package.root)),
         }
-        roots.push((staged.clone(), package.root.clone()));
-        // Every Contract file and the manifest, by the path the package
-        // offers it at: an `exports` entry may be a link to another file of
-        // the package, and resolution reads the entry, not its target.
-        let mut seen = std::collections::HashSet::new();
-        stage_package(&package.root, &package.root, &staged, &mut files, &mut seen)?;
     }
-    Ok((files, roots))
+    Ok(out)
 }
 
-fn stage_package(
-    root: &Path,
-    at: &Path,
-    staged: &Path,
-    files: &mut BTreeMap<PathBuf, Vec<u8>>,
-    seen: &mut std::collections::HashSet<PathBuf>,
-) -> Result<(), String> {
-    // A directory link back up the package is read once.
-    if !seen.insert(at.canonicalize().map_err(|e| e.to_string())?) {
-        return Ok(());
+/// Link each package into the stage's `node_modules`, replacing what the
+/// last bake linked (the stage holds no other `node_modules`: the capture
+/// skips it).
+fn link_packages(stage: &Path, packages: &[(String, PathBuf)]) -> Result<(), String> {
+    let modules = stage.join("node_modules");
+    match std::fs::remove_dir_all(&modules) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            return Err(format!("{}: {e}", modules.display()))
+        }
+        _ => {}
     }
-    for entry in std::fs::read_dir(at).map_err(|e| format!("{}: {e}", at.display()))? {
-        let path = entry.map_err(|e| e.to_string())?.path();
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if name == "node_modules" || name.starts_with('.') {
-            continue;
-        }
-        // A link that leads out of the package is not the package's.
-        let Ok(real) = path.canonicalize() else {
-            continue;
-        };
-        if !real.starts_with(root) {
-            continue;
-        }
-        if real.is_dir() {
-            stage_package(root, &path, staged, files, seen)?;
-        } else if name.ends_with(".contract") || (at == root && name == "package.json") {
-            let relative = path.strip_prefix(root).map_err(|e| e.to_string())?;
-            let bytes = std::fs::read(&real).map_err(|e| format!("{}: {e}", real.display()))?;
-            files.insert(staged.join(relative), bytes);
-        }
+    for (name, root) in packages {
+        let link = modules.join(name);
+        std::fs::create_dir_all(link.parent().unwrap()).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root, &link).map_err(|e| format!("{}: {e}", link.display()))?;
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(root, &link)
+            .map_err(|e| format!("{}: {e}", link.display()))?;
     }
     Ok(())
 }
@@ -808,9 +777,8 @@ fn bake_in(
     }
     tools.check_engine()?;
     let app = app.canonicalize().map_err(|e| e.to_string())?;
-    let mut captured = sources(&app)?;
-    let (package_files, package_roots) = packages(&app)?;
-    captured.extend(package_files.clone());
+    let captured = sources(&app)?;
+    let package_roots = packages(&app)?;
     if !captured.contains_key(Path::new("app.ts"))
         || !captured.contains_key(Path::new("app.contract"))
     {
@@ -851,16 +819,15 @@ fn bake_in(
         }
     }
     *previous = captured.clone();
+    link_packages(stage, &package_roots)?;
     // A changed graph (including a newly added import) is a refused capture.
-    let mut again = sources(&app)?;
-    again.extend(packages(&app)?.0);
-    if again != captured {
+    if sources(&app)? != captured || packages(&app)? != package_roots {
         return Err("app sources changed during capture; retry the build".into());
     }
-    // Staged packages first: the stage holds them too.
+    // A package's sources are read where they live; the app's, in the stage.
     let moves: Vec<(PathBuf, PathBuf)> = package_roots
         .iter()
-        .map(|(staged, root)| (stage.join(staged), root.clone()))
+        .map(|(_, root)| (root.clone(), root.clone()))
         .chain([(stage.to_path_buf(), app.clone())])
         .collect();
     // Every independent refusal, one after another as `contract build`
