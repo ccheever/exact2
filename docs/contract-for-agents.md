@@ -748,7 +748,11 @@ ancestor that would take the press itself included.
 `datetime-local` input its HTML value (`2026-10-09`, `14:00`,
 `2026-10-09T14:30`), a range a number, a checkbox `true` or `false`.
 `tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
-move, with the finger still down. `clock +N` moves the virtual clock without
+move, with the finger still down. `tap <target> drag to <other> [at <x> <y>]`
+ends the drag on another node (refused by name when it is not mounted or off
+screen); a drag that should autoscroll a list or a board is `drag dx dy hold ms`.
+During a reorder `state.reorder` reads `{ item, from, to, before, phase,
+ending }`; a grouped grip also takes `type <grip> key Space` and the arrows. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
 first); its reply says what is still in flight (`inflight`, on every host), and `clock settle` lands it.
 `clock data` lands it without moving the clock: the data module's activation and
@@ -791,6 +795,8 @@ the driver's 2026-01-01 UTC. The steps are `tap "id" [hover|dblclick|contextmenu
 `tap "list" into "key"` (a virtualized list's row brought into view by its key,
 so the next step can tap a row outside the rendered window),
 `tap "id" drag dx dy [from x y] [mouse] [press ms] [over ms] [hold ms]`,
+`tap "id" drag to "other" [at x y] […]` (it ends on the other node's middle, or
+at a point in its box; a card dropped on another list),
 `type "id" "text"` (sets the value), `type "id" "text" append` (after the value
 the tree shows, as typing after a prefill), or `type "id" key "Name"`,
 `type "id" paste "text"`, `type "id" copy`, `type "id" cut`, `pick "id" "path"…` or

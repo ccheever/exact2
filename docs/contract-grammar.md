@@ -333,7 +333,8 @@ name its own; either way they override the drive's flags. A file whose
 assertions depend on the date says so in the file. Before the first step, and
 after a `reload`, the driver waits for the app's data as `clock data` does (its
 module activated, every request in flight answered and each answer's `then`
-landed, the clock unmoved); `before data` skips the wait. `tap "id" drag dx dy` is the driver's `tap … drag` (from the
+landed, the clock unmoved); `before data` skips the wait. `tap "id" drag to "other" [at x y]` ends on the other
+node (LLP 1094 D12). `tap "id" drag dx dy` is the driver's `tap … drag` (from the
 node's middle, or `from x y` in its box, in points; `press`, `over`, `hold` in
 milliseconds; each once). It is a finger where the carrier has one (the web,
 iOS); `mouse` makes it the left button on the web, with the page's pointer

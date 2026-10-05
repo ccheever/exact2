@@ -122,7 +122,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': break; // the session opened with it
             // The driver's `tap` forms (feed F10): `into` brings a virtualized list's row into view by its key.
             case 'tap': delivered(await s.tap(st.target, st.form === 'into' ? { into: { key: st.key } } : st.form !== 'press' ? { [st.form]: true } : st.modifiers ? { modifiers: st.modifiers } : undefined)); input = st.line; break;
-            case 'drag': delivered(await s.tap(st.target, { drag: { dx: st.dx, dy: st.dy, ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) } })); input = st.line; break;
+            case 'drag': delivered(await s.tap(st.target, { drag: { ...(st.to != null ? { to: st.to, ...(st.at ? { at: st.at } : {}) } : { dx: st.dx, dy: st.dy }), ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) } })); input = st.line; break;
             case 'type': {
               // `append`: after the field's value as the tree shows it, the text a keyboard would add (feed F8).
               let text = st.text;
