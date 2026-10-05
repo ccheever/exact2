@@ -422,7 +422,7 @@ fn an_edited_program_takes_over_a_running_match() {
     ))
     .unwrap();
     let edited = src
-        .replace("derive firstTo = 4", "derive firstTo = 1")
+        .replace("fn gamesToWin(): number = 4", "fn gamesToWin(): number = 1")
         .replace(
             "`Game, set and match ${name(toNear)}`",
             "`Match ${name(toNear)} (one game)`",

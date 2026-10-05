@@ -7,6 +7,9 @@
 
 fn name(near: bool): string = near ? "You" : "Jev"
 fn label(p: number): string = p == 0 ? "0" : p == 1 ? "15" : p == 2 ? "30" : "40"
+// Games to win the match. A `fn`, not a `derive`, so an action reads it
+// without settlement (and a proof without the settled derives).
+fn gamesToWin(): number = 4
 
 component TennisRules
   // Games, then points, for you (near) and Jev (far).
@@ -17,7 +20,7 @@ component TennisRules
   state nearServes = true
   // The first serve of this point has faulted.
   state fault = false
-  // ready → toss → rally → dead → ready …, and over once someone has firstTo games.
+  // ready → toss → rally → dead → ready …, and over once someone has won.
   state phase = "ready"
   // The umpire's last call.
   state call = ""
@@ -37,8 +40,7 @@ component TennisRules
   state pointTo = ""
   state pointCall = ""
 
-  // Games to win the match.
-  derive firstTo = 4
+  derive firstTo = gamesToWin()
   // Points alternate courts: deuce (the receiver's right) on even totals.
   derive deuceCourt = (nearPoints + farPoints) % 2 == 0
   // A fault or a let replays the serve sooner than a decided point.
@@ -49,8 +51,8 @@ component TennisRules
     : phase == "toss" and nearServes ? "Hit at the top of the toss"
     : phase == "ready" ? "Jev to serve"
     : "")
-  derive pressure = (nearPoints >= 3 and nearPoints > farPoints ? (nearGames + 1 >= firstTo ? "match point" : nearServes ? "game point" : "break point")
-    : farPoints >= 3 and farPoints > nearPoints ? (farGames + 1 >= firstTo ? "match point" : nearServes ? "break point" : "game point")
+  derive pressure = (nearPoints >= 3 and nearPoints > farPoints ? (nearGames + 1 >= gamesToWin() ? "match point" : nearServes ? "game point" : "break point")
+    : farPoints >= 3 and farPoints > nearPoints ? (farGames + 1 >= gamesToWin() ? "match point" : nearServes ? "break point" : "game point")
     : "")
 
   // The dead time has run out: the next point, or the end of the match.
@@ -160,7 +162,7 @@ component TennisRules
       let b = toNear ? farPoints : nearPoints
       let g = (toNear ? nearGames : farGames) + 1
       let game = a >= 4 and a >= b + 2
-      let won = game and g >= firstTo
+      let won = game and g >= gamesToWin()
       let says = (game ? (won ? `Game, set and match ${name(toNear)}` : `Game ${name(toNear)}`)
         : a >= 3 and b >= 3 ? (a == b ? "Deuce" : `Advantage ${name(toNear)}`)
         : "")
