@@ -63,9 +63,33 @@ test('Windows browser discovery accepts an installed Chrome and explicit executa
     mkdirSync(dirname(chrome), {recursive:true});
     writeFileSync(chrome, '');
     chmodSync(chrome, 0o755);
-    assert.equal(chromium({ProgramFiles:dir}, 'win32').executable, chrome);
+    assert.equal(chromium({ProgramFiles:dir}, 'win32', () => null).executable, chrome);
     assert.equal(chromium({CHROME:chrome}, 'win32').unavailable, null);
     assert.ok(chromium({CHROME:resolve(dir, 'missing.exe')}, 'win32').unavailable);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+test('browser discovery prefers installed testing Chrome, falls back, and honors explicit overrides', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact testing browser-'));
+  try {
+    const ordinary = resolve(dir, 'Google/Chrome/Application/chrome.exe');
+    const testing = resolve(dir, 'testing/chrome.exe');
+    for (const path of [ordinary, testing]) {
+      mkdirSync(dirname(path), {recursive:true}); writeFileSync(path, ''); chmodSync(path, 0o755);
+    }
+    const env = {ProgramFiles:dir, PATH:dirname(testing)};
+    assert.equal(chromium(env, 'win32', () => testing).executable, testing);
+    assert.equal(chromium(env, 'win32', () => resolve(dir, 'missing.exe')).executable, ordinary);
+    assert.equal(chromium(env, 'win32', () => dirname(testing)).executable, ordinary,
+      'an executable directory is not a browser');
+    const unexpected = () => { throw new Error('an explicit override must not load Playwright'); };
+    assert.equal(chromium({...env, CHROME:ordinary}, 'win32', unexpected).executable, ordinary);
+    assert.equal(chromium({...env, CHROME:'chrome.exe'}, 'win32', unexpected).executable, testing);
+    const missing = resolve(dir, 'missing.exe');
+    const refused = chromium({...env, CHROME:missing}, 'win32', unexpected);
+    assert.equal(refused.executable, missing);
+    assert.match(refused.unavailable, /Chromium is missing/);
+    assert.equal(chromium({...env, CHROME:''}, 'win32', () => testing).executable, testing);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
@@ -236,7 +260,19 @@ async function fixture(body) {
     const {prepareGame} = await import(resolve(root,'game/app/shells.mjs'));
     write('rust-toolchain.toml', readFileSync(resolve(import.meta.dir,'../rust-toolchain.toml')));
     const deps = ['exact-game','exact-game-render','exact-game-app','exact-game-bake','exact-runner','exact-web','exact-web-capabilities','exact-apple','exact-linux','exact-windows','wasm-bindgen','wasm-bindgen-futures','web-sys'];
-    write('Cargo.toml', '[workspace]\nmembers=["stub"]\nresolver="2"\n'); pkg('stub','root-stub');
+    write('Cargo.toml', '[workspace]\nmembers=["stub","contract"]\nresolver="2"\n'); pkg('stub','root-stub');
+    // This synthetic SDK has no real compiler, like its other stub crates.
+    // Capture now asks for a source graph. Retain the local source path and
+    // refuse imports here: imported graphs need the compiler's own fixtures.
+    pkg('contract', 'contract');
+    write('contract/src/main.rs', `fn main() {
+      let mut args = std::env::args().skip(1);
+      assert_eq!(args.next().as_deref(), Some("sources"));
+      let path = args.next().unwrap();
+      let source = std::fs::read_to_string(&path).unwrap();
+      assert!(!source.lines().any(|line| line.trim_start().starts_with("use ")));
+      println!(r#"{{"sources":[{{"path":{path:?}}}],"consulted":[],"packages":[],"errors":[]}}"#);
+    }`);
     write('game/Cargo.toml', '[workspace]\nmembers=["deps/*","ordinary/*"]\nexclude=["games"]\nresolver="2"\n[workspace.package]\nversion="0.1.0"\nedition="2021"\nlicense="MIT"\n[workspace.dependencies]\n' + deps.map(n=>`${n}={path="deps/${n}"}`).join('\n'));
     for (const dep of deps) pkg(`game/deps/${dep}`, dep);
     write('game/bake/src/files.rs', 'pub fn bake_game_level<G>(_: impl AsRef<std::path::Path>) -> Result<(), String> { Ok(()) }\n');

@@ -333,7 +333,10 @@ requested browser, leaving the pins unchanged. Existing pins may be updated with
 `--hosts linux` explicitly; the first baseline always requires Linux and web.
 Every update records the matching source-input digest; a Git commit is recorded
 when one exists. A game without commits can repin under the same agreement checks.
-`CHROME` selects the headless browser.
+`CHROME` selects the headless browser. Without it, the agent prefers an installed
+browser from this checkout's pinned `playwright-core`, then system Chrome (or
+Chromium/Edge). Discovery never downloads a browser. An explicit missing `CHROME`
+is refused rather than silently replaced.
 
 Paranoid runs check simulation and saves. Save and FreshGame modes rebuild the
 world through the normal restore path at the last tick of every advance (every

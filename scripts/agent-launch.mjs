@@ -4,9 +4,11 @@ import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+const require = createRequire(import.meta.url);
 
 /** Preserve the original operation failure and any owned cleanup handle. */
 export function retainCleanupError(error, failure) {
@@ -88,19 +90,32 @@ export async function closeWindowsBrowser(child, cdp, exited, profile, terminate
   }
 }
 
-/** One browser lookup for the agent and its tests: an explicit override,
- * otherwise the platform's ordinary Chromium installation. A bare CHROME
- * name is resolved through PATH before a test decides whether to skip. */
-export function chromium(environment = process.env, platform = process.platform) {
-  const named = environment.CHROME ? [environment.CHROME] : platform === 'win32' ? [
+// Ask the pinned dependency for its browser instead of copying its cache layout
+// or choosing an arbitrary cached revision. This never downloads a browser, and
+// stays lazy so native drivers and explicit CHROME overrides do not load it.
+function testingChromium(platform) {
+  if (platform !== process.platform) return null;
+  let entry;
+  try { entry = require.resolve('playwright-core'); }
+  catch (error) { if (error.code === 'MODULE_NOT_FOUND') return null; throw error; }
+  return require(entry).chromium.executablePath();
+}
+
+/** Explicit CHROME wins (including an unavailable override); otherwise prefer
+ * the installed testing browser, then the platform's ordinary Chromium.
+ * A bare CHROME name is resolved through PATH before deciding whether to skip.
+ * `testing` is the native browser-location probe, replaceable by path fixtures. */
+export function chromium(environment = process.env, platform = process.platform, testing = testingChromium) {
+  const ordinary = platform === 'win32' ? [
     resolve(environment.ProgramFiles ?? 'C:\\Program Files', 'Google/Chrome/Application/chrome.exe'),
     resolve(environment['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Google/Chrome/Application/chrome.exe'),
     ...(environment.LOCALAPPDATA ? [resolve(environment.LOCALAPPDATA, 'Google/Chrome/Application/chrome.exe')] : []),
     resolve(environment['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Microsoft/Edge/Application/msedge.exe'),
   ] : [platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/usr/bin/chromium'];
+  const named = environment.CHROME ? [environment.CHROME] : [testing(platform), ...ordinary].filter(Boolean);
   const candidates = named.flatMap(name => /[/\\]/.test(name) ? [resolve(name)]
     : (environment.PATH ?? '').split(delimiter).filter(Boolean).map(dir => resolve(dir, name)));
-  const executable = candidates.find(path => { try { accessSync(path, constants.X_OK); return true; } catch { return false; } });
+  const executable = candidates.find(path => { try { accessSync(path, constants.X_OK); return statSync(path).isFile(); } catch { return false; } });
   return { executable: executable ?? named[0], unavailable: executable ? null : `Chromium is missing at ${named.join(', ')}; set CHROME to an installed browser` };
 }
 

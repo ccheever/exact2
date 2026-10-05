@@ -1345,3 +1345,27 @@ twelve world observations and seventeen saves; all process audits pass.
 Only that collector updates `pins.json`, adding the bandage continuation.
 The subsequent ordinary Linux proof checks the accepted pins and passes in
 6.250 s, with no children remaining (`artifacts/bandage-accepted-linux/`).
+
+## Browser discovery without the manual workaround (2026-10-04)
+
+Periodic merge `775231855` integrates main through `9db90ce57`, including
+the extracted runner VM and Apple's title-face metadata. The next tooling
+change addresses the recorded GoogleUpdater leak: without `CHROME`, the
+shared agent lookup asks the pinned `playwright-core` for its testing browser
+and uses it if executable, then tries the existing system paths. It downloads
+nothing and chooses no arbitrary cached revision. Explicit overrides keep
+precedence, including refusals for missing paths, and bare names use PATH.
+An executable directory is no longer mistaken for a browser. Native drivers
+and explicit overrides do not load Playwright; one cold browser lookup on
+this Mac took about 101 ms. The existing descendant audit stays intact.
+
+The browser-selection fixtures pass. Running the broader application suite
+also exposed four capture tests whose synthetic SDK lacks the now-required
+Contract `sources` command. All four reproduce on the unmodified merged
+code (`/tmp/exact2-browser-baseline-fixture.log`). Its existing stub workspace
+now supplies the local source path and refuses imports rather than pretending
+to resolve them; the capture assertions stay unchanged. Real discovery with
+no override selects the installed pinned Chrome for Testing; a separate
+process with an absent Playwright browser cache selects ordinary Chrome.
+The complete application tooling suite now passes 78 tests with two opt-in
+skips in 41.39 s (`/tmp/exact2-browser-app-tests-fixed.log`).
