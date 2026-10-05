@@ -253,11 +253,12 @@ guide's rules don't make obvious.
   row (`send changed = addTask(…)` from consecutive inputs) kept only the second:
   the log said `forget request 11 (changed)`, and the first insert, still waiting on
   SQLite, never landed; the web finished it. Cause: a second `send` to a mutation
-  forgets the request in flight (its reply is dropped by design), and the native
-  executor did not finish the forgotten request's write (QUEUE). Fix until then:
-  answer the change from memory at once and persist in a request of its own, or
-  give each write a mutation of its own. (Authoring bench, LLP 1087, t2-todo on
-  iOS, 2026-10-05.)
+  forgets the request in flight (its reply is dropped by design); the native
+  executor finishes a forgotten request already in a storage step, but drops one
+  that has not reached its first (QUEUE). Fix until then: give each write that can
+  be in flight at once a mutation of its own, or make each persisting request write
+  the whole state, so a later one that supersedes it loses nothing. (Authoring
+  bench, LLP 1087, t2-todo on iOS, 2026-10-05.)
 
 ## Driving and testing
 

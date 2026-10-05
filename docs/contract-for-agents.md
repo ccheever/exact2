@@ -701,9 +701,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   route under it is dimmed.
 - Without tabs, the routes are the root's own children, laid out the same way.
 - Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
-  1038 D11), which calls the root's `navigate`. A CLI drive goes back as the
-  browser's back button does with `tap <root> history -1`; a test file has no such
-  step yet.
+  1038 D11), which calls the root's `navigate`. On the web a CLI drive goes back as
+  the browser's back button does with `tap <root> history -1`, `<root>` being the
+  navigation root (the node with `navigationBack`); native hosts refuse it, and a
+  test file has no such step yet.
 
 A `head` node supplies document metadata. The innermost active value wins for
 each field. `head edited=dirty` marks a document with unsaved changes (the dot in
