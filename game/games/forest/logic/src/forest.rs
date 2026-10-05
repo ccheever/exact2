@@ -141,38 +141,53 @@ impl Grove {
 }
 
 /// Terrain, trees and the grove resource. Selection sampling places exactly
-/// `trees` trees outside the clearing.
-pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
+/// `trees` trees outside the clearing. The art pass (`pass`) changes only how
+/// they are drawn: the same colliders, cells and random draws in the same order.
+pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool, pass: bool) {
     let half = world_half(trees);
     let side = (2.0 * half / CELL) as u32;
     let half = side as f32 * CELL * 0.5;
     let n = (side * side) as usize;
-    let samples = (2.0 * half / SAMPLE) as u32 + 1;
-    let heights: Vec<f32> = (0..samples * samples)
-        .map(|k| {
-            let (c, r) = (k % samples, k / samples);
-            height(
-                -half + c as f32 * SAMPLE * (2.0 * half) / ((samples - 1) as f32 * SAMPLE),
-                -half + r as f32 * SAMPLE * (2.0 * half) / ((samples - 1) as f32 * SAMPLE),
-            )
-        })
-        .collect();
-    let (mut mesh, shape) = Shape::heightfield(
-        samples,
-        samples,
-        heights,
-        Vec3::new(2.0 * half, 1.0, 2.0 * half),
-    )
-    .expect("terrain");
-    mesh.colors = mesh
-        .positions
-        .chunks_exact(3)
-        .flat_map(|p| {
-            let k = (p[1] * 0.25 + 0.5).clamp(0.0, 1.0);
-            [0.05 + 0.04 * k, 0.11 + 0.07 * k, 0.04 + 0.02 * k, 1.0]
-        })
-        .collect();
-    let ground = w.generated("terrain.model", mesh).expect("terrain model");
+    let heightfield = |spacing: f32| {
+        let samples = (2.0 * half / spacing) as u32 + 1;
+        let heights: Vec<f32> = (0..samples * samples)
+            .map(|k| {
+                let (c, r) = (k % samples, k / samples);
+                height(
+                    -half + c as f32 * spacing * (2.0 * half) / ((samples - 1) as f32 * spacing),
+                    -half + r as f32 * spacing * (2.0 * half) / ((samples - 1) as f32 * spacing),
+                )
+            })
+            .collect();
+        Shape::heightfield(
+            samples,
+            samples,
+            heights,
+            Vec3::new(2.0 * half, 1.0, 2.0 * half),
+        )
+        .expect("terrain")
+    };
+    let (mut mesh, shape) = heightfield(SAMPLE);
+    let ground = if pass {
+        // Drawn every 2 m where the world is small enough to afford it, so the
+        // floor's patches read at walking scale; the collider keeps 4 m.
+        let drawn = if half <= 400.0 {
+            heightfield(2.0).0
+        } else {
+            mesh
+        };
+        crate::art::terrain(w, drawn)
+    } else {
+        mesh.colors = mesh
+            .positions
+            .chunks_exact(3)
+            .flat_map(|p| {
+                let k = (p[1] * 0.25 + 0.5).clamp(0.0, 1.0);
+                [0.05 + 0.04 * k, 0.11 + 0.07 * k, 0.04 + 0.02 * k, 1.0]
+            })
+            .collect();
+        w.generated("terrain.model", mesh).expect("terrain model")
+    };
     let terrain = w.spawn_named("terrain", (Transform::default(), ground));
     if colliders {
         w.insert(
@@ -183,7 +198,11 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
             },
         );
     }
-    let pine = w.generated("pine.model", pine()).expect("pine model");
+    // The art pass draws five kinds of baked tree, each with a generated far level.
+    let looks = (pass && !primitives).then(|| crate::art::tree_looks(w));
+    let pine = looks
+        .is_none()
+        .then(|| w.generated("pine.model", pine()).expect("pine model"));
     let mut grove = Grove {
         side,
         half,
@@ -250,8 +269,11 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
                 Material::rgb(0.07, 0.2, 0.08).rough(0.95),
             ));
             trunk
+        } else if let Some(looks) = &looks {
+            let (mesh, lod) = looks.of(c as u32);
+            w.spawn((pose, mesh, lod, tree))
         } else {
-            w.spawn((pose, pine.clone(), tree))
+            w.spawn((pose, pine.clone().expect("generated pine"), tree))
         };
         if colliders {
             w.insert(
@@ -308,7 +330,15 @@ pub fn pine() -> MeshData {
 }
 
 /// Append an open-ended frustum (a cone when `r1` is zero) with a closed base.
-fn frustum(m: &mut MeshData, sides: u32, y0: f32, r0: f32, y1: f32, r1: f32, color: [f32; 4]) {
+pub(crate) fn frustum(
+    m: &mut MeshData,
+    sides: u32,
+    y0: f32,
+    r0: f32,
+    y1: f32,
+    r1: f32,
+    color: [f32; 4],
+) {
     let ring = |k: u32, r: f32, y: f32| {
         let (s, c) = math::sin_cos(k as f32 / sides as f32 * std::f32::consts::TAU);
         Vec3::new(c * r, y, s * r)

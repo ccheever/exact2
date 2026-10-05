@@ -75,13 +75,27 @@ pub const WINDUP: f32 = 0.9;
 const FLASH_RANGE: f32 = 14.0;
 const FLASH_COS: f32 = 0.766; // 40°, wide enough for eight-way keyboard aim
 
-pub fn spawn_deer(w: &mut World, half: f32) {
-    let body = w
-        .generated("deer-body.model", crate::deer_art::body())
-        .expect("deer body");
-    let head = w
-        .generated("deer-head.model", crate::deer_art::head())
-        .expect("deer head");
+/// The Deer, its head (the saved pose `deer_art::present` lowers before a charge)
+/// and its eyes. The art pass draws baked models around the same pivots; its
+/// legs come with the rest of the art pass's scenery, after every simulated entity.
+pub fn spawn_deer(w: &mut World, half: f32, pass: bool) {
+    let (body, head, eyes, eye) = if pass {
+        let (body, head) = (
+            Mesh::asset("deer_body.model"),
+            Mesh::asset("deer_head.model"),
+        );
+        (body, head, [0.085, 0.42, 0.74], 0.045)
+    } else {
+        let body = w
+            .generated("deer-body.model", crate::deer_art::body())
+            .expect("deer body");
+        let head = w
+            .generated("deer-head.model", crate::deer_art::head())
+            .expect("deer head");
+        (body, head, [0.24, 0.47, 0.70], 0.085)
+    };
+    // The baked fur is near black: a stronger fill keeps it readable at night.
+    let fill = if pass { 4.0 } else { 1.0 };
     w.spawn_named(
         "deer",
         (
@@ -89,7 +103,7 @@ pub fn spawn_deer(w: &mut World, half: f32) {
             body,
             // A faint warm fill keeps the silhouette readable against the night sky.
             Material {
-                emissive: [0.006, 0.004, 0.002],
+                emissive: [0.006 * fill, 0.004 * fill, 0.002 * fill],
                 ..Material::default().rough(0.9)
             },
             Visible(false),
@@ -109,20 +123,20 @@ pub fn spawn_deer(w: &mut World, half: f32) {
             },
         ),
     );
-    for (name, x) in [("deer-eye-l", -0.24), ("deer-eye-r", 0.24)] {
+    for (name, x) in [("deer-eye-l", -eyes[0]), ("deer-eye-r", eyes[0])] {
         w.spawn_named(
             name,
             (
                 Parent(head),
-                Transform::at(x, 0.47, 0.70),
-                Mesh::sphere(0.085),
+                Transform::at(x, eyes[1], eyes[2]),
+                Mesh::sphere(eye),
                 Material::glow([4.0, 0.25, 0.1]),
             ),
         );
     }
 }
 
-pub fn spawn_wolves(w: &mut World, count: u32, half: f32) {
+pub fn spawn_wolves(w: &mut World, count: u32, half: f32, pass: bool) {
     let mut home = Vec3::ZERO;
     for k in 0..count {
         // Packs of four share a den somewhere outside the clearing.
@@ -135,10 +149,18 @@ pub fn spawn_wolves(w: &mut World, count: u32, half: f32) {
         let x = home.x + w.rand(-4.0..4.0);
         let z = home.z + w.rand(-4.0..4.0);
         let heading = w.rand(0.0..std::f32::consts::TAU);
+        let (mesh, material) = if pass {
+            (Mesh::asset("wolf_body.model"), Material::default())
+        } else {
+            (
+                Mesh::cuboid(Vec3::new(0.5, 0.6, 1.3)),
+                Material::rgb(0.32, 0.31, 0.3).rough(0.95),
+            )
+        };
         w.spawn((
             Transform::at(x, height(x, z) + 0.45, z),
-            Mesh::cuboid(Vec3::new(0.5, 0.6, 1.3)),
-            Material::rgb(0.32, 0.31, 0.3).rough(0.95),
+            mesh,
+            material,
             Wolf {
                 home,
                 heading,

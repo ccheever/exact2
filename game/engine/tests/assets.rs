@@ -209,6 +209,64 @@ fn authored_cosmetic_bounds_survive_arrival_and_save() {
     assert_eq!(layout, sim.agent(r#"{"op":"layout","entity":"late"}"#));
 }
 
+/// A generated model sampling a texture nothing declared: setup registers it,
+/// the texture is fetched (the model never is), and setup runs again once the
+/// texture arrives, with the model loaded.
+struct GeneratedFloor;
+impl Game for GeneratedFloor {
+    const ID: &'static str = "generated-floor";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        let floor = w
+            .generated_model(
+                "floor.model",
+                asset::Model {
+                    meshes: vec![asset::MeshData {
+                        positions: vec![0., 0., 0., 1., 0., 0., 0., 0., 1.],
+                        normals: vec![0., 1., 0., 0., 1., 0., 0., 1., 0.],
+                        uvs: vec![0., 0., 1., 0., 0., 1.],
+                        indices: vec![0, 2, 1],
+                        bounds: [0., 0., 0., 1., 0., 1.],
+                        ..Default::default()
+                    }],
+                    bounds: [0., 0., 0., 1., 0., 1.],
+                    materials: vec![asset::MaterialData {
+                        base_color_texture: Some(0),
+                        ..Default::default()
+                    }],
+                    textures: vec!["floor.tex".into()],
+                    nodes: vec![asset::Node {
+                        mesh: Some(0),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        w.spawn_named("floor", (Transform::default(), floor));
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+#[test]
+fn a_generated_model_fetches_its_undeclared_texture_not_itself() {
+    let mut sim = Sim::<GeneratedFloor>::new(()).unwrap();
+    assert_eq!(sim.take_assets(), ["floor.tex"]);
+    assert!(sim.is_loading());
+    let texture = asset::TextureData {
+        width: 1,
+        height: 1,
+        mips: vec![vec![200; 4]],
+        ..Default::default()
+    };
+    sim.deliver_asset("floor.tex", Ok(asset::Content::Texture(texture)))
+        .unwrap();
+    assert!(sim.take_assets().is_empty());
+    assert!(!sim.is_loading());
+    sim.run(100.);
+    assert_eq!(sim.world().tick(), 6);
+    assert!(sim.save().is_ok());
+}
+
 #[test]
 fn unused_and_excessive_texture_lists_refuse() {
     let model = asset::Model {

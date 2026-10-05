@@ -1,8 +1,11 @@
 //! 99 Nights in the Forest, greybox: keep the campfire burning, survive the Deer.
+//! `art="pass"` draws the same game with generated art (`artgen/`, `art.rs`, `look.rs`).
+pub mod art;
 pub mod camp;
 pub mod creatures;
 mod deer_art;
 pub mod forest;
+mod look;
 pub mod player;
 
 use camp::{Cycle, Fire};
@@ -25,6 +28,9 @@ pub struct Options {
     pub primitives: bool,
     /// Collide in game code against the tree grid instead of Rapier colliders.
     pub lite: bool,
+    /// The look: "" is the greybox, "pass" the generated art pass. Gameplay is
+    /// the same in both; changing it starts a new game.
+    pub art: String,
     #[live]
     pub paused: bool,
     #[restart]
@@ -40,6 +46,7 @@ impl Default for Options {
             torches: 0,
             primitives: false,
             lite: false,
+            art: String::new(),
             paused: false,
             restart: false,
         }
@@ -84,6 +91,11 @@ pub struct Forest;
 impl Game for Forest {
     const ID: &'static str = "forest";
     const HZ: u32 = 60;
+    /// The art pass's sky maps light it through an `EnvironmentMap`, which is not
+    /// a first-sight reference like a mesh. Streamed, nothing waits for them and
+    /// the simulation never sees them; every model loads on sight, so the greybox
+    /// fetches only these two small textures and never draws them.
+    const STREAMED: &'static [&'static str] = &["sky_day.tex", "sky_night.tex"];
     type Args = Options;
     fn actions() -> Actions {
         Actions::new()
@@ -94,30 +106,50 @@ impl Game for Forest {
             .button("build", &["KeyR"])
             .button("drop", &["KeyG"])
     }
+    fn validate(args: &Options) -> Result<(), String> {
+        match args.art.as_str() {
+            "" | "pass" => Ok(()),
+            other => Err(format!(
+                "art `{other}`: expected \"\" (greybox) or \"pass\""
+            )),
+        }
+    }
     fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
         physics::register(w);
     }
     fn setup(w: &mut World, args: &Options) {
+        // The art pass spawns the same simulated entities in the same order and
+        // draws nothing from the world's random stream; its scenery comes last.
+        let pass = args.art == "pass";
         w.reseed(args.seed);
         physics::register(w);
-        forest::grow(w, args.trees, args.primitives, !args.lite);
-        camp::build(w);
+        forest::grow(w, args.trees, args.primitives, !args.lite, pass);
+        camp::build(w, pass);
         camp::torches(w, args.torches);
         let half = w.resource::<Grove>().half;
-        player::spawn(w, !args.lite, args.children);
+        player::spawn(w, !args.lite, args.children, pass);
         w.insert_resource(player::Trail::default());
-        creatures::spawn_deer(w, half);
+        creatures::spawn_deer(w, half, pass);
         deer_art::sounds(w);
-        creatures::spawn_wolves(w, args.wolves, half);
-        player::scatter(w, Kind::Scrap, args.trees / 60 + 6, 18.0, half * 0.9);
-        player::scatter(w, Kind::Food, args.trees / 50 + 10, 18.0, half * 0.7);
-        player::scatter(w, Kind::Log, 3, 6.0, 12.0);
+        creatures::spawn_wolves(w, args.wolves, half, pass);
+        player::scatter(w, Kind::Scrap, args.trees / 60 + 6, 18.0, half * 0.9, pass);
+        player::scatter(w, Kind::Food, args.trees / 50 + 10, 18.0, half * 0.7, pass);
+        player::scatter(w, Kind::Log, 3, 6.0, 12.0, pass);
+        if pass {
+            art::finish(w);
+        }
         hud(w, Action::None, 0, 0);
+    }
+    fn present(p: &mut Present<'_>, args: &Options) {
+        if args.art == "pass" {
+            look::present(p);
+        }
     }
     fn paused(args: &Options) -> bool {
         args.paused
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
+        let pass = args.art == "pass";
         let mut build = input.pressed("build");
         let mut drop = input.pressed("drop");
         for command in input.messages() {
@@ -146,7 +178,7 @@ impl Game for Forest {
             ready && (input.pressed("use") || input.held("use") && matches!(act, Action::Chop(_)));
         if use_action || input.pressed("eat") {
             let act = if use_action { act } else { Action::None };
-            player::interact(w, act, input.pressed("eat"));
+            player::interact(w, act, input.pressed("eat"), pass);
         }
         let safe = w.resource::<Fire>().radius();
         player::walk(w, input.stick_xz("move"), colliders, safe);
@@ -155,10 +187,10 @@ impl Game for Forest {
         }
         player::flashlight(w, input.pressed("light"));
         let at = w.require::<Transform>("player").position;
-        let dawned = camp::step(w, at);
+        let dawned = camp::step(w, at, pass);
         if dawned {
             let half = w.resource::<Grove>().half;
-            player::scatter(w, Kind::Food, 4, 18.0, half * 0.6);
+            player::scatter(w, Kind::Food, 4, 18.0, half * 0.6, pass);
             w.emit("dawn");
         }
         let scene = {
@@ -188,7 +220,7 @@ impl Game for Forest {
         if w.require::<Player>("player").dead && !was_dead {
             w.emit("died");
         }
-        let rescued = player::children(w, at, scene.safe);
+        let rescued = player::children(w, at, scene.safe, pass);
         player::update_trail(
             w,
             dawned || build || input.pressed("use") || input.pressed("eat"),

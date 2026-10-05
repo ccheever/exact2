@@ -1735,3 +1735,56 @@ or unaided discovery. The next candidate is Rivals' firing feedback, with a
 fixed-input baseline captured before modifying it. A shared mesh-builder
 follow-up from Garden/Forest's duplicate assembly code is recorded in QUEUE;
 no new engine abstraction is introduced in this encounter change.
+
+## The art pass, ported as a look (2026-10-05)
+
+Branch `art/forest` (its diary section "Art pass", 2026-10-03) drew the game with
+generated art on an engine ~957 commits older, moving the pins. It is now the
+`art="pass"` look beside the unchanged greybox (`art=""`, the default and what
+`pins.json` pins), chosen on the title or while paused; changing it starts a new
+game. `artgen/` comes over, reworked for today's bake; `art.rs` and `look.rs`
+carry the Rust. The greybox's tick pins and every gameplay check pass; its save
+digests change only because saves carry the argument record, which now has
+`"art":""`. `the_art_pass_plays_the_same_game` runs a day and a night of input in
+both looks and compares every gameplay component and resource, the HUD and the
+next random draw: equal at all ten checkpoints. A paranoid-Save run in the art
+pass shows its `present` is pure and its saves round-trip.
+
+What the engine now does that the branch had to work around:
+
+- **Motion is presentation.** Walk cycles, survivors' facing, wind in the trees
+  and carried logs on the backpack were tick writes (a saved `Gait`, rotations,
+  re-parenting). They are `Offset`s from `Game::present`, never saved or hashed,
+  so the simulation is the greybox's. Art-pass tick time at 2k trees is 0.31 ms
+  (branch: 0.83).
+- **Crowns fade instead of popping** (its limit 6): `Opacity(0.3)`, dithered, for
+  trees across the sight line; undergrowth the player walks through fades too.
+- **Generated meshes take textures** (limit 2): the terrain is a
+  `generated_model` sampling `art/textures/forest_floor.png` every 4 m, with the
+  old vertex-colour patches as a tint over it.
+- **Textures are shared** (limit 3): 18 colour textures live in `art/textures/`
+  and the models' glTF names them by uri, so each bakes once (cutouts embed
+  theirs, four images); the branch baked 45 per-model copies.
+- **RGBM skies are linear data** (limit 5): `art/data/rgbm/`, mips filtered as
+  radiance, instead of an encoding around the sRGB decode. The map is the visible
+  sky too (limit 4), though this camera never looks up. Its two textures are
+  `Game::STREAMED` (an `EnvironmentMap` is not a first-sight reference), so the
+  greybox fetches them and never draws them.
+- **Far trees are cheap**: each tree kind has a generated far level from 45 m
+  and hides past 150 m under `ModelLod`, undergrowth past 60 m. At 5k trees this
+  trims the far shadow cascade's casters from 2,930 instances to 1,785.
+
+Not ported as written: wind as a vertex shader. A game `CustomMaterial` is
+opaque, gets no model textures and is never culled, which would undo `ModelLod`
+and the masked leaves; the sway stays per tree in `present`. The characters stay
+rigid parts: the procedural `rig` would trade the textured models for capsules.
+
+Two engine findings. A generated model whose texture nothing declared was
+requested from the host under its own name (a fetch that always fails);
+`engine/src/sim/assets.rs` no longer requests a generated model, which is Loaded
+when its textures arrive (`a_generated_model_fetches_its_undeclared_texture_not_itself`).
+And an animated `Offset` makes the render feed re-derive every model pose each
+tick: the art pass's feed is 1.0 ms at 2k trees, 1.9 at 5k and 5.6 at 20k (0.18 at
+20k with `present` off), while every scene holds 60 fps to 20k in headless Chrome
+(`bench.mjs`); QUEUE has the follow-up. `proof.mjs web --screenshot-only --art`
+writes `artifacts/web/art-*.png`.

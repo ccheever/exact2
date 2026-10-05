@@ -120,6 +120,60 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     return;
   }
 
+  if (process.argv.includes('--screenshot-only') && process.argv.includes('--art')) {
+    // The art pass's pixels (art="pass"): the camp by day, the forest edge, dusk on
+    // the way back, then night at the fire with the flashlight raised.
+    check('screenshot uses web', host === 'web');
+    await s.tap('look-pass');
+    check('the title names the art pass', (await text('choice'))?.endsWith(' · art pass'), await text('choice'));
+    await s.tap('play');
+    await game.run(1500);
+    await s.screenshot(resolve(out, 'art-day.png'));
+    await game.hold('KeyW', 2600);
+    await game.run(400);
+    await s.screenshot(resolve(out, 'art-forest.png'));
+    // Among the trees: crowns between the camera and the survivor fade.
+    await game.hold('KeyW', 2400);
+    await game.run(400);
+    await s.screenshot(resolve(out, 'art-trees.png'));
+    await game.hold('KeyS', 5000);
+    await game.run((DAY - DAWN - 12.5 - 5.4) * 1000);
+    await s.screenshot(resolve(out, 'art-dusk.png'));
+    await game.run(12000);
+    await game.hold('KeyW', 700);
+    await game.tap('KeyF');
+    await game.run(300);
+    await s.screenshot(resolve(out, 'art-night.png'));
+    // Up to the edge of the light, toward the Deer circling outside it.
+    const at = await game.local_position('deer'), r = Math.hypot(at[0], at[2]);
+    const safe = Number((await text('radius')).match(/\d+/)[0]);
+    await walkTo(s, [at[0] / r * (safe - 1.5), 0, at[2] / r * (safe - 1.5)], 0.8);
+    await game.run(400);
+    await s.screenshot(resolve(out, 'art-deer.png'));
+    await s.close();
+    // A smaller forest by day: up to the nearest wolf pack, then a lost child,
+    // who follows on walking legs once taken by the hand.
+    const day = await open({fresh: true});
+    await day.tap('trees-1k');
+    await day.tap('look-pass');
+    await day.tap('play');
+    const g = day.world('world');
+    const me = await g.local_position('player');
+    const wolves = (await g.snapshot({all: true})).entities.filter(e => e.components?.Wolf)
+      .map(e => e.components.Transform.position).sort((a, b) => Math.hypot(a[0] - me[0], a[2] - me[2]) - Math.hypot(b[0] - me[0], b[2] - me[2]));
+    const w = wolves[0], d = Math.hypot(w[0] - me[0], w[2] - me[2]);
+    await walkTo(day, [w[0] - (w[0] - me[0]) / d * 7, 0, w[2] - (w[2] - me[2]) / d * 7], 1.0);
+    await day.screenshot(resolve(out, 'art-wolves.png'));
+    await walkTo(day, await g.local_position('child-1'), 1.6);
+    await g.run(300);
+    await day.screenshot(resolve(out, 'art-child.png'));
+    await g.tap('KeyE');
+    await g.run(100);
+    await walkTo(day, [0, 0, 3], 0.6, 6);
+    await day.screenshot(resolve(out, 'art-escort.png'));
+    await day.close();
+    return;
+  }
   if (process.argv.includes('--screenshot-only')) {
     // Pixels only: a day frame, then the same camp at night with the flashlight.
     check('screenshot uses web', host === 'web');
