@@ -328,8 +328,13 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         let memo = em.uses.rt("memo");
         let _ = write!(
             body,
-            "const d_{i}={memo}({f},{});",
-            serde_json::to_string(&type_code(plan, r.ty)).unwrap()
+            "const d_{i}={memo}({f},{}{});",
+            serde_json::to_string(&type_code(plan, r.ty)).unwrap(),
+            if site_attrs {
+                format!(",{}", serde_json::to_string(plan.str(r.name)).unwrap())
+            } else {
+                String::new()
+            }
         );
     }
     // The reserved sources facts.js answers, their declared fields filled by name.

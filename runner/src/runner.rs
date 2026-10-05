@@ -1447,9 +1447,13 @@ impl<D: DataSource> Runner<D> {
         }
         // @ref LLP 1038 D5 / §8 — distinguish asked sources from compiled boot values.
         self.log(lines::query(&resource, &source));
-        self.data
-            .answer_for(Target::Resource(i), &mut self.store, &source, args)
-            .map_err(|error| RunnerError::Data { resource, error })
+        let answer = self
+            .data
+            .answer_for(Target::Resource(i), &mut self.store, &source, args);
+        for line in self.data.take_logs() {
+            self.log(line);
+        }
+        answer.map_err(|error| RunnerError::Data { resource, error })
     }
 }
 #[cfg(test)]

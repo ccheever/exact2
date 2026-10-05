@@ -766,7 +766,7 @@ extension Agent {
                     f.heard = name
                     if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = focus.textFieldShouldReturn(f) } else if types { f.insertText(name) }
                     f.heard = nil
-                } else if focus.handlers.contains("press"), name == "Enter" || name == " " { presenter.press(focus.id) }
+                } else if focus.handlers.contains("press") || focus.defaultLink != nil, name == "Enter" || (name == " " && focus.props["href"] == nil) { presenter.press(focus.id) }
             }
             return ["typed": Int(v.id), "key": key, "value": v.textArea?.text ?? v.field?.text ?? "", "delivery": "recognized"]
         }

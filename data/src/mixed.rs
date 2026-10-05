@@ -510,11 +510,17 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
     /// The turn's `console` lines a main member produced, for the host's
     /// logs; a worker child keeps its own.
     pub fn take_logs(&mut self) -> Vec<String> {
+        self.logs.extend(self.javascript.take_logs());
+        self.logs.extend(self.rust.take_logs());
         std::mem::take(&mut self.logs)
     }
 }
 
 impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
+    fn take_logs(&mut self) -> Vec<String> {
+        Mixed::take_logs(self)
+    }
+
     fn placement(&self) -> Placement {
         if self.sets.is_empty() {
             Placement::Main

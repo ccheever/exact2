@@ -210,7 +210,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return props["semanticTag"] == "dialog" || isParagraph || explicitTabIndex != nil || tabbable
     }
     /// A native button's command is its own too (a confirmation's close row, LLP 1069.011.000 D9).
-    var pressable: Bool { handlers.contains("press") || (isButton && (props["commandfor"] != nil || props["popovertarget"] != nil)) }
+    var pressable: Bool { handlers.contains("press") || defaultLink != nil || (isButton && (props["commandfor"] != nil || props["popovertarget"] != nil)) }
     var tabbable: Bool {
         if let index = explicitTabIndex { return index >= 0 }
         return kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: Self.focusEvents)
@@ -262,7 +262,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             if event.modifierFlags.contains(.shift) { window.selectPreviousKeyView(self) } else { window.selectNextKeyView(self) }
             return
         }
-        if pressable, name == "Enter" || name == " " {
+        if pressable, name == "Enter" || (name == " " && props["href"] == nil) {
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)
             finishPress(canvas: canvas, window: ownerWindow, pointer: false)
