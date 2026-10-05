@@ -175,8 +175,9 @@ statement     = IDENT "=" expr NL
               | "send" IDENT "=" source-call NL
               | "refresh" IDENT NL
               | IDENT "(" [ arguments ] ")" NL
-              | "if" expr block(statement) [ "else" block(statement) ]
+              | if
               | statement-match ;
+if            = "if" expr block(statement) [ "else" ( if | block(statement) ) ] ;
 statement-match = "match" expr block(statement-case) ;
 statement-case  = "case" "some" "(" IDENT ")" block(statement)
                 | "case" "none" block(statement) ;
@@ -187,6 +188,10 @@ There is one `props`, `inject`, `provide`, `slot`, and `view` section at most in
 a component. Only the root may own resources, mutations, and tasks. A task's
 body has exactly one schedule. The named timer action takes no parameters;
 a millisecond interval is a literal whole number of at least 1.
+
+`else if c` is `else` around one nested `if c`, and `else when c` in a view
+is `else` around one nested `when c`: the same tree, so the same plan. The
+keyword after `else` is its construct's own (`syntax-else-keyword`).
 
 Both option-match arms are required exactly once. Actions have no loops, returns,
 or awaits. A standalone call statement `name(args)` is a host command when `name`
@@ -227,7 +232,7 @@ continuation  = FIELD "=" expr { attribute } NL ;
 component-use = CAPITALIZED_IDENT "(" [ named-args ] ")" NL [ node-children ] ;
 named-args    = FIELD "=" expr { "," FIELD "=" expr } [ "," ] ;
 node-children = INDENT node { node } DEDENT ;
-when          = "when" expr block(node) [ "else" block(node) ] ;
+when          = "when" expr block(node) [ "else" ( when | block(node) ) ] ;
 each          = "each" IDENT [ "," IDENT ] "in" expr "key" "=" expr block(node) ;
 view-match    = "match" expr block(view-case) ;
 view-case     = "case" "some" "(" IDENT ")" block(node)
@@ -563,6 +568,40 @@ schema's `buttonStyles` table; default `bordered`. This adds no tag or new
 expression grammar. Platform looks and stand-ins are documented in
 [LLP 1069.011](../llp/1069.011-native-buttons.rfc.md).
 
+### Markdown: `markup`, `format`, `select`
+
+`markup="markdown"` on a `text` or a `textarea` styles the node's own string as
+Markdown ([LLP 1045](../llp/1045-markdown-editor.rfc.md)); `none` is the
+default. It is not CSS: CSS has nothing for this. The value stays the Markdown
+source, so storage, search and export are the string.
+
+- `text note.body markup="markdown"` is the reader: headings, lists, quotes,
+  code and links painted as one node, on every host.
+- `textarea id="editor" value=draft input=edit markup="markdown"` is the editor:
+  on the web, Markdown shown as it reads, with the syntax hidden away from the
+  caret; on macOS and iOS, the platform's text view with the syntax dimmed. Linux
+  edits it as a plain textarea. Without `markup` the same source is a plain
+  textarea: the source mode.
+
+`format(id, command)` and `format(id, command, argument)` edit the editor whose
+`id` is given, at its selection, as one undo step reported through its `input`
+as typing is. The commands are `bold`, `italic`, `code`, `strike`, `link` (the
+argument is the URL), `heading` (`"1"` to `"6"`), `bullet`, `ordered`, `task`,
+`toggleTask`, `quote`, `codeblock`, `footnote`, `figure` (the argument is the
+media `src`), `indent`, `outdent` and `newline`; another name, or a missing
+argument, changes nothing. A toolbar button takes `retainFocus=true`, so a press
+leaves the editor focused and its selection where it was.
+
+The editor's `select` hands its action a `MarkdownSelection` when the selection
+or the source changes: `formats`, space-separated (the inline command names,
+`heading1` to `heading6`, `bullet`, `ordered`, `task`, `quote`, `codeblock`);
+`mixed`, true when the selection spans different formats or links; `link`, the
+common link target or `""`; and `unavailable`, the commands that cannot apply
+there, space-separated (most of them, inside a code block). No offsets cross.
+A toolbar reads one format as `includes(` ${s.formats} `, " bold ")`;
+[Markdown Stress](../apps/markdown-stress/app.contract) is a whole toolbar and
+link sheet.
+
 ## Events
 
 An event binding is an action reference or partially applied action. Captured
@@ -869,7 +908,8 @@ argument validation. Use the working implementation when selecting arguments:
 
 | Operation | Starting point |
 | --- | --- |
-| `focus(id)`, editor `format` | [Markdown Stress](../apps/markdown-stress/app.contract) |
+| `focus(id)` | [Markdown Stress](../apps/markdown-stress/app.contract) |
+| `format(id, command[, argument])`: a Markdown editor's toolbar command ([Markdown](#markdown-markup-format-select)) | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
 | `selectText(...)` | [Messages Legacy](../apps/messages-legacy/app.contract) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |

@@ -1328,6 +1328,21 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
+        // @ref LLP 1045 D3 — `none` or `markdown`, styling a `text`'s or a
+        // `textarea`'s own string; another word did nothing (notes #1).
+        if a.name == "markup" {
+            if !matches!(tag, "text" | "textarea") {
+                let message = format!("`markup` belongs to `text` (the reader) or `textarea` (the editor), not `{tag}`");
+                return err("lower-attr-tag", message, a.span);
+            }
+            if matches!(&a.value, Expr::Str(s, _) if s != "markdown" && s != "none") {
+                return err(
+                    "lower-attr-value",
+                    "`markup` is \"markdown\" or \"none\"",
+                    a.span,
+                );
+            }
+        }
         if tag != "list" && matches!(a.name.as_str(), "reachstart" | "reachend") {
             return err(
                 "lower-attr-tag",

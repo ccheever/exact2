@@ -81,6 +81,9 @@ fn one(name: &str, json: bool) -> ExitCode {
             if let Some(only) = only_on(name) {
                 println!("  only on {only}");
             }
+            if name == "markup" {
+                println!("  \"markdown\" or \"none\" (the default): a `text` reads its string as Markdown, a `textarea` edits it (LLP 1045)");
+            }
             if name == "title" {
                 println!("  on `head`, the document's title; elsewhere HTML's advisory text, the platform's tooltip (prop title, str)");
             }

@@ -469,9 +469,10 @@ function updateApp(dir, name) {
   // An older app may predate the generated test command. Preserve authored
   // tests; otherwise start with a boot check that assumes no app-specific IDs.
   const test = resolve(dir, 'app.test.contract');
-  if (!existsSync(test)) writeFileSync(test, `// Add assertions for this app after its initial work settles.
+  // The app's data lands before a test's first step (`clock data`), so the
+  // check needs no `clock settle` and has no step at all.
+  if (!existsSync(test)) writeFileSync(test, `// The app boots and its data lands; add this app's own assertions.
 test "the app opens"
-  clock settle
 `);
   // Each exact2 crate is found by name, so a checkout that moved is followed.
   const metadata = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 26 });

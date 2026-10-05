@@ -747,7 +747,9 @@ history page with deliberately eager construction while typing and streaming
 updates. [Completion Storm](../apps/completion-storm/README.md) holds and releases
 real local HTTP requests, including failures and replies to a departed screen.
 [Markdown stress](../apps/markdown-stress/README.md) exercises the shipped parser
-and reader components with large documents, huge individual blocks and reflow.
+and reader components with large documents, huge individual blocks and reflow,
+and the Markdown editor with a toolbar and a link sheet
+([`markup`, `format`, `select`](contract-grammar.md#markdown-markup-format-select)).
 These are opt-in developer workloads; none claims automatic virtualization or
 120 Hz performance. [LLP 1041](../llp/1041-graceful-overload.rfc.md) specifies the
 graceful-overload direction and records what the first examples actually prove.

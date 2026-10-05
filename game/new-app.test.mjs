@@ -82,7 +82,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.match(readFileSync(appTest, 'utf8'), /the greeting loads/, 'update preserves existing tests');
     rmSync(appTest);
     assert.doesNotMatch(createApp(dir, { update: true }), /AGENTS|gitignore/, 'current instructions are left as they are');
-    assert.match(readFileSync(appTest, 'utf8'), /test "the app opens"\n  clock settle/);
+    assert.match(readFileSync(appTest, 'utf8'), /test "the app opens"\n$/);
     assert.ok(!readFileSync(appTest, 'utf8').includes('greeting'), 'an older app need not have the scaffold IDs');
     assert.equal(readFileSync(resolve(dir, 'Cargo.toml'), 'utf8'), manifest, 'the patch table is rewritten in place');
   } finally { rmSync(parent, { recursive: true, force: true }); }

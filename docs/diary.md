@@ -4,9 +4,16 @@ For the agent working on an Exact app. The exact2 team asks you to keep a diary 
 how Exact went, so it can fix what was rough and keep what was good. The diary
 stays on this machine. Nothing is sent unless the person you work for says yes.
 
-Run `bun exact.mjs feedback status` once at the start. If it says `never`, skip
-everything below: no diary, no asking. If it says `local`, keep the diary and skip
-Asking to share. If `feedback status` prints more instructions, follow them too.
+Run `bun exact.mjs feedback status` once at the start. It prints this project's
+standing answer first:
+
+- `ask`, the default: keep the diary, and ask before sending (Asking to share).
+- `local`: keep the diary and skip Asking to share; nothing is sent.
+- `always`: keep the diary, and send it at the end of each task without asking,
+  saying each time that you sent it.
+- `never`: skip everything below: no diary, no asking.
+
+If `feedback status` prints more instructions, follow them too.
 
 ## What to keep
 

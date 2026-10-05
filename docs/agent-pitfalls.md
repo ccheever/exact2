@@ -43,6 +43,24 @@ guide's rules don't make obvious.
   the content `position="relative"`, or give the background `z-index=-1`
   inside a parent that stacks. (Signal Clone's call screen, build 16.)
 
+- **`flex=0` collapses a column that has a `width`.** A side column written
+  `width=400 flex=0 min-width=0` in a 1,100 px row laid out 0 px wide, and the
+  pane beside it covered its search field. Cause: `flex: 0` is CSS's `0 1 0%`:
+  the basis is `0%`, not the width, and the item shrinks (`flex=<n>` is always
+  `<n> 1 0%`; `contract vocab flex`). Fix: `flex="none"` (`0 0 auto`: the width
+  is the size), or no `flex` and `flex-shrink=0`. (Stocks DIARY, about 15
+  minutes; reproduced on the web and macOS, 2026-10-04.)
+
+- **A `width="100%"` box with padding runs past its parent.** A full-width column
+  with `padding=16` measured 1,232 px in a 1,200 px window; an inbox row's time
+  painted off the right edge of a phone. Cause: a box is `box-sizing: content-box`,
+  as in CSS without a reset, so padding and border add to `width` (and to
+  `height="100%"`). Fix: `box-sizing="border-box"` on the padded box or its style;
+  or drop `width`, since a box in a block or a `column` already fills the width.
+  (Chat2 and Workout DIARY, Gallery's `height`; reproduced on the web, 2026-10-04.)
+  **Candidate diagnostic:** the compiler could name `box-sizing` when a
+  content-box node has `width="100%"` and horizontal padding.
+
 ## Lists and scrolling
 
 - **A tap that changes one row of a long list takes ~80 ms on the web.** Cause: the
@@ -208,6 +226,50 @@ guide's rules don't make obvious.
   which the web scrolls and iOS turns into UIKit's own swipe actions. Fix: copy
   `apps/messages/app.contract`'s inbox row (`thread-swipe-…`). (Ledger2 DIARY, "Needed:
   swipe gesture", about 15 minutes, 2026-10-04.)
+
+- **A `swiperight` hears nothing from a finger on iOS.** A mouse drag fires it on
+  the web and macOS, in a drive and in a test, while a real touch on an iPhone
+  does nothing. Cause: with `touch-action` at `auto` a horizontal pan is the
+  platform's, as in a browser, so the swipe never begins. Fix:
+  `touch-action="pan-y"` on the swiped node, which leaves vertical scrolling to the
+  page. Messages also gives the bubble `transition="translate spring(300, 30, 1)"`,
+  which moves it with the finger; that does not arm the gesture. (Chat2 DIARY,
+  which credited the transition, about 20 minutes; reproduced with `agent ios
+  --touch platform`, 2026-10-04.) **Candidate diagnostic:** the compiler could
+  warn on a `swiperight` without `touch-action`, as on a `pan`.
+
+- **A dragged piece snaps back, lands on the wrong square, or a tap moves it.** A
+  board has no drop target; build the drag from the pointer events (Chess DIARY,
+  about 30 minutes; this recipe driven on the web and macOS, 2026-10-04):
+  - Each square takes `pointerdown`, `pointermove`, `pointerup` and
+    `touch-action="none"` (a finger otherwise scrolls and the events are cancelled).
+  - The square that took the `pointerdown` holds the pointer: its `pointermove`s and
+    its `pointerup` come wherever the pointer goes, with `offsetX`/`offsetY` measured
+    from that square. The drop square is the held one's column plus
+    `floor(e.offsetX / cell)`, and its row plus `floor(e.offsetY / cell)`.
+  - Start a drag only past a threshold (`dx * dx + dy * dy > 64`), so a tap stays a tap.
+  - Draw the ghost as a later sibling of the squares inside a `position="relative"`
+    board (`position="absolute"`, `pointer-events="none"`): `z-index` orders siblings
+    only, so a ghost inside a square cannot float over the next one.
+  - Keep the piece in its square while it is dragged, dimmed with `opacity`. On macOS
+    a `when` that removes it from the held square ends the hold, and the `pointerup`
+    never comes; the web carries on.
+
+  ```text
+  action down(i: number, e: PointerEvent)
+    from = i
+    dragging = false
+  action move(i: number, e: PointerEvent)
+    if from >= 0
+      dx = e.offsetX - half
+      dy = e.offsetY - half
+      dragging = dragging or dx * dx + dy * dy > 64
+  action up(i: number, e: PointerEvent)
+    if dragging
+      drop(from, from + floor(e.offsetX / cell))
+    from = -1
+    dragging = false
+  ```
 
 ## Driving and testing
 

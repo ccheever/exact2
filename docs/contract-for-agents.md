@@ -309,7 +309,8 @@ derive, resource value, or arbitrary record field. Replace a record with a copie
 record. `send` targets a mutation owned by that component.
 
 Permitted statements: assignment, `let`, `send`, `refresh`, known host command,
-a call of an action, `if`/`else`, and option `match`. No loops. The compiler
+a call of an action, `if`/`else` (`else if c` is `else` around one nested `if`),
+and option `match`. No loops. The compiler
 infers effects from the body, through its calls; `writes` is a refusal, not an
 optional annotation. Use `symbols` when you need the inferred write set.
 
@@ -431,8 +432,10 @@ ask. The default web JS target keeps no persisted resource answers
 The current request owns its answer; older replies cannot overwrite a newer
 request. Assigning a mutation forgets its in-flight reply, so an action that
 sends one mutation twice on one path is refused (`analyze-send-twice`), counting
-the sends of the actions it calls: send one combined request, or use a mutation
-per request. `refreshes` re-reads
+the sends of the actions it calls. Every `if` is read as one that can run: two
+sends are separate paths only as arms of one `if … else if … else` or `match`,
+or in `if`s testing one unchanged name against different literals. Send one
+combined request, or use a mutation per request. `refreshes` re-reads
 its resources when the mutation is sent (an answer the source gives at once shows
 immediately) and forces them again when the reply lands. `then` is parameterless,
 runs once at the host's next clock advance as a new commit (under the driver, an
@@ -471,9 +474,9 @@ or authenticated network session is available while baking. See
 
 ## Views, layout, and interaction
 
-The view forms are element, component use, `when`/`else`, keyed `each`, exhaustive
-option `match`, and `children`. Wrap root regions in a stable element. A component
-call uses parentheses; a built-in element uses space-separated attributes.
+The view forms are element, component use, `when`/`else` (and `else when`),
+keyed `each`, exhaustive option `match`, and `children`. Wrap root regions in a
+stable element. A component call uses parentheses; a built-in element uses space-separated attributes.
 `button "Save" press=save` is text-child sugar; an explicit text child is useful
 when that label needs its own styling or driver id. A `button` is the web's
 `<button>`: a block whose content is centred in its height and whose text is
@@ -547,6 +550,30 @@ component Ding
     column
       button "Ding" press=ding
       audio "assets/ding.wav" preload="auto" paused=hush pause=hushed
+```
+
+A Markdown editor is a `textarea` with `markup="markdown"`; a `text` with it is
+the reader (one node; the value stays the source string). Its toolbar is
+`retainFocus` buttons calling `format(id, command[, argument])`, and its
+`select` event hands an action the formats at the selection, for active states
+([Markdown](contract-grammar.md#markdown-markup-format-select): the commands and
+the `MarkdownSelection` fields):
+
+```contract
+component Editor
+  state body = "# Title"
+  state bold = false
+  action edit(v: string)
+    body = v
+  action selected(s: MarkdownSelection)
+    bold = includes(` ${s.formats} `, " bold ")
+  action embolden
+    format("editor", "bold")
+  view
+    column
+      button (bold ? "Bold (on)" : "Bold") press=embolden retainFocus=true
+      textarea id="editor" value=body input=edit select=selected markup="markdown"
+      text body markup="markdown"
 ```
 
 Keep `id` and `testId` separate:

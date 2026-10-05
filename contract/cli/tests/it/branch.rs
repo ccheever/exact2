@@ -140,6 +140,43 @@ fn a_branch_may_nest_and_an_omitted_else_is_fine() {
     assert_eq!(r.slot("n"), Some(&Value::Number(2.0)));
 }
 
+/// `else if` and a view's `else when` are `else` around one nested branch:
+/// the same plan, byte for byte, and `fmt` keeps the spelling (the chess,
+/// kanban2 and spreadsheet diaries).
+#[test]
+fn else_if_and_else_when_are_the_nested_branch() {
+    let sugar = "component A\n  state n = 0\n  state s = \"\"\n  action go(v: number)\n    n = v\n    if v < 0\n      s = \"negative\"\n    else if v == 0\n      s = \"zero\"\n    else if v < 10\n      s = \"small\"\n    else\n      s = \"large\"\n  view\n    column\n      when n == 0\n        text \"zero\"\n      else when n > 2\n        text \"many\"\n      else\n        text \"few\"\n";
+    let nested = "component A\n  state n = 0\n  state s = \"\"\n  action go(v: number)\n    n = v\n    if v < 0\n      s = \"negative\"\n    else\n      if v == 0\n        s = \"zero\"\n      else\n        if v < 10\n          s = \"small\"\n        else\n          s = \"large\"\n  view\n    column\n      when n == 0\n        text \"zero\"\n      else\n        when n > 2\n          text \"many\"\n        else\n          text \"few\"\n";
+    let plan = contract::compile(sugar).unwrap();
+    assert_eq!(plan.encode(), contract::compile(nested).unwrap().encode());
+    assert_eq!(contract_syntax::fmt::format(sugar).unwrap(), sugar);
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    for (v, s) in [
+        (-3.0, "negative"),
+        (0.0, "zero"),
+        (4.0, "small"),
+        (40.0, "large"),
+    ] {
+        r.act("go", vec![Value::Number(v)]).unwrap();
+        assert_eq!(r.slot("s"), Some(&Value::str(s)));
+    }
+    // The keyword after `else` is its construct's own.
+    for (from, to) in [
+        ("else if v == 0", "else when v == 0"),
+        ("else when n > 2", "else if n > 2"),
+    ] {
+        let e = contract::compile(&sugar.replace(from, to)).unwrap_err();
+        assert_eq!(e.id, "syntax-else-keyword", "{e}");
+    }
+}
+
 #[test]
 fn cloned_scopes_keep_shadowing_and_region_depth_independent() {
     use contract_types::{Ref, Scope, Ty};
