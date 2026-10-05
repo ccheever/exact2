@@ -327,12 +327,12 @@ pub fn setup(w: &mut World, style: Style) {
     let flowers = w
         .generated("flowers.model", flower_bank(l))
         .expect("flower mesh");
-    let grass = w.generated("meadow.model", meadow(l)).expect("meadow mesh");
+    let grass = w.generated("meadow-grass.model", meadow(l)).expect("meadow mesh");
     let hills = w
         .generated("backdrop.model", backdrop(l))
         .expect("backdrop mesh");
     let rail = w.generated("rail.model", rail(l)).expect("rail mesh");
-    let tub = w.generated("barrel.model", barrel(l)).expect("barrel mesh");
+    let tub = w.generated("rain-barrel.model", barrel(l)).expect("barrel mesh");
     let bed = scale(l.mound.0, 0.8);
     for (name, position, mesh, material) in [
         (

@@ -1249,3 +1249,26 @@ fn the_art_pass_survives_paranoid_restores() {
         run(exact_game::Paranoid::Off)
     );
 }
+
+/// The art pass's models stream into every look, so a model another look
+/// generates must never take one of their names: a generated name that a
+/// streamed model already holds refuses the look's setup.
+#[test]
+fn no_look_generates_a_streamed_model_name() {
+    use exact_game::{Game, Mesh};
+    for art in ["", "golden", "storybook"] {
+        let game = Sim::<Garden>::new(Options {
+            art: art.into(),
+            ..Options::default()
+        })
+        .unwrap();
+        for (_, mesh) in game.world().query::<&Mesh>().iter() {
+            if let Mesh::Asset(name) = mesh {
+                assert!(
+                    !Garden::STREAMED.contains(&name.as_str()),
+                    "look {art:?} generates the streamed name {name}"
+                );
+            }
+        }
+    }
+}
