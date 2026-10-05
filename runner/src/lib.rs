@@ -68,6 +68,7 @@ pub mod surface_record;
 pub mod time;
 pub mod uses;
 pub mod viewport;
+pub mod machine;
 pub mod vm;
 
 pub use delivery::Delivery;
