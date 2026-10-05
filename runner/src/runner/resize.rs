@@ -121,7 +121,7 @@ impl<D: DataSource> Runner<D> {
                             .map_or(node.frame.width, |up| {
                                 exact_kernel::svg::scene::content_box(&up).2
                             });
-                        content_rect(&node, block)
+                        content_rect(&node, block, self.stitched(key))
                     });
                 let last = self
                     .resized
@@ -151,6 +151,20 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
+    /// A box that straddles columns, as the browser sizes it (LLP 1093 D11):
+    /// one column wide, and as tall as its fragments end to end — Chrome's
+    /// stitched size, which `ResizeObserver` reports and the reader pages by
+    /// — never its union frame, which is `frame()`'s. A multi-column `text`'s
+    /// fragments are its own columns, so it keeps its box.
+    fn stitched(&self, key: NodeKey) -> Option<(f32, f32)> {
+        let fragments = self.kernel.fragments(key)?;
+        let first = fragments.first()?;
+        self.kernel.columns(key).is_none().then(|| {
+            let height = fragments.iter().map(|f| f.height).sum();
+            (first.width, height)
+        })
+    }
+
     /// After a host's last round: whether the depth rule left a node
     /// undelivered, which the log says as the browser does; it is
     /// delivered after the next layout.
@@ -167,7 +181,12 @@ pub type Resized = Vec<(NodeKey, ResizeRect)>;
 /// ResizeObserver's `contentRect` of `node` (b6 review B2): `x` and `y` the
 /// used padding's left and top — the border is outside the padding box the
 /// rect is placed in — and the size the border box less padding and border.
-fn content_rect(node: &exact_kernel::NodeRef<'_>, block: f32) -> ResizeRect {
+/// `stitched` is a fragmented box's border box ([`Runner::stitched`]).
+fn content_rect(
+    node: &exact_kernel::NodeRef<'_>,
+    block: f32,
+    stitched: Option<(f32, f32)>,
+) -> ResizeRect {
     use exact_kernel::{BorderStyle, Dimension};
     let s = node.style;
     let pad = |d: Dimension| match d {
@@ -180,12 +199,13 @@ fn content_rect(node: &exact_kernel::NodeRef<'_>, block: f32) -> ResizeRect {
         _ => w,
     };
     let (left, top) = (pad(s.padding_left), pad(s.padding_top));
-    let width = node.frame.width
+    let (frame_width, frame_height) = stitched.unwrap_or((node.frame.width, node.frame.height));
+    let width = frame_width
         - left
         - pad(s.padding_right)
         - border(s.border_width_left, s.border_style_left)
         - border(s.border_width_right, s.border_style_right);
-    let height = node.frame.height
+    let height = frame_height
         - top
         - pad(s.padding_bottom)
         - border(s.border_width_top, s.border_style_top)

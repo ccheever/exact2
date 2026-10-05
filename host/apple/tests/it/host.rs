@@ -398,6 +398,7 @@ fn text_is_measured_through_the_registered_callback() {
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
             ctx: std::ptr::null_mut(),
+            lines: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
@@ -482,6 +483,7 @@ fn a_runner_refusal_never_installs_the_candidate_font_catalog() {
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
             ctx: std::ptr::null_mut(),
+            lines: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
@@ -505,6 +507,7 @@ fn a_runner_refusal_never_installs_the_candidate_font_catalog() {
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
             ctx: std::ptr::null_mut(),
+            lines: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
@@ -530,6 +533,7 @@ fn an_invalid_viewport_plan_boot_keeps_the_running_host() {
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
             ctx: std::ptr::null_mut(),
+            lines: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
@@ -550,6 +554,7 @@ fn an_invalid_viewport_plan_boot_keeps_the_running_host() {
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
             ctx: std::ptr::null_mut(),
+            lines: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
@@ -578,6 +583,7 @@ fn an_invalid_initial_viewport_publishes_no_host() {
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
             ctx: std::ptr::null_mut(),
+            lines: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
@@ -603,6 +609,7 @@ fn a_refused_fresh_boot_keeps_the_running_host() {
     let hooks = exact_apple::abi::Hooks {
         measure: Some(wide_glyphs),
         ctx: std::ptr::null_mut(),
+        lines: None,
         wake: None,
         wake_ctx: std::ptr::null_mut(),
         canvas_text: None,
@@ -633,6 +640,7 @@ fn two_prepared_sessions_keep_their_live_hosts_until_both_accept() {
     let hooks = exact_apple::abi::Hooks {
         measure: None,
         ctx: std::ptr::null_mut(),
+        lines: None,
         wake: None,
         wake_ctx: std::ptr::null_mut(),
         canvas_text: None,
@@ -686,6 +694,7 @@ fn the_plan_font_catalog_and_family_runs_cross_the_host_seam_before_layout() {
         exact_apple::abi::Hooks {
             measure: Some(record_font_runs),
             ctx: std::ptr::null_mut(),
+            lines: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,

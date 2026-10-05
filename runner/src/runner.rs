@@ -48,6 +48,7 @@ mod into_view;
 mod kept;
 #[cfg(test)]
 mod kept_tests;
+mod fragments;
 mod lines;
 mod lists;
 mod page;
@@ -468,6 +469,7 @@ pub struct Runner<D: DataSource> {
     input_source: Option<ViewId>,
     journal_start: usize,
     flow_warned: exact_kernel::SortedSet<exact_kernel::NodeKey>,
+    fragment_warned: exact_kernel::SortedSet<exact_kernel::NodeKey>,
     /// The lists already found conforming to their types, so a live answer
     /// is checked where it changed (LLP 1053 §0 G8).
     conformed: std::cell::RefCell<crate::conform::Conformed>,
@@ -873,6 +875,7 @@ impl<D: DataSource> Runner<D> {
             input_source: None,
             journal_start: 0,
             flow_warned: Default::default(),
+            fragment_warned: Default::default(),
             conformed: Default::default(),
         };
         runner.init_slots(carried, launch)?;

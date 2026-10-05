@@ -115,6 +115,11 @@ pub struct CMetrics {
 /// The callback's type.
 pub type MeasureFn = extern "C" fn(ctx: *mut c_void, request: *const CRequest) -> CMetrics;
 
+/// @ref LLP 1093 D6 — each line box's bottom, in content coordinates, of the
+/// paragraph `request` answers: writes `min(count, cap)` and returns `count`.
+pub type LinesFn =
+    extern "C" fn(ctx: *mut c_void, request: *const CRequest, out: *mut f32, cap: usize) -> usize;
+
 /// One declared face in the synchronous boot catalog callback. The UTF-8
 /// strings live for the duration of the callback and are not NUL-terminated.
 #[repr(C)]
@@ -204,6 +209,7 @@ pub fn install_fonts(plan: &Plan, callback: FontsFn, ctx: *mut c_void) {
 /// A kernel measurer backed by the app's callback.
 pub struct CallbackMeasurer {
     f: MeasureFn,
+    lines: Option<LinesFn>,
     ctx: *mut c_void,
     memo: identified::Memo,
     /// The document language (`TextMeasurer::set_language`), for `hyphens: auto`.
@@ -214,9 +220,10 @@ impl CallbackMeasurer {
     /// Wrap `f` with its context for one installed metric catalog.
     /// Construct a new measurer when that catalog changes; Apple boot and
     /// candidate preparation already do so before invoking the font hook.
-    pub fn new(f: MeasureFn, ctx: *mut c_void) -> CallbackMeasurer {
+    pub fn new(f: MeasureFn, ctx: *mut c_void, lines: Option<LinesFn>) -> CallbackMeasurer {
         CallbackMeasurer {
             f,
+            lines,
             ctx,
             memo: identified::Memo::default(),
             language: String::new(),
@@ -253,6 +260,17 @@ impl CallbackMeasurer {
         request: &TextMeasureRequest<'_>,
         stamp: Option<&ParagraphStamp>,
     ) -> CMetrics {
+        let f = self.f;
+        self.foreign(request, stamp, |ctx, c| f(ctx, c))
+    }
+
+    // The request as the C seam carries it, alive for `call`.
+    fn foreign<R>(
+        &self,
+        request: &TextMeasureRequest<'_>,
+        stamp: Option<&ParagraphStamp>,
+        call: impl FnOnce(*mut c_void, &CRequest) -> R,
+    ) -> R {
         // CSS collapsing before CoreText, as the browser does (LLP 1053 G5);
         // Markdown source keeps its own lines. The strings live for the call.
         let collapsed = (request.paragraph.markup == exact_kernel::Markup::None)
@@ -317,7 +335,7 @@ impl CallbackMeasurer {
         };
         // The one foreign call: the app's function, with the structs above
         // alive for its duration and read-only.
-        (self.f)(self.ctx, &c)
+        call(self.ctx, &c)
     }
 }
 
@@ -349,6 +367,32 @@ impl TextMeasurer for CallbackMeasurer {
 
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         sanitize(self.foreign_measure(request, None))
+    }
+
+    /// @ref LLP 1093 D6 — the paragraph's line boxes, from the app's hook.
+    fn lines(
+        &mut self,
+        stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+        bottoms: &mut Vec<f32>,
+    ) {
+        let Some(lines) = self.lines else {
+            return;
+        };
+        let mut out = vec![0.0f32; 64];
+        let count = self.foreign(request, Some(stamp), |ctx, c| {
+            let count = lines(ctx, c, out.as_mut_ptr(), out.len());
+            if count > out.len() {
+                out.resize(count, 0.0);
+                lines(ctx, c, out.as_mut_ptr(), out.len())
+            } else {
+                count
+            }
+        });
+        out.truncate(count.min(out.len()));
+        if out.iter().all(|b| b.is_finite()) {
+            bottoms.extend(out);
+        }
     }
 
     fn measure_identified(

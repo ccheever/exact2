@@ -231,6 +231,8 @@ pub struct Paragraph {
     pub first_baseline: f32,
     /// CSS shared-baseline placement for each wrapped line, used by both painters.
     baselines: Arc<Vec<f32>>,
+    /// Each wrapped line box's bottom (LLP 1093 D6): where a column may end.
+    bottoms: Arc<Vec<f32>>,
     ink: RefCell<ink::Cache>,
     ellipsized: RefCell<Option<(f32, Rc<Paragraph>)>>,
     // S + L, excluding canonical key K. Shared S must be deduplicated across
@@ -269,6 +271,11 @@ impl Paragraph {
     /// CSS baselines in original wrapped-line order.
     pub fn baselines(&self) -> &[f32] {
         &self.baselines
+    }
+
+    /// Each wrapped line box's bottom, in the same order (LLP 1093 D6).
+    pub fn line_bottoms(&self) -> &[f32] {
+        &self.bottoms
     }
 
     /// Current CPU ink arrays, counted by allocated capacity. This grows lazily
@@ -1069,6 +1076,24 @@ impl TextMeasurer for Measurer {
         let (key, spec) = engine.paragraphs.identified(stamp)?;
         Some(engine.measure_for(&spec, width, key))
     }
+
+    /// @ref LLP 1093 D6 — the line boxes of the paragraph the measure built.
+    fn lines(
+        &mut self,
+        stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+        bottoms: &mut Vec<f32>,
+    ) {
+        let AxisOffer::Definite(width) = request.width else {
+            return;
+        };
+        let mut engine = self.0.borrow_mut();
+        let (key, spec) = engine.identified_spec(stamp, || Spec::from_request(request));
+        if !spec.is_empty() {
+            bottoms.extend_from_slice(engine.paragraph_for(&spec, Some(width), key).line_bottoms());
+        }
+    }
+
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         let spec = Spec::from_request(request);
         let mut engine = self.0.borrow_mut();

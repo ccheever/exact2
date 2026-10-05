@@ -86,7 +86,7 @@ export function install(exact) {
   // (`dynamic` when a binding wrote it), an inherited one comes from the
   // nearest view that declares it, else `initial`; values are the browser's
   // computed ones, under the runner's row names.
-  const INHERITED = { text_color: 'color', font_family: 'font-family', font_size: 'font-size', font_weight: 'font-weight', font_style: 'font-style', line_height: 'line-height', letter_spacing: 'letter-spacing', font_variant_numeric: 'font-variant-numeric', direction: 'direction', white_space: 'white-space', overflow_wrap: 'overflow-wrap', text_align: 'text-align', text_indent: 'text-indent', hyphens: 'hyphens' };
+  const INHERITED = { text_color: 'color', font_family: 'font-family', font_size: 'font-size', font_weight: 'font-weight', font_style: 'font-style', line_height: 'line-height', letter_spacing: 'letter-spacing', font_variant_numeric: 'font-variant-numeric', direction: 'direction', white_space: 'white-space', overflow_wrap: 'overflow-wrap', text_align: 'text-align', text_indent: 'text-indent', hyphens: 'hyphens', widows: 'widows', orphans: 'orphans' };
   const rowOf = prop => Object.keys(INHERITED).find(k => INHERITED[k] === prop) ?? prop.replace(/^-+/, '').replace(/-/g, '_');
   // A class's rule may be nested: the build wraps them all in
   // `#exact-root#exact-root { & .cN { … } }` for specificity (emit.rs).
@@ -133,6 +133,8 @@ export function install(exact) {
       // A development build names the element's plan node (emit.rs `data-site`).
       ...(el.dataset?.site != null ? { site: Number(el.dataset.site) } : {}),
       space: { viewport: rect(r), local: { w: r2(el.clientWidth), h: r2(el.clientHeight) }, capture: { scale: devicePixelRatio } },
+      // A box a multi-column flow fragments: one rect per column (LLP 1093 D12).
+      ...(el.getClientRects().length > 1 ? { column_fragments: [...el.getClientRects()].map(rect) } : {}),
       scroll, clip,
       visible: { hidden: el.checkVisibility ? !el.checkVisibility({ visibilityProperty: true }) : false, inert: !!el.closest('[inert]'), inViewport: r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight, clipped },
       native: { element: el.localName, ...(el.hasAttribute('data-symbol-source') ? { symbol: {

@@ -832,3 +832,40 @@ position; in-flow items and the first baseline move as before.
 The kernel lays out a block `button`'s content with `align-content: safe
 center`, HTML's anonymous button box. **Held by**
 `browser_cases::a_button_lays_out_its_content_as_chrome_does`.
+
+## Patch 27: a multi-column container's flow thread — Exact's
+
+**Implementer:** Claude (Opus 5.5), 2026-10-04, for LLP 1093 D2 (CSS
+multi-column layout). Upstream has no multicol.
+
+A block container's style may carry `multicol: Some(Multicol { count, width,
+gap, used_height, overflow })` (`style::block`). Such a container:
+
+- **is its own formatting context**: it joins both of `block.rs`'s
+  conditions, the one that chooses a new `BlockFormattingContext` in
+  `compute_block_layout` (so it shares no floats with its parent) and the one
+  in `compute_inner` that keeps its first child's top margin inside (Chrome
+  154: 30px below the container's top);
+- **lays its in-flow children out as one column of the used column width W**,
+  CSS Multi-column Layout 1 §3.4 over its content-box width U
+  (`Multicol::columns`): W is their available width and their basis for
+  percentage widths (Chrome: `width: 50%` is 100px in a 400px two-column
+  box). A content-sized U is the content's width as one column, which the
+  columns then divide (LLP 1093 D10.5 declares it);
+- **takes `used_height` only at `container_outer_height`**, after its
+  children: the columns' content-box height the caller cut, plus the box's
+  vertical padding and border, then the existing `min-height`/`max-height`
+  clamp. It never reaches `style.size`, `known_dimensions` or the percentage
+  basis, so children keep their inputs and their cache entries. While it is
+  set the box gives its children no percentage-height basis at all, even
+  where a parent hands its height back as known (an absolute box's solver, a
+  stretched flex item): that height was not definite before the flow thread
+  was laid out, and resolving against it fed back into the cut;
+- **reports `overflow` as its scrollable overflow** once the caller has cut
+  the columns, in place of the flow thread's, so ancestors see the columns.
+
+Every container without the field is unchanged. **Held by**
+`kernel/tests/it/browser_columns.rs` (Chrome 154, 73 cases) and
+`layout_equality::multicol_relayout_is_result_equal_to_full_relayout`
+(incremental equals rehydrated equals replayed; 3,000 seeds once, 16 checked
+in), beside the 512-tree comparison Patch 7 left behind.

@@ -2035,6 +2035,33 @@
       ],
       "default": "none"
     },
+    "ColumnFill": {
+      "_comment": "@ref LLP 1093 D5: CSS `column-fill`. balance: the columns are as short as the content allows (within a definite height or under `max-height`); auto: each column is filled to the column height in turn. `balance-all` is refused by the compiler.",
+      "values": [
+        "balance",
+        "auto"
+      ],
+      "default": "balance"
+    },
+    "BreakBetween": {
+      "_comment": "@ref LLP 1093 D3/D4: CSS `break-before`/`break-after` in a multi-column flow (Fragmentation 3 \u00a73.1). column forces a break; avoid and avoid-column make a break there a last choice. The page and region values are refused by the compiler.",
+      "values": [
+        "auto",
+        "avoid",
+        "column",
+        "avoid-column"
+      ],
+      "default": "auto"
+    },
+    "BreakInside": {
+      "_comment": "@ref LLP 1093 D4: CSS `break-inside` (Fragmentation 3 \u00a73.2): avoid and avoid-column make every break inside the box a last choice. avoid-page and avoid-region are refused by the compiler.",
+      "values": [
+        "auto",
+        "avoid",
+        "avoid-column"
+      ],
+      "default": "auto"
+    },
     "Hyphens": {
       "_comment": "CSS `hyphens` (Text 3 \u00a75.4, the reader diary). manual: a soft hyphen (U+00AD) is a break that shows a hyphen; none: it is not a break, so the kernel's runs carry U+034F in its place (as invisible, the same length in UTF-8 and UTF-16, no break opportunity); auto: also the hyphenation points of the document's language, where the host has a dictionary (the web, Apple; Linux has none and declares it, LLP 1001).",
       "values": [
@@ -3251,6 +3278,84 @@
         0
       ],
       "_comment": "CSS `translate`'s percentages, of the node's own border box (chess diary #4: `-50% -50%` centres a box), set with the lengths by the one `translate` attribute: the used x is `translate.x + translate_percent.x / 100 \u00d7 width`, y likewise, resolved where the box's size is known (the presenter, at paint). The engine animates both rows as one `translate` value, its percentages componentwise as CSS interpolates a `calc()`."
+    },
+    {
+      "bit": 180,
+      "field": "column_count",
+      "codec": "u16",
+      "layout": true,
+      "default": 0,
+      "_comment": "@ref LLP 1093 D1: CSS `column-count`; 0 is `auto`. A block container whose `column-count` or `column-width` is not auto is a multi-column container."
+    },
+    {
+      "bit": 181,
+      "field": "column_width",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto",
+      "_comment": "@ref LLP 1093 D1: CSS `column-width`, a length or auto (no percentage, as CSS). The used count and width are Multi-column Layout 1 \u00a73.4's, over the content-box width and the gap. The gap is `column-gap` when set, else the element's own font size (CSS's `normal`, 1em)."
+    },
+    {
+      "bit": 182,
+      "field": "column_fill",
+      "codec": "enum:ColumnFill",
+      "layout": true
+    },
+    {
+      "bit": 183,
+      "field": "column_rule_width",
+      "codec": "f32",
+      "default": 3,
+      "_comment": "@ref LLP 1093 \u00a71, D7: CSS `column-rule-width`; `thin`, `medium` (the initial value) and `thick` are 1, 3 and 5 points."
+    },
+    {
+      "bit": 184,
+      "field": "column_rule_style",
+      "codec": "enum:BorderStyle",
+      "_comment": "@ref LLP 1093 \u00a71, D7: CSS `column-rule-style`, the styles the hosts paint for borders; the others are refused by the compiler."
+    },
+    {
+      "bit": 185,
+      "field": "column_rule_color",
+      "codec": "current-color",
+      "default": "currentcolor"
+    },
+    {
+      "bit": 186,
+      "field": "widows",
+      "codec": "u16",
+      "inherited": true,
+      "layout": true,
+      "default": 2,
+      "_comment": "@ref LLP 1093 D4: CSS `widows`, a positive integer: the fewest lines of a paragraph a break may leave for the next column. Chrome applies the initial 2 to every paragraph in a multi-column flow, so the kernel does too."
+    },
+    {
+      "bit": 187,
+      "field": "orphans",
+      "codec": "u16",
+      "inherited": true,
+      "layout": true,
+      "default": 2,
+      "_comment": "@ref LLP 1093 D4: CSS `orphans`, a positive integer: the fewest lines of a paragraph a break may leave in its column."
+    },
+    {
+      "bit": 188,
+      "field": "break_before",
+      "codec": "enum:BreakBetween",
+      "layout": true
+    },
+    {
+      "bit": 189,
+      "field": "break_after",
+      "codec": "enum:BreakBetween",
+      "layout": true
+    },
+    {
+      "bit": 190,
+      "field": "break_inside",
+      "codec": "enum:BreakInside",
+      "layout": true
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

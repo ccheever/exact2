@@ -468,7 +468,7 @@ extension TextEngine {
 
 extension NodeView {
     var readerParagraph: RegionReaderParagraph? {
-        guard flowShapes.isEmpty else { return nil }
+        guard flowShapes.isEmpty, columnRecord == nil else { return nil }
         return text?.readerParagraphs[id]
     }
 }

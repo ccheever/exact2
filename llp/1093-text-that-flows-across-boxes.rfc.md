@@ -1,7 +1,7 @@
 # LLP 1093: Text that flows across boxes — CSS multi-column, and the break rules that only mean something with it
 
 **Type:** RFC
-**Status:** Accepted (r4, by the orchestrator under Charlie's delegation after three review rounds; Grok 4.7 only — Codex budget exhausted; round-3 findings folded unreviewed — the implementation review checks them), 2026-10-05.
+**Status:** Accepted (r4, by the orchestrator under Charlie's delegation after three review rounds; Grok 4.7 only — Codex budget exhausted; round-3 findings folded unreviewed — the implementation review checks them), 2026-10-05. Stage 1, stage 2's Apple half and the reader port built (§7, As built).
 - r1 was reviewed with two scopes: CSS fidelity against Chrome 154 (`llp/reviews/1093-r1.grok-a.md`) and kernel and host implementation (`llp/reviews/1093-r1.grok-b.md`). Both were NOT READY.
 - r2 had a delta review (`llp/reviews/1093-r2.grok.md`): NOT READY, with five MATERIAL findings.
 - r3 had the final round (`llp/reviews/1093-r3.grok.md`): NOT READY, with four MATERIAL findings.
@@ -301,7 +301,64 @@ Not taken:
 
 ## 7. As built
 
-Nothing yet.
+### Stage 1 (kernel, Contract, Linux, web), 2026-10-04
+
+- **Rows.** Bits 180–190 in `schema.json`: `column_count` (`u16`, 0 is `auto`), `column_width`, `column_fill`, `column_rule_width` (3, `medium`), `column_rule_style`, `column_rule_color` (`currentcolor`), `widows` and `orphans` (inherited, 2), `break_before`, `break_after`, `break_inside`, with enums `ColumnFill`, `BreakBetween` and `BreakInside`. The unset `column-gap` is the element's font size on a multicol container (`fragment::gap`), and Taffy's engine gap keeps the row's 0.
+- **Taffy Patch 27** (`vendor/taffy/EXACT-PATCHES.md`), as D2 says, with one addition. While `used_height` is set, the container gives its children no percentage-height basis at all, even where a parent hands its height back as known. The equality differential found the case: an auto-height, absolutely positioned multicol root. Taffy's absolute solver lays it out again at its measured height, so `height: 84%` resolved against the used height and the cut never reached a fixed point. Chrome's basis there is indefinite too. The patch also reports the cut's overflow as the container's scrollable overflow, so ancestors see the columns, not the flow thread.
+- **The cut** is `kernel/src/fragment.rs` (state, `Kernel::fragments`, `Kernel::columns`, `Kernel::fragment_refusal`, `settle`), `fragment/build.rs` (the flow thread as atoms) and `fragment/cut.rs` (the walk, the balancer, the placements). D3–D5 are as written. These details were decided in code:
+  - A fragmentable box's top and bottom inset are glued to its first and last atom. The break before a box is then the break before its first child, so forced breaks propagate outward with no extra rule.
+  - A better candidate, or a later one of the best appeal, may lie between the lines of a paragraph the column holds whole. When the column's best break is not perfect, or not the last candidate, the walk asks for those paragraphs' lines and walks the column again (Chrome: a widows violation beats a `break-after: avoid`).
+  - Balancing starts from the runs between forced breaks: each run takes the columns its height asks for, and the guess is the tallest run's share (Chrome: four forced one-line runs in two columns are 20px tall, not 40). The guess is also raised to the tallest unit a walk had to take whole. A paragraph whose host gives no line boxes is one such unit; this was found driving macOS, where paragraphs stay whole until stage 2.
+  - A middle break scores `widows` against every line after it, as Chrome does. This is the `a middle break keeps widows` case, measured before the code.
+  - The cut is stored and replaced as a whole. Every old record is cleared before any new one is written, so a box that moved between flows is placed by its new container. A destroyed container takes its boxes' placements with it, and a container under `display: none` drops its record.
+  - After the first cut, the extra engine pass writes only used heights and overflow. A container is cut again only when its used height appeared or went, its box resized, it holds a container whose height moved, or its overflow counts absolutely positioned boxes.
+- **D10.5 as built.** A content-sized multicol takes its content's width as one column, then divides that width into its N columns. In a flex row Taffy's final layout hands the item a known width, so the r4 text's "one column, N = 1" could hold only for intrinsic probes.
+- **D6.** `TextMeasurer::lines` defaults to nothing. `MonospaceMeasurer` answers by arithmetic, and Linux answers from its paragraph's line boxes (`Paragraph::line_bottoms`, kept beside the baselines). The kernel asks only when a paragraph would cross a column's end, and asks for no second measure.
+- **Contract** (`contract/lower`): `columns`, `column-count` (with `auto`), `column-rule` (with `thin`/`medium`/`thick`), `column-rule-width` and every longhand lower to their rows. §1's refusals are diagnostics, each saying what to write. `column-span` and `page-break-*` are refused by name. Multicol rows on `row`, `column` or a literal `display` of flex or grid are refused with "write `view`". These replace `fix/typo`'s refusals.
+- **Web.** The rows reach CSS by their own names: `column-count` 0 is `auto`, and `column-count`, `widows` and `orphans` are unitless. On both web targets `layout <node>` prints a fragmented box's `getClientRects`. The web's `tap` already aims inside a client rect.
+- **Linux.** The paragraph arm moved out of `paint.rs` (now 1,437 lines) into `host/linux/src/paint/fragments.rs`, beside `paint`'s other parts rather than at the crate root, so it reaches `paint`'s private walk:
+  - A fragmented paragraph is laid out at its own width and painted once per fragment at the fragment's offset, clipped to the fragment.
+  - `column-rule` is a rectangle centred in each gap between two columns that hold a box.
+  - `hit` accepts a point only inside a fragment, and `tap` aims at the first fragment's centre.
+- **Agent (D12).** The runner's node detail gives every native host's `layout <node>` a box's `column_fragments` (with line ranges), a container's `columns` (with `holds`) and a D10 refusal. The key is `column_fragments` because `fragments` already means wrap-flow's line fragments. `scripts/agent-inspect.mjs` prints all three. D10's refusals reach `LayoutReceipt::fragment_skipped`; native hosts journal each once (`Runner::report_fragment_skipped`).
+- **Tests.**
+  - `kernel/tests/it/browser_columns.rs` with `fixtures/browser_columns.tsv`: 73 Chrome 154.0.8037.98 cases measured by `getClientRects`. Every D1–D7 result the LLP cites is among them. 61 are parity. 12 are D10 rows, each carrying the kernel's own rects, scroll sizes and line starts. Line starts are compared through `Kernel::fragments`.
+  - `layout_equality::multicol_relayout_is_result_equal_to_full_relayout`: 16 seeds are checked in; 3,000 ran once. The random trees also draw multicol rows from the side stream.
+  - The cut's unit tests (`fragment/tests.rs`).
+  - Contract's `typography.rs`.
+  - The web host's `css_tests`.
+  - Linux's `pinned/text.rs`: paint, hit, tap and `layout` on a paragraph across two columns with a rule.
+- **§3, measured** (M-series Mac, release; `fragment::tests::multicol_probe`, ignored, async lane):
+  - 400 paragraphs in 37 columns lay out in 0.98–1.06 ms, against 0.90–0.94 ms as one column: +8% to +12%, at the +10% target.
+  - One cut is about 0.07 ms.
+  - A one-word edit in the last column relays in about 0.075 ms.
+  - A balanced three-column, 400-paragraph container takes 2 walks.
+- **Driven.** A scratch app (paged flow, `translate` page turns, a balanced block with a rule) was driven with `agent web`, `agent linux` (its plan on `caltrain-linux`) and `agent macos`. Web and Linux page alike; macOS places every box in its column but keeps paragraphs whole. The reader was not ported: that is stage 2, and it waits on the element resize event, which has not landed.
+- **Not built in stage 1:** the Apple half (stage 2, below); `TextParityMacTests`; the reader port.
+
+### Stage 2, Apple's half, 2026-10-04
+
+- **D6.** `exact_set_lines` (`host/apple/src/abi/exports.rs`) registers an `ExactLinesFn` hook. It takes the measure request and returns each line box's bottom, and `CallbackMeasurer::lines` calls it. `EXACT_ABI_VERSION` is 12. Swift's `Runtime.setMeasure` registers `TextEngine.linesText` with the measurer. The hook answers from the paragraph the presenter paints at that width (`requestSpec`, which is now `measure`'s own spec construction, and `Paragraph.lineBottoms`).
+- **D7.** A `fragments` op beside `sticky` (`Batch::fragments`, `Host::emit_fragments`) carries each box's fragments in its own frame and each container's columns. It is sent when a record changes and cleared when one goes. `Kernel::fragmented` lists what a host must read.
+- **D8, as built:**
+  - `host/apple/Sources/ExactKit/Columns.swift`. A fragmented paragraph is laid out at its unfragmented width (`paragraphBox`) and drawn once per fragment in its own view: clipped to the fragment and moved by its offset (`eachFragment`, called from `draw` on both platforms). It is not one layer per fragment, so a paragraph across a gap backs one layer as wide as its union. Text rasters and the content-region reader paragraph stand aside for it.
+  - `column-rule` is a layer under the container's children, one rectangle per gap between two columns that both hold a box. It is rebuilt on the record and on a restyle.
+  - Hits follow Linux's rule: both `hitTest` overrides refuse a point in the union's gap.
+  - One map, the fragment's rectangle less its offset, feeds `TextSelectionMac`'s `line`, `index` and `draw` and `InlineText.textOffset`. The caret's map snaps a gap point to the nearest fragment, so a selection dragged across a gap keeps its focus.
+- **D12.** The Apple agents' `tap` aims at the first fragment's centre (`tapBox`).
+- **Tests and drives.**
+  - `TextParityMacTests.testAParagraphInColumnsBreaksAsChromesColumns`: the paragraph's lines at the column width equal Chrome 154's columns, and its line boxes are 20px apart.
+  - The scratch app on macOS: a three-column block with a rule matches the web's screenshot, line for line. A drag selection across the column boundary picks exactly the text the web picks ("teen seventeen "). A tap lands in the first fragment.
+  - The scratch app on iOS: the same split.
+  - The Swift host tests' three macOS failures (`BorderParityMacTests`, `BoxPaintMacTests`, `ClipMacTests`) fail on the base too.
+
+### The reader, 2026-10-05
+
+Stage 2's last part. The app lives in `~/projects/x2apps/reader` and is not edited there; the port is a patch against that tree.
+
+- **One flow.** The chapter is a single column wide and a page tall, `column-fill: auto`, so columns past the window are overflow columns, one page each (D5). A spread is `column-count: 2` on a window two pages wide. A turn translates the flow by one column and its gap, or by two for a spread (D11). `column-count: 1` on a container one column wide is the same used width as `column-width` of that measure (D1).
+- **Where the pages are read.** `resize` on the flow and on the chapter (`measured`). `frame("flow-end")`, an empty block after the last paragraph, is the last page; the first paragraph that starts on the page shown is the anchor a later resize finds again. The flow's own `translate` cancels, because `frame()` follows it on both reads. The 100 ms settle timer, the line-grid page height and the duplicated `r-` chapter are gone.
+- **Driven** on web and macOS (`bun exact.mjs test`, which is `scripts/agent.mjs`). The eleven authored tests pass on both with the same page counts, plus one: a resize keeps the paragraph the page starts with. At 1200×800 Chapter I is 8 pages and page 3 starts at `p7`; at 800×600 that paragraph is page 4 of 12; at 1400×860 the spread is 9 pages, turned two at a time. A page of each, and the resized page, was screenshotted on both hosts.
 
 ## 8. Questions, as decided (orchestrator for Charlie, 2026-10-05)
 

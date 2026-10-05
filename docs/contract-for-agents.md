@@ -1240,11 +1240,25 @@ a paragraph's last line. `text-indent` is a length (`text-indent="1.5em"`,
 `hyphens` is `manual` by default: a soft hyphen (U+00AD, written as the character itself or from data) breaks
 and shows a hyphen; `none` ignores it; `auto` also hyphenates by the document's
 language on the web and Apple (Linux has no dictionary and breaks only at soft
-hyphens). `widows`, `orphans`, `break-*` and multi-column (`columns`,
-`column-count`) are refused: nothing fragments a paragraph across boxes yet, so
-page a fixed-height column by translating it (LLP 1001 §6). Multi-column and its
-break rules are planned in LLP 1093 (admitted, not yet built); the refusals stay
-until it lands.
+hyphens).
+
+Multi-column layout is CSS's (LLP 1093). A `view` (or a `text`) with
+`column-count`, `column-width` or `columns="12em 3"` flows its content through
+columns of one width, separated by `column-gap` (unset, 1em) and an optional
+`column-rule="1px solid #ccc"`. `column-fill` is `balance` (the initial value:
+columns as even as the content allows) or `auto` (each column filled to the
+height in turn). Give the box a `height` and its overflow columns continue
+sideways, one per page: that is how a reader pages a chapter, moving the
+container by `translate` a page width plus a gap at a time, and reading where
+the flow ends with `frame()` of an empty `view` after the last paragraph.
+`widows` and `orphans` (2 by default, inherited) keep a paragraph's first and
+last lines off a column's edge; `break-before`/`break-after` take `column`,
+`avoid`, `avoid-column`; `break-inside` takes `avoid`. On native hosts a box
+that has its own height, a background, a border or a shadow, a row flexbox or
+a grid, is kept whole in one column where Chrome would split it; the journal
+says so once per box. Refused, each saying what to write: `column-span`, page
+and region breaks, `balance-all`, dashed or dotted rules, and multi-column rows
+on `row` or `column` (CSS ignores them on flex and grid; write `view`).
 
 `textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
 height and `field-sizing="content"` override it. `maxlength=80` on text inputs

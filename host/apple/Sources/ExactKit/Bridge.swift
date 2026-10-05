@@ -97,7 +97,11 @@ final class Runtime {
     /// The text measurer (`TextEngine.measure`) and its context.
     func setMeasure(_ measure: ExactMeasureFn?, ctx: UnsafeMutableRawPointer?) {
         let ctx = UInt(bitPattern: ctx)
-        on { exact_set_measure(rt, measure, UnsafeMutableRawPointer(bitPattern: ctx)) }
+        // Its paragraphs' line boxes too, for multi-column flows (LLP 1093 D6).
+        on { () -> Void in
+            exact_set_measure(rt, measure, UnsafeMutableRawPointer(bitPattern: ctx))
+            exact_set_lines(rt, measure == nil ? nil : TextEngine.linesText)
+        }
     }
     /// The plan-font hook a boot calls synchronously, with its context.
     func setFonts(_ fonts: ExactFontsFn?, ctx: UnsafeMutableRawPointer?) {

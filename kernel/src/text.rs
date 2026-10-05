@@ -313,6 +313,19 @@ pub trait TextMeasurer {
     ) -> Option<TextMetrics> {
         None
     }
+
+    /// @ref LLP 1093 D6 — each line box's bottom, in content coordinates, of
+    /// the paragraph the last measure of `request` built: where a column may
+    /// end inside it. The kernel asks only for a paragraph that would cross a
+    /// column's end. A measurer that answers nothing keeps every paragraph
+    /// whole.
+    fn lines(
+        &mut self,
+        _stamp: &ParagraphStamp,
+        _request: &TextMeasureRequest<'_>,
+        _bottoms: &mut Vec<f32>,
+    ) {
+    }
 }
 
 /// Deterministic reference measurer: every glyph advances `advance_em` ems
@@ -545,6 +558,25 @@ impl TextMeasurer for MonospaceMeasurer {
             width,
             height,
             first_baseline: Some(line_height * self.baseline_frac),
+        }
+    }
+
+    /// Every line is one line height, so each bottom is a multiple of it.
+    fn lines(
+        &mut self,
+        _stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+        bottoms: &mut Vec<f32>,
+    ) {
+        let height = self.measure(request).height;
+        let line_height = request
+            .runs
+            .iter()
+            .map(|run| self.line_height(&run.style))
+            .fold(self.line_height(&request.paragraph.strut), f32::max);
+        if line_height > 0.0 {
+            let count = (height / line_height).round() as usize;
+            bottoms.extend((1..=count).map(|i| line_height * i as f32));
         }
     }
 }

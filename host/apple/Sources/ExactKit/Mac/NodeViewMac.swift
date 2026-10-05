@@ -61,6 +61,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var textRasterPending = false
     var textRasterUsesStrips = false
     var flowShapes: [TextFlowShape] = []
+    var columnRecord: ColumnRecord?  // LLP 1093 D7: fragments or columns
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
     var liveText: String?
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
@@ -674,6 +675,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true, let point = spaceHit(point) else { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
+        if !fragmentHit(convert(point, from: superview)) { return nil }
         if isSurfaceControl, bounds.contains(convert(point, from: superview)) { return self }
         func ordinary() -> NSView? {
             let found = raisedHit(super.hitTest(point), point) ?? overflowHit(point)
@@ -1027,7 +1029,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     func applyStyle(_ s: NodeStyle) {
-        defer { video?.update() }
+        defer { video?.update(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
         layerPaintCache = nil
         let origin = style["transform_origin"]
         let old = style
@@ -1349,9 +1351,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                     readerParagraph.draw(self, in: ctx, dirty: textDirty)
                 }
             } else if let ctx = NSGraphicsContext.current?.cgContext, let paragraph = paragraphLayout() {
-                presenter?.selection.draw(self, paragraph: paragraph, spec: spec, dirty: textDirty)
-                paintBackgroundThroughText(ctx, paragraph: paragraph, spec: spec, in: contentBox())
-                TextEngine.draw(paragraph, spec: spec, in: contentBox(), context: ctx, dirty: textDirty)
+                drawParagraphFragments(ctx, paragraph: paragraph, spec: spec, dirty: textDirty)
             }
         }
         if Capture.capturing, let picture = Capture.web[id] {

@@ -234,6 +234,10 @@ function renderNode(n) {
   if (n.flow_skipped ?? n.flow?.skipped) out.push(`  flow skipped: ${n.flow_skipped ?? n.flow.skipped}`);
   // @ref LLP 1043.000 §3 D6 — painted fragments retain logical byte ranges.
   for (const f of n.fragments ?? n.flow?.fragments ?? []) out.push(`  fragment bytes ${f.start}..${f.end} · band ${f.band ?? f.line} · ${f.x},${f.y} ${f.width}×${f.height ?? n.flow?.line_height} (leaf content box)`);
+  // @ref LLP 1093 D12 — a box a multi-column flow breaks, and a container's columns.
+  for (const f of n.column_fragments ?? []) out.push(`  column fragment ${f.x},${f.y} ${f.w}×${f.h}${f.lines ? ` · lines ${f.lines[0]}..${f.lines[1]}` : ''}`);
+  for (const c of n.columns ?? []) out.push(`  column ${c.x},${c.y} ${c.w}×${c.h}${c.holds ? '' : ' · holds nothing'}`);
+  if (n.fragment_skipped) out.push(`  kept whole in its column: ${n.fragment_skipped}`);
   const sp = n.space ?? {};
   out.push(`  space viewport ${box(sp.viewport)}${n.frame ? ` · frame ${box(n.frame)} (kernel, in the parent)` : ''}${sp.window ? ` · window ${box(sp.window)}` : ''}${sp.screen ? ` · screen ${box(sp.screen)}` : ''}${sp.capture?.scale != null ? ` · scale ${sp.capture.scale}` : ''}`);
   if (n.scroll?.length) out.push(`  scroll ${n.scroll.map((c) => `${c.id != null ? `#${c.id}` : 'viewport'} ${c.sx},${c.sy}`).join(' · ')}`);

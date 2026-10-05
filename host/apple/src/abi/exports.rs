@@ -49,6 +49,17 @@ macro_rules! host {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.measure = measure; e.hooks.ctx = ctx; });
         }
 
+        /// A paragraph's line boxes (LLP 1093 D6), called with the context
+        /// `exact_set_measure` was given; `None` keeps paragraphs whole in a
+        /// multi-column flow.
+        #[no_mangle]
+        pub extern "C" fn exact_set_lines(
+            rt: u32,
+            lines: ::std::option::Option<$crate::measure::LinesFn>,
+        ) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.lines = lines; });
+        }
+
         /// The Canvas 2D text measurer (LLP 1056 D8): called on the runtime's
         /// thread with the context `exact_set_measure` was given.
         #[no_mangle]

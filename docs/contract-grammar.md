@@ -691,8 +691,10 @@ no offset and sends none.
 resize event, `ResizeObserver`'s. Its action hears the content box's width
 and height after layout: once the element is first laid out, then whenever
 its content box changes size (a commit that leaves it alone says nothing; one
-under `display: none` reads 0 by 0). One more parameter hears the entry's
-`contentRect`, a `DOMRectReadOnly`: `x` and `y` the padding's left and top,
+under `display: none` reads 0 by 0). A box that straddles the columns of a
+multi-column flow is one column wide and as tall as its pieces end to end, as
+Chrome reports it, while `frame()` answers its union (LLP 1093 D11). One more
+parameter hears the entry's `contentRect`, a `DOMRectReadOnly`: `x` and `y` the padding's left and top,
 `width`, `height`, `top`, `right`, `bottom`, `left`. The web observes with
 the browser's `ResizeObserver`; a native host delivers after its layout and
 lays out again before the next round, each round only to elements deeper than

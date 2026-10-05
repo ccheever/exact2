@@ -11,6 +11,8 @@
 //! [`LayoutError::Engine`], and the kernel rebuilds the tree from the columns.
 #[cfg(test)]
 mod containment_tests;
+#[cfg(test)]
+mod differential_tests;
 mod hoist;
 mod order;
 mod publication;
@@ -49,6 +51,10 @@ pub struct LayoutReceipt {
     /// Intersecting auto-height paragraphs that auto-height flow refused, in
     /// preorder; each names its `FlowRefusal` (LLP 1043.000 §8).
     pub flow_skipped: Vec<NodeKey>,
+    /// Boxes a multi-column flow kept whole across a column's end where
+    /// Chrome would fragment them; each names its `FragmentRefusal` (LLP
+    /// 1093 D10).
+    pub fragment_skipped: Vec<NodeKey>,
     /// Additional Taffy layouts performed by auto-height flow settlement.
     pub flow_passes: usize,
     /// Whole target-set comparisons, including the final comparison.
@@ -933,6 +939,12 @@ impl LayoutTree {
                         // the host paints, not at the wider border box.
                         from_available(space.width)
                     };
+                    // @ref LLP 1093 D1 — a multi-column `text` breaks its
+                    // lines at the column width; its height is the columns'.
+                    let width = match (style.multicol, known.width) {
+                        (Some(m), Some(u)) => AxisOffer::Definite(m.columns(u).1),
+                        _ => width,
+                    };
                     let height = from_available(space.height);
                     // Reuse before flattening runs or crossing the host seam. Height
                     // stays in the key, and the 0.14 proof above updates on hits too.
@@ -1000,6 +1012,9 @@ impl LayoutTree {
                         metrics
                     };
                     let mut metrics = metrics;
+                    if let Some(h) = style.multicol.and_then(|m| m.used_height) {
+                        metrics.height = h;
+                    }
                     if arena.node_type(slot) == NodeType::TextInput
                         && arena.style(slot).field_sizing == FieldSizing::Fixed
                         && arena.props(slot).str(crate::PropId::SemanticTag) == Some("textarea")
@@ -1235,6 +1250,7 @@ pub fn compute(
     tree.compute(root, offer, arena, measurer)?;
     let (flow_passes, flow_comparisons) =
         tree.settle_flow(root, root_slot, offer, arena, measurer)?;
+    crate::fragment::settle(arena, tree, measurer, root_slot, offer)?;
     let mut receipt = publication::publish(arena, tree, root_slot);
     receipt.flow_passes = flow_passes;
     receipt.flow_comparisons = flow_comparisons;

@@ -884,13 +884,29 @@ the document language's hyphenation points (no `lang`: the web page's `en`).
 Declared: **Linux has no hyphenation dictionary**, so `auto` breaks there only
 at soft hyphens, logging it once; Apple hyphenates by the document's language,
 not an element's `lang`; text flowed around exclusions and a content region
-take no `text-indent` and no `auto` points. What needs fragmentation, a
-paragraph continuing from one box into the next, is refused by name: `widows`,
-`orphans`, the `break-*` properties and multi-column layout (`columns`,
-`column-count`, ...); Taffy has no fragmentation and there is no paged
-context, so they could change nothing. LLP 1093 (admitted 2026-10-05, not
-yet built) is the planned home of multi-column and its break rules; the
-refusals stay until its stages land.
+take no `text-indent` and no `auto` points.
+
+**Multi-column layout** (LLP 1093, stage 1 built 2026-10-04). Bits 180–190:
+`column_count` (`u16`, 0 is `auto`), `column_width`, `column_fill`,
+`column_rule_width`/`_style`/`_color`, `widows` and `orphans` (inherited, 2),
+`break_before`/`_after`/`_inside`. A block container with either column row
+is laid out once as one column of the used column width (Taffy Patch 27),
+then cut into columns by `kernel/src/fragment` as Chrome 154 breaks; boxes are
+published translated into their columns, and a box that straddles columns is
+published as its union frame with `Kernel::fragments`. Declared (LLP 1093
+D10), each journalled once per box it touches: a box with a `height`,
+`min-height` or `max-height`, a row or wrapping flexbox, a grid, a nested
+multi-column box taller than its column, a box with its own background,
+border, radius, shadow, filter or clip, and one-node Markdown are kept whole
+in one column where Chrome fragments them (fixed-height items in a column
+flexbox too, their gap truncated); an absolutely positioned box is never
+fragmented; a content-sized multi-column box takes its content's width as one
+column and divides it; under `rtl` overflow columns left of the box are
+painted and clipped but not scrollable on native hosts. `position: sticky`
+inside a flow is `relative`. `column-span`, paged media and regions are
+refused by name. A host's text engine answers a paragraph's line boxes
+(`TextMeasurer::lines`; Apple's `exact_set_lines`, ABI 12); one that answers
+none keeps every paragraph whole.
 
 **CSS line height** (LLP 1035.000.000, 2026-09-11). Bit 72 uses the
 `line-height` codec: `Normal` (schema default), `Number(ratio)`, or

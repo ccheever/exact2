@@ -623,6 +623,43 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         s.push_str(",\"flow_skipped\":");
         quote(refusal.message(), &mut s);
     }
+    // @ref LLP 1093 D12 — a box's fragments and a container's columns, in
+    // the root's space as `absolute` is.
+    let rect = |s: &mut String, x: f32, y: f32, w: f32, h: f32| {
+        let _ = write!(
+            s,
+            "\"x\":{},\"y\":{},\"w\":{},\"h\":{}",
+            num(x as f64),
+            num(y as f64),
+            num(w as f64),
+            num(h as f64)
+        );
+    };
+    if let Some(frags) = kernel.fragments(node.key) {
+        s.push_str(",\"column_fragments\":[");
+        for (i, g) in frags.iter().enumerate() {
+            s.push_str(if i > 0 { ",{" } else { "{" });
+            rect(&mut s, f.x + g.x, f.y + g.y, g.width, g.height);
+            if g.lines.1 > g.lines.0 {
+                let _ = write!(s, ",\"lines\":[{},{}]", g.lines.0, g.lines.1);
+            }
+            s.push('}');
+        }
+        s.push(']');
+    }
+    if let Some(columns) = kernel.columns(node.key) {
+        s.push_str(",\"columns\":[");
+        for (i, c) in columns.columns.iter().enumerate() {
+            s.push_str(if i > 0 { ",{" } else { "{" });
+            rect(&mut s, f.x + c.x, f.y + c.y, c.width, c.height);
+            let _ = write!(s, ",\"holds\":{}}}", c.holds);
+        }
+        s.push(']');
+    }
+    if let Some(refusal) = kernel.fragment_refusal(node.key) {
+        s.push_str(",\"fragment_skipped\":");
+        quote(refusal.message(), &mut s);
+    }
     if node.content != (0.0, 0.0) {
         let _ = write!(
             s,

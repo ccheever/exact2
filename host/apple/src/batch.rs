@@ -516,6 +516,15 @@ impl Batch {
             .push(format!("{{\"op\":\"rank\",\"id\":{id},\"rank\":{rank}}}"));
     }
 
+    /// `{"op":"fragments","id":…,"fragments":[[x,y,w,h,first,end,dx,dy],…],
+    /// "columns":[[x,y,w,h,holds],…]}` — a box's fragments in its own frame
+    /// and a container's columns in its border box (LLP 1093 D7), or
+    /// `{"op":"fragments","id":…}` when it has neither any more.
+    pub fn fragments(&mut self, id: u32, record: &str) {
+        self.ops
+            .push(format!("{{\"op\":\"fragments\",\"id\":{id}{record}}}"));
+    }
+
     /// `{"op":"sticky","id":…,"scroller":…,"natural":[…],"limit":[…],
     /// "port":[…],"insets":[…]}` — a sticky box's constraint (LLP 1083 D3),
     /// or `{"op":"sticky","id":…}` when it is no longer sticky.
@@ -814,4 +823,53 @@ mod tests {
         assert!(wire.contains(r#""refusal":"outside the app's grants""#));
         assert!(!wire.contains("body"));
     }
+}
+
+/// The fields of a `fragments` op ([`Batch::fragments`]), each with a leading comma.
+pub fn fragments_json(
+    fragments: Option<&[exact_kernel::fragment::Fragment]>,
+    columns: Option<&exact_kernel::fragment::Columns>,
+) -> String {
+    let mut s = String::new();
+    let list = |s: &mut String, name: &str, rows: Vec<Vec<f32>>| {
+        let _ = write!(s, ",\"{name}\":[");
+        for (i, row) in rows.iter().enumerate() {
+            s.push_str(if i > 0 { ",[" } else { "[" });
+            for (j, v) in row.iter().enumerate() {
+                if j > 0 {
+                    s.push(',');
+                }
+                crate::style::push_num(s, *v);
+            }
+            s.push(']');
+        }
+        s.push(']');
+    };
+    if let Some(frags) = fragments {
+        let rows = frags
+            .iter()
+            .map(|g| {
+                vec![
+                    g.x,
+                    g.y,
+                    g.width,
+                    g.height,
+                    g.lines.0 as f32,
+                    g.lines.1 as f32,
+                    g.dx,
+                    g.dy,
+                ]
+            })
+            .collect();
+        list(&mut s, "fragments", rows);
+    }
+    if let Some(c) = columns {
+        let rows = c
+            .columns
+            .iter()
+            .map(|c| vec![c.x, c.y, c.width, c.height, f32::from(u8::from(c.holds))])
+            .collect();
+        list(&mut s, "columns", rows);
+    }
+    s
 }

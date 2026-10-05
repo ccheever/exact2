@@ -1331,28 +1331,9 @@ final class TextEngine {
         // Preserve measureSeconds as cache/layout work, excluding Run/Spec
         // decoding: a fallback adds its failed borrowed lookup interval below.
         let lookupSeconds = CACurrentMediaTime() - lookupStarted
-        func run(_ run: ExactTextRun) -> Run {
-            Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing), numeric: Int(run.font_variant_numeric))
-        }
-        let spec: Spec
-        if let knownIdentity {
-            // A new width needs layout, but exact borrowed matching already
-            // proved these owned runs and metric fields are the same request.
-            spec = knownIdentity.geometry
-        } else {
-            var runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
-            // Markdown source arrives as one run; the archive expands it the
-            // same way the presenter paints it (LLP 1045 D3).
-            if request.markup != 0, let source = runs.first { runs = MarkupRuns.expand(source.text, base: source, color: nil) }
-            // Metric-only keys match the geometry used by the colored presenter.
-            var made = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), direction: Int(request.direction), whiteSpace: Int(request.white_space), strut: run(request.strut))
-            made.textIndent = CGFloat(request.text_indent); made.hyphens = Int(request.hyphens)
-            if made.hyphens == 2, let lang = request.lang {
-                made.language = String(decoding: UnsafeBufferPointer(start: lang, count: request.lang_len), as: UTF8.self)
-            }
-            made.hyphenateAuto()
-            spec = made
-        }
+        // A new width needs layout, but exact borrowed matching already
+        // proved these owned runs and metric fields are the same request.
+        let spec = knownIdentity?.geometry ?? requestSpec(request)
         let started = CACurrentMediaTime()
         if request.exclusion_count > 0, let shapes = request.exclusions {
             let flow = UnsafeBufferPointer(start: shapes, count: request.exclusion_count).map(TextFlowShape.init)
@@ -1386,6 +1367,25 @@ final class TextEngine {
         }
         measureSeconds += lookupSeconds + (CACurrentMediaTime() - started)
         return metrics
+    }
+
+    /// The paragraph a request describes, as the presenter paints it.
+    func requestSpec(_ request: ExactMeasureRequest) -> Spec {
+        func run(_ run: ExactTextRun) -> Run {
+            Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing), numeric: Int(run.font_variant_numeric))
+        }
+        var runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
+        // Markdown source arrives as one run; the archive expands it the
+        // same way the presenter paints it (LLP 1045 D3).
+        if request.markup != 0, let source = runs.first { runs = MarkupRuns.expand(source.text, base: source, color: nil) }
+        // Metric-only keys match the geometry used by the colored presenter.
+        var made = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), direction: Int(request.direction), whiteSpace: Int(request.white_space), strut: run(request.strut))
+        made.textIndent = CGFloat(request.text_indent); made.hyphens = Int(request.hyphens)
+        if made.hyphens == 2, let lang = request.lang {
+            made.language = String(decoding: UnsafeBufferPointer(start: lang, count: request.lang_len), as: UTF8.self)
+        }
+        made.hyphenateAuto()
+        return made
     }
 
     /// The C ABI's synchronous font seam, invoked before the kernel asks its

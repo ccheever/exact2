@@ -310,6 +310,7 @@ impl TextEngine {
         let height = result.height;
         let mut layouts: Vec<Vec<LayoutLine>> = source.layout_line_slots();
         let mut baselines = Vec::new();
+        let mut bottoms = Vec::new();
         let mut slots = Vec::new();
         let mut band = u32::MAX;
         let fragment_count = fragments.len();
@@ -472,6 +473,7 @@ impl TextEngine {
                 decorations: Vec::new(),
             });
             baselines.push(f.y + data.baseline);
+            bottoms.push(f.y + data.height);
         }
         let measured_width = fragments
             .iter()
@@ -494,6 +496,7 @@ impl TextEngine {
             height,
             first_baseline: baselines.first().copied().unwrap_or(0.0),
             baselines: Arc::new(baselines),
+            bottoms: Arc::new(bottoms),
             ellipsized: RefCell::new(None),
             ink: RefCell::new(ink::Cache::default()),
             resident_capacity_bytes: 0,
