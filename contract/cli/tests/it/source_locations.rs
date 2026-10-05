@@ -299,6 +299,14 @@ fn two_files_declarations_are_two_however_alike() {
     let error = contract::compile_path(&root).unwrap_err();
     assert_eq!(error.id, "contract-use-duplicate");
     assert_eq!(error.span.line, 2);
+    // Splitter rough 1: the refusal names both files, not "different".
+    assert!(
+        error.message.contains("declared in two.contract")
+            && error.message.contains("the one declared in one.contract")
+            && error.message.contains("however alike"),
+        "{}",
+        error.message
+    );
     // Renamed, both load: the second is `Row__two` to the passes after.
     app.write("app.contract", "use Row from \"./one.contract\"\nuse Row as Other from \"./two.contract\"\ncomponent App\n  view\n    column\n      Row()\n      Other()\n");
     contract::compile_path(&root).unwrap();

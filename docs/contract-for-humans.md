@@ -137,8 +137,9 @@ this file. Any component, shape, `fn`, style,
 keyframes or timeline can be named; there is no `export` keyword.
 
 Two files may declare the same name: each file's references mean its own
-declaration. One name brought into a file twice from different declarations,
-or brought and also declared, is refused; rename one with `as`. Fonts stay
+declaration. One name brought into a file twice from two files' declarations
+(two however alike their text), or brought and also declared, is refused;
+declare it once and `use` it from that file, or rename one with `as`. Fonts stay
 app-wide, like CSS's `@font-face`.
 
 A `use` names one of three things:

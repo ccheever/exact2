@@ -511,14 +511,27 @@ impl Loader<'_> {
                                 n.span,
                             ))
                         }
-                        Some(_) => {
+                        Some(prior) => {
+                            // Named by the files that declare them: two
+                            // files' declarations are two however alike
+                            // their text (LLP 1091 D7; splitter rough 1
+                            // read "different" as a different text).
+                            let file = |name: &str| {
+                                unique
+                                    .iter()
+                                    .position(|own| own.values().any(|v| v == name))
+                                    .map(|i| self.shown(i))
+                                    .unwrap_or_default()
+                            };
                             return Err(name_error(
                                 "contract-use-duplicate",
                                 format!(
-                                    "`use {}` brings a {} `{}` that another `use` already brought from a different declaration; rename one with `as`",
+                                    "`use {}` brings the {} `{}` declared in {}, and another `use` already brought the one declared in {}: a declaration is its file's, however alike the two read (LLP 1091 D7); declare it once and `use` it from that file, or rename one with `as`",
                                     n.name,
                                     kind.what(),
-                                    n.local()
+                                    n.local(),
+                                    file(&to),
+                                    file(prior)
                                 ),
                                 n.span,
                             ))
