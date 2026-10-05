@@ -1,7 +1,7 @@
 # LLP 1093: Text that flows across boxes — CSS multi-column, and the break rules that only mean something with it
 
 **Type:** RFC
-**Status:** Accepted (r4, by the orchestrator under Charlie's delegation after three review rounds; Grok 4.7 only — Codex budget exhausted; round-3 findings folded unreviewed — the implementation review checks them), 2026-10-05. Stage 1 and stage 2's Apple half built 2026-10-04 (§7, As built); the reader port waits on the element resize event.
+**Status:** Accepted (r4, by the orchestrator under Charlie's delegation after three review rounds; Grok 4.7 only — Codex budget exhausted; round-3 findings folded unreviewed — the implementation review checks them), 2026-10-05. Stage 1, stage 2's Apple half and the reader port built (§7, As built).
 - r1 was reviewed with two scopes: CSS fidelity against Chrome 154 (`llp/reviews/1093-r1.grok-a.md`) and kernel and host implementation (`llp/reviews/1093-r1.grok-b.md`). Both were NOT READY.
 - r2 had a delta review (`llp/reviews/1093-r2.grok.md`): NOT READY, with five MATERIAL findings.
 - r3 had the final round (`llp/reviews/1093-r3.grok.md`): NOT READY, with four MATERIAL findings.
@@ -351,6 +351,14 @@ Not taken:
   - The scratch app on macOS: a three-column block with a rule matches the web's screenshot, line for line. A drag selection across the column boundary picks exactly the text the web picks ("teen seventeen "). A tap lands in the first fragment.
   - The scratch app on iOS: the same split.
   - The Swift host tests' three macOS failures (`BorderParityMacTests`, `BoxPaintMacTests`, `ClipMacTests`) fail on the base too.
+
+### The reader, 2026-10-05
+
+Stage 2's last part. The app lives in `~/projects/x2apps/reader` and is not edited there; the port is a patch against that tree.
+
+- **One flow.** The chapter is a single column wide and a page tall, `column-fill: auto`, so columns past the window are overflow columns, one page each (D5). A spread is `column-count: 2` on a window two pages wide. A turn translates the flow by one column and its gap, or by two for a spread (D11). `column-count: 1` on a container one column wide is the same used width as `column-width` of that measure (D1).
+- **Where the pages are read.** `resize` on the flow and on the chapter (`measured`). `frame("flow-end")`, an empty block after the last paragraph, is the last page; the first paragraph that starts on the page shown is the anchor a later resize finds again. The flow's own `translate` cancels, because `frame()` follows it on both reads. The 100 ms settle timer, the line-grid page height and the duplicated `r-` chapter are gone.
+- **Driven** on web and macOS (`bun exact.mjs test`, which is `scripts/agent.mjs`). The eleven authored tests pass on both with the same page counts, plus one: a resize keeps the paragraph the page starts with. At 1200×800 Chapter I is 8 pages and page 3 starts at `p7`; at 800×600 that paragraph is page 4 of 12; at 1400×860 the spread is 9 pages, turned two at a time. A page of each, and the resized page, was screenshotted on both hosts.
 
 ## 8. Questions, as decided (orchestrator for Charlie, 2026-10-05)
 
