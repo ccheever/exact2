@@ -1270,7 +1270,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         applyTransform()
         // Selection, capture, and decorated text return to direct painting.
         if textRasterUsesStrips {
-            textRasterOverflowLayer?.removeFromSuperlayer()
+            textRasterOverflowLayer?.dropTextCast(); textRasterOverflowLayer?.removeFromSuperlayer()
             textRasterOverflowLayer = nil
         } else if textRasterOverflowLayer != nil {
             dropTextRaster()

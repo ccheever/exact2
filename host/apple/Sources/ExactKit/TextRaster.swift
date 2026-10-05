@@ -30,6 +30,21 @@ struct TextRasterImage {
     /// The ink's peak: 0 for ordinary SDR, 1 for extended SDR storage,
     /// above 1 for HDR (LLP 1100 D8).
     var headroom: Float = 0
+    /// An HDR `text-shadow` alone, the same size, for a layer under the ink's.
+    #if os(iOS) || os(tvOS)
+    var cast: CGImage? = nil
+    #else
+    var cast: IOSurface? = nil
+    #endif
+    var castHeadroom: Float = 0
+}
+
+extension TextRasterImage {
+    #if os(iOS) || os(tvOS)
+    init(_ pixels: CGImage, frame: CGRect, covered: CGRect, headroom: Float) { self.init(image: pixels, frame: frame, covered: covered, headroom: headroom) }
+    #else
+    init(_ pixels: IOSurface, frame: CGRect, covered: CGRect, headroom: Float) { self.init(surface: pixels, frame: frame, covered: covered, headroom: headroom) }
+    #endif
 }
 
 struct TextRasterJob {
@@ -54,6 +69,9 @@ struct TextRasterJob {
     /// CSS `line-clamp`: the last line's range as it broke, made again
     /// ending in "…" (`TextEngine.clampedLine`, as layout made it).
     var clamped: CFRange? = nil
+    /// An HDR paragraph `text-shadow`, painted into `TextRasterImage.cast`:
+    /// Core Animation doesn't map a layer shadow's color to the limit.
+    var shadow: TextRunShadow? = nil
 
     static let maxInkOverflow: CGFloat = 256
     /// How far past the box a run's own `text-shadow` may reach in these
@@ -146,7 +164,11 @@ struct TextRasterJob {
                 let glyphs = CGRect(x: position.x + ink.minX, y: position.y - ink.maxY, width: ink.width, height: ink.height)
                 painted = painted.union(glyphs.insetBy(dx: -1 / scale, dy: -1 / scale))
                 // Runs' own shadows are in these pixels (LLP 1077 D3).
-                let shadows = TextRunShadow.reach(line, ink: glyphs)
+                var shadows = TextRunShadow.reach(line, ink: glyphs)
+                if let s = shadow {
+                    let spread = s.blur * 1.5 + 1
+                    shadows = shadows.union(glyphs.offsetBy(dx: s.offset.width, dy: s.offset.height).insetBy(dx: -spread, dy: -spread))
+                }
                 if !shadows.isNull {
                     painted = painted.union(shadows)
                     let most = bounds.insetBy(dx: -Self.maxShadowReach, dy: -Self.maxShadowReach)
@@ -183,6 +205,34 @@ struct TextRasterJob {
               pixelWidth < CGFloat(Int.max), pixelHeight < CGFloat(Int.max) else { return nil }
         let width = Int(pixelWidth), height = Int(pixelHeight)
         let (space, headroom, deep) = format
+        guard let pixels = bitmap(width: width, height: height, space: space, headroom: headroom, deep: deep, paint: {
+            paint(lines, positions, frame: frame, height: height, scale: scale, into: $0)
+        }) else { return nil }
+        var out = TextRasterImage(pixels, frame: frame, covered: covered, headroom: headroom)
+        if let shadow {
+            // Glyphs moved out of the bitmap, their shadow moved back in.
+            let away = frame.width + Self.maxShadowReach
+            let castHeadroom = max(1, ColorRange.headroom(shadow.color))
+            let moved = TextRunShadow(offset: CGSize(width: shadow.offset.width + away, height: shadow.offset.height), blur: shadow.blur, color: shadow.color)
+            out.cast = bitmap(width: width, height: height, space: Self.extended, headroom: castHeadroom, deep: true, paint: { ctx in
+                ctx.saveGState(); moved.set(on: ctx, scale: scale)
+                paint(lines, positions.map { CGPoint(x: $0.x - away, y: $0.y) }, frame: frame, height: height, scale: scale, into: ctx)
+                ctx.restoreGState()
+            })
+            out.castHeadroom = castHeadroom
+        }
+        return out
+    }
+
+    #if os(iOS) || os(tvOS)
+    private typealias Pixels = CGImage
+    #else
+    private typealias Pixels = IOSurface
+    #endif
+
+    /// One bitmap: `deep` is half float in extended sRGB, tagged with its
+    /// headroom; else four bytes a pixel.
+    private func bitmap(width: Int, height: Int, space: CGColorSpace, headroom: Float, deep: Bool, paint: (CGContext) -> Void) -> Pixels? {
         let pixelBytes = deep ? 8 : 4
         let bitmapInfo = deep
             ? CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.floatComponents.rawValue | CGBitmapInfo.byteOrder16Little.rawValue
@@ -201,6 +251,8 @@ struct TextRasterJob {
         guard let ctx = CGContext(data: surface.baseAddress, width: width, height: height, bitsPerComponent: deep ? 16 : 8,
                                   bytesPerRow: surface.bytesPerRow, space: space, bitmapInfo: bitmapInfo)
         else { return nil }
+        paint(ctx)
+        return surface
         #else
         // UIKit accepts a CGImage. Paint into a scratch bitmap and keep Core
         // Graphics' copy of it (`makeImage`), as ImageIO does for a decoded
@@ -211,19 +263,15 @@ struct TextRasterJob {
         let (row, rowOverflow) = (width * pixelBytes).addingReportingOverflow(63)
         let (bytes, overflow) = (row & ~63).multipliedReportingOverflow(by: height)
         guard !rowOverflow, !overflow else { return nil }
-        return withScratch(bytes) { scratch -> TextRasterImage? in
+        return withScratch(bytes) { scratch -> Pixels? in
             guard let ctx = CGContext(data: scratch, width: width, height: height, bitsPerComponent: deep ? 16 : 8,
                                       bytesPerRow: row & ~63, space: space, bitmapInfo: bitmapInfo)
             else { return nil }
-            paint(lines, positions, frame: frame, height: height, scale: scale, into: ctx)
+            paint(ctx)
             guard var image = ctx.makeImage() else { return nil }
             if deep, #available(iOS 18, tvOS 18, *), let tagged = CGImageCreateCopyWithContentHeadroom(headroom, image) { image = tagged }
-            return TextRasterImage(image: image, frame: frame, covered: covered, headroom: headroom)
+            return image
         }
-        #endif
-        #if os(macOS)
-        paint(lines, positions, frame: frame, height: height, scale: scale, into: ctx)
-        return TextRasterImage(surface: surface, frame: frame, covered: covered, headroom: headroom)
         #endif
     }
 

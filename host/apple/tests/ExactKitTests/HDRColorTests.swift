@@ -43,6 +43,11 @@ final class HDRColorTests: XCTestCase {
         layer.backgroundColor = CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
         layer.applyColorRange(limit: "no-limit")
         XCTAssertEqual(layer.preferredDynamicRange, .standard, "an SDR fill is never marked")
+        // A gradient to four times SDR white is mapped to the range only under ifSupported.
+        let gradient = try XCTUnwrap(Gradient(["linear": 90, "space": "srgb-linear", "stops": [0, 1, 1, 1, 1, 1, 4, 4, 4, 1]] as BatchValue))
+        let g = CAGradientLayer()
+        gradient.apply(g, bounds: CGRect(x: 0, y: 0, width: 100, height: 10), box: CGRect(x: 0, y: 0, width: 100, height: 10), dark: false, limit: "constrained")
+        XCTAssertEqual(g.toneMapMode, .ifSupported)
     }
 
     /// Text in an HDR colour keeps its light: the raster is half float in
@@ -110,23 +115,34 @@ final class HDRColorTests: XCTestCase {
         XCTAssertTrue(SvgPaint.needsParts(["f": ["x1": 0, "stops": []]]))
     }
 
-    /// A `text-shadow` keeps its colour's space: `textChannels`' nine after
-    /// the offset and blur.
-    func testATextShadowKeepsItsHDRColour() throws {
+    /// A `text-shadow` keeps its colour's space (`textChannels`' nine after
+    /// the offset and blur). An HDR one is painted into a bitmap of its own,
+    /// with its headroom, and the SDR ink's stays SDR.
+    func testAnHDRTextShadowIsPaintedInTheRaster() throws {
         let nine = try XCTUnwrap(fourTimesWhite.textChannels(dark: false))
         XCTAssertEqual(nine.count, 9)
-        let shadow = [0, 0, 6] + nine
+        let shadow = [3, 3, 0] + nine
         XCTAssertTrue(TextEngine.isShadow(shadow))
-        XCTAssertTrue(ColorRange.isHDR(TextEngine.shadowColor(shadow)))
         XCTAssertTrue(ColorRange.isHDR(TextRunShadow(shadow).color))
         XCTAssertFalse(ColorRange.isHDR(TextEngine.shadowColor([0, 0, 6, 255, 255, 255, 255])))
-        let layer = CALayer()
-        TextShadowLayer.apply(shadow, to: layer)
-        XCTAssertTrue(ColorRange.isHDR(layer.shadowColor))
-        if #available(iOS 26, macOS 26, tvOS 26, *) {
-            layer.applyTextRange(headroom: 0, limit: "no-limit")
-            XCTAssertEqual(layer.preferredDynamicRange, .high, "SDR ink, an HDR shadow")
-        }
+        let font = CTFontCreateWithName("Helvetica" as CFString, 20, nil)
+        let source = NSAttributedString(string: "HDR", attributes: [.font: font, .foregroundColor: CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)])
+        let box = CGRect(x: 0, y: 0, width: 80, height: 30)
+        let plain = try XCTUnwrap(TextRasterJob(source: source, ranges: [CFRange(location: 0, length: 3)], baselines: [22],
+                                                flush: 0, box: box, size: box.size, scale: 2, crop: true).render())
+        let cast = try XCTUnwrap(TextRasterJob(source: source, ranges: [CFRange(location: 0, length: 3)], baselines: [22],
+                                               flush: 0, box: box, size: box.size, scale: 2, crop: true, shadow: TextRunShadow(shadow)).render())
+        XCTAssertNil(plain.cast)
+        XCTAssertEqual(cast.headroom, 0, "the ink")
+        XCTAssertNotNil(cast.cast)
+        XCTAssertEqual(cast.castHeadroom, 4, accuracy: 0.001)
+        XCTAssertGreaterThan(cast.frame.maxX, plain.frame.maxX, "the frame reaches the shadow")
+        let ink = CALayer(), parent = CALayer()
+        parent.addSublayer(ink)
+        ink.applyTextCast(cast.cast, headroom: cast.castHeadroom, limit: "standard")
+        XCTAssertTrue(parent.sublayers?.first === ink.textCast, "under the ink")
+        ink.dropTextCast()
+        XCTAssertEqual(parent.sublayers?.count, 1)
     }
 
     /// What a view draws itself: an HDR colour makes its backing store half
@@ -189,6 +205,7 @@ final class HDRColorTests: XCTestCase {
         #endif
         node.applyColorRanges()
         XCTAssertEqual(try XCTUnwrap(node.boxGradient).preferredDynamicRange, .constrainedHigh)
+        XCTAssertEqual(try XCTUnwrap(node.boxGradient).toneMapMode, .automatic, "wide but SDR")
         let conic: BatchValue = ["conic": [0, 50, 0, 50, 0], "space": "srgb-linear", "stops": [0, 1.225, -0.042, -0.02, 1, 1, 1.225, -0.042, -0.02, 1]]
         node.applyStyle(["background_image": .array([conic, linear]), "dynamic_range_limit": "no-limit"])
         node.applyColorRanges()

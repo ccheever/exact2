@@ -106,6 +106,9 @@ final class TextRunShadow: NSObject {
         offset = CGSize(width: s[0], height: s[1]); blur = s[2]
         color = TextEngine.shadowColor(s)
     }
+    init(offset: CGSize, blur: CGFloat, color: CGColor) {
+        self.offset = offset; self.blur = blur; self.color = color
+    }
     override func isEqual(_ object: Any?) -> Bool {
         guard let other = object as? TextRunShadow else { return false }
         return offset == other.offset && blur == other.blur && color == other.color

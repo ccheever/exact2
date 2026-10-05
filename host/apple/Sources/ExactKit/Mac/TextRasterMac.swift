@@ -56,7 +56,8 @@ final class TextRasterizer {
         return TextRasterJob(source: source.copy() as! NSAttributedString,
                    ranges: geometry.ranges, baselines: geometry.baselines,
                    flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, justifies: key.spec.align == 3, insets: paragraph?.insets ?? LineInsets(key.spec, source: source),
-                   box: key.box, size: key.size, scale: key.scale, ellipsis: key.spec.ellipsis, clamped: geometry.clamped)
+                   box: key.box, size: key.size, scale: key.scale, ellipsis: key.spec.ellipsis, clamped: geometry.clamped,
+                   shadow: key.spec.hdrShadow.map(TextRunShadow.init))
     }
 
     /// Only first pixels may rasterize synchronously. A replacement uses the
@@ -76,7 +77,7 @@ final class TextRasterizer {
         if firstPixels {
             let lines = node.text?.rasterLines(key.spec, ranges: job.ranges, width: key.box.width).1
             let image = Self.render(job, firstPixels: true, lines: lines)
-            node.showTextRaster(image?.surface, for: key, frame: image?.frame)
+            node.showTextRaster(image?.surface, for: key, frame: image?.frame, cast: image?.cast)
             return true
         }
         if urgent { node.useTextStrips() }
@@ -85,7 +86,7 @@ final class TextRasterizer {
             let image = Self.render(job)
             DispatchQueue.main.async { [weak self, weak node] in
                 self?.active -= 1
-                node?.showTextRaster(image?.surface, for: key, frame: image?.frame, deferOffscreen: true)
+                node?.showTextRaster(image?.surface, for: key, frame: image?.frame, cast: image?.cast, deferOffscreen: true)
             }
         }
         return true
@@ -154,7 +155,7 @@ final class TextRasterizer {
             CATransaction.setDisableActions(true)
             for (index, entry) in jobs.enumerated() {
                 let image = result.images[index]
-                entry.0.showTextRaster(image?.surface, for: entry.1, frame: image?.frame)
+                entry.0.showTextRaster(image?.surface, for: entry.1, frame: image?.frame, cast: image?.cast)
             }
             CATransaction.commit()
             // A later width may have superseded this entire group.
@@ -238,7 +239,7 @@ extension NodeView {
         needsDisplay = true
     }
 
-    func showTextRaster(_ image: IOSurface?, for key: TextRasterKey, frame: CGRect? = nil, deferOffscreen: Bool = false) {
+    func showTextRaster(_ image: IOSurface?, for key: TextRasterKey, frame: CGRect? = nil, cast: IOSurface? = nil, deferOffscreen: Bool = false) {
         // An urgent paint can overtake its worker. Keep the accepted surface
         // instead of committing identical pixels again when that worker ends.
         guard textRasterKey == key, !textRasterReady else { return }
@@ -259,6 +260,7 @@ extension NodeView {
         textRasterFailed = false
         textRasterUsesStrips = false
         textRaster = image
+        textRasterCast = cast
         textRasterScale = key.scale
         textRasterFrame = frame ?? CGRect(origin: .zero, size: key.size)
         textRasterReady = true
@@ -277,11 +279,11 @@ extension NodeView {
         CATransaction.setDisableActions(true)
         // A `text-shadow` is cast by a sublayer of its own: the view's layer
         // would cast its box too (LLP 1077 D3).
-        let shadow = textRasterKey?.spec.shadow
+        let shadow = textRasterKey.flatMap { $0.spec.hdrShadow == nil ? $0.spec.shadow : nil }
         // HDR ink too needs its own layer, for its range (LLP 1100 D8).
         let headroom = TextRasterJob.headroom(of: surface)
-        if textRasterFrame == CGRect(origin: .zero, size: bounds.size), shadow == nil, headroom <= 1 {
-            textRasterOverflowLayer?.removeFromSuperlayer()
+        if textRasterFrame == CGRect(origin: .zero, size: bounds.size), shadow == nil, headroom <= 1, textRasterCast == nil {
+            textRasterOverflowLayer?.dropTextCast(); textRasterOverflowLayer?.removeFromSuperlayer()
             textRasterOverflowLayer = nil
             layer.contentsScale = textRasterScale
             layer.contentsGravity = .resize
@@ -299,22 +301,33 @@ extension NodeView {
             ink.contents = surface
             TextShadowLayer.apply(shadow, to: ink)
             ink.applyTextRange(headroom: headroom, limit: style["dynamic_range_limit"]?.string)
+            ink.applyTextCast(textRasterCast, headroom: textRasterCast.map(TextRasterJob.headroom) ?? 0, limit: style["dynamic_range_limit"]?.string)
         }
         textRasterPending = false
         CATransaction.commit()
     }
 
     func dropTextRaster() {
-        textRasterOverflowLayer?.removeFromSuperlayer()
+        textRasterOverflowLayer?.dropTextCast(); textRasterOverflowLayer?.removeFromSuperlayer()
         textRasterOverflowLayer = nil
         if textRaster != nil, wantsUpdateLayer { layer?.contents = nil }
         layer?.setValue(nil, forKey: CALayer.textHeadroomKey)
-        textRaster = nil
+        textRaster = nil; textRasterCast = nil
         textRasterKey = nil
         textRasterReady = false
         textRasterFailed = false
         textRasterPending = false
         textRasterUsesStrips = false
+    }
+}
+
+nonisolated(unsafe) private var textRasterCastKey: UInt8 = 0
+
+extension NodeView {
+    /// An HDR `text-shadow`'s own surface (`TextRasterImage.cast`).
+    var textRasterCast: IOSurface? {
+        get { objc_getAssociatedObject(self, &textRasterCastKey) as? IOSurface }
+        set { objc_setAssociatedObject(self, &textRasterCastKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 }
 #endif
