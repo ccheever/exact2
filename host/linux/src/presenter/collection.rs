@@ -517,7 +517,7 @@ impl<D: DataSource> Presenter<D> {
             if let Some(left) = accepted.left {
                 offset.0 = left;
             }
-            if *offset != before && self.collection.cursors[&view].ordinary {
+            if *offset != before {
                 self.collection.scroll_event(view, accepted.key);
                 self.executor.notify();
             }
@@ -703,6 +703,9 @@ impl<D: DataSource> Presenter<D> {
     }
     pub(super) fn refine_collections(&mut self) -> Option<String> {
         let mut error = None;
+        // Lists whose port this pass moved: a browser's `scroll` follows a
+        // write to scrollTop (list.js's), a correction's or a request's.
+        let mut moved = Vec::new();
         for _ in 0..PASSES {
             let Some(view) = self.collection.queue.pop_front() else {
                 break;
@@ -757,6 +760,7 @@ impl<D: DataSource> Presenter<D> {
                         .and_then(exact_kernel::PropValue::as_float)
                 })
                 .filter(|main| main.is_finite());
+            let before = self.scroll.get(&view).copied();
             if requested != *requested_was {
                 *requested_was = requested;
                 if let Some(main) = requested {
@@ -782,6 +786,9 @@ impl<D: DataSource> Presenter<D> {
                     self.scroll.entry(view).or_default(),
                 );
                 self.dirty = true;
+            }
+            if self.scroll.get(&view).copied() != before {
+                moved.push((view, key));
             }
             let feedback_main = if let Some(pending) = cursor.model_scroll.as_mut() {
                 let slot = match axis {
@@ -854,7 +861,10 @@ impl<D: DataSource> Presenter<D> {
                 }
             }
         }
-        if self.collection.pending() {
+        for &(view, key) in &moved {
+            self.collection.scroll_event(view, key);
+        }
+        if self.collection.pending() || !moved.is_empty() {
             self.executor.notify();
             self.dirty = true;
         }

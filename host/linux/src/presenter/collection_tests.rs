@@ -605,6 +605,11 @@ fn ordinary_scroll_handler_runs_beside_collection_observation() {
     p.wheel(list, 0., 8_000.).unwrap();
     settle(&mut p);
     let key = p.host.kernel().find_by_test_id("observed")[0];
+    // The handler last heard where the port came to rest: the wheel's 8000,
+    // then the anchor correction's write, which a browser's scrollTop
+    // write reports with a `scroll` too.
+    let rest = p.scroll_of(list).1;
+    assert!(rest > 7_000.);
     assert_eq!(
         p.host
             .kernel()
@@ -612,7 +617,7 @@ fn ordinary_scroll_handler_runs_beside_collection_observation() {
             .unwrap()
             .props
             .str(PropId::Text),
-        Some("8000")
+        Some(rest.to_string().as_str())
     );
     assert!(p.host.collections()[0].rows.iter().all(|r| r.index > 100));
 }
