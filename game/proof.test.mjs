@@ -84,6 +84,7 @@ test('CLI held key syntax cannot capture an ordinary text suffix', () => {
   expect(typeCommand('type editor # A\n\nbody')).toEqual(['editor','# A\n\nbody']);
   expect(typeCommand('type editor "a\\nb"')).toEqual(['editor','a\nb']);
   expect(typeCommand('type "the note" hello')).toEqual(['the note','hello']);
+  expect([typeCommand('type editor paste a\\nb c'),typeCommand('type editor copy')]).toEqual([['editor',{clipboard:'paste',text:'a\nb c'}],['editor',{clipboard:'copy'}]]);
 });
 test('proof receipts bind the web manifest and the actual app executable', () => {
   const dir=mkdtempSync(resolve(tmpdir(),'g1b-receipt-')), bundle=resolve(dir,'Game.app');
