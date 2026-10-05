@@ -215,6 +215,8 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
             assert_eq!(error.id, "lower-attr-value");
             assert_eq!(error.span.line, if named_style { 2 } else { 3 });
             let values = error.message.split_once("expected one of ").unwrap().1;
+            // A hint may follow the list (`position="fixed"`'s).
+            let values = values.split_once("; ").map_or(values, |(list, _)| list);
             let expected = row
                 .enum_names()
                 .iter()
