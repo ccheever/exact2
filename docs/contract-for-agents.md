@@ -141,7 +141,8 @@ app binary stale. Contract, gameplay and asset edits do; compiler-recorded input
 still require a rebuild even when their names match a helper.
 
 A script drives the same session in JavaScript: `const s = await open({ host:
-'web', app, epoch, timeZone, storage })` from `scripts/agent.mjs`, then
+'web', app, epoch, timeZone, storage, size: [390, 844] })` from `scripts/agent.mjs`
+(`size` is `[width, height]`, or the CLI's `'390x844'`), then
 `s.tap(target, opts)`, `s.type(target, text | { key })`, `s.clock(arg)`,
 `s.tree()`, `s.state()`, `s.logs()`, `s.layout()`, `s.screenshot(path)` and
 `s.close()` — the CLI's operations by the same names. `s.op(request)` is the
