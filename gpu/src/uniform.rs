@@ -33,8 +33,8 @@ struct Slot {
 }
 
 impl FrameUniform {
-    /// Slots shared in place on Apple.
-    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
+    /// Slots written in place (Apple's shared storage, Vulkan's mapped memory).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     const RING: usize = 4;
 
     /// A uniform of `size` bytes, labelled `label`.
@@ -43,7 +43,12 @@ impl FrameUniform {
         if let Some(slots) = shared(device, size, label) {
             return FrameUniform { slots, next: 0 };
         }
-        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos",
+            target_arch = "wasm32"
+        )))]
         if let Some(slots) = mapped(device, size, label) {
             return FrameUniform { slots, next: 0 };
         }
@@ -140,7 +145,12 @@ fn shared(device: &wgpu::Device, size: usize, label: &str) -> Option<Vec<Slot>> 
 /// The ring on Vulkan: host-visible, coherent buffers, mapped once, that
 /// wgpu binds as uniforms. `None` (the queue's writes) on another backend or
 /// where the memory would need flushing.
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_arch = "wasm32"
+)))]
 fn mapped(device: &wgpu::Device, size: usize, label: &str) -> Option<Vec<Slot>> {
     use wgpu::hal::Device as _;
     // SAFETY: only allocates from the raw device and maps what it allocated.
