@@ -690,7 +690,7 @@ test('clock settle diagnostic names busy, held input, and logs on a real unsettl
 
 function pinLiterals(path, text) {
   const evidence=/(^|\/)(artifacts|diaries)\/|^game\/bench\/results\/|^(llp|issues|vendor)\//;
-  if(/(^|\/)(Cargo\.lock|bun\.lock|shells\.lock)$/.test(path) || path.endsWith('/pins.json') || evidence.test(path) || path==='scripts/fixtures/fonts/SOURCE.md') return [];
+  if(/(^|\/)(Cargo\.lock|bun\.lock|shells\.lock)$/.test(path) || path.endsWith('/pins.json') || path.endsWith('/looks/looks.json') || evidence.test(path) || path==='scripts/fixtures/fonts/SOURCE.md') return [];
   const generated = path === '.llp/skills-receipt.json' || path.endsWith('/.baked-assets.json') || ['update/tests/it/fixtures/publisher/canonical.bin','update/tests/it/fixtures/publisher/exact.json'].includes(path);
   if (generated) return [];
   const samples = new Set(['b510eca2e2ef33f62f9ed57d6e7ce2d10'+'ebb2bdebc4a8e59d347719ba81abdf4', 'a1e3b04de97b11de564ce6e53b95f02954'+'a297f0008183ac63a4f5974f6b32d8', 'd97044e701822bac5a62696459b27d7b3'+'75aada5de8574ed4362edbba94771f7']);
@@ -902,7 +902,7 @@ test('R13 output names nested in logic remain proof inputs and change the hash',
 
 test('a game\'s helper scripts are not proof inputs; its build inputs are', async () => {
   const {proofInputExcluded}=await import('./proof.mjs');
-  for(const file of ['bench.mjs','live.mjs','jev-proxy.mjs','tools/probe.js','tools/levels.ops','proof.mjs','pins.json','README.md','drive.sh','shots/exported.json','repros/bug.contract','app.test.contract','logic/src/foo.test.rs'])
+  for(const file of ['bench.mjs','live.mjs','jev-proxy.mjs','tools/probe.js','tools/levels.ops','proof.mjs','pins.json','README.md','drive.sh','shots/exported.json','repros/bug.contract','app.test.contract','logic/src/foo.test.rs','looks/looks.json','looks/day-camp.png'])
     expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(true);
   for(const file of ['logic/src/lib.rs','logic/build.mjs','data/src/lib.rs','gpu/shaders/sky.wgsl','assets/x.js','presentation/view.mjs','app.contract','app.json','island.level.json','Cargo.toml','Cargo.lock'])
     expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(false);

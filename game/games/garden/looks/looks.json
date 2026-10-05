@@ -1,0 +1,49 @@
+{
+  "game": "garden",
+  "host": "web",
+  "viewport": [
+    1280,
+    720
+  ],
+  "scale": 8,
+  "step": 4,
+  "frames": {
+    "classic-start": {
+      "bytes": 8198,
+      "sha256": "b144ee2ccffa0cf117b4ea0e35f5c1ec995d8ec9cf61729a9f256bffa09ee197"
+    },
+    "classic-grown": {
+      "bytes": 10602,
+      "sha256": "9d335ec9fa80162f5ac90c23607304dc2d3db55e61f0ac7120319e810f189651"
+    },
+    "golden-start": {
+      "bytes": 17368,
+      "sha256": "f1b5fa900303d29471784d9733c55e622b3c0772177ceb652304e8d87e18d23b"
+    },
+    "golden-grown": {
+      "bytes": 19205,
+      "sha256": "47019e432e2f3d3d3ee6936cd8c6ba2e82605214051d80a9753e192267a71e50"
+    },
+    "storybook-start": {
+      "bytes": 15050,
+      "sha256": "4c804567097480b172fd022a69019227aed21aa2450121de21cf6fd110bbf039"
+    },
+    "storybook-grown": {
+      "bytes": 16760,
+      "sha256": "b5f627ca275d15a3076304b8fa7833ff6487744647a67dd1af468cc9f61f15d1"
+    },
+    "pass-start": {
+      "bytes": 17877,
+      "sha256": "2fe21cc322fc79892e04da5983327790c61e7e1093aca4256ebe1311d2c53ff7"
+    },
+    "pass-grown": {
+      "bytes": 18838,
+      "sha256": "34b737a2462d1d0f827f05f84941433249b53015c083da33253938e4143ed78f"
+    }
+  },
+  "bytes": 123898,
+  "reason": "looks.json records the pictures' scale and step; the tolerance lives in game/proof.mjs",
+  "inputs": "ab460bd11b7244c1d740ee7c551ea5b6fb29b44ef17dda98c6e9fa9ea8aa6fee",
+  "at": "601b6e2275d2544cc92c3013747e52674b5f6f99",
+  "generated": "bun game/prove.mjs garden --looks --retake --reason 'looks.json records the pictures'\\'' scale and step; the tolerance lives in game/proof.mjs'"
+}

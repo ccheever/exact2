@@ -1,0 +1,41 @@
+{
+  "game": "rivals",
+  "host": "web",
+  "viewport": [
+    1280,
+    720
+  ],
+  "scale": 8,
+  "step": 4,
+  "frames": {
+    "classic-title": {
+      "bytes": 3121,
+      "sha256": "869534e8c6bfaf36650f902164ff7eb5f6a74337142f7c3c8efd9337db8d6f61"
+    },
+    "classic-ffa": {
+      "bytes": 7896,
+      "sha256": "5d07deddaec6522948beb80012cabf0a84e99cdf1cf1a98fabeb73ef050f86fc"
+    },
+    "pass-title": {
+      "bytes": 5254,
+      "sha256": "6e99708004ce8b00e51dd401e073368b7ebec8539ee8193b1f1aaa4999d69fa0"
+    },
+    "pass-ffa": {
+      "bytes": 14482,
+      "sha256": "6e0d95322dcdba9449bdfcc0010107e04637e8d610a285908f3087b7515af742"
+    },
+    "night-title": {
+      "bytes": 5285,
+      "sha256": "778e346ba418577998ad4ce0dd1fcdd7a9a26c360d262ff4c7019b2b59e7b762"
+    },
+    "night-ffa": {
+      "bytes": 13833,
+      "sha256": "253829bfcc3b83bb7769ea94a763ff8c641d97920f470c7d3d0f0a00b5d6fb3a"
+    }
+  },
+  "bytes": 49871,
+  "reason": "looks.json records the pictures' scale and step; the tolerance lives in game/proof.mjs",
+  "inputs": "c33cd5d2c3e22dd58afce4efc12a083d59be1f8a1a2f847f33ed10c7c020dd81",
+  "at": "601b6e2275d2544cc92c3013747e52674b5f6f99",
+  "generated": "bun game/prove.mjs rivals --looks --retake --reason 'looks.json records the pictures'\\'' scale and step; the tolerance lives in game/proof.mjs'"
+}

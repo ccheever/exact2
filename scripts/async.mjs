@@ -8,7 +8,9 @@
  * (`host/web-js/conform.mjs --strict`), the UIKit XCTests on a simulator when the commit
  * touches host/apple (`build.mjs --test --ios`; Charlie, 2026-09-23), the
  * release bundle of a game launched and driven when the commit touches what
- * makes one (`exact release garden --check`; Charlie, 2026-10-05), the
+ * makes one (`exact release garden --check`; Charlie, 2026-10-05), each look
+ * of garden, forest and rivals against its reference pictures when the commit
+ * touches what draws them (`game/prove.mjs <game> --looks`), the
  * Contract semantics' proofs and differential run (`semantics/README.md`), then
  * `metrics.mjs --long` (every RULES budget;
  * a VIOLATION or FAILED row or a failed run counts, an OVER time does not — it
@@ -72,6 +74,8 @@ function checks(sha) {
   const apple = git(['diff', '--name-only', `${sha}^`, sha, '--', 'host/apple'], WT) !== '';
   // What a shipped Mac bundle is made by, beyond the dev build the smokes run.
   const shipped = git(['diff', '--name-only', `${sha}^`, sha, '--', 'host/apple', 'scripts/exact.mjs', 'game', 'gpu'], WT) !== '';
+  // What a game's web pictures are made by: the engine, its renderer and the web host.
+  const drawn = git(['diff', '--name-only', `${sha}^`, sha, '--', 'game', 'gpu', 'host/web', 'scripts/png.mjs'], WT) !== '';
   const glue = [...new Bun.Glob('host/web/**/*.test.mjs').scanSync({ cwd: WT, onlyFiles: true })].sort().map(file => `./${file}`);
   return [
     ['build', 'cargo', ['build', ...workspace, '--all-targets', '--keep-going']],
@@ -106,6 +110,9 @@ function checks(sha) {
     // `exact release` ships it, launched and driven to its world: the dev
     // build cannot show a module the release step changed after the bake.
     ...(shipped ? [['release', 'bun', ['scripts/exact.mjs', 'release', 'garden', '--check']]] : []),
+    // Each look of garden, forest and rivals against its reference pictures
+    // (game/README.md, "Look references"; approved 2026-10-05).
+    ...(drawn ? [['looks', 'sh', ['-c', 'failed=0; for game in garden forest rivals; do bun game/prove.mjs $game --looks || failed=1; done; exit $failed']]] : []),
     // The Contract semantics (semantics/README.md; Charlie, 2026-10-03): the
     // Lean project builds with every proof checked (the app proofs among
     // them, over embeddings `difftest apps` checks are current), then the runner against

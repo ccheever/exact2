@@ -77,7 +77,8 @@ The first baseline requires Linux and web agreement in all three simulation mode
 plus a Linux release run. Later invocations verify one GPU-less Linux run by default.
 Use `bun my-game/proof.mjs web --screenshot-only` for pixels only; this reports
 `UNVERIFIED` because it skips gameplay checks. Its screenshot is
-`my-game/artifacts/web/game.png`. The starter includes movement, jumping, two
+`my-game/artifacts/web/game.png`; nothing compares it. To compare
+pixels, use [look references](#look-references). The starter includes movement, jumping, two
 beacons, pause/restart, touch controls, a ground grid, pads, fog, sun shadows and saved glow.
 
 A bare name (`bun game/new.mjs my-game`) creates `game/games/my-game`; a path chooses
@@ -418,6 +419,58 @@ cleanup. Each game's proof owns its assertions. `check` records failures while
 independent assertions continue. The terminal shows checks and failure details;
 `replies.json` retains complete operation replies. Browser runs provide canvas pixels; the GPU-less
 Linux host exercises simulation, input, Contract UI, CPU picks and saves.
+
+### Look references
+
+Pins cover the simulation; each look's pictures are held apart from them. Under
+`--looks` a game's proof takes a few fixed frames per look on the web host
+(headless Chrome, the proof's 1280 × 720 viewport, the agent's clock), choosing the
+look as a player does, and compares them with the references in its `looks/`:
+
+```sh
+bun game/prove.mjs garden --looks                 # compare; --repeat 3 to check for flakes
+bun game/prove.mjs garden --looks --retake --reason "describe what changed in the pictures"
+bun game/games/garden/proof.mjs web --looks       # the same comparison, directly
+```
+
+A frame is the whole window, HUD included, shrunk 8× to 160 × 90 by box average,
+with each channel rounded to a multiple of 4. It matches while at most 0.5% of its
+pixels differ by more than 16 in a channel (a model, a light or a sky gone) and the
+mean difference is at most 1.5 (the picture washed out or darkened, which can move
+every pixel a little and none by 16); `LOOKS` in [proof.mjs](proof.mjs) holds the
+numbers. A failure names the look and frame and
+writes `<look>-<frame>.diff.png` (the reference, the frame now, the difference in
+red) beside the full-size `<look>-<frame>.window.png` in the run's `looks/`. A look
+that throws fails as `look <name> ran to its last frame`; the other looks still run.
+The run's PASS is about pictures only, never pins.
+
+References change only through `--retake`, which needs `--reason`, captures every
+frame twice and refuses unless the two agree, deletes references no frame takes any
+more, and records the reason, commit, input digest, scale and step and each PNG's
+SHA-256 in `looks/looks.json`. A reference whose bytes differ from that record
+fails. `looks/` is not a build input. The references are Chrome's WebGPU pictures
+on the machine that took them. There, repeated runs, rebuilds and another Chrome
+(the system's 154 against Chrome for Testing 153) match pixel for pixel in the
+world; only a focus ring on a title moved (0.3%). Another GPU or driver has not
+been tried; the tolerance is there for it. Garden (8 frames), forest (6) and
+rivals (6) carry 247 KB of references.
+
+In a game's proof, `look(name, body)` runs one look and `frame(id, session)` takes
+one of its frames:
+
+```js
+if (process.argv.includes('--looks')) {
+  for (const [name, button] of [['greybox', 'look-greybox'], ['pass', 'look-pass']]) await look(name, async frame => {
+    const s = await open();
+    await s.tap(button);
+    await s.tap('play');
+    await s.world('world').run(1500);
+    await frame('day', s);
+    await s.close();
+  });
+  return;
+}
+```
 
 ### The shipped Mac bundle
 

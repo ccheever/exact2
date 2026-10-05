@@ -1,0 +1,41 @@
+{
+  "game": "forest",
+  "host": "web",
+  "viewport": [
+    1280,
+    720
+  ],
+  "scale": 8,
+  "step": 4,
+  "frames": {
+    "greybox-day": {
+      "bytes": 9720,
+      "sha256": "1bca4f6214fa68152a0d2977b256bdb68aa25135acb9aaca21daceae0641f69b"
+    },
+    "greybox-trees": {
+      "bytes": 11901,
+      "sha256": "a25373d1352e3d3bf1fcaac6cfc3a0af379b85205c342beeeb14f97ca501d590"
+    },
+    "greybox-night": {
+      "bytes": 7483,
+      "sha256": "fc4045b421744cec2c9ecc5b3ffb9db5f10f6f6e17c506ddd17f0063f19ff450"
+    },
+    "pass-day": {
+      "bytes": 14464,
+      "sha256": "b6064bc4f267b309655107707cf6e447eee69342fcb21ec1d366cbe1744dc509"
+    },
+    "pass-trees": {
+      "bytes": 18336,
+      "sha256": "2af763d58e4fdcddcf59c270a4f5d5367cb71c473d2830332533f2863fa6c5a7"
+    },
+    "pass-night": {
+      "bytes": 11014,
+      "sha256": "757feb713041a53decbba294eba85be52b8661b125cb365aab2dfbe048a4d7df"
+    }
+  },
+  "bytes": 72918,
+  "reason": "looks.json records the pictures' scale and step; the tolerance lives in game/proof.mjs",
+  "inputs": "4968a3cf2d27dce8e93c51f527cdd7cd4896c49dbd03cf9ba13a6ac3fadbc14d",
+  "at": "601b6e2275d2544cc92c3013747e52674b5f6f99",
+  "generated": "bun game/prove.mjs forest --looks --retake --reason 'looks.json records the pictures'\\'' scale and step; the tolerance lives in game/proof.mjs'"
+}
