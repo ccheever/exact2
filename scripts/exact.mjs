@@ -193,6 +193,30 @@ function signingOrder(bundle) {
   return [...inner, bundle];
 }
 
+/** Submit one artifact to Apple's notary service and wait for its verdict. */
+function notarise(path, what, profile) {
+  console.log(`notarising ${what} — Apple's turn, usually a minute or two`);
+  // Both streams: notarytool reports progress on stdout and every failure —
+  // including a missing credential profile — on stderr.
+  const submit = spawnSync('xcrun', ['notarytool', 'submit', path, '--keychain-profile', profile, '--wait'], { encoding: 'utf8' });
+  const said = `${submit.stdout ?? ''}${submit.stderr ?? ''}`;
+  process.stdout.write(said);
+  const id = /id: ([0-9a-f-]{36})/.exec(said)?.[1];
+  if (submit.status !== 0 || !/status: Accepted/.test(said)) {
+    if (/Keychain (profile|password item)/i.test(said)) {
+      throw new Error(`no notarytool credentials named "${profile}". Store them once:
+  xcrun notarytool store-credentials ${profile} --apple-id <your-apple-id> --team-id <TEAMID> --password <app-specific-password>
+  The password is an app-specific one from https://account.apple.com, not your Apple ID password.
+  EXACT_NOTARY_PROFILE names a different profile.`);
+    }
+    if (id) {
+      console.error(`\nwhat Apple objected to (submission ${id}):`);
+      spawnSync('xcrun', ['notarytool', 'log', id, '--keychain-profile', profile], { stdio: 'inherit' });
+    }
+    throw new Error('notarisation did not come back Accepted; nothing was stapled');
+  }
+}
+
 /** `exact release` — the build a teammate can actually open.
  *
  * Three things separate this from `install`, and all three are required by
@@ -247,26 +271,7 @@ function release(app) {
   const zip = resolve(out, `${app.displayName}.zip`);
   sh('/usr/bin/ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', staged, zip]);
 
-  console.log(`notarising ${app.displayName} — Apple's turn, usually a minute or two`);
-  // Both streams: notarytool reports progress on stdout and every failure —
-  // including a missing credential profile — on stderr.
-  const submit = spawnSync('xcrun', ['notarytool', 'submit', zip, '--keychain-profile', profile, '--wait'], { encoding: 'utf8' });
-  const said = `${submit.stdout ?? ''}${submit.stderr ?? ''}`;
-  process.stdout.write(said);
-  const id = /id: ([0-9a-f-]{36})/.exec(said)?.[1];
-  if (submit.status !== 0 || !/status: Accepted/.test(said)) {
-    if (/Keychain (profile|password item)/i.test(said)) {
-      throw new Error(`no notarytool credentials named "${profile}". Store them once:
-  xcrun notarytool store-credentials ${profile} --apple-id <your-apple-id> --team-id <TEAMID> --password <app-specific-password>
-  The password is an app-specific one from https://account.apple.com, not your Apple ID password.
-  EXACT_NOTARY_PROFILE names a different profile.`);
-    }
-    if (id) {
-      console.error(`\nwhat Apple objected to (submission ${id}):`);
-      spawnSync('xcrun', ['notarytool', 'log', id, '--keychain-profile', profile], { stdio: 'inherit' });
-    }
-    throw new Error('notarisation did not come back Accepted; nothing was stapled');
-  }
+  notarise(zip, app.displayName, profile);
 
   // Staple the ticket into the artifacts, so they open on a machine that is
   // offline or that Apple's service cannot be reached from.
@@ -277,6 +282,10 @@ function release(app) {
   symlinkSync('/Applications', resolve(image, 'Applications'));
   sh('hdiutil', ['create', '-volname', app.displayName, '-srcfolder', image, '-ov', '-format', 'UDZO', '-quiet', dmg]);
   rmSync(image, { recursive: true, force: true });
+  // The image is its own submission: a ticket covers what Apple was sent,
+  // and the zip above held only the app.
+  sh('codesign', ['--force', '--sign', identity, '--timestamp', dmg]);
+  notarise(dmg, `${app.displayName}.dmg`, profile);
   sh('xcrun', ['stapler', 'staple', dmg]);
   // The zip carries no ticket of its own; rebuild it from the stapled app.
   rmSync(zip, { force: true });
