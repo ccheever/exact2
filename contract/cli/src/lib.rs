@@ -81,6 +81,17 @@ pub enum BakeError {
 impl std::fmt::Display for BakeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            // A source that read storage at build (authoring bench: an iOS bake panicked
+            // where the web build had not): say what to do, not only the refusal.
+            BakeError::Runner(RunnerError::Data {
+                resource,
+                error: exact_runner::DataError::Unavailable(m),
+            }) if m.contains("during bake") => write!(
+                f,
+                "`{resource}` read storage while baking, where there is none ({m}): catch \
+                 the refusal in the source (`e.code === 'bake'` in TypeScript) and answer a \
+                 placeholder; every host asks the source again at launch"
+            ),
             BakeError::Runner(e) => write!(f, "{e:?}"),
             BakeError::Lint { id, message, .. } => write!(f, "[{id}] {message}"),
         }
