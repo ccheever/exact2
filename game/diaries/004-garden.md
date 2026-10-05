@@ -1264,3 +1264,15 @@ and twelve save files agree between hosts; worlds and saves also match
 `holes-web` before the change. Both descendant audits pass with no recorded
 children left, and both watering captures were inspected. Artifacts:
 `artifacts/scratch-{web,macos}/`. Gameplay and Jev's policy are unchanged.
+
+## Testing-browser discovery and runner integration (2026-10-04)
+
+Merge `775231855` brings main through `9db90ce57`; Rivals diary 006 records
+the testing-browser lookup change (`1a1aab53c`) and its tooling fixtures.
+Garden passes complete web/macOS proofs in 106.790/46.270 s including builds,
+with `CHROME` unset. The browser selects the installed pinned Chrome for
+Testing, and both descendant audits pass with no recorded children left.
+Inputs, pins, eight world observations and twelve saves match between hosts;
+worlds and saves also match `scratch-web` before the merge. Both watering
+captures were inspected. Artifacts: `artifacts/browser-{web,macos}/`.
+Gameplay and Jev's policy are unchanged.

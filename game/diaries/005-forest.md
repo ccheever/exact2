@@ -1191,3 +1191,15 @@ optimization. Both descendant audits pass with no recorded children left.
 Both built-camp captures were inspected. Artifacts:
 `artifacts/scratch-{web,macos}/`. Existing pins remain unchanged, and no
 Jev policy or gameplay change is made in this batch.
+
+## Testing-browser discovery and runner integration (2026-10-04)
+
+Merge `775231855` brings main through `9db90ce57`; Rivals diary 006 records
+the testing-browser lookup change (`1a1aab53c`) and its tooling fixtures.
+Forest passes complete web/macOS proofs in 131.066/184.733 s including builds,
+with `CHROME` unset. The browser selects the installed pinned Chrome for
+Testing, and both descendant audits pass with no recorded children left.
+Inputs, pins, eleven world observations and eighteen saves agree between
+hosts; worlds and saves also match `scratch-web` before the merge. Both
+windbreak captures were inspected. Artifacts: `artifacts/browser-{web,macos}/`.
+Gameplay and Jev's policy are unchanged.

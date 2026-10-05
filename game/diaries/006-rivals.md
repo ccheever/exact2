@@ -1369,3 +1369,27 @@ no override selects the installed pinned Chrome for Testing; a separate
 process with an absent Playwright browser cache selects ordinary Chrome.
 The complete application tooling suite now passes 78 tests with two opt-in
 skips in 41.39 s (`/tmp/exact2-browser-app-tests-fixed.log`).
+The shared proof, decision and Windows suites pass 119 tests with seven skips
+in 116.14 s, including the real browser focus/hover fixture and Linux
+development/release equivalence (`/tmp/exact2-browser-shared-tests.log`).
+
+All three games pass their complete web/macOS proofs with `CHROME` unset;
+diaries 004/005 record Garden and Forest. Rivals takes 125.054/64.883 s,
+including builds. Inputs, pins, twelve world observations and seventeen saves
+agree between hosts; worlds and saves also match `bandage-web` before this
+merge. Both bandaging captures were inspected. All six descendant audits
+pass, with no recorded children remaining. Artifacts:
+`artifacts/browser-{web,macos}/` in each game. This closes the queued default
+browser-selection decision; a machine with only ordinary Chrome still takes
+that documented fallback. Existing pins, gameplay and Jev policies stay
+unchanged, and no stochastic playtest batch is reopened for this tooling fix.
+
+The root check batch takes 184.008 s with no concurrent game proof: build
+29.137, tests 131.338 (2,374 passed in 81 binaries, nine ignored), Clippy
+21.321, formatting 2.105, caps 0.091 and boot 0.015 s. Only formatting
+fails: main's `pub mod machine` is out of rustfmt order. Formatting moves
+that declaration without changing its contents; the subsequent format check
+passes. This declaration reorder is the only Rust edit after the game sweep.
+Tests compile in 0.11 s, and their binaries report 39.43 s of execution;
+the unexplained launch/runner time and the budget miss stay in QUEUE.
+Logs: `/tmp/exact2-browser-root-*.log`.
