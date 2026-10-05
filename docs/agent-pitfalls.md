@@ -11,9 +11,10 @@ guide's rules don't make obvious.
 ## Layout
 
 - **A heading's lines are a screen apart with `line-height=28`.** Cause: a bare
-  number is CSS's unitless `line-height`, a multiple of the font size (28 × 22 px),
-  not pixels; other numeric rows are pixels, which is why it surprises. Fix: write
-  `line-height="28px"`, or a ratio such as `line-height=1.3`. (Authoring bench,
+  number is CSS's unitless `line-height`, a multiple of the font size (at 22 px,
+  28 × 22 = 616 px), unlike a bare number on a length row such as `font-size` or
+  `width`, which means pixels. Fix: write `line-height="28px"`, or a ratio such as
+  `line-height=1.3` (28.6 px at 22 px). (Authoring bench,
   LLP 1087: three Codex builders, caught only by a screenshot, 2026-10-05.)
 
 - **An image tile grows to its picture's size.** An album tile in a flex row became
