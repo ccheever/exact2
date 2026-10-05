@@ -5,20 +5,21 @@
     "7378": "0xf04f5d9a791ffe97"
   },
   "saves": {
-    "chopping": "7fec1008ae4dfaf2854688ead05b34e419755594dd76707b151428351ad08f7a",
-    "night": "ab253018d6766979cc5d9d8b635c68045c468fc7bb07f01ab646e015f7cdd4b6",
-    "rescue": "797b05494fb24c30fceac6022f32e577b724710efaac7396ae6edbdbbeff857b",
-    "supplies": "04aa45dd583e38526505e00f2d098559f3a0bab5b090f4d584b90d4519b5ecbf",
-    "dawn": "422f8cbf519848d40846eba6c459a46fe8a1b43e1a7fb09402ef91f09f73d2bc",
-    "windbreak": "875f284c7a3676c74223e1cff6498c3c441fbe5d772fcb35ab0a2439f66e6337"
+    "chopping": "b16e73694892a876e92fc2166f103ba213bcae699ff58cafb9e193d07f8cc5d9",
+    "night": "295430c3ace28676e3c983b3434f486f640fd41cc0143977cf0539adef92ea31",
+    "rescue": "3c4153e7822d45df6feca50fa7e95198c0c7c6c15df5fb6b2a865168a07a9daa",
+    "supplies": "b0ff76906eaf385e1f64140aecc99d92571e57e4a250d9af537c58ffcc59dfb2",
+    "dawn": "c73b7409e2057d1b6f2d8902a5e6975a9d396fa734254005d9a48f684403095e",
+    "windbreak": "44e4c058bfae2e7c1221ee532b17982f49df4520bb98b868ba83d6d352eacb8b",
+    "windbreak-dawn": "3b88c858dd5b63734142daf158d4654f44c2a123fe4a34ca1a27297818e17306"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "fe9dfde96fa6e29b507245e3f12bf5d2ad052b9b02de1f037678224d1815532b",
+  "inputs": "5821e4548e1be5f2c1130c1c8c94774c8760dfae182ffbe57eb70b1bdf04a367",
   "game": "forest",
   "generated": "bun game/prove.mjs forest --repin --hosts 'linux,web'",
-  "at": "dc943ed53698b4b2aaf0655bff4892220b38f477",
-  "reason": "Add a saved camp windbreak, material compasses and build continuation"
+  "at": "98a989b55a01c8760e1749fc1f12a6f08ccb9ecb",
+  "reason": "Camp readiness no longer waits for rescued children; prove the built camp shelters through dawn and preserves its unfinished rescue"
 }

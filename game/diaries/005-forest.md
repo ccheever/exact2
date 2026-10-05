@@ -1290,3 +1290,55 @@ lint invocation also applied simulation-only bans to the unchanged scale
 benchmark's `Instant`; the corrected invocation leaves those bans to the
 separate logic-library determinism lint. Logs:
 `/tmp/exact2-camp-guidance-{checks.json,forest-clippy-after.log}`.
+
+The strict seven-run baseline passes at
+`artifacts/prove/run-eQC0wV/`: Linux Off/Save/FreshGame 25.584/23.636/23.591 s,
+web Off/Save/FreshGame 150.660/183.470/177.350 s, Linux release 61.478 s.
+All gameplay assertions, source inputs and observed pins agree; every process
+audit is available and leaves zero recorded children. Existing tick hashes
+are unchanged. The six existing save pins are regenerated for this guidance
+change, and `windbreak-dawn` adds a continuation after the public countdown
+and selecting the unfinished rescue. Twenty saved files are emitted per run.
+The normal browser windbreak and dawn captures were inspected: the countdown
+is readable, and after dawn the counter says one night survived while the
+rescue compass still points to a lost child. Normal web/macOS byte comparison
+and the bounded Jev pair follow this baseline.
+
+The normal web/macOS comparison also passes, in 92.092/179.376 s (overlapping
+drives, verification duration only), at `artifacts/prove/run-AsMzlY/`.
+All twenty saves, twelve final world observations with published values,
+source inputs and pins agree. The ten unchanged scenario endpoints retain
+their prior world hashes; the built-camp restore now continues to dawn and
+is compared with a twelfth fresh session. Both cleanup audits leave zero
+recorded children, and the macOS windbreak/dawn captures were inspected.
+Summary: `/tmp/exact2-camp-guidance-comparison.json`.
+
+The new Jev pair is closed at 96 decisions on each host. Web builds on
+decision 48, macOS on 26. Both finish at Health 100, Fire 100%, zero rescued
+children and zero nights survived; hunger is 82/76. Neither chooses `wait`,
+even though the shelter countdown is offered on 14/18 decisions. After
+building, neither chooses the rescue compass: instead each continues
+collecting fuel and feeding the fire. These two stochastic observations do
+not establish a success rate or attribute the changed choices to the hint.
+They do show that clearer camp readiness did not complete the assigned goal
+in this pair. The controller, observation fields, goal and limits were kept
+unchanged, and no further attempts were made.
+
+The completed runs take 71.780/78.681 s including builds, have no driver
+failures, and their process audits leave no recorded children. Their proof
+status is correctly UNVERIFIED: exploratory decisions are not the deterministic
+baseline. Both outcome images were inspected. Artifacts:
+`artifacts/jev-camp-guidance-{web,macos}/`; compact analysis:
+`/tmp/exact2-camp-guidance-jev-analysis.json`. Inspection of the recorded
+trees also rules out an initially suspected driver mistake: the recipe
+buttons disappear after construction, and no built-camp tree exposes them.
+
+Authoring lesson: a camp plan should report the camp's actual state, with
+the rescue compass continuing to report the selected goal. This removes
+contradictory advice for players, but it does not make an agent stop spending
+choices on surplus supplies. That remaining gameplay/policy interaction
+stays open. Existing engine observations were sufficient for the diagnosis:
+the old and new rescued-dawn snapshots have identical world hashes and
+publications but different journal histories (1,817/1,822 lines). Saved
+continuations include that history, so hash agreement alone would have missed
+the changed save bytes; the exact cross-host comparison remains necessary.
