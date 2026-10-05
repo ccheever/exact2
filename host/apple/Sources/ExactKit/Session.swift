@@ -886,6 +886,8 @@ public final class ExactSession {
         routerOp = nil
         let restart = booted, kept = keptFocus
         keptFocus = nil
+        // A HUD edit keeps the world: each canvas carries it by name (LLP 1046.009 G1).
+        if restart { canvases.carryForRestart() }
         presenter.reset()
         booted = true
         app.lifecycle?.generationStarted(app, token: updateToken)
@@ -893,6 +895,7 @@ public final class ExactSession {
         sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
         AppFiles.learn(runtime)
         apply(batch)
+        canvases.finishRestart()
         tellTime()
         view?.rebooted()
         autofocusHeld = false

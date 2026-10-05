@@ -129,6 +129,8 @@ final class Canvases {
     weak var session: ExactSession?
     /// postMessage events waiting for a live canvas of their surface name.
     var pendingPosts: [(name: String, text: String, at: Double)] = []
+    /// Worlds carried across a plan restart by unique surface name (LLP 1046.009 G1).
+    var planCarries: [String: Data] = [:]
     final class Entry {
         let view: NodeView
         let name: String
@@ -153,6 +155,10 @@ final class Canvases {
         var recoveryRedelivery = false
         var restorePending = false
         var restoreError: String?
+        /// The world this canvas's name carried across a plan restart, and whether
+        /// the restore in flight is that one (not the agent's EXACT_WORLD).
+        var carry: Data?
+        var carrying = false
         /// The surface samples the children (LLP 1014 D2): the overlay is
         /// captured into its texture and composited at alpha 0.
         var through = false
@@ -246,6 +252,7 @@ final class Canvases {
             if e.id != 0, let m = e.module { bindNow(m, e) }
         } else {
             let e = Entry(view: view, name: name, values: values)
+            e.carry = planCarries.removeValue(forKey: name)
             entries[view.id] = e
             claimPublisher(e)
             if let m = modules[artifact(name)] { create(m, e) }
