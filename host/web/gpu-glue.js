@@ -895,6 +895,18 @@ const api = {
     for (const view of [...surfaces.keys()]) this.destroy(view);
   },
   finishRestart() { planCarries.clear(); },
+  /// A dev generation's changed asset names (LLP 1046.009 G2): each surface
+  /// takes those it was delivered in place and fetches them again from the new
+  /// generation. False when this module cannot (one built before the seam).
+  assetsChanged(names) {
+    if (!loaded || typeof gpu.gpu_assets_changed !== "function") return false;
+    for (const entry of surfaces.values()) if (entry.id && !entry.terminal) {
+      gpu.gpu_assets_changed(entry.id, JSON.stringify(names));
+      assets(entry);
+    }
+    schedule();
+    return true;
+  },
   // Dev only; callers serialize versions. Agent pages never receive automatic swaps.
   swap(version) { return exact.mutate(() => swap(version)); },
   /// A shader's text (LLP 1030 D8) — the dev loop's edit, or the first

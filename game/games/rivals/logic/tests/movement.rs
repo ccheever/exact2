@@ -5,13 +5,12 @@ use rivals_logic::fighter::{self, Fighter};
 use rivals_logic::{Options, Rivals};
 
 fn range() -> Sim<Rivals> {
-    let mut sim = Sim::<Rivals>::new(Options {
+    let mut sim = Sim::<Rivals>::baked(Options {
         seed: 5,
         bots: 1,
         range: true,
         ..Options::default()
-    })
-    .unwrap();
+    });
     sim.run(100.0);
     sim
 }
@@ -100,9 +99,9 @@ fn a_slide_is_faster_than_a_sprint_and_ends() {
     sim.run(1200.0);
     let after = speed(&sim);
     println!("sprint {sprint:.2} m/s, slide {slide:.2}, after {after:.2}; eye {eye:.2}");
-    assert!((sprint - fighter::SPRINT).abs() < 0.01);
+    assert!((sprint - rivals_logic::tables::of(sim.world()).fighter.sprint).abs() < 0.01);
     assert!(slide > sprint + 2.0 && eye < 0.5);
-    assert!((after - fighter::SPRINT).abs() < 0.2);
+    assert!((after - rivals_logic::tables::of(sim.world()).fighter.sprint).abs() < 0.2);
 }
 
 #[test]

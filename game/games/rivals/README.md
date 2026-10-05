@@ -97,8 +97,8 @@ rounds (`logic/tests/art.rs`), because the art pass keeps the classic colliders,
 never draws from the world RNG and allocates no entity mid-fight. Only the classic
 look's tick hashes are pinned.
 
-The art pass draws the arena as one model built from `arena.json` (which a test
-holds equal to the collision blocks), with trimmed walls, glowing team lines,
+The art pass draws the arena as one model built from the tables' layout (the
+same blocks the colliders are), with trimmed walls, glowing team lines,
 banners and floodlight pylons under a painted sky that both lights the arena and
 is drawn as its sky. Bots are soldiers in their team's armour, assembled from rigid
 parts that run, flinch when hit, fall when killed and fade out before respawning.
@@ -110,7 +110,7 @@ flash of light. The HUD's crosshair, hit marker, score plates, damage vignette a
 round screens are restyled.
 
 `art-src/gen.mjs` (Bun, about 3 s) writes every model, texture and sky under `art/`
-from code; nothing is downloaded. Rerun it after editing `art-src/` or `arena.json`.
+from code; nothing is downloaded. Rerun it after editing `art-src/` or the arena in `rivals.level.json`.
 Textures under `art/textures/` and `art/data/` are shared by name, so each bakes
 once however many models sample it. How it is built on the engine:
 
@@ -144,7 +144,10 @@ once however many models sample it. How it is built on the engine:
 | `logic/src/arena.rs` | the arena's colliders (greybox-drawn in the classic look), spawns and cover points |
 | `logic/src/art.rs` | the art pass: sky, lights, models, soldiers, weapons and effect pools |
 | `logic/src/art_present.rs` | the art pass's derived motion, flashes and colours (`Game::present`) |
-| `arena.json`, `art-src/`, `art/` | the dressed layout, the art generator and its output |
+| `rivals.level.json` | the tables: the arena and every number the fight is tuned by ([below](#tables)) |
+| `logic/src/tables.rs` | the tables' types and the check the bake and every delivery run |
+| `art-src/`, `art/` | the art generator and its output |
+| `logic/tests/tables.rs` | what the check refuses; a reload replacing the tables mid-match |
 | `logic/tests/sim.rs` | range, duel, replay determinism, mid-fight save |
 | `logic/tests/art.rs` | every look fights the same fight; the art pass saves and draws from saved causes |
 | `logic/tests/limits.rs` | engine limits, measured (`--release -- --ignored` for timings) |
@@ -152,6 +155,27 @@ once however many models sample it. How it is built on the engine:
 
 `rivals_logic::rates::{Rivals30, Rivals60, Rivals240}` are the same game at other
 fixed rates for the tick-rate experiments.
+
+## Tables
+
+`rivals.level.json` is the one place the arena (blocks, spawns, pylons) and the
+fight's numbers (movement, health, bandage, each weapon's damage, rate, range and
+reload, the quick-reload window, kills to win, respawn and round waits) are
+written. `logic/src/tables.rs` declares its types; `Game::LEVEL` delivers it
+before setup and the bake refuses one that fails `Tables::check` (a missing
+number, an inverted window, a spawn inside a block, too few spawns). The tick and
+`Game::present` read it where they use a value, never copying one at spawn; the
+HUD reads `max_hp`, `bandage_heal` and the window from the published record;
+`art-src/gen.mjs` dresses its layout and `proof.mjs` reads its numbers.
+
+In `bun game/dev.mjs rivals`, saving the file replaces the tables in the running
+match (LLP 1046.009 G2): the next tick reads the new numbers and rebuilds the
+arena's colliders (and the classic look's boxes) from the new layout; fighters,
+scores and the clock carry on. What a fighter saved from an old value keeps it
+until next set: a reload's deadline, a magazine already filled, a slide under
+way. The art pass's arena model is the generator's: rerun `gen.mjs`, and the
+loop bakes and delivers the changed model the same way. A file that fails the
+check is refused by name and the match keeps its last good tables.
 
 ## Jev playtesting
 

@@ -90,6 +90,7 @@ pub fn sees(w: &World, own: u32, from: Vec3, target: &Seen) -> bool {
 /// Think for one bot: returns its intent for this tick.
 pub fn think(w: &World, e: Entity, all: &[Seen], covers: &[Vec3]) -> Intent {
     let now = w.seconds() as f32;
+    let t = crate::tables::of(w);
     let dt = w.dt();
     let me = *all
         .iter()
@@ -323,8 +324,8 @@ pub fn think(w: &World, e: Entity, all: &[Seen], covers: &[Vec3]) -> Intent {
     if b.plan == Plan::Cover
         && !b.visible
         && wish.length_squared() == 0.0
-        && me.hp <= fighter::MAX_HP - fighter::BANDAGE_HEAL
-        && w.require::<Fighter>(e).can_bandage()
+        && me.hp <= t.fighter.max_hp - t.fighter.bandage_heal
+        && w.require::<Fighter>(e).can_bandage(&t)
     {
         intent = Intent {
             bandage: true,
@@ -332,7 +333,7 @@ pub fn think(w: &World, e: Entity, all: &[Seen], covers: &[Vec3]) -> Intent {
             pitch: intent.pitch,
             ..Intent::default()
         };
-        b.cover_until = b.cover_until.max(now + fighter::BANDAGE_TIME + dt);
+        b.cover_until = b.cover_until.max(now + t.fighter.bandage_time + dt);
     }
     // Stuck against an edge: hop (crates are jumpable) and flip the strafe.
     let moving = Vec3::new(me.velocity.x, 0.0, me.velocity.z).length();

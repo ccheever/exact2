@@ -203,6 +203,13 @@ pub trait Surface {
     }
     /// Deliver encoded content, a missing name, or a terminal transport failure.
     fn asset(&mut self, _name: &str, _bytes: Result<&[u8], AssetError>) {}
+    /// A development reload has new bytes under these delivered names: a
+    /// surface that can take them in place retires each and asks again through
+    /// `assets`. Returns the names it took; the default takes none, and a host
+    /// then restarts the surface instead.
+    fn assets_changed(&mut self, _names: &[String]) -> Vec<String> {
+        Vec::new()
+    }
     /// Complete device preparation inside asset delivery, before reporting readiness.
     fn prepare_assets(
         &mut self,
@@ -914,6 +921,22 @@ impl Module {
                 false
             }
         }
+    }
+
+    /// A development reload's new bytes under delivered names (LLP 1046.009
+    /// G2). Returns the names the surface takes in place; the host then drains
+    /// `take_assets` and delivers them as it delivered the old.
+    pub fn assets_changed(&mut self, id: u32, names: &[String]) -> Vec<String> {
+        self.settle(id);
+        let Some(inst) = self.instances.get_mut(&id) else {
+            self.error = "no such canvas".into();
+            return Vec::new();
+        };
+        let taken = inst.surface.assets_changed(names);
+        if !taken.is_empty() {
+            inst.dirty = true;
+        }
+        taken
     }
 
     /// Drain wanted asset names once; refuse absolute, escaping or non-ASCII paths.

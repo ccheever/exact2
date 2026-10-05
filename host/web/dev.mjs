@@ -44,6 +44,7 @@ import { webDist, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv,
 import { developmentLinks } from '../apple/build.mjs';
 import { webRequestURL } from '../../scripts/origin.mjs';
 import { localInstaller } from './local-install.mjs';
+import { gameData } from './game-data.mjs';
 import { applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
 const argv = process.argv.slice(2);
@@ -862,8 +863,13 @@ function pushAssets() {
   }
   if (assetsNeedRebuild) return;
   seq += 1;
+  const capturing = performance.now();
   try { captureGeneration(); } catch (error) { push({ error: `generation refused: ${error.message}` }); return; }
-  console.log(`edit → assets ${rows.map((r) => r.name).join(', ')} · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}\n  ${carriers.filter(c=>c.includes('rejected')).join('\n  ')}`);
+  const captured = performance.now() - capturing;
+  // Timed from the source's save when a game's data baked into these assets.
+  const saved = gameAssets.takeEditedAt();
+  pending.set(seq, { saved: saved ?? Date.now(), ready: Date.now() });
+  console.log(`edit → assets ${rows.map((r) => r.name).join(', ')} · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}${saved ? ` ${(Date.now() - saved).toFixed(0)} ms after the save` : ''} (generation captured in ${captured.toFixed(0)} ms)\n  ${carriers.filter(c=>c.includes('rejected')).join('\n  ')}`);
   push({ ...announcement(), changes: rows });
 }
 
@@ -904,6 +910,7 @@ function classifyRebuild() {
   return [`web: actual binary inputs ${check.binary?'changed':'unchanged'}; cohort ${web.compat.id}`, ...builtReceipts.filter(r=>r.compat.inputs.platform!=='web').map(r=>`${r.compat.inputs.platform}: ${nativePending.get(r.compat.target+'/'+r.compat.inputs.platform)?.length?'binary inputs changed; rebuild the actual target':'loaded inputs unchanged'} (${r.compat.target})`)];
 }
 const watched=new Map();
+const gameAssets = gameData({ app: () => app, env: buildEnv, report: error => { console.log(`game data: ${error}`); push({ error }); } });
 let compilerInputFiles = new Set(), compilerInputTrees = [], compilerMissingInputs = [], swiftSourceDirectories = new Set();
 const optionalRoots = () => ['assets', 'deck', 'gpu', 'gpu/shaders'].map(root => existsSync(resolve(app.dir, root)) ? 1 : 0).join('');
 let optionalRootsSeen = optionalRoots();
@@ -939,6 +946,8 @@ function watchCompilerInputs() {
       // The resident Contract compiler already watches generated game arguments.
       // Rebuilding the host afterward would discard the carried world.
       if (app.manifest.game && path === resolve(app.dir, '.shells/surfaces.json')) return;
+      // A game's art and level are data: baked into assets/, delivered in place.
+      if (gameAssets.owns(path)) { gameAssets.changed(path); return; }
       if (!compilerInputFiles.has(path) && !compilerInputTrees.some(tree=>path===tree||path.startsWith(tree+'/'))
         && !compilerMissingInputs.some(missing=>path===missing||missing.startsWith(path+'/'))
         && !(name.endsWith('.swift') && swiftSourceDirectories.has(dir))) return;
@@ -1222,6 +1231,7 @@ server.listen(port, host, () => {
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
   if (allowHosts.length) console.log(`  also answering to ${allowHosts.join(', ')} (--allow-host)`);
   warmGpu();
+  gameAssets.warm();
   console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${lan ? 'LAN bind — any peer on this network can read the app, its compile errors and dev generations; macOS may ask to allow bun' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
 });
 process.on('SIGINT', stop);

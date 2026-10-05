@@ -172,3 +172,58 @@ fn level_declaration_validates_names_and_counts_against_the_surface_limit() {
     let mut larger = Sim::<Bounded<256>>::new(()).unwrap();
     assert_eq!(larger.take_assets().len(), 257);
 }
+
+/// A development reload (LLP 1046.009 G2): the host says a delivered name has
+/// new bytes; only then does a changed level replace the old in the running
+/// world, which the game hears about once and saves under the new identity.
+#[test]
+fn a_reload_replaces_a_delivered_level_in_place() {
+    let mut sim = Sim::<LevelGame>::new(()).unwrap();
+    sim.take_assets();
+    sim.asset("island.level.json", Some(FIRST)).unwrap();
+    sim.run(500.);
+    let tick = sim.world().tick();
+    let changed = String::from_utf8(FIRST.to_vec())
+        .unwrap()
+        .replace("\"seed\":7", "\"seed\":9");
+    // Unannounced, a change is still refused.
+    let unannounced = sim.asset("island.level.json", Some(changed.as_bytes()));
+    assert!(unannounced
+        .unwrap_err()
+        .contains("cannot change after delivery"));
+    assert!(!sim.world_mut().take_replaced("island.level.json"));
+    // Names the world never received are not its to take.
+    assert_eq!(
+        sim.assets_changed(["island.level.json", "never.model"]),
+        ["island.level.json"]
+    );
+    assert_eq!(sim.take_assets(), ["island.level.json"]);
+    sim.asset("island.level.json", Some(changed.as_bytes()))
+        .unwrap();
+    let shared = sim
+        .world()
+        .shared_level::<Island>("island.level.json")
+        .unwrap();
+    assert_eq!(shared.seed, 9);
+    assert!(sim.world_mut().take_replaced("island.level.json"));
+    assert!(
+        !sim.world_mut().take_replaced("island.level.json"),
+        "the notice is taken once"
+    );
+    // The same world, on; its saves carry the new identity.
+    assert_eq!(sim.world().tick(), tick);
+    assert_eq!(sim.world().query::<&Transform>().iter().count(), 3);
+    let save = sim.save().unwrap();
+    let mut fresh = Sim::<LevelGame>::new(()).unwrap();
+    fresh
+        .asset("island.level.json", Some(changed.as_bytes()))
+        .unwrap();
+    fresh.restore(&save).unwrap();
+    assert_eq!(fresh.world().hash(), sim.world().hash());
+    let mut old = Sim::<LevelGame>::new(()).unwrap();
+    old.asset("island.level.json", Some(FIRST)).unwrap();
+    assert!(
+        old.restore(&save).is_err(),
+        "a save names the level it ran on"
+    );
+}

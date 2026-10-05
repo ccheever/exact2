@@ -560,6 +560,31 @@ export function renderMarkup(el, json) {
   }
 }
 
+// An asset-only dev generation — the plan the page runs, no code, only a
+// game's own kinds — reaches the running GPU surfaces by name: nothing
+// restarts and no world is carried (LLP 1046.009 G2). A picture, a font or a
+// shader a plan may use boots the plan as before. `get`/`set` are glue.js's
+// asset namespace; `commit` names the plan each boot ran.
+const GAME_ASSET = /^assets\/.+\.(model|tex|sound|level\.json)$/;
+export function assetReplacer(get, set, release) {
+  let plan = null;
+  const same = bytes => plan?.length === bytes.length && plan.every((b, i) => b === bytes[i]);
+  return {
+    commit(bytes) { plan = bytes; },
+    replace(bytes, next) {
+      const old = get(), gpu = globalThis.exact.gpu;
+      if (!(old instanceof Map) || !same(bytes) || typeof gpu?.assetsChanged !== "function") return false;
+      const changed = [...next].filter(([name, card]) => old.get(name)?.sha256 !== card.sha256).map(([name]) => name)
+        .concat([...old.keys()].filter(name => !next.has(name)));
+      if (!changed.length || !changed.every(name => GAME_ASSET.test(name))) return false;
+      set(next); // the surfaces fetch from the new generation
+      if (!gpu.assetsChanged(changed.map(name => name.slice("assets/".length)))) { set(old); return false; }
+      release(old);
+      return true;
+    },
+  };
+}
+
 // @ref LLP 1007 §6 — a page the dev server serves names its current
 // generation, and its first boot is that one, not app.wasm's older baked
 // plan (a deep link booted stale on 2026-09-22). dev.js supplies it once asked

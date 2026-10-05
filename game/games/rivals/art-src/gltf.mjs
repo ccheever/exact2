@@ -240,13 +240,14 @@ export class Gltf {
     }
     (this.json.animations ??= []).push({ name, samplers, channels: out });
   }
-  write(path) {
+  /// `put` writes the file; the generator's writes only what changed.
+  write(path, put = writeFileSync) {
     const bytes = new Uint8Array(this.length);
     let at = 0;
     for (const b of this.bin) { bytes.set(b, at); at += b.length; }
     this.json.buffers = [{ byteLength: bytes.length, uri: `data:application/octet-stream;base64,${Buffer.from(bytes).toString('base64')}` }];
     if (!this.json.meshes.length) delete this.json.meshes;
-    writeFileSync(path, JSON.stringify(this.json));
+    put(path, JSON.stringify(this.json));
     return bytes.length;
   }
 }

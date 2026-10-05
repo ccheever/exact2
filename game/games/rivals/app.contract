@@ -22,6 +22,10 @@ shape Contact
 
 shape Hud
   hp: number
+  max_hp: number
+  quick_from: number
+  quick_to: number
+  bandage_heal: number
   weapon: string
   slot: number
   ammo: number
@@ -120,7 +124,7 @@ component Rivals
                 text (c.target ? `TARGET · ${c.label}` : c.label) testId=`target-label-${c.id}` font-size=12 line-height="14px" font-weight=700 color=(c.target ? "#bef264" : "#ff8a8a")
                 text `${c.hp} HP` testId=`target-hp-${c.id}` font-size=11 line-height="12px"
                 column width=64 height=3 background-color="#334155"
-                  column width=(c.hp * 0.64) height=3 background-color=(c.target ? "#bef264" : "#ff8a8a")
+                  column width=(c.hp * 64 / hud.max_hp) height=3 background-color=(c.target ? "#bef264" : "#ff8a8a")
           when hud.hurt and art != ""
             column testId="hurt" position="absolute" inset=0 pointer-events="none" box-shadow="inset 0 0 140px rgba(229, 40, 50, 0.65)"
           when hud.hurt and art == ""
@@ -183,8 +187,8 @@ component Rivals
           column testId="health" position="absolute" left=16 bottom=16 gap=6 padding=12 border-radius=12 background-color="#10141bcc"
             text `${hud.hp}` testId="hp" font-size=30 font-weight=800 color=(hud.hp > 40 ? "#f5f7fa" : "#ff6b6b")
             column width=200 height=8 border-radius=4 background-color="#2d333b"
-              column width=(hud.hp * 2) height=8 border-radius=4 background-color=(hud.hp > 40 ? "#3fb950" : "#ff6b6b")
-            text "Bandage · +40 HP · one per life" testId="bandage-hint" font-size=12 color="#a7d8c0"
+              column width=(hud.hp * 200 / hud.max_hp) height=8 border-radius=4 background-color=(hud.hp > 40 ? "#3fb950" : "#ff6b6b")
+            text `Bandage · +${hud.bandage_heal} HP · one per life` testId="bandage-hint" font-size=12 color="#a7d8c0"
             button action="bandage" disabled=(not hud.bandage_ready) testId="bandage" aria-label="Hold to bandage" width=200 height=34 box-sizing="border-box" padding=6 border-radius=6 background-color=(hud.bandage_ready ? "#246647" : "#2d333b")
               text hud.bandage_label testId="bandage-status" font-size=14 font-weight=700
             when hud.bandaging
@@ -195,7 +199,7 @@ component Rivals
             text hud.weapon testId="weapon-name" color="#c9d1d9"
             when hud.reloading
               column testId="reload-meter" position="relative" width=240 height=10 border-radius=3 background-color="#475569" pointer-events="none"
-                column position="absolute" left=108 width=48 height=10 background-color=(hud.reload_window ? "#bef264" : "#3f6212")
+                column position="absolute" left=(hud.quick_from * 240) width=((hud.quick_to - hud.quick_from) * 240) height=10 background-color=(hud.reload_window ? "#bef264" : "#3f6212")
                 column position="absolute" left=(hud.reload_progress * 236) width=4 height=10 background-color="#ffffff"
             button action="reload" testId="reload" aria-label="Reload; press again in green to finish early" disabled=(not hud.reload_available) width=250 height=32 box-sizing="border-box" padding=6 border-radius=6 background-color=(hud.reload_window ? "#3f6212" : "#2d333b")
               text hud.reload_label testId="reload-status" font-size=14 font-weight=700 color=(hud.reload_window ? "#bef264" : "#f5f7fa")

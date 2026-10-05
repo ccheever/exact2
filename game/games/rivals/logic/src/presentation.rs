@@ -468,7 +468,7 @@ pub fn pose(w: &World) {
         .map(|tick| (w.tick().saturating_sub(tick)) as f32 / w.hz() as f32);
     let flash = age.is_some_and(|age| age < 0.045) && feedback.weapon == f.weapon;
     let progress = if f.reload_until > 0. {
-        1. - ((f.reload_until - now) / f.weapon.reload_time()).clamp(0., 1.)
+        1. - ((f.reload_until - now) / f.weapon.reload_time(&crate::tables::of(w))).clamp(0., 1.)
     } else {
         0.
     };

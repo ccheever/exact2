@@ -3,29 +3,12 @@
 //! knife. All damage goes through `damage`, which the round rules read.
 use crate::arena;
 use crate::fighter::{self, Fighter, HEAD_FROM};
+use crate::tables::{self, Tables};
 use exact_game::*;
 use exact_game_physics::{self as physics, Shape};
 
-pub const RIFLE_MAG: u32 = 30;
-pub const ROCKET_MAG: u32 = 2;
-const RIFLE_INTERVAL: f32 = 0.1;
-const RIFLE_BODY: f32 = 20.0;
-const HEAD_MULTIPLIER: f32 = 1.8;
-const RIFLE_RANGE: f32 = 150.0;
-const RIFLE_RELOAD: f32 = 1.6;
-const ROCKET_INTERVAL: f32 = 0.8;
-const ROCKET_RELOAD: f32 = 2.2;
-pub const ROCKET_SPEED: f32 = 42.0;
-const ROCKET_LIFE: f32 = 4.0;
-const ROCKET_DIRECT: f32 = 35.0;
-pub const SPLASH_RADIUS: f32 = 4.5;
-const SPLASH_DAMAGE: f32 = 75.0;
-const SELF_SPLASH: f32 = 0.35;
-const KNOCKBACK: f32 = 16.0;
-const KNIFE_INTERVAL: f32 = 0.55;
-const KNIFE_RANGE: f32 = 2.4;
-const KNIFE_DAMAGE: f32 = 45.0;
-const BACKSTAB: f32 = 100.0;
+// Damage, rates, ranges and reloads are the tables' (`tables::Rifle`,
+// `Launcher`, `Knife`), read each tick.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]
 pub enum Weapon {
@@ -43,17 +26,17 @@ impl Weapon {
         }
     }
     /// Movement-speed multiplier while holding this weapon.
-    pub fn speed(self) -> f32 {
+    pub fn speed(self, t: &Tables) -> f32 {
         match self {
-            Weapon::Rifle => 1.0,
-            Weapon::Rocket => 0.92,
-            Weapon::Knife => 1.15,
+            Weapon::Rifle => t.rifle.move_speed,
+            Weapon::Rocket => t.rocket.move_speed,
+            Weapon::Knife => t.knife.move_speed,
         }
     }
-    pub fn reload_time(self) -> f32 {
+    pub fn reload_time(self, t: &Tables) -> f32 {
         match self {
-            Self::Rifle => RIFLE_RELOAD,
-            Self::Rocket => ROCKET_RELOAD,
+            Self::Rifle => t.rifle.reload,
+            Self::Rocket => t.rocket.reload,
             Self::Knife => 0.0,
         }
     }
@@ -168,6 +151,7 @@ pub fn damage(
 /// Reload, switch and fire for one fighter. Returns damage dealt this tick.
 pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> Vec<Damage> {
     let now = w.seconds() as f32;
+    let t = tables::of(w);
     let mut out = Vec::new();
     let (weapon, yaw, pitch, bloom, slot, moving, aiming) = {
         let mut f = w.require_mut::<Fighter>(e);
@@ -182,7 +166,7 @@ pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> 
             f.next_shot = f.next_shot.max(now + 0.25);
         }
         let reloading = f.reload_until > 0.0;
-        let quick = reloading && intent.reload && f.quick_reload_ready(now);
+        let quick = reloading && intent.reload && f.quick_reload_ready(now, &t);
         if reloading && now < f.reload_until && intent.reload && !quick {
             // One attempt per reload. Holding R produces only the initial
             // pressed edge; repeated taps cannot fish for the green window.
@@ -194,14 +178,14 @@ pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> 
                 f.quick_reload_until = now + 0.8;
             }
             match f.weapon {
-                Weapon::Rifle => f.rifle_ammo = RIFLE_MAG,
-                Weapon::Rocket => f.rocket_ammo = ROCKET_MAG,
+                Weapon::Rifle => f.rifle_ammo = t.rifle.mag,
+                Weapon::Rocket => f.rocket_ammo = t.rocket.mag,
                 Weapon::Knife => {}
             }
         }
         let (ammo, full, time) = match f.weapon {
-            Weapon::Rifle => (f.rifle_ammo, RIFLE_MAG, RIFLE_RELOAD),
-            Weapon::Rocket => (f.rocket_ammo, ROCKET_MAG, ROCKET_RELOAD),
+            Weapon::Rifle => (f.rifle_ammo, t.rifle.mag, t.rifle.reload),
+            Weapon::Rocket => (f.rocket_ammo, t.rocket.mag, t.rocket.reload),
             Weapon::Knife => (1, 1, 0.0),
         };
         if f.reload_until == 0.0 && ((intent.reload && ammo < full) || (ammo == 0 && intent.fire)) {
@@ -214,9 +198,9 @@ pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> 
         }
         f.next_shot = now
             + match f.weapon {
-                Weapon::Rifle => RIFLE_INTERVAL,
-                Weapon::Rocket => ROCKET_INTERVAL,
-                Weapon::Knife => KNIFE_INTERVAL,
+                Weapon::Rifle => t.rifle.interval,
+                Weapon::Rocket => t.rocket.interval,
+                Weapon::Knife => t.knife.interval,
             };
         f.shots += 1;
         let moving = f.planar.length() > 2.0;
@@ -234,12 +218,12 @@ pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> 
                 yaw + r * exact_game::math::cos(a),
                 pitch + r * exact_game::math::sin(a),
             );
-            let hit = hitscan(w, origin, dir, RIFLE_RANGE, own);
-            let end = hit.map_or(origin + dir * RIFLE_RANGE, |h| h.point);
+            let hit = hitscan(w, origin, dir, t.rifle.range, own);
+            let end = hit.map_or(origin + dir * t.rifle.range, |h| h.point);
             if let Some((victim, point)) = hit.and_then(|h| h.fighter.map(|e| (e, h.point))) {
                 let centre = w.require::<Transform>(victim).position;
                 let head = point.y - centre.y >= HEAD_FROM;
-                let amount = RIFLE_BODY * if head { HEAD_MULTIPLIER } else { 1.0 };
+                let amount = t.rifle.body * if head { t.rifle.head } else { 1.0 };
                 out.extend(damage(w, slot, victim, amount, head, Weapon::Rifle, origin));
             }
             {
@@ -263,14 +247,14 @@ pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> 
             match physics::raycast(w, origin, dir, 0.5, !own) {
                 Some(h) => out.extend(explode(w, slot, h.point - dir * 0.05, Some(h.entity))),
                 None => {
-                    spawn_rocket(w, slot, origin + dir * 0.5, dir * ROCKET_SPEED, now);
+                    spawn_rocket(w, slot, origin + dir * 0.5, dir * t.rocket.velocity, now);
                 }
             }
         }
         Weapon::Knife => {
             w.require_mut::<Fighter>(e).swing_at = now;
             let dir = fighter::view(yaw, pitch);
-            let victim = hitscan(w, origin, dir, KNIFE_RANGE, own)
+            let victim = hitscan(w, origin, dir, t.knife.range, own)
                 .and_then(|h| h.fighter)
                 .or_else(|| {
                     // A forgiving sweep: knives should not need pixel aim.
@@ -278,7 +262,7 @@ pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> 
                         w,
                         &Shape::Sphere { radius: 0.35 },
                         Transform::at(origin.x, origin.y - 0.3, origin.z),
-                        dir * KNIFE_RANGE,
+                        dir * t.knife.range,
                         !own & !arena::WORLD,
                     )
                     .map(|h| h.entity)
@@ -287,7 +271,11 @@ pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> 
             if let Some(victim) = victim {
                 let victim_yaw = w.require::<Fighter>(victim).yaw;
                 let behind = fighter::forward(victim_yaw).dot(fighter::forward(yaw)) > 0.5;
-                let amount = if behind { BACKSTAB } else { KNIFE_DAMAGE };
+                let amount = if behind {
+                    t.knife.backstab
+                } else {
+                    t.knife.damage
+                };
                 out.extend(damage(
                     w,
                     slot,
@@ -326,6 +314,7 @@ pub fn spawn_rocket(w: &mut World, owner: u32, at: Vec3, velocity: Vec3, now: f3
 pub fn fly(w: &mut World) -> Vec<Damage> {
     let now = w.seconds() as f32;
     let dt = w.dt();
+    let life = tables::of(w).rocket.life;
     let rockets: Vec<(Entity, Rocket, Vec3)> = w
         .query::<(&Rocket, &Transform)>()
         .iter()
@@ -345,7 +334,7 @@ pub fn fly(w: &mut World) -> Vec<Damage> {
                     h.point - step.normalize() * 0.05,
                     Some(h.entity),
                 )),
-                None if now - r.born > ROCKET_LIFE || (*at + step).y < -5.0 => {
+                None if now - r.born > life || (*at + step).y < -5.0 => {
                     blasts.push((*e, r.owner, *at, None))
                 }
                 None => moves.push((*e, *at + step)),
@@ -368,11 +357,13 @@ pub fn fly(w: &mut World) -> Vec<Damage> {
 pub fn explode(w: &mut World, owner: u32, at: Vec3, direct: Option<Entity>) -> Vec<Damage> {
     crate::presentation::explosion(w, at);
     let now = w.seconds() as f32;
+    let t = tables::of(w);
+    let r = &t.rocket;
     let mask = fighters_mask(w);
     let caught = physics::overlap(
         w,
         &Shape::Sphere {
-            radius: SPLASH_RADIUS,
+            radius: r.splash_radius,
         },
         Transform::at(at.x, at.y, at.z),
         mask,
@@ -391,13 +382,13 @@ pub fn explode(w: &mut World, owner: u32, at: Vec3, direct: Option<Entity>) -> V
         if blocked {
             continue;
         }
-        let falloff = (1.0 - (distance - 0.8).max(0.0) / SPLASH_RADIUS).clamp(0.0, 1.0);
-        let mut amount = SPLASH_DAMAGE * falloff;
+        let falloff = (1.0 - (distance - 0.8).max(0.0) / r.splash_radius).clamp(0.0, 1.0);
+        let mut amount = r.splash_damage * falloff;
         if direct == Some(victim) {
-            amount += ROCKET_DIRECT;
+            amount += r.direct;
         }
         if slot == owner {
-            amount *= SELF_SPLASH;
+            amount *= r.self_splash;
         }
         let push = if distance > 0.01 {
             to / distance
@@ -407,7 +398,7 @@ pub fn explode(w: &mut World, owner: u32, at: Vec3, direct: Option<Entity>) -> V
         {
             let mut f = w.require_mut::<Fighter>(victim);
             if f.alive {
-                let kick = push * KNOCKBACK * (0.35 + 0.65 * falloff);
+                let kick = push * r.knockback * (0.35 + 0.65 * falloff);
                 f.knock += Vec3::new(kick.x, 0.0, kick.z);
                 let mut c = w.require_mut::<exact_game_physics::CapsuleController>(victim);
                 // Lift replaces (never adds to) a jump: a rocket jump clears the deck.
@@ -425,7 +416,7 @@ pub fn explode(w: &mut World, owner: u32, at: Vec3, direct: Option<Entity>) -> V
         },
         Effect {
             until: now + 0.25,
-            grow: SPLASH_RADIUS * 3.0,
+            grow: r.splash_radius * 3.0,
         },
         Ambient,
     ));

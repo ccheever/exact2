@@ -1,4 +1,6 @@
 use crate::{Data, DataError};
+use std::any::Any;
+use std::sync::Arc;
 
 /// One game-authored `Data` type, used by the bake and the asset barrier alike.
 /// JSON uses Data's record defaults and container replacement rules.
@@ -10,10 +12,19 @@ pub struct Level {
 }
 impl Level {
     /// Declare a JSON level without a second schema or a runtime type registry.
-    pub const fn of<T: Data>(name: &'static str) -> Self {
+    pub const fn of<T: Data + Send + Sync + 'static>(name: &'static str) -> Self {
         Self {
             name,
             decode: decode::<T>,
+        }
+    }
+    /// A level whose type also checks what its shape cannot say (ranges,
+    /// counts, rows that must agree): at bake, and at every delivery — a
+    /// development reload's too, which then keeps the level the world runs on.
+    pub const fn checked<T: Data + Checked + Send + Sync + 'static>(name: &'static str) -> Self {
+        Self {
+            name,
+            decode: decode_checked::<T>,
         }
     }
     /// Validate bytes using the author's derive; errors include the field path.
@@ -24,18 +35,37 @@ impl Level {
         (self.decode)(text).map_err(|e| e.at(self.name))
     }
 }
-fn decode<T: Data>(text: &str) -> Result<LevelValue, DataError> {
-    let _: T = crate::json::from_str(text)?;
+/// What a level's type requires beyond its shape; see `Level::checked`.
+pub trait Checked {
+    fn check(&self) -> Result<(), String>;
+}
+fn decode_checked<T: Data + Checked + Send + Sync + 'static>(
+    text: &str,
+) -> Result<LevelValue, DataError> {
+    let value: T = crate::json::from_str(text)?;
+    value.check().map_err(DataError::new)?;
     Ok(LevelValue {
         text: text.into(),
         ty: std::any::type_name::<T>(),
+        value: Arc::new(value),
+    })
+}
+fn decode<T: Data + Send + Sync + 'static>(text: &str) -> Result<LevelValue, DataError> {
+    let value: T = crate::json::from_str(text)?;
+    Ok(LevelValue {
+        text: text.into(),
+        ty: std::any::type_name::<T>(),
+        value: Arc::new(value),
     })
 }
 /// Validated level payload; immutable and owned once by the world asset store.
+/// It keeps the decoded value, so a tick may read a table every time instead
+/// of copying it at setup, without parsing it again.
 #[derive(Clone)]
 pub struct LevelValue {
     pub(super) text: String,
     pub(super) ty: &'static str,
+    value: Arc<dyn Any + Send + Sync>,
 }
 impl crate::World {
     /// Read the declared level after the barrier. The type must match its declaration.
@@ -51,20 +81,57 @@ impl crate::World {
         }
         crate::json::from_str(&value.text).map_err(|e| e.at(name))
     }
+    /// The declared level as decoded at delivery, shared rather than parsed
+    /// again: a table a tick reads each time (LLP 1046.009 §3.1). After a
+    /// development reload replaces the level, the next read sees the new one.
+    pub fn shared_level<T: Data + Send + Sync + 'static>(
+        &self,
+        name: &str,
+    ) -> Result<Arc<T>, DataError> {
+        let value = self
+            .assets
+            .levels
+            .get(name)
+            .filter(|_| self.assets.declared.contains(name))
+            .ok_or_else(|| DataError::new("declared level has not arrived").at(name))?;
+        let ty = value.ty;
+        value
+            .value
+            .clone()
+            .downcast::<T>()
+            .map_err(|_| DataError::new(format!("declared type is `{ty}`")).at(name))
+    }
+    /// Whether a development reload replaced this asset's content (a level, a
+    /// sound, a model, a texture) since the last call, which consumes the
+    /// notice. A game rebuilds what it derived from the asset at setup — a
+    /// level's colliders — when it sees one. Saves and hashes never hold the
+    /// notice; a fresh or restored world has none.
+    pub fn take_replaced(&mut self, name: &str) -> bool {
+        self.assets.replaced.contains(name) && self.assets.replaced.remove(name)
+    }
 }
 
 impl<G: crate::Game> crate::Sim<G> {
-    pub(crate) fn deliver_level(&mut self, name: &str, text: String) -> Result<(), String> {
+    /// `replacing`: a development reload announced new bytes under this name
+    /// (`Sim::assets_changed`), so a changed digest replaces the level rather
+    /// than being refused. The world's saves then carry the new identity.
+    pub(crate) fn deliver_level(
+        &mut self,
+        name: &str,
+        text: String,
+        replacing: bool,
+    ) -> Result<(), String> {
         let level = G::LEVEL
             .filter(|level| level.name == name)
             .ok_or_else(|| format!("level `{name}` is not declared by Game::LEVEL"))?;
         let value = level.decode(&text).map_err(|e| e.to_string())?;
         let digest = crate::hash::of(&text);
         let assets = &mut self.world_mut().assets;
-        if assets
-            .identities
-            .get(name)
-            .is_some_and(|old| *old != digest)
+        if !replacing
+            && assets
+                .identities
+                .get(name)
+                .is_some_and(|old| *old != digest)
         {
             return Err(format!(
                 "level `{name}` cannot change after delivery; restart with the new level"

@@ -6,6 +6,10 @@ import {resolve} from 'node:path';
 import {readFileSync, writeFileSync} from 'node:fs';
 import { proof, axNames, decide } from "../../proof.mjs";
 
+// The numbers the game is tuned by are its tables' (rivals.level.json); the
+// proof reads them rather than restating them.
+const tables = JSON.parse(readFileSync(new URL('./rivals.level.json', import.meta.url), 'utf8'));
+const HP = tables.fighter.max_hp, FULL = `${tables.rifle.mag} / ${tables.rifle.mag}`, FIRED = `${tables.rifle.mag - 1} / ${tables.rifle.mag}`;
 const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
 const text = (tree, id) => node(tree, id)?.props?.text;
 async function checkNameplates(s, check, label) {
@@ -52,7 +56,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await s.tap('range');
   const game = s.world('world');
   pin(0, await game.snapshot());
-  check('initial HUD: full health, a full rifle', text(await s.tree(), 'hp') === '100' && text(await s.tree(), 'ammo') === '30 / 30');
+  check('initial HUD: full health, a full rifle', text(await s.tree(), 'hp') === String(HP) && text(await s.tree(), 'ammo') === FULL);
   await game.run(400);
   await checkNameplates(s, check, 'Range');
   // The dummies' heads are at eye height: level aim is a headshot.
@@ -63,8 +67,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   if (host === 'web') await s.screenshot(resolve(out, 'range.png'));
   const marked = await s.tree();
   check('hit marker and damage number', text(marked, 'crosshair') === '×' && marked.nodes.some(n => n.props?.text === '36'));
-  check('visible target label follows damage', text(marked, 'target-label-3') === 'TARGET · bot-2' && text(marked, 'target-hp-3') === '64 HP');
-  check('ammo counts down', text(marked, 'ammo') === '29 / 30');
+  check('visible target label follows damage', text(marked, 'target-label-3') === 'TARGET · bot-2' && text(marked, 'target-hp-3') === `${Math.round(HP - tables.rifle.body * tables.rifle.head)} HP`);
+  check('ammo counts down', text(marked, 'ammo') === FIRED);
   await game.hold('ArrowDown', 80);
   await game.run(300);
   await game.tap('KeyF');
@@ -92,7 +96,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('a rocket is in flight', flying === 1, flying);
   await game.run(600);
   const splashed = await Promise.all(['bot-1', 'bot-2', 'bot-3'].map(b => game.get(b, 'Fighter')));
-  check('splash hits the neighbours too', splashed.filter(f => f.hp < 100 || !f.alive).length >= 2, splashed.map(f => f.hp));
+  check('splash hits the neighbours too', splashed.filter(f => f.hp < HP || !f.alive).length >= 2, splashed.map(f => f.hp));
   const feed = await s.tree();
   check('a kill reaches the kill feed', !!node(feed, 'feed') && feed.nodes.some(n => n.props?.text === '[rocket]'));
   await game.tap('Digit3');
@@ -101,7 +105,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await game.tap('KeyF');
   await game.run(100);
   const stabbed = (await game.snapshot()).entities.filter(e => e.components?.Fighter?.bot).map(e => e.components.Fighter);
-  check('the knife lands', stabbed.some(f => f.hp === 55 || (f.hp < 100 && !f.alive) || f.deaths > 0), stabbed.map(f => [f.hp, f.deaths]));
+  check('the knife lands', stabbed.some(f => f.hp === HP - tables.knife.damage || (f.hp < HP && !f.alive) || f.deaths > 0), stabbed.map(f => [f.hp, f.deaths]));
   await s.close();
 
   // A duel: stand and spray toward the bot's spawn; it hunts, strafes and shoots back.
@@ -123,9 +127,9 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   if (host !== 'linux' && incoming) await d.screenshot(resolve(out, 'incoming.png'));
   await duel.run(9000 - elapsed);
   const me = await duel.get('player', 'Fighter'), bot = await duel.get('bot-1', 'Fighter');
-  check('the bot fights back', me.hp < 100 || me.deaths > 0, me);
+  check('the bot fights back', me.hp < HP || me.deaths > 0, me);
   const where = await duel.local_position('bot-1');
-  check('the bot hunted off its spawn and fired', bot.shots > 0 && Math.hypot(where[0], where[2] + 18) > 3, {where, shots:bot.shots});
+  check('the bot hunted off its spawn and fired', bot.shots > 0 && Math.hypot(where[0] - tables.arena.spawns[1][0], where[2] - tables.arena.spawns[1][1]) > 3, {where, shots:bot.shots});
   await duel.key_up('KeyF');
   if (host === 'web') await d.screenshot(resolve(out, 'duel.png'));
   pin(1080, await duel.snapshot());
@@ -141,7 +145,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('Pause offers Restart', !!node(await d.tree(), 'restart') && (pausedAx.unavailable || pausedAx.name('restart') === 'Restart'));
   await d.tap('restart');
   const reset = await d.tree();
-  check('Restart clears the score', text(reset, 'you-kills') === '0' && text(reset, 'rival-kills') === '0' && text(reset, 'hp') === '100');
+  check('Restart clears the score', text(reset, 'you-kills') === '0' && text(reset, 'rival-kills') === '0' && text(reset, 'hp') === String(HP));
   check('Restart returns focus to the game', node(reset, 'world')?.focused === true);
   await d.close();
   check('the hunting bot takes an obstacle detour before engaging', detourAt > 0, detourAt);
@@ -292,7 +296,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await rocketPractice(care);
   const caring = care.world('world');
   const wounded = Number(text(await care.tree(),'hp'));
-  check('rocket practice leaves a living wound and an enabled bandage', wounded > 0 && wounded < 100 && node(await care.tree(),'bandage')?.props?.disabled === false, wounded);
+  check('rocket practice leaves a living wound and an enabled bandage', wounded > 0 && wounded < HP && node(await care.tree(),'bandage')?.props?.disabled === false, wounded);
   await care.tap('bandage', {down:true});
   await caring.run(500);
   check('holding the HUD button starts bandaging', text(await care.tree(),'bandage-status')?.startsWith('Keep holding'));
@@ -306,7 +310,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const finishBandage = async session => {
     const g = session.world('world');
     await g.run(1000);
-    check('the saved hold heals to full and spends one bandage', text(await session.tree(),'hp') === '100' && text(await session.tree(),'bandage-status') === 'Bandage used');
+    check('the saved hold heals to full and spends one bandage', text(await session.tree(),'hp') === String(HP) && text(await session.tree(),'bandage-status') === 'Bandage used');
     await g.run(1700);
     await g.key_up('KeyQ'); await g.run(100);
     check('holding longer cannot use a second bandage', text(await session.tree(),'bandage-status') === 'Bandage used' && node(await session.tree(),'bandage')?.props?.disabled === true);
@@ -337,10 +341,10 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const finishReload = async session => {
     const g = session.world('world');
     await session.tap('reload'); await g.run(100);
-    check('the HUD timing press refills before the normal deadline', text(await session.tree(),'ammo') === '30 / 30'
+    check('the HUD timing press refills before the normal deadline', text(await session.tree(),'ammo') === FULL
       && text(await session.tree(),'reload-status') === 'Quick reload!');
     await g.run(900); await g.tap('KeyF'); await g.run(200);
-    check('the reloaded rifle fires normally', text(await session.tree(),'ammo') === '29 / 30');
+    check('the reloaded rifle fires normally', text(await session.tree(),'ammo') === FIRED);
     await session.tap('reload'); await g.run(200);
     await g.tap('KeyR'); await g.run(100);
     check('an early keyboard press reports the spent attempt', text(await session.tree(),'reload-status')?.startsWith('Missed'));
@@ -348,7 +352,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     check('pressing again cannot recover a missed window', text(await session.tree(),'ammo') === 'Reloading…'
       && text(await session.tree(),'reload-status')?.startsWith('Missed'));
     await g.run(900);
-    check('a missed attempt still finishes the normal reload', text(await session.tree(),'ammo') === '30 / 30');
+    check('a missed attempt still finishes the normal reload', text(await session.tree(),'ammo') === FULL);
   };
   await finishReload(reload);
   await loading.save(resolve(out,'reloaded.world'));
@@ -366,7 +370,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const fg = feedback.world('world');
   await fg.run(400); await fg.tap('KeyF'); await fg.run(17);
   check('a rifle shot lights its muzzle without changing ammunition cost', (await fg.get('vm-rifle-flash-core','Visible'))?.[0] === true
-    && text(await feedback.tree(),'ammo') === '29 / 30');
+    && text(await feedback.tree(),'ammo') === FIRED);
   const voices = (await feedback.state()).world?.find(w=>w.name==='world')?.audio?.voices ?? [];
   check('the shot and head hit have distinct local sounds', ['rifle-shot','head-hit'].every(sound=>voices.some(v=>v.sound===sound && v.at==='ui')));
   if (host !== 'linux') await feedback.screenshot(resolve(out,'shot-feedback.png'));
@@ -376,7 +380,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     const g = session.world('world');
     await g.run(450);
     check('the muzzle flash expires and does not fire again after restoration', (await g.get('vm-rifle-flash-core','Visible'))?.[0] === false
-      && text(await session.tree(),'ammo') === '29 / 30');
+      && text(await session.tree(),'ammo') === FIRED);
     check('the completed shot leaves no active audio voice', ((await session.state()).world?.find(w=>w.name==='world')?.audio?.voices ?? []).length===0);
     await g.tap('KeyR'); await g.run(1700);
   };
@@ -490,7 +494,7 @@ async function playtest({open, out, say}) {
     const reloading = state.ammo === 'Reloading…';
     const choices = {wait:'Wait half a second for a respawn, reload, or target to appear'};
     if (!node(tree, 'dead')) {
-      if (recovery && node(tree,'bandage')?.props?.disabled === false) choices.bandage = 'Hold Q for 1.7 seconds to use the one bandage: recover up to 40 HP; damage or combat interrupts it';
+      if (recovery && node(tree,'bandage')?.props?.disabled === false) choices.bandage = `Hold Q for ${(tables.fighter.bandage_time + 0.2).toFixed(1)} seconds to use the one bandage: recover up to ${tables.fighter.bandage_heal} HP; damage or combat interrupts it`;
       if (!timedReload || !reloading) for (const c of contacts) choices[`shoot_${c.id}`] = `Aim at ${c.label} (${c.hp}) and fire up to three shots with the selected weapon`;
       if (/^\d+ \/ \d+$/.test(state.ammo) && Number(state.ammo.split(' / ')[0]) < Number(state.ammo.split(' / ')[1])) choices.reload = timedReload
         ? 'Begin reloading, then follow the meter for a second press in green'
