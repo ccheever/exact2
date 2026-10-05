@@ -35,14 +35,14 @@ impl Game for Dressed {
     fn tick(w: &mut World, i: &Input, a: &()) {
         Plain::tick(w, i, a);
     }
-    fn present(w: &mut World, _: &()) {
-        let crate_ = w.named("crate").unwrap();
-        let mut rng = w.presentation_rng(7);
+    fn present(p: &mut Present<'_>, _: &()) {
+        let crate_ = p.named("crate").unwrap();
+        let mut rng = p.rng(7);
         let bob = Bob {
-            height: math::sin(w.tick() as f32 * 0.1) * 0.05,
+            height: math::sin(p.tick() as f32 * 0.1) * 0.05,
             flash: rng.range(0.0..1.0),
         };
-        w.insert(crate_, bob);
+        p.insert(crate_, bob);
     }
 }
 
@@ -86,22 +86,6 @@ fn presentation_is_rebuilt_at_every_boundary_from_the_tick() {
 }
 
 #[test]
-#[should_panic(expected = "Game::present changed simulation state (spawned an entity)")]
-fn presenting_cannot_spawn() {
-    struct Spawns;
-    impl Game for Spawns {
-        const ID: &'static str = "spawns";
-        type Args = ();
-        fn setup(_: &mut World, _: &()) {}
-        fn tick(_: &mut World, _: &Input, _: &()) {}
-        fn present(w: &mut World, _: &()) {
-            w.spawn(());
-        }
-    }
-    let _ = Sim::<Spawns>::new(());
-}
-
-#[test]
 #[should_panic(expected = "a tick read or wrote presentation component `Bob`")]
 fn a_tick_cannot_read_presentation_state() {
     struct Peeks;
@@ -117,8 +101,8 @@ fn a_tick_cannot_read_presentation_state() {
                 w.require_mut::<Crate>("crate").hp = 0;
             }
         }
-        fn present(w: &mut World, a: &()) {
-            Dressed::present(w, a);
+        fn present(p: &mut Present<'_>, a: &()) {
+            Dressed::present(p, a);
         }
     }
     Sim::<Peeks>::new(()).unwrap().run(100.);
@@ -157,10 +141,10 @@ fn present_rebuilds_from_nothing_so_a_stateful_present_cannot_drift() {
         fn tick(w: &mut World, i: &Input, a: &()) {
             Plain::tick(w, i, a);
         }
-        fn present(w: &mut World, _: &()) {
-            let e = w.named("crate").unwrap();
-            let seen = w.get::<Count>(e).map_or(0, |c| c.0);
-            w.insert(e, Count(seen + 1));
+        fn present(p: &mut Present<'_>, _: &()) {
+            let e = p.named("crate").unwrap();
+            let seen = p.get::<Count>(e).map_or(0, |c| c.0);
+            p.insert(e, Count(seen + 1));
         }
     }
     let mut a = Sim::<Counts>::new(()).unwrap();
@@ -169,78 +153,6 @@ fn present_rebuilds_from_nothing_so_a_stateful_present_cannot_drift() {
     let mut b = Sim::<Counts>::new(()).unwrap();
     b.restore(&a.save().unwrap()).unwrap();
     assert_eq!(b.world().require::<Count>("crate").0, 1);
-}
-
-/// A game whose present makes one simulation change; the panic names it.
-fn presents(change: fn(&mut World)) -> String {
-    thread_local!(static CHANGE: std::cell::Cell<Option<fn(&mut World)>> = const { std::cell::Cell::new(None) });
-    struct Meddles;
-    impl Game for Meddles {
-        const ID: &'static str = "meddles";
-        type Args = ();
-        fn setup(w: &mut World, a: &()) {
-            Plain::setup(w, a);
-        }
-        fn tick(w: &mut World, i: &Input, a: &()) {
-            Plain::tick(w, i, a);
-        }
-        fn present(w: &mut World, _: &()) {
-            if w.tick() > 0 {
-                CHANGE.with(|c| c.get().unwrap())(w);
-            }
-        }
-    }
-    CHANGE.with(|c| c.set(Some(change)));
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        Sim::<Meddles>::new(()).unwrap().run(100.);
-    }));
-    let error = result.expect_err("present's simulation change must panic");
-    error.downcast_ref::<String>().cloned().unwrap_or_default()
-}
-
-#[test]
-fn present_cannot_change_simulation_state() {
-    type Change = fn(&mut World);
-    let cases: [(Change, &str); 9] = [
-        // Busy reasons are saved and hashed simulation state.
-        (|w| w.busy("drawing"), "reported busy `drawing`"),
-        (
-            |w| w.require_mut::<Transform>("crate").position.x += 1.,
-            "wrote component `Transform`",
-        ),
-        (
-            |w| {
-                let e = w.named("crate").unwrap();
-                w.insert(e, Crate { hp: 9 });
-            },
-            "inserted component `Crate`",
-        ),
-        (
-            |w| {
-                for (_, t) in w.query::<&mut Transform>().iter() {
-                    t.position.y = 1.;
-                }
-            },
-            "queried `Transform` mutably",
-        ),
-        (
-            |w| {
-                w.rand(0..3u32);
-            },
-            "drew from World::rng",
-        ),
-        (|w| w.emit("hello"), "emitted a message"),
-        (|w| w.log("note"), "journaled `note`"),
-        (|w| w.publish("score", 3.0), "published `score`"),
-        (|w| emitter::step(w), "queried `Emitter` mutably"),
-    ];
-    for (change, named) in cases {
-        let message = presents(change);
-        assert!(
-            message.contains("Game::present changed simulation state") && message.contains(named),
-            "{named}: {message}"
-        );
-    }
 }
 
 #[test]
@@ -302,9 +214,9 @@ fn a_present_that_fails_on_a_restored_world_refuses_the_restore() {
             Plain::setup(w, a);
         }
         fn tick(_: &mut World, _: &Input, _: &()) {}
-        fn present(w: &mut World, _: &()) {
-            let crate_ = w.named("crate").expect("present needs the crate");
-            w.insert(crate_, Bob::default());
+        fn present(p: &mut Present<'_>, _: &()) {
+            let crate_ = p.named("crate").expect("present needs the crate");
+            p.insert(crate_, Bob::default());
         }
     }
     let mut bare = Sim::<Bare>::new(()).unwrap();
@@ -344,10 +256,10 @@ fn drawn_state_follows_live_arguments_and_edits_without_a_tick() {
         fn paused(_: &Look) -> bool {
             true
         }
-        fn present(w: &mut World, look: &Look) {
-            let e = w.named("crate").unwrap();
-            let hp = w.require::<Crate>(e).hp;
-            w.insert(
+        fn present(p: &mut Present<'_>, look: &Look) {
+            let e = p.named("crate").unwrap();
+            let hp = p.require::<Crate>(e).hp;
+            p.insert(
                 e,
                 Bob {
                     height: hp as f32,
@@ -377,11 +289,17 @@ fn present_clears_sparse_rows_across_many_slots() {
             }
         }
         fn tick(_: &mut World, _: &Input, _: &()) {}
-        fn present(w: &mut World, _: &()) {
-            let n = w.tick() as u32;
-            for index in [n % 64, 7_000 + n % 64, 19_999 - n % 64] {
-                let e = w.entities().find(|e| e.index() == index).unwrap();
-                w.insert(e, Bob::default());
+        fn present(p: &mut Present<'_>, _: &()) {
+            let n = p.tick() as u32;
+            let wanted = [n % 64, 7_000 + n % 64, 19_999 - n % 64];
+            let mut chosen = Vec::new();
+            p.for_each::<Transform>(|e, _| {
+                if wanted.contains(&e.index()) {
+                    chosen.push(e);
+                }
+            });
+            for e in chosen {
+                p.insert(e, Bob::default());
             }
         }
     }
@@ -424,4 +342,116 @@ fn setup_cannot_write_presentation_state() {
         fn tick(_: &mut World, _: &Input, _: &()) {}
     }
     let _ = Sim::<Early>::new(());
+}
+
+// Presents counted across a whole process, by game.
+static PRESENTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+struct Counted;
+impl Game for Counted {
+    const ID: &'static str = "counted";
+    type Args = ();
+    fn setup(w: &mut World, a: &()) {
+        Plain::setup(w, a);
+    }
+    fn tick(w: &mut World, i: &Input, a: &()) {
+        Plain::tick(w, i, a);
+    }
+    fn present(p: &mut Present<'_>, a: &()) {
+        PRESENTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Dressed::present(p, a);
+    }
+}
+
+#[test]
+fn a_long_seek_presents_only_what_it_shows_and_paranoid_presents_every_tick() {
+    let count = || PRESENTS.load(std::sync::atomic::Ordering::Relaxed);
+    let mut seek = Sim::<Counted>::new(()).unwrap();
+    let before = count();
+    seek.run(10_000.); // 600 ticks
+    let boundary_only = count() - before;
+    assert!(boundary_only <= 3, "{boundary_only} presents for one seek");
+    let mut every = Sim::<Counted>::new(()).unwrap().paranoid(Paranoid::Save);
+    let before = count();
+    every.run(10_000.);
+    assert!(count() - before >= 600, "paranoid presents every tick");
+    // Both present the same drawn state at the observed boundary.
+    let bob = |s: &Sim<Counted>| {
+        let b = s.world().require::<Bob>("crate");
+        (b.height.to_bits(), b.flash.to_bits())
+    };
+    assert_eq!(bob(&seek), bob(&every));
+    assert_eq!(seek.world().hash(), every.world().hash());
+}
+
+#[test]
+fn restore_presents_after_publications_are_back() {
+    struct Scores;
+    impl Game for Scores {
+        const ID: &'static str = "scores";
+        type Args = ();
+        fn setup(w: &mut World, a: &()) {
+            Plain::setup(w, a);
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            w.publish("score", w.tick() as f64);
+        }
+        fn present(p: &mut Present<'_>, _: &()) {
+            let score = match p.published("score") {
+                Some(Value::Number(n)) => n as f32,
+                _ => -1.,
+            };
+            let e = p.named("crate").unwrap();
+            p.insert(
+                e,
+                Bob {
+                    height: score,
+                    flash: 0.,
+                },
+            );
+        }
+    }
+    let mut a = Sim::<Scores>::new(()).unwrap();
+    a.run(500.);
+    let mut b = Sim::<Scores>::new(()).unwrap();
+    b.restore(&a.save().unwrap()).unwrap();
+    let height = |s: &Sim<Scores>| s.world().require::<Bob>("crate").height;
+    assert_eq!(height(&a), 29.); // published during the 30th tick
+    assert_eq!(height(&b), height(&a));
+}
+
+#[test]
+fn presenting_is_not_a_simulation_mutation() {
+    #[derive(Default, Args)]
+    struct Look {
+        #[live]
+        glow: f64,
+    }
+    struct Glows;
+    impl Game for Glows {
+        const ID: &'static str = "glows-epoch";
+        type Args = Look;
+        fn setup(w: &mut World, a: &Look) {
+            Plain::setup(w, &());
+            let _ = a;
+        }
+        fn tick(_: &mut World, _: &Input, _: &Look) {}
+        fn paused(_: &Look) -> bool {
+            true
+        }
+        fn present(p: &mut Present<'_>, look: &Look) {
+            let e = p.named("crate").unwrap();
+            p.insert(
+                e,
+                Bob {
+                    height: look.glow as f32,
+                    flash: 0.,
+                },
+            );
+        }
+    }
+    let mut s = Sim::<Glows>::new(Look::default()).unwrap();
+    let epoch = s.world().mutation_epoch();
+    s.bind(&[Value::Number(0.5)], None).unwrap();
+    assert_eq!(s.world().require::<Bob>("crate").height, 0.5);
+    assert_eq!(s.world().mutation_epoch(), epoch);
 }

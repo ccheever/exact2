@@ -48,11 +48,11 @@ impl Game for WindGame {
         ));
     }
     fn tick(_: &mut World, _: &Input, _: &()) {}
-    fn present(w: &mut World, _: &()) {
+    fn present(w: &mut exact_game::Present<'_>, _: &()) {
         // Slow swells from the tick, with a flutter from the tick-seeded
         // presentation RNG: the same tick always shows the same gust.
         let t = w.tick() as f32 / Self::HZ as f32;
-        let flutter = w.presentation_rng(1).range(-0.05..0.05);
+        let flutter = w.rng(1).range(-0.05..0.05);
         let wind = w.named("wind").unwrap();
         w.insert(
             wind,

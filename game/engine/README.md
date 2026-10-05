@@ -236,16 +236,23 @@ what changed rather than the world (0.1 ms at 216k entities, against ~90 ms).
 The hash is a stream over page digests in type-name and page order; it is the
 same on every host and for a world freshly loaded from the same save.
 
-Visual-only state belongs in `#[derive(Presentation)]` components: they are excluded
-from saves, hashes and the simulation, so a bob, a flash or a sway phase cannot move a
-pin; agents can still read them (diagnostics). `Game::present(w, args)` rebuilds them
-from nothing at every boundary (after each tick, setup, restore, a paranoid rebuild,
-a live-argument change and a `world_mut` edit), drawing randomness from
-`w.presentation_rng(salt)`, a stream hashed from the seed, tick and salt, never the
-world's. Present may write presentation components only: any simulation write there
-(a component, spawn, `w.rng()`, emit, publish, log) panics naming it, as does a tick
-reading or writing a presentation component. A save carrying presentation rows is
-refused, and a present that fails on a restored world refuses the restore.
+Visual-only state belongs in `#[derive(Presentation)]` components (presentation
+resources are not supported): they are excluded from saves, hashes and the
+simulation, so a bob, a flash or a sway phase cannot move a pin; agents can still read
+them (diagnostics). `Game::present(p, args)` rebuilds them from nothing after setup,
+after a restore (once its journal and publications are back), after a live-argument
+change or a `world_mut` edit, and at the boundaries an advance shows: its last two
+ticks, which the renderer interpolates between. A long seek does not present every
+tick; paranoid modes do, and compare, which proves present is pure. `p: Present` reads
+the simulation (`get`, `require`, `for_each`, `resource`, `global`, `is_visible`,
+`published`, the tick and seed) and writes only presentation components on existing
+entities (`insert`, `get_mut`); `p.rng(salt)` is a stream hashed from the seed, tick and
+salt, never the world's. It has no simulation RNG, events, spawning, publications or
+busy reasons. Behind that type, any simulation write while presenting panics naming
+it, and the guard stays armed after a caught panic; a tick reading or writing a
+presentation component panics too. Rebuilding presentation is not a simulation
+mutation (it does not reset settling). A save carrying presentation rows is refused,
+and a present that fails on a restored world refuses the restore.
 `Offset(Transform)` is the built-in one: the renderer draws an entity at its pose
 times its offset. Parented children keep their own poses; props on a rigged
 entity's sockets follow it. Picking, layout and physics use the simulated pose.

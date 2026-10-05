@@ -18,6 +18,7 @@ mod input;
 pub mod math;
 pub mod motion;
 mod placed;
+mod present;
 mod rng;
 pub mod scene;
 mod sim;
@@ -44,6 +45,7 @@ pub use input::{
     Actions, Input, InputEvent, PointerPhase, PointerState, Region, Stick, MOUSE_BUTTONS,
 };
 pub use placed::{CanvasChild, Facing, Placed, PlacedPlane};
+pub use present::{Present, PresentationComponent};
 pub use rng::{RangeValue, Rng};
 pub use scene::*;
 pub use sim::{Clock, Game, Now, Paranoid, Sim};

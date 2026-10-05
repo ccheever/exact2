@@ -146,6 +146,11 @@ impl<G: Game> Sim<G> {
         next.defer_assets = self.defer_assets;
         crate::scene::place_followers(&next.world);
         next.world.propagate();
+        // Every input present may read is installed first: a present reading a
+        // publication sees the restored one.
+        next.world.restore_journal(s.journal, s.journal_next);
+        next.world.restore_publications(s.published);
+        next.world.published_pending.set(true);
         // The restored world is untrusted input: a present that fails on it is
         // a refused restore, not a crashed host (where unwinding is available).
         let presented = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -161,9 +166,6 @@ impl<G: Game> Sim<G> {
                 "restore refused: Game::present failed on the restored world: {reason}"
             )));
         }
-        next.world.restore_journal(s.journal, s.journal_next);
-        next.world.restore_publications(s.published);
-        next.world.published_pending.set(true);
         next.world_us = s.world_us;
         next.world.unobserve();
         next.restored_from = Some(s.args);
