@@ -67,6 +67,9 @@ pub mod presenter;
 pub mod raster;
 mod surfaces;
 pub mod text;
+#[cfg(any(target_os = "android", test))]
+#[path = "canvas/travel.rs"]
+mod travel;
 #[cfg(target_os = "linux")]
 pub mod vnc;
 mod wake;

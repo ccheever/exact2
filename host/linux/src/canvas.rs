@@ -920,6 +920,10 @@ pub struct CanvasHost<D: DataSource> {
     /// [`MOVES`]); 1000 or more also leaves the last move standing, to check
     /// a moved frame against a painted one.
     moves: u32,
+    /// The feed's travel, and the frame (a count of `moved`) by which a
+    /// paint must show rows a pass mounted out of view ([`crate::travel`]).
+    travel: crate::travel::Travel,
+    paint_by: Option<u32>,
     /// A GPU canvas wants another frame (Android: they present each frame).
     surfaces: bool,
     /// GPU canvases wait for the host's own thread: it booted on another
@@ -1022,6 +1026,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
             scrolled: false,
             prefetching: false,
             quiet: None,
+            travel: crate::travel::Travel::default(),
+            paint_by: None,
             moves: std::env::var("EXACT_MOVES")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -1152,6 +1158,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             groups: GROUPS.with(|g| g.borrow().clone()),
         });
         self.moved = 0;
+        self.paint_by = None;
         self.force = false;
         self.quiet = None;
         let mut ops = FINISHED.with(|f| f.borrow_mut().take())?;
@@ -1279,6 +1286,14 @@ impl<D: DataSource + Default> CanvasHost<D> {
                 }
             }
         }
+        // How soon what this pass mounts past the view can scroll in: it
+        // reaches the feed's viewport past it (the window's lead).
+        let lead = self
+            .feed
+            .and_then(|id| self.p.host().kernel().node(id))
+            .map_or(self.viewport.1, |n| n.frame.height);
+        let soon = self.moves.min(MOVES_MOUNTED).saturating_sub(self.moved);
+        let due = self.travel.passed(lead, soon);
         let before = self.p.still();
         let wanted = self.p.refine_deferred(true);
         // Only the pass changed the kernel (rows out of view): no paint now.
@@ -1291,6 +1306,19 @@ impl<D: DataSource + Default> CanvasHost<D> {
                 let epoch = self.p.host().kernel().epoch();
                 if p.same_at(&a, epoch) {
                     self.quiet = Some(epoch);
+                    // Rows the scroll brings in before the paint that shows
+                    // them would: that paint comes sooner, or now.
+                    match due {
+                        Some(0) if self.moved > 0 => {
+                            self.force = true;
+                            return true;
+                        }
+                        Some(frames) => {
+                            let by = self.moved + frames;
+                            self.paint_by = Some(self.paint_by.map_or(by, |b| b.min(by)));
+                        }
+                        None => {}
+                    }
                     return false;
                 }
                 wanted
@@ -1318,7 +1346,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
             self.moves.min(MOVES_MOUNTED)
         } else {
             self.moves
-        };
+        }
+        .min(self.paint_by.unwrap_or(u32::MAX));
         if !p.dirty() || self.force || self.moved >= limit {
             return None;
         }
@@ -1394,6 +1423,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let (x, y) = (self.viewport.0 / 2.0, self.viewport.1 / 2.0);
         let _s = Section::begin(c"exact scroll");
         self.scrolled = self.prefetching;
+        self.travel.scrolled(dy / self.scale);
         self.p.hold_collections(self.prefetching);
         // The feed: the scroller the first wheel at the centre took, moved
         // directly after (a nested list under the centre would take it).
