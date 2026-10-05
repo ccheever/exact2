@@ -37,6 +37,8 @@ component Controls
       input type="time" value=hour change=setHour testId="hour"
       input type="range" min=0 max=10 value=level change=setLevel testId="level"
       input type="checkbox" checked=agreed change=agree testId="agree"
+      input type="checkbox" checked=true change=agree testId="lit-on" aria-label="On"
+      input type="checkbox" checked=false change=agree testId="lit-off" aria-label="Off"
       text `${pick} ${day} ${hour} ${level} ${agreed} ${far} ${inner}` testId="values"
       scroll testId="inner-scroll" height=80
         box height=300

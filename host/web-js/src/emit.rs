@@ -1120,6 +1120,12 @@ impl Em<'_> {
         {
             let _ = write!(self.out, "{e}.muted=!0;");
         }
+        // A literal `checked` is the model's as a bound one is (rt.js `P`): the
+        // box keeps it when clicked, and the agent tree reports it.
+        if let (true, Some(v)) = (element == "input", parts.props.get("checked")) {
+            let v = if v == "true" { "!0" } else { "!1" };
+            let _ = write!(self.out, "{e}.checked={e}.$checked={v};");
+        }
         // A `markup="markdown"` text builds its pieces (LLP 1045 D3).
         let markdown = node_type == NodeType::Text
             && row.bindings.iter().any(|b| {

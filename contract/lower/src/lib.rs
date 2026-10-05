@@ -831,7 +831,7 @@ impl<'a> Lowerer<'a> {
                     );
                 }
                 controls::check_zero_size(tag, expanded, children, *span)?;
-                let nav_place = self.nav_place.enter(tag, expanded, *span)?;
+                let nav_place = self.nav_place.enter(tag, expanded, children, *span)?;
                 // @ref LLP 1038 D8 — only the first root selects navigation.
                 if has(&["navigate"])
                     && (parent_tag.is_some()

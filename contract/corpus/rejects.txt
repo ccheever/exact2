@@ -799,6 +799,20 @@ component A
           column navigationKey=`${e.id}`
             text e.url
 ---
+== lower-route-scroll
+# A route's navigationScroll names an id nothing in the route carries.
+routes nav
+  home "/"
+component A
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0
+          scroll id="feed" height=400
+            text e.url
+---
 == syntax-continuation-indent
 # LLP 1035.005 D1: an element's attributes continue only on lines deeper
 # than the element's; at its own depth `width=` is neither a child nor a

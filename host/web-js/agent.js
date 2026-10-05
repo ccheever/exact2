@@ -39,6 +39,8 @@ export function install(exact) {
     if (/^(Text|SvgText|SvgTSpan)$/.test(type(el)) && (el.$source != null || !kids(el).length)) props.text = el.$source ?? (flowed(el) ? el.$flow.text : el.textContent);
     // An option's value is its authored `value` (the DOM's falls back to its label), as the runner's tree gives it.
     if ('value' in el && el.tagName !== 'BUTTON' && el.type !== 'checkbox' && (el.tagName !== 'OPTION' || el.hasAttribute('value'))) props.value = el.value;
+    // A checkbox's model value, as the runner's tree gives its `checked` row.
+    if (el.$checked !== undefined) props.checked = el.$checked;
     // The runner's props that element.rs writes as attributes, by its names.
     for (const [attr, prop, num] of PROPS) if (el.hasAttribute(attr)) props[prop] = num ? Number(el.getAttribute(attr)) : el.getAttribute(attr);
     // The intent `tree --ax` reads (LLP 1080.002 D7), as the runner names it.

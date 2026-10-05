@@ -10,13 +10,15 @@ import { open } from './agent.mjs';
 import { driveStore, launchFacts } from './agent-launch.mjs';
 import { resolveApp } from './app.mjs';
 
-/** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a control's value (a select's options
+/** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
  * are its choices, not its text; LLP 1087 wizard trials), else its descendants' in order — the web's `textContent`, a button's
  * label — else a field's value. `nodes` is a `tree` reply's, in preorder. */
 export function textOf(nodes, node) {
   if (node.props.text != null) return node.props.text;
-  if (node.type === 'Control' && node.props.value != null) return node.props.value;
   const at = nodes.indexOf(node), runs = [];
+  // A checkbox or switch (only those take `checked`): `true` or `false`.
+  if (node.type === 'Control' && node.props.checked != null) return String(node.props.checked);
+  if (node.type === 'Control' && node.props.value != null) return node.props.value;
   for (let i = at + 1; i < nodes.length && nodes[i].depth > node.depth; i++) if (nodes[i].props.text != null) runs.push(nodes[i].props.text);
   return runs.length ? runs.join('') : node.props.value;
 }
