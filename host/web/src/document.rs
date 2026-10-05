@@ -725,7 +725,7 @@ impl<S: Source> Walk<'_, '_, S> {
         }
         attrs.push(("data-exact-paint".into(), Some(format!("[{flags},{z}]"))));
         self.open(id, element, &attrs)?;
-        if matches!(element, "img" | "input") {
+        if matches!(element, "img" | "input" | "hr") {
             // Void: no content, no end tag.
             return Ok(());
         }

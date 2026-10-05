@@ -319,4 +319,80 @@ where
         fields vs fs (by simpa using hl) h.2 fun g hg => hc g (by simp [hg])⟩
     | [], _ :: _, hl, _, _ | _ :: _, [], hl, _, _ => by simp at hl
 
+/-- The same of `typed`, which leaves out only finiteness. -/
+theorem typed_valTy {p : Program} (hs : ShapesComplete p) : ∀ (v : Value) {t : Ty},
+    typed p v t = true → t.complete = true → ValTy p v t
+  | .num _, t, h, hc | .bool _, t, h, hc | .str _, t, h, hc | .unit, t, h, hc | .none, t, h, hc => by
+    cases t <;> simp_all [typed, Ty.complete, ValTy]
+  | .some v, t, h, hc => by
+    cases t <;> simp [typed, Ty.complete] at h hc
+    case option t => exact typed_valTy hs v h hc
+  | .list xs, t, h, hc => by
+    cases t <;> simp [typed, Ty.complete] at h hc
+    case list t => exact all xs h hc
+  | .record s' vs, t, h, hc => by
+    cases t <;> simp [typed] at h
+    case unknown => simp [Ty.complete] at hc
+    case record s =>
+      split at h
+      next sh hsh =>
+        simp only [Bool.and_eq_true, beq_iff_eq] at h
+        obtain ⟨⟨rfl, hl⟩, hf⟩ := h
+        refine ⟨rfl, sh, hsh, ?_⟩
+        exact fields vs sh.fields (by simpa using hl) hf
+          (hs sh (List.mem_of_find?_eq_some hsh))
+      next => simp at h
+where
+  all : ∀ (xs : List Value) {t : Ty}, typedAll p xs t = true → t.complete = true → ValTys p xs t
+    | [], _, _, _ => trivial
+    | x :: xs, t, h, hc => by
+      simp only [typedAll, Bool.and_eq_true] at h
+      exact ⟨typed_valTy hs x h.1 hc, all xs h.2 hc⟩
+  fields : ∀ (vs : List Value) (fs : List Field), vs.length = fs.length →
+      typedFields p vs fs = true → (∀ f ∈ fs, f.ty.complete = true) → FieldsTy p vs fs
+    | [], [], _, _, _ => trivial
+    | v :: vs, f :: fs, hl, h, hc => by
+      simp only [typedFields, Bool.and_eq_true] at h
+      exact ⟨typed_valTy hs v h.1 (hc f (by simp)),
+        fields vs fs (by simpa using hl) h.2 fun g hg => hc g (by simp [hg])⟩
+    | [], _ :: _, hl, _, _ | _ :: _, [], hl, _, _ => by simp at hl
+
+/-- A value of a type passes `typed`, finite or not. -/
+theorem typed_of_valTy {p : Program} : ∀ (v : Value) {t : Ty}, ValTy p v t → typed p v t = true
+  | .num _, t, h | .bool _, t, h | .str _, t, h | .unit, t, h | .none, t, h => by
+    cases t <;> simp_all [ValTy, typed]
+  | .some v, t, h => by
+    cases t <;> simp [ValTy] at h
+    case option t => simp only [typed]; exact typed_of_valTy v h
+  | .list xs, t, h => by
+    cases t <;> simp [ValTy] at h
+    case list t => simp only [typed]; exact all xs h
+  | .record s vs, t, h => by
+    cases t <;> simp [ValTy] at h
+    case record s' =>
+      obtain ⟨rfl, sh, hsh, hfs⟩ := h
+      simp only [typed, hsh, beq_self_eq_true, Bool.true_and, Bool.and_eq_true, beq_iff_eq]
+      exact ⟨hfs.length, fields vs sh.fields hfs⟩
+where
+  all : ∀ (xs : List Value) {t : Ty}, ValTys p xs t → typedAll p xs t = true
+    | [], _, _ => rfl
+    | x :: xs, t, h => by
+      simp only [typedAll, Bool.and_eq_true]
+      exact ⟨typed_of_valTy x h.1, all xs h.2⟩
+  fields : ∀ (vs : List Value) (fs : List Field), FieldsTy p vs fs → typedFields p vs fs = true
+    | [], [], _ => rfl
+    | v :: vs, f :: fs, h => by
+      simp only [typedFields, Bool.and_eq_true]
+      exact ⟨typed_of_valTy v h.1, fields vs fs h.2⟩
+    | [], _ :: _, _ => rfl
+    | _ :: _, [], h => by simp [FieldsTy] at h
+
+/-- An argument the action's check admits at a complete type is of it. -/
+theorem argOk_valTy {p : Program} (hs : ShapesComplete p) {x : String} {t : Ty} {v : Value}
+    (h : argOk p (x, t) v = true) (hc : t.complete = true) : ValTy p v t := by
+  simp only [argOk] at h
+  by_cases hx : hiddenParam x = true
+  · simp only [hx, ↓reduceIte] at h; exact typed_valTy hs _ h hc
+  · simp only [hx, Bool.false_eq_true, ↓reduceIte] at h; exact conforms_valTy hs _ h hc
+
 end Contract

@@ -203,7 +203,7 @@ impl Paint {
     /// CSS's grammar for the subset.
     pub fn parse(css: &str) -> Option<Paint> {
         let t = css.trim();
-        if t.len() >= 4 && t[..4].eq_ignore_ascii_case("url(") {
+        if t.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("url(")) {
             let close = t.find(')')?;
             let inner = t[4..close].trim().trim_matches(|c| c == '"' || c == '\'');
             let id = inner.strip_prefix('#').filter(|id| !id.is_empty())?;

@@ -219,6 +219,8 @@ pub fn tag(name: &str) -> Option<Tag> {
             &[(StyleId::PositionType, "absolute")],
             &[(PropId::SemanticTag, "dialog")],
         ),
+        // @ref LLP 1021 D1 — HTML's separator, its UA sheet's rows; void.
+        "hr" => view(crate::menus::HR, &[(PropId::SemanticTag, "hr")]),
         "main" => view(&[], &[(PropId::SemanticTag, "main")]),
         "header" => view(&[], &[(PropId::SemanticTag, "header")]),
         "nav" => view(&[], &[(PropId::SemanticTag, "nav")]),
@@ -878,6 +880,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         | "border-left" => AttrTarget::Shorthand,
         "resize" => styles(&[StyleId::Resize]),
         "user-select" => styles(&[StyleId::UserSelect]),
+        // @ref LLP 1021 §5 — on a popover, its implicit anchor the invoker.
+        "position-area" => styles(&[StyleId::PositionArea]),
         "text-decoration-line" => styles(&[StyleId::TextDecorationLine]),
         // @ref LLP 1064 D5
         "text-transform" => styles(&[StyleId::TextTransform]),

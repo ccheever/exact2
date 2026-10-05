@@ -438,11 +438,22 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             f = f.replacen('(', "($r,", 1).replace("($r,)", "($r)");
         }
         // The parameters' types: an argument outside its type is refused,
-        // as the runner refuses it (ArgumentType), before the body runs.
+        // as the runner refuses it (ArgumentType), before the body runs. A
+        // hidden parameter (`@capture:…`, a child's captured prop) is the
+        // compiler's argument: its numbers need not be finite.
         let types: Vec<String> = r
             .params
             .iter()
-            .map(|p| serde_json::to_string(&type_code(plan, plan.param(p).ty)).unwrap())
+            .map(|p| {
+                let param = plan.param(p);
+                let code = type_code(plan, param.ty);
+                let code = if plan.str(param.name).starts_with('@') {
+                    code.replace('n', "N")
+                } else {
+                    code
+                };
+                serde_json::to_string(&code).unwrap()
+            })
             .collect();
         let act = em.uses.rt("act");
         if types.is_empty() {

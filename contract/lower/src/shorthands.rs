@@ -77,7 +77,7 @@ fn border(text: &str, span: Span) -> Result<[String; 3], LowerError> {
     let mut color = None;
     for word in words(text) {
         let lower = word.to_ascii_lowercase();
-        if matches!(lower.as_str(), "none" | "hidden" | "solid") {
+        if matches!(lower.as_str(), "none" | "hidden" | "solid" | "inset") {
             if style.replace(lower).is_some() {
                 return err(
                     "lower-css-shorthand",
@@ -87,9 +87,9 @@ fn border(text: &str, span: Span) -> Result<[String; 3], LowerError> {
             }
         } else if matches!(
             lower.as_str(),
-            "dotted" | "dashed" | "double" | "groove" | "ridge" | "inset" | "outset"
+            "dotted" | "dashed" | "double" | "groove" | "ridge" | "outset"
         ) {
-            return err("lower-css-shorthand", format!("CSS border style `{word}` is not implemented by native painters; supported styles are none, hidden and solid"), span);
+            return err("lower-css-shorthand", format!("CSS border style `{word}` is not implemented by native painters; supported styles are none, hidden, solid and inset"), span);
         } else if matches!(lower.as_str(), "thin" | "medium" | "thick")
             || word
                 .strip_suffix("px")

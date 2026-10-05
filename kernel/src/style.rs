@@ -7,13 +7,14 @@ use taffy::prelude::{auto, length, percent};
 use crate::arena::NodeArena;
 use crate::error::StyleValueError;
 use crate::generated::{
-    AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, Direction, Display, FlexDirection,
-    FlexWrap, GridAutoFlow, JustifyContent, JustifyItems, NodeType, Overflow, PositionType,
-    StyleId, StyleMask, StyleProps,
+    AlignContent, AlignItems, AlignSelf, BoxSizing, Direction, Display, FlexDirection, FlexWrap,
+    GridAutoFlow, JustifyContent, JustifyItems, NodeType, Overflow, PositionType, StyleId,
+    StyleMask, StyleProps,
 };
 
 mod backdrop;
 pub use backdrop::link as link_backdrop_filter;
+mod border;
 pub(crate) mod effects;
 pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
@@ -1101,23 +1102,6 @@ pub(crate) fn encode_grid_rows(
 }
 
 impl StyleProps {
-    /// CSS effective border widths: none and hidden occupy no border area.
-    pub fn border_widths(&self) -> [f32; 4] {
-        [
-            (self.border_style_top, self.border_width_top),
-            (self.border_style_right, self.border_width_right),
-            (self.border_style_bottom, self.border_width_bottom),
-            (self.border_style_left, self.border_width_left),
-        ]
-        .map(|(style, width)| {
-            if style == BorderStyle::Solid {
-                width.max(0.0)
-            } else {
-                0.0
-            }
-        })
-    }
-
     /// Whether every padding and border width reaches layout as zero, read
     /// without building the engine's style: a kernel that mirrors no engine
     /// tree checks content regions too (LLP 1047 §10).
@@ -1131,17 +1115,6 @@ impl StyleProps {
         .into_iter()
         .all(|p| p.lp_is_zero(env))
             && self.border_widths().into_iter().all(|w| w.to_bits() == 0)
-    }
-
-    /// Border colours after resolving currentColor against this node's computed colour.
-    pub fn border_colors(&self, current: ColorValue) -> [ColorValue; 4] {
-        [
-            self.border_color_top,
-            self.border_color_right,
-            self.border_color_bottom,
-            self.border_color_left,
-        ]
-        .map(|color| color.unwrap_or(current))
     }
 
     /// Lower to engine style. `node_type` supplies the per-tag defaults the

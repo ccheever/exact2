@@ -48,6 +48,11 @@ tested against it, differentially and at random.
 `Contract.Program` term. It runs after the whole compiler (a program the
 plan backend refuses is refused here too) and embeds the expanded root with
 the checker's types. Names stay names: the semantics does its own scoping.
+Its `shapes` are the ones the program reaches: those its types and records
+name, those of the roster entries it calls, the router's four when it has
+routes, and what their fields name — not every shape the checker knows, so a
+compiler shape the program never reaches (an event's) does not make an app
+embedding stale when it is added.
 
 **Differential testing.** For each case, `difftest` compiles the program to a
 plan and boots it on the runner, delivers the script's events, and prints a
@@ -363,8 +368,9 @@ submodules step for step, numbering and spelling included: capture-avoiding
 substitution renaming a binder `x@k` when a replacement mentions it, view
 binders `x#n`, derive resolution (freshened binders `x@bk`, a dependency
 read twice on every path bound once by a `let`), lifted states and actions
-`x#n` with their owners, props and injects captured as hidden parameters
-`@capture:n:i`, tail calls resolved (`p@ck`, `x@bk`, `p@tailk`; the
+`x#n` with their owners, a slot's fill inlined afresh at each `children`
+node under that node's region arms, props and injects captured as hidden
+parameters `@capture:n:i`, tail calls resolved (`p@ck`, `x@bk`, `p@tailk`; the
 `@check:` statement the flat embedding drops is not emitted).
 
 **`difftest expansion`** checks the real expander on each program:
@@ -436,22 +442,31 @@ calls; `provide`/`inject` scoping in a render; and their composition into
 a run, where both semantics take a fixed fuel the expansion spends
 differently.
 
-**Findings.** Four disagreements, each a program the runner runs as the
-flat semantics does (so a bug in inline.rs, if the component-level
-reading is the intended one):
+**Findings, fixed.** The first run found four disagreements, each a bug in
+inline.rs (the rule: a child's state lives exactly as long as its instance,
+owned by the innermost region arm around the instance, or the root). Each
+is now a case in `corpus/components/` and a runner test in
+`contract/cli/tests/it/child_state_lifetime.rs`.
 
 1. A stateful child in a slot fill, the slot component showing `children`
-   under a `when`: hiding and showing the arm keeps the child's state. The
-   fill is inlined before the slot component's view, so its uses are owned
-   by the *use site's* region, not the region around `children`.
-2. A slot component that shows `children` twice: the fill is inlined once
-   and copied, so both copies share one instance's state (and region tags).
-3. A slot component that repeats `children` per `each` row: every row's
-   copy shares one instance's state, for the same reason.
-4. A child whose prop holds a number that is not finite (`1 / d` with `d`
-   zero): the child's own actions are refused (`ArgumentType` on
-   `@capture:n:i`), though they never read the prop, because the expansion
-   passes every prop to a lifted action as a hidden, type-checked argument.
+   under a `when`, kept its state across hide and show: the fill was
+   inlined before the slot component's view, so its uses were owned by the
+   *use site's* region. The fill is now inlined at `children`, under the
+   arms around it (`fill-state-when`).
+2. A slot component showing `children` twice shared one instance's state
+   and region tags between the copies (the fill was inlined once and
+   copied). Each `children` now inlines the fill afresh: its own instances,
+   numbers and tags (`fill-twice`).
+3. A slot component repeating `children` per `each` row shared one
+   instance across the rows, for the same reason; each row now owns its
+   copy (`fill-per-row`).
+4. A child whose prop held a number that is not finite had all its actions
+   refused (`ArgumentType` on `@capture:n:i`), even those that never read
+   the prop. A hidden parameter (one whose name begins with `@`, which no
+   authored name can) is the compiler's argument, not the host's, so its
+   argument is held to its type but not to finiteness (`Runtime.argOk`,
+   `typed`; the runner's `Value::typed`; the JS target's `N` type code), as
+   the prop read in place is (`nonfinite-prop-action`).
 
 ## Lean
 

@@ -222,6 +222,10 @@ fn paint_and_dasharray_grammar() {
         Paint::parse("url(other.svg#g)").is_none(),
         "external references are refused"
     );
+    assert!(
+        Paint::parse("日本語").is_none(),
+        "a multibyte value is refused, not split mid-character"
+    );
     assert_eq!(Paint::parse(&Paint::BLACK.css()), Some(Paint::BLACK));
     assert_eq!(DashArray::parse("none"), Some(DashArray::default()));
     assert_eq!(DashArray::parse("1, 2px 3").unwrap().0, vec![1.0, 2.0, 3.0]);
