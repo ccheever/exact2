@@ -765,13 +765,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         style.values.contains { $0.isSchemeColor || $0.isSchemeGradient || $0.containsSystemColor }
     }
 
-    func color(_ key: String, _ fallback: NSColor) -> NSColor {
-        cgColor(key).flatMap { NSColor(cgColor: $0) } ?? fallback
-    }
+    func color(_ key: String, _ fallback: NSColor) -> NSColor { cgColor(key).flatMap { NSColor(cgColor: $0) } ?? fallback }
     /// A colour row as Core Graphics draws it (LLP 1100 D2).
-    func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? {
-        style[key]?.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast)
-    }
+    func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key]?.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast) }
 
     /// The appearance changed under this view. A repaint is not enough: the
     /// text engine caches a paragraph spec and a laid-out paragraph, and a

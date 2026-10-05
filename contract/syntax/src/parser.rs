@@ -372,13 +372,7 @@ impl Parser {
                     }
                     file.timelines.push(TimelineDecl { name, span });
                 }
-                TokenKind::Ident(w) if w == "color-profile" => {
-                    let decl = self.color_profile()?;
-                    if let Some(first) = file.color_profiles.iter().find(|p| p.name == decl.name) {
-                        return duplicate("color-profile", &decl.name, decl.span, first.span);
-                    }
-                    file.color_profiles.push(decl);
-                }
+                TokenKind::Ident(w) if w == "color-profile" => self.color_profile(file)?,
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
                 TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
                 TokenKind::Ident(w) if LAUNCH.contains(&w.as_str()) => {

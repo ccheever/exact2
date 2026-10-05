@@ -4,7 +4,8 @@
 use super::*;
 
 impl Parser {
-    pub(super) fn color_profile(&mut self) -> R<ColorProfileDecl> {
+    /// Parses one declaration into the file, refusing a repeated name.
+    pub(super) fn color_profile(&mut self, file: &mut File) -> R<()> {
         let span = self.expect_word("color-profile")?;
         let dashed = self.eat_punct("-") && self.eat_punct("-");
         let name = match (dashed, self.peek_kind().clone()) {
@@ -24,6 +25,11 @@ impl Parser {
         };
         let attrs = self.literal_line(&format!("color-profile {name}"))?;
         unique_attrs(&attrs, &format!("color-profile {name}"))?;
-        Ok(ColorProfileDecl { name, attrs, span })
+        if let Some(first) = file.color_profiles.iter().find(|p| p.name == name) {
+            return duplicate("color-profile", &name, span, first.span);
+        }
+        file.color_profiles
+            .push(ColorProfileDecl { name, attrs, span });
+        Ok(())
     }
 }
