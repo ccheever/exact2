@@ -1,5 +1,14 @@
 // @ref LLP 1046.008#a-effective-visibility — one current-row presentation predicate.
-use crate::{Entity, Parent, Visible, World};
+use crate::{Affine3A, Entity, Offset, Opacity, Parent, Transform, Visible, World};
+
+/// An entity as drawn: its displayed pose and effective opacity.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Drawn {
+    /// drawn(parent)·local·offset down the Parent chain.
+    pub pose: Affine3A,
+    /// The product of `Opacity` down the Parent chain.
+    pub opacity: f32,
+}
 
 impl World {
     /// Current effective visibility through living Parent ancestors.
@@ -22,6 +31,53 @@ impl World {
         }
         false
     }
+    /// The entity as drawn, from current rows: pose drawn(parent)·local·offset
+    /// and opacity multiplied down the Parent chain, in the same bounded walk as
+    /// [`World::is_visible`]; `None` wherever that is false (hidden, dead,
+    /// dangling or cyclic) or the entity has no Transform. Presentation reads:
+    /// the renderer and hooks call it, ticks cannot (it reads Offset/Opacity).
+    #[track_caller]
+    pub fn drawn(&self, mut entity: Entity) -> Option<Drawn> {
+        self.get::<Transform>(entity)?;
+        let mut chain = Vec::new();
+        for _ in 0..self.len() {
+            if !self.contains(entity) || self.get::<Visible>(entity).is_some_and(|v| !v.0) {
+                return None;
+            }
+            chain.push(entity);
+            match self.get::<Parent>(entity).map(|p| p.0) {
+                Some(parent) => entity = parent,
+                None => {
+                    let mut drawn = Drawn {
+                        pose: Affine3A::IDENTITY,
+                        opacity: 1.0,
+                    };
+                    for &e in chain.iter().rev() {
+                        let local = self
+                            .get::<Transform>(e)
+                            .map_or_else(Transform::default, |t| *t);
+                        let offset = self
+                            .get::<Offset>(e)
+                            .map_or_else(Transform::default, |o| o.0);
+                        drawn.pose = drawn.pose * affine(local) * affine(offset);
+                        drawn.opacity *= self.get::<Opacity>(e).map_or(1.0, |o| o.0);
+                    }
+                    return Some(drawn);
+                }
+            }
+        }
+        None
+    }
+    /// The entity's own presentation offset (identity when absent), for a
+    /// renderer that interpolates each link of the chain itself.
+    pub fn drawn_local_offset(&self, entity: Entity) -> Transform {
+        self.get::<Offset>(entity)
+            .map_or_else(Transform::default, |o| o.0)
+    }
+}
+
+fn affine(t: Transform) -> Affine3A {
+    Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.position)
 }
 
 #[cfg(test)]
@@ -161,5 +217,55 @@ mod tests {
             s.run(500.);
         }
         assert_eq!(sim.save().unwrap(), fresh.save().unwrap());
+    }
+
+    #[test]
+    fn drawn_poses_and_opacity_inherit_down_the_parent_chain() {
+        use crate::{Offset, Opacity, Vec3};
+        let mut w = World::new(60, 0);
+        let root = w.spawn((
+            Transform::at(1., 0., 0.),
+            Offset(Transform::at(0., 0.5, 0.)),
+            Opacity(0.5),
+        ));
+        let child = w.spawn((Transform::at(0., 2., 0.), Parent(root), Opacity(0.5)));
+        let leaf = w.spawn((
+            Transform::at(0., 0., 3.).with_scale(2.),
+            Parent(child),
+            Offset(Transform::at(1., 0., 0.)),
+        ));
+        let at = |e| w.drawn(e).unwrap();
+        // The root's offset moves its displayed hierarchy; the leaf's own is in its frame.
+        assert_eq!(at(root).pose.translation, Vec3::new(1., 0.5, 0.).into());
+        assert_eq!(at(child).pose.translation, Vec3::new(1., 2.5, 0.).into());
+        assert_eq!(at(leaf).pose.translation, Vec3::new(3., 2.5, 3.).into());
+        assert_eq!(
+            (at(root).opacity, at(child).opacity, at(leaf).opacity),
+            (0.5, 0.25, 0.25)
+        );
+        // Without offsets, drawn is the simulated global pose.
+        let plain = w.spawn((Transform::at(0., 1., 0.), Parent(child)));
+        let expected =
+            w.drawn(child).unwrap().pose * Affine3A::from_translation(Vec3::new(0., 1., 0.));
+        assert!(w.drawn(plain).unwrap().pose.abs_diff_eq(expected, 1e-6));
+        // A hidden ancestor hides the drawn chain whatever the opacity.
+        w.insert(root, Visible(false));
+        assert!(w.drawn(leaf).is_none());
+        w.remove::<Visible>(root);
+        // Cycles and dangling parents are not drawn.
+        w.insert(root, Parent(leaf));
+        assert!(w.drawn(child).is_none());
+        w.remove::<Parent>(root);
+        w.despawn(root);
+        assert!(w.drawn(child).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "a tick read or wrote presentation component")]
+    fn a_tick_cannot_read_drawn_poses() {
+        let mut w = World::new(60, 0);
+        let e = w.spawn(Transform::default());
+        w.begin_tick();
+        let _ = w.drawn(e);
     }
 }

@@ -311,6 +311,8 @@ impl World {
             .register::<LightShadows>()
             .register::<ViewModel>()
             .register::<crate::Offset>()
+            .register::<crate::Opacity>()
+            .register::<crate::Tint>()
             .register::<MouseLook>()
             .register::<Visible>()
             .register::<Ambient>()
