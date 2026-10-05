@@ -263,7 +263,10 @@ malformed fields report their path.
 Clone the returned `Mesh` for repeated props. `w.generated_model(name, model)` takes a
 whole `asset::Model` (several meshes, nodes and materials); its materials may sample
 textures named in `model.textures`, such as a shared `art/textures/` PNG, which become
-the model's dependencies and are requested like a baked model's. Saves store names and content identities,
+the model's dependencies and are requested like a baked model's. A generated name
+is the game's alone: registering one that `Game::ASSETS`, `STREAMED` or `LEVEL`
+declares returns an error naming the declaration, since delivered bytes would
+otherwise land on it later. Saves store names and content identities,
 not vertices, so reconstruct from the same level and seed before restoring. Changed
 level bytes or generated output refuse restore by name. Keep other generator inputs
 in the level or saved setup arguments; identity checks cannot prove a generator is

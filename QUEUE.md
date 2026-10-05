@@ -10,9 +10,7 @@
 
 - **Changing a look restarts the game** (2026-10-05, garden `art`). Generated models register only at tick 0, so a look is a setup argument and switching it rebuilds the world; a presentation-only look should switch live.
 
-- **`Game::ASSETS`/`STREAMED` are fixed per game** (2026-10-05, garden art pass). The classic look downloads and prepares the art pass's 200+ streamed models; its first drawn frame went from ~170–410 ms to ~500 ms with 671 mesh uploads. Prepare streamed models after the first frame, or let declarations depend on arguments.
-
-- **Generated and streamed model names share one namespace and collide late** (2026-10-05, garden). Golden/storybook generated `meadow.model` while the art pass streams one; setup refused only once the streamed bytes had landed (macOS crash on choosing Golden hour), and hostless tests never load streamed bytes. Refuse the collision at registration, against every declared name.
+- **`Game::STREAMED` is fixed per game** (2026-10-05, garden art pass). Streamed models no longer touch the first frame (fetched after what is shown, prepared after the first drawn frame, eight per frame), but the garden's classic look still downloads the art pass's 220 models (about 1.5 MB gzipped) it may never show. Letting declarations depend on setup arguments would scope them, at the cost of refetching on a look switch.
 
 - **Pins move for reasons outside the game** (2026-10-05, the main merge re-pinned ten games). Saves carry every bound canvas argument, so adding an argument moves every save pin; registering new built-in components moved garden's world hash. Pins should measure the game's own state.
 

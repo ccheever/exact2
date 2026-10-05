@@ -167,3 +167,56 @@ fn setup_reconstructs_generated_geometry_and_drops_old_identities() {
     assert_eq!(sim.world().save(), fresh.world().save());
     sim.restore(&fresh.save().unwrap()).unwrap();
 }
+
+// Golden/storybook generated `meadow.model` while the art pass streamed one:
+// setup refused only once the streamed bytes landed (a crash on macOS), which
+// a hostless test never delivers. The name is refused at registration.
+thread_local! {
+    static REFUSED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+fn register_all(w: &mut World) {
+    for name in ["meadow.model", "tree.model", "own.model"] {
+        if let Err(error) = w.generated(name, triangle()) {
+            REFUSED.with(|r| r.borrow_mut().push(error));
+        }
+    }
+}
+#[test]
+fn generated_names_refuse_every_declared_name_at_registration() {
+    use exact_game::{Game, Input, Sim};
+    struct Declares;
+    impl Game for Declares {
+        const ID: &'static str = "generated-collides";
+        const ASSETS: &'static [&'static str] = &["tree.model"];
+        const STREAMED: &'static [&'static str] = &["meadow.model"];
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            register_all(w);
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    REFUSED.with(|r| r.borrow_mut().clear());
+    let mut sim = Sim::<Declares>::new(()).unwrap();
+    // Setup waits for the declared model; nothing streamed is ever delivered.
+    let model = exact_game::bin::to_vec(&exact_game::asset::Model::default());
+    sim.asset("tree.model", Some(&model)).unwrap();
+    assert!(!sim.is_loading());
+    let refused = REFUSED.with(|r| r.take());
+    assert_eq!(refused.len(), 2, "{refused:?}");
+    for (error, name, declaration) in [
+        (&refused[0], "`meadow.model`", "Game::STREAMED"),
+        (&refused[1], "`tree.model`", "Game::ASSETS"),
+    ] {
+        assert!(
+            error.contains(name) && error.contains(declaration),
+            "{error}"
+        );
+    }
+    assert!(
+        sim.world().model("own.model").is_some(),
+        "an undeclared name registers"
+    );
+    // A world without a game declares nothing.
+    register_all(&mut World::new(60, 0));
+    assert!(REFUSED.with(|r| r.take()).is_empty());
+}

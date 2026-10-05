@@ -460,6 +460,10 @@ from CPU data. Live content is not bounded by this retired-content budget.
 bufferScope}}`. Each work record has `textureUploads`, `meshUploads`,
 `pipelineCreations`, and `modelSkinBufferReallocations`. The first completed drawable frame
 after preparation fixes `beforeReady`; later work accumulates in `afterReady`.
+`Game::STREAMED` models are never part of that frame: none is prepared before
+it, then eight per frame (shown ones first, the rest held while `readyReasons`
+says `streamed models preparing`); one not yet prepared draws as if in flight, and
+`state.world.loading` omits streamed names nothing shows.
 Restore and retirement do not reset that boundary. A device replacement resets it; budget/replacement compaction preserves it.
 Texture counts include the three default maps; mesh counts include primitives;
 pipelines include primitive/effect, model, skin and quad pipelines.

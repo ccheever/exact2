@@ -835,13 +835,11 @@ fn streamed_assets_load_after_setup_without_reaching_the_simulation() {
     let model = bin::to_vec(&asset::Model::default());
     let mut sim = Sim::<Streaming>::new(()).unwrap();
     assert!(sim.is_loading());
-    // What setup waits for is asked first; streamed names follow.
-    assert_eq!(
-        sim.take_assets(),
-        ["first.model", "a-later.model", "z-later.model"]
-    );
+    // What setup waits for is asked first; streamed names follow once it is in.
+    assert_eq!(sim.take_assets(), ["first.model"]);
     sim.asset("first.model", Some(&model)).unwrap();
     assert!(!sim.is_loading(), "setup does not wait for streamed assets");
+    assert_eq!(sim.take_assets(), ["a-later.model", "z-later.model"]);
     let hash = sim.world().hash();
     assert!(
         sim.save().is_ok(),
@@ -864,6 +862,46 @@ fn streamed_assets_load_after_setup_without_reaching_the_simulation() {
         state.contains(r#"{"name":"a-later.model","state":"Loaded"}"#),
         "{state}"
     );
+}
+
+// The garden's classic look fetched and prepared the art pass's 220 streamed
+// models with its first frame. Unshown ones are asked for once nothing else is
+// in flight, and a device-backed surface prepares them after the first frame,
+// shown first (`Sim::streamed_unprepared`); until then they do not hold drawing.
+#[test]
+fn shown_streamed_models_go_first_and_unprepared_ones_never_hold_drawing() {
+    struct Shows;
+    impl Game for Shows {
+        const ID: &'static str = "streamed-shown";
+        const STREAMED: &'static [&'static str] = &["a.model", "b.model", "z.model"];
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.spawn((Transform::default(), Mesh::asset("z.model")));
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let model = bin::to_vec(&asset::Model::default());
+    let mut sim = Sim::<Shows>::new(()).unwrap();
+    // What is shown is asked for first, alone: a host fetches in request order.
+    assert_eq!(sim.take_assets(), ["z.model"]);
+    // Nothing waits for a streamed model nothing shows: it is not `loading`.
+    let state = sim.agent(r#"{"op":"state"}"#);
+    assert!(state.contains(r#""loading":["z.model"]"#), "{state}");
+    assert!(
+        sim.streamed_unprepared().is_empty(),
+        "nothing delivered yet"
+    );
+    sim.asset("z.model", Some(&model)).unwrap();
+    assert_eq!(sim.take_assets(), ["a.model", "b.model"]);
+    sim.asset("a.model", Some(&model)).unwrap();
+    assert_eq!(sim.streamed_unprepared(), ["z.model", "a.model"]);
+    assert!(
+        sim.device_assets_ready(),
+        "streamed models never hold drawing"
+    );
+    sim.asset_prepared("z.model", Ok(()));
+    assert_eq!(sim.streamed_unprepared(), ["a.model"]);
+    assert!(sim.model_prepared("z.model"));
 }
 
 #[test]
