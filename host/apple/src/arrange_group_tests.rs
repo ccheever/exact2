@@ -323,7 +323,7 @@ fn keys_step_without_a_ghost_and_a_cancel_runs_nothing() {
     assert!(!hidden(&h, "a2"));
     let reply = h.reorder_group_step(token, 4, 110.);
     assert_eq!(field(&reply, "target"), view(&h, "list-b").to_string());
-    assert!(hidden(&h, "a2"), "another list is the target");
+    assert!(!hidden(&h, "a2"), "the focused grip's row stays shown");
     h.reorder_group_step(token, 2, 120.);
     let reply = h.reorder_group_end(token, true, 130.);
     assert_eq!(field(&reply, "ending"), "landed", "{reply}");
