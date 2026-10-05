@@ -1,19 +1,12 @@
-//! Storage turns and liveness: one storage turn at a time, as the browser's
-//! worker runs them; an answer waiting on another's work is asked again
-//! after each delivery (LLP 1027.003.000 §13); a call let go mid-turn runs
-//! its steps to the end (ledger F12).
+//! Liveness: an answer waiting on another's work, or on the background's,
+//! is asked again after each delivery (LLP 1027.003.000 §13; LLP 1097 D2);
+//! a call let go mid-turn runs its steps to the end (ledger F12).
 use super::{Module, WAITING};
 use exact_runner::{Dispatch, Outcome, Response, Work};
 
 impl Module {
-    /// Whether an answer is between storage steps: parked on its storage
-    /// continuation rather than on a fetch the host runs.
-    pub(crate) fn turn_open(&self) -> bool {
-        self.parked.iter().any(|(_, p)| p.ticket == 0)
-    }
-
-    /// A deferred answer's work: nothing to run, only a turn to wait for.
-    pub(crate) fn deferred_work() -> Dispatch {
+    /// A waiting answer's work: nothing to run, only an answer to ask again.
+    pub(crate) fn ask_again() -> Dispatch {
         Dispatch::Run(Work::Now(Box::new(|| {
             Outcome::Response(Response {
                 status: 200,
@@ -24,8 +17,7 @@ impl Module {
     }
 
     /// Whether anything in the module may yet settle a waiting answer: a
-    /// fetch, a storage step, a stream, an answer not yet begun.
-    /// The module's storage queued or in flight counts, an answer's or the
+    /// fetch, a storage step, a stream. The module's storage queued or in flight counts, an answer's or the
     /// background's (LLP 1097 D2: an answer may await background work).
     pub(crate) fn outstanding(&self) -> bool {
         !self.streams.is_empty()
@@ -45,7 +37,7 @@ impl Module {
             .find(|(_, p)| p.call == token && p.ticket == WAITING)?;
         if parked.progress < progress || !outstanding {
             parked.last = !outstanding;
-            return Some(Module::deferred_work());
+            return Some(Module::ask_again());
         }
         None
     }
@@ -77,6 +69,7 @@ impl Module {
         let (Some(session), Some(engine)) = (self.storage.as_ref(), self.engine.as_mut()) else {
             return;
         };
+        self.host.between_answers = true;
         while engine
             .call("__exact_let_go", ["", "", ""])
             .is_ok_and(|r| r == "storage")
@@ -89,6 +82,7 @@ impl Module {
                 break;
             }
         }
+        self.host.between_answers = false;
         // What landed may settle an answer waiting on another's work.
         self.progress += 1;
         self.refresh_background();

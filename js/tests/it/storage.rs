@@ -358,37 +358,20 @@ fn storage_chained_across_answers_settles_each_answer() {
     let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
     let aa = args("serial", "a");
     let bb = args("serial", "b");
-    let mut pending = vec![
+    let pending = vec![
         (aa.clone(), m.answer(&mut s, "work", &aa).unwrap()),
         (bb.clone(), m.answer(&mut s, "work", &bb).unwrap()),
     ];
-    let mut done = vec![];
-    for _ in 0..100 {
-        if pending.is_empty() {
-            break;
-        }
-        let (a, answer) = pending.remove(0);
-        match answer {
-            Answer::Now(v) => done.push(text(v)),
-            Answer::Later(request) => {
-                let token = request.continuation.expect("storage continuation");
-                let outcome = std::thread::spawn(m.continuation(token).unwrap())
-                    .join()
-                    .unwrap();
-                let next = m.parse(&mut s, "work", &a, outcome).unwrap();
-                pending.push((a, next));
-            }
-        }
-    }
+    let mut done = super::background::drive(&mut m, &mut s, pending, |_, _| unreachable!());
     done.sort();
     assert_eq!(done, vec!["a:1", "b:2"], "both answers settle, in order");
 }
 
-/// The same, through the runner and the host's dispatch: the second resource's
-/// work is held while the first's storage turn is open, and released by the
-/// commit that ends it, as a native host pumps them.
+/// The same, through the runner and the host's dispatch: the second resource
+/// begins at once and, chained behind the first's work, waits with the module
+/// (held at dispatch) until a delivery settles it, as a native host pumps them.
 #[test]
-fn runner_holds_an_answer_behind_an_open_storage_turn() {
+fn runner_holds_an_answer_chained_behind_another_answers_storage() {
     let root = Root::new();
     let plan = contract::compile(
         r#"
@@ -451,7 +434,7 @@ component App
             work.push((ticket, w));
         }
     }
-    assert!(ever_held, "the second answer waited for the first's turn");
+    assert!(ever_held, "the second answer waited for the first's work");
     assert!(!runner.has_pending(), "both resources settled");
     let read = |id: &str| {
         let key = runner.kernel().find_by_test_id(id)[0];
@@ -927,7 +910,12 @@ component App
     emit(&mut runner, &mut held, &mut work);
     runner.act("search", vec![Value::str("c")]).unwrap();
     settle(&mut runner, &mut held, &mut work);
-    assert_eq!(read(&runner, "listing"), "c:1");
+    assert_eq!(
+        read(&runner, "listing"),
+        "c:1",
+        "{:#?}",
+        runner.journal().collect::<Vec<_>>()
+    );
     runner.act("search", vec![Value::str("d")]).unwrap();
     emit(&mut runner, &mut held, &mut work);
     step(&mut runner, &mut held, &mut work);

@@ -52,6 +52,14 @@ function answer(source:string, args:unknown[], store:Store, storage:Storage, nat
   }
   if (op === "reject") { Promise.reject(new Error("lost " + value)); return {text:"answered"}; }
   if (op === "last-error") return {text:lastError};
+  // Each part appended to one log, awaited in turn: two such answers
+  // interleave at their awaits, as two async calls do on the web (D4.5).
+  if (op === "append") {
+    return (async () => {
+      for (const part of value.split(",")) await storage.fs.appendFile(storage.fs.directories.data + "/log", bytes(part + ";"));
+      return {text:value};
+    })();
+  }
   if (op === "unawaited") {
     storage.fs.atomicWriteFile(storage.fs.directories.data + "/unawaited", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
     return {text:"answered"};

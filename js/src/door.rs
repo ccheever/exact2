@@ -76,7 +76,7 @@ pub(crate) unsafe extern "C" fn host_door(
             }
             // Background work has no store (LLP 1097 D5): nothing it
             // reads is an answer's, and storage is the host's as ever.
-            None if state.background => Ok((!state.storage
+            None if state.between_answers => Ok((!state.storage
                 && !(state.documents && a.starts_with("doc:/")))
             .then(|| "unsupported".into())),
             None => Err("bake".into()),

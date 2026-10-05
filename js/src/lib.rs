@@ -71,8 +71,8 @@ use door::{c_string, host_door};
 use engine::{Engine, HostFn};
 use exact_plan::{Plan, Value};
 use exact_runner::{
-    Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Request, Response,
-    Store, Target, Work,
+    Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Request, Store, Target,
+    Work,
 };
 use serde_json::Value as Json;
 use std::collections::HashMap;
@@ -138,16 +138,15 @@ struct Parked {
     last: bool,
 }
 
-/// The ticket of an answer that has not begun: it arrived while another
-/// answer's storage turn was open, and waits for it to end (see `begin`).
-const DEFERRED: u64 = u64::MAX;
+/// The token of a resource the bake could not answer (storage refused at
+/// bake): its placeholder shows and the device asks it at launch. Never
+/// dispatched (see [`Module::answer_for`]).
+const UNASKED: u64 = u64::MAX;
 /// The ticket of an answer that awaits another answer's work (a fetch it
 /// shares, a queue behind another's storage): it waits while the module has
 /// work outstanding, and is asked again after each delivery (LLP
 /// 1027.003.000 §13, the module-wide rule; hn-reader F7).
 const WAITING: u64 = u64::MAX - 1;
-/// Deferred answers' continuation tokens, clear of the prelude's call ids.
-const FIRST_DEFERRED_TOKEN: u64 = 1 << 53;
 
 /// What the host door reaches during one call: the store the seam handed
 /// `answer` or `parse` (none at bake — an empty store that refuses writes),
@@ -186,8 +185,9 @@ struct HostState {
     bake_refusals: u64,
     /// The runtime's own journal lines since the last take (LLP 1097 D8).
     journal: Vec<String>,
-    /// A background round is running: storage is not refused as at bake.
-    background: bool,
+    /// Delivering between answers (a background round, a let-go call's
+    /// steps): there is no store, and storage is not refused as at bake.
+    between_answers: bool,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
@@ -215,13 +215,10 @@ pub struct Module {
     /// Stream answers (LLP 1016.000): each message is mapped by the call's
     /// `exactStream`, never resumed; forgetting the ticket ends the call.
     streams: Vec<(Key, Parked)>,
-    /// Deferred answers whose dispatch was held, oldest first.
-    held: std::collections::VecDeque<u64>,
     /// Answers waiting on another answer's work whose dispatch was held.
     waiters: Vec<u64>,
     /// Deliveries and new answers so far: what a waiting answer waits for.
     progress: u64,
-    next_deferred: u64,
     budget_ms: f64,
     max_heap: u32,
     logs: Vec<String>,
@@ -284,10 +281,8 @@ impl Module {
             sigs: HashMap::new(),
             parked: Vec::new(),
             streams: Vec::new(),
-            held: std::collections::VecDeque::new(),
             waiters: Vec::new(),
             progress: 0,
-            next_deferred: FIRST_DEFERRED_TOKEN,
             budget_ms: DEFAULT_BUDGET_MS,
             max_heap: DEFAULT_MAX_HEAP,
             logs: Vec::new(),
@@ -691,29 +686,9 @@ impl Module {
                 "exact-js: the engine is not loaded".into(),
             ));
         }
-        // One storage turn at a time, as the browser's worker runs them (its
-        // `tail`) and as a worker placement's owner does: an answer that
-        // arrives while another is between storage steps waits for that turn
-        // to end before its JavaScript starts. Otherwise work an app chains
-        // behind the open turn's promise (a serialized database, say) would
-        // run inside the wrong answer, and this one would be pending on
-        // nothing. Its continuation is held at dispatch and released by the
-        // commit that ends the turn.
-        if self.turn_open() && self.sigs.contains_key(source) {
-            let token = self.next_deferred;
-            self.next_deferred += 1;
-            self.parked.push((
-                Module::key(target, source, args),
-                Parked {
-                    call: token,
-                    ticket: DEFERRED,
-                    work_taken: false,
-                    progress: self.progress,
-                    last: false,
-                },
-            ));
-            return Ok(Answer::Later(Request::continuation(token)));
-        }
+        // No answer waits for another to begin (LLP 1097 D4.5): answers
+        // interleave at their awaits, as two async calls do on the web, and
+        // storage keeps the order it was issued in (the prelude's queue).
         let Some(sig) = self.sigs.get(source) else {
             return Err(DataError::UnknownSource(source.to_string()));
         };
@@ -788,16 +763,23 @@ impl Module {
                     })?
                 };
                 let key = Module::key(target, source, args);
-                let replaced: Vec<u64> = self
-                    .parked
-                    .iter()
-                    .chain(&self.streams)
-                    .filter(|(k, _)| *k == key)
-                    .map(|(_, parked)| parked.call)
-                    .collect();
-                self.parked.retain(|(k, _)| *k != key);
-                self.streams.retain(|(k, _)| *k != key);
-                self.forget_calls(replaced);
+                // A new call replaces one parked on its key. Not a targeted
+                // continuation's: the runner names which of two is in flight
+                // by its token (`forgotten`) or drops the new one (`discard`),
+                // and the call it would replace may be the one the runner
+                // keeps (files F18: a re-read dropped by a refused pass).
+                if target.is_none() || request.continuation.is_none() {
+                    let replaced: Vec<u64> = self
+                        .parked
+                        .iter()
+                        .chain(&self.streams)
+                        .filter(|(k, _)| *k == key)
+                        .map(|(_, parked)| parked.call)
+                        .collect();
+                    self.parked.retain(|(k, _)| *k != key);
+                    self.streams.retain(|(k, _)| *k != key);
+                    self.forget_calls(replaced);
+                }
                 self.park(key, call, ticket, &request);
                 Ok(Answer::Later(request))
             }
@@ -834,14 +816,8 @@ impl Module {
             if let Outcome::Failed { message, .. } = &outcome {
                 return Err(DataError::Unavailable(message.clone()));
             }
-        } else if ticket != DEFERRED {
+        } else {
             self.progress += 1; // a delivery: what a waiting answer waits for
-        }
-        if ticket == DEFERRED {
-            if let Outcome::Failed { message, .. } = &outcome {
-                return Err(DataError::Unavailable(message.clone()));
-            }
-            return self.begin(Some(store), target, source, args);
         }
         let outcome_text = outcome_to_json(&outcome).to_string();
         self.host.store = Some(store as *mut Store);
@@ -1017,10 +993,6 @@ impl DataSource for Module {
         if token == exact_runner::BACKGROUND {
             return self.background_dispatch();
         }
-        let deferred = self
-            .parked
-            .iter()
-            .any(|(_, p)| p.call == token && p.ticket == DEFERRED);
         if self
             .parked
             .iter()
@@ -1031,17 +1003,10 @@ impl DataSource for Module {
                 Dispatch::Held
             });
         }
-        if !deferred {
-            return match self.continuation(token) {
-                Some(work) => Dispatch::Run(Work::Now(work)),
-                None => Dispatch::Missing,
-            };
+        match self.continuation(token) {
+            Some(work) => Dispatch::Run(Work::Now(work)),
+            None => Dispatch::Missing,
         }
-        if self.turn_open() {
-            self.held.push_back(token);
-            return Dispatch::Held;
-        }
-        Module::deferred_work()
     }
 
     fn release(&mut self, store: &Store) -> Vec<(u64, Dispatch)> {
@@ -1057,41 +1022,12 @@ impl DataSource for Module {
                 None => {}
             }
         }
-        // Once the open turn has ended, the oldest held answer begins; the
-        // rest wait for the turn it may open in turn.
-        while !self.turn_open() {
-            let Some(token) = self.held.pop_front() else {
-                break;
-            };
-            if self
-                .parked
-                .iter()
-                .any(|(_, p)| p.call == token && p.ticket == DEFERRED)
-            {
-                released.push((token, Module::deferred_work()));
-                break;
-            }
-        }
         released
     }
 
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
         if token == exact_runner::BACKGROUND {
             return Some(self.storage.as_ref()?.continuation());
-        }
-        if self
-            .parked
-            .iter()
-            .any(|(_, p)| p.call == token && p.ticket == DEFERRED)
-        {
-            // The owner-thread and test paths run turns in order already.
-            return Some(Box::new(|| {
-                Outcome::Response(Response {
-                    status: 200,
-                    headers: Vec::new(),
-                    body: Vec::new(),
-                })
-            }));
         }
         // An owner thread runs one turn to its end, so another answer's
         // work cannot land while this one waits for it (LLP 1027.002).
@@ -1157,22 +1093,18 @@ impl DataSource for Module {
 
     /// A `Later` answer the runner dropped before handing it out — a refused
     /// pass, or a re-read whose reply's refresh asks again — is dropped here
-    /// too. Left parked, a deferred call shares its key with the call still
-    /// in flight, and `resume`, which finds a call by key, gave it that
-    /// call's storage step: the read's turn never ended, and every answer
-    /// held behind it waited forever (files diary F18: a mutation refreshing
-    /// a folder's preview mid-walk, behind a composer, whose `forgotten`
+    /// too. Left parked, a call shares its key with the call still in
+    /// flight, and `resume`, which finds a call by key, could give it that
+    /// call's storage step (files diary F18: a mutation refreshing a
+    /// folder's preview mid-walk, behind a composer, whose `forgotten`
     /// cannot name a dispatched call's token).
     fn discard(&mut self, token: u64) {
         let Some(at) = self.parked.iter().position(|(_, p)| p.call == token) else {
             return;
         };
         let (_, parked) = self.parked.remove(at);
-        self.held.retain(|held| *held != token);
         self.waiters.retain(|waiter| *waiter != token);
-        if parked.ticket != DEFERRED {
-            self.forget_calls(vec![parked.call]);
-        }
+        self.forget_calls(vec![parked.call]);
     }
 
     /// Calls whose requests the runner let go are dropped, here and in the
@@ -1180,8 +1112,7 @@ impl DataSource for Module {
     /// A re-ask with equal arguments (a `refresh`) shares its key with the
     /// call it replaced; only the continuation token tells them apart, so a
     /// call whose token is not the one in flight goes too (minesweeper F10:
-    /// a read replaced by its own refresh kept its turn open forever, and the
-    /// refresh, deferred behind it, never ran).
+    /// a read replaced by its own refresh kept its turn open forever).
     fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
         let keep: HashMap<Key, Option<u64>> = in_flight
             .iter()
@@ -1366,7 +1297,7 @@ impl DataSource for Module {
             Err(DataError::Unavailable(_))
                 if self.host.bake_refusals > refused && matches!(target, Target::Resource(_)) =>
             {
-                Ok(Answer::Later(Request::continuation(DEFERRED)))
+                Ok(Answer::Later(Request::continuation(UNASKED)))
             }
             answer => answer,
         }

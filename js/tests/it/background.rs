@@ -499,3 +499,34 @@ fn rounds_and_journal_lines_pass_through_the_composers() {
         .journal()
         .any(|l| l.ends_with("data: unhandled rejection: lost x")));
 }
+
+/// D4.5: no answer waits for another to begin. One asked while another's
+/// awaited write is in flight begins and replies at once; two that await
+/// interleave at their awaits, in the order their operations were issued,
+/// as two async calls do on the web (`write1`, `writeB`, `write2`).
+#[test]
+fn answers_begin_at_once_and_interleave_at_their_awaits() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let first = args("append", "A1,A2");
+    let a = m.answer(&mut s, "work", &first).unwrap();
+    assert!(matches!(a, Answer::Later(_)), "it awaits its write");
+    let save = args("save", "now");
+    assert!(
+        matches!(m.answer(&mut s, "work", &save).unwrap(), Answer::Now(_)),
+        "begun and replied while the other's write is in flight"
+    );
+    let second = args("append", "B");
+    let b = m.answer(&mut s, "work", &second).unwrap();
+    let done = drive(
+        &mut m,
+        &mut s,
+        vec![(first, a), (second, b)],
+        |_, _| unreachable!(),
+    );
+    assert_eq!(done, ["B", "A1,A2"]);
+    assert_eq!(read_file(&root, "log"), "A1;B;A2;");
+    assert_eq!(read_file(&root, "song"), "now");
+}

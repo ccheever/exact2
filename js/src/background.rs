@@ -91,14 +91,14 @@ impl Module {
         let Some(engine) = self.engine.as_mut() else {
             return Ok(None);
         };
-        self.host.background = true;
+        self.host.between_answers = true;
         let delivered = (|| {
             engine.call("__exact_enter_background", ["", "", ""])?;
             let delivered = engine.deliver_storage_one()?;
             engine.drain()?;
             Ok::<_, String>(delivered)
         })();
-        self.host.background = false;
+        self.host.between_answers = false;
         // What landed may settle an answer waiting on the background's work.
         self.progress += 1;
         self.read_background();
