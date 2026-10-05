@@ -67,10 +67,16 @@ impl Transport for Fake {
         }
         drop(state);
         signal.check()?;
+        // `/away` redirects to an origin the fixture's grants lack.
+        let mut headers = Headers::default();
+        let away = request.url.ends_with("/away");
+        if away {
+            headers.set_response("location", "https://elsewhere.test/feed");
+        }
         Ok(ibex2::stdlib::fetch::Response {
-            status: 200,
+            status: if away { 301 } else { 200 },
             status_text: "OK".into(),
-            headers: Headers::default(),
+            headers,
             body: b"done".to_vec(),
             url: request.url.clone(),
             redirected: false,
@@ -587,6 +593,29 @@ fn grants_that_do_not_parse_are_named_in_every_refusal() {
             "{message}"
         );
     }
+}
+
+/// A redirect that leaves the grants is refused naming the origin it led to
+/// (podcast F5: a feed moved to another host read only "outside the app's
+/// grants"), and the second hop is never sent.
+#[test]
+fn a_refused_redirect_names_where_it_led() {
+    let (core, fixture, woke) = setup();
+    core.run(job(1, Request::get("https://example.test/away")), None)
+        .unwrap();
+    let [(_, outcome)] = collect(&core, &woke, 1).try_into().unwrap();
+    let Outcome::Failed { kind, message } = outcome else {
+        panic!("the redirect was followed: {outcome:?}");
+    };
+    assert_eq!(kind, FailureKind::Refused);
+    assert_eq!(
+        message,
+        "outside the app's grants (net.fetch): redirected to https://elsewhere.test"
+    );
+    assert_eq!(
+        fixture.state.lock().unwrap().2,
+        ["https://example.test/away"]
+    );
 }
 
 fn settled(core: &Core) -> bool {

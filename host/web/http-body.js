@@ -173,9 +173,11 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   if (op.stream && !headers.some(([k]) => k.toLowerCase() === 'accept')) init.headers = [...headers, ['accept', 'text/event-stream']];
   try {
     const response = await (!asset && moduleLoader?.claim?.(url, init) || fetch(asset ? localAssetURL(url) : url, init));
+    // A redirect that left the grants names where it led (podcast F5): the
+    // browser followed it, and the response's URL is the last hop's.
     if (response.url && (asset
       ? new URL(response.url).origin !== location.origin
-      : !admitsNetwork(effective, response.url, 'fetch'))) return failed(2, 'outside the app\'s grants (net.fetch)');
+      : !admitsNetwork(effective, response.url, 'fetch'))) return failed(2, `outside the app's grants (net.fetch): redirected to ${new URL(response.url).origin}`);
     // A stream reads its body as events; anything else is its one answer.
     if (op.stream && response.ok && response.body && /^text\/event-stream\s*(;|$)/i.test(response.headers.get('content-type') ?? ''))
       return await readEvents(response, op.maxResponseBytes ?? 1024 * 1024, message, controller);

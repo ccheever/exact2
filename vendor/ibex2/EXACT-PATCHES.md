@@ -7,7 +7,7 @@
   sibling `../ibex` checkout. The compiler includes `src/bindings/storage.d.ts`
   as text, `exact-js` compiles `src/engine/ibex2_jsi.cc` and the binding
   scripts, and seven manifests depend on the crates.
-- **Patches:** three Exact-only patches below and the Windows connection and native
+- **Patches:** four Exact-only patches below and the Windows connection and native
   filesystem backports described next. Otherwise the copy is the commit's tracked tree, byte for byte,
   plus this file.
 - **Not vendored:** the Hermes engine and `hermesc` builds. They are
@@ -22,8 +22,9 @@
   ```
 
   then restore this file with the new commit and date, and reapply patches
-  3, 4 and 5 (`git show ae0c186a9 a268b5512 001e43d03 -- vendor/ibex2`, and
-  patch 5's commit, `git log -1 --format=%h -S run_document -- vendor/ibex2`).
+  3, 4, 5 and 6 (`git show ae0c186a9 a268b5512 001e43d03 -- vendor/ibex2`,
+  patch 5's commit, `git log -1 --format=%h -S run_document -- vendor/ibex2`,
+  and patch 6's, `git log -1 --format=%h -S DeniedRedirect -- vendor/ibex2`).
   Keep the Windows connection backport unless the new snapshot contains it.
   Keep the native filesystem backport and its shared-parser adaptation too.
   Patch 4 replaces `src/grant.rs` wholesale, so keep the vendored file
@@ -160,3 +161,20 @@ under the same `fs.read doc:/` / `fs.write doc:/` grants.
   and the `Context`; `src/boundary_abi.rs`'s `run_fs` sends a `doc:` path
   to `run_document`.
 - Not for upstream until Ibex has a picker that mints such paths.
+
+## Patch 6: a refused redirect names where it led — Exact only
+
+2026-10-04 (podcast F5): a feed that answered 301 to another origin failed
+as `outside the app's grants (net.fetch)`, and the author had to `curl` to
+learn which origin the grants lacked.
+
+- `src/boundary.rs`: `HostError::DeniedRedirect { capability, origin }`, the
+  origin a redirect led to (the server's word, never what would have been
+  admitted).
+- `src/stdlib/fetch.rs`: `fetch_stream` returns it when a hop after a
+  redirect is not admitted; the hop is still never sent. Its two redirect
+  tests expect it.
+- Exact's executor (`host/apple/src/executor_core.rs`, Linux's too) says it
+  as `outside the app's grants (net.fetch): redirected to <origin>`, as the
+  web does from the followed response's URL.
+- For upstream: the same shape suits Ibex's own embedders.
