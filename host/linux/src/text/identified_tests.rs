@@ -131,6 +131,7 @@ fn paint(p: &mut Painter, k: &Kernel) -> crate::paint::Frame {
             focus: None,
             pointer: None,
             controls: &BTreeMap::new(),
+            chosen: &BTreeMap::new(),
             menu: None,
         },
         (360., 160.),

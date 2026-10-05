@@ -458,7 +458,7 @@ function applyProps(el, set, clear) {
     if (source === null) el.removeAttribute("src");
   }
   if (el instanceof HTMLIFrameElement) commitGuestOrigin(el);
-  settleValue(el); syncMarkup(el);
+  if ((set && "value" in set) || clear?.includes("value")) settleValue(el); syncMarkup(el); // a valued control shows its committed value when it changes, not another prop (LLP 1069.001 D4, amended)
   if ((set && ("viewportFit" in set || "interactiveWidget" in set)) || clear?.some((n) => n === "viewportFit" || n === "interactiveWidget")) syncViewportFit();
 }
 function ensureMessageListener() {
@@ -554,7 +554,7 @@ function attach(el, id, handlers) {
       });
     } else if (kind === "change") {
       // HTML's `change`: a text field's value committed, on blur or Enter.
-      on("change", () => { const n = writeIn(el.value); send(wasm.exact_dispatch(id, 1, n, now())); settleValue(el); });
+      on("change", () => { const n = writeIn(el.value); send(wasm.exact_dispatch(id, 1, n, now())); settleValue(el, true); });
     } else if (kind === "input") {
       on("input", (e) => {
         const value = el.value;
@@ -565,7 +565,7 @@ function attach(el, id, handlers) {
           if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value)
             || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
         }
-        const n = writeIn(value); send(wasm.exact_dispatch(id, 23, n, now())); settleValue(el);
+        const n = writeIn(value); send(wasm.exact_dispatch(id, 23, n, now())); settleValue(el, true);
       });
     } else if (kind === "hover") {
       // pointerenter/pointerleave: the element's own, not a bubbling mouseover.
@@ -803,7 +803,7 @@ function apply(batch) {
             pending.finally(() => inflight.delete(pending));
           }
         }
-        else if (op.name === "saveFile") { const [id, from, suggestedName] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: "saveFile", id, from, suggestedName, agent: agentMode }))))), chosen = r.present && typeof showSaveFilePicker === "function" ? showSaveFilePicker({ suggestedName: r.suggestedName }) : null; // LLP 1069.010 D3: the runner rules; the save picker starts inside the press's activation, else a download
+        else if (op.name === "saveFile") { const [id, from, suggestedName, text] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: "saveFile", id, from: from ?? undefined, suggestedName, text, agent: agentMode }))))), chosen = r.present && typeof showSaveFilePicker === "function" ? showSaveFilePicker({ suggestedName: r.suggestedName }) : null; // LLP 1069.010 D3: the runner rules; the save picker starts inside the press's activation, else a download
           if (r.present || r.view != null) { chosen?.catch(() => {}); const p = picker().then(m => m.save(r, chosen)); inflight.add(p); p.finally(() => inflight.delete(p)); } }
         else if (/^show(OpenFile|Directory|SaveFile)Picker$/.test(op.name)) { // LLP 1069.010 D2: the runner rules; a browser without the picker refuses
           const [id, second] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: op.name, id, multiple: second === true, suggestedName: typeof second === "string" ? second : undefined, agent: agentMode, available: op.name === "showSaveFilePicker" || typeof globalThis[op.name] === "function" }))))); if (r.present || r.view != null) { const p = documentsGlue().then(m => m.show(r, op.name)); inflight.add(p); p.finally(() => inflight.delete(p)); } }

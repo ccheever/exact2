@@ -434,6 +434,9 @@ pub struct Scene<'a> {
     pub focus: Option<ViewId>,
     /// Unbound checkboxes' own states, which the host keeps (LLP 1069.001 D4).
     pub controls: &'a BTreeMap<ViewId, bool>,
+    /// Values chosen in a date, range or select since its bound value last
+    /// changed: (choice, bound).
+    pub chosen: &'a BTreeMap<ViewId, (String, String)>,
     /// A select's open menu, painted over everything (LLP 1069.001 D7).
     pub menu: Option<control::MenuPaint>,
     /// The pointer, in viewport points, when the host draws one.
@@ -1213,7 +1216,8 @@ impl Painter {
             }
             NodeType::Svg => self.svg(walk, node, rect, content, ts),
             NodeType::Control if node.props.str(PropId::Type) == Some("select") => {
-                let label = walk.scene.kernel.select_chosen(node.id).map(|c| c.label);
+                let label =
+                    control::select_label(walk.scene.kernel, node, walk.scene.chosen.get(&node.id));
                 self.field_control(node, content, ts, label.as_deref().unwrap_or(""), true);
             }
             // @ref LLP 1069.001 D7 — a date control is a field showing its
@@ -1224,17 +1228,11 @@ impl Painter {
                     Some("date" | "time" | "datetime-local")
                 ) =>
             {
-                let value = node.props.str(PropId::Value).unwrap_or("");
-                let shown = match (value, node.props.str(PropId::Type)) {
-                    ("", Some("date")) => "yyyy-mm-dd",
-                    ("", Some("time")) => "--:--",
-                    ("", _) => "yyyy-mm-ddT--:--",
-                    (v, _) => v,
-                };
+                let shown = control::date_text(node, walk.scene.chosen.get(&node.id));
                 self.field_control(node, content, ts, shown, false);
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("range") => {
-                self.range_control(node, content, ts)
+                self.range_control(node, content, ts, walk.scene.chosen.get(&node.id))
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
                 let title = walk.scene.kernel.press_face(node.id).and_then(|f| f.title);

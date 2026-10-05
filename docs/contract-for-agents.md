@@ -437,7 +437,9 @@ sends are separate paths only as arms of one `if … else if … else` or `match
 or in `if`s testing one unchanged name against different literals. Send one
 combined request, or use a mutation per request. `refreshes` re-reads
 its resources when the mutation is sent (an answer the source gives at once shows
-immediately) and forces them again when the reply lands. `then` is parameterless,
+immediately) and forces them again when the reply lands; a mutation the source
+answers at once has landed, so its resources are forced in the sending commit (an
+async read is asked again, not dropped). `then` is parameterless,
 runs once at the host's next clock advance as a new commit (under the driver, an
 input's own answer's `then` before the input's reply), reads the latest
 answer, does not run for a failure that brought no answer, and cannot send its
@@ -791,7 +793,12 @@ ancestor that would take the press itself included.
 `type` on a control sets it as a person choosing would, with `input` then
 `change`: a `select` takes an option's value or its label, a date, time or
 `datetime-local` input its HTML value (`2026-10-09`, `14:00`,
-`2026-10-09T14:30`), a range a number, a checkbox `true` or `false`.
+`2026-10-09T14:30`), a range a number, a checkbox `true` or `false`. A
+`select`, a range and a date, time or `datetime-local` input keep the person's
+choice until their bound `value` changes, as a text field does (LLP 1069.001 D4,
+amended): an action that writes nothing, or only sends a mutation, shows the
+choice until the bound value moves, on every host, and `type` replies with what
+the control shows. A checkbox still snaps back to its bound `checked`.
 `tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
 move, with the finger still down. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires

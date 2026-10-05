@@ -207,16 +207,6 @@ guide's rules don't make obvious.
   bench, LLP 1087, t4-kanban: about 15 minutes, 2026-10-04.) **Candidate
   diagnostic:** the compiler could warn on a `pan` without `touch-action`.
 
-- **A native build stops at the bake with a source's storage error.** `exact.mjs ios`
-  (or `mac`) panics in `apple/build.rs`: `bake …: Data { resource: "tasks", error:
-  Unavailable("storage is unavailable during bake") }`, while the web build asks the
-  source again at launch, as [the human guide](contract-for-humans.md#writing-the-data-module)
-  says. Cause: the native bake treats a source that throws at bake as a failure; an
-  `else` placeholder does not change that. Fix: in the source, catch the storage error
-  whose `code` is `'bake'` and answer a default: `catch (e) { if (e.code === 'bake')
-  return []; throw e; }` ([the reference](reference.md#what-a-data-module-can-use)).
-  (Authoring bench, LLP 1087, t2-todo on iOS, 2026-10-04.)
-
 - **There is no `swipeleft` for swipe-to-delete.** A row built from `pan`,
   `panrelease` and `translate` reveals its Delete button, but by hand on every host.
   Cause: `swiperight` is the reply gesture (a message bubble), not a direction pair;
@@ -293,6 +283,16 @@ guide's rules don't make obvious.
   store of their own), and queue every `storage.sqlite.open` in `app.ts`
   ([the human guide](contract-for-humans.md#writing-the-data-module) shows one).
   (LLP 1086 reading-list example, 2026-10-04.)
+
+- **A native test reads an edit's state one input late, where the web's passes.**
+  `tap "tempo-up"` then `expect text "tempo" == "113"` passes on the web and reads
+  the old value under `test macos`. Cause: on Hermes an answer that saves (awaited
+  or not) is given once its storage steps land, a reply on real time like a
+  `fetch`'s, which lands at the next `clock` step; on the web build a value given
+  at once is there with the input. Fix: `clock settle` after the edit in the
+  test, or answer edits from memory and save from a `task` that sends a `persist`
+  mutation when the document changed ([the reference](reference.md#what-a-data-module-can-use)).
+  (x2apps drums R11, 2026-10-04.)
 
 ## Working on exact2 itself
 

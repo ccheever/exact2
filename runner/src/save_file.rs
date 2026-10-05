@@ -5,6 +5,10 @@
 //! download) and reports the chosen name as `change` on the element `id`
 //! names, or HTML's `cancel` there. The web has no single name for "copy
 //! this file out", so the command's name is a declared deviation.
+//! `saveFile(id, text=…, suggestedName=…)` saves the text itself, as UTF-8,
+//! with no file to write first and no grant to read it (x2apps notes #4:
+//! "export what's on screen" took a mirror file kept current, because the
+//! save picker needs the press's activation and a `then` is past it).
 //!
 //! One rule on every host, as for `share` (LLP 1069.003): the runner
 //! refuses bad data into the journal (`saveFile: refused: <reason>`), holds
@@ -22,10 +26,12 @@ use exact_plan::Value;
 pub struct SaveFile {
     /// The element whose `change` / `cancel` takes the outcome.
     pub id: String,
-    /// The `app:/` file to copy out.
+    /// The `app:/` file to copy out; empty when `text` is the content.
     pub from: String,
     /// The name the panel starts with.
     pub suggested_name: String,
+    /// The content itself (`text=`), saved as UTF-8.
+    pub text: Option<String>,
 }
 
 /// What a host does with a `saveFile`.
@@ -41,29 +47,49 @@ pub enum Arm {
 }
 
 impl SaveFile {
-    /// The command's positional arguments, `(id, from, suggestedName)`.
+    /// The command's positional arguments, `(id, from, suggestedName)`, or
+    /// `(id, none, suggestedName, text)` for `text=`.
     pub fn from_args(args: &[Value]) -> Result<SaveFile, String> {
+        const USAGE: &str =
+            "saveFile takes (id, from, suggestedName) or (id, text=, suggestedName=), strings";
         let at = |i: usize| match args.get(i) {
             Some(s @ exact_plan::str_value!()) => Ok(s.text().to_string()),
-            _ => Err("saveFile takes (id, from, suggestedName), three strings".to_owned()),
+            Some(Value::Option(Some(v))) if v.is_str() => Ok(v.text().to_string()),
+            _ => Err(USAGE.to_owned()),
         };
-        if args.len() != 3 {
-            return Err("saveFile takes (id, from, suggestedName), three strings".into());
+        match args.len() {
+            3 => Ok(SaveFile {
+                id: at(0)?,
+                from: at(1)?,
+                suggested_name: at(2)?,
+                text: None,
+            }),
+            4 if matches!(args[1], Value::Option(None)) => Ok(SaveFile {
+                id: at(0)?,
+                from: String::new(),
+                suggested_name: at(2)?,
+                text: Some(at(3)?),
+            }),
+            _ => Err(USAGE.into()),
         }
-        Ok(SaveFile {
-            id: at(0)?,
-            from: at(1)?,
-            suggested_name: at(2)?,
-        })
     }
 
-    /// `{"id":…,"from":…,"suggestedName":…}`: the hold's inspection summary
-    /// and what a presenting host reads.
+    /// `{"id":…,"from":…,"suggestedName":…}`, or `"text"` in place of
+    /// `"from"`: the hold's inspection summary and what a presenting host
+    /// reads.
     pub fn summary(&self) -> String {
         let mut s = String::from("{\"id\":");
         quote(&self.id, &mut s);
-        s.push_str(",\"from\":");
-        quote(&self.from, &mut s);
+        match &self.text {
+            Some(text) => {
+                s.push_str(",\"text\":");
+                quote(text, &mut s);
+            }
+            None => {
+                s.push_str(",\"from\":");
+                quote(&self.from, &mut s);
+            }
+        }
         s.push_str(",\"suggestedName\":");
         quote(&self.suggested_name, &mut s);
         s.push('}');
@@ -71,10 +97,11 @@ impl SaveFile {
     }
 
     fn checked<D: DataSource>(&self, runner: &Runner<D>) -> Result<(), String> {
-        if !plain_app_path(&self.from) {
+        // The app's own text needs no grant: it is a value it already has.
+        if self.text.is_none() && !plain_app_path(&self.from) {
             return Err(format!("{} is not an app:/ file", self.from));
         }
-        if !covered(runner.data_ref().grants(), "fs.read", &self.from) {
+        if self.text.is_none() && !covered(runner.data_ref().grants(), "fs.read", &self.from) {
             return Err(format!("{} is outside the app's fs.read grants", self.from));
         }
         let name = &self.suggested_name;
@@ -168,21 +195,32 @@ pub fn arm<D: DataSource>(
 }
 
 /// [`arm`] for a host whose command arrived as JSON (the web glue, the
-/// Apple session): `{"id":…,"from":…,"suggestedName":…,"agent":true}`. The
-/// reply is `{"refused":"…","view":N?}`, `{"ticket":N}` or
-/// `{"present":true,"view":N,"id":…,"from":…,"suggestedName":…}`.
+/// Apple session): `{"id":…,"from":…,"suggestedName":…,"agent":true}`, or
+/// `"text"` in place of `"from"`. The reply is `{"refused":"…","view":N?}`,
+/// `{"ticket":N}` or `{"present":true,"view":N,…}` with the summary's fields.
 pub fn request<D: DataSource>(runner: &mut Runner<D>, json: &str) -> String {
     let parsed = match (
         field_str(json, "id"),
         field_str(json, "from"),
         field_str(json, "suggestedName"),
+        field_str(json, "text"),
     ) {
-        (Some(id), Some(from), Some(suggested_name)) => Ok(SaveFile {
+        (Some(id), _, Some(suggested_name), Some(text)) => Ok(SaveFile {
+            id,
+            from: String::new(),
+            suggested_name,
+            text: Some(text),
+        }),
+        (Some(id), Some(from), Some(suggested_name), None) => Ok(SaveFile {
             id,
             from,
             suggested_name,
+            text: None,
         }),
-        _ => Err("saveFile takes (id, from, suggestedName), three strings".to_owned()),
+        _ => Err(
+            "saveFile takes (id, from, suggestedName) or (id, text=, suggestedName=), strings"
+                .to_owned(),
+        ),
     };
     match arm(runner, parsed, field_bool(json, "agent"), true) {
         Arm::Refused(reason, view) => {
@@ -240,5 +278,12 @@ mod tests {
         );
         assert!(SaveFile::from_args(&[s("x"), s("app:/data/a")]).is_err());
         assert!(SaveFile::from_args(&[s("x"), Value::Number(1.0), s("a")]).is_err());
+        // `text=` (x2apps notes #4): the content in place of a file.
+        let text = SaveFile::from_args(&[s("x"), Value::Option(None), s("a.md"), s("A")]).unwrap();
+        assert_eq!(
+            text.summary(),
+            r#"{"id":"x","text":"A","suggestedName":"a.md"}"#
+        );
+        assert!(SaveFile::from_args(&[s("x"), s("app:/data/a"), s("a.md"), s("A")]).is_err());
     }
 }

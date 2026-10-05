@@ -333,7 +333,7 @@ on the web and these on Hermes (macOS, iOS, Linux):
 | `crypto.getRandomValues`, `crypto.randomUUID`, `crypto.subtle` | Inside an answer; `subtle` digests (SHA-256/384/512) and ECDSA P-256 keys (LLP 1069.005), and refuses the rest by name |
 | `AbortController`, `AbortSignal` | `AbortSignal.timeout()` refuses: no timers |
 | `queueMicrotask`, `Promise` | |
-| `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter`, `DisplayNames` or `Locale` (Apple's engine; Linux's is built `--intl`) |
+| `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter`, `DisplayNames` or `Locale` (Apple's engine; Linux's is built `--intl`). Apple's engine has no `notation: "compact"`: the prelude formats its short display as Chrome does for a decimal in en, en-GB, en-IN, de, fr, fr-CA, es, es-MX, it, pt, pt-PT, nl, sv, da, nb, fi, pl, ru, uk, cs, tr, ja, zh, zh-TW, ko, hi, he, id, th and vi (and their regions); `compactDisplay: "long"`, another locale or a compact currency is printed in full and said once in the logs. It rounds a tie to even where Chrome rounds it away (`¥1,234` for 1234.5 yen), and has no `formatToParts` |
 | `console` | To the runner's logs |
 
 Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
@@ -360,8 +360,10 @@ can use the same implementations through `ibex2::host`.
 Hosts configure app-specific directories after first pixel. Files and databases
 survive module reload; temporary storage is a directory under the app cache,
 without an automatic cleanup guarantee. Agent mode does not open disk storage.
-Bake rejects storage calls with `Unavailable`; catch it when a resource needs an
-empty-store bake placeholder. Browser storage uses app-scoped IndexedDB files
+Bake rejects storage calls with `Unavailable` (`code: 'bake'`). A resource whose
+answer fails for it, caught or not, compiles no value: it shows its placeholder
+and is asked when the app runs, on every build. Catch it only to answer
+something better than the placeholder. Browser storage uses app-scoped IndexedDB files
 and SQLite WASM in a dedicated worker, loaded on the first database operation.
 Use HTTPS or localhost for Web Locks. Data persists across reloads within the
 same browser origin, subject to browser storage retention and quota policies.
@@ -391,11 +393,21 @@ a refusal lands. A Rust module's storage request in such a drive is answered
 with the same message, never refused outright (trivia F7).
 
 An answer's storage and `fetch` steps run whether or not it awaits them: a save
-started and not awaited (queued behind the module's own promise chain, say)
-lands on every host. In the browser the answer is given at once and the save
-finishes behind it; on Hermes the answer is given once the steps it started
-have landed (kanban F22). A storage or `fetch` call made when no answer is in
-flight is refused and logged, never silently dropped. An answer the runner
+started and not awaited, or queued behind the module's own promise chain so
+that it begins in the microtask checkpoint after a value given at once, lands
+on every host (kanban F22, drums R10). In the browser the answer is given at
+once and the save finishes behind it; on Hermes the answer is given once the
+steps it started have landed. So a native answer that saves is a reply on real
+time, as a `fetch`'s is: under the driver it lands at the next `clock` step,
+not with the input (`tap` then `expect` reads the state before it; on the web
+build an answer given at once is there already), and on a device it lands a few
+milliseconds after the input. An answer the runner asks while another's
+storage steps are in flight waits for them, so an editor that saves on every
+edit can trail by one write (drums R11): answer edits from memory and save
+from a `task` (`every(500, autosave)` sending a `persist` mutation when the
+document changed), or put `clock settle` after the edit in a native test. A
+storage or `fetch` call made when no answer is in flight is refused and
+logged, never silently dropped. An answer the runner
 lets go between storage steps (a refresh it discards before a mutation lands, a
 read whose arguments changed or that a `refresh` replaced) still runs the steps it began, and the chain
 behind them, to their end before the next answer starts; only its answer is
