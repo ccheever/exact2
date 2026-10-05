@@ -86,6 +86,9 @@ pub(super) struct Rows {
     /// This walk's scrollers with rows: each one's id and the range of the
     /// walk's boxes its rows pushed.
     groups: Vec<(ViewId, usize, usize)>,
+    /// The container whose children are its scroller's rows, while it is
+    /// walked (see [`Painter::wraps_rows`]).
+    wrapper: Option<NodeKey>,
 }
 
 /// Room around a row's boxes for what paints outside them (shadows).
@@ -236,7 +239,43 @@ impl Painter {
             }
             return false;
         }
-        self.rows.active && y == Overflow::Scroll
+        self.rows.active && (y == Overflow::Scroll || self.rows_wrapper(node.key))
+    }
+
+    /// Whether `key` is the container walked for its scroller's rows.
+    pub(super) fn rows_wrapper(&self, key: NodeKey) -> bool {
+        self.rows.wrapper == Some(key)
+    }
+
+    /// Whether a scroller's `children` are one container of several whose
+    /// children are the rows (`scroll > column > rows`): each of them then
+    /// records, and is kept, apart. `EXACT_WRAPPED_ROWS=0` keeps the
+    /// container one row, to compare.
+    pub(super) fn wraps_rows(&self, walk: &Walk<'_, '_>, children: &[ViewId]) -> bool {
+        static ON: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+            !std::env::var("EXACT_WRAPPED_ROWS").is_ok_and(|v| v == "0")
+        });
+        let [only] = children else { return false };
+        *ON && walk
+            .scene
+            .kernel
+            .node(*only)
+            .is_some_and(|n| n.children().len() > 1 && effective_overflow(&n).1 != Overflow::Scroll)
+    }
+
+    /// A scroller's one container, walked with its children as the rows.
+    pub(super) fn wrapped(
+        &mut self,
+        walk: &mut Walk<'_, '_>,
+        id: ViewId,
+        ts: Transform,
+        offset: (f32, f32),
+        clip_rect: Option<Rect4>,
+    ) {
+        let key = walk.scene.kernel.node(id).map(|n| n.key);
+        let outer = std::mem::replace(&mut self.rows.wrapper, key);
+        self.node(walk, id, ts, offset, clip_rect);
+        self.rows.wrapper = outer;
     }
 
     /// Note a node walked while a row records.
