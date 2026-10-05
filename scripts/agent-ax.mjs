@@ -111,6 +111,8 @@ function collectWeb(nodes, snapshot, limit) {
       // ARIA's word-valued states, kept as their words; `false` is their absence.
       for (const [name, as] of [['invalid', 'invalid'], ['hasPopup', 'haspopup']]) { const v = prop(n, name); if (v != null && v !== 'false' && v !== false) states[as] = String(v); }
       const checked = prop(n, 'checked'); if (checked != null) states.checked = checked === 'mixed' ? 'mixed' : checked === true || checked === 'true';
+      // An aria-pressed toggle's state (Chrome's `pressed`), as `checked` is kept.
+      const pressed = prop(n, 'pressed'); if (pressed != null) states.pressed = pressed === 'mixed' ? 'mixed' : pressed === true || pressed === 'true';
       const level = prop(n, 'level'); if (level != null) states.level = Number(level);
       const el = d !== undefined && isElement(d) ? attrs(d) : {};
       const tag = d !== undefined ? str(doc.nodes.nodeName[d]) : null;
