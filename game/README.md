@@ -256,7 +256,8 @@ The dev compiler retains its last good plan on an error.
 | A flashlight | `SpotLight { inner, outer, range, intensity, .. }` along the entity's −Z; intensity in candela, as `PointLight`'s |
 | Shadows from a lamp | Add `LightShadows` to a `SpotLight` or `PointLight`; the renderer shadows the nearest few |
 | A moon | A second `DirectionalLight` (in entity order) is an unshadowed fill |
-| Team colours, mutation looks | A `Material` on a model entity tints every node and adds emission; `NodeMaterials` per named node or `MaterialOverrides` per material (one model in every team's colours), written from `Game::present` |
+| Team colours, mutation looks | A `Material` on a model entity tints every node and adds emission; `NodeMaterials` per named node or `MaterialOverrides` per material (one model in every team's colours; metallic and roughness too), written from `Game::present` |
+| A glint, flicker or cycling hue | A `MaterialOverride`'s `shimmer` (`Pulse`, `Flicker`, `Hue`): the GPU moves it with the displayed time, so derive it once and return `Derived::Kept` |
 | Cheaper far trees and crowds | `ModelLod { levels: vec![LodLevel { distance: 30., model: "tree_low.model".into() }], hide: Some(120.) }` on the entity |
 | Fade a tree between camera and player | `Opacity(0.3)` on the entity from `Game::present`: a dithered fade, no sorting, never in a save or pin |
 | Walk cycles on streamed models | `animation::ShownClips::clip("run", metres / stride)` on the entity from `Game::present`: any arrived model, drawn only ([engine](engine/README.md#movement-animation-and-sound)) |

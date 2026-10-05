@@ -881,3 +881,185 @@ fn material_overrides_recolour_one_material_and_keep_instances_together() {
     // Instances with different overrides share their batches.
     assert_eq!((two.draws, two.instances), (one.draws, 2 * one.instances));
 }
+
+/// One panel model (a single material) on a black background, drawn at
+/// `seconds` of displayed time by a renderer the caller keeps.
+fn draw_panel(
+    gpu: &exact_gpu::Gpu,
+    renderer: &mut Renderer,
+    seconds: f64,
+    sun: Option<exact_game_render::Sun>,
+) -> fixture::Pixels {
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: 64,
+            height: 64,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let eye = Vec3::new(0., 0., 5.);
+    let mut f = exact_game_render::FrameInput {
+        seconds,
+        view: view::look_at_mat4(eye, Vec3::ZERO, Vec3::Y),
+        proj: directx::orthographic(-1., 1., -1., 1., 0.1, 20.),
+        camera_position: eye,
+        sun,
+        ..Default::default()
+    };
+    f.environment.fog = None;
+    f.environment.bloom = None;
+    f.environment.background = Some([0.; 3]);
+    // Lit by the sun alone, when there is one.
+    if sun.is_some() {
+        f.environment.ambient = 0.;
+    }
+    renderer.draw(&texture.create_view(&Default::default()), (64, 64), &f);
+    fixture::read(gpu, &texture).unwrap()
+}
+
+/// A panel world whose model wears `looks`, fed into a fresh renderer.
+fn panel_world(
+    gpu: &exact_gpu::Gpu,
+    model: &Model,
+    looks: MaterialOverrides,
+) -> (Sim<Test>, Renderer, Feed) {
+    let mut sim = Sim::<Test>::new(()).unwrap();
+    sim.asset("panels.model", Some(&bin::to_vec(model)))
+        .unwrap();
+    let e = sim.world().named("model").unwrap();
+    sim.world_mut().insert(e, looks);
+    let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.prepare_model("panels.model", model).unwrap();
+    let mut feed = Feed::default();
+    feed.feed(sim.world(), &mut renderer).unwrap();
+    (sim, renderer, feed)
+}
+
+fn one_panel(base: [f32; 4]) -> Model {
+    Model {
+        meshes: vec![panel(0)],
+        materials: vec![material(base, AlphaMode::Opaque)],
+        nodes: vec![Node {
+            name: "panel".into(),
+            mesh: Some(0),
+            ..Default::default()
+        }],
+        bounds: [-0.8, -0.8, 0., 0.8, 0.8, 0.],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn material_overrides_set_metallic_and_roughness() {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    // Authored matte and not metal (metallic 0, roughness 1), gold-coloured.
+    let model = one_panel([1., 0.7, 0.2, 1.]);
+    let look = |metallic: Option<f32>, roughness: Option<f32>| {
+        MaterialOverrides(vec![MaterialOverride {
+            material: 0,
+            metallic,
+            roughness,
+            ..Default::default()
+        }])
+    };
+    // A sun from behind the eye: a mirror sends it straight back.
+    let sun = Some(exact_game_render::Sun {
+        direction: Vec3::NEG_Z,
+        illuminance: 0.1,
+        shadows: None,
+        ..Default::default()
+    });
+    let (mut sim, mut renderer, mut feed) = panel_world(&gpu, &model, look(None, None));
+    let matte = draw_panel(&gpu, &mut renderer, 0., sun).at(32, 32);
+    // The same record, patched in place: glossy, then glossy metal.
+    let e = sim.world().named("model").unwrap();
+    sim.world_mut().insert(e, look(None, Some(0.3)));
+    feed.feed(sim.world(), &mut renderer).unwrap();
+    let glossy = draw_panel(&gpu, &mut renderer, 0., sun).at(32, 32);
+    sim.world_mut().insert(e, look(Some(1.), Some(0.3)));
+    feed.feed(sim.world(), &mut renderer).unwrap();
+    let metal = draw_panel(&gpu, &mut renderer, 0., sun).at(32, 32);
+    let sum = |p: [u8; 4]| p[..3].iter().map(|&c| c as u32).sum::<u32>();
+    assert!(
+        sum(glossy) > sum(matte) + 60,
+        "a glossy override shows the sun's highlight: {matte:?} → {glossy:?}"
+    );
+    // A metal's highlight takes its base colour: more red than blue.
+    let warmth = |p: [u8; 4]| p[0] as i32 - p[2] as i32;
+    assert!(
+        warmth(metal) > 40 && warmth(metal) > warmth(glossy),
+        "a metallic override tints its reflection: {glossy:?} → {metal:?}"
+    );
+    // Unset fields keep the authored material.
+    sim.world_mut().insert(e, look(None, None));
+    feed.feed(sim.world(), &mut renderer).unwrap();
+    assert_eq!(draw_panel(&gpu, &mut renderer, 0., sun).at(32, 32), matte);
+}
+
+#[test]
+fn a_shimmer_moves_with_the_frame_time_without_another_write() {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    let model = one_panel([1., 1., 1., 1.]);
+    let glowing = |shimmer: Shimmer, color: [f32; 3], emissive: [f32; 3]| {
+        MaterialOverrides(vec![MaterialOverride {
+            material: 0,
+            color: Some([color[0], color[1], color[2], 1.]),
+            emissive,
+            shimmer,
+            ..Default::default()
+        }])
+    };
+    // A pulse at its crest at time zero, its trough half a second later. The
+    // renderer is fed once: every frame after is the GPU's own evaluation.
+    let pulse = Shimmer::Pulse {
+        rate: 1.,
+        phase: 0.25,
+        low: 0.,
+        high: 1.,
+    };
+    let red = [0.8, 0., 0.];
+    let (_, mut renderer, _) = panel_world(&gpu, &model, glowing(pulse, [0.; 3], red));
+    let crest = draw_panel(&gpu, &mut renderer, 0., None).at(32, 32);
+    let trough = draw_panel(&gpu, &mut renderer, 0.5, None).at(32, 32);
+    let again = draw_panel(&gpu, &mut renderer, 1., None).at(32, 32);
+    assert!(crest[0] > 150, "the crest glows: {crest:?}");
+    assert!(trough[0] < 10, "the trough is dark: {trough:?}");
+    assert_eq!(again, crest, "one cycle later, the same look");
+    // A hue a third of a turn on: red becomes green; its emission turns too.
+    let hue = Shimmer::Hue {
+        rate: 1. / 3.,
+        phase: 0.,
+    };
+    let red = [1., 0.01, 0.01];
+    let (_, mut renderer, _) = panel_world(&gpu, &model, glowing(hue, red, red));
+    let start = draw_panel(&gpu, &mut renderer, 0., None).at(32, 32);
+    let turned = draw_panel(&gpu, &mut renderer, 1., None).at(32, 32);
+    assert!(start[0] > 200 && start[1] < 60, "red: {start:?}");
+    assert!(turned[1] > 200 && turned[0] < 60, "green: {turned:?}");
+    // A flicker holds within a step and is the same at the same time.
+    let flicker = Shimmer::Flicker {
+        rate: 10.,
+        phase: 0.3,
+        low: 0.,
+        high: 1.,
+    };
+    let (_, mut renderer, _) = panel_world(&gpu, &model, glowing(flicker, [0.; 3], [0.8, 0., 0.]));
+    let levels: Vec<u8> = (0..12)
+        .map(|i| draw_panel(&gpu, &mut renderer, i as f64 / 10. + 0.01, None).at(32, 32)[0])
+        .collect();
+    let held = draw_panel(&gpu, &mut renderer, 0.05, None).at(32, 32)[0];
+    assert_eq!(held, levels[0], "a step holds its level");
+    let distinct: std::collections::BTreeSet<_> = levels.iter().collect();
+    assert!(distinct.len() > 4, "a flicker changes level: {levels:?}");
+}

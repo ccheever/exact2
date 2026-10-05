@@ -80,6 +80,7 @@ fn normal_cache_and_rebatch_scratch_follow_the_live_records() {
             skin: None,
             tint: [1.; 4],
             glow: [0.; 3],
+            surface: [0; 4],
         }];
         renderer
             .models

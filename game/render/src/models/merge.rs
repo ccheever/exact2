@@ -493,5 +493,28 @@ mod tests {
         // The run's first entry keeps its part count for the shader's search.
         let run = records * super::super::INSTANCE_WORDS;
         assert_eq!(renderer.models.words[run], 2, "two parts in the run");
+        // A metallic, pulsing override on the merged draw patches its words too.
+        let shimmer = exact_game::Shimmer::Pulse {
+            rate: 0.5,
+            phase: 0.25,
+            low: 0.1,
+            high: 1.,
+        };
+        w.insert(
+            e,
+            exact_game::MaterialOverrides(vec![exact_game::MaterialOverride {
+                material: 0,
+                metallic: Some(1.),
+                roughness: Some(0.3),
+                shimmer,
+                ..Default::default()
+            }]),
+        );
+        feed.feed(&w, &mut renderer).unwrap();
+        assert_eq!(renderer.cull.epoch, epoch, "no rebatch");
+        let surface = crate::surface_words(Some(1.), Some(0.3), shimmer);
+        assert_eq!(renderer.models.records[0].surface, surface);
+        let at = super::super::INSTANCE_WORDS - 4;
+        assert_eq!(renderer.models.words[at..at + 4], surface);
     }
 }

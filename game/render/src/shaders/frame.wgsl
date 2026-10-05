@@ -25,6 +25,8 @@ struct Frame {
     // An environment map drawn as the sky: intensity (0: the procedural sky),
     // yaw about +Y, RGBM range.
     sky: vec4<f32>,
+    // x: the displayed simulation seconds, wrapped hourly (a Shimmer's clock).
+    time: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> frame: Frame;
 fn environment(y: f32) -> vec3<f32> {

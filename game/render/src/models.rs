@@ -37,8 +37,9 @@ pub(crate) struct Material {
     data: MaterialData,
     names: [Option<String>; 5],
 }
-/// u32 words per model instance record: header, local, normal, tint, glow.
-pub(crate) const INSTANCE_WORDS: usize = 44;
+/// u32 words per model instance record: header, local, normal, tint, glow,
+/// surface (`looks::surface_words`).
+pub(crate) const INSTANCE_WORDS: usize = 48;
 /// A record's look word flag: its tint replaces the material's base colour factor.
 pub(crate) const REPLACE: u32 = 1 << 31;
 pub(crate) type ModelNode = (MeshId, MaterialId, Mat4, Option<u32>);
@@ -87,6 +88,7 @@ impl Uploaded {
     }
 }
 mod looks;
+pub use looks::surface_words;
 mod merge;
 mod textures;
 use textures::upload_texture;
@@ -263,6 +265,7 @@ impl Models {
                 records.len() as u32 + base
             };
             words.push(at | (look & REPLACE));
+            words.extend(record.surface);
         }
         // A merged part's look is one record-sized entry: its tint and glow. A
         // run's first entry also holds the run's part count, for the shader's
@@ -271,6 +274,7 @@ impl Models {
         for look in &self.part_looks.1 {
             words.extend([0; 36]);
             words.extend(look.map(f32::to_bits));
+            words.extend([0; 4]);
             if look[7].to_bits() == u32::MAX {
                 words[run] = ((words.len() - run) / INSTANCE_WORDS - 1) as u32;
                 run = words.len();
@@ -987,6 +991,7 @@ mod retirement_regressions {
                     skin: None,
                     tint: [1.; 4],
                     glow: [0.; 3],
+                    surface: [0; 4],
                     ..records[0]
                 })
                 .collect();
@@ -1245,6 +1250,7 @@ mod retirement_regressions {
             skin: None,
             tint: [1.; 4],
             glow: [0.; 3],
+            surface: [0; 4],
         };
         renderer
             .set_draw_instances(std::slice::from_ref(&record))

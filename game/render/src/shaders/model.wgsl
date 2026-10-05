@@ -7,6 +7,8 @@ struct ModelInstance {
     // (MaterialOverrides). In a part look entry, glow.w's bits are the part's
     // first vertex, and a run's first entry's `transform` is its part count.
     tint: vec4<f32>, glow: vec4<f32>,
+    // A MaterialOverride's metallic, roughness and Shimmer (model_base.wgsl).
+    surface: vec4<u32>,
 }
 @group(3) @binding(0) var<storage, read> instances: array<ModelInstance>;
 @group(3) @binding(1) var<storage, read> skin_palette: array<mat4x4<f32>>;
@@ -55,6 +57,8 @@ fn model_transform(position: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instan
     let skin=skinned(draw,vertex,position,normal);
     var tint=draw.tint;
     var glow=draw.glow.xyz;
+    shimmered(draw.surface,&tint,&glow);
+    let surface=look_surface(draw.surface);
     let word=bitcast<u32>(draw.glow.w);
     let looks=word & 2147483647u;
     if looks!=0u {
@@ -75,12 +79,12 @@ fn model_transform(position: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instan
         let affine=attachment_matrices[slot];
         let world=(affine*vec4(local,1.0)).xyz;
         let n=affine_normal(affine,(draw.normal*vec4(skin[1],0.0)).xyz);
-        return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,color,uv,slot,tint,vec4(glow,f32(word>>31u)));
+        return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,color,uv,slot,tint,vec4(glow,f32(word>>31u)),surface);
     }
     let world=p+rotate(q,s*local);
     let safe=select(max(abs(s),vec3(0.000001)),-max(abs(s),vec3(0.000001)),s<vec3(0.0));
     let n=rotate(q,(draw.normal*vec4(skin[1],0.0)).xyz/safe);
-    return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,color,uv,slot,tint,vec4(glow,f32(word>>31u)));
+    return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,color,uv,slot,tint,vec4(glow,f32(word>>31u)),surface);
 }
 @vertex fn model_vs(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32>, @location(3) color:vec4<f32>, @builtin(instance_index) instance:u32, @builtin(vertex_index) vertex:u32) -> ModelVarying {
     return model_transform(position,normal,uv,instance,vertex,color);

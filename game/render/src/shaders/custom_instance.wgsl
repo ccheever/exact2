@@ -9,6 +9,8 @@ struct DrawInstance {
     // glow.w's top bit: the tint replaces the material's base colour factor.
     // Custom shaders draw unmerged, so its low bits (merged part looks) are zero.
     tint: vec4f, glow: vec4f,
+    // A MaterialOverride's metallic, roughness and Shimmer (model_base.wgsl).
+    surface: vec4u,
 }
 @group(3) @binding(0) var<storage, read> draw_instances: array<DrawInstance>;
 @group(3) @binding(1) var<uniform> baked: BakedMaterial;
@@ -36,6 +38,8 @@ fn instance_transform(position:vec3f, normal:vec3f, uv:vec2f, i:u32, color:vec4f
     let n=(draw.normal*vec4f(normal,0.0)).xyz;
     var world=p+rotate(q,s*local); var wn=rotate(q,n/select(max(abs(s),vec3f(1e-6)),-max(abs(s),vec3f(1e-6)),s<vec3f(0.0)));
     if attached(slot) { let m=attachment_matrices[slot]; world=(m*vec4f(local,1.0)).xyz; wn=affine_normal(m,n); }
-    let glow=vec4f(draw.glow.xyz,f32(bitcast<u32>(draw.glow.w)>>31u));
-    return ModelVarying(frame.view_proj*vec4f(world,1.0),world,wn,color,uv,slot,draw.tint,glow);
+    var tint=draw.tint; var glow=draw.glow.xyz;
+    shimmered(draw.surface,&tint,&glow);
+    let look=vec4f(glow,f32(bitcast<u32>(draw.glow.w)>>31u));
+    return ModelVarying(frame.view_proj*vec4f(world,1.0),world,wn,color,uv,slot,tint,look,look_surface(draw.surface));
 }
