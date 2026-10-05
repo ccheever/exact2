@@ -369,7 +369,9 @@ Stable keys matter when content is inserted, removed, filtered, or reordered.
 A state cannot start from a resource, but a child's state can start from a prop.
 So a form that edits a saved record is a child made once the record is in: the
 source answers `loaded: true`, the placeholder says `false`, and the child's
-states take the record's fields when it is made.
+states take the record's fields when it is made. The initializer runs once per
+child: a later `draft` (a refresh, a normalized answer) does not reset the form,
+and while a refresh is out `saved` keeps its value, so the editor stays.
 
 ```contract
 shape Draft
@@ -725,8 +727,10 @@ A root task has one `every(ms, action)`, `after(ms, action)`, or
  The action is parameterless. Millisecond intervals
 are whole-number literals of at least 1. The frame form has no delta-time argument and does not
 catch up missed display frames. For deterministic tests, use the driver's clock.
-One `clock +N` lands at most 4,096 timer commits (`TIMER_FIRE_LIMIT`) and is
-refused there: over a long jump, tick slower or move the clock in steps.
+The clock moves in advances, and one advance commits at most 4,096 timer actions
+and `then`s (`TIMER_FIRE_LIMIT`), those that change nothing included; the rest is
+refused, what committed is kept, and the clock stays at the last one's time. A
+fast `every` under a long `clock +N` can reach it: tick slower or move the clock in steps.
 
 `now()` is the runner's clock in milliseconds since boot (the driver's clock under
 the agent), not a date. For the date, read the reserved `exactTime` source and add
