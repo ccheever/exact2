@@ -792,7 +792,6 @@ export function verifyBakeFiles(receipt, plan, assets) {
   }
 }
 
-
 // The compiler owns both the loaded files and the bundle requirements. This
 // outer receipt is completed after Cargo succeeds; it is not embedded in the
 // product whose inputs it describes. @ref LLP 1030 D3/D3a.
