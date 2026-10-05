@@ -552,7 +552,10 @@ checks in [`controls.rs`](../contract/lower/src/controls.rs), and test the actua
 platform look. Do not assume arbitrary custom paint or typography is admitted.
 
 An `image` source is the same string on every host: a path under the app's
-`assets/`, an `http(s)` URL, `symbol:<role>`, an `app:/data|cache|tmp/…` file
+`assets/`, an `http(s)` URL, `symbol:<role>` (the roles are
+[`schema.json`](../kernel/tables/schema.json)'s `symbols`; a player's are `play`,
+`pause`, their `-fill`s, `skip-back-15`, `skip-forward-15`, `skip-back-30`,
+`skip-forward-30`, `speaker`, `speaker-mute` and `moon`), an `app:/data|cache|tmp/…` file
 (a picked photo, or one the data module kept with `storage.fs`; it shows after a
 relaunch too), or a `data:` URL of at most 1 MiB, past which every host shows
 nothing (the web and Apple journal `image refused`). Keep a picked photo by copying it to
