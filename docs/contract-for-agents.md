@@ -297,7 +297,10 @@ An action calls an action of its own component, an `action` prop or an injected
 action by name, as a statement, anywhere a statement goes (LLP 1089). The call is
 the callee's statements run where it stands, in the same commit: one rollback,
 and the callee reads the state the action started with, as every statement does.
-A name that is a host command stays the command. A call gives no value; compute
+A name that is a host command stays the command. Never give an action, an `action`
+prop or an inject a host command's name (`close`, `reload`, `setScheme`, `focus`, …)
+if you will call it: the call is refused, `syntax-call-ambiguous`, so a host command
+added later can't silently take it over. Binding such a name is allowed. A call gives no value; compute
 values with `fn`. Write a repeated sequence once and call it:
 
 ```contract

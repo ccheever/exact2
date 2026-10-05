@@ -483,7 +483,10 @@ its parent. Take: none offered; waived by Charlie's approval.
 **Expanded (LLP 1089; waived by the orchestrator under Charlie's 2026-10-04
 delegation, "make decisions without me"):** a call anywhere a statement may
 stand, to an action of the same component, an `action` prop, or an injected
-action, expanded into that commit; a host command keeps its name. Consumers:
+action, expanded into that commit; a host command keeps its name, and a
+call naming both a host command and an action in its component's scope is
+refused (`syntax-call-ambiguous`, amended 2026-10-05 with Charlie's approval:
+a new host command must never silently rebind an app's call). Consumers:
 Files' four copies of "open" (F27) and the spreadsheet's close-the-editor and
 move copies (F21); Mail's swipe (F18) is the tail call, once the docs say so.
 Take: none offered. Still refused: recursion, a return value, and an action

@@ -307,7 +307,8 @@ of its component, an `action` prop or an injected action as a statement:
 they too read the state the action started with. So a helper does not see what
 its caller assigned before the call; the compiler refuses such a read and asks
 for the value to be passed (`arrive(next)`). A name that is a host command, such
-as `focus`, stays the command. A call returns nothing: share calculations through
+as `focus`, stays the command, and calling an action, prop or inject that
+shares a host command's name is refused: rename it. A call returns nothing: share calculations through
 `fn`. The compiler infers the state an action writes, through its calls. Do not
 write a `writes` clause.
 

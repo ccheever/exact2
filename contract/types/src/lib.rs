@@ -1257,6 +1257,15 @@ fn check_with_sites(
     });
     let mut sink = Sink::default();
     posts::check_targets(file, &mut sink);
+    // A call naming both a host command and an action in its component's
+    // scope, refused before anything expands (LLP 1089 D1).
+    for a in contract_syntax::inline::calls::ambiguous(file) {
+        sink.push(TypeError {
+            id: contract_syntax::inline::calls::Ambiguous::ID,
+            message: a.message(),
+            span: a.span,
+        });
+    }
     // Each component's calls of its own actions, expanded in its own scope
     // before any body is checked (LLP 1089 D7): a child's body holds them.
     let (called, refused) = contract_syntax::inline::calls::expand_file(file);
