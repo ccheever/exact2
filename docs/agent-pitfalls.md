@@ -240,14 +240,16 @@ guide's rules don't make obvious.
   `box-sizing`.) **Candidate diagnostic:** the compiler or a development log
   could name the failed condition.
 
-- **A text field shows an edit its action refused.** A field bound with
+- **A text field shows an edit its action refused or normalized.** A field bound with
   `value=text input=edit`, where `edit` ignores a blank value, shows the blank while
-  `text` keeps the old value, and the next keystroke builds on what is shown. Cause: on
+  `text` keeps the old value, and the next keystroke builds on what is shown; so does
+  one whose action or source normalizes `-2` to the `0` it already held. Cause: on
   the web (both targets) a text field is re-set only when its bound value changes, so
   an unchanged binding does not overwrite the edit. Fix: bind the field to draft state that `edit` always writes, and on commit
   (`change`, Enter, `blur`) write the accepted value or reset the draft to it, which
   changes the bound value and redraws the field. (Authoring bench, LLP 1087, t2-todo:
-  two builders, about 10 minutes each, 2026-10-04.)
+  two builders, about 10 minutes each, 2026-10-04; t1-tip, a normalized count,
+  2026-10-05.)
 
 - **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
   is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats

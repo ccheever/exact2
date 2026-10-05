@@ -426,7 +426,14 @@ So a form that edits a saved record is a child made once the record is in: the
 source answers `loaded: true`, the placeholder says `false`, and the child's
 states take the record's fields when it is made. The initializer runs once per
 child: a later `draft` (a refresh, a normalized answer) does not reset the form,
-and while a refresh is out `saved` keeps its value, so the editor stays.
+and while a refresh is out `saved` keeps its value, so the editor stays. On a
+native host the first frame can show `saved`'s kept answer (its last answer before
+the app quit; the web JS target keeps none), so the child is made from that. A write
+`saved` does not hear about, from a mutation without `refreshes saved`, leaves that
+answer behind the store: after a restart the form opens with the old fields and
+keeps them when the fresh answer lands. Refresh the resource after each write, as
+below, or key the child by the answer (`each d in [saved] key=…`) so a different
+answer makes it again.
 
 ```contract
 shape Draft
