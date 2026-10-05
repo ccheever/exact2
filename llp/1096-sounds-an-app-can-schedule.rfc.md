@@ -1,14 +1,16 @@
 # LLP 1096: Sounds an app can schedule
 
 **Type:** RFC
-**Status:** Draft r2 (round 1 of 3).
+**Status:** Accepted (r4, by the orchestrator under Charlie's delegation after three review rounds; Grok 4.7 only — Codex budget exhausted; round-3 findings folded unreviewed — the implementation review checks them).
 - r1 (`88c2f191a`) was reviewed by Grok 4.7 (xhigh) with two scopes: semantics and web fidelity (`llp/reviews/1096-r1.grok-a.md`, READY WITH CHANGES) and implementation (`llp/reviews/1096-r1.grok-b.md`, NOT READY).
-- r2 resolves every finding (§10).
+- r2 (`b51ca7d3b`) had a delta review (`llp/reviews/1096-r2.grok.md`, NOT READY: five MATERIAL, six MINOR, five NIT).
+- r3 (`cd9a371dd`) had the final round (`llp/reviews/1096-r3.grok.md`, NOT READY: two MATERIAL, three MINOR, four NIT).
+- r4 folds round 3's fixes as given, with no further review (§10).
 - The orchestrator decided r1's open questions under Charlie's 2026-10-04 delegation (§9). The admission is recorded in `rules/DEFERRED.md` in its own commit.
 **Systems:** Contract compiler (a `sound` declaration; three host commands; `contract/lower/src/sounds.rs`; the test step `expect sound`), Plan (`sounds` table), bake receipt (`loads`), Runner (new `runner/src/sound.rs`, `take_sounds`, `state.sounds`), JS target (new `host/web-js/sounds.js`), web output shared by both targets (new `host/web/sound-glue.js`), Apple (new `host/apple/soundarm/`, `SoundModule.swift`, `AudioSession.swift`), Linux and Windows (record only), conformance, Lean and difftest (commands only), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
-**Revised:** 2026-10-04 (r2)
+**Revised:** 2026-10-04 (r2, r3, r4)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stage 1 on 2026-10-06, stage 2 on 2026-10-07, stage 3 on 2026-10-08–09, stage 4 on 2026-10-09 (§6)
 **Amends:** LLP 1042 §8 (a sound effect is no longer an `audio` element's job); LLP 1046.003 AU3 (`CanvasAudio` stops choosing the session category, D8); `docs/contract-for-agents.md`'s "Ding" recipe and its named-argument sentence (`:222`); `rules/DEFERRED.md` (D12)
 **Related:** LLP 1005 §3 (host commands); LLP 1012 (the agent); LLP 1019 (a declared asset: fonts); LLP 1051 §5.3 (`start(when)` noted); LLP 1070.000 (a command the runner keeps for itself); LLP 1077 D14 (`haptic`, the command this follows); LLP 1089 D1 (where `HOST_COMMANDS` lives after its stage 1); LLP 1092 D7, D8 (gated tasks, which the lookahead clock uses). Diaries: `~/projects/x2apps/drums/DIARY.md` (R1–R3, Top 5 #1, `repros/R1-retrigger`), `snake/DIARY.md` (F1), `trivia/DIARY.md` (F5). External, read 2026-10-04: Web Audio API 1.1 (`AudioBufferSourceNode`, `AudioScheduledSourceNode.start(when)`/`stop(when)`, `GainNode`, `AudioContext.getOutputTimestamp()`); the W3C Audio Session draft (`navigator.audioSession.type`); AVFAudio's `AVAudioEngine`, `AVAudioSourceNode`, `AVAudioPlayerNode`, `AVAudioNode.outputPresentationLatency`.
@@ -130,6 +132,23 @@ on `AVAudioEngine`. Linux and Windows keep the record and play nothing.
   - In an `OfflineAudioContext` at 48 kHz, `start(0.25)` first sounds at frame
     12000 in all three. `stop(0.5)` then `stop(0.3)` sounds last at frame
     14399, so the last `stop` wins.
+- **Web Audio at the press, measured for r3** (the same browsers; a
+  capture-phase `pointerdown` on a Playwright click):
+  - `stop()` on a source node never started throws `InvalidStateError` in all
+    three, and `start(0)` succeeds.
+  - The pairs at the press depend on the autoplay policy, and the two probes
+    disagree.
+    - **The round-3 review's probe** (autoplay blocked, `resume()` on a
+      capture-phase `pointerdown`) found live pairs. Chrome was `running`
+      with `{contextTime: 0, performanceTime: 232}`. WebKit was `{0, 0}` and
+      `suspended` before the gesture, and already `running` with
+      `{0.0187, 116}` on the handler's first line. Firefox at construction
+      was `suspended` with `{0, 146}`.
+    - **The author's r3 probe** (the context made before the gesture,
+      autoplay allowed) saw `{0, 0}` at the press in Chrome and WebKit.
+
+    The normative branch is `performanceTime > 0` (D6). `{0, 0}` is the
+    pre-gesture hold.
 
 ## 2. What the web and the platforms offer
 
@@ -216,7 +235,10 @@ any command.
 `share` has (`checks.rs:1057–1058`). The generic loop's `infer` would refuse
 a named argument as a canvas binding (`type-named-argument`,
 `contract/types/src/lib.rs:683–688`). The refusal id is `type-play-sound`, and
-its message gives the usage.
+its message gives the usage. If the three checkers and the list's
+structural check do not fit `checks.rs` (1,413 lines) under the cap, they go
+in a new `contract/types/src/checks/sounds.rs`, and `check_command` gains
+only the dispatch.
 
 - **`playSound(src, at=, gain=, group=)`**:
   - `src` is a string. A literal that no `sound` declares is refused
@@ -227,8 +249,10 @@ its message gives the usage.
     defaults to the commit's time.
   - `gain=` is a number, a linear multiplier, 0–1, defaulting to 1. A
     literal outside 0–1 is refused, as a literal `volume` is
-    (`media.rs:27–42`). A computed one is clamped to 0–1, as the media glue
-    range-checks a bound `volume`.
+    (`media.rs:27–42`). A computed one is clamped to 0–1 by the runner
+    before it is stored (D5), so `state.sounds` and the speaker agree. This
+    is unlike the media glue, which refuses an out-of-range bound `volume`
+    with `invalid-value` (`media-glue.js:52`).
   - `group=` is a string (D4). With none given, or `""`, the voice is in no
     group.
 - **`playSounds(hits)`**: `hits` is a list of records with the fields
@@ -285,7 +309,7 @@ planned at `t` therefore lands on the grid, whatever the timer's lateness.
 **A group is monophonic by start time.** A voice in group `g` ends at the
 first of these:
 
-- its natural end (`at + 1000 × frames / rate`);
+- its natural end: its effective start (D3) plus `1000 × frames / rate`;
 - the start of the next voice in `g`, by start time, with ties going to the
   later call;
 - a `stopSounds` that covers it.
@@ -314,12 +338,13 @@ still play. There is no `at=` on `stopSounds` (§7).
 The new `runner/src/sound.rs` holds a table of voices:
 `{id, sound, at, gain, group, ends, by}`. `id` counts up from 1 per boot.
 
-**When it is updated.** Only after the commit stands. Inside the `if
+**When it is updated.** Only after the commit stands. The table changes only
+after `update()` (`commit.rs:658`) has returned ok. Inside the `if
 result.is_ok()` block where today's command journal is written
-(`commit.rs:645–651`), the runner applies that commit's `playSound`,
+(`commit.rs:661–665`), the runner applies that commit's `playSound`,
 `playSounds` and `stopSounds` commands, in the order they were issued. It
 logs their `sound …` lines and queues the `SoundOp`s there. On the failure
-path, and in `poison()` (`commit.rs:662–669`), any speculative sound records
+path, and in `poison()` (`commit.rs:675–683`, `commands.clear()` at `:678`), any speculative sound records
 are dropped next to `commands.clear()`.
 
 **Two channels.**
@@ -340,7 +365,8 @@ refusal or warning (D7–D9).
   sound`.
 - A non-finite `at`: `sound dropped: at is not a number (assets/kit/hat.wav)`.
 - A non-finite `gain`: `sound dropped: gain is not a number
-  (assets/kit/hat.wav)`.
+  (assets/kit/hat.wav)`. A finite `gain` outside 0–1 is clamped (D2), not
+  dropped.
 - **The bound.** At most **32 live voices**, sounding or waiting at the
   commit's time, after that commit's cuts. The 33rd is dropped:
   `sound dropped: 32 voices sound or wait (assets/kit/hat.wav at 1250)`. The
@@ -362,10 +388,15 @@ over. Hosts handle the `reload` command itself as today
 
 **The JS target** keeps the same table in `host/web-js/sounds.js`, with the
 same rules and journal lines. `rt.js` is 1,338 lines and gains two lines:
-- in `command()` (`rt.js:222–226`), the three names go to `sounds.js` before
-  the `Hosts` lookup, so they are never `refused:`;
-- after the commit's commands run (`rt.js:182`), `sounds.js` applies the
-  commit's sounds.
+- in `command()` (`rt.js:222–226`), after its existing `command …` journal
+  line, the three names are **recorded** in `sounds.js`'s pending list and
+  return before the `Hosts` lookup. So they are never `refused:`, and nothing
+  is applied there;
+- after the commit's commands run (`rt.js:182`), on the success path only,
+  `sounds.js` **applies** the pending list once and clears it. This is the
+  only apply, so a voice gets one `id`.
+- `agent.js`'s `state` reply (`:339–356`) includes `sounds.js`'s `{voices,
+  live, recorded, output}`. Under the driver `output` is `"agent"` (D10).
 
 ### D6 — Runner time to the speaker
 
@@ -375,8 +406,9 @@ the speaker.
 **The web.** Runner time is `performance.now()` minus an origin: the wasm
 glue's `t0` (`glue.js:162–169`), and the JS target's `start` (`rt.js:1236`).
 
-- **While the timestamp is live** (`performanceTime > 0`, and the context
-  `running`), with `{contextTime, performanceTime} = getOutputTimestamp()`:
+- **While the timestamp is live** (`performanceTime > 0`, whatever the
+  context's `state`), with `{contextTime, performanceTime} =
+  getOutputTimestamp()`:
 
   ```
   when = max(0, contextTime + (origin + at - performanceTime) / 1000)
@@ -385,10 +417,26 @@ glue's `t0` (`glue.js:162–169`), and the JS target's `start` (`rt.js:1236`).
   `max(0, …)` keeps a late voice from throwing (§1's probe). A `when` below
   `currentTime` starts at once, attack included. Every `start` and `stop`
   takes the clamped value.
-- **Before the timestamp is live** (`{0, 0}`, the context's first block not
-  yet rendered), a voice that is due or past starts with `start(0)`. A future
-  voice waits in the glue until the timestamp is live, then is scheduled by
-  the formula.
+  - Firefox's press is this case: the context is still `suspended`, with
+    `contextTime` 0 and a live `performanceTime` (round-2 review, finding 2).
+    The formula schedules it without waiting for `running`, and a due voice
+    is `start(0)`.
+- **Before the timestamp is live** (`{0, 0}`: Chrome and WebKit at the press,
+  and WebKit even after `resume()` resolves, §1):
+  - A voice that is due or past starts with `start(0)`.
+  - A future voice is **held** as a record `{id, at, stopAt}` with no node.
+    An `End` for a held voice only sets `stopAt`. `stop()` on a node that
+    was never started throws `InvalidStateError` in all three engines (§1),
+    so `stop` is never called on one.
+  - A held voice leaves the held set on whichever path takes it first, and
+    it is started at most once:
+    - when the timestamp goes live, it is started by the formula;
+    - or, if its runner time arrives first, it is started then with
+      `start(0)`, by a timer in the glue.
+
+    On either path, it is stopped at `stopAt` if one is set. Its start is
+    skipped altogether when `stopAt` is not after that start. `stop(-0.01)`
+    throws, so a `stopAt` is clamped as a `when` is.
 - **Every browser measured has `getOutputTimestamp`.** Where one does not,
   `contextTime` is taken as `currentTime - outputLatency`, Firefox's measured
   gap. In Chrome the gap also includes `baseLatency`, and WebKit's gap was its
@@ -400,9 +448,19 @@ glue's `t0` (`glue.js:162–169`), and the JS target's `start` (`rt.js:1236`).
 - The source node is connected to `mainMixerNode` in the output's format, so
   nothing converts downstream of it. A sample time downstream of a converter
   is not valid (`AVAudioSourceNode.h:26–27`).
-- The render callback's `AudioTimeStamp.mHostTime` is when this node renders
-  the buffer. The buffer is heard `outputPresentationLatency` later (the
-  source node's: the mixer, the output's processing and the device).
+- The render callback's `AudioTimeStamp.mHostTime` is host ticks. It is
+  converted to seconds on `CACurrentMediaTime`'s timebase
+  (`AudioConvertHostTimeToNanos(mHostTime) / 1e9`), giving
+  `bufferHostSeconds`.
+- The header calls it "the HAL time at which the audio data will be
+  rendered" (`AVAudioSourceNode.h:26`). That is when this node renders the
+  buffer, and the buffer is heard `outputPresentationLatency` later (the
+  source node's: the mixer, the output's processing and the device). Its
+  maximum delay downstream of the node is `outputPresentationLatency`
+  (`AVAudioNode.h:218–228`), and subtracting it aims the speaker at
+  `t0 + at/1000`. The term is dropped only if the stage-3 device check (§5)
+  finds the onset early by exactly that term: then `mHostTime` already
+  included it. A late onset fails the check.
 - A voice's first frame in the buffer is
   `round((t0 + at/1000 - (bufferHostSeconds + outputPresentationLatency)) × outputRate)`,
   where `outputRate` is the output format's sample rate. The file's rate is
@@ -434,8 +492,19 @@ target.
 **What it does.**
 - **Load.** One `AudioContext({latencyHint: "interactive"})`, and one
   `GainNode` per voice into `destination`. It fetches and `decodeAudioData`s
-  every declared sound, in declaration order. It sets
-  `navigator.audioSession.type` where the browser has it (D8's key).
+  every declared sound, in declaration order.
+- **The session.** The web build writes `app.json`'s `audio_session` as
+  `data-audio-session` on `#exact-root`. The glue sets
+  `navigator.audioSession.type` to it only when `navigator.audioSession`
+  exists (WebKit has it; Chrome and Firefox do not, §1).
+  - **Every writer of the root div carries it:**
+    - the shell div, `host/web/index.html:112` and
+      `host/web-js/build.mjs:394`;
+    - the render host's rebuilt div, `page.rs:85–87`;
+    - `render.mjs:64`'s rebuild;
+    - `direct.rs:81`'s `<div id="exact-root" data-boot="">`.
+  - **The exact-string cuts** that find the shell div include the
+    attribute in their needles: `page.rs:34–39` and `render.mjs:35`.
 - **Activation.** A capture-phase `pointerdown`, `keydown` and `touchend`
   listener on `document` calls `resume()` until the context runs. A press
   after the glue has loaded runs its commit inside its own handler on both
@@ -449,9 +518,10 @@ target.
 - **A voice whose sound is still decoding** starts when it is decoded, from
   its first frame. If it is still undecoded at its end, it is dropped and
   journaled.
-- **`Play`** makes a source node and calls `start(when)` (D6). **`End`** calls
-  `stop(when)`. The last `stop` wins in all three engines (§1), and the
-  runner only ever moves an end earlier.
+- **`Play`** makes a source node and calls `start(when)` (D6), unless the
+  voice is held. **`End`** calls `stop(when)` on a started node, or sets a
+  held voice's `stopAt` (D6). The last `stop` wins in all three engines (§1),
+  and the runner only ever moves an end earlier.
 
 **The wire.**
 - **The wasm host.** `host/web/src/host.rs` drains `take_sounds()` at both of
@@ -462,15 +532,30 @@ target.
   `installSound`.
 - **The JS target** hands its table's ops to the same functions.
 - **Host facts** (`state.sounds.output`) are filled in each host's existing
-  state overlay: `glue.js` case `"state"` (`:1099`) and `agent.js` case
-  `'state'` (`:339`).
+  state overlay outside the driver only: `glue.js` case `"state"` (`:1099`),
+  which starts from the runner's reply, and `agent.js` case `'state'`
+  (`:339`), which also carries the table (D5). Under the driver the overlay
+  leaves `output: "agent"` alone.
 
 ### D8 — Apple: a sound arm with one mixer, and one session owner
 
 **The arm.** `host/apple/soundarm/` holds `SoundArm.swift` and
 `sound_render.c`, built together as `libexact_sound.dylib`.
-`SoundModule.swift` `dlopen`s it after first pixel. AVFAudio never enters
-ExactKit's link graph.
+- `SoundModule.swift` `dlopen`s it after first pixel, split as the video
+  arm's loader is:
+  - **On macOS** (`#if os(macOS)`), the path is the executable's directory
+    plus `/libexact_sound.dylib`, as `VideoModule.swift:26–27` loads the video
+    arm (and `WebModule.swift:150–151` the web arm).
+    `build.mjs:1213`'s `loaded` gains the sound dylib, so the bundle copy
+    (`:1268`) and codesign (`:1278`) include it.
+  - **On iOS and tvOS** (`#else`), the path is `embeddedModule(framework:
+    "ExactSound", dylib: "libexact_sound.dylib")` (`VideoModule.swift:29`,
+    `:303–312`; `embeddedModule` is `#if !os(macOS)`).
+- The engine and the mixer stay in the dylib. The session stays in ExactKit,
+  as `CanvasAudio`'s already is.
+- `sound_render.c` exports `exact_sound_render` and `exact_sound_push`,
+  declared to Swift through `sound_render.h`, passed to the arm compile with
+  `-import-objc-header`.
 
 **The production gate.**
 - `bake/src/receipt.rs:536–548` adds `"sound"` to `loads` when the plan's
@@ -478,8 +563,12 @@ ExactKit's link graph.
 - `host/apple/build.mjs` builds and carries the arm on `carries('sound')`
   (`:979–982`). It adds `'sound'` beside the four names in `leftOut`, the load
   list, and both copy sites (`:1213–1218`, `:1316`).
-- The arm compile (`:1023–1044`) takes the arm's C file beside its Swift
-  file.
+- The arm compile (`:1023–1044`) takes the arm's C file and its header
+  beside its Swift file.
+- An `.ipa` wraps it as a framework: `build.mjs:1350`'s list gains
+  `[soundLoadName, 'ExactSound']` beside `ExactWeb` and `ExactVideo`. A loose
+  dylib in an `.ipa` is ITMS-90171 (`build.mjs:363`,
+  `VideoModule.swift:303–307`).
 
 Without this, a settled production build (release, store level 0) would ship
 no arm, because a `sound` declaration is not a node.
@@ -498,15 +587,28 @@ no arm, because a `sound` declaration is not a node.
   over. A full ring drops the op and counts it. The count is read by the
   arm's state and journaled `sound dropped: the mixer's queue is full`.
 - An `End` for a slot already freed is ignored.
-- For each buffer, the mixer sums every live voice from its first frame to
-  its end frame (D6), times its gain. A slot frees at its end.
+- For each buffer, the mixer first applies every op in the ring, so a
+  `Play` and an `End` that arrive for the same buffer both take effect in
+  it. It then sums every live voice from its first frame to its end frame
+  (D6), times its gain. A slot frees at its end.
 - There is no allocation and no lock in the callback.
 
 **The session: one owner.**
-- `AudioSession.swift` in ExactKit is the only `setCategory` caller.
-- It reads `audio_session` from the manifest, which the bake plumbs into
-  `Info.plist` as `ExactAudioSession`, the way `backgroundModes` is
+- `AudioSession.swift` in ExactKit is the only `setCategory` caller. The
+  whole file is `#if os(iOS) || os(tvOS)`, as the current caller is
+  (`CanvasSeams.swift:668–684`). `AVAudioSession` is unavailable on macOS
+  (`AVAudioSession.h:31`, `:38`, `:46`).
+- **On the Mac** there is no session: the arm starts `AVAudioEngine` with no
+  category, and `audio_session` has no effect there.
+- It reads `audio_session` from the manifest, which the bake plumbs into the
+  iOS `Info.plist` as `ExactAudioSession`, the way `backgroundModes` is
   (`build.mjs:403`).
+- **`audio_session` is a manifest key.**
+  - `scripts/app.schema.json` gains it at the root, beside the other root
+    keys. The root is `additionalProperties: false` (`:707`), and
+    `scripts/app.mjs:575` refuses a manifest that does not conform.
+  - `bake/src/compat.rs:333–337`'s `capabilities` object gains it beside
+    `backgroundModes`, so changing it moves the compatibility id.
 - It is activated by the sound arm's load, the video arm's first sound-bearing
   item, and `CanvasAudio.activate` (`CanvasSeams.swift:668–684`). That last
   one stops calling `setCategory(.ambient)` and asks the owner instead.
@@ -577,7 +679,9 @@ are deferred to a consumer (§7).
   - `missing` is the negation. It mirrors `expect tree has|missing`.
   - `state`'s `sounds.voices` is only the last 64. For this step the driver
     asks `state` for the whole record (`sounds: "all"`). That is a form of
-    `state`, not an eleventh operation.
+    `state`, not an eleventh operation. The `state` arm passes the request
+    on (`runner/src/agent.rs:31`, today `state(runner)`), and
+    `agent/sound.rs` reads `sounds` from it.
   - If the asked time is older than the record's first voice, the step fails
     and says so: `voices before t=… are no longer recorded`.
   - Dropped calls are not voices.
@@ -592,12 +696,17 @@ are deferred to a consumer (§7).
     expect sound has "assets/kit/kick.wav" at 500 by cancelled
   ```
 
+  The second tap runs drums' `togglePlay`, whose stop branch calls
+  `stopSounds()`; the 25 ms tick at 450 had scheduled the window to 550.
+
 - **The step reaches four places**, each named in §4:
   - the parser, `contract/syntax/src/parser/steps.rs:423–447`;
   - the step's JSON encoding, `contract/cli/src/lib.rs:602–605`;
   - the driver, `scripts/agent-test.mjs:133–162`;
-  - difftest's script reader, `semantics/difftest/src/script.rs:166–173`,
-    which skips the step.
+  - difftest's script reader, `semantics/difftest/src/script.rs:166–173`.
+    Its `other` arm returns an error today (`:169–173`). A new arm for
+    `expect sound` `continue`s, which works because that match sits in the
+    `for` loop.
 
   The corpus case (D11) has no `expect sound`.
 
@@ -673,8 +782,9 @@ unchanged.
     two elements did; the closed hat joins the open hat's group);
   - `togglePlay` schedules the first window and stops with `stopSounds()`;
   - `preview` calls `playSound` now;
-  - `task clock when playing every(25, tick)` replaces `every(2, tick)`. This
-    needs LLP 1092 stage 2. Until it lands, drums keeps `every(2, tick)`, and
+  - The Summary's gated `task clock when playing`, an indented `every(25,
+    tick)` block (LLP 1092 D7), replaces `every(2, tick)`. This needs LLP
+    1092 stage 2. Until it lands, drums keeps `every(2, tick)`, and
     its `tick` schedules the window whenever `now() + 100` passes
     `scheduledTo`.
 
@@ -697,12 +807,12 @@ files near the cap gain only call sites.
 | syntax | `parser/sounds.rs`; the arm and message in `parser.rs` (1,450); `expect sound` in `parser/steps.rs` | — | — |
 | types, lower, plan | three names in `HOST_COMMANDS` (wherever LLP 1089 leaves it); early checkers; `command_args`; `lower/src/sounds.rs`; plan `sounds` | — | — |
 | bake | — | — | `receipt.rs` `loads` gains `"sound"` |
-| runner | `sound.rs`, `take_sounds`, the `is_ok()` block and `poison()` in `commit.rs` (1,077); `agent/sound.rs` | — | — |
+| runner | `sound.rs`, `take_sounds`, the `is_ok()` block and `poison()` in `commit.rs` (1,090); `agent/sound.rs` | — | — |
 | JS target | `sounds.js`; two lines in `rt.js`; `agent.js` state | `sound-glue.js` import, `build.mjs:266` | — |
-| web wasm | — | `sound-glue.js`; batch op; two drains in `host.rs` (1,497); the skip and state in `glue.js` (1,495) | — |
-| Apple | — | — | `soundarm/` (Swift and C), `SoundModule.swift`, `AudioSession.swift`; `CanvasSeams.swift`; two drains in `host.rs` (1,465); the skip and the op in `Session.swift` (1,486); `Agent.swift` state; `build.mjs` gate, compile and copies |
+| web wasm | — | `sound-glue.js`; `data-audio-session` on every root-div writer and in both cut needles; batch op; two drains in `host.rs` (1,497); the skip and state in `glue.js` (1,495) | — |
+| Apple | — | — | `soundarm/` (Swift, C and header), `SoundModule.swift` (a macOS and an iOS/tvOS path), `AudioSession.swift` (iOS and tvOS only); `CanvasSeams.swift`; two drains in `host.rs` (1,465); the skip and the op in `Session.swift` (1,486); `Agent.swift` state; `build.mjs` gate, compile, `loaded`, copies and `wrapFramework`; `app.schema.json` and `compat.rs` for `audio_session` |
 | Linux, Windows | the skip and the drain in `presenter.rs` (1,488) | — | — |
-| driver, tests | `contract/cli/src/lib.rs` encoding; `scripts/agent-test.mjs`; `semantics/difftest/src/script.rs` skip | — | — |
+| driver, tests | `contract/cli/src/lib.rs` encoding; `scripts/agent-test.mjs`; `semantics/difftest/src/script.rs`'s `continue` arm; the `state` arm in `runner/src/agent.rs` | — | — |
 
 ## 5. Tests
 
@@ -753,8 +863,14 @@ files near the cap gain only call sites.
     first non-zero sample at frame 12000, with gain applied;
   - a group cut ends it at the next voice's frame;
   - a voice mapped 40 ms into the past starts at once and does not throw;
-  - with a `{0, 0}` timestamp, a due voice starts with `start(0)` and a
-    future one waits for the live timestamp;
+  - with a `{0, 0}` timestamp, a due voice starts with `start(0)`, a future
+    one is held with no node, an `End` during the hold sets `stopAt` and calls
+    no `stop`, and the held voice starts and stops by the formula once the
+    timestamp is live, or by the glue's timer if its time comes first;
+  - in Firefox's suspended state with a live `performanceTime`, the formula
+    schedules the press's window;
+  - with `data-audio-session="playback"`, WebKit's `navigator.audioSession.type`
+    is `"playback"`, and the other two set nothing;
   - a voice before activation is blocked and journaled.
 - **Apple.**
   - An XCTest renders the C callback offline. Given a timestamp, it places a
@@ -762,12 +878,27 @@ files near the cap gain only call sites.
     rate (48 kHz) that differs from the file's (44.1 kHz). It sums two
     voices, frees a slot at its end, ignores an `End` for a freed slot, and
     counts a full ring.
-  - A device check in stage 3: a tap on the main mixer finds the first
-    non-zero sample of a voice scheduled at `at`, and its host time plus
-    `outputPresentationLatency` is within 1 ms of `t0 + at/1000`. Drums is
-    also heard on a Mac and an iPhone.
-  - A production build (release, store level 0) of drums carries
-    `libexact_sound.dylib`; one of an app with no sound does not.
+  - A device check in stage 3. A tap on `mainMixerNode`, the node connected
+    to the output (`AVAudioNode.h:100–103`), finds the first non-zero sample
+    of a voice scheduled at `at`, at `frameIndex` in its buffer.
+    - Its **speaker time** is the tap buffer's `AVAudioTime.hostTime`
+      (converted as D6 converts), plus `frameIndex / sampleRate`, plus the
+      presentation latency still downstream of the tap: the output node's
+      processing and the device.
+    - The check passes only when that time is within 1 ms of
+      `t0 + at/1000`.
+    - D6's source term is dropped only when the measured onset is early by
+      exactly that term. A late onset fails the check.
+
+    Drums is also heard on a Mac and an iPhone.
+  - An `.ipa` of drums carries `Frameworks/ExactSound.framework`, and no loose
+    `libexact_sound.dylib`.
+  - ExactKit builds for macOS with `AudioSession.swift` present.
+  - A production build (release, store level 0) of drums carries the sound
+    arm; one of an app with no sound does not. The loose
+    `libexact_sound.dylib` is the Mac and simulator product, and
+    `ExactSound.framework` is the `.ipa`'s (`wrapFramework`,
+    `build.mjs:364–375`).
 - **Lean.** `lake build`; difftest `corpus` and `random --count 500` (async
   lane).
 - **Driven.** D13's adoptions, and the five checks after each stage.
@@ -851,9 +982,46 @@ Every r1 recommendation was accepted:
 7. **Globs in `sound`:** no.
 8. **`stopSounds(at=)`:** deferred (§7).
 
-No question is open in r2.
+No question is open in r3.
 
 ## 10. Revisions
+
+- **r4** (2026-10-04, accepted). Grok 4.7 xhigh's final review of r3
+  (`llp/reviews/1096-r3.grok.md`, NOT READY: two MATERIAL, three MINOR,
+  four NIT). Three rounds are done, so its fixes are folded as given,
+  unreviewed; the implementation review checks them. The code confirmed each
+  one (`VideoModule.swift:22–30`, `build.mjs:1210–1216`,
+  `script.rs:166–174`).
+  - **D8:** the macOS loader; the dylib in `loaded`; `audio_session` in the
+    schema and the compatibility id.
+  - **D6, §5:** the device check taps `mainMixerNode` and adds the frame
+    offset and the downstream latency; the source term is dropped only on
+    an early onset, and a late one fails.
+  - **D6:** one exit for a held voice.
+  - **D7:** `data-audio-session` on every root-div writer and in both cut
+    needles.
+  - **D10:** the `state` arm passes `sounds: "all"`; difftest's `continue`
+    arm.
+  - **§1:** both press probes stated.
+  - **§5:** the Mac and `.ipa` artifact names.
+
+- **r3** (2026-10-04, round 2 of 3). It resolves Grok 4.7 xhigh's delta
+  review of r2 (`llp/reviews/1096-r2.grok.md`, NOT READY). Each finding was
+  checked against the code. Findings 1 and 2 were re-measured at the press in
+  Chrome, Firefox and WebKit (§1).
+  - **D6, D7:** a held voice is a record with no node, and an `End` only sets
+    its `stopAt`; "live" means a live `performanceTime` whatever the
+    context's state, which covers Firefox's press; a timer starts a held
+    voice whose time comes first; Apple's host ticks are converted.
+  - **D8:** `.ipa` framework wrapping and `embeddedModule`;
+    `AudioSession.swift` is iOS and tvOS only; the C header; ring ops applied
+    before mixing.
+  - **D5, D10:** the JS `state` reply carries the table; one apply in
+    `rt.js`; current `commit.rs` locators; ends from the effective start; the
+    runner clamps a computed gain.
+  - **D7:** `data-audio-session` feeds `navigator.audioSession.type`.
+  - **D13:** the adoption points at LLP 1092's block form.
+  - **§5:** the device check measured at the output node.
 
 - **r2** (2026-10-04, round 1 of 3). It resolves both Grok 4.7 xhigh reviews
   of r1, whose dispositions are in `llp/reviews/1096-r1.grok-{a,b}.md`. Each

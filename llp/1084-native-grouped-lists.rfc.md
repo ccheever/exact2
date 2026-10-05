@@ -206,6 +206,33 @@ rather than the label colour it wrote.
 `GroupedListIOSTests.testASymbolTakesItsAuthoredTintForEachAppearance` covers
 a hidden image before the symbol, a chevron after it, and both appearances.
 
+## 6.2 A section without its card (2026-10-04, Signal Clone)
+
+Signal's profile header and conversation-settings header sit on the list's
+background, not on a card: a section whose cell background is clear. The
+author writes `section background-color="transparent"`.
+- **Contract.** That literal is the only `background-color` a section takes
+  (`lower-grouped-list` refuses another value, and a `class` beside it): a
+  coloured card would be the system's card on iOS. The group the sheet
+  paints as the card is then transparent, its rows draw no separators, and a
+  `grouped` list draws no borders around it.
+- **Kernel.** `GroupedSection.card` is false when the group's background is
+  transparent; `exact_grouped_list` carries it as `"card"`.
+- **iOS.** That section's cells take a clear background, and a pressable
+  standard row still shows UIKit's highlight while pressed (a configuration
+  update handler). Its layout shows no separators (iOS only: tvOS has no
+  `showsSeparators`), and keeps the appearance's list background: the inset
+  card is the cells' background, not the section's (a clear section
+  background showed the route's white, simulator, 2026-10-04). A custom row
+  keeps its full height, as no UIKit separator stands in for its border. A
+  row whose card changed, its section's or by moving, is configured again,
+  and the list is laid out again.
+
+Proofs: `contract/cli/tests/it/grouped_list.rs`
+`a_transparent_section_has_no_card` and
+`a_cardless_section_draws_no_separators_and_takes_only_transparent`;
+`GroupedListIOSTests.testACardlessSectionsCellsAreClear`.
+
 ## 7. Open
 
 - **`sidebar` and `sidebarPlain`.** These are UIKit's other two appearances. They wait for an iPad or Mac consumer.

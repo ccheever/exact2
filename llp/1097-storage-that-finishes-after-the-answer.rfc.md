@@ -1,15 +1,17 @@
 # LLP 1097: Storage that finishes after the answer
 
 **Type:** RFC
-**Status:** Draft r2 (round 1 of 3).
+**Status:** Accepted (r4, by the orchestrator under Charlie's delegation after three review rounds; Grok 4.7 only — Codex budget exhausted; round-3 findings folded unreviewed — the implementation review checks them).
 - r1 (`96f781472`) was reviewed by Grok 4.7 (xhigh) with two scopes: semantics (`llp/reviews/1097-r1.grok-a.md`, NOT READY) and implementation (`llp/reviews/1097-r1.grok-b.md`, NOT READY).
-- r2 resolves every finding (§10).
-- The orchestrator accepted r1's recommendations under Charlie's 2026-10-04 delegation. Two of them change in r2 because the reviews showed they could not stand as written, and both changes are flagged for the orchestrator in §9: Q1 (answer-to-answer deferral) and Q4's error code.
+- r2 (`9db90ce57`) had a delta review (`llp/reviews/1097-r2.grok.md`, NOT READY: five MATERIAL, two MINOR, two NIT).
+- r3 (`c54843797`) resolved round 2, rejecting one finding with reasons, and had the final round (`llp/reviews/1097-r3.grok.md`, NOT READY: three MATERIAL, six MINOR, two NIT).
+- r4 folds round 3's fixes as given, with no further review (§10).
+- The orchestrator accepted r1's recommendations under Charlie's 2026-10-04 delegation, and confirmed r2's two changes: the answer-to-answer deferral is deleted in stage 1, and the queue's refusal code is `full` (§9).
 - No `rules/DEFERRED.md` entry (Q6).
-**Systems:** The TypeScript seam (`js/src/prelude.js`; the Hermes executor `js/src/lib.rs`, `turns.rs`, a new `js/src/background.rs`), Runner (a background ticket, `DataSource` gains three methods; `runner/src/runner/source.rs`, `commit.rs`, `admission.rs`, a new `runner/src/runner/background.rs`), the composers (`Storage`, `Mixed`), web (`host/web/module-glue.js`, `host/web/storage.js`, `host/web-js/ts-data.js`, `host/web-js/agent.js`), Apple and Linux (lifecycle only, in new files), the driver (`scripts/agent.mjs`, `scripts/agent-test.mjs`), docs
+**Systems:** The TypeScript seam (`js/src/prelude.js`; the Hermes executor `js/src/lib.rs`, `turns.rs`, a new `js/src/background.rs`), Runner (a background ticket, `DataSource` gains three methods; `runner/src/runner/source.rs`, `commit.rs`, `admission.rs`, a new `runner/src/runner/background.rs`), the composers (`Storage`, `Mixed`, `Placed` on `Main`), web (`host/web/module-glue.js`, `host/web/storage.js`, `host/web-js/ts-data.js`, `host/web-js/agent.js`), Apple and Linux (lifecycle only, in new files), the driver (`scripts/agent.mjs`, `scripts/agent-test.mjs`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
-**Revised:** 2026-10-04 (r2)
+**Revised:** 2026-10-04 (r2, r3, r4)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stage 1 on 2026-10-07, stage 2 on 2026-10-08, stage 3 on 2026-10-09 (§6)
 **Amends:**
 - LLP 1027 D10: a completion is delivered only by its owner's checkpoint, and the module becomes an owner.
@@ -206,7 +208,15 @@ go and never claimed.
 
    It asks the executor to run background work (D5), and continues to the
    reply.
-3. Otherwise, today's ticket-0 return stands. That is the awaited case.
+3. Otherwise, if `call.storage > 0`, today's single ticket-0 return
+   (`prelude.js:770`) is replaced by two cases (D3). This covers an answer
+   that is still `pending` because it awaits, and also a finished answer
+   whose storage was not moved because the flag is unset (a worker, D6):
+   - if the queue's head operation is this call's, it returns ticket 0;
+   - otherwise it returns `{tag: 1, call: call.id, ticket: 0, waiting: true}`.
+     That is today's waiting reply (`prelude.js:786`), which the executor
+     decodes to `WAITING` only with `call` present (`js/src/lib.rs:774–784`;
+     without it the reply is "pending on no ticket").
 
 `call.storage` counts operations issued and not yet landed, whether queued or
 in flight, because D3 increments it at issue.
@@ -223,20 +233,33 @@ refuses. Two refusals stay:
 - during module evaluation, when no answer has ever begun;
 - at bake (`code: 'bake'`), as today.
 
-**No `fetch` from background work.** `fetch` (and `native.later` and
-`openAuthSession`, which go through it, `prelude.js:554`, `:838–839`) rejects
-while `currentCall` is `background`. The rejection is journaled
-`data: fetch() called from background work: it was never run`. Its ticket
-is never pushed onto `background`, and `settle`'s unclaimed-ticket scan
-never sees one.
+**`background`'s status is `"pending"`**, so `hostWork` (`prelude.js:159–164`,
+which joins only a `pending` call) joins a digest started in background work
+to it.
+
+**No `fetch` and no native call from background work.** `fetch` (and
+`native.later` and `openAuthSession`, which go through it, `prelude.js:554`,
+`:838–839`) rejects while `currentCall` is `background`. So does
+`native.call`, whose own check (`prelude.js:812`) a `pending` background would
+pass. Each rejection is journaled, for example `data: fetch() called from
+background work: it was never run`. No ticket is pushed onto `background`, and
+`settle`'s unclaimed-ticket scan never sees one.
 
 **Liveness.** Background work counts as outstanding (`turns.rs` `outstanding`,
 `:28`). An answer that awaits a promise chained on background work is
 `WAITING`, and it is asked again after each background delivery. The host's
 `release_work` after the delivery is what reaches `wake` (D5). The rule that
 "a storage step a settled answer left in flight is the module's: the next
-answer to settle without work of its own claims it" (`prelude.js:723–727`) is
-deleted: `background` owns that work.
+answer to settle without work of its own claims it" is deleted:
+`background` owns that work. The comment is `prelude.js:723–727`; the claim
+itself is the scan at `:783–785`, which returns ticket 0 for any member of
+`storing` that is not in `calls`. `background` is in `storing` and never in
+`calls`, so **the scan skips `background`**. Without that, every pending
+answer with `call.storage == 0`, including one awaiting a promise chained on
+background work, would take ticket 0. Two such answers would park two
+continuations on Ibex2's shared context. Such an answer instead takes the
+waiting reply, with `call` (step 3). Only `background()` holds the storage
+ticket while its operation is the head.
 
 ### D3 — One storage queue per module
 
@@ -261,8 +284,8 @@ it, but it is not storage and does not enter the queue.
   - **An answer whose own operation is in flight** settles with ticket 0 and
     holds the one continuation.
   - **An answer whose operations are still queued behind another owner's**
-    settles as `WAITING`. It is asked again after each delivery and takes
-    ticket 0 when its operation reaches the head.
+    settles as `WAITING` (D2 step 3's second case). It is asked again after
+    each delivery and takes ticket 0 when its operation reaches the head.
   - **Background** holds the ticket only while its operation is the head
     (D5).
 
@@ -291,38 +314,56 @@ it, but it is not storage and does not enter the queue.
    app's next answer says (D12).
 5. **The answer-to-answer deferral is deleted in stage 1** (`lib.rs:831–853`,
    `DEFERRED`). It is deleted in the commit after D3's issuer-only ticket
-   lands.
-   - **Why it can go.** It protected two things. One was the order of
-     storage, which the queue now keeps. The other was the context a chained
-     continuation runs in. Work chained behind another answer's promise still
-     runs in that answer's context while it has not replied. So that answer
-     owes it and replies after it, and the waiting answer is `WAITING` and
-     woken by liveness. That costs the first answer some latency and loses
-     nothing.
-   - **Why it must go.** With it, a read parked behind a background write
-     (ticket 0, a `turn_open`) defers every later answer. That is R11 again,
-     and the JS target, which never had the rule, would disagree.
-   - This reverses r1's Q1 (§9).
+   lands. The orchestrator confirmed this (§9).
+   - **What changes: answers interleave at their awaits, as on the web.**
+     Suppose answer A awaits `write1` and then issues `write2`, and answer B
+     begins while `write1` is in flight and issues `writeB`. The queue then
+     runs `write1`, `writeB`, `write2`.
+     - That is the order a browser gives two async calls. The JS target asks
+       each answer as it comes and returns its promise, with no turn rule
+       (`ts-data.js:207–218`), so it already runs this order.
+     - The queue orders operations issued. It does not keep an answer's
+       not-yet-issued second step ahead of another answer, and nothing here
+       claims it does.
+     - An app whose two writes must be contiguous puts them in one
+       `transaction` (SQLite) or one operation, or chains its answers on its
+       own promise, as it must on the web. The docs say so (D12).
+   - **The context a continuation runs in.** Work chained behind another
+     answer's promise runs in that answer's context while it has not
+     replied. That answer owes the work and replies after it, and the
+     waiting answer is `WAITING` and woken by liveness. It costs the first
+     answer latency, and it loses no operation.
+   - **Why it goes.** Under D3, an answer whose own awaited operation is the
+     queue's head holds ticket 0, which is a `turn_open()`. With the rule,
+     every later answer is deferred for the length of that operation. That
+     is R11's `persist`-mutation case, and the web has no such wait.
 
 ### D5 — The runner: a background ticket
 
-The new `runner/src/runner/background.rs` keeps it. `commit.rs` (1,077 lines)
+The new `runner/src/runner/background.rs` keeps it. `commit.rs` (1,090 lines)
 and `admission.rs` gain call sites only.
 
 **One `PendingReq` in `self.pending`.** Its target is
 `Target::Background`, with no slot. Because it is in `self.pending`, `holds`
-(`commit.rs:900–902`) and `has_pending` (`:864–868`) see it, so no host lets
+(`commit.rs:913`) and `has_pending` (`:877`) see it, so no host lets
 its work go (`host/apple/src/abi.rs:229`, `host/linux/src/presenter.rs:772`),
 and `clock settle` waits on it. It is absent from `pending_res` and
 `pending_mut`. It has no `then` and makes no commit.
 
 **Its own path.** A fulfill whose ticket is the background's goes to
-`background.rs`, never to `fulfill_inner` (`commit.rs:1002–1072`, whose `Later`
+`background.rs`, never to `fulfill_inner` (`commit.rs:1005`, whose `Later`
 commits and checkpoints):
 
 - it calls `DataSource::background_landed`;
-- on `Some(next)`, it replaces the entry in place for the next round. That
-  does not set `forgot` and does not run `forgotten`;
+- on `Some(next)`, it keeps the same runner ticket and the same `PendingReq`.
+  It pushes a new `RequestOut` for that ticket, carrying `next`'s continuation
+  token, onto `self.requests`, so `take_requests()` (`commit.rs:809`) hands
+  the host the next round. Apple reads it at `abi.rs:236`, Linux at
+  `presenter.rs:778`. It does not go through `enqueue` (`commit.rs:734`, whose
+  push is `:783–788`): it sets no `forgot`, assigns no new ticket and runs no
+  `forgotten`;
+- **a host may run a ticket it has just completed**: the next round's work
+  arrives under the same ticket after the fulfill;
 - on `None`, it removes the entry;
 - on `Err`, it journals `background failed: <message>`, an executor error, as
   distinct from D8's failed operation;
@@ -342,8 +383,11 @@ round that landed between checkpoint and restore is not undone.
 ```rust
 /// Work the module started that no answer waits for (LLP 1097 D5), or
 /// `None`. Polled after every `answer`, `fulfill`, `release`,
-/// `forgotten` and background round, and only arms when the module's
-/// operation in flight is the background's.
+/// `forgotten` and background round. It arms only when the module's
+/// operation in flight is the background's, and returns `None` while a
+/// background `RequestOut` is queued or the host still holds the ticket
+/// (`enqueue` would drop the pending entry and set `forgot`,
+/// `commit.rs:763–767`).
 fn background(&mut self, store: &Store) -> Option<Request> { None }
 
 /// The outcome of the background ticket: its next round, or `None` when
@@ -361,19 +405,33 @@ fn take_logs(&mut self) -> Vec<String> { Vec::new() }
 (`prelude.js:669`, `:770`).
 
 **The composers.**
-- `Storage` forwards `background()` through the same remap `step` uses
-  (`data/host/src/lib.rs:77–133`). Otherwise the host would dispatch an inner
-  token that `Storage::continuation` does not know.
+Each round's token is consumed by its dispatch (`Storage::dispatch` and
+`Storage::continuation` remove a `Pending::Child`, `data/host/src/lib.rs:287–294`,
+`:331–332`). So **both** `background()`'s request and `background_landed`'s
+`Some(next)` go through each composer's remap, which inserts a fresh child
+token for that round:
+
+- `Storage` remaps through the same path `step` uses
+  (`data/host/src/lib.rs:77–133`).
 - `Mixed` polls its JavaScript child only, and maps the token in
   `self.continuations` (`data/src/mixed.rs:841–848`).
-- `Placed` does not forward (D6).
+- `Placed` forwards all three methods while it is inline (`Placement::Main`,
+  `owner.is_none()`, `data/src/placed.rs:205–208`), the way
+  `continuation` already forwards (`:681–686`). It forwards none while a
+  worker owns the module (D6). `Main` is the default TypeScript placement
+  (`js/bake/src/lib.rs:312–319`), and Fieldnotes is `Storage<Data<Placed<Module>>>`
+  (`apps/fieldnotes/apple/src/lib.rs:8–14`). So without this, every
+  TypeScript app would lose both the ticket and `take_logs`.
+- At the bottom, `Module::dispatch` and `Module::continuation` gain a
+  `BACKGROUND` arm. Today `Module::continuation` finds only a parked call
+  whose ticket is 0 (`js/src/lib.rs:1241–1244`).
 
 **The `Target` matches** that gain an arm, each a no-op or a name:
-- `commit.rs`: `target_name` (`:682–686`), `sync_pending_flags`
-  (`:784–787`), `fulfill_inner`'s two (`:1002–1005`, `:1048–1072`);
-- `admission.rs`: `release_refused` (`:57–62`) and `release_failed`
-  (`:97–103`);
-- `source.rs`: `Target::text` (`:162–165`) and the pair at `:502`.
+- `commit.rs`: `target_name` (`:695`), `sync_pending_flags`'s match
+  (`:797–800`), and `fulfill_inner`'s matches (from `:1005`);
+- `admission.rs`: `release_refused` (`:48–70`) and `release_failed`
+  (`:82–108`);
+- `source.rs`: `Target::text` (`:162–165`).
 
 **The journal:**
 - `background: storage (2 waiting)`;
@@ -384,7 +442,7 @@ fn take_logs(&mut self) -> Vec<String> { Vec::new() }
 flight. Its answer is its `Now` reply, and the background ticket is not that
 send's request. So a queue mutation is free as soon as its value is ready.
 
-**`poison()`** (`commit.rs:662–669`) drops the background entry with the
+**`poison()`** (`commit.rs:675–683`) drops the background entry with the
 other requests and journals `background: dropped (poisoned), N operations
 waiting`. An operation already handed to Ibex2 completes on disk whether or
 not anyone delivers it. Only the operations still queued in the prelude are
@@ -405,12 +463,22 @@ teardown's (D10).
   when `deliver_storage_one` delivered nothing, or when the head is no
   longer the background's. Otherwise it returns the next round.
 
-The prelude moves storage (D2) only when the executor tells it it runs on the
-main thread: a flag the executor sets at load, which `Module::placed`
-(`lib.rs:483–485`) leaves unset. A worker placement's turns run to their reply
-on the owner thread (`data/src/placed.rs:356–385`), and
-`Placed::continuation` is `None` while the owner holds the module (`:681–686`).
-So there the answer keeps waiting for its storage, as today (D11).
+The prelude moves storage (D2) only when it is told it runs on the main
+thread.
+- **The flag is a field on `Module`, `main_thread`**, which `load` reads.
+  `load` sets the prelude's flag only when `main_thread` is true. The inline
+  module's load reaches it through `Placed::activate` on `Main`
+  (`placed.rs:481–484`).
+- **A worker never sets it.** `Module::build` (`lib.rs:490–523`) sets
+  `main_thread = false` on the instance a worker owner builds, before its
+  `activate()` call at `:522`, which reaches `load`. A flag set
+  unconditionally in `load` would be set on the worker instance too.
+- The flag defaults unset, so a prelude that no host sets it in behaves as
+  today.
+- A worker placement's turns run to their reply on the owner thread
+  (`data/src/placed.rs:356–385`), and `Placed` forwards nothing while the owner
+  holds the module. So there the answer keeps waiting for its storage, as
+  today (D11).
 
 Apple and Linux already run any continuation ticket the runner hands out,
 park `Held` ones, and release them after each commit
@@ -422,12 +490,26 @@ need no change for D1–D6.
 **The wasm target's module realm** (`module-glue.js`, the shared prelude):
 
 - `storage.js` gains one owner that is never retired, `background`.
+- **A mutable owner cell per operation.** Today `enqueue` captures `owner` by
+  value at issue (`storage.js:53`). `active()` and `completion()` check
+  `retired.has(owner)` (`:32`, `:54`). A completion reaches `queues` only
+  when the backend resolves (`:31–35`, `:55–59`). So while an operation runs,
+  its queue is empty and nothing could be re-pointed.
+  - Each issued operation gets a cell `{owner}`, registered in
+    `issued.get(owner)` at `enqueue`, and removed when its completion runs or
+    is cleaned up.
+  - `active()` and `completion()` read `cell.owner` when they run, not at
+    issue.
 - **Re-homing before retirement.** Before `finish` retires an answer's owner
-  (`module-glue.js:167`), that owner's queued and pending completions move
-  onto `background`'s queue, and `scope()` resolves to `background` for any
-  later issue from that answer's context. An owner with a non-empty queue is
-  never retired. Its completions are what the write's promise waits for, so
-  they must not be dropped by `storage.js:30–35`.
+  (`module-glue.js:167`), every cell of that owner is pointed at
+  `background`, and that owner's queued completions move onto `background`'s
+  queue. Then `retire(owner)` (`storage.js:110–116`) finds nothing to drop.
+  An owner with a live cell is never retired. `scope()` resolves to
+  `background` for any later issue from that answer's context.
+- **The flag is set in the wasm module realm in stage 2**, in the same
+  commit as the cells and the re-homing. Until then the realm leaves it
+  unset, the turn loop keeps its `ticket === 0` wait
+  (`module-glue.js:199–204`), and stage 1's prelude change is inert there.
 - A turn's loop (`module-glue.js:184–205`) ends when the answer's value is
   ready. The next answer does not wait on `tail` for moved storage.
 - A background loop beside `tail` runs while the wasm runner holds a
@@ -435,8 +517,24 @@ need no change for D1–D6.
   prelude's `__exact_background()`. The glue's data source implements D5's
   methods over it.
 - The realm keeps per-answer liveness (LLP 1027.003.000 §13), with one
-  exception: an answer awaiting background work is `waiting`, not "pending
-  on nothing", while a background ticket is out.
+  exception: an answer awaiting background work parks.
+  - **Today it cannot.** `moduleWide` is `bytesDoor !== undefined`
+    (`prelude.js:730`), and `__exact_bytes` exists only in the Hermes shim
+    (`js/src/shim.cc:159`). So in this realm the waiting return (`:786`)
+    never runs, and the answer falls through to "pending on nothing"
+    (`:792–796`).
+  - **In this realm, `settle` returns the waiting reply, with `call`, for
+    such an answer** while a background ticket is out, even though
+    `moduleWide` is false.
+  - **The turn loop** (`module-glue.js:199–204`) and `finish`
+    (`:160–167`) treat `waiting: true` as "park, and settle again after a
+    background delivery".
+    - They do not call `storage.deliver` for it. That would wait on the
+      answer owner's queue (`storage.js:102–105`), where nothing will
+      arrive.
+    - They do not look for ticket 0 in `context.requests`. That would throw
+      `module awaits a fetch it never made` (`:160–161`).
+    - The owner is not retired while the answer is parked.
 - **The worker realm** (`module-worker.js:101`, `:116–129`) is a worker
   placement and keeps today's rule (D6).
 
@@ -479,9 +577,11 @@ The same lines appear on every host, journaled by the runtime and read by
   is QUEUE's `take_logs` line.
   - `DataSource::take_logs` (D5) calls the JavaScript child's
     `Module::take_logs` (`js/src/lib.rs:709–714`).
-  - `Mixed`'s existing `take_logs` (`data/src/mixed.rs:477`, `:512`) returns
-    envelope lines and does not satisfy it, so `Mixed` forwards to its
-    child. `Storage` forwards too.
+  - `Mixed`'s existing inherent `take_logs` (`data/src/mixed.rs:512`, filled by
+    `logs.extend` at `:477`) returns envelope lines and does not satisfy it.
+    So `Mixed`'s trait method calls the JavaScript child's, by its trait
+    path, so that a same-named call does not reach the inherent method.
+    `Storage` and `Placed` on `Main` forward too.
   - The runner writes the lines with `Runner::log` after each answer, fulfill
     and background round, prefixed `console:`.
 - **`state.background`**: `{queued, inFlight, done, failed, last}`, where
@@ -526,10 +626,10 @@ One rule per event:
 | Event | What happens to background work | Bound |
 |---|---|---|
 | The driver's `reload` | The driver settles first (D9). | `clock settle`'s, 20 s |
-| A dev edit on the web (a navigation, `host/web/dev.mjs:1036–1055`) | Nothing waits; it is the browser's, like `pagehide`. | — |
+| A dev edit on the web (a navigation: the edit pushes `{rebuilt}`, `host/web/dev.mjs:919`; `:1036–1055` is the `/__dev` stream and the reloaded beacon) | Nothing waits; it is the browser's, like `pagehide`. | — |
 | A native dev restart, a `reload()` command, `DevMenu.reload` (`DevMenuMac.swift:232–242`, `Session.swift:1018–1022`), Linux `reload` (`presenter.rs:531–545`) | Teardown finishes it, as a let-go answer's steps are finished (`turns.rs:50–91`). | 1 s, then dropped and journaled |
 | `poison()` | Dropped and journaled; what Ibex2 already has completes on disk (D5). | — |
-| macOS quit | `applicationShouldTerminate` answers `.terminateLater` while a ticket is out. The app's own timer replies `true` at the ticket's end, or after 5 s. | 5 s |
+| macOS quit | `applicationShouldTerminate` returns `NSApplication.TerminateReply.terminateLater` while a ticket is out. The app calls `NSApp.reply(toApplicationShouldTerminate: true)` at the ticket's end, or when its own 5 s timer fires. | 5 s |
 | iOS and tvOS suspension | `UIApplication.beginBackgroundTask` is held while a ticket is out and ended when it ends. The expiration handler calls `endBackgroundTask`. A suspension can still cut a write once the assertion expires. | the system's |
 | Linux orderly exit | The presenter finishes it before exit. | 5 s |
 | Web `pagehide` | The browser commits or loses what is in flight; the docs say so. | — |
@@ -552,7 +652,8 @@ Both keep today's rule for now, and the docs say so: an answer waits for its
 storage.
 
 - **A Rust source** has no promise to leave unawaited. Its storage is an
-  explicit `Later` (`data/src/storage.rs:8–24`). The shape it would take is
+  explicit `Answer::Later` built by `storage::request` and read back by
+  `storage::response` (`data/src/storage.rs:8–24`). The shape it would take is
   `exact_data::storage::after(op, args)` during `answer`. That queues a step
   the `Storage` wrapper returns from `background()`; its failure is journaled
   and no code sees its result. Deferred to a Rust consumer (§7).
@@ -570,15 +671,19 @@ storage.
     was issued, on every host;
   - call storage in the answer and let the queue order it, rather than
     chaining it on a promise;
-  - `clock settle` waits for it, and failures are journaled.
+  - `clock settle` waits for it, and failures are journaled;
+  - two answers interleave at their awaits, as on the web, so writes that
+    must be contiguous go in one `transaction` or one operation.
 
   The "refused and logged" sentence goes, except for module evaluation and
   `fetch` from background work. The `full` code joins the code list.
-- `agent-pitfalls.md` loses fix/data6's "one input late" entry. It gains two:
+- `agent-pitfalls.md` loses fix/data6's "one input late" entry. It gains three:
   - "a background save fails silently to the person unless the next answer
     says so: keep a `saveError` in the module and answer it";
   - "a `.then`-chained save is issued when the previous one lands, so a read
-    can overtake it: call storage in the answer".
+    can overtake it: call storage in the answer";
+  - "another answer's write can land between two awaited writes of yours:
+    put writes that must stay together in one `transaction`".
 - `contract-for-humans.md`'s storage section gets the Summary's example.
 
 **Adoption** (outside the repo, `EXACT_APP_DIR`, on the web and macOS):
@@ -598,7 +703,7 @@ storage.
 | prelude | `background`, the move, owners, the queue, issuer-only ticket 0, `full`, no background `fetch`, the rejection tracker, journal lines | — | — |
 | Hermes executor | `js/src/background.rs`; the main-thread flag; `DEFERRED` deleted (second commit) | — | — |
 | runner | `background.rs`; the background `PendingReq`; three `DataSource` methods; `take_logs`; `state.background`; the `Target` arms; `poison()` drops | — | — |
-| composers | `Storage`, `Mixed` forward with their remaps | — | — |
+| composers | `Storage`, `Mixed` and `Placed` on `Main` forward, with their remaps | — | — |
 | Apple, Linux | none | — | the delegates (Mac and iOS, app and host); `teardown.rs`; native dev-restart drain |
 | web wasm | — | `storage.js` owner and re-homing; `module-glue.js` background loop | — |
 | JS target | — | `ts-data.js` queue, bound, count, journal; `agent.js` | — |
@@ -619,7 +724,8 @@ storage.
   - **no spin:** continuation rounds equal deliveries over a background
     write and an answer's read behind it; an idle module hands out no
     background ticket;
-  - the 257th operation (256 waiting) rejects `full` and is journaled;
+  - with 256 operations waiting behind the one in flight, the next call (the
+    258th) rejects `full` and is journaled;
   - `fetch` from background work rejects and is journaled, and no answer
     claims a ticket for it;
   - a failing background write journals `storage failed:` and rejects the
@@ -627,8 +733,16 @@ storage.
   - an unhandled rejection is journaled through the tracker in the lean VM;
   - storage during module evaluation is still refused;
   - a let-go answer's steps still finish;
-  - with `DEFERRED` deleted, an answer asked while another's read is between
-    steps begins and replies at once.
+  - with `DEFERRED` deleted, an answer asked while another's awaited write is
+    the head begins and replies at once;
+  - two answers interleaving at an await produce D4.5's order, `write1,
+    writeB, write2`, on Hermes and on the JS target;
+  - an answer whose operation is queued behind another owner's settles
+    `WAITING`, not ticket 0;
+  - `native.call` and `fetch` from background work reject and are
+    journaled;
+  - a background round's second `RequestOut` reaches `take_requests()` under
+    the same ticket, through `Storage`, `Mixed` and `Placed` on `Main`.
 - **Runner** (`runner/src/runner/background/tests.rs`):
   - a background ticket is in `pending`, `holds` is true and `has_pending`
     counts it;
@@ -647,9 +761,10 @@ storage.
   - An XCTest for the iOS assertion's begin, end and expiration.
   - A macOS quit during a save keeps the file.
 - **Web.**
-  - The module-glue tests: a write whose answer finished still resolves its
-    promise after the answer's owner would have been retired (the re-homed
-    completion runs, not only the owner object).
+  - The module-glue tests: a write still in flight when its answer finishes
+    resolves its promise after the answer's owner is retired, through the
+    re-pointed cell. A queued completion is re-homed the same way. The test
+    asserts the app's promise resolves, not only that an owner exists.
   - `host/web/tests/js-runtime.test.mjs`: the JS target's queue (a read
     behind a write), bound and count.
 - **Parity.** A fixture app (`host/web-js/conformance/storage-background`, a
@@ -723,16 +838,16 @@ that the round-1 reviews showed could not stand as written. Each is flagged
 for the orchestrator's confirmation:
 
 1. **Answer-to-answer deferral.** r1 recommended keeping it in stage 1, and
-   that was accepted. **Changed in r2:** it is deleted in stage 1's second
-   commit (D4.5). Kept, it defers later answers behind any read parked behind
-   a background write (round-1 review A, finding 2). The issuer-only ticket
-   (D3) removes what it protected.
+   that was accepted. **Changed in r2, confirmed by the orchestrator:** it is
+   deleted in stage 1's second commit (D4.5). Answers then interleave at their
+   awaits, as on the web. The round-2 review's case against deletion is
+   answered in D4.5 and in its disposition.
 2. **The driver's `reload` settles storage first:** kept. It is implemented
    in the driver (D9).
 3. **No Contract-visible signal yet:** kept (§7).
-4. **The queue's bound: 256,** kept. **Changed in r2:** the refusal's code is
-   `full`, not `EBUSY`, which already means a locked database (round-1
-   review A, finding 6).
+4. **The queue's bound: 256,** kept. **Changed in r2, confirmed by the
+   orchestrator:** the refusal's code is `full`, not `EBUSY`, which already
+   means a locked database (round-1 review A, finding 6).
 5. **The teardown bound: 5 s,** kept for macOS quit and Linux exit. A native
    dev restart takes 1 s (D10).
 6. **No `rules/DEFERRED.md` entry:** kept.
@@ -740,6 +855,41 @@ for the orchestrator's confirmation:
    checkpoint.
 
 ## 10. Revisions
+
+- **r4** (2026-10-04, accepted). Grok 4.7 xhigh's final review of r3
+  (`llp/reviews/1097-r3.grok.md`, NOT READY: three MATERIAL, six MINOR, two
+  NIT). Three rounds are done, so its fixes are folded as given, unreviewed;
+  the implementation review checks them. The code confirmed each one
+  (`js/src/lib.rs:772–785`, `:515–524`; `prelude.js:783–786`). Round 3 also
+  reproduced D4.5's interleaved order in headless Chrome.
+  - **D2:** the waiting reply carries `call`; the claim scan skips
+    `background`; step 3 covers a finished, unmoved answer.
+  - **D7:** the wasm realm parks a waiting answer and settles it again after
+    a background delivery, without `storage.deliver` or a ticket lookup.
+  - **D5:** `background()` returns `None` while its `RequestOut` is queued or
+    held. Current `poison()` locator.
+  - **D6:** a `main_thread` field that `build` sets false before
+    `activate()`.
+  - **§4, D8, D10, D11:** `Placed` in the composers row; `Mixed`'s trait
+    path; the dev-edit locator; the Rust storage wording.
+
+- **r3** (2026-10-04, round 2 of 3). It resolves Grok 4.7 xhigh's delta
+  review of r2 (`llp/reviews/1097-r2.grok.md`, NOT READY). Each finding was
+  checked against the code; the dispositions are in that file.
+  - **D2, D3:** an awaiting answer takes ticket 0 only when its operation is
+    the head, and settles `WAITING` otherwise. `background` is `pending`, and
+    `native.call` is refused there.
+  - **D4.5:** kept deleted, as confirmed. The interleaving it allows is
+    stated as the web's order, with the transaction idiom for contiguous
+    writes, and the reason now matches D3. Finding 2 is rejected with these
+    reasons.
+  - **D5:** each round's `RequestOut` is pushed under the same ticket; both
+    `background()` and `background_landed` remap through the composers;
+    `Placed` forwards on `Main`; the executor has a `BACKGROUND` arm; current
+    `commit.rs` and `admission.rs` locators.
+  - **D6, D7:** the flag is set by the inline load and never by a worker;
+    the wasm realm gets mutable owner cells and its flag in stage 2.
+  - **NIT:** the 258th call; `NSApp.reply(toApplicationShouldTerminate:)`.
 
 - **r2** (2026-10-04, round 1 of 3). It resolves both Grok 4.7 xhigh reviews
   of r1, whose dispositions are in `llp/reviews/1097-r1.grok-{a,b}.md`. Each
