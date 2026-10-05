@@ -1,0 +1,34 @@
+// An action prop curried with a value that cannot cross (1 / 0 is not
+// finite): it is a capture parameter of every lifted action of the child,
+// so each of them is refused at dispatch, the call's and the idle one's
+// alike, as the runner and the JS target refuse it (review b5-a 2).
+component App
+  state r = 0
+  action save(x: number)
+    r = 1
+  view
+    column
+      Child(go=save(1 / 0))
+      text `${r}` testId="r"
+
+component Child
+  props
+    go: action
+  state n = 0
+  action idle
+    n = n + 1
+  action use
+    go()
+  view
+    column
+      button press=idle testId="idle"
+        text "idle"
+      button press=use testId="use"
+        text "use"
+      text `${n}` testId="n"
+
+test "a non-finite curried argument refuses every action of the instance"
+  tap "use"
+  expect text "r" == "0"
+  tap "idle"
+  expect text "n" == "0"

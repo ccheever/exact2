@@ -592,13 +592,6 @@ the arguments, and the names hygiene draws. -/
 /-- A prop or inject call between lifting and `resolveCalls`. -/
 def callMark : String := "@call:"
 
-/-- Whether a statement of `body` is `name(…)`. -/
-def commandsIn (name : String) : List Stmt → Bool
-  | [] => false
-  | .command n _ :: rest => n == name || commandsIn name rest
-  | .ifS _ a b :: rest | .matchS _ _ a b :: rest => commandsIn name a || commandsIn name b || commandsIn name rest
-  | _ :: rest => commandsIn name rest
-
 /-- A lifted body whose same-component calls pass the instance's captures
 first (inline.rs `with_captures`). -/
 def withCaptures (captures : List String) : List Stmt → List Stmt

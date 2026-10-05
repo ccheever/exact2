@@ -669,21 +669,48 @@ def cfindTestId (id : String) : List CVNode → Option CVNode
       | .some m => .some m
       | .none => cfindTestId id rest
 
+mutual
+/-- Every number in a value finite: what `conforms` asks of a value against
+the type its own expression has, the type the checker gives a curried
+argument's capture parameter. -/
+def finiteVal : Value → Bool
+  | .num f => Number.isFinite f
+  | .some v => finiteVal v
+  | .list xs => finiteVals xs
+  | .record _ fs => finiteVals fs
+  | _ => true
+def finiteVals : List Value → Bool
+  | [] => true
+  | v :: vs => finiteVal v && finiteVals vs
+end
+
 /-- What the expansion hands a lifted action of an instance at dispatch (its
 `@capture` parameters, inline.rs): every value prop and inject, evaluated
 then and checked against its declared type as the runner checks any
 parameter, so a value that cannot cross (a NaN, a record of another shape)
-refuses the action however little of it the action reads. -/
+refuses the action however little of it the action reads; and the curried
+arguments of a called action prop. -/
 def captured (p : CProgram) (ce : CEnv) : Frame → Result Unit
   | .root => .ok ()
   | .inst c _ binds => do
     let C ← ce.comp c
+    let wrong : Result Unit := .error (.refused "an argument of the wrong type")
     ((C.props ++ C.injects).filter (!·.action)).forM fun pd =>
       match lookupBind pd.name binds with
       | .some (e, f', ls') => do
         let v ← ceval fuel ce f' ls' e
-        if conforms (rootProgram p) v pd.ty then pure () else .error (.refused "an argument of the wrong type")
+        if conforms (rootProgram p) v pd.ty then pure () else wrong
       | .none => pure ()
+    -- An action prop or inject some action calls: the arguments it was
+    -- curried with are capture parameters of every lifted action of the
+    -- instance (inline.rs), each checked at dispatch (review b5-a 2).
+    ((C.props ++ C.injects).filter fun pd => pd.action && !hostCommands.contains pd.name &&
+        C.actions.any fun a => commandsIn pd.name a.body).forM fun pd =>
+      match lookupBind pd.name binds with
+      | .some (.call _ curried, f', ls') => curried.forM fun e => do
+        let v ← ceval fuel ce f' ls' e
+        if finiteVal v then pure () else wrong
+      | _ => pure ()
 
 def cdispatch (p : CProgram) (o : Oracle) (c : CConfig) (target : String) (event : String)
     (payload : Option Value) : CConfig × Outcome :=

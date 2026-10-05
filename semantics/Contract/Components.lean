@@ -108,4 +108,11 @@ def ownCallsComponent (c : CComponent) : CComponent :=
 def ownCallsProgram (p : CProgram) : CProgram :=
   { p with root := ownCallsComponent p.root, components := p.components.map ownCallsComponent }
 
+/-- Whether a statement of `body` is `name(…)`. -/
+def commandsIn (name : String) : List Stmt → Bool
+  | [] => false
+  | .command n _ :: rest => n == name || commandsIn name rest
+  | .ifS _ a b :: rest | .matchS _ _ a b :: rest => commandsIn name a || commandsIn name b || commandsIn name rest
+  | _ :: rest => commandsIn name rest
+
 end Contract.Components
