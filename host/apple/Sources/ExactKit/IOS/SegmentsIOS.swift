@@ -197,12 +197,27 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     }
 
     private func measure(_ owner: NodeView, _ control: UIView) {
-        guard (bars[owner.id] === control || controls[owner.id] === control), presenter.views[owner.id] === owner,
-              owner.bounds.width > 0 else { return }
-        let height = control is UISegmentedControl ? control.intrinsicContentSize.height
-            : control.sizeThatFits(CGSize(width: owner.bounds.width, height: 0)).height
-        guard height.isFinite, height > 0 else { return }
-        let size = CGSize(width: owner.bounds.width, height: height)
+        guard bars[owner.id] === control || controls[owner.id] === control, presenter.views[owner.id] === owner else { return }
+        var size: CGSize
+        if control is UISegmentedControl {
+            // Its own size, at any width of the box: its height does not
+            // follow that width, and a tablist's reported width is never read
+            // (the seam takes only a positive one), so a resize does not
+            // remeasure. It fills the content box, so a border-box minimum
+            // also holds the padding and border around it.
+            let natural = control.intrinsicContentSize
+            size = CGSize(width: max(natural.width, 1), height: natural.height)
+            if owner.style["box_sizing"]?.string == "border-box" {
+                let border = owner.number("border_width")
+                size.height += owner.number("border_width_top", border) + owner.number("padding_top")
+                    + owner.number("border_width_bottom", border) + owner.number("padding_bottom")
+            }
+        } else {
+            guard owner.bounds.width > 0 else { return }
+            size = CGSize(width: owner.bounds.width,
+                          height: control.sizeThatFits(CGSize(width: owner.bounds.width, height: 0)).height)
+        }
+        guard size.width.isFinite, size.height.isFinite, size.height > 0 else { return }
         guard sizes[owner.id] != size else { return }
         sizes[owner.id] = size
         presenter.queueIntrinsicSize(owner, generation: owner.loadGeneration, size)

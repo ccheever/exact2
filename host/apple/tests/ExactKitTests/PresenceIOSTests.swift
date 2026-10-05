@@ -107,9 +107,9 @@ final class PresenceIOSTests: XCTestCase {
         let control = try XCTUnwrap(p.segments.control(of: 10))
         drainIntrinsicSizes()
         let size = try XCTUnwrap(reports.last ?? nil)
-        XCTAssertEqual(size.height, control.intrinsicContentSize.height)
+        XCTAssertEqual(size, control.intrinsicContentSize, "the control's own size, not the box's")
         XCTAssertGreaterThan(size.height, 20, "an unsized text row must not squash the native control")
-        XCTAssertEqual(control.frame, owner.bounds, "the kernel still owns the final box")
+        XCTAssertEqual(control.frame, owner.contentBox(), "the kernel still owns the final box")
         p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
                             "w": 400.0, "h": Double(size.height)]]))
         drainIntrinsicSizes()
@@ -120,14 +120,34 @@ final class PresenceIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
                             "w": 300.0, "h": Double(size.height)]]))
         drainIntrinsicSizes()
-        XCTAssertEqual((reports.last ?? nil)?.width, 300)
+        XCTAssertEqual(reports.count, count, "its height does not follow the box's width, so a resize does not remeasure")
+        XCTAssertEqual(control.frame, owner.contentBox())
+        // The control fills the content box: a border-box minimum also holds
+        // the padding and border around it; a content-box one does not.
+        p.apply(wireBatch([["op": "style", "id": 10,
+                            "style": ["box_sizing": "border-box", "padding_top": 6.0, "padding_bottom": 4.0]]]))
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, size.height + 10)
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
+                            "w": 300.0, "h": Double(size.height + 10)]]))
+        XCTAssertEqual(control.frame, owner.contentBox())
+        XCTAssertEqual(control.frame.height, size.height, "the padding does not squash the control")
+        p.apply(wireBatch([["op": "style", "id": 10,
+                            "style": ["box_sizing": "content-box", "padding_top": 6.0, "padding_bottom": 4.0]]]))
+        drainIntrinsicSizes()
         XCTAssertEqual((reports.last ?? nil)?.height, size.height)
-        XCTAssertEqual(control.frame, owner.bounds)
+        // Measured at zero width too: tabs replaced there still reserve it.
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0],
+                           ["op": "children", "id": 10, "ids": [12, 11]]]))
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, size.height, "a zero-width tablist keeps its native minimum")
+        let replaced = try XCTUnwrap(p.segments.control(of: 10))
         p.apply(wireBatch([["op": "props", "id": 10,
                             "set": ["accessibilityRole": "tablist", "accessibilityOrientation": "vertical"]]]))
         drainIntrinsicSizes()
         XCTAssertNil(reports.last ?? nil, "leaving the projection clears its native minimum")
         XCTAssertNil(control.superview)
+        XCTAssertNil(replaced.superview)
         XCTAssertFalse(try XCTUnwrap(p.views[11]).isHidden)
     }
 
