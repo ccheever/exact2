@@ -320,3 +320,57 @@ fn what_a_rebind_cannot_make_fresh_refuses_it() {
     assert_eq!(rebound, 0, "off by default");
     assert!(receipts[0].renewed.is_empty());
 }
+
+/// Each mounted row's subtree, by item position.
+fn rows(r: &Runner<Rows>) -> std::collections::BTreeMap<usize, String> {
+    r.collections()[0]
+        .rows
+        .iter()
+        .map(|row| {
+            let mut out = String::new();
+            dump(r.kernel(), row.view, &mut out);
+            (row.index, out)
+        })
+        .collect()
+}
+
+#[test]
+fn a_limited_report_rebinds_the_rows_it_would_keep() {
+    let (mut fresh, mut reused) = (boot(SOURCE, false), boot(SOURCE, true));
+    let mut rebound = 0;
+    for (i, top) in [0., 300., 900., 1500., 2100., 2700., 2500., 1900.]
+        .into_iter()
+        .enumerate()
+    {
+        let fill = exact_runner::CollectionFill {
+            velocity: if i < 6 { 6000. } else { -6000. },
+            limit: Some(2),
+            ..Default::default()
+        };
+        fresh
+            .collection_feedback_filled(facts(&fresh, top), fill)
+            .unwrap();
+        reused
+            .collection_feedback_filled(facts(&reused, top), fill)
+            .unwrap();
+        rebound += reused.last_instance_work().rows_rebound;
+        let (a, b) = (rows(&fresh), rows(&reused));
+        // The visible rows are the same rows; a row both mount is the same.
+        for (index, row) in &b {
+            if let Some(built) = a.get(index) {
+                assert_eq!(built, row, "row {index} at {top}");
+            }
+        }
+        let shown = |r: &Runner<Rows>| {
+            r.collections()[0]
+                .rows
+                .iter()
+                .filter(|row| row.start + row.size > top && row.start < top + 320.)
+                .map(|row| row.index)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(shown(&fresh), shown(&reused), "at {top}");
+        assert!(b.len() <= a.len(), "at {top}");
+    }
+    assert!(rebound > 0);
+}

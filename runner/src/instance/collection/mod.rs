@@ -854,7 +854,7 @@ impl Collection {
         // A build-only report retires nothing (LLP 1072 §5): rows past the
         // window stay, and the report is pending until an immediate one.
         if fill.create_only && !update {
-            self.build_needed(u, needed, Vec::new(), frames)?;
+            self.build_needed(u, needed, Vec::new(), Vec::new(), frames)?;
             let mut kept = false;
             for (text, mut mounted) in old {
                 match self.index.position(&text) {
@@ -883,6 +883,7 @@ impl Collection {
         // Rows past the window: all retire, unless a limited report bounds it.
         let mut leaving: Vec<(f64, String, Mounted)> = Vec::new();
         let mut retiring: Vec<Mounted> = Vec::new();
+        let mut kept: Vec<(f64, String, Mounted)> = Vec::new();
         for (text, mut mounted) in old {
             match (limited, self.index.position(&text)) {
                 (Some((_, (top, end))), Some(p)) => {
@@ -922,19 +923,21 @@ impl Collection {
             );
             leaving.sort_by(|a, b| b.0.total_cmp(&a.0));
             let far = leaving.partition_point(|row| row.0 > FAR_VIEWPORTS * (end - top));
-            let kept = leaving.split_off(far.max(cap).min(leaving.len()));
+            kept = leaving.split_off(far.max(cap).min(leaving.len()));
             for (_, text, mut gone) in leaving {
                 self.keep_positions(&mut gone, &text);
                 retiring.push(gone);
             }
-            pending |= !kept.is_empty();
-            for (_, text, mut mounted) in kept {
-                let position = self.index.position(&text).unwrap();
-                self.reposition(&mut mounted, position);
-                self.settle_mounted(u, mounted, &text)?;
-            }
         }
-        self.build_needed(u, needed, retiring, frames)?;
+        // Rows still needed after the retiring ones may take the kept rows
+        // past the window, farthest first.
+        let kept = self.build_needed(u, needed, retiring, kept, frames)?;
+        pending |= !kept.is_empty();
+        for (_, text, mut mounted) in kept {
+            let position = self.index.position(&text).unwrap();
+            self.reposition(&mut mounted, position);
+            self.settle_mounted(u, mounted, &text)?;
+        }
         self.mounted.sort_by_key(|row| row.position);
         self.pending = pending;
         self.emit_children(u)?;

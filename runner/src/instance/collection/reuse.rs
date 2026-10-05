@@ -182,15 +182,18 @@ fn views(children: &[Child], out: &mut Vec<ViewId>) {
 
 impl Collection {
     /// Mount the rows the window needs and nothing mounted: each rebound
-    /// from a retiring row that admits it, or built. The retiring rows left
-    /// over are destroyed.
+    /// from a retiring row that admits it, else from a row `kept` past the
+    /// window (farthest first; a limited report keeps them), else built. The
+    /// retiring rows left over are destroyed; the kept ones left are
+    /// returned.
     pub(super) fn build_needed(
         &mut self,
         u: &mut Update<'_>,
         needed: Vec<(usize, String)>,
         retiring: Vec<Mounted>,
+        mut kept: Vec<(f64, String, Mounted)>,
         frames: &[Frame],
-    ) -> Result<(), InstanceError> {
+    ) -> Result<Vec<(f64, String, Mounted)>, InstanceError> {
         let mut gone = Vec::new();
         let mut spares = Vec::new();
         for mounted in retiring {
@@ -200,8 +203,13 @@ impl Collection {
                 gone.push(mounted.wrapper);
             }
         }
+        let reusing = self.reusing(u);
         for (position, text) in needed {
-            let mounted = match take_spare(&mut spares, &self.items[position]) {
+            let spare = take_spare(&mut spares, &self.items[position]).or_else(|| {
+                let at = kept.iter().position(|(_, _, m)| reusing && self.spare(m))?;
+                Some(kept.remove(at).2)
+            });
+            let mounted = match spare {
                 Some(spare) => self.rebind(u, spare, position, &text, frames)?,
                 None => self.build_row(u, position, &text, frames)?,
             };
@@ -211,7 +219,7 @@ impl Collection {
         for id in gone {
             u.ops.push(Op::DestroyView { id });
         }
-        Ok(())
+        Ok(kept)
     }
     /// Whether retiring rows of this list may be rebound in this update.
     pub(super) fn reusing(&self, u: &Update<'_>) -> bool {
