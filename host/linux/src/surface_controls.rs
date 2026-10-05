@@ -496,10 +496,17 @@ impl<D: DataSource> Presenter<D> {
                     || n.props.str(PropId::Action).is_some()
                     || n.node_type == NodeType::TextInput
                     // A native button is a button under any role (LLP 1069.011.000 D1).
+                    // A checkbox and a radio are HTML's focusable controls: a
+                    // press focuses one, as Chrome's does, and a radio's arrows
+                    // move the focus (x2apps survey #2).
                     || matches!(
                         exact_kernel::ControlKind::of(n.node_type, n.props),
-                        // A radio takes the focus its arrows move (x2apps survey #2).
-                        Some(exact_kernel::ControlKind::Button | exact_kernel::ControlKind::Radio)
+                        Some(
+                            exact_kernel::ControlKind::Button
+                                | exact_kernel::ControlKind::Radio
+                                | exact_kernel::ControlKind::Checkbox
+                                | exact_kernel::ControlKind::Switch
+                        )
                     )
                     || matches!(
                         n.props.str(PropId::AccessibilityRole),
