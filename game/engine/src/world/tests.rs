@@ -413,3 +413,106 @@ fn paged_hash_and_observation_follow_every_write_path() {
         }
     }
 }
+
+// Pins measure the game's state: neither a type the world knows but holds no
+// row of, nor a resource field the game never set, reaches a hash or a save.
+#[test]
+fn registration_and_emptied_storages_leave_hash_and_save_alone() {
+    #[derive(Default, Clone, Data)]
+    struct Unused(u32);
+    impl Component for Unused {
+        const NAME: &'static str = "Unused";
+    }
+    let world = || {
+        let mut w = World::new(60, 3);
+        w.spawn_named("player", Transform::at(1., 2., 3.));
+        w
+    };
+    let plain = world();
+    let mut registered = world();
+    registered
+        .register::<Unused>()
+        .register::<crate::emitter::WorldSpace>();
+    assert_eq!(registered.hash(), plain.hash());
+    assert_eq!(registered.save(), plain.save());
+    // Held and released: the emptied storage is no state either.
+    let mut emptied = world();
+    let e = emptied.spawn(Unused(9));
+    let mut despawned = world();
+    let other = despawned.spawn(());
+    assert_ne!(emptied.hash(), despawned.hash());
+    emptied.despawn(e);
+    despawned.despawn(other);
+    assert_eq!(emptied.hash(), despawned.hash());
+    assert_eq!(emptied.save(), despawned.save());
+    let mut loaded = plain.registered_scratch();
+    loaded.load(&emptied.save()).unwrap();
+    assert_eq!(loaded.hash(), emptied.hash());
+}
+
+#[test]
+fn a_resource_field_added_with_a_default_moves_no_hash_or_save() {
+    // One resource before and after an engine adds `quality` (default 2).
+    #[derive(Clone, Data)]
+    struct Before {
+        radius: f32,
+        intensity: f32,
+    }
+    impl Default for Before {
+        fn default() -> Self {
+            Self {
+                radius: 0.5,
+                intensity: 1.0,
+            }
+        }
+    }
+    impl Resource for Before {
+        const NAME: &'static str = "Occlusion";
+    }
+    #[derive(Clone, Data)]
+    struct After {
+        radius: f32,
+        intensity: f32,
+        quality: u8,
+    }
+    impl Default for After {
+        fn default() -> Self {
+            Self {
+                radius: 0.5,
+                intensity: 1.0,
+                quality: 2,
+            }
+        }
+    }
+    impl Resource for After {
+        const NAME: &'static str = "Occlusion";
+    }
+    let mut before = World::new(60, 0);
+    before.insert_resource(Before {
+        radius: 0.6,
+        ..Before::default()
+    });
+    let mut after = World::new(60, 0);
+    after.insert_resource(After {
+        radius: 0.6,
+        ..After::default()
+    });
+    assert_eq!(after.hash(), before.hash());
+    assert_eq!(after.save(), before.save());
+    // Fields left out read back as the default's; set ones still count.
+    after.resource_mut::<After>().radius = 0.0;
+    after.resource_mut::<After>().quality = 0;
+    let mut loaded = World::new(60, 0);
+    loaded.register_resource::<After>();
+    loaded.load(&after.save()).unwrap();
+    let r = loaded.resource::<After>();
+    assert_eq!((r.radius, r.intensity, r.quality), (0.0, 1.0, 0));
+    drop(r);
+    assert_eq!(loaded.hash(), after.hash());
+    let changes: [fn(&mut After); 2] = [|r| r.quality = 1, |r| r.intensity = -0.0];
+    for change in changes {
+        let hash = after.hash();
+        change(&mut after.resource_mut::<After>());
+        assert_ne!(after.hash(), hash);
+    }
+}

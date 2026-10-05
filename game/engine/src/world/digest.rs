@@ -4,7 +4,8 @@
 //! the hierarchy's pose epoch, a resource by its revision. The hash is a stream
 //! over page digests in type-name and page order; observation keeps each page's
 //! row hashes, shared with the cache, so a seek's two samples cost O(pages) plus
-//! the rows that changed.
+//! the rows that changed. Empty storages and absent resources hash as nothing,
+//! and a resource hashes as it saves, without the fields equal to its default.
 use super::*;
 use crate::storage::PAGE;
 use std::rc::Rc;
@@ -172,17 +173,19 @@ impl World {
                 },
             );
         }
+        // An absent resource, like an empty component storage, is no state.
         d.resources
-            .retain(|name, _| self.resources.contains_key(name));
+            .retain(|name, _| self.resources.get(name).is_some_and(|s| s.len() != 0));
         for (&name, storage) in &self.resources {
-            if !ambient_resources && self.registry[name].ambient {
+            if storage.len() == 0 || !ambient_resources && self.registry[name].ambient {
                 continue;
             }
             let key = (storage.instance(), storage.revision());
             let entry = d.resources.entry(name).or_insert(((u64::MAX, 0), 0));
             if entry.0 != key {
+                // What the save writes: fields equal to the default are left out.
                 let mut w = hash::Hasher::default();
-                storage.write_one(0, &mut w);
+                storage.write_save(&mut w);
                 *entry = (key, w.finish());
             }
         }
@@ -223,9 +226,15 @@ impl World {
         w.field("components");
         w.begin_struct();
         for (name, (_, pages)) in &d.components {
-            w.key(name);
+            // A component with no rows hashes as nothing, as the save omits it:
+            // neither registration nor a since-emptied storage is state.
             let used = pages.iter().enumerate().filter(|(_, page)| page.len != 0);
-            w.begin_seq(used.clone().count());
+            let count = used.clone().count();
+            if count == 0 {
+                continue;
+            }
+            w.key(name);
+            w.begin_seq(count);
             for (p, page) in used {
                 w.item();
                 (p as u64).write(&mut w);

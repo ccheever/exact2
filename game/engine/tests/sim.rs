@@ -986,7 +986,7 @@ fn slew_and_period_are_absent_from_save_state_snapshot_and_seekable_continuation
     assert_eq!(s.world().save(), plain.world().save());
     let state = s.agent(r#"{"op":"state"}"#);
     let restored_state = plain.agent(r#"{"op":"state"}"#).replace(
-        r#""restored":true,"restoredFrom":{"paused":false},"#,
+        r#""restored":true,"restoredFrom":{},"#,
         r#""restored":false,"#,
     );
     assert_eq!(state, restored_state);

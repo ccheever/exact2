@@ -14,7 +14,7 @@
 
 - **Generated and streamed model names share one namespace and collide late** (2026-10-05, garden). Golden/storybook generated `meadow.model` while the art pass streams one; setup refused only once the streamed bytes had landed (macOS crash on choosing Golden hour), and hostless tests never load streamed bytes. Refuse the collision at registration, against every declared name.
 
-- **Pins move for reasons outside the game** (2026-10-05, the main merge re-pinned ten games). Saves carry every bound canvas argument, so adding an argument moves every save pin; registering new built-in components moved garden's world hash. Pins should measure the game's own state.
+- **A built-in component gaining a defaulted field still moves pins** (2026-10-05). Saves now leave out arguments equal to their defaults, empty storages hash and save as nothing, and a resource saves and hashes only its top-level fields that differ from its `Default` (garden's tick pins moved at the main merge because `AmbientOcclusion` gained `quality`, not because components were registered). Component rows are still written whole, so a new field on `Material`, `Mesh`, `Camera` or a light moves every pin of the games that use it; eliding per row needs a cheap per-field default test in the `Data` derive and would change the columnar row shapes.
 
 - **Game proofs read exact visible strings** (2026-10-05, garden HUD restyle). Restyling had to keep every HUD sentence word for word because `proof.mjs` and the Jev playtests assert display text; proofs should assert published values and leave copy free to change.
 
