@@ -309,9 +309,10 @@ const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|a
 // and a test file are never inputs, even when the name looks like a source.
 const AGENT_TREE = /^(shots|tools|repros)(\/|$)/;
 const TEST_FILE = /(^|\/)[^/]*\.test\.(?:m?js|ts|rs|contract)$/;
-// A helper script outside the trees a build actually reads (a game's logic,
-// presentation, assets). modules/web/index.js and logic/build.mjs stay inputs.
-const HELPER = /\.(?:m?js|sh|ops)$/;
+// A shell or op-list helper outside the trees a build actually reads. A `.js`
+// or `.mjs` file counts: `app.ts` may import one (a game's own scripts are
+// `gameNonInput`'s), and a stale build run as fresh is worse than a rebuild.
+const HELPER = /\.(?:sh|ops)$/;
 const SCRIPT_TREE = /^(logic|data|gpu|presentation|art|assets|deck|modules)(\/|$)/;
 /** A skip for an app's own files that no build reads. A file a build can
  * read always counts, ignored by Git or not: what the bake captures, anything
