@@ -993,7 +993,9 @@ impl Painter {
             ox != Overflow::Visible || oy != Overflow::Visible
         };
         // CSS `visibility` (inherited) hides a box from paint and from hits;
-        // a descendant's own `visible` shows under a hidden one.
+        // its subtree paints through `Unpainted`, so a descendant's own
+        // `visible` is not honoured under a hidden one (LLP 1001's declared
+        // deviation, as Apple's `isHidden`).
         let inherited = node.computed_style(StyleMask::INHERITED);
         let visible = match walk.reveal {
             Some(root) => revealed(walk.scene.kernel, id, root),
