@@ -136,8 +136,13 @@ fn relative(
     // Watched by the path written (without its `.` segments, as watchers
     // name it): creating it, or retargeting a link there, builds again.
     // Both ways a watcher may name it: folded, as Node's `resolve` folds
-    // `..`, and as written, through any link before the `..`.
-    consulted.push(lexical(&target));
+    // `..`, and as written, through any link before the `..`. A folded path
+    // that leaves the root names no file of this program (a link before the
+    // `..` led back inside), so it is not recorded.
+    let folded = lexical(&target);
+    if folded.starts_with(root) {
+        consulted.push(folded);
+    }
     consulted.push(
         target
             .components()

@@ -449,6 +449,7 @@ stage 1 lands, and stage 2 waits on them.
 - r13 (2026-10-05): round 11 (§20).
 - r14 (2026-10-05): round 12 (§22).
 - r15 (2026-10-05): round 13 (§23).
+- r16 (2026-10-05): round 14 (§24).
 
 ## 9. Review dispositions (round 1)
 
@@ -829,4 +830,19 @@ and `contract fmt --uses`: both UNSOUND. Every finding is taken; every plan stay
 | Astra 1: `fmt --uses` copied a package name another file used, which reached another install from here | A proposed specifier is resolved from the file it goes in and kept only if it reaches the declaring file |
 | Astra 5: `fmt --uses` wrote a `use` back to a file that uses this one | A name whose file uses this one is said, not written: naming it would cycle |
 | Astra 3: folding `..` past a link named a path that need not exist | A consulted path is recorded folded and as written |
+
+## 24. Code review round 14 dispositions
+
+Round 14 (`llp/reviews/code-2026-10-05-1091-r14.{astra,grok}.md`): Astra UNSOUND, Grok SOUND WITH
+CHANGES. Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1: a computed value holding a comma splits the shorthand (`spin 1s ${sep} pulse 1s`), which the reader did not model, so neither name was renamed | A computed part may also end the animation and begin another; every literal that is always a name is renamed, more than one per shorthand where there are several |
+| Astra 2: `use pending as identity` brought the call back to the intrinsic's spelling | A declaration spelled like an intrinsic the checker reads first (`pending`, `failed`, `t`) is always renamed, as `action` is |
+| Astra 3 / Grok 1: `fmt --uses` wrote two new `use` lines that cycle together | The cycle test walks the uses on disk and every use the other fixes would add |
+| Astra 4: a fixed `use` would also bring a declaration of the name in another namespace that this file declares | Said, not written: naming it would also bring a {kind} this file declares |
+| Grok 3: a `fn` beside another file's shape of its name refused at once, ending the batch | Its refusal is reported with the file's missing names; the batch goes on |
+| Grok 2: a folded consulted path leaving the root could name a file outside the snapshot | A folded path outside the using file's root is not recorded |
+| Astra 5: the TypeScript producer skipped a Contract source under a skipped directory (`target/`) | Its watch descends into any directory on the way to a source the compile read |
 

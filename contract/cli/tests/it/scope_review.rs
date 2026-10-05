@@ -1021,3 +1021,89 @@ fn a_package_name_is_suggested_only_where_it_reaches_the_same_install() {
     assert_eq!(e.id, "contract-use-missing", "{e}");
     assert!(!e.to_string().contains("use Badge from \"ui\""), "{e}");
 }
+
+// Round 14 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_computed_comma_may_begin_another_animation() {
+    let dir = Dir::new("computed-comma");
+    dir.write(
+        "ui.contract",
+        "keyframes spin\n  to opacity=0\nkeyframes pulse\n  to opacity=0\ncomponent Card\n  state sep = \",\"\n  view\n    view animation=`spin 1s ${sep} pulse 1s`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes spin\n  to opacity=1\nkeyframes pulse\n  to opacity=1\ncomponent App\n  view\n    Card()\n",
+    );
+    let text = plan(&root);
+    assert!(text.contains("spin__ui 1s"), "{text}");
+    assert!(text.contains("pulse__ui 1s"), "{text}");
+}
+
+#[test]
+fn an_alias_never_turns_a_call_into_an_intrinsic() {
+    let dir = Dir::new("alias-intrinsic");
+    dir.write("ui.contract", "fn pending(n: number): number = n\n");
+    let root = dir.write(
+        "app.contract",
+        "use pending as identity from \"./ui.contract\"\ncomponent App\n  view\n    text `${identity(1)}`\n",
+    );
+    contract::compile_path(&root).unwrap();
+}
+
+#[test]
+fn two_fixes_that_would_cycle_together_are_said_not_written() {
+    let dir = Dir::new("fix-cycle-two");
+    dir.write(
+        "a.contract",
+        "fn fromA(): string = \"A\"\ncomponent PartA\n  view\n    text fromB()\n",
+    );
+    dir.write(
+        "b.contract",
+        "fn fromB(): string = \"B\"\ncomponent PartB\n  view\n    text fromA()\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use PartA from \"./a.contract\"\nuse PartB from \"./b.contract\"\ncomponent App\n  view\n    column\n      PartA()\n      PartB()\n",
+    );
+    let e = contract::compile_path(&root).unwrap_err();
+    let all = format!("{e} {:?}", e.related);
+    assert!(all.contains("cycle"), "{all}");
+}
+
+#[test]
+fn a_fix_that_would_bring_a_clashing_declaration_is_said_not_written() {
+    let dir = Dir::new("fix-clash");
+    dir.write(
+        "ui.contract",
+        "style Card\n  padding-top=1\ncomponent Card\n  view\n    text \"c\"\ncomponent Holder\n  view\n    text \"h\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Holder from \"./ui.contract\"\nstyle Card\n  padding-top=2\ncomponent App\n  view\n    column class=Card\n      Holder()\n      Card()\n",
+    );
+    let e = contract::compile_path(&root).unwrap_err();
+    assert!(e.to_string().contains("would also bring"), "{e}");
+}
+
+#[test]
+fn a_fn_beside_a_foreign_shape_does_not_stop_the_other_missing_names() {
+    let dir = Dir::new("fn-shape-batch");
+    dir.write(
+        "shapes.contract",
+        "shape Note\n  n: number\nshape Row\n  n: number\n",
+    );
+    dir.write(
+        "ui.contract",
+        "use Note from \"./shapes.contract\"\nfn Row(): string = \"r\"\ncomponent Card\n  props\n    row: option<Row>\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\ncomponent App\n  view\n    Item(note=none)\ncomponent Item\n  props\n    note: option<Note>\n  view\n    Card(row=none)\n",
+    );
+    let errors = contract::compile_path_all(&root, false)
+        .err()
+        .unwrap_or_default();
+    let all = format!("{errors:?}");
+    assert!(all.contains("Note") && all.contains("Row"), "{all}");
+}

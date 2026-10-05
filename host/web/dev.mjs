@@ -580,7 +580,7 @@ function startModuleCompiler() {
   const contractSources = new Set(contractGraph().sources);
   // A source, or a directory on the way to one: the scan descends into it.
   const contractInput = path => contractSources.has(path) || [...contractSources].some(s => s.startsWith(path + '/') || s.startsWith(path + '\\'));
-  const watches = [watchModuleSources(app.dir, name => name === 'app.contract.d.ts' || skipped.test(name)
+  const watches = [watchModuleSources(app.dir, name => name === 'app.contract.d.ts' || (skipped.test(name) && !contractInput(resolve(app.dir, name)))
     || (/(^|\/)\./.test(name) && !contractInput(resolve(app.dir, name)))
     || assetTrees.some(([tree]) => resolve(app.dir,name) === tree || resolve(app.dir,name).startsWith(tree+'/')), moduleChanged)];
   // Directories the manifest mounts beside app.ts (typescript.sources) are sources too.

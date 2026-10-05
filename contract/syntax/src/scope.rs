@@ -79,6 +79,9 @@ pub struct Scope {
     /// the loader refuses them together, naming each `use` line the file
     /// lacks, so one compile shows them all (rules: every failure in one run).
     pub missing: RefCell<Vec<Missing>>,
+    /// Refusals that are no `use` line's to fix, reported with the missing
+    /// names rather than ending the pass before them.
+    pub refused: RefCell<Vec<SyntaxError>>,
     /// Whether a call names a roster function, which no file declares and
     /// every file sees: never another file's name, so never refused.
     pub roster: Option<fn(&str) -> bool>,
@@ -378,24 +381,24 @@ impl Rewriter<'_> {
                 Some(to) if self.scope.shapes.contains(to) => {
                     self.scope.rename(Kind::Call, name, *span)
                 }
-                _ if self.scope.builtin_types.contains(name.as_str()) || name == "action" => {
-                    Ok(())
-                }
+                _ if self.scope.builtin_types.contains(name.as_str()) || name == "action" => Ok(()),
                 // Nothing of the name here: another file's is refused with the
                 // rest of the file's missing names (§21).
                 None => self.scope.rename(Kind::Call, name, *span),
                 // A `fn` of the name here, which is no type: another file's
                 // shape of the name is not reachable past it by a `use`.
-                Some(_) => match self.scope.foreign_shapes.get(name.as_str()) {
-                    Some(file) => Err(SyntaxError {
-                        id: "contract-use-missing",
-                        message: format!(
-                            "`{name}` is a shape declared in `{file}`, and this file's `{name}` is a `fn`; rename one, then name the shape in a `use` (LLP 1091 D1)"
-                        ),
-                        span: *span,
-                    }),
-                    None => Ok(()),
-                },
+                Some(_) => {
+                    if let Some(file) = self.scope.foreign_shapes.get(name.as_str()) {
+                        self.scope.refused.borrow_mut().push(SyntaxError {
+                            id: "contract-use-missing",
+                            message: format!(
+                                "`{name}` is a shape declared in `{file}`, and this file's `{name}` is a `fn`; rename one, then name the shape in a `use` (LLP 1091 D1)"
+                            ),
+                            span: *span,
+                        });
+                    }
+                    Ok(())
+                }
             },
             TypeExpr::Option(inner, _) | TypeExpr::List(inner, _) => self.ty(inner),
         }
@@ -627,9 +630,11 @@ impl Rewriter<'_> {
             // none, and where it is the name in some but not others and also
             // renamed keyframes, no rename is right, so the compile is
             // refused (LLP 1091 §20).
-            let name = if shorthand {
+            let names: Vec<(usize, &str)> = if shorthand {
                 let roles = literal_roles(&tokens, HOLE);
-                let mut name = None;
+                // A computed comma may make more than one animation here, each
+                // with its name: every literal that is always a name.
+                let mut names = Vec::new();
                 for (i, &(at, t)) in tokens.iter().enumerate() {
                     if t.contains(HOLE) {
                         continue;
@@ -638,7 +643,7 @@ impl Rewriter<'_> {
                     let all = can_name && !can_other;
                     let some = can_name && can_other;
                     if all {
-                        name = Some((at, t));
+                        names.push((at, t));
                     } else if some {
                         let bare = t.trim_matches(|c| c == '"' || c == '\'');
                         if self
@@ -656,27 +661,31 @@ impl Rewriter<'_> {
                         }
                     }
                 }
-                name
+                names
             } else {
-                tokens.into_iter().next().filter(|(_, t)| !t.contains(HOLE))
+                tokens
+                    .into_iter()
+                    .next()
+                    .filter(|(_, t)| !t.contains(HOLE))
+                    .into_iter()
+                    .collect()
             };
-            let Some((start, token)) = name else {
-                continue;
-            };
-            let quoted = token.len() >= 2
-                && ((token.starts_with('"') && token.ends_with('"'))
-                    || (token.starts_with('\'') && token.ends_with('\'')));
-            let (name, start) = if quoted {
-                (&token[1..token.len() - 1], start + 1)
-            } else {
-                (token, start)
-            };
-            if name == "none" {
-                continue;
-            }
-            if let Some(to) = self.scope.resolve(Kind::Keyframes, name, span)? {
-                if to != name {
-                    edits.push((start..start + name.len(), to.to_owned()));
+            for (start, token) in names {
+                let quoted = token.len() >= 2
+                    && ((token.starts_with('"') && token.ends_with('"'))
+                        || (token.starts_with('\'') && token.ends_with('\'')));
+                let (name, start) = if quoted {
+                    (&token[1..token.len() - 1], start + 1)
+                } else {
+                    (token, start)
+                };
+                if name == "none" {
+                    continue;
+                }
+                if let Some(to) = self.scope.resolve(Kind::Keyframes, name, span)? {
+                    if to != name {
+                        edits.push((start..start + name.len(), to.to_owned()));
+                    }
                 }
             }
         }
@@ -998,6 +1007,11 @@ fn literal_roles(tokens: &[(usize, &str)], hole: char) -> Vec<(bool, bool)> {
                 if token.chars().all(|c| c == hole) {
                     out.push((state.clone(), false));
                 }
+                // A comma in the value ends this animation and begins the
+                // next (`spin 1s ${sep} pulse 1s`); what it adds on either
+                // side is read as more of this kind of guess, so here it is
+                // a fresh animation's slots.
+                out.push((Shorthand::default(), false));
                 for role in ROLES {
                     let mut next = state.clone();
                     if let Some(named) = next.fill(role) {
