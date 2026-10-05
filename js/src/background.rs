@@ -110,6 +110,43 @@ impl Module {
         }
     }
 
+    /// Teardown (LLP 1097 D10): the module's storage still queued or in
+    /// flight is finished here, on this thread, as a let-go answer's steps
+    /// are, within `bound`; what is left then is dropped and said. An
+    /// operation the store already has completes on disk regardless.
+    pub(crate) fn finish_background(&mut self, bound: std::time::Duration) {
+        let deadline = std::time::Instant::now() + bound;
+        self.read_background();
+        self.host.between_answers = true;
+        loop {
+            let left = self.background.state.queued + self.background.state.in_flight;
+            if left == 0 {
+                break;
+            }
+            let (Some(session), Some(engine)) = (self.storage.as_ref(), self.engine.as_mut())
+            else {
+                break;
+            };
+            let delivered = session.wait_until(deadline)
+                && engine
+                    .call("__exact_enter_background", ["", "", ""])
+                    .is_ok()
+                && engine.deliver_storage_one().unwrap_or(false);
+            let _ = engine.drain();
+            self.read_background();
+            if !delivered && std::time::Instant::now() >= deadline {
+                let left = self.background.state.queued + self.background.state.in_flight;
+                // The session's journal goes with it: said where a host's
+                // output is read.
+                eprintln!(
+                    "exact: background: dropped at teardown, {left} storage operations waiting"
+                );
+                break;
+            }
+        }
+        self.host.between_answers = false;
+    }
+
     /// The module's journal (LLP 1097 D8): the runtime's own lines as they
     /// are, its `console` marked as the app's.
     pub(crate) fn journal_lines(&mut self) -> Vec<String> {

@@ -525,8 +525,13 @@ impl Module {
 
     /// Drop the runtime; answers are `Unavailable` until the next
     /// [`Module::load`], and every answer in flight is forgotten. Already-started
-    /// external effects may finish; unloading does not wait for them.
+    /// external effects may finish; unloading waits only for the module's
+    /// own storage, a second at most.
     pub fn unload(&mut self) {
+        // A dev restart or a reload replaces the module: what it started
+        // and did not await is finished first, within a second (LLP 1097
+        // D10). A worker's answers waited for theirs.
+        self.finish_background(std::time::Duration::from_secs(1));
         if let Some(mut engine) = self.engine.take() {
             self.logs.extend(engine.take_log());
         }

@@ -51,6 +51,7 @@ pub fn serve<D: DataSource + Default>(
         let _ = out.flush();
     }
     let _ = p.pointer_cancel(p.host().now());
+    crate::teardown::finish(p, crate::teardown::EXIT_BOUND);
     0
 }
 

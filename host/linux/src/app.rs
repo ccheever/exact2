@@ -621,6 +621,7 @@ fn headless<D: DataSource + Default>(config: &mut Config, started: Instant) -> i
         );
         println!("smoke ok");
     }
+    crate::teardown::finish(&mut p, crate::teardown::EXIT_BOUND);
     0
 }
 

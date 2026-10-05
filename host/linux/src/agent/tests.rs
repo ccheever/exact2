@@ -1378,3 +1378,26 @@ fn clock_settle_waits_for_background_storage_and_a_jump_names_it() {
     assert_eq!(state["background"]["inFlight"], 0, "{state}");
     assert_eq!(state["pending"], serde_json::json!([]), "{state}");
 }
+
+/// LLP 1097 D10: an orderly exit pumps the module's storage to its end
+/// first, within its bound.
+#[test]
+fn an_orderly_exit_finishes_background_storage() {
+    let plan = contract::compile(
+        "component App\n  resource item = save() as shape number else save()\n  view\n    text toString(item) testId=\"item\" height=20\n",
+    )
+    .unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        Saving::default(),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(p.host().runner().background_operations() > 0);
+    crate::teardown::finish(&mut p, crate::teardown::EXIT_BOUND);
+    assert_eq!(p.host().runner().background_operations(), 0);
+    assert!(!p.host().runner().has_pending());
+}

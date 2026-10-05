@@ -113,7 +113,15 @@ public final class Agent {
                 completed.wait()
             }
         }
-        DispatchQueue.main.async { exit(0) }
+        DispatchQueue.main.async { exitAfterStorage() }
+    }
+
+    /// The drive ended: storage an answer started lands first, as a quit's
+    /// does (LLP 1097 D10), within the driver's patience (it kills at 2 s).
+    nonisolated(unsafe) static var exiting: StorageHold?
+    static func exitAfterStorage() {
+        let hold = StorageHold(bound: 1.5, pending: { routes.contains { $0.1.storageOperations > 0 } }, begin: { _ in }, end: { exit(0) })
+        if hold.hold() { exiting = hold } else { exit(0) }
     }
 
     /// One line: the session it names (or the default), then its operation.
@@ -122,7 +130,7 @@ public final class Agent {
               let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let op = req["op"] as? String
         else { reply(["error": "unreadable request: \(line)"]); return }
-        if op == "quit" { exit(0) }
+        if op == "quit" { exitAfterStorage(); return }
         // A slice building off main lands before the agent reads or acts
         // (LLP 1072 T9); under the agent slices are synchronous, so this is
         // for a carrier attached to an ordinary run.

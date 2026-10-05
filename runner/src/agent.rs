@@ -34,6 +34,9 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         Some("tags") => tags(runner),
         Some("frames") => frames(runner, request, &|_| false),
         Some("holds") => holds(runner),
+        // The module's storage still to land (LLP 1097 D10): what a host's
+        // quit or suspension waits for, cheaper than `state`.
+        Some("background") => format!("{{\"operations\":{}}}", runner.background_operations()),
         Some("perf") => crate::perf::reply(runner, request),
         // What `showPicker(id)` names (LLP 1069.002 D2): the file input's
         // view, `accept` and `multiple`, for the host that presents it.

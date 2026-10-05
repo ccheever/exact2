@@ -530,3 +530,22 @@ fn answers_begin_at_once_and_interleave_at_their_awaits() {
     assert_eq!(read_file(&root, "log"), "A1;B;A2;");
     assert_eq!(read_file(&root, "song"), "now");
 }
+
+/// D10: a dev restart or a reload unloads the module; what its answers left
+/// is finished first, within a second.
+#[test]
+fn unloading_finishes_what_the_answers_left() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    for value in ["one", "two", "three"] {
+        let a = args("save", value);
+        assert!(matches!(
+            m.answer(&mut s, "work", &a).unwrap(),
+            Answer::Now(_)
+        ));
+    }
+    m.unload();
+    assert_eq!(read_file(&root, "song"), "three");
+}
