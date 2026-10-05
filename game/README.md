@@ -58,7 +58,8 @@ Open the dev server's printed URL. It serves on 8765, or on the next free port w
 another dev loop holds 8765 (it says so); `--port <n>` chooses one and fails at once,
 before building, if that port is in use. `--lan` serves a phone on this network. Edit `my-game/logic/src/lib.rs` for gameplay or
 `my-game/app.contract` for UI. Gameplay reloads carry the running world; shared
-app-runtime edits reload the page. The server also prints **Open in native**.
+app-runtime edits reload the page. Once serving, the loop builds the gameplay
+module's `gpu-dev` build in the background, so the first gameplay edit is warm. The server also prints **Open in native**.
 Edits inside `Game::setup` take effect on a fresh game; in the starter, pause and
 choose **Restart** to apply them.
 To explore the existing sample instead, run `bun game/dev.mjs beacons`.

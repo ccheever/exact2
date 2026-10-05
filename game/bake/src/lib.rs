@@ -521,6 +521,14 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
     if previous.keys().any(|n| !asset_name(n)) {
         return Err("invalid generated-output manifest".into());
     }
+    // A build script reruns whenever the gameplay it links changes, which
+    // changes no input of this bake: an unchanged stamp skips the re-encode.
+    let stamp = std::env::var_os("OUT_DIR").map(|dir| Path::new(&dir).join("art-stamp"));
+    if let Some(stamp) = &stamp {
+        if std::fs::read_to_string(stamp).ok() == Some(art_stamp(app, previous.keys())) {
+            return Ok(());
+        }
+    }
     let mut outputs = std::collections::BTreeMap::new();
     for path in files {
         if matches!(
@@ -615,7 +623,74 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
     let digests: std::collections::BTreeMap<_, _> =
         outputs.iter().map(|(n, b)| (n, digest(b))).collect();
     let bytes = serde_json::to_vec(&digests).unwrap();
-    write_changed(&manifest, &bytes)
+    write_changed(&manifest, &bytes)?;
+    match stamp {
+        Some(stamp) => write_changed(&stamp, art_stamp(app, outputs.keys()).as_bytes()),
+        None => Ok(()),
+    }
+}
+
+/// What an art bake read and wrote, each file by path, size and modification
+/// time: the art; the baker's and the engine's sources and manifests (the
+/// encoding); the locks (the encoders' versions); the generated manifest and
+/// its outputs. Garden's 225 files re-encode in about 0.4 s of CPU.
+fn art_stamp<'a>(app: &Path, outputs: impl Iterator<Item = &'a String>) -> String {
+    use std::fmt::Write;
+    fn file(path: &Path, stamp: &mut String) {
+        let _ = match std::fs::metadata(path) {
+            Ok(meta) => {
+                let modified = meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+                writeln!(
+                    stamp,
+                    "{} {} {}",
+                    path.display(),
+                    meta.len(),
+                    modified.map_or(0, |d| d.as_nanos())
+                )
+            }
+            Err(_) => writeln!(stamp, "{} -", path.display()),
+        };
+    }
+    fn tree(dir: &Path, stamp: &mut String) {
+        let mut paths: Vec<_> = std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .collect();
+        paths.sort();
+        for path in paths {
+            if path.is_dir() {
+                tree(&path, stamp)
+            } else {
+                file(&path, stamp)
+            }
+        }
+    }
+    let (mut stamp, baker) = (String::from("1\n"), Path::new(env!("CARGO_MANIFEST_DIR")));
+    for dir in [
+        app.join("art"),
+        baker.join("src"),
+        baker.join("../engine/src"),
+    ] {
+        tree(&dir, &mut stamp);
+    }
+    for path in [
+        baker.join("Cargo.toml"),
+        baker.join("../engine/Cargo.toml"),
+        app.join(".shells/Cargo.lock"),
+        app.join("Cargo.lock"),
+        app.join(".baked-assets.json"),
+    ] {
+        file(&path, &mut stamp);
+    }
+    for name in outputs {
+        file(&app.join("assets").join(name), &mut stamp);
+    }
+    stamp
 }
 
 /// Point a model's textures at the names `renamed` gives them, merging any
