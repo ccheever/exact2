@@ -3,6 +3,18 @@ component VideoPlayer
   state note = ""
   state paused = false
   state failure = ""
+  // Where the video is, from `timeupdate`, and how long it is.
+  state position = 0
+  state duration = 0
+  // Back and Forward move a target; the seek waits until the presses stop
+  // (`quiet` ticks of 100 ms), so repeated presses are one seek.
+  state target = 0
+  state pending = false
+  state quiet = 0
+  // The `currentTime` last sent. A seek to the same time is not a change,
+  // so it is sent 1 ms later.
+  state seekTo = 0
+  state fullscreen = false
   action edit(value)
     note = value
   action toggle
@@ -15,15 +27,55 @@ component VideoPlayer
     failure = message
   action done
     focus("done")
+  action timed(seconds)
+    position = seconds
+  action measured(seconds)
+    duration = seconds
+  action rewind
+    target = 0
+    pending = false
+    seekTo = (seekTo == 0 ? 0.001 : 0)
+    position = 0
+  action back
+    target = max(0, (pending ? target : position) - 10)
+    pending = true
+    quiet = 0
+  action forward
+    target = min(duration, (pending ? target : position) + 10)
+    pending = true
+    quiet = 0
+  action settle
+    quiet = quiet + 1
+    if pending and quiet >= 6
+      seekTo = (target == seekTo ? target + 0.001 : target)
+      position = target
+      pending = false
+  action enterFullscreen
+    requestFullscreen("video")
+  action fullscreenChanged(on)
+    fullscreen = on
+
+  task seeking mount
+    every(100, settle)
   view
     column testId="player-app" interactive-widget="resizes-content" height="100%" box-sizing="border-box" padding=20 gap=16 background-color="#11151c" color="#f5f7fa"
-      row justify-content="space-between" align-items="center" flex-shrink=0
+      // The buttons wrap under the title where the width runs out (a phone).
+      row justify-content="space-between" align-items="center" flex-wrap="wrap" gap=12 flex-shrink=0
         column gap=4
           text "VIDEO" font-size=11 font-weight=700 letter-spacing=2 color="#94a3b8"
           text "Room to watch." font-size=26 font-weight=600
-        button testId="toggle" press=toggle aria-label="Play or pause" padding=12 background-color="#273244" border-radius=12
-          text (paused ? "Play" : "Pause") font-size=14
-      video "assets/motion.mp4" testId="video" aria-label="An animated color study" controls=true autoplay=true muted=true loop=true playsinline=true preload="auto" paused=paused play=playing pause=stopped error=failed width="100%" flex=1 min-height=0 object-fit="contain" overflow="hidden" background-color="#000000" border-radius=16
+        row gap=10 align-items="center" flex-wrap="wrap"
+          button testId="rewind" press=rewind aria-label="Rewind to the start" padding=12 background-color="#273244" border-radius=12
+            text "Rewind" font-size=14
+          button testId="back" press=back aria-label="Back 10 seconds" padding=12 background-color="#273244" border-radius=12
+            text "Back" font-size=14
+          button testId="toggle" press=toggle aria-label="Play or pause" padding=12 background-color="#273244" border-radius=12
+            text (paused ? "Play" : "Pause") font-size=14
+          button testId="forward" press=forward aria-label="Forward 10 seconds" padding=12 background-color="#273244" border-radius=12
+            text "Forward" font-size=14
+          button testId="fullscreen" press=enterFullscreen aria-label="Full screen" padding=12 background-color="#273244" border-radius=12
+            text "Full screen" font-size=14
+      video "assets/motion.mp4" id="video" testId="video" aria-label="An animated color study" controls=true autoplay=true muted=true loop=true playsinline=true preload="auto" paused=paused currentTime=seekTo play=playing pause=stopped error=failed timeupdate=timed durationchange=measured fullscreenchange=fullscreenChanged width="100%" flex=1 min-height=0 object-fit="contain" overflow="hidden" background-color="#000000" border-radius=16
       when failure != ""
         text failure testId="video-error" color="#fca5a5" font-size=12 flex-shrink=0
       column gap=10 flex-shrink=0
