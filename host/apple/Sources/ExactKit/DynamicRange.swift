@@ -253,7 +253,8 @@ extension NodeView {
 }
 
 extension Spec {
-    /// The `text-shadow` if it is past SDR white. The raster paints it apart.
+    /// The paragraph's `text-shadow` if it is past SDR white. The raster
+    /// paints it apart, as it does a run's own (`TextRasterJob.render`).
     var hdrShadow: [Double]? { shadow.flatMap { ColorRange.isHDR(TextEngine.shadowColor($0)) ? $0 : nil } }
 
     /// The peak over SDR white of the paragraph's colours.

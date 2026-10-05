@@ -71,7 +71,7 @@ final class TextRasterizer {
     }
     private func keep(_ image: TextRasterImage?, for key: TextRasterKey, namespace: Int) {
         guard let image, namespace == keptNamespace, kept[key] == nil else { return }
-        let bytes = image.image.bytesPerRow * image.image.height
+        let bytes = image.image.bytesPerRow * image.image.height + (image.cast.map { $0.bytesPerRow * $0.height } ?? 0)
         guard bytes <= Self.keptEntryLimit else { return }
         keptClock += 1
         kept[key] = Kept(image: image, bytes: bytes, used: keptClock)

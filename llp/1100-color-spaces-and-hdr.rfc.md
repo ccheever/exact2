@@ -430,10 +430,11 @@ These layers are:
 - the layer of a background, a border, a box fill, a box shadow's casters,
   and an SVG scene's shapes, when any color it paints is HDR
   (`NodeView.applyColorRanges`, on each box paint and each limit change)
-- a text raster's layer, when its ink or its `text-shadow` is HDR, or its
-  wide SDR ink needs extended storage outside Display P3. Headroom 1 marks
-  the latter; macOS retains it on the IOSurface and configures both direct
-  and overflow layers, UIKit retains it on the CGImage and ink layer
+- a text raster's layer, when its ink is HDR, or its wide SDR ink needs
+  extended storage outside Display P3. Headroom 1 marks the latter; macOS
+  retains it on the IOSurface and configures both direct and overflow
+  layers, UIKit retains it on the CGImage and ink layer
+- the layer under it that holds its HDR `text-shadow` (below)
 - a view's own layer, when what it draws itself in `draw(_:)` is HDR (below)
 - an inline `AVPlayerLayer` (D11)
 - an HDR GPU canvas's layer (D12b)
@@ -477,11 +478,21 @@ fallback API; before tvOS 26 these layers stay standard range.
   - macOS: `kIOSurfaceContentHeadroom` on the IOSurface
 - **Text shadow.** `text-shadow` keeps its color's space. It crosses as the
   text's nine channels: the sRGB four, then the space and four components
-  (`BatchValue.textChannels`). An HDR shadow is rasterized alone, tagged
-  with its peak, into a layer under the ink's. It is not the ink layer's
-  own shadow, because Core Animation doesn't map a layer shadow's color to
-  the limit. Each layer is mapped on its own, so under `standard` SDR ink
-  stays white and the shadow is held to SDR white.
+  (`BatchValue.textChannels`). An HDR shadow, the paragraph's or a run's
+  own, is rasterized alone, tagged with its peak, into a layer under the
+  ink's. It is not the ink layer's own shadow, because Core Animation
+  doesn't map a layer shadow's color to the limit. Each layer is mapped on
+  its own, so under `standard` SDR ink stays white and the shadow is held
+  to SDR white. The shadow is cast from an image of its glyphs no larger
+  than the ink's bitmap, so a line running far past its box adds nothing,
+  and a tall paragraph's band is as wide as the shadow reaches.
+- **Small text on macOS.** A paragraph too small to repay a surface is
+  drawn in its view's layer, except when its ink or shadow is HDR: it is
+  rasterized, because only a raster's layers are mapped as above.
+- **Text a view draws** (a selection, a capture, a decorated text box, a
+  paragraph taller than a screen on macOS) keeps its HDR shadow in the
+  ink's backing store, in the automatic tone-map mode: the two are not
+  mapped apart there.
 - **A view's own drawing.** Some things a view draws itself in `draw(_:)`:
   a box the layer can't express (sides of two widths or colors, a radius or
   `corner-shape` the layer can't do), and a paragraph drawn rather than

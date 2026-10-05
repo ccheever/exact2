@@ -10,7 +10,7 @@
 //
 // `NodeView.draw` still paints text for everything this declines: a
 // selection, a capture, a canvas, a decorated text box, a clamp, a paragraph
-// taller than a screen, and one too small to repay a surface.
+// taller than a screen, and one too small to repay a surface (unless HDR).
 #if os(macOS)
 import AppKit
 import CoreText
@@ -205,10 +205,12 @@ extension NodeView {
 
     /// Too few pixels to repay a surface. Such text draws whole rather than in
     /// bands admitted as it scrolls: bands, and their visit per frame, are for
-    /// paragraphs too large to paint at once.
+    /// paragraphs too large to paint at once. HDR text is never small: only a
+    /// raster's layers follow `dynamic-range-limit` (LLP 1100 D8).
     var textIsSmall: Bool {
         let scale = window?.backingScaleFactor ?? 2
-        return bounds.width * bounds.height * scale * scale < TextRasterizer.minPixels
+        guard bounds.width * bounds.height * scale * scale < TextRasterizer.minPixels else { return false }
+        return !(isParagraph && paragraphSpec().headroom > 1)
     }
 
     /// Whether the pump still owes this paragraph pixels.
