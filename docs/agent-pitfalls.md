@@ -203,6 +203,13 @@ guide's rules don't make obvious.
   safe area. Fix: put `env(safe-area-inset-top)` on the route column, not on each
   authored header. (Signal Clone, build 5.)
 
+- **An empty date input shows today's date on iOS.** `input type="date" value=""`
+  draws today in the `UIDatePicker`, which has no empty state, while the bound value,
+  `state` and `tree` stay `""` until the person picks. Fix: when the value is empty,
+  show the field's emptiness yourself (a "Not set" label beside it), and validate
+  the bound value, not the screenshot. (Authoring bench, LLP 1087, ios20 t7-wizard,
+  2026-10-05.)
+
 ## Actions
 
 - **A helper action does not see what its caller just assigned.** `sel = next`
