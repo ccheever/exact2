@@ -1201,7 +1201,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (real) {
         const from = s.now, end = from + Number(real[1]), t0 = performance.now();
         for (;;) {
-          const to = Math.min(end, from + performance.now() - t0), r = await s.op({ op: 'clock', to });
+          const to = Math.min(end, from + Math.round(performance.now() - t0)), r = await s.op({ op: 'clock', to });
           s.now = r.clock;
           if (to >= end) return { ...r, real: Math.round(performance.now() - t0) };
           await new Promise(ok => setTimeout(ok, Math.min(REAL_STEP_MS, end - to)));

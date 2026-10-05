@@ -1135,6 +1135,10 @@ const server = createServer(async (req, res) => {
     // A drive's code (LLP 1046.009 G4): what every edit saved so far built, once
     // no build is queued or running; the driver loads it or takes it at `clock code`.
     const busy = () => building || buildPending || (rebuildOn.rust === 'save' && changed.size > 0);
+    // A save made just before the ask may not have reached a watcher yet (a
+    // 100 ms poll, FSEvents' latency, the debounce): wait out one watch cycle,
+    // or `clock code` right after an edit silently keeps the old code.
+    await new Promise(ok => setTimeout(ok, 300));
     for (const deadline = Date.now() + 180000; busy() && Date.now() < deadline;) await new Promise(ok => setTimeout(ok, 50));
     res.writeHead(200, {'content-type':'application/json','cache-control':'no-store'});
     res.end(JSON.stringify({settled:!busy(), gpu:Object.fromEntries([...gpuSides].map(([stem, version]) => [stem === 'gpu' ? 'gpuVersion' : stem, version])),
