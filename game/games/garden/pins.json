@@ -1,22 +1,22 @@
 {
   "ticks": {
-    "0": "0xffb9afeca600c436",
-    "5136": "0xf5320646af873dfa"
+    "0": "0xd436feb13a9f57a4",
+    "5136": "0xdddce38bb7a444bf"
   },
   "saves": {
-    "continuation": "1be56ee1b907c489bc98d643702e55a02d7a6cd70fe7437036e07b5e13fcaf82",
-    "market": "bbe7283d08e85e55f71ae60d950099694c1e20f03efc77eafd2ad161826a56b3",
-    "recovery": "bec49eb335491dd898c5a01e3f8c3fc065fe3b44f933df88959e333e81c446fa",
-    "watering": "22224ca58e8373d1ba65138c4c24d36a29c1fc1eb6782b1bfd49f59305e7d203",
-    "compost": "b965cc608256cd11befbd9ef2c132bc31a867dd61ba365910c846e1d95214fe7"
+    "continuation": "8c5326dfbaf0b6f88848b8e383315971bd2d686bb4b40c4bd5756e42e06f4fa4",
+    "market": "0f891881aa4b3d1f46e941d8247111dae8580dc9d7781268bb5b3f8887b95abf",
+    "recovery": "ba26c9a7ca7961580a765f34cf3d2a1f3c0a8ae764c48a21aa9d846143e95a4d",
+    "watering": "6cf13915fe6e1a9c4defc2314cfc6fc84cad9878abbd0a2174779b75a12b8d3b",
+    "compost": "a7d39ada58024d01ff65187daa958d4005a9e89ff77272b99237615ee378590c"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "383249d067c257c22f098b3f285b0eb4ba78b1dad1d928f50b393f11b890c0da",
+  "inputs": "b17b5a91cd2d3fdc77e0f4fce5949678c329a287bf6958d5db10444ff0f3b1aa",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "9731da5b537626be2289964b3c43078db2c31a3a",
-  "reason": "Saved gardener gestures, bounded action effects and sound; crop timing and rewards unchanged in the before/after slice"
+  "at": "2291b998162d828dd50775ccf0d136e24c8c86d4",
+  "reason": "Main's merge (new built-in components move the classic hash; EXSIM v7 saves) and the art argument in saves; classic look otherwise unchanged"
 }

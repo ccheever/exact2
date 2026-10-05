@@ -5,23 +5,23 @@
     "7378": "0x711538bd6f8f3782"
   },
   "saves": {
-    "chopping": "5740161ab7bbef5c5e43fa4e63a9493a7005ed716aef608728bf4fc567288206",
-    "night": "b8bc5bd8903fdc433ac51be5710901b92c8fd143dee39586ed9293b31ccaca13",
-    "rescue": "3437f0f10ce7aed1d8e16d21a9e395a345aaec701396c851056b60e0ae69681f",
-    "supplies": "74e4200bb43d6f4cb4f966230e73eeeafda5a214fe7ab79f0881a70aece7d401",
-    "dawn": "9dd8c1c1d3dcf3c116d7d48ab972c50824d32be071261538381c70daceceff22",
-    "windbreak": "2e058a23f837b1cf1a94603a0452333462377feab542d553312a26bba1a0f98e",
-    "windbreak-dawn": "05c415d7c99a4af5c4d351585910bf010a10071d04b287eb9633414c72399651",
-    "cached-supply": "141c16ea09a65bba015d02c3b11052759daea2f7122d46af76a2a650d0b8f14c",
-    "deer-warning": "43a9ee20fa3ad3f78b35373792cd9f8bb1ecdcee2541d6796dde8559508602fa"
+    "chopping": "e34901bf891d5ce79bd49757b2eac3ffe75437032e4ef678554f9ef5b8872f6b",
+    "night": "96f3629f52e9a2416530e51181c588c3f6b933d5d7f7aeb6da8f6874ceada78c",
+    "rescue": "aa52f40adf580b81a69cfa561f85e22a42ff42098a11d97aec7930c32d2a2eb1",
+    "supplies": "0fff0872757563174a137cdb72974be31d0ce16f66304d1b01240e79ff8cc11a",
+    "dawn": "c9acc4d8b4530cacbd0769dc498452bb0463d35c62ace6f469dd6ddf62ff68b7",
+    "windbreak": "c176c59e3e3590ea6587f6fae014fa4906c4b764739ceeabd59c94f6c6d2fc4e",
+    "windbreak-dawn": "cce87e78da3ae192d8892f8235b898d8385a7c7d8391e8d3396d62e44aae971d",
+    "cached-supply": "e6d3bb570401178ff5199c7e7035a1c15de64372d3491ba49fbe1fba0899e269",
+    "deer-warning": "4f5fe9bffd41eec1368948b6577ee7c447728b3984ac99f8e7693dd18a5bdb85"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "ce1a293adbd2f72e185524b3b8ea6743d42f7d4eb9b1399495577242dd9ad58c",
+  "inputs": "3f0c2fe77973b886ad743f54fd87d7be6b7fc6e42148862316c596834b5c952d",
   "game": "forest",
   "generated": "bun game/prove.mjs forest --repin --hosts 'linux,web'",
-  "at": "0803820fbf6777fffa23f1e1370ae755323fd0e5",
-  "reason": "Readable Deer model, interruptible charge warning and positional cues; mid-warning continuation verified"
+  "at": "2291b998162d828dd50775ccf0d136e24c8c86d4",
+  "reason": "The art argument in saves (art pass look option); tick pins unchanged"
 }

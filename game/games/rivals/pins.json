@@ -1,23 +1,24 @@
 {
   "ticks": {
-    "0": "0x1a3ef6ae7f8baecd",
-    "1080": "0xf1ac3f1ea46ae4ca"
+    "0": "0xf4442d3d72bb04fe",
+    "1080": "0xa71f898787c4daa1"
   },
   "saves": {
-    "continuation": "a20ad789d4ae6545f7651a9d28ef91494dd9cd3aa9072cc354fd811e73641caa",
-    "mayhem": "6510e9494dc569777e3396b951a977fb75e4cca70355435f7ca95bf82cc8e8d2",
-    "mayhem-round": "c6e132ac0294d48094c56ff6ffe9008b22624e5e997b75988a415c580605f58d",
-    "drill": "196ca665594cd91c1eb2ab56d5f916774df4bcabdfb83a0b4fb36b8a8f9b0a02",
-    "bandage": "551ba06600f8a7dc97208f40c05e648f6c1a4200c1f48d5079dcdc701feb9435",
-    "quick-reload": "b3315accf84f755007d64dbcb97822803c404707524e9fb479915f90c815f63c"
+    "continuation": "a9ce8deee7525cc5fb29be72d6e25c84805a4807cbd419e03ac26494313c1f44",
+    "mayhem": "1eb2e072e6240191508c9874e92ed5fef1c1666da5447936e93f5bd1bbfbf8e5",
+    "mayhem-round": "6b7952deb1d08dbab5ec898f5e1844179580ec39bf237eaaa7d657aa336a1856",
+    "drill": "4278c1ff351a98d267a2d9091299a0a6bda788a705b332de6d192a884cd78733",
+    "bandage": "506e40a9b739dd7271bad1be38e09e786f58f272c0140bcf9a0efdb49325cdff",
+    "quick-reload": "aab53d8854922acb0ea5486e43479e46ddde40748820d31a348fbcc46fee3213",
+    "shot-feedback": "4fc2c8a9b4f420c67a98988009465ea30e5ac5dd3f55c6ae4231258e008192dc"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "d02aa6cf089db5a7926618177e0698288fce8dfa4cfa1b5acca2483d72b41d6d",
+  "inputs": "9187a7282bcdfb85cb99deecaeaf95b8307bc3463d28db51d946af3e1e5814d4",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "c09d69ce0a759ca0c9dd836ec9a72869d3a4fda1",
-  "reason": "Timed reloads save each Fighters timing attempt and feedback, with explicit waiting cues and HUD timing button; fresh-process reload continuation"
+  "at": "2291b998162d828dd50775ccf0d136e24c8c86d4",
+  "reason": "First-person weapon viewmodels and sounds (f5f4b8a4c) moved tick pins; EXSIM v7 save format; the art argument in saves"
 }
