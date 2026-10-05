@@ -768,8 +768,10 @@ ancestor that would take the press itself included.
 On a text field or textarea `type` inserts the text, one `input`; `change` comes as a
 person's would, when the field commits (`type <id> key Enter` on a field, or the
 focus leaving it), so an edit saved on `change` needs one of those.
-`tap <target> drag <dx> <dy> … hold <ms> during "<op>" …` runs the quoted reads after the
-move, inside the hold, with the finger still down; `during` needs a `hold`. `clock +N` moves the virtual clock without
+`tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
+move, with the finger still down, before the hold. Under `--touch platform` the
+lift is scripted, so the reads run inside the hold and `during` needs one
+(`hold 300 during "state"`). `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
 first); its reply says what is still in flight (`inflight`, on every host), and `clock settle` lands it.
 `clock data` lands it without moving the clock: the data module's activation and

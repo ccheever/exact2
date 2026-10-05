@@ -304,10 +304,10 @@ export async function realTap({ ask, touches, id, at, drag, abandon }) {
     const early = `${what}: the touch lifted before the ops during it`;
     try {
       for (let touch; !(touch = ours(await entries()));) {
-        if (finished) throw new Error(ours(await entries())?.lifted ? `${early} began; lengthen press or hold` : `${what}: the runner finished and no touch had begun`);
+        if (finished) throw new Error(ours(await entries())?.lifted ? `${early} began; lengthen hold` : `${what}: the runner finished and no touch had begun`);
         await new Promise((r) => setTimeout(r, 50));
       }
-      if (ours(await entries()).lifted) throw new Error(`${early} began; lengthen press or hold`);
+      if (ours(await entries()).lifted) throw new Error(`${early} began; lengthen hold`);
       // The ops run after the move, as the carriers' own phases run them (kanban F14): the runner presses and drags on real time.
       await new Promise((r) => setTimeout(r, drag.press + (moves ? drag.over : 0)));
       for (const op of drag.during) during.push(await raced(op()));
