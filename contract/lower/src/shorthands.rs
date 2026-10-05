@@ -52,13 +52,15 @@ pub(crate) fn component(value: &Expr, name: &str, index: usize) -> Result<Expr, 
             }
         }
         // A number where CSS writes a shorthand string (authoring bench: `border=0`, three builders).
+        // Names the literal, not the attribute: it may be one arm of a choice.
         Expr::Number(n, span) => {
-            let like = match (name.starts_with("border"), *n == 0.0) {
-                (true, true) => format!(", so write `{name}=\"0\"`"),
-                (true, false) => format!(", as CSS writes it: `{name}=\"{n}px solid #ccc\"`"),
+            let width = name.starts_with("border") && *n >= 0.0 && (*n as f32).is_finite();
+            let like = match (width, *n == 0.0) {
+                (true, true) => ", so write `\"0\"`".to_string(),
+                (true, false) => format!(", as CSS writes it: `\"{n}px solid #ccc\"`"),
                 _ => ", as CSS writes it".to_string(),
             };
-            return err("lower-css-shorthand", format!("`{name}={n}`: a CSS shorthand is a string{like}"), *span);
+            return err("lower-css-shorthand", format!("`{name}`: `{n}` is a number, and a CSS shorthand is a string{like}"), *span);
         }
         _ => return err("lower-css-shorthand", format!("`{name}` takes a literal CSS shorthand or a choice of literals; computed strings cannot be split into longhands"), value.span()),
     }

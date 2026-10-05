@@ -252,30 +252,43 @@ fn border_radius_takes_one_to_four_corners() {
 
 #[test]
 fn a_numeric_border_says_to_quote_the_shorthand() {
-    let error =
-        contract::compile("component App\n  view\n    view border=0 testId=\"b\"\n").unwrap_err();
+    let says = |attr: &str| {
+        contract::compile(&format!(
+            "component App\n  state x = true\n  view\n    view {attr} testId=\"b\"\n"
+        ))
+        .unwrap_err()
+        .message
+    };
+    let compiles = |attr: &str| {
+        contract::compile(&format!(
+            "component App\n  state x = true\n  view\n    view {attr} testId=\"b\"\n"
+        ))
+        .unwrap_or_else(|e| panic!("{attr}: {e}"));
+    };
     assert_eq!(
-        (error.id.as_str(), error.message.as_str()),
-        (
-            "lower-css-shorthand",
-            "`border=0`: a CSS shorthand is a string, so write `border=\"0\"`"
-        )
+        says("border=0"),
+        "`border`: `0` is a number, and a CSS shorthand is a string, so write `\"0\"`"
     );
-    // The quoted form it names compiles.
-    contract::compile("component App\n  view\n    view border=\"0\" testId=\"b\"\n").unwrap();
-    let error =
-        contract::compile("component App\n  view\n    view border-top=2 testId=\"b\"\n").unwrap_err();
+    compiles("border=\"0\"");
+    assert_eq!(says("border-top=2"), "`border-top`: `2` is a number, and a CSS shorthand is a string, as CSS writes it: `\"2px solid #ccc\"`");
+    compiles("border-top=\"2px solid #ccc\"");
+    // One arm of a choice: the literal is named, and its replacement keeps the choice.
+    assert_eq!(says("border=(x ? \"0\" : 1)"), "`border`: `1` is a number, and a CSS shorthand is a string, as CSS writes it: `\"1px solid #ccc\"`");
+    compiles("border=(x ? \"0\" : \"1px solid #ccc\")");
+    // A negative width (a style folds `-1` into a number) gets no example: no width is negative.
+    let error = contract::compile(
+        "style Card\n  border=-1\ncomponent App\n  view\n    view class=Card testId=\"b\"\n",
+    )
+    .unwrap_err();
     assert_eq!(
         error.message,
-        "`border-top=2`: a CSS shorthand is a string, as CSS writes it: `border-top=\"2px solid #ccc\"`"
+        "`border`: `-1` is a number, and a CSS shorthand is a string, as CSS writes it"
     );
-    contract::compile("component App\n  view\n    view border-top=\"2px solid #ccc\" testId=\"b\"\n")
-        .unwrap();
     // text-decoration has no number form to suggest.
-    let error = contract::compile("component App\n  view\n    text \"a\" text-decoration=1\n")
-        .unwrap_err();
+    let error =
+        contract::compile("component App\n  view\n    text \"a\" text-decoration=1\n").unwrap_err();
     assert_eq!(
         error.message,
-        "`text-decoration=1`: a CSS shorthand is a string, as CSS writes it"
+        "`text-decoration`: `1` is a number, and a CSS shorthand is a string, as CSS writes it"
     );
 }
