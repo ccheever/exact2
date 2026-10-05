@@ -244,8 +244,8 @@ guide's rules don't make obvious.
   `value=text input=edit`, where `edit` ignores a blank value, shows the blank while
   `text` keeps the old value, and the next keystroke builds on what is shown; so does
   one whose action or source normalizes `-2` to the `0` it already held. Cause: on
-  the web (both targets) a text field is re-set only when its bound value changes, so
-  an unchanged binding does not overwrite the edit. Fix: bind the field to draft state that `edit` always writes, and on commit
+  the web (both targets) a text field is re-set only when what its binding reads
+  changes, so an unchanged binding does not overwrite the edit. Fix: bind the field to draft state that `edit` always writes, and on commit
   (`change`, Enter, `blur`) write the accepted value or reset the draft to it, which
   changes the bound value and redraws the field. (Authoring bench, LLP 1087, t2-todo:
   two builders, about 10 minutes each, 2026-10-04; t1-tip, a normalized count,

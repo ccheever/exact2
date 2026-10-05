@@ -426,14 +426,18 @@ So a form that edits a saved record is a child made once the record is in: the
 source answers `loaded: true`, the placeholder says `false`, and the child's
 states take the record's fields when it is made. The initializer runs once per
 child: a later `draft` (a refresh, a normalized answer) does not reset the form,
-and while a refresh is out `saved` keeps its value, so the editor stays. On a
-native host the first frame can show `saved`'s kept answer (its last answer before
-the app quit; the web JS target keeps none), so the child is made from that. A write
-`saved` does not hear about, from a mutation without `refreshes saved`, leaves that
-answer behind the store: after a restart the form opens with the old fields and
-keeps them when the fresh answer lands. Refresh the resource after each write, as
-below, or key the child by the answer (`each d in [saved] key=…`) so a different
-answer makes it again.
+and while a refresh is out `saved` keeps its value, so the editor stays.
+
+A native host (and the wasm web target; the default JS target keeps none) can make
+that child from a kept answer. When the data module is not ready at boot, a resource
+whose source read device state (a file, a database, a secret, a watched topic) shows
+the last answer the runner kept for it, one under 8 KB, so the form's states take
+those fields. A write the resource does not hear about (a file or database save from
+a mutation without `refreshes saved`, not a `store` write it reads) leaves that
+answer behind: after a restart the form opens with the old fields and keeps them
+when the fresh answer lands. Refresh the resource after each write, as below, or key
+the child by a string or number from the answer (`each d in [saved] key=…`) so a
+different answer makes it again.
 
 ```contract
 shape Draft
