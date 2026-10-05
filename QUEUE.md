@@ -1,5 +1,6 @@
 # Queue
 
+- **Lengths and numbers where HTML and CSS take both** (2026-10-04/05, authoring bench, LLP 1087: a Codex builder and three Claude builders). `min`, `max` and `step` on `input type="number"` take strings while a range input takes numbers (`lower-attr-type`); `letter-spacing="1px"` is refused (`expected number`), though CSS's `letter-spacing` is a length. Each message says the fix, but the web accepts all three as written.
 - **`text-align="center"` on an `input` is ignored on iOS** (2026-10-04, authoring bench, LLP 1087: the tip and pomodoro apps on the iOS 27 simulator, two trials). It centers on the web; on iOS the text sits at the left. Check `NodeViewIOS`'s text field alignment.
 - **Authored tests cannot press the browser's back button** (2026-10-04, authoring bench, t3-recipes on web+iOS). `tap <id> history -1` is a CLI drive op only, so "the browser back returns to the list" is checked by hand; a test-file step (web only, refused elsewhere) would let the test say it.
 - **An action cannot start a timer** (2026-10-04, authoring bench, t6-todo-more: all three builders). A 5-second undo offer needed a root `every(50, tick)` comparing `now()` with a stored deadline, so expiry is quantized to the tick; builders asked for a task an action starts (or `after` as an action command). A language question for Charlie.
