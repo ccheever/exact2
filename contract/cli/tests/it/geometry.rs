@@ -424,3 +424,52 @@ fn a_resize_rect_is_placed_by_padding_not_border() {
         "10% of the column's 200"
     );
 }
+
+/// LLP 1093 D11: a box that straddles columns is sized as Chrome's
+/// `ResizeObserver` sizes it, one column wide and as tall as its fragments
+/// end to end (measured in Chrome 154: 200×136 here), not as its union
+/// frame, which is three columns wide and one column tall.
+#[test]
+fn a_resize_rect_of_a_box_across_columns_is_its_stitched_size() {
+    let plan = contract::compile(
+        r#"component App
+  state seen = ""
+  action fit(w: number, h: number)
+    seen = `${w}`
+  view
+    view width=200 height=60 column-width=200 column-gap=20 column-fill="auto" resize=fit
+      view id="body" padding-top=4 padding-bottom=6 resize=fit
+        view height=20
+        view height=20
+        view height=20
+        view height=20
+        view height=20
+        view height=20
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    let due = r.resize_due(0);
+    let key = r.kernel().find_by_id("body")[0];
+    assert_eq!(r.kernel().fragments(key).map(<[_]>::len), Some(3));
+    let view = r.kernel().arena().local_id(key.index);
+    let body = due.iter().find(|d| d.0 == view).expect("body").1;
+    assert_eq!(
+        (body.x, body.y, body.width, body.height),
+        (0.0, 4.0, 200.0, 136.0)
+    );
+    let flow = due.iter().find(|d| d.0 != view).expect("flow").1;
+    assert_eq!(
+        (flow.width, flow.height),
+        (200.0, 60.0),
+        "the container keeps its box"
+    );
+}
