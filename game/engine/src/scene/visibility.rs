@@ -48,21 +48,32 @@ impl World {
             match self.get::<Parent>(entity).map(|p| p.0) {
                 Some(parent) => entity = parent,
                 None => {
-                    let mut drawn = Drawn {
-                        pose: Affine3A::IDENTITY,
-                        opacity: 1.0,
+                    let opacity = chain
+                        .iter()
+                        .map(|&e| self.get::<Opacity>(e).map_or(1.0, |o| o.0))
+                        .product();
+                    // Above the root-most offset the pose is the propagated
+                    // global exactly (no recomposition, so no rounding drift);
+                    // without any offset it is that global.
+                    let Some(top) = chain.iter().rposition(|&e| self.has::<Offset>(e)) else {
+                        return Some(Drawn {
+                            pose: self.global(chain[0])?,
+                            opacity,
+                        });
                     };
-                    for &e in chain.iter().rev() {
+                    let mut pose = chain
+                        .get(top + 1)
+                        .map_or(Some(Affine3A::IDENTITY), |&parent| self.global(parent))?;
+                    for &e in chain[..=top].iter().rev() {
                         let local = self
                             .get::<Transform>(e)
                             .map_or_else(Transform::default, |t| *t);
                         let offset = self
                             .get::<Offset>(e)
                             .map_or_else(Transform::default, |o| o.0);
-                        drawn.pose = drawn.pose * affine(local) * affine(offset);
-                        drawn.opacity *= self.get::<Opacity>(e).map_or(1.0, |o| o.0);
+                        pose = pose * affine(local) * affine(offset);
                     }
-                    return Some(drawn);
+                    return Some(Drawn { pose, opacity });
                 }
             }
         }
@@ -234,6 +245,7 @@ mod tests {
             Parent(child),
             Offset(Transform::at(1., 0., 0.)),
         ));
+        w.propagate();
         let at = |e| w.drawn(e).unwrap();
         // The root's offset moves its displayed hierarchy; the leaf's own is in its frame.
         assert_eq!(at(root).pose.translation, Vec3::new(1., 0.5, 0.).into());
@@ -243,11 +255,17 @@ mod tests {
             (at(root).opacity, at(child).opacity, at(leaf).opacity),
             (0.5, 0.25, 0.25)
         );
-        // Without offsets, drawn is the simulated global pose.
+        // Below an offset, a plain child composes from it.
         let plain = w.spawn((Transform::at(0., 1., 0.), Parent(child)));
+        w.propagate();
         let expected =
             w.drawn(child).unwrap().pose * Affine3A::from_translation(Vec3::new(0., 1., 0.));
         assert!(w.drawn(plain).unwrap().pose.abs_diff_eq(expected, 1e-6));
+        // Without any offset on the chain, drawn is the propagated global exactly.
+        let lone = w.spawn(Transform::at(0.1, 0.2, 0.3).with_scale(1.7));
+        let under = w.spawn((Transform::at(0.7, 0.1, 0.9), Parent(lone)));
+        w.propagate();
+        assert_eq!(w.drawn(under).unwrap().pose, w.global(under).unwrap());
         // A hidden ancestor hides the drawn chain whatever the opacity.
         w.insert(root, Visible(false));
         assert!(w.drawn(leaf).is_none());
