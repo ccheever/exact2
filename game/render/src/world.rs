@@ -280,6 +280,44 @@ struct Versions {
     live: u64,
     membership: u64,
 }
+/// Each faded entity's effective opacity: the product of its own and every
+/// ancestor's `Opacity`, so a multipart unit fades as one. By slot.
+fn effective_opacity(w: &World, out: &mut Vec<(u32, f32)>) {
+    use exact_game::Opacity;
+    out.clear();
+    for (e, o) in w.query::<&Opacity>().iter() {
+        // Start at the topmost faded entity of each chain; its walk covers the rest.
+        let mut product = o.0;
+        let mut at = e;
+        let mut top = true;
+        for _ in 0..=w.len() {
+            let Some(p) = w.get::<Parent>(at) else { break };
+            at = p.0;
+            if w.has::<Opacity>(at) {
+                top = false;
+                break;
+            }
+        }
+        if !top {
+            continue;
+        }
+        let mut stack = vec![(e, std::mem::take(&mut product))];
+        let mut budget = w.len() + 1;
+        while let Some((x, f)) = stack.pop() {
+            out.push((x.index(), f));
+            budget = budget.saturating_sub(1);
+            if budget == 0 {
+                break;
+            }
+            for c in w.children(x) {
+                let own = w.get::<Opacity>(c).map_or(1., |o| o.0);
+                stack.push((c, f * own));
+            }
+        }
+    }
+    out.sort_by_key(|&(slot, _)| slot);
+    out.dedup_by_key(|&mut (slot, _)| slot);
+}
 /// Content of every presentation offset: present rewrites the rows each tick,
 /// so their revision moves even when no offset changed.
 fn offsets(w: &World) -> u64 {
@@ -845,7 +883,8 @@ impl Feed {
             self.changed_pages.clear();
             self.changed_pages
                 .extend(self.changed_blocks.iter().map(|&b| b as usize / PAGE));
-            let moved = if initial || parent_changed || batches {
+            // An offset moves drawn model poses without a simulated pose write.
+            let moved = if initial || parent_changed || offset_changed || batches {
                 crate::models::Moved::All
             } else {
                 crate::models::Moved::Pages {
@@ -854,11 +893,8 @@ impl Feed {
             };
             r.model_poses(w, &self.assets.entities, initial || parent_changed, moved);
         }
-        if initial || next.opacity != old.opacity || next.live != old.live {
-            self.fades_next.clear();
-            for (e, o) in w.query::<&exact_game::Opacity>().iter() {
-                self.fades_next.push((e.index(), o.0));
-            }
+        if initial || next.opacity != old.opacity || next.live != old.live || parent_changed {
+            effective_opacity(w, &mut self.fades_next);
             if initial || self.fades_next != self.fades {
                 std::mem::swap(&mut self.fades, &mut self.fades_next);
                 r.opacity(&self.fades);

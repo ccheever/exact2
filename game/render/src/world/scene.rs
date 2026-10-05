@@ -9,13 +9,48 @@ use glam::{Mat4, Vec3};
 /// radiance of 3. Exposure applies after.
 pub const PHOTOMETRIC_SCALE: f32 = 0.0003;
 
-pub(crate) fn pose(w: &World, e: Entity) -> Option<Transform> {
-    let mut global = w.global(e)?;
-    // The presentation offset moves the drawn pose only (exact_game::Offset).
-    if let Some(offset) = w.get::<exact_game::Offset>(e) {
-        let t = offset.0;
-        global *= glam::Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.position);
+/// The displayed global: drawn(parent) · local · offset. Presentation offsets
+/// (exact_game::Offset) move an entity and everything under it; without one on
+/// the chain this is the simulated global, exactly.
+pub(crate) fn drawn(w: &World, e: Entity) -> Option<glam::Affine3A> {
+    let affine = |t: Transform| {
+        glam::Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.position)
+    };
+    let offset = |e: Entity| w.get::<exact_game::Offset>(e).map(|o| affine(o.0));
+    // Most chains carry no offset: no allocation for them.
+    let mut at = e;
+    let mut any = false;
+    for _ in 0..=w.len() {
+        any |= w.has::<exact_game::Offset>(at);
+        match w.get::<Parent>(at) {
+            Some(p) if !any => at = p.0,
+            _ => break,
+        }
     }
+    if !any {
+        return w.global(e);
+    }
+    // The parent chain, bounded even if tools edit a cycle.
+    let mut chain = vec![e];
+    while let Some(p) = w.get::<Parent>(*chain.last().unwrap()) {
+        if chain.len() > w.len() {
+            break;
+        }
+        chain.push(p.0);
+    }
+    // The offset nearest the root: above it the simulated global holds.
+    let Some(first) = (0..chain.len()).rev().find(|&i| offset(chain[i]).is_some()) else {
+        return w.global(e);
+    };
+    let mut global = w.global(chain[first])? * offset(chain[first]).unwrap();
+    for &below in chain[..first].iter().rev() {
+        let local = affine(*w.get::<Transform>(below)?);
+        global = global * local * offset(below).unwrap_or(glam::Affine3A::IDENTITY);
+    }
+    Some(global)
+}
+pub(crate) fn pose(w: &World, e: Entity) -> Option<Transform> {
+    let global = drawn(w, e)?;
     let (scale, rotation, position) = global.to_scale_rotation_translation();
     Some(Transform {
         position,

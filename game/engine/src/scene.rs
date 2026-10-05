@@ -512,7 +512,8 @@ pub struct ViewModel;
 /// opaque surfaces drop pixels in an ordered 4 × 4 dither (no sorting, depth
 /// stays exact) and blended model materials multiply their alpha. Model shadows
 /// fade with it. 1 or absent draws as before. Fades occluders, such as a crown
-/// between the camera and the player, without a pop. Presentation state:
+/// between the camera and the player, without a pop. It multiplies down the
+/// Parent chain, so a multipart unit fades as one. Presentation state:
 /// write it from `Game::present`; it is never saved or hashed.
 #[derive(Clone, Copy, Debug, PartialEq, crate::Presentation)]
 pub struct Opacity(pub f32);
@@ -591,9 +592,9 @@ pub struct ModelLod {
     pub hide: Option<f32>,
 }
 
-/// A drawn-only pose change: the renderer draws this entity at its pose times
-/// the offset. Parented children keep their own poses (offset each one that
-/// should move); props on a rigged entity's sockets do follow its offset.
+/// A drawn-only pose change: the renderer draws this entity at its drawn
+/// parent's pose times its local pose times the offset, so its children and
+/// the props on a rigged entity's sockets move with it.
 /// Picking, layout and physics use the simulated pose, never the offset.
 /// Presentation state, written by `Game::present`: a bob, a recoil kick or a
 /// sway that never moves the simulation, its saves or its hash.
