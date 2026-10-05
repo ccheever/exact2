@@ -285,7 +285,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       }
       if (req.op === 'tap' && req.close !== undefined) return closePage(req, { cdp, sessionId, call, frame });
       // A settle runs up to the page's 20 s deadline twice (requests, then rounds).
-      const timeout = req.op === 'clock' && (req.settle || req.data) ? 60000 : undefined;
+      const timeout = req.op === 'clock' && (req.settle || req.data) ? 60000 : req.op === 'perf' && req.live > 0 ? req.live + 30000 : undefined;
       return JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`, timeout));
     };
     return {
@@ -986,6 +986,13 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     /** `perf [<target>]` (LLP 1079 D2): the plan sites under a view (every root's without one), each with its work across its instances' lifetimes and its source line; `{frames:true}` is the host's presented frames (D4). */
     async perf(target, frames) {
+      if (frames?.live != null) {
+        // A live window (LLP 1079 D4): the page's clock follows the wall for `live` ms, and the driver's follows the page's.
+        const r = await s.op({ op: 'perf', frames: true, live: frames.live, ...(frames.late != null ? { late: frames.late } : {}) });
+        if (r.virtual) throw Error(`perf frames live: the ${s.host} host has no live window; the web's wasm target (a game's) has one`);
+        if (r.live) s.now = r.live.to;
+        return r;
+      }
       if (frames) return s.op({ op: 'perf', frames: true, ...(frames.late != null ? { late: frames.late } : {}) });
       const r = await s.op({ op: 'perf', ...(target != null ? { target: /^\d+$/.test(String(target)) ? Number(target) : target } : {}) });
       if (await sourceMaps.refresh()) for (const site of r.sites) { const n = { planDigest: r.plan, site: site.site }; sourceMaps.attach(n); site.source = n.sourceMap; }

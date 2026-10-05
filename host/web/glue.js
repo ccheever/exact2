@@ -1096,7 +1096,7 @@ function agentReply(request) {
       if (r.capability === "export" && r.node != null) return picker().then(m => m.answerSave(r, held.text)).then(out => tagged({ ...r, ...out })); // LLP 1069.010 D3: the bytes go back to the driver
       return r.capability === "pick" && r.node != null ? picker().then(m => m.answer(r.node, r.answered === "cancel" ? null : files ?? [])).then(() => tagged(r)) : tagged(r);
     }
-    if (request.op === "perf" && request.frames) return { virtual: true }; // the agent's clock presents no frame (LLP 1079 D4)
+    if (request.op === "perf" && request.frames) return request.live > 0 ? loadAfterPaint('./frames.js', 'liveFrames').then(live => live({ ms: request.live, late: request.late, origin: () => t0, log, clock: () => agentClock, advance: to => applyBatch(JSON.parse(readOut(wasm.exact_advance(to, 0)))), gpu: globalThis.exact.gpu })).then(tagged) : { virtual: true }; // the agent's clock presents no frame, but lends it to the wall for a live window (LLP 1079 D4)
     switch (request.op) {
       case "state": {
         const st = ask(request);

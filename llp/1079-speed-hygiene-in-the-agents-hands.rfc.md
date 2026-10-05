@@ -363,6 +363,18 @@ Reply:
   else. Several frame tasks can commit at one virtual instant
   (`commit.rs:164`), so a "virtual frame count" would be ill-defined, and no
   frame was presented.
+- **A live window** (2026-10-04, the platformer's diary R11: a game's 60 fps
+  had no measure under the driver): `{"op":"perf","frames":true,"live":ms}`
+  lends the page's clock to the wall for `ms`. Each animation frame advances
+  the runner to the wall's time, a game world draws on its own frame loop with
+  its perf armed, and a sampler of the window's own measures what was
+  presented; the reply is the one above plus `live: {ms, from, to}` (the
+  clock it moved, which the driver's follows) and each world's `perf`. The
+  web's wasm target has it (`frames.js` `liveFrames`, `gpu-glue.js` `live`);
+  the JS target, Apple and Linux still answer `virtual`, and the driver says
+  so. The world ticks on the wall inside the window, so its hash afterwards is
+  not a seeked run's, and headless Chrome's frames are its own clock's, not a
+  display's (`game/bench/feel.mjs` measures a headed one).
 - A host that cannot observe presentation answers `{"unavailable": true}`.
 
 **A late frame is also one journal line**, appended by the host through

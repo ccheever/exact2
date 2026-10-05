@@ -31,7 +31,6 @@ fn fixture() -> (Presenter<NoData>, PathBuf) {
     fixture_with_hud_removal(false)
 }
 fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
-    let (path, compat) = super::tests::fixture();
     let source = r#"component Controls
   state removed = false
   state text = ""
@@ -63,7 +62,12 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
     } else {
         source.to_owned()
     };
-    let plan = contract::compile(&source).unwrap();
+    boot(&source, &["a", "b", "raw"])
+}
+/// A presenter over `source` whose canvases named by testId are worlds of the probe module.
+fn boot(source: &str, canvases: &[&str]) -> (Presenter<NoData>, PathBuf) {
+    let (path, compat) = super::tests::fixture();
+    let plan = contract::compile(source).unwrap();
     let (mut p, _) = Presenter::boot(
         &plan.encode(),
         NoData,
@@ -75,7 +79,7 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
     p.surfaces
         .abis
         .insert(String::new(), Abi::open_path(&path, &compat, "").unwrap());
-    for (i, name) in ["a", "b", "raw"].iter().enumerate() {
+    for (i, name) in canvases.iter().enumerate() {
         let view = find(&p, name);
         p.surfaces.canvases.insert(
             view,
@@ -349,6 +353,45 @@ fn r13_named_and_empty_arguments_reach_linux_gpu_binding() {
         assert_eq!(serde_json::from_str::<Value>(&text).unwrap(), expected);
         done(p, path);
     }
+}
+
+/// The platformer's diary, R8: a key typed at a world's canvas reaches the
+/// canvas's `key` handler as on the web, and the world unless one prevents it.
+#[test]
+fn a_world_key_reaches_the_canvas_key_handler_first() {
+    let (mut p, path) = boot(
+        r#"component Keys
+  state heard = ""
+  action key(k: string)
+    heard = heard + k
+    if k == "x"
+      preventDefault()
+  view
+    canvas testId="world" key=key width=100 height=100
+      text heard testId="heard"
+"#,
+        &["world"],
+    );
+    let world = find(&p, "world");
+    p.type_key(world, "KeyO", "o", true, false).unwrap();
+    p.type_key(world, "KeyX", "x", true, false).unwrap();
+    let held = &p.surfaces.canvases[&world].held;
+    assert!(
+        held.contains("KeyO"),
+        "an unprevented key reaches the world"
+    );
+    assert!(!held.contains("KeyX"), "a prevented key goes no further");
+    let text = find(&p, "heard");
+    assert_eq!(
+        p.host
+            .kernel()
+            .node(text)
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text),
+        Some("ox")
+    );
+    done(p, path);
 }
 
 #[test]

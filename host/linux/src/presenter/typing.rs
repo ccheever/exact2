@@ -218,9 +218,23 @@ impl<D: DataSource> Presenter<D> {
                 Some("button" | "link")
             ) || exact_kernel::ControlKind::of(node.node_type, node.props)
                 == Some(exact_kernel::ControlKind::Button));
-        if !self.host.route_visibility(id).1 && !editable && code != "Tab" && (!down || !activation)
-            && self.surface_input(id, serde_json::json!({"t":"key","code":code,"key":key,"down":down,"repeat":repeat,"at":self.host.now()})) {
-            return Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"));
+        if !self.host.route_visibility(id).1
+            && !editable
+            && code != "Tab"
+            && (!down || !activation)
+            && self.input_surface(id).is_some()
+        {
+            // A world's key goes the keyboard's way on the web first: the
+            // `key` handlers at the target and above it hear the down, and one
+            // that prevents it keeps it from the world (the platformer's
+            // diary, R8; macOS's `routeKey`).
+            let heard = if down { self.canvas_key(id, key) } else { None };
+            if heard == Some(true)
+                || self.surface_input(id, serde_json::json!({"t":"key","code":code,"key":key,"down":down,"repeat":repeat,"at":self.host.now()}))
+                || heard.is_some()
+            {
+                return Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"));
+            }
         }
         // A target that takes no focus leaves it where it is, as the web's
         // `focus()` on one does: the key goes to whatever holds the focus,
@@ -250,6 +264,30 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"))
+    }
+
+    /// A key down at a world's canvas (or a node inside one) for the `key`
+    /// handlers there and above, the target focused first as a keyboard's
+    /// focus is: Some(prevented) when they heard it, None when the target
+    /// takes no focus (the world alone has the key, as before).
+    fn canvas_key(&mut self, id: ViewId, key: &str) -> Option<bool> {
+        if self.focus != Some(id) {
+            if !self.focusable(id) {
+                return None;
+            }
+            if let Some(e) = self.set_focus(Some(id), self.host.now()) {
+                eprintln!("exact: {e}");
+            }
+        }
+        if self.focus != Some(id) {
+            return None;
+        }
+        let name = if key == "Space" { " " } else { key };
+        let (error, prevented) = self.key_event(name, self.host.now());
+        if let Some(e) = error {
+            eprintln!("exact: {e}");
+        }
+        Some(prevented)
     }
 
     /// A Tab stop (LLP 1088 D7.3): focusable, and an explicit `tabindex` ≥ 0

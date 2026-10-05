@@ -8,6 +8,7 @@
 //   exact release <app>          sign for distribution, notarise, staple, package
 //   exact list                   the apps this repo has, and what is installed
 //   exact new <path> [--update]  an app outside this repo, ready to run
+//   exact new <path> --game      a game outside this repo, ready to run
 //
 // The two things this exists to get right, because they are the two that make
 // a Mac GUI app awkward from a shell:
@@ -36,7 +37,8 @@ import { BINARYEN } from '../host/web/stages.mjs';
 import { delimiter, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
-import { createApp } from '../game/new.mjs';
+import { createApp, createGame } from '../game/new.mjs';
+import { sdkFetch } from '../game/app/shells.mjs';
 import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements, stripForDistribution } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
 import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
@@ -345,7 +347,8 @@ export function setup({check = false} = {}) {
     run('rustup', ['toolchain', 'install', pin.channel, '--profile', pin.profile,
       ...pin.components.flatMap(c => ['--component', c]), ...pin.targets.flatMap(t => ['--target', t])]);
     // The nightly builds the web's wasm: with -Zbuild-std from rust-src for size, and without it (a --wasm dev build) from its own wasm32 std.
-    run('rustup', ['toolchain', 'install', WEB_TOOLCHAIN, '--profile', 'minimal', '--component', 'rust-src', '--target', 'wasm32-unknown-unknown']);
+    // A game's web bake lints its logic on the same nightly, so it takes clippy too.
+    run('rustup', ['toolchain', 'install', WEB_TOOLCHAIN, '--profile', 'minimal', '--component', 'rust-src', '--component', 'clippy', '--target', 'wasm32-unknown-unknown']);
     webToolchainEnv(process.env); // Fetch the nightly standard library's locked sources too.
     if (output('wasm-bindgen', ['--version']) !== `wasm-bindgen ${bindgen}`)
       run('cargo', [`+${pin.channel}`, 'install', 'wasm-bindgen-cli', '--version', bindgen, '--locked', '--force']);
@@ -365,12 +368,21 @@ export function setup({check = false} = {}) {
       } finally { rmSync(stage, {recursive: true, force: true}); }
     }
     run(process.execPath, ['install', '--frozen-lockfile']);
+    // Every bake resolves offline and locked: the checkout's crates, and the game SDK's for a game's shell.
+    run('cargo', [`+${pin.channel}`, 'fetch', '--locked', '--manifest-path', resolve(ROOT, 'Cargo.toml')]);
+    console.log('cargo fetch (the game SDK lock, game/app/shells.lock)');
+    const fetched = sdkFetch();
+    if (!fetched.ok) throw new Error(`cargo fetch of the game SDK lock failed${fetched.message ? `: ${fetched.message}` : ''}`);
   }
   const report = sdkReport();
   printReport(report);
   const missing = report.filter(row => row.required && !row.ok);
   if (missing.length) throw new Error(`${missing.map(row => row.name).join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing or differ; run exact setup (it installs what it can and names the rest)`);
-  console.log('SDK tools ready. Build scripts select the pinned stable/nightly without changing rustup default.');
+  // "Ready" is said only of what is: a row some apps need is named with the apps it holds back.
+  const needed = report.filter(row => !row.ok);
+  console.log(needed.length
+    ? `SDK tools ready, except for ${needed.map(row => `${row.need} (${row.name})`).join('; ')}. Build scripts select the pinned stable/nightly without changing rustup default.`
+    : 'SDK tools ready. Build scripts select the pinned stable/nightly without changing rustup default.');
 }
 
 /** Every prerequisite at once (LLP 1086 D6): what is installed, what the SDK
@@ -395,6 +407,12 @@ export function sdkReport(env = process.env) {
   // An app's web build makes its own std (-Zbuild-std); a GPU module's and a --wasm dev build use the prebuilt one.
   const nightlyWasm = !!nightlyRoot && existsSync(resolve(nightlyRoot, 'lib/rustlib/wasm32-unknown-unknown'));
   rows.push(row('web nightly wasm32', nightlyWasm ? 'installed' : '', `${WEB_TOOLCHAIN} wasm32-unknown-unknown`, nightlyWasm, 'exact setup', 'GPU modules and --wasm builds'));
+  // A game's web bake runs the determinism lints under the nightly (game/app/shells.mjs lintGame).
+  const nightlyClippy = !!nightlyRoot && output('cargo', [`+${WEB_TOOLCHAIN}`, 'clippy', '--version']) !== '';
+  rows.push(row('web nightly clippy', nightlyClippy ? 'installed' : '', `${WEB_TOOLCHAIN} clippy`, nightlyClippy, 'exact setup', "games' web builds"));
+  // A game's shell resolves offline against the SDK lock; a crate missing from Cargo's cache stops its first bake.
+  const crates = sdkFetch({offline: true, env});
+  rows.push(row('game SDK crates', crates.ok ? 'in Cargo cache' : (/no matching package named `[^`]+`/.exec(crates.message)?.[0] ?? 'not all fetched'), 'game/app/shells.lock', crates.ok, 'exact setup', 'games'));
   const bun = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager.slice(4);
   rows.push(row('Bun', process.versions.bun, bun, process.versions.bun === bun, `use Bun ${bun} (README, Quick start)`));
   const bindgenHave = output('wasm-bindgen', ['--version']);
@@ -459,7 +477,7 @@ export function contract(args, env = process.env) {
 
 /** `exact new`: check the machine first, since a missing Cargo fails the
  * scaffold itself; then write the app and say what its builds will still need. */
-function newApp(path, update) {
+function newApp(path, {update = false, game = false, assets = false} = {}) {
   if (update) {
     console.log(createApp(path, {update}));
     // A file names what it uses (LLP 1091 D1): an app written before module
@@ -468,12 +486,14 @@ function newApp(path, update) {
       console.log('The `use` lines above that no rule writes are the author\'s; `bun exact.mjs contract build app.contract` names them.');
     return;
   }
+  if (game && !path) throw new Error('Usage: exact new <path> --game [--assets] (the last part names the game: lowercase-hyphenated, no host suffix)');
   const report = sdkReport();
   if (report.some(row => row.name === 'rustup' && !row.ok)) {
     printReport(report, {onlyMissing: true});
     throw new Error('exact new needs Cargo (rustup) to resolve the new app; install it, then run exact new again');
   }
-  console.log(createApp(path));
+  // A game is a path here, as an app is: `game/new.mjs` alone takes a bare name for game/games.
+  console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path));
   if (report.some(row => !row.ok)) {
     console.log('\nThis machine still needs (exact setup --check shows the whole table):');
     printReport(report, {onlyMissing: true});
@@ -486,10 +506,14 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact install <app>          put it in ~/Applications and its name on PATH
   exact release <app>          sign with a Developer ID, notarise, staple, package
   exact uninstall <app>        take both away
-  exact setup [--check]        install pinned Rust, wasm-bindgen and Binaryen
+  exact setup [--check]        install pinned Rust, wasm-bindgen and Binaryen,
+                               and fetch the crates every bake reads offline
   exact list                   the apps in this repo
   exact new <path> [--update]  a new app outside this repo, using this checkout;
                                --update follows a moved checkout or a new patch
+  exact new <path> --game      a new game (game/README.md): a Rust world under
+                               Contract's menus, with the same exact.mjs verbs;
+                               --assets declares game.assets
   exact contract <args…>       the Contract compiler (build, types, vocab, …),
                                with paths relative to where you run it
 
@@ -507,7 +531,11 @@ function main(argv) {
   if (verb === 'setup') return setup({check: name === '--check'});
   if (verb === 'list') return list();
   if (verb === 'contract') return process.exit(contract(argv.slice(1)));
-  if (verb === 'new') return newApp(name, rest.includes('--update'));
+  if (verb === 'new') {
+    // Flags may come before the path: `exact new --game ./my-game`.
+    const args = argv.slice(1), path = args.find(arg => !arg.startsWith('--'));
+    return newApp(path, {update: args.includes('--update'), game: args.includes('--game'), assets: args.includes('--assets')});
+  }
   if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }
   if (!name) { console.error(`exact ${verb}: name an app (exact list)`); process.exit(2); }
   if (process.platform !== 'darwin') { console.error(`exact ${verb} is macOS's; on Linux build the app's own executable (cargo build --profile host-dev -p ${name}-linux to drive it, --release to ship it)`); process.exit(2); }

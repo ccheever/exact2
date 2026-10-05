@@ -315,7 +315,8 @@ const cargoMetadata = (cwd, flags, env) => spawnSync('cargo', ['metadata', ...fl
 // and the activated features, so a game's subset keeps every version but may
 // drop edges; the versions and checksums are what the SDK lock decides.
 const lockIds = text => new Map((Bun.TOML.parse(text).package ?? []).map(pkg => [`${pkg.name} ${pkg.version} ${pkg.source ?? ''}`.trim(), pkg.checksum ?? null]));
-/** Packages of `derived` (members excepted) whose version the SDK lock does not hold. */
+/** Packages of `derived` (members excepted) whose version the SDK lock does not hold.
+ * A root path crate new since the SDK lock is held through `withRootPins`. */
 export function outsideSdkLock(derived, sdk, members) {
   const known = lockIds(sdk);
   return [...lockIds(derived)].filter(([id, checksum]) => !members.has(id.split(' ')[0]) && (!known.has(id) || known.get(id) !== checksum)).map(([id]) => id);
@@ -402,10 +403,10 @@ export function lintGame(dir, game, {env = process.env} = {}) {
   }
 }
 
-/** Check the SDK lock against the union of every generated shell's
- * dependencies, or (`update`) rewrite it from that union. */
-export function sdkLock(source = gameRoot, {update = false, env = process.env} = {}) {
-  const path = resolve(source, 'app/shells.lock'), stage = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-game-lock-')));
+/** A throwaway workspace of the union of every generated shell's dependencies,
+ * locked by `lock`; `use` runs in it and the stage is removed afterwards. */
+function sdkStage(source, lock, use) {
+  const stage = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-game-lock-')));
   try {
     const cargo = Bun.TOML.parse(readFileSync(resolve(source, 'Cargo.toml'), 'utf8'));
     for (const deps of [cargo.workspace.dependencies, ...Object.values(cargo.patch ?? {})])
@@ -418,13 +419,36 @@ export function sdkLock(source = gameRoot, {update = false, env = process.env} =
     writeFileSync(resolve(stage, 'Cargo.toml'), Object.entries(tables).map(([key, value]) => `[${key}]\n${Object.entries(value).map(([k, v]) => `${JSON.stringify(k)} = ${toml(v)}\n`).join('')}`).join('\n'));
     mkdirSync(resolve(stage, 'union'));
     writeFileSync(resolve(stage, 'union/lib.rs'), '');
-    writeFileSync(resolve(stage, 'union/Cargo.toml'), `[package]\nname = "exact-game-shells"\nversion = "0.1.0"\nedition = "2021"\npublish = false\n\n[lib]\npath = "lib.rs"\n\n[dependencies]\n${Object.keys(cargo.workspace.dependencies).map(dep => `${dep}.workspace = true\n`).join('')}serde_json = "1"\n`);
-    // A refresh takes the root lock's versions for packages new to the SDK.
-    if (existsSync(path)) writeFileSync(resolve(stage, 'Cargo.lock'), update ? withRootPins(readFileSync(path, 'utf8')) : readFileSync(path, 'utf8'));
+    writeFileSync(resolve(stage, 'union/Cargo.toml'), `[package]\nname = "exact-game-shells"\nversion = "0.1.0"\nedition = "2021"\npublish = false\n\n[lib]\npath = "lib.rs"\n\n[dependencies]\n${Object.keys(cargo.workspace.dependencies).map(dep => `${dep}.workspace = true\n`).join('')}${cargo.workspace.dependencies.serde_json ? '' : 'serde_json = "1"\n'}`);
+    if (lock !== null) writeFileSync(resolve(stage, 'Cargo.lock'), lock);
+    return use(stage);
+  } finally { rmSync(stage, {recursive:true, force:true}); }
+}
+
+/** Check the SDK lock against the union of every generated shell's
+ * dependencies, or (`update`) rewrite it from that union. */
+export function sdkLock(source = gameRoot, {update = false, env = process.env} = {}) {
+  const path = resolve(source, 'app/shells.lock');
+  // A refresh takes the root lock's versions for packages new to the SDK.
+  const lock = existsSync(path) ? (update ? withRootPins(readFileSync(path, 'utf8')) : readFileSync(path, 'utf8')) : null;
+  sdkStage(source, lock, stage => {
     const result = cargoMetadata(stage, update ? [] : ['--locked', '--offline'], env);
     if (result.status !== 0) throw new Error(`${update ? 'SDK lock update' : `${path} is stale for the SDK's shell dependencies; refresh it: bun game/app/shells.mjs --update-lock`}\n${result.stderr || result.error?.message}`);
     if (update) writeChanged(path, readFileSync(resolve(stage, 'Cargo.lock'), 'utf8'), false);
-  } finally { rmSync(stage, {recursive:true, force:true}); }
+  });
+}
+
+/** Put the SDK lock's crates in Cargo's cache, as a game's offline bake reads
+ * them (`exact setup`), or (`offline`) only say whether they are all there
+ * (`setup --check`): the platformer's first build stopped on \`glam\` (its diary, R2).
+ * The lock is the one a new game starts from, the root's pins included. */
+export function sdkFetch({offline = false, source = gameRoot, env = process.env} = {}) {
+  const path = sdkLockFile(source);
+  if (!path) return {ok:false, message:`no SDK lock at ${resolve(source, 'app/shells.lock')}`};
+  return sdkStage(source, withRootPins(readFileSync(path, 'utf8')), stage => {
+    const result = spawnSync('cargo', ['fetch', ...(offline ? ['--offline'] : [])], {cwd:stage, env, encoding:'utf8', stdio:offline ? 'pipe' : ['ignore', 'inherit', 'inherit']});
+    return {ok:result.status === 0, message:result.stderr?.trim() || result.error?.message || ''};
+  });
 }
 
 if (import.meta.main) {

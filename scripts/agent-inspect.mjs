@@ -247,11 +247,18 @@ function renderNode(n) {
 /** The counters a `perf` site row may carry, in the order they print (LLP 1079 D1). */
 const COUNTERS = ['instances', 'created', 'retired', 'evaluated', 'unchanged', 'authored', 'inherited', 'moved'];
 
-/** `perf [<target>] [during "<op>" …]` and `perf frames [late <n>]` (LLP
- * 1079 D2, D4). `during` reads, drives each quoted op through `step`, reads
- * again, and subtracts: the delta belongs to the driver, a read changes nothing. */
+/** `perf [<target>] [during "<op>" …]` and `perf frames [live <ms>] [late <n>]`
+ * (LLP 1079 D2, D4). `during` reads, drives each quoted op through `step`, reads
+ * again, and subtracts: the delta belongs to the driver, a read changes nothing.
+ * `live <ms>` lends the page's clock to the wall for that long and measures the
+ * frames it presents (the platformer's diary, R11: a game's 60 fps). */
 export async function perfOp(s, args, line, step) {
-  if (args[0] === 'frames') return s.perf(null, { frames: true, late: args[1] === 'late' ? Number(args[2]) : undefined });
+  if (args[0] === 'frames') {
+    const at = word => { const i = args.indexOf(word); return i < 0 ? undefined : Number(args[i + 1]); };
+    const live = at('live'), late = at('late');
+    if (live !== undefined && !(Number.isInteger(live) && live > 0 && live <= 120000)) throw Error('perf frames live <ms>: a whole number of milliseconds, 1–120000');
+    return s.perf(null, { frames: true, late, ...(live !== undefined ? { live } : {}) });
+  }
   const target = args[0] && args[0] !== 'during' ? args[0] : undefined;
   const at = line.search(/\sduring\s/);
   if (at < 0) return s.perf(target);
@@ -285,12 +292,17 @@ export function perfDelta(a, b) {
 }
 
 function renderPerf(r) {
-  if (r.virtual) return 'virtual clock: no frame was presented (LLP 1079 D4)';
+  if (r.virtual) return 'virtual clock: no frame was presented (LLP 1079 D4); `perf frames live <ms>` measures a live window';
   if (r.unavailable) return 'this host observes no presented frames';
   if (r.lifetime) {
     const w = r.window ?? {}, f = n => n == null ? '—' : `${n} ms`;
     const out = [`period ${r.period.ms} ms (${r.period.source}) · presented ${r.lifetime.presented} · late ${r.lifetime.late} · missed ${r.lifetime.missed} · segments ${r.lifetime.segments}${r.covers?.length ? ` · covers ${r.covers.join(', ')}` : ''}`,
       `window t=${w.from}..${w.to} · ${w.samples} samples (${w.dropped} dropped) · p50 ${f(w.p50)} · p95 ${f(w.p95)} · p99 ${f(w.p99)} · max ${f(w.max)}`];
+    if (r.live) out.unshift(`live window ${r.live.ms} ms · clock ${r.live.from}..${r.live.to}`);
+    for (const w of r.world ?? []) {
+      const g = n => n == null ? '—' : `${Math.round(n * 100) / 100} ms`, ms = x => x ? `p50 ${g(x.p50)} p95 ${g(x.p95)} p99 ${g(x.p99)} mean ${g(x.mean)}` : '—';
+      out.push(`  world ${w.canvas}: frame ${ms(w.perf.frameMs)} · tick ${ms(w.perf.tickMs)} · feed ${ms(w.perf.feedMs)} · encode ${ms(w.perf.encodeMs)}`);
+    }
     for (const l of r.late ?? []) out.push(`  t=${l.t} late: ${l.missed} missed (${l.interval} ms) · seq ${l.seq ? l.seq.join('..') : '—'}${l.apply != null ? ` · apply ${l.apply}` : ''}${l.layout != null ? ` · layout ${l.layout}` : ''}${l.loaf ? ` · loaf script ${l.loaf.script}${l.loaf.styleLayout != null ? ` style+layout ${l.loaf.styleLayout}` : ''}` : ''}`);
     return out.join('\n');
   }

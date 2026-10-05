@@ -1,0 +1,10 @@
+// The menus and HUD on a host: `bun exact.mjs test web` (also macos, ios).
+// Gameplay is tested hostless in logic/tests: `bun exact.mjs test-rust`.
+test "Play starts the world with its HUD"
+  expect tree has "play"
+  tap "play"
+  expect tree has "world"
+  clock +500
+  expect text "hud-lit" == "Lit 0"
+  tap "pause"
+  expect tree has "restart"

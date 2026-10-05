@@ -850,6 +850,12 @@ the platform's users press: `(e.metaKey or e.ctrlKey) and k == "s"` saves on a
 Mac and elsewhere. The driver presses chords in Playwright's spelling (`type
 "composer" key "Shift+Enter"`, `key "Meta+s"`).
 
+- **A game's canvas.** A key at a canvas whose world takes input, or at a
+  node inside one, goes the same way first: a shortcut takes it, then the
+  `key` handlers from the focus out hear it, and one that calls
+  `preventDefault()` keeps it from the world. The world hears the rest, so a
+  canvas's `key=` handler hears what the world binds as well as what it does
+  not (the platformer's diary, R8).
 - **Shortcuts.** An `aria-keyshortcuts` button hears its chord before any
   `key` handler, and takes the key (no `key` handler hears it), on the web,
   macOS, iPadOS (a hardware keyboard's chord; the session's view holds

@@ -210,9 +210,12 @@ To install the pinned Bun beside any existing installation:
 `curl -fsSL https://bun.sh/install | BUN_INSTALL=~/.bun-1.4.2 bash -s bun-v1.4.2`.
 Use `~/.bun-1.4.2/bin/bun` for the commands below if it is not on your PATH.
 `bun scripts/exact.mjs setup` installs the declared stable and web nightly Rust
-toolchains, their components/targets, matching wasm-bindgen, pinned Binaryen and
-Bun dependencies. It keeps Binaryen in `~/.cache/exact/binaryen`; builds find it
-automatically. `setup --check` checks the installed tools without installing them.
+toolchains, their components/targets (the nightly's clippy lints a game's web bake),
+matching wasm-bindgen, pinned Binaryen and Bun dependencies, and fetches the crates
+of exact2's lock and the game SDK's (`game/app/shells.lock`), since every bake
+resolves offline. It keeps Binaryen in `~/.cache/exact/binaryen`; builds find it
+automatically. `setup --check` checks the installed tools and the Cargo cache without
+installing anything; a row only some apps need names them.
 
 ### 2. Run Caltrain in the browser
 

@@ -247,6 +247,81 @@ fn r13_colon_call_refuses_with_equals_hint() {
     assert!(error.contains("seed="), "{error}");
 }
 
+/// The platformer's diary, R4: a declaration from before an `Options` edit
+/// never hides the compile's own refusals, warns rather than refuses while the
+/// game's Rust is newer, and never stops `contract rust`.
+#[test]
+fn a_stale_surface_declaration_warns_and_hides_nothing() {
+    let dir = std::env::temp_dir().join(format!("contract-stale-surfaces-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join(".shells")).unwrap();
+    std::fs::create_dir_all(dir.join("logic/src")).unwrap();
+    let declaration = dir.join(".shells/surfaces.json");
+    std::fs::write(&declaration, r#"{"world":[{"name":"seed"}]}"#).unwrap();
+    let path = dir.join("app.contract");
+    let broken =
+        "component App\n  state n = 1 + \"one\"\n  view\n    canvas surface=world(level=2)\n";
+    std::fs::write(&path, broken).unwrap();
+    let ids = |all: Vec<contract::CompileError>| all.into_iter().map(|e| e.id).collect::<Vec<_>>();
+    // A bake checks against the declaration its GPU build just wrote: both refusals, together.
+    let all = contract::compile_path_all(&path, false).err().unwrap();
+    assert_eq!(ids(all), ["type-operand", "analyze-surface-arguments"]);
+    // Rust newer than the declaration: the author's build says so and refuses only the type.
+    let lib = dir.join("logic/src/lib.rs");
+    std::fs::write(&lib, "").unwrap();
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+    std::fs::File::options()
+        .write(true)
+        .open(&declaration)
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+    let surfaces = contract::surface_findings(&path).unwrap();
+    assert_eq!(surfaces.newer, Some(lib.canonicalize().unwrap()));
+    assert_eq!(ids(surfaces.findings), ["analyze-surface-arguments"]);
+    let run = |args: &[&str]| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let out = run(&["build", path.to_str().unwrap(), "--json"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("type-operand") && !stdout.contains("analyze-surface"),
+        "{stdout}"
+    );
+    assert!(String::from_utf8_lossy(&out.stderr)
+        .contains("warning: .shells/surfaces.json is older than"));
+    // Without the type error the build passes, and `contract rust` writes its shapes either way.
+    std::fs::write(
+        &path,
+        "component App\n  view\n    canvas surface=world(level=2)\n",
+    )
+    .unwrap();
+    let out = run(&["build", path.to_str().unwrap(), "--json"]);
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[]");
+    assert!(out.status.success());
+    std::fs::File::options()
+        .write(true)
+        .open(&declaration)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now())
+        .unwrap();
+    let out = run(&["rust", path.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&out.stderr).contains("warning:"));
+    let out = run(&["build", path.to_str().unwrap(), "--json"]);
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("analyze-surface-arguments"),
+        "a current declaration refuses"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn file_compilation_checks_surface_arguments_at_the_source() {
     let dir = std::env::temp_dir().join(format!("contract-surfaces-{}", std::process::id()));

@@ -416,23 +416,82 @@ pub fn rerun_if_changed(path: &Path) {
     }
 }
 
+/// Canvas surface arguments checked against a game's emitted declaration
+/// (`.shells/surfaces.json`, written by its last GPU build), apart from the
+/// compile: the author's commands report them as warnings while the game's
+/// Rust is newer than the declaration, and `contract types`/`rust` never
+/// stop on them (the platformer's diary, R4). A bake checks them as errors,
+/// against the declaration its GPU build has just written.
+pub struct SurfaceFindings {
+    /// Every call the declaration refuses.
+    pub findings: Vec<CompileError>,
+    /// The game source newer than the declaration, when one is.
+    pub newer: Option<PathBuf>,
+}
+
+/// [`SurfaceFindings`] for the file at `path`; Err when its sources or the
+/// declaration cannot be read.
+pub fn surface_findings(path: &Path) -> Result<SurfaceFindings, Vec<CompileError>> {
+    let src = read_source(path).map_err(|e| vec![e])?;
+    let app_root = app_root(path)?;
+    let (file, sources) = sources::load(path, &src, &app_root)?;
+    let findings = match surface::arguments(&app_root).map_err(|e| vec![e])? {
+        Some(declared) => contract_analyze::check_surface_arguments(&file, &declared)
+            .err()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| sources.resolve(e.into()))
+            .collect(),
+        None => Vec::new(),
+    };
+    Ok(SurfaceFindings {
+        findings,
+        newer: surface::newer_rust(&app_root),
+    })
+}
+
+/// [`compile_path_all`] without the surface-argument check, which the
+/// author's commands make apart ([`surface_findings`]).
+pub fn compile_path_all_unchecked(
+    path: &Path,
+    mapped: bool,
+) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
+    let src = read_source(path).map_err(|e| vec![e])?;
+    compile_path_checked(path, &src, mapped, false)
+}
+
+fn app_root(path: &Path) -> Result<PathBuf, Vec<CompileError>> {
+    let source_root = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    source_root.canonicalize().map_err(|e| {
+        vec![CompileError {
+            pass: "use",
+            id: "contract-use-unreadable".into(),
+            message: format!("{}: {e}", source_root.display()),
+            span: Span::default(),
+            file: Some(path.into()),
+            related: Box::new([]),
+        }]
+    })
+}
+
 fn compile_path_output(
     path: &Path,
     src: &str,
     mapped: bool,
 ) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
-    let source_root = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let app_root = source_root.canonicalize().map_err(|e| CompileError {
-        pass: "use",
-        id: "contract-use-unreadable".into(),
-        message: format!("{}: {e}", source_root.display()),
-        span: Span::default(),
-        file: Some(path.into()),
-        related: Box::new([]),
-    })?;
+    compile_path_checked(path, src, mapped, true)
+}
+
+fn compile_path_checked(
+    path: &Path,
+    src: &str,
+    mapped: bool,
+    surfaces: bool,
+) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
+    let app_root = app_root(path)?;
     let (file, sources) = sources::load(path, src, &app_root)?;
     native::check(&file, &app_root).map_err(|all| {
         all.into_iter()
@@ -444,17 +503,36 @@ fn compile_path_output(
             .map(|e| sources.resolve(e))
             .collect::<Vec<_>>()
     })?;
-    if let Some(declared) = surface::arguments(&app_root)? {
-        contract_analyze::check_surface_arguments(&file, &declared)
-            .map_err(|e| sources.resolve(e.into()))?;
-    }
-    let strings = strings::load(&app_root, path)?;
+    // Surface findings join the compile's own refusals; neither hides the other.
+    let surface: Vec<CompileError> = match surfaces.then(|| surface::arguments(&app_root)) {
+        Some(declared) => match declared.map_err(|e| vec![e])? {
+            Some(declared) => contract_analyze::check_surface_arguments(&file, &declared)
+                .err()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|e| sources.resolve(e.into()))
+                .collect(),
+            None => Vec::new(),
+        },
+        None => Vec::new(),
+    };
+    let joined = |mut all: Vec<CompileError>| {
+        all.extend(surface.iter().cloned());
+        all.truncate(MAX_DIAGNOSTICS);
+        all
+    };
+    let strings = strings::load(&app_root, path).map_err(joined)?;
     let (mut plan, sites) =
         compile_file_output(&file, Some(&app_root), strings, mapped).map_err(|all| {
-            all.into_iter()
-                .map(|e| sources.resolve(e))
-                .collect::<Vec<_>>()
+            joined(
+                all.into_iter()
+                    .map(|e| sources.resolve(e))
+                    .collect::<Vec<_>>(),
+            )
         })?;
+    if !surface.is_empty() {
+        return Err(surface);
+    }
     if app_root.join("app.json").is_file() {
         let manifest = Manifest::read(&app_root).map_err(|message| CompileError {
             pass: "app",

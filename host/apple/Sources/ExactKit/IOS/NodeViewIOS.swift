@@ -345,12 +345,17 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         #endif
         let presses=pressedControls(presses,down:true)
         if presses.isEmpty {return}
-        if inputCanvas?.canvasInput?.presses(presses, down: true, source: self) == true { return }
         // The focus's `key` handlers and its ancestors' (KeyEvents.swift); an
-        // ancestor UIKit passes the presses up to dispatches none again.
+        // ancestor UIKit passes the presses up to dispatches none again. In a
+        // world's canvas they hear a key before the world, and one that
+        // prevents it keeps it, as macOS's `routeKey` and the web order them
+        // (the platformer's diary, R8).
         let name = presses.first?.key.map(NodeView.keyName)
         let held = presses.first?.key.map { KeyCodes.held($0.modifierFlags) } ?? ""
-        if !formDisabled, isFirstResponder, let name, presenter?.keyDown(at: self, name, held: held) == true { return }
+        let hears = !formDisabled && isFirstResponder && name != nil
+        if hears, inputCanvas != nil, presenter?.keyDown(at: self, name!, held: held) == true { return }
+        if inputCanvas?.canvasInput?.presses(presses, down: true, source: self) == true { return }
+        if hears, inputCanvas == nil, presenter?.keyDown(at: self, name!, held: held) == true { return }
         if !disabled, handlers.contains("press"), let name, ["Enter", " "].contains(name) { presenter?.press(id); return }
         super.pressesBegan(presses, with: event)
     }

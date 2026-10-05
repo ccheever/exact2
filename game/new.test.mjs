@@ -30,8 +30,9 @@ test('a newly generated game builds, refuses empty pins and captures without edi
   assert.ok(!existsSync(app));
   try {
     await run('bun', ['game/new.mjs', app]);
-    // A game is the files its author writes; no manifest, lock or app.json.
-    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','README.md','app.contract','logic','pins.json','proof.mjs']);
+    // A game is the files its author writes; no manifest, lock or app.json. Outside
+    // this checkout it gets an app's runner and notes too (LLP 1086).
+    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs']);
     assert.deepEqual(readdirSync(resolve(app, 'logic')).sort(), ['src','tests']);
     env.EXACT_APP_DIR = app;
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
@@ -76,7 +77,7 @@ test('a newly generated game builds, refuses empty pins and captures without edi
     assert.notEqual(JSON.parse(readFileSync(receipt, 'utf8')).inputs, before.inputs);
     assert.equal(readFileSync(hostReceipt, 'utf8'), hostBefore, 'a logic edit retains the completed host');
     assert.deepEqual(readdirSync(app).filter(file => !['.shells','artifacts','target','dist','dist.previous','app.contract.d.ts'].includes(file)).sort(),
-      ['.gitignore','README.md','app.contract','logic','pins.json','proof.mjs'], 'bakes and proofs write only ignored outputs');
+      ['.gitignore','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs'], 'bakes and proofs write only ignored outputs');
   } finally {
     rmSync(directory, {recursive:true, force:true});
   }
@@ -89,8 +90,12 @@ test('generated commands run from an external author directory with quoted paths
   try {
     const created=spawnSync(process.execPath,[resolve(import.meta.dir,'new.mjs'),'.'],{cwd:app,encoding:'utf8'});
     assert.equal(created.status,0,created.stderr);
-    const commands=created.stdout.split('\n').filter(line=>line.startsWith('  bun ')).map(line=>line.trim());
-    assert.equal(commands.length,3,created.stdout);
+    // Its commands are its own runner's verbs, as an app's are (LLP 1086; the platformer's diary, R1).
+    const verbs=created.stdout.split('\n').filter(line=>line.startsWith('  bun exact.mjs ')).map(line=>line.trim().split(/\s+/)[2]);
+    assert.deepEqual(verbs,['test-rust','web','test','agent','mac','prove'],created.stdout);
+    const runner=readFileSync(resolve(app,'exact.mjs'),'utf8');
+    for (const verb of verbs) assert.ok(new RegExp(`^  '?${verb}'?: \\[`,'m').test(runner),verb);
+    assert.match(readFileSync(resolve(app,'AGENTS.md'),'utf8'),/<!-- exact:begin[^]*an Exact game[^]*game\/README\.md[^]*## The authoring diary[^]*<!-- exact:end -->/);
     const inspect=resolve(directory,'inspect command.mjs');
     writeFileSync(inspect,`import {readFileSync} from 'node:fs'; import {resolve} from 'node:path';
       const [script,...args]=process.argv.slice(2); const path=resolve(script); readFileSync(path);
@@ -100,11 +105,6 @@ test('generated commands run from an external author directory with quoted paths
       assert.equal(result.status,0,`${command}\n${result.stderr}`);
       return JSON.parse(result.stdout);
     };
-    assert.deepEqual(commands.map(run),[
-      {path:resolve(import.meta.dir,'dev.mjs'),args:['.']},
-      {path:resolve(import.meta.dir,'prove.mjs'),args:['.']},
-      {path:resolve(app,'proof.mjs'),args:['web','--screenshot-only']},
-    ]);
     const readme=readFileSync(resolve(app,'README.md'),'utf8');
     assert.ok(!readme.includes('/path/to/exact2'),readme);
     const documented=[...readme.matchAll(/`(bun [^`]+)`/g)].map(match=>match[1]);

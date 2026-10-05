@@ -6,7 +6,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { outsideWorkspaceProblems, pathFrom, readManifest } from '../scripts/app.mjs';
-import { createApp } from './new.mjs';
+import { createApp, createGame } from './new.mjs';
 
 test('a new outside app passes the checks every run makes, and a drifted one is told what to paste', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
@@ -141,6 +141,39 @@ test('the app\'s own verbs live in app.json, so update keeps them', () => {
     assert.throws(() => readManifest(dir, 'field-log'), /commands\.verify: fewer than 1 items/);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000); // Two offline Cargo resolutions.
+
+test('a game outside this checkout gets an app\'s runner, with its own verbs and no app.json, and update rewrites it (the platformer\'s diary, R1)', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const dir = resolve(parent, 'block-hop'), sdk = resolve(parent, 'sdk');
+    createGame(dir);
+    for (const file of ['AGENTS.md', 'exact.mjs', 'app.test.contract']) assert.ok(existsSync(resolve(dir, file)), file);
+    assert.ok(lstatSync(resolve(dir, 'CLAUDE.md')).isSymbolicLink());
+    assert.ok(!existsSync(resolve(dir, 'app.json')), 'a game\'s manifest stays optional');
+    assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
+    for (const file of ['game/app/shells.mjs', 'game/prove.mjs', 'host/web/build.mjs', 'scripts/agent.mjs', 'scripts/feedback.mjs']) {
+      mkdirSync(resolve(sdk, file, '..'), { recursive: true });
+      writeFileSync(resolve(sdk, file), 'console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));');
+    }
+    const real = realpathSync(dir);
+    for (const [command, args] of [
+      [['test-rust'], [real, '--test']],
+      [['prove', '--repin'], [real, '--repin']],
+      [['web-build'], ['block-hop']],
+      [['agent', 'web', 'tree'], ['web', '--app', 'block-hop', 'tree']],
+      [['feedback', 'status'], ['status']],
+    ]) {
+      const result = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(JSON.parse(result.stdout.trim().split('\n').at(-1)), { args, app: real }, command.join(' '));
+    }
+    writeFileSync(resolve(dir, 'exact.mjs'), '');
+    writeFileSync(resolve(dir, 'AGENTS.md'), `# Mine\n\n${readFileSync(resolve(dir, 'AGENTS.md'), 'utf8').replace('an Exact game', 'stale')}`);
+    assert.match(createApp(dir, { update: true }), /^Updated .*: exact\.mjs, AGENTS\.md$/);
+    assert.match(readFileSync(resolve(dir, 'exact.mjs'), 'utf8'), /'test-rust': \['game\/app\/shells\.mjs'/);
+    assert.match(readFileSync(resolve(dir, 'AGENTS.md'), 'utf8'), /^# Mine\n\n<!-- exact:begin[^]*an Exact game/);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
 
 test('a new app refuses a name no host crate can carry, and a directory that is not empty', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
