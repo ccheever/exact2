@@ -4,15 +4,14 @@
     "1080": "0xf0f3b95bede822ab"
   },
   "saves": {
-    "continuation": "63bf2eccef48e13893547910d945a0ebc63e596e39880e19a4c62e5b55761dd4"
+    "continuation": "50332b6ed849e8302c6419e7b1462f8216f138eab6f053a355099d78b415788d"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "bef55c0b0f1f5924ffeeea70fe67ff6c5dbc02af9a6f1a7bf12542e1594fe412",
+  "inputs": "9de1f8789b9a95b5d64d23a2f6b50b4dfc92b003b5b1516d98062c48d5b9fec9",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "e00ff9dd5ebb5ea0e6acf11d88a3b0351230267a",
-  "reason": "the engine fix lanes (roblox/integrate b61db278a): paged world hash/EXGAME v4, EXPHYS v3, closed-form capsule rays, blocking characters, device mouse motion, MouseLook, ViewModel; Rivals adapted (62e2747a)"
+  "at": "2c19c834853f9a169c70704b58f0ed255a8d7daa"
 }
