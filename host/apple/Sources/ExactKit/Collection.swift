@@ -249,6 +249,8 @@ final class CollectionHost {
     /// animation each was scheduled for, and the drivers running.
     var startOwed = Set<UInt32>()
     var pendingSerial: [UInt32: Int] = [:]
+    var pendingToken: [UInt32: Int] = [:]
+    var nextPendingToken = 0
     #if os(iOS) || os(tvOS)
     var offsetDrivers: [UInt32: OffsetDriver] = [:]
     #endif
@@ -268,10 +270,13 @@ final class CollectionHost {
     }
     /// An animation stops: by a drag, an ordinary correction, or the list's
     /// retirement. What it owed goes with it.
+    /// A list whose port changed outside a report reports again.
+    func reportAgain(_ view: UInt32) { dirty.insert(view); schedule() }
     func stopAnimation(_ view: UInt32) {
-        startOwed.remove(view); pendingSerial[view] = nil
+        startOwed.remove(view); pendingSerial[view] = nil; pendingToken[view] = nil
         #if os(iOS) || os(tvOS)
         offsetDrivers.removeValue(forKey: view)?.cancel()
+        presenter?.scrollPump.forgetTravel(view)
         #endif
         animating.remove(view)
         animationTargets[view] = nil; owedTargets[view] = nil; animationSerial[view] = nil

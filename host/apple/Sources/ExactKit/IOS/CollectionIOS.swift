@@ -160,6 +160,7 @@ extension CollectionHost {
     /// It begins on the next turn with the last target that turn gives: two
     /// motions begun milliseconds apart showed a step back first.
     func animateOffset(_ id: UInt32, _ scroll: UIScrollView, to target: CGPoint) {
+        let target = Self.reachable(target, in: scroll)
         if let driver = offsetDrivers[id], driver.scroll === scroll {
             beginAnimation(id, to: target)
             driver.retarget(target, serial: animationSerial[id] ?? 0)
@@ -167,27 +168,50 @@ extension CollectionHost {
         }
         let pending = startOwed.contains(id) && animating.contains(id)
         let serial = beginAnimation(id, to: target)
-        if pending { pendingSerial[id] = serial; return }
+        if pending, let token = pendingToken[id] { pendingSerial[id] = serial; _ = token; return }
+        // Its own token: a stale start (a list reset and recreated under the
+        // same id) neither starts nor stops the one that replaced it.
+        nextPendingToken += 1
+        let token = nextPendingToken
         startOwed.insert(id)
+        pendingToken[id] = token
         pendingSerial[id] = serial
         DispatchQueue.main.async { [weak self, weak scroll] in
-            guard let self, self.startOwed.remove(id) != nil else { return }
-            let token = self.pendingSerial.removeValue(forKey: id)
-            guard self.animationSerial[id] == token, let latest = self.animationTargets[id] else { return }
+            guard let self, self.pendingToken[id] == token else { return }
+            self.startOwed.remove(id); self.pendingToken[id] = nil
+            let serial = self.pendingSerial.removeValue(forKey: id)
+            guard self.animationSerial[id] == serial, let latest = self.animationTargets[id] else { return }
             guard let scroll, scroll.window != nil, self.presenter?.views[id]?.scroll === scroll else {
-                // Its view went away before it began: nothing is in flight.
+                // Its view went away before it began: nothing is in flight,
+                // and the list reports where it is.
                 self.stopAnimation(id)
+                self.reportAgain(id)
                 return
             }
             self.startOffsetDriver(id, scroll, to: latest)
         }
+    }
+    /// `target` within the offsets the port can reach now.
+    static func reachable(_ target: CGPoint, in scroll: UIScrollView) -> CGPoint {
+        let i = scroll.adjustedContentInset
+        let maxX = max(-i.left, scroll.contentSize.width + i.right - scroll.bounds.width)
+        let maxY = max(-i.top, scroll.contentSize.height + i.bottom - scroll.bounds.height)
+        return CGPoint(x: min(maxX, max(-i.left, target.x)), y: min(maxY, max(-i.top, target.y)))
     }
     private func startOffsetDriver(_ id: UInt32, _ scroll: UIScrollView, to target: CGPoint) {
         let serial = animationSerial[id] ?? beginAnimation(id, to: target)
         let driver = OffsetDriver(scroll: scroll, to: target, duration: Self.smoothDuration, serial: serial) { [weak self] serial, finished in
             guard let self, self.animationSerial[id] == serial else { return }
             self.offsetDrivers[id] = nil
-            if finished { self.animationEnded(id, atTarget: true) } else { self.stopAnimation(id) }
+            if finished {
+                self.animationEnded(id, atTarget: true)
+            } else {
+                // Stopped short (its view left the window): it reports where it is.
+                self.stopAnimation(id)
+                self.reportAgain(id)
+            }
+        } reclamp: { [weak self] reached in
+            self?.animationTargets[id] = reached
         }
         offsetDrivers[id]?.cancel()
         offsetDrivers[id] = driver
@@ -322,9 +346,11 @@ final class OffsetDriver: NSObject {
     private var serial: Int
     private var link: CADisplayLink?
     private let done: (Int, Bool) -> Void
-    init(scroll: UIScrollView, to: CGPoint, duration: TimeInterval, serial: Int, done: @escaping (Int, Bool) -> Void) {
+    private let reclamp: (CGPoint) -> Void
+    init(scroll: UIScrollView, to: CGPoint, duration: TimeInterval, serial: Int, done: @escaping (Int, Bool) -> Void,
+         reclamp: @escaping (CGPoint) -> Void) {
         self.scroll = scroll; self.from = scroll.contentOffset; self.to = to
-        self.duration = duration; self.serial = serial; self.done = done
+        self.duration = duration; self.serial = serial; self.done = done; self.reclamp = reclamp
     }
     func start() {
         began = CACurrentMediaTime()
@@ -347,6 +373,9 @@ final class OffsetDriver: NSObject {
     }
     @objc private func frame(_ link: CADisplayLink) {
         guard let scroll, scroll.window != nil else { cancel(); done(serial, false); return }
+        // Content that shrank under it: head for the edge it can reach now.
+        let reached = CollectionHost.reachable(to, in: scroll)
+        if reached != to { from = scroll.contentOffset; to = reached; began = link.timestamp; reclamp(reached) }
         let x = min(1, (link.targetTimestamp - began) / duration)
         let e = CGFloat(Self.ease(max(0, x)))
         scroll.contentOffset = CGPoint(x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e)
