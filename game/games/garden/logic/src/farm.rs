@@ -11,6 +11,7 @@ pub const START_SIZE: u16 = 6;
 pub const MAX_SIZE: u16 = 256;
 pub const START_SHECKLES: u64 = 20;
 pub const WATER_CAPACITY: u8 = 3;
+pub const FOOD_CAPACITY: u8 = 3;
 pub const BARREL: Vec3 = Vec3::new(-2.0, 0.0, 0.0);
 
 /// A short ladder of market requests: crop, quantity, bonus on top of value.
@@ -26,6 +27,7 @@ pub const ORDERS: &[(u8, u32, u64)] = &[
 pub struct Farm {
     pub sheckles: u64,
     pub water: u8,
+    pub plant_food: u8,
     /// Seeds in hand, by crop kind.
     pub seeds: Vec<u32>,
     pub held: Option<u8>,
@@ -120,6 +122,7 @@ pub fn show_plot(w: &World, tile: Option<[u16; 2]>) {
     let color = match plant {
         None => [0.2, 0.85, 1.0],
         Some(p) if garden::fruits_of(w, p).iter().any(|fruit| fruit.1) => [0.35, 1.0, 0.3],
+        Some(p) if garden::is_fed(w, p) => [0.8, 0.55, 1.0],
         Some(p) if !garden::needs_water(w, p) => [0.2, 0.65, 1.0],
         Some(_) => [1.0, 0.7, 0.15],
     };
@@ -234,6 +237,27 @@ pub fn sell(w: &World, id: Option<u32>) -> u64 {
         farm.shop_dirty = true;
     }
     total
+}
+
+/// Compost exactly the chosen fruit; a stale ID or full pouch spends nothing.
+pub fn compost(w: &World, id: u32) -> Result<String, String> {
+    let mut farm = w.resource_mut::<Farm>();
+    if farm.plant_food >= FOOD_CAPACITY {
+        return Err("Plant-food pouch full · feed a growing plot first".into());
+    }
+    let i = farm
+        .bag
+        .iter()
+        .position(|item| item.id == id)
+        .ok_or("Fruit is no longer in the backpack")?;
+    let item = farm.bag.remove(i);
+    farm.plant_food += 1;
+    farm.bag_dirty = true;
+    Ok(format!(
+        "Composted {} · +1 plant food instead of {}¢",
+        item.label(),
+        item.value()
+    ))
 }
 
 /// Deliver one whole request, retaining unrelated fruit. Every fruit still
@@ -419,6 +443,10 @@ pub fn command(w: &mut World, cmd: &str) {
                 .map(|id| format!("Sold for {}¢", sell(w, Some(id)))),
         },
         "deliver" => deliver(w),
+        "compost" => arg
+            .parse::<u32>()
+            .map_err(|_| "Choose a fruit to compost".into())
+            .and_then(|id| compost(w, id)),
         "harvest" => Ok(format!("Harvested {}", harvest_all(w))),
         "page" => {
             let mut farm = w.resource_mut::<Farm>();
@@ -626,6 +654,26 @@ pub fn refill(w: &World) -> Result<String, String> {
     }
     farm.water = WATER_CAPACITY;
     Ok("Watering can refilled · 3 doses".into())
+}
+
+pub fn feed_here(w: &World) -> Result<String, String> {
+    if w.resource::<Farm>().plant_food == 0 {
+        return Err("Compost a backpack fruit for plant food".into());
+    }
+    let plant = w
+        .global_position("player")
+        .and_then(|p| tile_at(w, p))
+        .and_then(|tile| w.resource::<Farm>().at(tile))
+        .ok_or("Stand on a growing plot to feed")?;
+    if !garden::needs_feed(w, plant) {
+        return Err("Already fed or ripe · wait for new growth".into());
+    }
+    garden::feed(w, plant);
+    w.resource_mut::<Farm>().plant_food -= 1;
+    Ok(format!(
+        "Fed {} · next fruit weighs 25% more",
+        crop(w.require::<Plant>(plant).kind).name
+    ))
 }
 
 /// E on a tile: harvest what is ripe there, or plant the held seed.

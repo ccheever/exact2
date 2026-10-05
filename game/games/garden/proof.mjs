@@ -386,11 +386,63 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await careBack.world('world').save(resolve(out,'watering-restored.world'));
   check('watered continuation saves are byte-identical',readFileSync(resolve(out,'watering-continued.world')).equals(readFileSync(resolve(out,'watering-restored.world'))));
   await careBack.close();
+
+  // Recycle a real harvest, feed the next crop through its HUD control, then
+  // resume the saved growing plot in another host process.
+  const compost = await open({fresh:true, epoch:EPOCH});
+  await compost.tap('play');
+  const fg = compost.world('world');
+  await fg.run(100);
+  await compost.tap('buy-carrot'); await fg.run(100);
+  await fg.tap('KeyE'); await fg.run(20_100);
+  await fg.tap('KeyE'); await fg.run(100);
+  await compost.tap('bag-tab');
+  check('a harvested fruit offers a named compost trade', node(await compost.tree(),'compost-0')?.props?.accessibilityLabel?.includes('one plant food'));
+  const cash = purseOf(await compost.tree());
+  await compost.tap('compost-0'); await fg.run(100);
+  check('compost trades that fruit for one dose without selling it', text(await compost.tree(),'food-count') === 'Plant food · 1/3'
+    && label(await compost.tree(),'bag-tab') === 'Backpack 0' && purseOf(await compost.tree()) === cash);
+  await fg.tap('KeyF'); await fg.run(100);
+  check('feeding an empty plot spends nothing', text(await compost.tree(),'food-count') === 'Plant food · 1/3');
+  await fg.tap('KeyE'); await fg.run(100);
+  check('a new growing plot enables its Feed button', node(await compost.tree(),'feed')?.props?.disabled === false);
+  await compost.tap('feed'); await fg.run(100);
+  check('feeding spends one dose and names the larger harvest', text(await compost.tree(),'food-count') === 'Plant food · 0/3'
+    && text(await compost.tree(),'feeding') === 'Fed plot · next harvest has 25% more weight');
+  if (host !== 'linux') await compost.screenshot(resolve(out,'feeding.png'));
+  // Both hosts checkpoint after the HUD's focus input has reached a tick.
+  await fg.run(100);
+  await fg.save(resolve(out,'compost-growing.world'));
+  const finishFood = async session => {
+    const g = session.world('world');
+    // Opening a native HUD panel queues Blur. Do it before the shared clock
+    // steps, so both continuations save after their UI input has been consumed.
+    if (!node(await session.tree(),'bag')) await session.tap('bag-tab');
+    await g.tap('KeyF'); await g.run(100);
+    await g.run(20_100);
+    await g.tap('KeyE'); await g.run(100);
+    const tree = await session.tree();
+    check('the fed harvest is visibly named in the backpack', tree.nodes.some(n => n.props?.text?.startsWith('Fed '))
+      && label(tree,'bag-tab') === 'Backpack 1' && text(tree,'food-count') === 'Plant food · 0/3');
+    return g.snapshot();
+  };
+  const fed = await finishFood(compost);
+  await fg.save(resolve(out,'compost-continued.world'));
+  pinSave('compost',resolve(out,'compost-continued.world'));
+  if (host !== 'linux') await compost.screenshot(resolve(out,'fed-harvest.png'));
+  await compost.close();
+  const compostBack = await open({fresh:true, world:resolve(out,'compost-growing.world'), epoch:EPOCH});
+  await compostBack.tap('play');
+  check('compost and fed growth continue identically in a fresh process', JSON.stringify(await finishFood(compostBack)) === JSON.stringify(fed));
+  await compostBack.world('world').save(resolve(out,'compost-restored.world'));
+  check('fed continuation saves are byte-identical', readFileSync(resolve(out,'compost-continued.world')).equals(readFileSync(resolve(out,'compost-restored.world'))));
+  await compostBack.close();
 });
 
 // Jev sees the player's text and enabled controls, and acts through those
 // controls. It does not inspect the farm, inject money or use the stress tools.
 async function playtest({open, out, log}) {
+  if (process.argv.includes('--compost')) return compostPlaytest({open, out, log});
   const fullMarket = process.argv.includes('--full-market');
   const startOutside = process.argv.includes('--start-outside');
   if (startOutside && !fullMarket) throw new Error('--start-outside needs --full-market for movement controls');
@@ -468,6 +520,55 @@ async function playtest({open, out, log}) {
   writeFileSync(resolve(out, 'jev-outcome.json'), JSON.stringify(outcome, null, 2));
   log(`JEV outcome: ${strawberryHarvests} strawberry harvests · ${outcome.purse}¢ · ${outcome.census}`);
   await s.screenshot(resolve(out, 'jev-playtest.png'));
+  await s.close();
+}
+
+// A new, bounded feature scenario. Earlier market policies stay unchanged.
+async function compostPlaytest({open, out, log}) {
+  const s = await open({epoch:EPOCH});
+  await s.tap('play');
+  const game = s.world('world');
+  await game.run(100);
+  const transcript = resolve(out,'jev-compost-decisions.jsonl');
+  writeFileSync(transcript,'');
+  const recent = [];
+  let decisions = 0, achieved = false;
+  for (; decisions < 64 && !achieved; decisions++) {
+    const tree = await s.tree();
+    const state = Object.fromEntries(['sheckles','prompt','held','last','food-count','feeding','water-count','care','refill-hint']
+      .map(id => [id,text(tree,id) ?? '']));
+    state.backpack = label(tree,'bag-tab');
+    const choices = {wait:'Wait 10 seconds for the crop to grow'};
+    const buttons = {};
+    const offers = {'buy-carrot':'Buy one carrot seed for 10 coins', 'shop-tab':'Open the seed shop',
+      'bag-tab':'Open the backpack to sell or compost a chosen fruit',
+      feed:'Spend one plant-food dose on this plot for 25% heavier fruit',
+      water:'Water this growing plot for a shorter wait', refill:'Refill the watering can at the barrel'};
+    for (const n of tree.nodes) if (n.props?.testId?.startsWith('compost-')) offers[n.props.testId] = n.props.accessibilityLabel;
+    for (const [id, description] of Object.entries(offers)) {
+      const n = node(tree,id);
+      if (!n || n.props?.disabled || (id === 'shop-tab' && node(tree,'shop')) || (id === 'bag-tab' && node(tree,'bag'))) continue;
+      const action = id.replaceAll('-','_');
+      choices[action] = description; buttons[action] = id;
+    }
+    if (state.prompt.startsWith('E:')) choices.act = `Press E: ${state.prompt}`;
+    const decision = await decide({state:{...state,recent},choices,transcript,
+      goal:'Grow and harvest a carrot, compost that fruit in the backpack into one plant-food dose, then grow another carrot and feed its plot with F Feed. Harvest the larger Fed fruit and keep it in your backpack. Composting trades away a fruit instead of selling it. You start with one carrot seed and 20 coins; buy a second seed. Stay on this tile. Watering is optional. Wait when growth is the remaining step.'});
+    log(`JEV compost ${decisions + 1}: ${decision.choice} · ${state.prompt} · ${state['food-count']}`);
+    recent.push({action:decision.choice,prompt:state.prompt,last:state.last});
+    if (recent.length > 6) recent.shift();
+    if (decision.choice === 'wait') await game.run(10_000);
+    else if (decision.choice === 'act') { await game.tap('KeyE'); await game.run(100); }
+    else { await s.tap(buttons[decision.choice]); await game.run(100); }
+    achieved = (text(await s.tree(),'last') ?? '').startsWith('Harvested Fed ');
+  }
+  if (!node(await s.tree(),'bag')) await s.tap('bag-tab');
+  const tree = await s.tree();
+  const outcome = {achieved,decisions,purse:purseOf(tree),last:text(tree,'last'),food:text(tree,'food-count'),
+    backpack:label(tree,'bag-tab'),world:await game.snapshot()};
+  writeFileSync(resolve(out,'jev-compost-outcome.json'),JSON.stringify(outcome,null,2));
+  log(`JEV compost outcome: achieved=${achieved} · ${decisions} decisions · ${outcome.last}`);
+  await s.screenshot(resolve(out,'jev-compost.png'));
   await s.close();
 }
 

@@ -146,11 +146,15 @@ fn same_seed_same_mutations_other_seed_other_mutations() {
 fn away_is_the_same_as_playing_through() {
     let mut live = new(5);
     send(&mut live, "fill 300");
+    live.world_mut().resource_mut::<Farm>().plant_food = 1;
     live.tap("KeyQ");
+    live.tap("KeyF");
     live.run(100.0);
     let mut away = new(5);
     send(&mut away, "fill 300");
+    away.world_mut().resource_mut::<Farm>().plant_food = 1;
     away.tap("KeyQ");
+    away.tap("KeyF");
     away.run(100.0);
     live.run(20.0 * 60_000.0);
     let target = now_ms(live.world());
@@ -449,12 +453,14 @@ fn market_delivers_the_requested_fruit_once_and_preserves_its_full_value() {
         kind: 0,
         weight: 0.5,
         muts: 0,
+        fed: true,
     };
     let extra = Item {
         id: 1,
         kind: 2,
         weight: 0.18,
         muts: 0,
+        fed: false,
     };
     let value = carrot.value();
     game.world_mut().resource_mut::<Farm>().bag = vec![extra, carrot];
@@ -907,6 +913,7 @@ fn market_bonus_stops_after_the_last_request() {
             kind,
             weight: CROPS[kind as usize].weight,
             muts: 0,
+            fed: false,
         };
         let value = item.value();
         game.world_mut().resource_mut::<Farm>().bag = vec![item; count as usize];
@@ -924,4 +931,159 @@ fn market_bonus_stops_after_the_last_request() {
         .unwrap()
         .text()
         .contains("all 5 orders filled"));
+}
+
+#[test]
+fn compost_spends_only_the_chosen_fruit_and_refuses_stale_ids_or_a_full_pouch() {
+    use garden_logic::garden::Item;
+    let mut game = new(7);
+    game.world_mut().resource_mut::<Farm>().bag = (0..4)
+        .map(|id| Item {
+            id,
+            kind: 0,
+            weight: 0.25,
+            ..Item::default()
+        })
+        .collect();
+    send(&mut game, "compost 1");
+    assert_eq!(game.world().resource::<Farm>().plant_food, 1);
+    assert_eq!(
+        game.world()
+            .resource::<Farm>()
+            .bag
+            .iter()
+            .map(|i| i.id)
+            .collect::<Vec<_>>(),
+        vec![0, 2, 3]
+    );
+    for command in ["compost 1", "compost nope", "compost 99"] {
+        send(&mut game, command);
+        assert_eq!(game.world().resource::<Farm>().plant_food, 1);
+        assert_eq!(game.world().resource::<Farm>().bag.len(), 3);
+    }
+    send(&mut game, "compost 0");
+    send(&mut game, "compost 2");
+    send(&mut game, "compost 3");
+    assert_eq!(game.world().resource::<Farm>().plant_food, 3);
+    assert_eq!(game.world().resource::<Farm>().bag[0].id, 3);
+    assert_eq!(sheckles(&game), 20, "composting pays no sale proceeds");
+    game.tap("KeyF");
+    game.run(100.0);
+    assert_eq!(
+        game.world().resource::<Farm>().plant_food,
+        3,
+        "an empty tile spends nothing"
+    );
+    assert_eq!(
+        game.world().published("bag_count").unwrap().as_number(),
+        Some(1.0)
+    );
+    assert_eq!(
+        game.world().published("plant_food").unwrap().as_number(),
+        Some(3.0)
+    );
+    let bytes = game.save().unwrap();
+    let mut back = new(7);
+    back.restore(&bytes).unwrap();
+    assert_eq!(back.world().resource::<Farm>().plant_food, 3);
+    assert_eq!(back.world().resource::<Farm>().bag[0].id, 3);
+}
+
+#[test]
+fn feeding_improves_one_harvest_without_rerolling_it_and_survives_restore() {
+    for (kind, late) in [(0, false), (1, false), (1, true), (2, false), (2, true)] {
+        let crop = &CROPS[kind as usize];
+        let mut fed = new(7);
+        let mut plain = new(7);
+        for game in [&mut fed, &mut plain] {
+            {
+                let mut farm = game.world_mut().resource_mut::<Farm>();
+                farm.held = Some(kind);
+                farm.seeds[kind as usize] = 1;
+                farm.plant_food = 3;
+            }
+            game.tap("KeyE");
+            game.run(100.0);
+            game.run(if late {
+                crop.grow_s as f64 * 1000.0
+            } else {
+                3000.0
+            });
+        }
+        fed.tap("KeyF");
+        fed.run(100.0);
+        plain.run(100.0);
+        assert_eq!(fed.world().resource::<Farm>().plant_food, 2);
+        let plant = fed.world().resource::<Farm>().at([0, 0]).unwrap();
+        assert!(garden_logic::garden::is_fed(fed.world(), plant));
+        assert!(!garden_logic::garden::needs_feed(fed.world(), plant));
+        fed.tap("KeyF");
+        fed.run(100.0);
+        plain.run(100.0);
+        assert_eq!(
+            fed.world().resource::<Farm>().plant_food,
+            2,
+            "repeat feeding spends nothing"
+        );
+        let bytes = fed.save().unwrap();
+        let mut back = new(7);
+        back.restore(&bytes).unwrap();
+        let span = (crop.grow_s + crop.fruit_s) as f64 * 1000.0 + 1000.0;
+        for game in [&mut fed, &mut plain, &mut back] {
+            game.run(span);
+        }
+        let fruit = |game: &Sim<Garden>| {
+            game.world()
+                .query::<&Fruit>()
+                .iter()
+                .map(|(_, f)| (f.weight, f.muts, f.fed, f.ripe))
+                .collect::<Vec<_>>()
+        };
+        let boosted = fruit(&fed);
+        let normal = fruit(&plain);
+        assert_eq!(boosted.len(), crop.slots as usize);
+        for (f, p) in boosted.iter().zip(&normal) {
+            assert_eq!(f.0, p.0 * 1.25, "exactly one 25% weight boost");
+            assert_eq!(f.1, p.1, "mutations do not reroll");
+            assert!(f.2 && f.3 && !p.2 && p.3);
+        }
+        assert_eq!(fruit(&back), boosted);
+        assert!(fed.save().unwrap() == back.save().unwrap());
+        for game in [&mut fed, &mut back] {
+            game.tap("KeyF");
+            game.run(100.0);
+        }
+        plain.run(100.0);
+        assert_eq!(
+            fed.world().resource::<Farm>().plant_food,
+            2,
+            "ripe fruit cannot consume food"
+        );
+        for game in [&mut fed, &mut plain, &mut back] {
+            game.tap("KeyE");
+            game.run(100.0);
+        }
+        assert!(fed
+            .world()
+            .resource::<Farm>()
+            .bag
+            .iter()
+            .all(|i| i.fed && i.label().starts_with("Fed ")));
+        assert!(fed.save().unwrap() == back.save().unwrap());
+        if crop.regrows {
+            assert!(
+                garden_logic::garden::needs_feed(fed.world(), plant),
+                "new growth can be fed again"
+            );
+            for game in [&mut fed, &mut plain, &mut back] {
+                game.run(crop.fruit_s as f64 * 1000.0 + 1000.0);
+            }
+            assert_eq!(
+                fruit(&fed),
+                fruit(&plain),
+                "regrowth has no free second boost"
+            );
+            assert!(fed.save().unwrap() == back.save().unwrap());
+        }
+    }
 }

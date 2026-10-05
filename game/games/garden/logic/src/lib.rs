@@ -57,6 +57,7 @@ impl Game for Garden {
             .button("act", &["KeyE"])
             .button("water", &["KeyQ"])
             .button("refill", &["KeyR"])
+            .button("feed", &["KeyF"])
             .button("jump", &["Space"])
     }
     fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
@@ -168,6 +169,7 @@ impl Game for Garden {
                 farm::water_here as fn(&World) -> Result<String, String>,
             ),
             ("refill", farm::refill),
+            ("feed", farm::feed_here),
         ] {
             if input.pressed(action) {
                 let message = f(w).unwrap_or_else(|why| why);

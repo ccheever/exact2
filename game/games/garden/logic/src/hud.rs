@@ -41,6 +41,9 @@ pub struct Status {
     pub care: String,
     pub refill: String,
     pub refill_ready: bool,
+    pub plant_food: u32,
+    pub feed_ready: bool,
+    pub feeding: String,
 }
 
 #[derive(Default, Data)]
@@ -290,6 +293,17 @@ pub fn publish(w: &World, prompt: String, force: bool) {
         },
         refill: crate::farm::refill_guidance(w),
         refill_ready: farm.water < crate::farm::WATER_CAPACITY && crate::farm::at_barrel(w),
+        plant_food: farm.plant_food as u32,
+        feed_ready: farm.plant_food > 0 && target.is_some_and(|p| crate::garden::needs_feed(w, p)),
+        feeding: if target.is_some_and(|p| crate::garden::is_fed(w, p)) {
+            "Fed plot · next harvest has 25% more weight".into()
+        } else if farm.plant_food == 0 {
+            "Compost a backpack fruit to make plant food".into()
+        } else if target.is_some_and(|p| crate::garden::needs_feed(w, p)) {
+            "Feed this plot · next fruit weighs 25% more".into()
+        } else {
+            "Stand on a growing or regrowing plot to feed".into()
+        },
     });
 }
 

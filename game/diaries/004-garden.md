@@ -1289,3 +1289,61 @@ shared with `browser-web` retain the same ticks and hashes, and every save
 remains byte-identical. Both process audits pass with no recorded children
 remaining, and both watering captures were inspected. Artifacts:
 `artifacts/owner-{web,macos}/`. No gameplay or Jev-policy changes.
+
+## Compost gives spare fruit another use (2026-10-04)
+
+Watering already lets players spend a small resource to shorten a wait. This
+batch adds a different choice: compost a specific backpack fruit instead of
+selling it, then feed a plot for a heavier upcoming harvest. One fruit yields
+one dose; the pouch holds three. F or the Feed button spends one dose on a
+seedling's first fruit batch or a mature plant's current unripe fruit. Weight
+is multiplied by 1.25 at ripening, with no extra RNG draws; the existing value
+formula then prices it. Regrowth starts unfed. Repeated feeding, empty/ripe
+plots, stale fruit IDs and a full pouch spend nothing. The UI names each
+compost trade, marks the fed plot purple and labels the harvested fruit Fed.
+
+All of this fits existing saved components, resources, action buttons and
+messages. No engine API or additional scheduler is introduced. Twenty-nine
+Garden tests pass (five scale/render tests stay ignored), including exact
+weight/mutation comparisons, first growth and fruit-stage feeding, save/restore,
+ordinary regrowth, compost refusal and the existing offline/watering equivalence
+case extended to feeding. The market fixture also accepts a Fed fruit at its
+full value. Determinism lints and strict all-target Clippy pass. The first test
+attempt wrongly checked feeding readiness after new fruit had already ripened;
+that assertion now runs while the regrowth is unripe. Logs:
+`/tmp/exact2-compost-{author-checks,clippy,tests-1,tests-2}.log`.
+
+The initial web drive has no assertion failures. The native drive finds equal
+world state but different continuation bytes: opening the restored backpack
+after the last clock step leaves three pending Blur events. A temporary decode
+shows every other saved field equal. Moving the UI setup before the shared
+continuation fixes that comparison. Comparing hosts then finds one pending
+browser Blur in the earlier growing-plot checkpoint; the fixture now advances
+an equal 100 ms on every host after its HUD checks and before that save. The
+input is consumed through normal simulation, never removed from the save.
+`game/README.md` now explains why a matching world hash alone cannot establish
+matching saves. Evidence: `/tmp/exact2-compost-{save,growing}-diff.json`.
+
+A separate, fixed 64-decision Jev scenario uses only the visible controls and
+care text to compost a harvest, feed another crop and harvest its Fed fruit.
+The single web/macOS pair succeeds in 18/13 decisions and 12.135/8.898 s,
+including launch work. Each chooses Compost and Feed exactly once. Neither
+waters; both buy two seeds, leaving web with an extra normal carrot and native
+with a spare seed. Their Fed carrots are worth 39/47 coins; the runs are
+stochastic and do not establish efficiency, a success rate or visual perception.
+Median/p95 decision latency is 327/702 ms on web and 399/595 ms on macOS;
+input/output tokens are 14,149/834 and 9,937/559. Both final screenshots were
+inspected and both descendant audits leave no recorded children. Artifacts:
+`artifacts/jev-compost-{web,macos}/`. This feedback batch is closed without
+retuning; earlier market policies remain unchanged.
+
+Final candidate drives have no failures in 81.840/41.861 s on web/macOS.
+Both agree on source inputs, candidate pins, eleven final world samples,
+published values and fifteen saves; all process audits pass. Artifacts:
+`artifacts/compost-settled-{web,macos}/`. Both feeding and harvested-fruit
+captures were inspected. The existing pins are still unchanged pending the
+strict collector. Root checks all pass in 86.287 s: build 0.407, tests
+83.400 (2386 passed in 81 binaries, 9 ignored), Clippy 0.302, formatting
+2.074, caps 0.088 and boot 0.015 s. Binary-reported test execution sums to
+39.87 s; the local timing target is missed again, with no game proof
+running concurrently. Logs: `/tmp/exact2-compost-root-*.log`.

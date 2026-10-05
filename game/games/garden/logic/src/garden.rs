@@ -146,6 +146,8 @@ pub struct Plant {
     /// Effective growth span; watering preserves progress and shortens what remains.
     pub grow_ms: u64,
     pub watered: bool,
+    /// Passed to the first fruit batch, then cleared for ordinary regrowth.
+    pub fed: bool,
     pub stage: u8,
     /// The fruit in each slot. `World::children` scans every entity, so the
     /// plant keeps its own list.
@@ -162,6 +164,7 @@ pub struct Fruit {
     pub ripe_at: u64,
     pub ripe: bool,
     pub watered: bool,
+    pub fed: bool,
     pub weight: f32,
     pub muts: u8,
 }
@@ -216,6 +219,7 @@ pub fn plant(w: &mut World, kind: u8, tile: [u16; 2], at: u64) -> Entity {
             planted: at,
             grow_ms: c.grow_s as u64 * 1000,
             watered: false,
+            fed: false,
             stage: 0,
             fruits: vec![None; c.slots as usize],
         },
@@ -247,6 +251,7 @@ pub fn bear(w: &mut World, plant: Entity, kind: u8, slot: u8, at: u64) -> Entity
     let c = crop(kind);
     let ripe_at = at + c.fruit_s as u64 * 1000;
     let base = w.require::<Plant>(plant).tile;
+    let fed = w.require::<Plant>(plant).fed;
     let mut pose = Transform::at(0.0, c.height / 2.0, 0.0).with_scale(0.4);
     pose.position += plant_center(base) + fruit_offset(kind, slot);
     let e = w.spawn((
@@ -261,6 +266,7 @@ pub fn bear(w: &mut World, plant: Entity, kind: u8, slot: u8, at: u64) -> Entity
             ripe_at,
             ripe: false,
             watered: false,
+            fed,
             weight: c.weight,
             muts: 0,
         },
@@ -314,6 +320,9 @@ fn ripen(w: &mut World, e: Entity) {
         let mut weight = crop(kind).weight * rng.range(0.8..1.4);
         if rng.chance(0.02) {
             weight *= 3.0;
+        }
+        if w.require::<Fruit>(e).fed {
+            weight *= 1.25;
         }
         (kind, muts, weight)
     };
@@ -406,6 +415,45 @@ fn grow(w: &mut World, e: Entity, at: u64) {
         for slot in 0..c.slots {
             bear(w, e, kind, slot, at);
         }
+        w.require_mut::<Plant>(e).fed = false;
+    }
+}
+
+/// Feeding visits this plot's bounded fruit slots, never the whole garden.
+/// It changes the weight at ripening without drawing another random number.
+pub fn needs_feed(w: &World, plant: Entity) -> bool {
+    w.get::<Plant>(plant).is_some_and(|p| {
+        if p.stage < 4 {
+            !p.fed
+        } else {
+            p.fruits
+                .iter()
+                .flatten()
+                .any(|&e| w.get::<Fruit>(e).is_some_and(|f| !f.ripe && !f.fed))
+        }
+    })
+}
+
+pub fn is_fed(w: &World, plant: Entity) -> bool {
+    w.get::<Plant>(plant).is_some_and(|p| {
+        p.fed
+            || p.fruits
+                .iter()
+                .flatten()
+                .any(|&e| w.get::<Fruit>(e).is_some_and(|f| f.fed))
+    })
+}
+
+pub fn feed(w: &World, plant: Entity) {
+    let mut p = w.require_mut::<Plant>(plant);
+    if p.stage < 4 {
+        p.fed = true;
+    } else {
+        for &e in p.fruits.iter().flatten() {
+            if let Some(mut f) = w.get_mut::<Fruit>(e).filter(|f| !f.ripe) {
+                f.fed = true;
+            }
+        }
     }
 }
 
@@ -483,6 +531,7 @@ pub struct Item {
     pub kind: u8,
     pub weight: f32,
     pub muts: u8,
+    pub fed: bool,
 }
 impl Item {
     pub fn value(&self) -> u64 {
@@ -490,10 +539,15 @@ impl Item {
     }
     pub fn label(&self) -> String {
         let m = crops::mutation_names(self.muts);
-        if m.is_empty() {
+        let label = if m.is_empty() {
             crop(self.kind).name.to_string()
         } else {
             format!("{m} {}", crop(self.kind).name)
+        };
+        if self.fed {
+            format!("Fed {label}")
+        } else {
+            label
         }
     }
 }
@@ -504,8 +558,8 @@ pub fn pick(w: &mut World, fruit: Entity, at: u64) -> Option<Item> {
     let f = w
         .get::<Fruit>(fruit)
         .filter(|f| f.ripe)
-        .map(|f| (f.kind, f.weight, f.muts, f.plant, f.slot))?;
-    let (kind, weight, muts, plant, slot) = f;
+        .map(|f| (f.kind, f.weight, f.muts, f.plant, f.slot, f.fed))?;
+    let (kind, weight, muts, plant, slot, fed) = f;
     w.despawn(fruit);
     if let Some(mut p) = plant.and_then(|p| w.get_mut::<Plant>(p)) {
         p.fruits[slot as usize] = None;
@@ -530,6 +584,7 @@ pub fn pick(w: &mut World, fruit: Entity, at: u64) -> Option<Item> {
         kind,
         weight,
         muts,
+        fed,
     })
 }
 

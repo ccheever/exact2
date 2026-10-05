@@ -32,6 +32,16 @@ ready and points toward the blue barrel just west of the first plot. Stand near
 it and press **R** to refill for free. Both actions also have HUD buttons.
 Watering is optional; crops still grow while you explore or are away.
 
+**Compost** a chosen backpack fruit to trade it for one dose of plant food,
+instead of its sale value. The pouch holds three doses; a full pouch leaves
+the fruit untouched. Stand on a growing plot and press **F**, or its **Feed**
+button, to make the upcoming fruit weigh 25% more. Feeding a seedling carries
+through to its first fruit; feeding a mature plant affects its current unripe
+fruit. It stacks with watering and weather mutations, but repeated feeding of
+the same growth spends nothing. New regrowth needs another dose. A purple plot
+outline and the care panel mark feeding; harvested fruit is labeled **Fed**.
+The saved pouch and crop keep their feeding state while you are away.
+
 - **Shop**: fourteen seeds from Common to Divine. Stock rolls every five
   minutes; rarer seeds appear less often. Buy, then hold a seed (`×N`).
 - **Backpack**: harvested fruit with weight, mutations and value. Sell one, or
@@ -68,6 +78,11 @@ It cannot
 use stress tools or write the world. `artifacts/<host>/jev-*` holds the transcript, outcome and
 screenshot. This is exploratory play on the agent clock, not deterministic
 proof or a claim about visual perception or real-time input latency.
+
+`--playtest --compost` is a separate 64-decision Jev scenario: grow a carrot,
+compost it, feed the next crop, and keep its larger harvest. It reads the care
+panel and each visible compost button's named trade, using ordinary HUD and
+keyboard controls. It does not change the earlier market playtest policies.
 
 ## How it is built
 

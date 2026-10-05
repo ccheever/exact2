@@ -306,6 +306,12 @@ this by adding the empty-plot hint before tapping the Water button.
 
 `w.emit("won")` separately queues a string for the canvas's `message=` handler.
 Undelivered events save in order but stay outside the simulation hash.
+When comparing continuation saves, make the pending input equivalent too.
+Opening a native HUD panel can queue `Blur`; doing that after the last clock
+step leaves a different save even when the world tick and hash match. Perform
+the UI setup before the shared continuation steps so those inputs are consumed,
+or deliberately compare the same queued input on both sides. Do not discard
+pending input just to make saves agree.
 
 Commands go the other way as messages: an action calls
 `postMessage("buy carrot", "world")` and the next tick reads every message posted
