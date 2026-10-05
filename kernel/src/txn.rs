@@ -76,6 +76,13 @@ pub struct CommitReceipt {
     /// 1057.003 D4): a node inserted, removed or moved, or a row set on
     /// another node, can change what a name finds.
     pub timelines: Vec<NodeKey>,
+    /// Live nodes a producer reused for a new mount (LLP 1078: a list row
+    /// rebound to another item), whatever else the batch did to them: to
+    /// motion and to a host's per-node state each is a node destroyed and
+    /// created by this commit (no transition from what it showed, its
+    /// animations from their start). The kernel never fills it; the producer
+    /// that rebinds does.
+    pub renewed: Vec<NodeKey>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -603,7 +610,7 @@ pub(crate) fn apply_document(
                     if arena.props(slot).get(*prop) == Some(value) {
                         continue;
                     }
-                    let old = arena.props_mut(slot).set(*prop, value.clone());
+                    let old = arena.set_prop(slot, *prop, value.clone());
                     if *prop == PropId::TestId {
                         selectors.update(
                             slot,
@@ -642,7 +649,7 @@ pub(crate) fn apply_document(
                 }
                 Op::ClearProp { id, prop } => {
                     let slot = live_slot(arena, op_index, *id)?;
-                    if let Some(old) = arena.props_mut(slot).remove(*prop) {
+                    if let Some(old) = arena.remove_prop(slot, *prop) {
                         if *prop == PropId::TestId {
                             selectors.update(slot, old.as_str(), None);
                         }

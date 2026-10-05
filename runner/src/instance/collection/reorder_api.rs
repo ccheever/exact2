@@ -60,6 +60,8 @@ pub struct ReorderStart {
     pub receipt: Option<CommitReceipt>,
 }
 /// A current measured gap, an unproved boundary, or an obsolete request.
+// Returned once per drag sample and never stored: the receipt stays inline.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum ReorderProgress {
     /// No mutation; check identity before validating any numeric sample.

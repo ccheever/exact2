@@ -1,4 +1,4 @@
-# cosmic-text 0.19.0 — five local patches
+# cosmic-text 0.19.0 — six local patches
 
 Complete crates.io archive, including upstream MIT/Apache licenses and
 .cargo_vcs_info.json. No source downloader, feature change or dependency upgrade.
@@ -67,3 +67,13 @@ from its start edge and the indent is part of its width;
 `layout_to_buffer` calls it with zero, so its behavior is unchanged. The host
 passes the indent for a paragraph's first line (`host/linux/src/text/
 shaping.rs`); the regressions are in `host/linux/src/text/css_tests.rs`.
+
+The weight-axis delta (2026-10-04, Claude Opus 5.5, Android cold start) is in
+`src/font/system.rs`. Font matching asks, for every face of another weight,
+whether its `wght` axis covers the requested weight; it opened and mapped the
+face's file each time to read that (about 300 files on a phone, per attributes
+matched: most of a first layout). `FontSystem` now keeps each face's range once
+read (`face_weight_axis`, public), and `set_weight_axes` takes ranges known
+ahead: the host's font-directory cache (`host/linux/src/text/font_cache.rs`)
+stores each face's range beside it, so a cached launch opens no file to match.
+The comparison is unchanged (`min <= weight <= max`); no match result changes.

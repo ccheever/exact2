@@ -217,6 +217,13 @@ impl Identity {
     }
 }
 
+/// A shortcut from an owner's latest metric stamp to its identity.
+struct Binding {
+    stamp: ParagraphStamp,
+    key: (u64, u64),
+    recency: u64,
+}
+
 pub(super) struct Cache {
     identities: HashMap<u64, Vec<Identity>>,
     serial: u64,
@@ -225,7 +232,23 @@ pub(super) struct Cache {
     // Oldest measurement first; refreshed deterministically, never width history.
     handoffs: Vec<Handoff>,
     // Non-owning shortcuts, one latest metric identity per owner; no revisions.
-    bindings: Vec<(ParagraphStamp, (u64, u64))>,
+    // By owner (a measure looks one up per call), each with its recency.
+    bindings: HashMap<exact_kernel::NodeKey, Binding>,
+    recency: u64,
+}
+thread_local! {
+    /// Inside [`deferring_eviction`]: growth skips the eviction walk.
+    static DEFERRED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+/// Run `f` (a layout pass, a paint) with eviction walks deferred to the
+/// first growth after it. A walk visits every identity, so one per text a
+/// pass measures (rows mounting during a fling) is quadratic; the cold
+/// target is soft, and the pass's own texts are pinned anyway.
+pub fn deferring_eviction<T>(f: impl FnOnce() -> T) -> T {
+    let was = DEFERRED.with(|d| d.replace(true));
+    let out = f();
+    DEFERRED.with(|d| d.set(was));
+    out
 }
 impl Default for Cache {
     fn default() -> Self {
@@ -235,7 +258,8 @@ impl Default for Cache {
             clock: 0,
             target: COLD_BYTES,
             handoffs: Vec::new(),
-            bindings: Vec::new(),
+            bindings: HashMap::new(),
+            recency: 0,
         }
     }
 }
@@ -251,44 +275,73 @@ impl Cache {
             .map(|e| e.spec.clone())
     }
     pub fn identified(&mut self, stamp: &ParagraphStamp) -> Option<((u64, u64), Arc<Spec>)> {
-        let i = self
-            .bindings
-            .iter()
-            .position(|(old, _)| old.same_metrics(stamp))?;
-        let (_, key) = self.bindings.remove(i);
+        let key = self.take_binding(stamp)?;
         let spec = self.spec(key)?; // Evicted identities are misses, never unchecked handles.
         self.clock += 1;
         self.entry(key).used = self.clock;
-        self.bindings.push((stamp.clone(), key));
+        self.push_binding(stamp, key);
         Some((key, spec))
+    }
+    /// The owner's shortcut when it proves `stamp`'s metrics, removed.
+    fn take_binding(&mut self, stamp: &ParagraphStamp) -> Option<(u64, u64)> {
+        let owner = stamp.owner();
+        if !self
+            .bindings
+            .get(&owner)
+            .is_some_and(|b| b.stamp.same_metrics(stamp))
+        {
+            return None;
+        }
+        self.bindings.remove(&owner).map(|b| b.key)
+    }
+    /// The newest shortcut for `stamp`'s owner.
+    fn push_binding(&mut self, stamp: &ParagraphStamp, key: (u64, u64)) {
+        self.recency += 1;
+        self.bindings.insert(
+            stamp.owner(),
+            Binding {
+                stamp: stamp.clone(),
+                key,
+                recency: self.recency,
+            },
+        );
+    }
+    /// The shortcuts' identities, oldest first.
+    #[cfg(test)]
+    fn bindings_by_age(&self) -> Vec<(u64, u64)> {
+        let mut all: Vec<_> = self.bindings.values().map(|b| (b.recency, b.key)).collect();
+        all.sort_unstable();
+        all.into_iter().map(|(_, key)| key).collect()
     }
     #[cfg(test)]
     pub fn identified_reference(&mut self, stamp: &ParagraphStamp) -> Option<(u64, u64)> {
-        let i = self
-            .bindings
-            .iter()
-            .position(|(old, _)| old.same_metrics(stamp))?;
-        let (_, key) = self.bindings.remove(i);
+        let key = self.take_binding(stamp)?;
         self.spec(key)?; // Evicted identities are misses, never unchecked handles.
         self.clock += 1;
         self.entry(key).used = self.clock;
-        self.bindings.push((stamp.clone(), key));
+        self.push_binding(stamp, key);
         Some(key)
     }
     pub fn bind(&mut self, stamp: &ParagraphStamp, key: (u64, u64)) {
         // Equal NodeKeys in different domains can replace a shortcut, never
         // alias: lookup above compares the complete metric proof. Correctness
         // falls back to exact content; this table is only a bounded accelerator.
-        self.bindings
-            .retain(|(old, _)| old.owner() != stamp.owner());
+        self.bindings.remove(&stamp.owner());
         if self.bindings.len() == COLD_IDENTITIES {
-            self.bindings.remove(0);
+            let oldest = self
+                .bindings
+                .iter()
+                .min_by_key(|(_, b)| b.recency)
+                .map(|(owner, _)| *owner);
+            if let Some(owner) = oldest {
+                self.bindings.remove(&owner);
+            }
         }
-        self.bindings.push((stamp.clone(), key));
+        self.push_binding(stamp, key);
     }
     fn prune_bindings(&mut self) {
         let identities = &self.identities;
-        self.bindings.retain(|(_, key)| {
+        self.bindings.retain(|_, Binding { key, .. }| {
             identities
                 .get(&key.0)
                 .is_some_and(|bucket| bucket.iter().any(|e| e.id == key.1))
@@ -367,7 +420,7 @@ impl Cache {
             entry.used = self.clock;
             return (hash, entry.id);
         }
-        self.trim(None);
+        self.grew(None);
         self.serial += 1;
         self.identities.entry(hash).or_default().push(Identity {
             id: self.serial,
@@ -424,7 +477,7 @@ impl Cache {
         entry
             .widths
             .retain(|_, value| value.weak.strong_count() != 0);
-        self.trim(Some(key.1));
+        self.grew(Some(key.1));
     }
     pub fn insert(&mut self, key: (u64, u64), width: Width, p: &Rc<Paragraph>) {
         self.clock += 1;
@@ -439,14 +492,20 @@ impl Cache {
         );
         // The caller owns the current working snapshot. It may exceed the soft
         // cold target; no text/geometry is refused or shortened to meet it.
-        self.trim(Some(key.1));
+        self.grew(Some(key.1));
+    }
+    /// One growth: an eviction walk, unless [`deferring_eviction`].
+    fn grew(&mut self, keep: Option<u64>) {
+        if !DEFERRED.with(std::cell::Cell::get) {
+            self.trim(keep);
+        }
     }
     pub fn intrinsic(&mut self, key: (u64, u64), minimum: bool) -> Option<TextMetrics> {
         self.entry(key).intrinsic[usize::from(minimum)]
     }
     pub fn set_intrinsic(&mut self, key: (u64, u64), minimum: bool, metrics: TextMetrics) {
+        // A few numbers: nothing a trim would weigh changes, so none runs.
         self.entry(key).intrinsic[usize::from(minimum)] = Some(metrics);
-        self.trim(Some(key.1));
     }
     pub fn residency(&self) -> Residency {
         let mut result = Residency {
@@ -501,7 +560,7 @@ impl Cache {
         result.owned_capacity_bytes += result.key_capacity_bytes;
         // Bounded shortcut metadata owns no source or paragraph. Count its
         // allocated vector capacity separately from the cold paragraph policy.
-        let bindings = self.bindings.capacity() * size_of::<(ParagraphStamp, (u64, u64))>();
+        let bindings = self.bindings.capacity() * size_of::<(exact_kernel::NodeKey, Binding)>();
         result.key_capacity_bytes += bindings;
         result.owned_capacity_bytes += bindings;
         result.cold_overage_bytes = result.cold_policy_bytes.saturating_sub(self.target);
@@ -777,10 +836,7 @@ impl Cache {
             "{:?}:{:?}:{:?}:{:?}:{:?}",
             (self.serial, self.clock, self.target),
             entries,
-            self.bindings
-                .iter()
-                .map(|(_, key)| *key)
-                .collect::<Vec<_>>(),
+            self.bindings_by_age(),
             self.handoffs
                 .iter()
                 .map(|h| (h.identity, h.width.0))

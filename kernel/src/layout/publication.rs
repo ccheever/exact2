@@ -108,9 +108,11 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
         let moved = !inline && (first || !old.bits_eq(frame));
         let origin_moved =
             old.x.to_bits() != frame.x.to_bits() || old.y.to_bits() != frame.y.to_bits();
-        // Topology changes can switch a Text subtree into/out of inline runs.
-        let full = full || hidden || flags.has(NodeFlags::CHILDREN_DIRTY);
-        let descend_all = full || origin_moved;
+        // A changed child list visits every child; a child that arrived
+        // (created, or moved from another parent: a Text subtree switching
+        // into/out of inline runs) is published whole, a kept one sparsely.
+        let full = full || hidden;
+        let descend_all = full || origin_moved || flags.has(NodeFlags::CHILDREN_DIRTY);
         arena.set_frame(slot, frame);
         arena.consume_layout_flags(slot);
         if moved {
@@ -122,6 +124,7 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
         }
         if descend_all {
             for &child in arena.children(slot).iter().rev() {
+                let full = full || arena.flags(child).has(NodeFlags::ATTACHED);
                 stack.push((child, frame.x, frame.y, hidden, full, origin_moved));
             }
         } else if let Some(children) = paths.get(&slot) {

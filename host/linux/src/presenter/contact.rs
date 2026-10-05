@@ -185,7 +185,7 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Only after a successful, matching, current-origin picture installation.
     /// Same-A repaints retain their contact; foreign/duplicate ACKs never enter.
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(super) fn retire_acknowledged_pointer(&mut self) {
         let stale = self
             .contact

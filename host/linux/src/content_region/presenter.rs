@@ -13,7 +13,7 @@ impl<D: DataSource> Presenter<D> {
         region: crate::content_region::ContentRegionRegistration,
     ) -> Result<(Self, Option<String>), HostError> {
         let (mut presenter, error) = Self::boot_with_assets(
-            plan,
+            crate::host::PlanBytes::Copied(plan),
             data,
             viewport,
             scale,
@@ -63,6 +63,8 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = self.refine_collections() {
             self.host.log(error);
         }
+        let dirty = self.host.take_row_dirty();
+        self.brush.rows_dirty(self.host.kernel(), dirty);
         let roots = self.host.roots();
         let collection_limits = if self.host.content_region().is_some() {
             self.collection_scroll_limits()

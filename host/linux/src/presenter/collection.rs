@@ -2,7 +2,9 @@
 //! the runner owns membership, estimates and anchors. No recursive frame/layout.
 use super::*;
 use exact_kernel::{Dimension, Kernel, NodeKey};
-use exact_runner::{CollectionFeedback, CollectionSnapshot, ListAxis, RowMeasurement, ScrollEvent};
+use exact_runner::{
+    CollectionFeedback, CollectionFill, CollectionSnapshot, ListAxis, RowMeasurement, ScrollEvent,
+};
 use std::collections::{BTreeSet, VecDeque};
 
 const PASSES: usize = 2;
@@ -23,6 +25,21 @@ pub(super) struct State {
     interaction: Option<ViewId>,
     authored_scroll: Option<bool>,
     scroll_events: VecDeque<(ViewId, NodeKey)>,
+    /// The host runs a scroll's collection pass itself, after the frame it
+    /// draws (as RecyclerView prefetches between frames): a scroll only
+    /// queues it.
+    pub(super) defer: bool,
+    /// While set (by such a host, for the frame a scroll draws), passes wait
+    /// for [`Presenter::refine_deferred`].
+    pub(super) hold: bool,
+    /// Slices (LLP 1050.000 §6): a host that fills between frames builds at
+    /// most this many rows past what shows per report, and sends one report
+    /// per list per pass; the rest is the list's `pending`. `None` builds the
+    /// whole window at once.
+    pub(super) limit: Option<u32>,
+    /// The scrolled list and its velocity (logical px/s along its axis): its
+    /// window leads that way and builds that side first.
+    pub(super) velocity: Option<(ViewId, f64)>,
 }
 #[derive(Default)]
 struct Cursor {
@@ -337,9 +354,33 @@ impl<D: DataSource> Presenter<D> {
         if !enabled {
             return;
         }
-        let collections: BTreeSet<_> = self.host.collections().iter().map(|s| s.view).collect();
+        let collections: BTreeSet<_> = self
+            .host
+            .collections_shallow()
+            .iter()
+            .map(|s| s.view)
+            .collect();
         let mut live = BTreeSet::new();
-        for view in self.host.preorder() {
+        // Only nodes with a scroll binding prop can be bound (most of a list's
+        // nodes have none): the walk keeps those.
+        let kernel = self.host.kernel();
+        let bound = if [
+            PropId::ScrollTop,
+            PropId::ScrollLeft,
+            PropId::ScrollFollowEnd,
+        ]
+        .into_iter()
+        .any(|id| kernel.has_prop(id))
+        {
+            kernel.preorder_where(&self.host.roots(), |_, props| {
+                props.get(PropId::ScrollTop).is_some()
+                    || props.get(PropId::ScrollLeft).is_some()
+                    || props.get(PropId::ScrollFollowEnd).is_some()
+            })
+        } else {
+            Vec::new()
+        };
+        for view in bound {
             if collections.contains(&view) {
                 continue;
             }
@@ -482,7 +523,7 @@ impl<D: DataSource> Presenter<D> {
         next
     }
 
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(super) fn painted_collection_scroll(
         &self,
         boxes: &[PaintedBox],
@@ -500,7 +541,7 @@ impl<D: DataSource> Presenter<D> {
             .collect()
     }
 
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(super) fn acknowledge_collection_scroll(&mut self, painted: BTreeMap<ViewId, ModelScroll>) {
         for (view, accepted) in painted {
             let Some(current) = self.pending_model_scroll(view) else {
@@ -585,7 +626,7 @@ impl<D: DataSource> Presenter<D> {
 
     pub(super) fn collection_scroll_limits(&self) -> BTreeMap<ViewId, f32> {
         self.host
-            .collections()
+            .collections_shallow()
             .iter()
             .filter_map(|snapshot| {
                 geometry(self.host.kernel(), snapshot, self.viewport.0 as f64)
@@ -602,8 +643,9 @@ impl<D: DataSource> Presenter<D> {
         }) {
             self.collection.interaction = None;
         }
-        self.collection.schedule(&self.host.collections());
-        if self.collection.pending() {
+        self.collection.schedule(&self.host.collections_shallow());
+        // A host that runs a scroll's pass itself (`defer`) is not woken for it.
+        if self.collection.pending() && !self.collection.defer {
             // GUI poll observes this FD. Headless advances on existing pump/frame
             // calls; it does not run while the carrier blocks waiting for stdin.
             self.executor.notify();
@@ -680,6 +722,9 @@ impl<D: DataSource> Presenter<D> {
             after.or(self.refresh_transform_geometry())
         } else if authored {
             self.after_commit()
+        } else if self.collection.defer {
+            self.queue_collections();
+            None
         } else {
             self.queue_collections();
             self.refine_collections()
@@ -687,6 +732,40 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = error {
             self.host.log(error);
         }
+    }
+
+    /// A host that defers scroll's collection passes: they run now (rows
+    /// mount and retire). Whether the presenter wants a frame after them.
+    #[cfg(target_os = "android")]
+    pub(crate) fn refine_deferred(&mut self, defer: bool) -> bool {
+        self.collection.defer = defer;
+        self.collection.hold = false;
+        if self.collection.pending() {
+            if let Some(error) = self.refine_collections() {
+                self.host.log(error);
+            }
+        }
+        self.dirty
+    }
+
+    /// Slice the next passes ([`State::limit`]) with the scrolled list's
+    /// velocity, or build whole windows (`None`).
+    #[cfg(target_os = "android")]
+    pub(crate) fn slice_collections(&mut self, limit: Option<u32>, velocity: f64) {
+        self.collection.limit = limit;
+        self.collection.velocity = self.last_wheel.map(|v| (v, velocity));
+    }
+
+    /// Whether any list owes another report (a slice left rows unbuilt).
+    #[cfg(target_os = "android")]
+    pub(crate) fn collections_pending(&self) -> bool {
+        self.collection.pending()
+    }
+
+    /// Hold collection passes (a frame a scroll draws) or let them run.
+    #[cfg(target_os = "android")]
+    pub(crate) fn hold_collections(&mut self, hold: bool) {
+        self.collection.hold = hold;
     }
 
     /// The agent's `clock settle`: every queued report, nested lists'
@@ -702,16 +781,28 @@ impl<D: DataSource> Presenter<D> {
         error
     }
     pub(super) fn refine_collections(&mut self) -> Option<String> {
+        if self.collection.hold {
+            return None;
+        }
         let mut error = None;
+        // A sliced pass reports each list once: its pending rest waits for
+        // the host's next pass, in the next frame's idle time.
+        let mut sliced = BTreeSet::new();
         for _ in 0..PASSES {
             let Some(view) = self.collection.queue.pop_front() else {
                 break;
             };
-            let snapshots = self.host.collections();
-            let Some(snapshot) = snapshots.iter().find(|s| s.view == view) else {
+            if self.collection.limit.is_some() && !sliced.insert(view) {
+                self.collection.queue.push_front(view);
+                break;
+            }
+            // This list's snapshot; every list's only to find a pin's owner.
+            let Some(snapshot) = self.host.collection(view) else {
                 self.collection.cursors.remove(&view);
                 continue;
             };
+            let snapshot = &snapshot;
+            let all = std::cell::OnceCell::new();
             let retained_pin = self.arrange_pin();
             let cursor = self.collection.cursors.get_mut(&view).unwrap();
             cursor.queued = false;
@@ -821,27 +912,39 @@ impl<D: DataSource> Presenter<D> {
                     })
                     .collect(),
                 focus_view: self.focus.filter(|_| {
-                    pin_owner(self.host.kernel(), &snapshots, self.focus) == Some(view)
+                    let snapshots = all.get_or_init(|| self.host.collections());
+                    pin_owner(self.host.kernel(), snapshots, self.focus) == Some(view)
                 }),
                 interaction_view: self.collection.interaction.filter(|_| {
                     retained_pin
                         .filter(|(pin, _)| Some(*pin) == self.collection.interaction)
                         .map(|p| p.1)
                         .or_else(|| {
-                            pin_owner(self.host.kernel(), &snapshots, self.collection.interaction)
+                            let snapshots = all.get_or_init(|| self.host.collections());
+                            pin_owner(self.host.kernel(), snapshots, self.collection.interaction)
                         })
                         == Some(view)
                 }),
             };
-            if cursor.sent.as_ref() == Some(&feedback) {
+            // Unchanged facts are news only to a list a slice left pending.
+            if cursor.sent.as_ref() == Some(&feedback) && !snapshot.pending {
                 continue;
             }
             cursor.sent = Some(feedback.clone());
-            match self.host.collection_feedback(feedback) {
+            let fill = CollectionFill {
+                velocity: self
+                    .collection
+                    .velocity
+                    .filter(|(v, _)| *v == view)
+                    .map_or(0.0, |(_, v)| v),
+                limit: self.collection.limit,
+                ..CollectionFill::default()
+            };
+            match self.host.collection_feedback_filled(feedback, fill) {
                 Ok(true) => {
                     let after = self.sync_commit();
                     error = error.or(after);
-                    self.collection.schedule(&self.host.collections());
+                    self.collection.schedule(&self.host.collections_shallow());
                 }
                 Ok(false) => {}
                 Err(why) => {
@@ -850,7 +953,7 @@ impl<D: DataSource> Presenter<D> {
                     let after = self.sync_commit();
                     error = error.or(Some(why));
                     error = error.or(after);
-                    self.collection.schedule(&self.host.collections());
+                    self.collection.schedule(&self.host.collections_shallow());
                 }
             }
         }

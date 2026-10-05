@@ -29,13 +29,17 @@ impl LayoutMotion {
         receipt: &CommitReceipt,
         engine: &mut Engine,
     ) -> Vec<NodeKey> {
-        for key in &receipt.destroyed {
+        // A renewed node is a new one (LLP 1078): no old box to move from.
+        for key in receipt.destroyed.iter().chain(&receipt.renewed) {
             self.tracked.remove(key);
         }
         let mut retired = Vec::new();
         for key in receipt.created.iter().chain(&receipt.touched) {
             if declares(kernel, *key) {
-                if self.tracked.insert(*key) && !receipt.created.contains(key) {
+                if self.tracked.insert(*key)
+                    && !receipt.created.contains(key)
+                    && !receipt.renewed.contains(key)
+                {
                     if let Some(value) = kernel.layout_box(*key) {
                         observe_box(engine, *key, value);
                     }

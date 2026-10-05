@@ -16,6 +16,24 @@ pub(super) struct Header {
     interlaced: bool,
 }
 
+/// `color` for a JPEG, GIF or WebP (not a PNG colour type); its pixels come
+/// from `jpeg_decode`, the platform's decoder.
+const JPEG: u8 = 0xFF;
+
+impl Header {
+    /// A JPEG's, GIF's or WebP's header: decoded as 8-bit RGBA by the platform
+    /// (a GIF's or WebP's first frame).
+    pub(super) fn jpeg(metadata: Metadata) -> Header {
+        Header {
+            metadata,
+            depth: 8,
+            channels: 4,
+            color: JPEG,
+            interlaced: false,
+        }
+    }
+}
+
 /// Metadata inspection allocates no image/decoder buffers and inspects at most
 /// 256 KiB before IDAT. Encoded length is checked before any file buffering.
 pub(super) fn inspect(
@@ -32,6 +50,12 @@ pub(super) fn inspect(
     input
         .read_exact(&mut head)
         .map_err(|_| Refusal::DecodeFailed)?;
+    if super::jpeg_decode::is_jpeg(&head) {
+        return super::jpeg_decode::inspect(input, encoded_bytes);
+    }
+    if let Some(header) = super::jpeg_decode::inspect_animated(&head, encoded_bytes)? {
+        return Ok(header);
+    }
     if &head[..8] != b"\x89PNG\r\n\x1a\n"
         || head[8..12] != 13u32.to_be_bytes()
         || &head[12..16] != b"IHDR"
@@ -139,6 +163,35 @@ impl DecodePlan {
             .checked_mul(32)
             .and_then(|n| n.checked_add(1024 * 1024))
             .ok_or(Refusal::Overflow)?;
+        // A JPEG's platform decode holds the whole file and its own row
+        // buffers (two source rows of 4 bytes a pixel) beside the output.
+        let scratch = if header.color == JPEG {
+            header
+                .metadata
+                .encoded_bytes
+                .checked_add(u64::from(natural.width) * 8 + 1024 * 1024)
+                .ok_or(Refusal::Overflow)?
+        } else {
+            scratch
+        };
+        // Android's platform decoder subsamples a JPEG by powers of two in the
+        // DCT and then resamples to an exact size at full quality, which costs
+        // more than the decode: plan the largest power-of-two subsample that
+        // still covers the request, as an image loader's inexact decode does,
+        // and let the GPU scale it where it is drawn.
+        #[cfg(target_os = "android")]
+        let pixels = if header.color == JPEG && std::env::var_os("EXACT_EXACT_DECODE").is_none() {
+            let mut s = 1u32;
+            while natural.width.div_ceil(s * 2) >= pixels.0
+                && natural.height.div_ceil(s * 2) >= pixels.1
+                && s < 8
+            {
+                s *= 2;
+            }
+            (natural.width.div_ceil(s), natural.height.div_ceil(s))
+        } else {
+            pixels
+        };
         let cost = DecodeCost::checked(u64::from(pixels.0) * 4, pixels.1, scratch, 0)?;
         if cost.peak()? > SESSION_BYTES {
             return Err(Refusal::TooLarge);
@@ -182,6 +235,9 @@ pub(super) fn decode_rows<R: Read + Seek>(
     plan: &DecodePlan,
     cancelled: impl Fn() -> bool,
 ) -> Result<Pixmap, Refusal> {
+    if plan.header.color == JPEG {
+        return super::jpeg_decode::decode(input, plan, cancelled);
+    }
     if cancelled() {
         return Err(Refusal::Stale);
     }

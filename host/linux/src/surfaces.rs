@@ -16,6 +16,11 @@ use std::{
     path::PathBuf,
 };
 
+#[cfg(target_os = "android")]
+#[path = "surfaces/android.rs"]
+mod android;
+#[cfg(target_os = "android")]
+pub(crate) use android::{device_pending as gpu_device_pending, prepare as prepare_gpu};
 #[path = "surface_controls.rs"]
 pub(crate) mod controls;
 mod pixels;
@@ -34,7 +39,13 @@ struct Abi {
 }
 impl Abi {
     fn open(compat: &Value, artifact: &str) -> Result<Self, String> {
+        Self::open_as(compat, artifact, true)
+    }
+    fn open_as(compat: &Value, artifact: &str, load: bool) -> Result<Self, String> {
+        #[cfg(not(target_os = "android"))]
         let binary = std::env::current_exe().map_err(|e| e.to_string())?;
+        #[cfg(target_os = "android")]
+        let binary = android::library_dir().ok_or("EXACT_NATIVE_LIBS is not set")?;
         let name = gpu_card(compat, artifact)["name"]
             .as_str()
             .ok_or("GPU module has no baked identity")?;
@@ -49,9 +60,20 @@ impl Abi {
         } else {
             binary.with_file_name(name)
         };
-        Self::open_path(&path, compat, artifact)
+        Self::open_path_as(&path, compat, artifact, load)
     }
+    #[cfg(test)]
     fn open_path(path: &std::path::Path, compat: &Value, artifact: &str) -> Result<Self, String> {
+        Self::open_path_as(path, compat, artifact, true)
+    }
+    /// The module verified and opened; `load`: its device made (on Android,
+    /// with its shaders), else nothing called yet.
+    fn open_path_as(
+        path: &std::path::Path,
+        compat: &Value,
+        artifact: &str,
+        load: bool,
+    ) -> Result<Self, String> {
         verify_module(path, compat, artifact)?;
         // SAFETY: the app's own module, with the ABI checked before any call.
         let abi = Self {
@@ -101,9 +123,17 @@ impl Abi {
                     std::env::var("EXACT_AGENT").as_deref() == Ok("1"),
                 );
             } else {
+                // On Android the reader's windows take the device (`android::load`).
+                #[cfg(not(target_os = "android"))]
                 abi.symbol::<unsafe extern "C" fn()>(b"gpu_load_headless")();
             }
         }
+        #[cfg(target_os = "android")]
+        if load {
+            android::load(&abi)?;
+        }
+        #[cfg(not(target_os = "android"))]
+        let _ = load;
         Ok(abi)
     }
     // SAFETY: all callers supply the signature declared by gpu/src/native.rs.
@@ -233,7 +263,6 @@ fn artifact_of(compat: &Value, name: &str) -> String {
         .unwrap_or_default()
 }
 fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Result<(), String> {
-    use sha2::{Digest, Sha256};
     let card = gpu_card(compat, artifact);
     let refuse = |reason: &str| format!("GPU module {}: {reason}", path.display());
     if !card.is_object() {
@@ -264,11 +293,45 @@ fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Resu
     } else {
         &card["sha256"]
     };
-    let bytes = std::fs::read(path).map_err(|e| refuse(&e.to_string()))?;
-    if identity.as_str() != Some(format!("{:x}", Sha256::digest(bytes)).as_str()) {
+    if identity.as_str() != Some(file_digest(path).map_err(|e| refuse(&e))?.as_str()) {
         return Err(refuse("digest mismatch"));
     }
     Ok(())
+}
+
+/// The SHA-256 of the file at `path`, hashed once per process while the
+/// file stays the same one (inode, length, modification time): the host
+/// opens a module that its boot already verified on another thread
+/// (`prepare_gpu`), and a module is megabytes.
+fn file_digest(path: &std::path::Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    use std::sync::Mutex;
+    type Stamp = (u64, u64, Option<std::time::SystemTime>);
+    static DIGESTS: Mutex<Vec<(PathBuf, Stamp, String)>> = Mutex::new(Vec::new());
+    let stamp = |m: &std::fs::Metadata| -> Stamp {
+        #[cfg(unix)]
+        let inode = std::os::unix::fs::MetadataExt::ino(m);
+        #[cfg(not(unix))]
+        let inode = 0;
+        (inode, m.len(), m.modified().ok())
+    };
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let before = stamp(&file.metadata().map_err(|e| e.to_string())?);
+    let known = DIGESTS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((.., digest)) = known.iter().find(|(p, s, _)| p == path && *s == before) {
+        return Ok(digest.clone());
+    }
+    drop(known);
+    let mut bytes = Vec::with_capacity(before.1 as usize);
+    std::io::Read::read_to_end(&mut &file, &mut bytes).map_err(|e| e.to_string())?;
+    let digest = format!("{:x}", Sha256::digest(&bytes));
+    // Remembered only when nothing changed the file while it was read.
+    if stamp(&file.metadata().map_err(|e| e.to_string())?) == before && before.2.is_some() {
+        let mut known = DIGESTS.lock().unwrap_or_else(|e| e.into_inner());
+        known.retain(|(p, ..)| p != path);
+        known.push((path.to_path_buf(), before, digest.clone()));
+    }
+    Ok(digest)
 }
 #[derive(Clone)]
 pub(crate) struct ControlBinding {
@@ -353,6 +416,9 @@ pub(crate) struct Surfaces {
     // can bind or render, including replacement while the window is suspended.
     hidden: bool,
     interrupted: bool,
+    /// Windows readers gave canvases, by view (Android).
+    #[cfg(target_os = "android")]
+    windows: BTreeMap<u32, android::Window>,
 }
 /// Posts held per surface name until a canvas of that name is live; past it a
 /// post is dropped and logged. The same bound and rule on every host.
@@ -422,6 +488,8 @@ impl Surfaces {
         for view in dead {
             let c = self.canvases.remove(&view).unwrap();
             self.abis[&c.artifact].destroy(c.id);
+            #[cfg(target_os = "android")]
+            self.windows.remove(&view);
             if c.owner {
                 self.error = self.error.take().or(host.surface_record(&c.name, None));
                 changed = true;
@@ -457,13 +525,20 @@ impl Surfaces {
                 Ok(abi)
             }) {
                 Ok(abi) => {
-                    let length =
-                        unsafe { abi.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_recover")() };
-                    let report = abi
-                        .bytes(length)
-                        .and_then(|b| serde_json::from_slice::<Value>(&b).ok());
-                    if !abi.rendered && report.as_ref().is_none_or(|r| r["status"] != "no device") {
-                        self.error = Some("headless recovery did not report no device".into());
+                    // Headless, a module recovers to "no device"; on Android it loaded one.
+                    #[cfg(not(target_os = "android"))]
+                    {
+                        let length = unsafe {
+                            abi.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_recover")()
+                        };
+                        let report = abi
+                            .bytes(length)
+                            .and_then(|b| serde_json::from_slice::<Value>(&b).ok());
+                        if !abi.rendered
+                            && report.as_ref().is_none_or(|r| r["status"] != "no device")
+                        {
+                            self.error = Some("headless recovery did not report no device".into());
+                        }
                     }
                     self.abis.insert(artifact, abi);
                 }
@@ -780,6 +855,8 @@ impl Surfaces {
             }
         }
         self.outcomes.extend(completed);
+        #[cfg(target_os = "android")]
+        self.attach_windows();
         for abi in self.abis.values() {
             if let Some(error) = abi.error() {
                 self.error = Some(error);

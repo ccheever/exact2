@@ -599,6 +599,63 @@ impl Module {
         self.insert(*factory, Some((target, config)))
     }
 
+    /// Give a canvas made without a target ([`Module::create_headless`]) a
+    /// platform target to present to, configured as [`Module::create`] does
+    /// (a host whose windows come after the surface, as Android's do).
+    pub fn attach(
+        &mut self,
+        id: u32,
+        target: wgpu::Surface<'static>,
+        width: u32,
+        height: u32,
+    ) -> bool {
+        self.check_device();
+        let Some(gpu) = self.gpu.as_ref() else {
+            return self.fail::<()>("no device").is_some();
+        };
+        if let Some(why) = shaders::missing(self.registry.shaders) {
+            return self.fail::<()>(why).is_some();
+        }
+        let Some(mut config) = target.get_default_config(&gpu.adapter, width.max(1), height.max(1))
+        else {
+            return self
+                .fail::<()>("the adapter cannot present to this target")
+                .is_some();
+        };
+        let formats = target.get_capabilities(&gpu.adapter).formats;
+        if let Some(f) = formats.iter().find(|f| !f.is_srgb()) {
+            config.format = *f;
+            config.view_formats = vec![];
+        }
+        config.present_mode = wgpu::PresentMode::AutoVsync;
+        target.configure(&gpu.device, &config);
+        let features = gpu.device.features();
+        let Some(inst) = self.instances.get_mut(&id) else {
+            return self.fail::<()>(format!("no canvas {id}")).is_some();
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            inst.acquire = Default::default();
+        }
+        inst.presentation = Some(Arc::new(target));
+        inst.config = Some(config);
+        inst.surface.device_ready(features);
+        inst.dirty = true;
+        true
+    }
+
+    /// Drop a canvas's target (its window is going); its state stays.
+    pub fn detach(&mut self, id: u32) {
+        if let Some(inst) = self.instances.get_mut(&id) {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                inst.acquire = Default::default();
+            }
+            inst.presentation = None;
+            inst.config = None;
+        }
+    }
+
     /// Create surface ownership without a device, target, or registered shaders.
     pub fn create_headless(&mut self, name: &str) -> Option<u32> {
         let Some((_, _, factory)) = self.registry.surfaces.iter().find(|(n, _, _)| *n == name)

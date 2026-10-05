@@ -27,6 +27,20 @@ pub(super) struct SourceOwner {
     assets: Weak<Assets>,
     prepared: Mutex<Prepared>,
 }
+impl SourceOwner {
+    /// The file it reads, when it is one (not an update's bytes).
+    pub(super) fn file(&self) -> Option<std::path::PathBuf> {
+        match self.assets.upgrade()?.image_input(&self.name)? {
+            ImageInput::Path(path) => Some(path),
+            ImageInput::Bytes(_) => None,
+        }
+    }
+
+    /// The asset name it was asked for.
+    pub(super) fn name(&self) -> &str {
+        &self.name
+    }
+}
 struct State {
     sources: BTreeMap<u64, Weak<SourceOwner>>,
     next_source: u64,
@@ -92,6 +106,7 @@ impl Backend {
         assets: &Arc<Assets>,
     ) -> Result<Arc<SourceOwner>, Refusal> {
         let mut state = self.state.lock().unwrap();
+        let mut queued = false;
         state.sources.retain(|_, source| source.strong_count() > 0);
         // Keep upgraded owners until AFTER releasing the index lock: their
         // asset descriptor may have an arbitrary final destructor.
@@ -124,12 +139,17 @@ impl Backend {
             });
             state.next_source = next;
             state.sources.insert(source.id, Arc::downgrade(&source));
+            queued = true;
             Ok(source)
         } else {
             Err(Refusal::Overflow)
         };
         drop(state);
         drop(owners);
+        // A header to read: a worker reads it now, not at its backstop timeout.
+        if queued {
+            self.session.wake();
+        }
         result
     }
     fn owners(&self) -> Vec<Arc<SourceOwner>> {
@@ -337,7 +357,11 @@ impl Workers {
                 let owner = workers.clone();
                 std::thread::Builder::new()
                     .name(format!("exact-png-{n}"))
-                    .spawn(move || owner.run())
+                    .spawn(move || {
+                        #[cfg(target_os = "android")]
+                        crate::android::background_priority();
+                        owner.run()
+                    })
                     .expect("PNG worker");
             }
             workers
@@ -394,7 +418,9 @@ impl Workers {
         }
         drop(backends);
         before_wait();
-        if let Some(permit) = self.gate.wait_decode(Duration::from_millis(20)) {
+        // Requests, cancels and freed budget all wake a worker; the timeout is
+        // only a backstop, so it is long enough not to be a poll.
+        if let Some(permit) = self.gate.wait_decode(Duration::from_millis(200)) {
             *metadata_turn = true;
             self.complete(permit);
         }

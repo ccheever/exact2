@@ -11,6 +11,18 @@ impl<D: DataSource> Runner<D> {
             .map(Tree::collections)
             .unwrap_or_default()
     }
+    /// One list's entry of [`Runner::collections`].
+    pub fn collection(&self, view: ViewId) -> Option<CollectionSnapshot> {
+        self.tree.as_ref().and_then(|tree| tree.collection(view))
+    }
+    /// [`Runner::collections`] with only each list's first mounted row
+    /// ([`Tree::collections_shallow`]).
+    pub fn collections_shallow(&self) -> Vec<CollectionSnapshot> {
+        self.tree
+            .as_ref()
+            .map(Tree::collections_shallow)
+            .unwrap_or_default()
+    }
     /// Bound borrowed traversal and count all collections/rows before copying
     /// numeric host snapshots. No keys, records or action frames are captured.
     pub fn collections_bounded(
@@ -82,14 +94,24 @@ impl<D: DataSource> Runner<D> {
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            update.reuse = self.reuse;
             tree.update_collection(&mut update, feedback, fill)
-                .map(|changed| (changed, update.ops, update.surfaces, update.notes))
+                .map(|changed| {
+                    (
+                        changed,
+                        update.ops,
+                        update.surfaces,
+                        update.notes,
+                        update.renewed,
+                    )
+                })
         };
         self.tree = Some(tree);
         self.ids = ids;
         let ((changed, edge), ops, surfaces) = match result {
-            Ok((changed, ops, surfaces, notes)) => {
+            Ok((changed, ops, surfaces, notes, renewed)) => {
                 self.notes = notes;
+                self.renewed = renewed;
                 (changed, ops, surfaces)
             }
             Err(error) => {

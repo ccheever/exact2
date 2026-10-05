@@ -89,11 +89,18 @@ pub fn carry_length(len: usize) -> Option<u32> {
 /// (see [`error`]).
 pub fn load(registry: &'static Registry) -> u32 {
     crate::report_panics();
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::PRIMARY,
-        ..wgpu::InstanceDescriptor::new_without_display_handle()
-    });
-    match crate::block_on(crate::load_gpu(instance, None)) {
+    let prepared = {
+        let mut slot = PREPARED.0.lock().unwrap_or_else(|e| e.into_inner());
+        // A device [`prepare`] is still creating: wait for it.
+        while matches!(*slot, Prepared::Creating) {
+            slot = PREPARED.1.wait(slot).unwrap_or_else(|e| e.into_inner());
+        }
+        match std::mem::replace(&mut *slot, Prepared::None) {
+            Prepared::Ready(gpu) => Some(gpu),
+            _ => None,
+        }
+    };
+    match prepared.unwrap_or_else(create_gpu) {
         Ok(gpu) => {
             let mut module = Module::new(registry);
             module.set_gpu(gpu);
@@ -105,6 +112,58 @@ pub fn load(registry: &'static Registry) -> u32 {
             1
         }
     }
+}
+
+fn create_gpu() -> Result<crate::Gpu, crate::DeviceFailure> {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    crate::block_on(crate::load_gpu(instance, None))
+}
+
+enum Prepared {
+    None,
+    Creating,
+    Ready(Result<crate::Gpu, crate::DeviceFailure>),
+}
+
+/// The device [`prepare`] creates, for the next [`load`] on any thread.
+static PREPARED: (std::sync::Mutex<Prepared>, std::sync::Condvar) = (
+    std::sync::Mutex::new(Prepared::None),
+    std::sync::Condvar::new(),
+);
+
+/// Create the device on a thread of its own, now, for the next [`load`]
+/// (which waits for it): a host starting up makes it while it boots, and
+/// the canvas's first frame does not (LLP 1076). The device and queue are
+/// `Send`; the module itself stays on the thread that loads it.
+pub fn prepare() {
+    {
+        let mut slot = PREPARED.0.lock().unwrap_or_else(|e| e.into_inner());
+        if !matches!(*slot, Prepared::None) {
+            return;
+        }
+        *slot = Prepared::Creating;
+    }
+    let made = std::thread::Builder::new()
+        .name("exact-gpu-prepare".into())
+        .spawn(|| {
+            let gpu = create_gpu();
+            *PREPARED.0.lock().unwrap_or_else(|e| e.into_inner()) = Prepared::Ready(gpu);
+            PREPARED.1.notify_all();
+        });
+    if made.is_err() {
+        *PREPARED.0.lock().unwrap_or_else(|e| e.into_inner()) = Prepared::None;
+    }
+}
+
+/// Whether a [`load`] would take its device now: 0 while [`prepare`]'s thread
+/// is still making it (a host skips its canvases for a frame rather than
+/// wait), 1 otherwise.
+pub fn prepared() -> u32 {
+    let slot = PREPARED.0.lock().unwrap_or_else(|e| e.into_inner());
+    u32::from(!matches!(*slot, Prepared::Creating))
 }
 
 /// The active Metal device identity, for filtering host removal notifications.
@@ -207,6 +266,62 @@ pub unsafe fn create(name: &str, _layer: *mut c_void, _width: u32, _height: u32)
         "gpu_create `{name}`: this platform has no presentable target yet"
     ));
     0
+}
+
+/// Give canvas `id` (made by [`create_headless`]) an Android window to
+/// present to. 0 on success, 1 on a refusal (see [`error`]).
+///
+/// # Safety
+/// `window` must be a live `ANativeWindow` that outlives the attachment
+/// (until [`detach`] or the canvas's destroy).
+#[cfg(target_os = "android")]
+pub unsafe fn attach(id: u32, window: *mut c_void, width: u32, height: u32) -> u32 {
+    use wgpu::rwh::{
+        AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
+    };
+    let Some(window) = std::ptr::NonNull::new(window) else {
+        refuse("gpu_attach: a null window");
+        return 1;
+    };
+    let attached = with(|m| {
+        let gpu = m.gpu()?;
+        // SAFETY: the caller's contract — the window outlives the surface.
+        let target = unsafe {
+            gpu.instance
+                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
+                    raw_display_handle: Some(
+                        RawDisplayHandle::Android(AndroidDisplayHandle::new()),
+                    ),
+                    raw_window_handle: RawWindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(
+                        window,
+                    )),
+                })
+        };
+        match target {
+            Ok(t) => Some(m.attach(id, t, width, height)),
+            Err(e) => {
+                ERROR.with(|s| *s.borrow_mut() = format!("{e}"));
+                None
+            }
+        }
+    })
+    .flatten();
+    u32::from(attached != Some(true))
+}
+
+/// No window to attach off Android.
+///
+/// # Safety
+/// None: `window` is never read.
+#[cfg(not(target_os = "android"))]
+pub unsafe fn attach(_id: u32, _window: *mut c_void, _width: u32, _height: u32) -> u32 {
+    refuse("gpu_attach: this platform presents through gpu_create");
+    1
+}
+
+/// Drop canvas `id`'s window target; its state stays.
+pub fn detach(id: u32) {
+    with(|m| m.detach(id));
 }
 
 /// Register the text of shader `name` (LLP 1030 D8): validated, its
@@ -511,6 +626,18 @@ macro_rules! module {
             $crate::native::load(&$registry)
         }
 
+        /// Start creating the device on a thread of its own; `gpu_load` takes it.
+        #[no_mangle]
+        pub extern "C" fn gpu_prepare() {
+            $crate::native::prepare()
+        }
+
+        /// 1 when `gpu_load` would not wait for a prepared device, 0 while it is made.
+        #[no_mangle]
+        pub extern "C" fn gpu_prepared() -> u32 {
+            $crate::native::prepared()
+        }
+
         /// Active Metal registry identity, or zero off Metal.
         #[no_mangle]
         pub extern "C" fn gpu_device_registry_id() -> u64 { $crate::native::device_registry_id() }
@@ -556,6 +683,19 @@ macro_rules! module {
             if layer.is_null() { $crate::native::refuse("gpu_create: a null layer"); return 0 }
             unsafe { $crate::native::create(name, layer, width, height) }
         }
+
+        /// Give a canvas made headless an Android window (an `ANativeWindow`) to present to. 0 on success.
+        ///
+        /// # Safety
+        /// `window` is a live `ANativeWindow` until `gpu_detach` or `gpu_destroy`.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_attach(id: u32, window: *mut ::std::ffi::c_void, width: u32, height: u32) -> u32 {
+            unsafe { $crate::native::attach(id, window, width, height) }
+        }
+
+        /// Drop a canvas's window target; its state stays.
+        #[no_mangle]
+        pub extern "C" fn gpu_detach(id: u32) { $crate::native::detach(id) }
 
         /// Clear the previous complete shader namespace after app acceptance.
         #[no_mangle]
