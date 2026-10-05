@@ -439,7 +439,10 @@ extension Agent {
         if let reply = touchForm(req) { return reply }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
-           let node = view(req), node.isDescendant(of: presenter.viewport), !presenter.groupedLists.draws(node.id) {
+           let node = view(req), node.isDescendant(of: presenter.viewport), !presenter.groupedLists.draws(node.id),
+           // A swipe action's control sits past its row's edge until a swipe
+           // reveals it; its tap is the action's (below), wherever it sits.
+           !presenter.swipeActions.ownsAction(node.id) {
             guard let point = tapPoint(req, node: node) else {
                 return ["error": "tap #\(req["id"] ?? node.id): no visible text fragment; scroll it into view first"]
             }
@@ -497,11 +500,22 @@ extension Agent {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "segmented-control"]
                 : ["error": "native segment #\(id) is unavailable"]
         }
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           let reply = presenter.navigation.activateChrome(node) {
+            return reply
+        }
         if let id = req["id"] as? Int, presenter.swipeActions.ownsAction(UInt32(id)),
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil {
             guard let button = presenter.swipeActions.actionView(UInt32(id)), let window = button.window,
                   let source = presenter.views[UInt32(id)], !source.disabled else {
-                return ["error": "native swipe action #\(id) is not revealed or cannot be uniquely resolved"]
+                // Not revealed: the action as assistive technology performs
+                // it, as the web's tap scrolls the row to it (splitter rough
+                // 12). A real swipe is `tap <row> drag …` (`--touch platform`).
+                if presenter.views[UInt32(id)]?.disabled == false, presenter.swipeActions.perform(UInt32(id)) == true {
+                    return ["tapped": id, "pressed": id, "delivery": "host-activation", "native": "swipe-action", "revealed": false]
+                }
+                return ["error": "native swipe action #\(id) is not offered: disabled, hidden or inert, or its name is not unique"]
             }
             let b = box(button), point = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: window)
             guard let hit = window.hitTest(point, with: nil), hit === button || hit.isDescendant(of: button) else { return ["error": "native swipe action #\(id) is occluded"] }

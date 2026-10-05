@@ -305,9 +305,35 @@ final class NavigationStack {
 
 extension NavigationHost {
     /// Whether a stack's bar shows: the stack's choice, except under the
-    /// agent, where the authored header paints (LLP 1075.003 §3.4).
+    /// agent's own chrome, where the authored header paints (LLP 1075.003
+    /// §3.4).
     func barShows(_ nav: UINavigationController) -> Bool {
-        !ExactEnv.agentMode && stacks[ObjectIdentifier(nav)]?.showsBar == true
+        !ExactEnv.authoredChrome && stacks[ObjectIdentifier(nav)]?.showsBar == true
+    }
+
+    /// The agent's tap on an authored control a native bar stands for, under
+    /// `--chrome platform`: a tab the tab bar shows, or a control in the
+    /// header a shown bar replaces (its items, its back button). Pressed as
+    /// its item presses it (host activation: the agent names the node, UIKit
+    /// owns its pixels); nil when no bar shows `node`.
+    func activateChrome(_ node: NodeView) -> [String: Any]? {
+        guard !ExactEnv.authoredChrome else { return nil }
+        let id = Int(node.id)
+        if tabBarShows, let root = container, let tabs = NavigationTabs.of(root, presenter), tabs.tabs.contains(where: { $0 === node }) {
+            guard !node.disabled else { return ["error": "tab #\(id) is disabled"] }
+            presenter.press(node.id)
+            return ["tapped": id, "pressed": id, "delivery": "host-activation", "native": "tab-bar-item"]
+        }
+        let shown = controllers.values.filter { c in
+            guard let nav = c.navigationController, nav.topViewController === c, barShows(nav) else { return false }
+            return c.viewIfLoaded?.window != nil
+        }
+        guard shown.contains(where: { c in
+            c.barPresses.contains { $0.id == node.id } || c.lifted.map { node === $0 || node.isDescendant(of: $0) } == true
+        }) else { return nil }
+        guard node.handlers.contains("press"), !node.disabled else { return ["error": "bar item #\(id) is disabled or presses nothing"] }
+        presenter.press(node.id)
+        return ["tapped": id, "pressed": id, "delivery": "host-activation", "native": "bar-button-item"]
     }
 
     /// A navigation controller for a stack whose first route is `first`:
@@ -640,7 +666,7 @@ extension NavigationHost {
     /// Whether a native container shows its bars, so the session's view
     /// takes the whole of its own (ExactViewIOS `fit`).
     var wantsWholeView: Bool {
-        (tabOwner != nil && !ExactEnv.agentMode) || allNavigations.contains(where: barShows)
+        (tabOwner != nil && !ExactEnv.authoredChrome) || allNavigations.contains(where: barShows)
     }
 
     /// What Exact's containers cover of each route — its controller's safe
@@ -694,7 +720,7 @@ extension NavigationHost {
             if edges != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[c.node.id] = .edges(edges) }
         }
         // The tablist whose place the tab bar takes takes no room.
-        if let list = adoptedTablist, tabOwner != nil, !ExactEnv.agentMode { wanted[list] = .whole }
+        if let list = adoptedTablist, tabOwner != nil, !ExactEnv.authoredChrome { wanted[list] = .whole }
         for (id, cover) in wanted where covers[id] != cover { changes.append((id, cover)) }
         for id in covers.keys where wanted[id] == nil && presenter.views[id] != nil { changes.append((id, nil)) }
         covers = wanted

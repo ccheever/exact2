@@ -85,13 +85,16 @@ extension Agent {
         if presenter.swipeActions.ownsAction(v.id) { return "is a native swipe action" }
         if presenter.menus.agentPainted(v) { return "goes through the agent's painted popovers" }
         let nav = presenter.navigation
+        // Under `--chrome platform` UIKit's bars draw these: a finger aims
+        // at a node, and the node is not where the bar item is.
+        let shown = ExactEnv.authoredChrome ? "the agent shows in place of" : "drawn by (--chrome platform; tap it without --touch platform)"
         if nav.tabController != nil, let list = nav.adoptedTablist.flatMap({ presenter.views[$0] }), v === list || v.isDescendant(of: list) {
-            return "is in the authored tablist the agent shows in place of UIKit's tab bar"
+            return "is in the authored tablist \(shown) UIKit's tab bar"
         }
         for controller in nav.allNavigations where nav.stacks[ObjectIdentifier(controller)]?.showsBar == true {
             for case let route as RouteController in controller.viewControllers {
                 if let header = HeaderShape(route: route.node, back: nil)?.header, v === header || v.isDescendant(of: header) {
-                    return "is in the authored header the agent shows in place of UIKit's navigation bar"
+                    return "is in the authored header \(shown) UIKit's navigation bar"
                 }
             }
         }
@@ -134,6 +137,11 @@ extension Agent {
     func aim(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         if v.placedAncestor?.placementHidden == true { return ["error": "tap #\(v.id): placed child is hidden"] }
+        // Said before where it sits: until a swipe reveals it, its node is
+        // past the row's edge (splitter rough 12).
+        if presenter.swipeActions.ownsAction(v.id) {
+            return ["error": "unsupported: tap #\(v.id) is a native swipe action: a finger swipes its row (`tap <row> drag -<width> 0`; a full swipe performs the first trailing action), and without --touch platform `tap` performs it"]
+        }
         let scene = win.windowScene
         guard UIApplication.shared.applicationState == .active, scene?.activationState == .foregroundActive, win.isKeyWindow else {
             return ["error": "tap #\(v.id): the app is not the foreground, key window"]

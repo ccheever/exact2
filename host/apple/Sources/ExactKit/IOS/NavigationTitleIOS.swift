@@ -301,7 +301,7 @@ extension NavigationHost {
     /// with it in one batch (a cold launch's) take the same. Written on
     /// change, so a hook's own value stands till then.
     func followTablist(_ routes: [RouteController], in nav: UINavigationController) {
-        guard !ExactEnv.agentMode, let key = container?.props["navigationKey"], let at = routes.indices.dropFirst().first(where: { routes[$0].key == key }),
+        guard !ExactEnv.authoredChrome, let key = container?.props["navigationKey"], let at = routes.indices.dropFirst().first(where: { routes[$0].key == key }),
               let list = adoptedTablist.flatMap({ presenter.views[$0] }) ?? container.flatMap({ NavigationTabs.of($0, presenter)?.tablist })
         else { return }
         let hidden = list.style["display"]?.string == "none"

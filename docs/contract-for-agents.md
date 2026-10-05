@@ -677,8 +677,13 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
 - On iOS the panels become a `UITabBarController`: a tab of one symbol over its label
   is its bar item, a filled box holding a text is the item's badge, and the
   tablist's `accent-color` (inherited, as in CSS) tints the selected item. Under the
-  agent the authored tablist paints and takes taps instead; `tap tab-…` works on every
-  host.
+  agent the authored tablist and header paint and take taps instead; `tap tab-…` works on
+  every host. To see and drive what a person sees, pass `--chrome platform` (a drive or
+  a test on an iOS simulator): UIKit's tab bar, navigation bars and sheets show,
+  `screenshot "file" window` draws them, and a tap naming a tab or a header control
+  presses it through its bar (`native: "tab-bar-item"`, `"bar-button-item"`). The
+  bars' own motion runs on real time (`clock +300 real` before a screenshot); the
+  software keyboard, another window, is not drawn.
 - Hide the tab bar on a route with `display="none"` on the tablist. Never remove the
   tablist with `when`: without it the root has no tabs and the panels' routes are
   found by no host.
@@ -910,9 +915,13 @@ so the next step can tap a row outside the rendered window),
 (a finger, `pointerType` touch, where the carrier has one, unless `mouse` names the left button; `during`
 is last: quoted reads or `clock` while that contact is down, after the move and
 before the hold; `press` and `hold` advance the virtual clock, except under
-`--timing platform`),
+`--timing platform`; on an iOS simulator it is a real UIKit gesture, so a swipe row's
+full swipe performs its action),
 `tap "id" drag to "other" [at x y] […]` (it ends on the other node's middle, or
-at a point in its box; a card dropped on another list),
+at a point in its box; a card dropped on another list; on iOS a `tap` naming a
+native swipe action's control performs it as assistive technology does, with no
+swipe, where the web's tap scrolls the row to it, and `--touch platform`, as in
+`bun exact.mjs test ios --touch platform`, makes every tap a real touch),
 `type "id" "text"` (sets the value), `type "id" "text" append` (after the value
 the tree shows, as typing after a prefill), or `type "id" key "Name"`
 (`down`, `up`, or `for <ms>` on the virtual clock),
