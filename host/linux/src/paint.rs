@@ -1231,7 +1231,7 @@ impl Painter {
             },
         );
         let children: Vec<ViewId> = order.into_iter().map(|(id, _)| id).collect();
-        let rows = self.has_rows(node);
+        let rows = self.has_rows(walk, node);
         // A scroller's rows are its children; a scroller holding one
         // container (a column of settings) keeps that container's children
         // apart instead, so one of them changing records only itself.
