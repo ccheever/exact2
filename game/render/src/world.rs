@@ -161,8 +161,8 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
             for (_, sprite) in w.query::<&exact_game::Sprite>().iter() {
                 self.sprite_texture(&sprite.texture);
             }
-            for (_, look) in w.query::<&exact_game::ParticleLook>().iter() {
-                if !look.texture.is_empty() {
+            for (e, look) in w.query::<&exact_game::ParticleLook>().iter() {
+                if !look.texture.is_empty() && w.is_visible(e) {
                     self.sprite_texture(&look.texture);
                 }
             }

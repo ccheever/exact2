@@ -126,3 +126,84 @@ fn a_faded_root_fades_its_children_and_their_shadows() {
         "{half_right} of {solid_right}"
     );
 }
+
+#[derive(Default, Args)]
+struct HiddenArgs {
+    hidden: bool,
+}
+// A hidden root over a faded model child with levels of detail.
+struct Hidden;
+impl Game for Hidden {
+    const ID: &'static str = "presentation-hidden";
+    type Args = HiddenArgs;
+    fn setup(w: &mut World, args: &HiddenArgs) {
+        w.insert_resource(Environment {
+            fog: None,
+            bloom: None,
+            background: Some([0.; 3]),
+            ..Default::default()
+        });
+        w.spawn((Transform::at(0., 0., 5.), Camera::default()));
+        let quad = asset::MeshData {
+            positions: vec![-1., -1., 0., 1., -1., 0., 1., 1., 0., -1., 1., 0.],
+            normals: [0., 0., 1.].repeat(4),
+            uvs: vec![0., 1., 1., 1., 1., 0., 0., 0.],
+            indices: vec![0, 1, 2, 0, 2, 3],
+            bounds: [-1., -1., 0., 1., 1., 0.],
+            ..Default::default()
+        };
+        let near = w.generated("near.model", quad.clone()).unwrap();
+        w.generated("far.model", quad).unwrap();
+        let root = w.spawn_named("root", Transform::default());
+        if args.hidden {
+            w.insert(root, Visible(false));
+        }
+        w.spawn_named(
+            "child",
+            (
+                Transform::default(),
+                Parent(root),
+                near,
+                ModelLod {
+                    levels: vec![LodLevel {
+                        distance: 10.,
+                        model: "far.model".into(),
+                    }],
+                    hide: None,
+                },
+            ),
+        );
+    }
+    fn tick(_: &mut World, _: &Input, _: &HiddenArgs) {}
+    fn present(w: &mut World, _: &HiddenArgs) {
+        // Neither a fade nor a level of detail reveals it.
+        let child = w.named("child").unwrap();
+        w.insert(child, Opacity(0.5));
+    }
+}
+
+#[test]
+fn a_hidden_ancestor_overrides_opacity_and_levels_of_detail() {
+    let Some(gpu) = test_device::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let lit = |hidden: bool| {
+        let mut s = WorldSurface::<Hidden, exact_game_render::ModelPresentation, true>::default();
+        s.bind(&[Value::Bool(hidden)], None).unwrap();
+        s.device_ready(exact_gpu::wgpu::Features::empty());
+        s.prepare_assets(
+            &gpu.device,
+            &gpu.queue,
+            exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+        );
+        let (p, _) = fixture::render(&gpu, &mut s, &frame()).unwrap();
+        assert!(s.error().is_none(), "{:?}", s.error());
+        (0..128)
+            .flat_map(|y| (0..128).map(move |x| (x, y)))
+            .filter(|&(x, y)| p.at(x, y)[1] > 20)
+            .count()
+    };
+    let (shown, hidden) = (lit(false), lit(true));
+    assert!(shown > 500, "the faded child draws: {shown}");
+    assert_eq!(hidden, 0, "a hidden ancestor hides it");
+}
