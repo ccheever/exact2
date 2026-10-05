@@ -36,7 +36,7 @@ import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
 import { allowHostArgs, developmentGate, installBrowserOrigins, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, unwatchFile, watch, watchFile } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, unwatchFile, watch, watchFile, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { gpuModules, shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
@@ -648,7 +648,15 @@ const killCompiler = () => {
   if (moduleStage) { rmSync(moduleStage, { recursive: true, force: true }); moduleStage = null; }
 };
 startCompiler();
+// Where this loop serves its dist, for `scripts/agent.mjs web` to drive
+// when the dist on disk is mid-edit (the compiler rewrites its plan).
+const devRecord = resolve(dist, '.exact-dev.json');
+let devURL = null;
+const writeDevRecord = () => { if (devURL) writeFileSync(devRecord, JSON.stringify({pid:process.pid, app:app.id, url:devURL}) + '\n'); };
+const dropDevRecord = () => { try { if (JSON.parse(readFileSync(devRecord, 'utf8')).pid === process.pid) rmSync(devRecord, {force:true}); } catch { /* none */ } };
+process.on('exit', dropDevRecord);
 const stop = async () => {
+  dropDevRecord();
   const children = [dev, rustChild, gpuBuildChild, installer.child, hostBuildChild].filter(Boolean);
   const exits = children.map(child => new Promise(ok => child.exitCode !== null || child.signalCode !== null ? ok() : child.once('exit', ok)));
   killCompiler();
@@ -908,7 +916,8 @@ function rebuildNow(files) {
       portableRust = Boolean(rustPackage(app)) && rustPolicy(app.manifest, 'web') !== 'off';
       rebuildOn = rebuildPolicy(app.manifest);
       current = null; currentModule = null; currentRust = null; currentRustId = null; assetsNeedRebuild = false;
-      for (const directory of gpuVersions.values()) rmSync(directory, {recursive:true,force:true});
+      writeDevRecord(); // the build replaced dist
+      for (const {directory} of gpuVersions.values()) rmSync(directory, {recursive:true,force:true});
       gpuVersions.clear(); gpuSides.clear(); failedInputs.clear(); readGpuInputs(); watchCompilerInputs();
       program = programIdentity();
       // The restarted producer consumes module edits; queued core edits start
@@ -1102,6 +1111,7 @@ server.listen(port, host, () => {
   const urls = origins.map(o => `${o.origin}/`);
   if (lan && urls.length === 1) console.log('no LAN interface found; serving loopback only in effect');
   console.log(urls.join('\n'));
+  devURL = urls[0]; writeDevRecord();
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
   if (allowHosts.length) console.log(`  also answering to ${allowHosts.join(', ')} (--allow-host)`);
   console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${lan ? 'LAN bind — any peer on this network can read the app, its compile errors and dev generations; macOS may ask to allow bun' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);

@@ -413,7 +413,8 @@ the environment prefilter, SSAO, each bloom level (and `bloom`, first start to l
 end), tonemap, depth resolves and hook stages; the translucent run (particles,
 blended models) and inside-pass hook stages where the device times inside passes.
 A pass the frame did not run is not read. GPU timings also fill under the agent's
-virtual clock (seekable frames), so `state world perf:true` then `clock +ms` times
+virtual clock (seekable frames), so `state world perf` (the agent's `perf: true`;
+`state world perf_reset` clears) then `clock +ms` times
 an offscreen frame there; CPU frame rings stay live-only. Arming allocates the query set and
 readback buffers; an unarmed canvas creates none. GPU intervals overlap; do not sum
 them. The allocation-free claim covers

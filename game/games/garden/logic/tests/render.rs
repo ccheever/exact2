@@ -2,6 +2,8 @@
 //! the renderer's own counters. Ignored by default; run in release:
 //! `cargo test --release --manifest-path game/games/garden/.shells/Cargo.toml
 //!  -p garden-logic --test render -- --ignored --nocapture --test-threads 1`
+//! `GARDEN_ART` picks the look (`golden`, `storybook`, `pass`); the art pass's
+//! streamed models are not delivered offscreen, so its instances undercount.
 use exact_game::{Args, Value};
 use exact_game_render::exact_gpu::{fixture, Frame, InputEvent, Surface};
 use exact_game_render::{ModelExecutor, WorldSurface};
@@ -15,6 +17,7 @@ fn bind(surface: &mut GardenSurface) {
     let o = Options {
         seed: 1,
         smooth: std::env::var("GARDEN_SMOOTH").is_ok(),
+        art: std::env::var("GARDEN_ART").unwrap_or_default(),
         ..Options::default()
     };
     let values: Vec<Value> = o.values();

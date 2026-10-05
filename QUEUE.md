@@ -12,11 +12,7 @@
 
 - **Pins move for reasons outside the game** (2026-10-05, the main merge re-pinned ten games). Saves carry every bound canvas argument, so adding an argument moves every save pin; registering new built-in components moved garden's world hash. Pins should measure the game's own state.
 
-- **Game proofs read exact visible strings** (2026-10-05, garden HUD restyle). Restyling had to keep every HUD sentence word for word because `proof.mjs` and the Jev playtests assert display text; proofs should assert published values and leave copy free to change.
-
-- **Game tooling papercuts** (2026-10-05). Contract fonts must live under `assets/`, which the bake also writes (garden needs a `.gitignore` exception); `scripts/agent.mjs web` refuses the dev loop's dist and needs a separate full build; garden's offscreen `tests/render.rs` no longer applies its `fill` message (25 entities, any look); arming perf counters through a session returned nothing; main's `scripts/app.mjs` `cargoOnPath` skips `~/.cargo/bin` when cargo is found elsewhere, losing `wasm-bindgen`; `game/proof.test.mjs` 'game pin literals stay in fixture pins' flags `game/engine/tests/rig.rs`.
-
-- **The web dev loop dies when a directory appears under a game's `assets/`** (2026-10-05, garden fonts). Moving fonts into `game/games/garden/assets/fonts/` while `bun game/dev.mjs garden` ran crashed it at `host/web/dev.mjs:911` (`rmSync(directory)`: `TypeError: path must be a string or TypedArray`): the restart path removes `gpuVersions` values that are not paths. Restarting the loop recovers.
+- **Garden's offscreen `tests/render.rs` cannot measure the art pass** (2026-10-05). `GARDEN_ART=pass` fills and steps the garden (its `fill` applies in every look), but the streamed models are never delivered offscreen, so it draws 7 instances. Deliver `Game::STREAMED` from `assets/` in the fixture before quoting its numbers for that look.
 
 - **Generated game models repeat the same mesh assembly** (2026-10-04, Garden `logic/src/art.rs` and Forest `logic/src/deer_art.rs`): both copy flat-shaded triangle emission, vertex colors, ellipsoid tessellation and bounds calculation. Consider a small renderer-independent helper only if migrating both consumers deletes those copies and preserves their existing geometry and deterministic saves; keep each game's shapes and art direction local.
 

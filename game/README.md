@@ -448,11 +448,14 @@ EXACT_APP_DIR=./my-game EXACT_WEB_DIST=./my-game/dist bun scripts/agent.mjs web 
   "state world:* busy" logs "screenshot run.world world save"
 ```
 
+While `bun game/dev.mjs my-game` runs, its compiler rewrites `dist/`'s plan on every
+edit; a drive of that `dist/` then goes to the running loop, which says so.
 For a `prove.mjs` web build, set `EXACT_WEB_DIST` to the printed artifact directory's
 `dist/`. `state world:*` reads entities a page at a time (512 by default):
 `state world:* from 512 limit 2000` reads the next ones, and the reply carries
 `total` and `next`; `under world:player` narrows it. `state world:* resources` adds
-every resource's value. In a proof, `session.world('world').snapshot({all:true})`
+every resource's value. `state world perf` arms the renderer's sample rings
+(`perf_reset` clears them); until then `perf.armed` is false and the rings read zero. In a proof, `session.world('world').snapshot({all:true})`
 reads every page at one tick and `resources()` the resources.
 `clock settle` advances the owned clock and explains remaining work instead of sleeping.
 Inspected `Data` enums are objects keyed by variant: Forest's food item has

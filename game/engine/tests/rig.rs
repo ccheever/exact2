@@ -422,6 +422,8 @@ fn the_planted_foot_stays_on_the_ground_through_the_cycle() {
 // changes the vertices or keys and fails here (restore would refuse by name).
 #[test]
 fn the_humanoid_preset_has_a_pinned_identity() {
+    let pins: std::collections::BTreeMap<String, String> =
+        json::from_str(include_str!("pins.json")).unwrap();
     let digest = format!("0x{:016x}", hash::of(&humanoid()));
-    assert_eq!(digest, "0xb13f1acea016ea9c");
+    assert_eq!(digest, pins["rig-humanoid"]);
 }
