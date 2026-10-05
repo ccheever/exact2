@@ -42,6 +42,23 @@ final class NativeButtonsIOSTests: XCTestCase {
         try XCTUnwrap(p.controls.controls[id] as? NativeButtonIOS)
     }
 
+    /// b6 review B7: a cleared date reads as no date until a value is
+    /// applied or chosen, as the Mac's `DateField.empty`; a `UIDatePicker`
+    /// always holds some date, so the picker records it.
+    func testAClearedDateReadsEmptyUntilAValueComes() throws {
+        let p = presenter([["op": "create", "id": 10, "kind": "control", "props": ["type": "date", "value": "2026-06-01"], "handlers": ["change"], "style": [:]],
+                           ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 140.0, "h": 34.0], ["op": "roots", "ids": [10]]])
+        let node = try XCTUnwrap(p.views[10]), picker = try XCTUnwrap(p.controls.controls[10] as? UIDatePicker)
+        XCTAssertEqual(p.controls.valueObservation(picker)?["value"] as? String, "2026-06-01")
+        let cleared = try XCTUnwrap(p.controls.type(node, ""))
+        XCTAssertNil(cleared["error"], "\(cleared)")
+        XCTAssertEqual(p.controls.valueObservation(picker)?["value"] as? String, "", "cleared reads empty")
+        XCTAssertNotNil(p.controls.type(node, "2026-07-04"))
+        XCTAssertEqual(p.controls.valueObservation(picker)?["value"] as? String, "2026-07-04")
+        p.apply(wireBatch([["op": "props", "id": 10, "set": ["value": ""]]]))
+        XCTAssertEqual(p.controls.valueObservation(picker)?["value"] as? String, "", "an empty bound value")
+    }
+
     func testItIsUIKitsButtonWithItsFaceAndStyle() throws {
         let p = presenter(box(1) + native(2, ["testId": "send"]) + native(3) + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]],
                           faces: [2: face("Send", symbol: "paperplane", style: "filled", ios: "filled"), 3: face("Next", style: "plain", ios: "plain")])

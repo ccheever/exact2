@@ -155,7 +155,7 @@ extension ControlHost {
             return ["view": "UISlider", "value": Double(slider.value), "min": Double(slider.minimumValue), "max": Double(slider.maximumValue)]
         }
         if let picker = control as? UIDatePicker {
-            return ["view": "UIDatePicker(compact)", "value": DateValue.format(kinds[UInt32(picker.tag)] ?? "date", picker.date)]
+            return ["view": "UIDatePicker(compact)", "value": DateValue.shown(kinds[UInt32(picker.tag)] ?? "date", picker)]
         }
         #endif
         guard let button = control as? UIButton, !(button is NativeButtonIOS) else { return nil }

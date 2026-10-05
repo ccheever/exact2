@@ -29,7 +29,12 @@ extension ControlHost {
             guard picker.applied != bound else { return }
             picker.applied = bound
         }
-        if let value = DateValue.parse(kind, bound), picker.date != value {
+        let value = DateValue.parse(kind, bound)
+        // No date is a state a picker cannot show: it is recorded, and read
+        // back as "" until a value is applied or chosen (b6 review B7; the
+        // Mac's `DateField.empty`).
+        (picker as? BoundDatePicker)?.empty = value == nil
+        if let value, picker.date != value {
             picker.setDate(value, animated: false)
         }
     }
@@ -37,6 +42,7 @@ extension ControlHost {
     @objc func dateChanged(_ picker: UIDatePicker) {
         let id = UInt32(picker.tag)
         guard presenter.views[id] != nil, let kind = kinds[id] else { return }
+        (picker as? BoundDatePicker)?.empty = false
         presenter.controlValue(id, DateValue.format(kind, picker.date), input: true, change: true)
         if let owner = presenter.views[id] { configureDate(picker, owner, accent: picker.tintColor) }
     }
@@ -47,6 +53,7 @@ extension ControlHost {
         let kind = kinds[node.id] ?? "date"
         // An empty value clears it, as deleting every segment does on the web.
         if text.isEmpty {
+            (picker as? BoundDatePicker)?.empty = true
             presenter.controlValue(node.id, "", input: true, change: true)
             return ["typed": Int(node.id), "value": presenter.views[node.id]?.props["value"] ?? "", "delivery": "host-activation", "native": "control"]
         }
@@ -54,16 +61,27 @@ extension ControlHost {
             return ["error": "\"\(text)\" is not a \(kind) value (HTML's format, as 2026-09-27, 14:30 or 2026-09-27T14:30)"]
         }
         picker.setDate(date, animated: false)
+        (picker as? BoundDatePicker)?.empty = false
         presenter.controlValue(node.id, text, input: true, change: true)
         if let owner = presenter.views[node.id] { configureDate(picker, owner, accent: picker.tintColor) }
         // What it shows, as the web's reply says: the choice, or what the
         // action wrote over it.
-        return ["typed": Int(node.id), "value": DateValue.format(kind, picker.date), "delivery": "host-activation", "native": "control"]
+        return ["typed": Int(node.id), "value": DateValue.shown(kind, picker), "delivery": "host-activation", "native": "control"]
     }
 }
 
 /// A picker that knows the bound value last written into it (`configureDate`).
 final class BoundDatePicker: UIDatePicker {
     var applied: String?
+    /// No date: an empty bound value or a cleared one, which the picker's
+    /// own `date` cannot say.
+    var empty = false
+}
+
+extension DateValue {
+    /// What a picker shows as HTML's value: "" while it holds no date.
+    static func shown(_ kind: String, _ picker: UIDatePicker) -> String {
+        (picker as? BoundDatePicker)?.empty == true ? "" : format(kind, picker.date)
+    }
 }
 #endif
