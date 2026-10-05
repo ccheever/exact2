@@ -18,3 +18,16 @@
 3. **Nit — [llp/1089-action-composition.rfc.md:564](/tmp/rv-hc1/llp/1089-action-composition.rfc.md:564): the rejected-alternatives section contradicts amended D1.** It still rejects ambiguity checking because Caltrain’s `setScheme` and Files’ `share` “compile today.” The former wrapper is explicitly refused by this commit. Mark this rationale as superseded by the October 5 ruling or remove it.
 
 Verdict: DO NOT LAND
+## Round 2, 2026-10-05
+
+- **Method:** `codex exec` as round 1, `-C` a detached worktree at `25a4539ca`; brief sha256 `cc5d9614273fc93a7eb4492c52ebfde92e78ca169c97fb5a65c647eb621fbace` (the fixes `38b6fddf9..25a4539ca` against this review's round-1 findings and dispositions). Blind to grok's round 2.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** both fixed in `2cdc57f87`, by one change: the after-the-fact filter is gone. The ambiguous calls' spans are in `Shapes::ambiguous` before any body is checked, and a statement among them is never checked as the host command (`actions.rs`), nor is `postMessage`'s surface (`posts.rs`), in the child and after lifting alike. So no argument-span error leaks (`share(1)` on an action `share` reports only the ambiguity), and `children`'s boundary is never shifted by a removal. The test asserts `share`, `close("swiped")` and `postMessage("hi", "nowhere")` give exactly three `syntax-call-ambiguous` and nothing else; with the skip disabled it fails.
+
+---
+
+1. **Should-fix — [contract/types/src/lib.rs:1304](/tmp/rv-hc1/contract/types/src/lib.rs:1304): argument-level host diagnostics still leak through.** Declare `action share(value: number)` and call `share(1)` from another action. Besides `syntax-call-ambiguous`, this reports `type-share-argument`: [share validation](/tmp/rv-hc1/contract/types/src/checks.rs:835) attaches that error to the argument, so the exact-statement-span filter misses it. **Fix:** skip host validation for already-ambiguous statements, including expanded copies; add a regression asserting only the ambiguity diagnostic.
+
+2. **Should-fix — [contract/types/src/lib.rs:1303](/tmp/rv-hc1/contract/types/src/lib.rs:1303): filtering invalidates the saved child-error boundary.** Extend the new `close("swiped")` fixture with a child prop `value: number`, `text value + 1`, and pass `value="oops"`. `children` is recorded before filtering; removing `type-close` moves the expansion-only `type-operand` inside that boundary. [prefer_call_sites](/tmp/rv-hc1/contract/types/src/lib.rs:1417) consequently preserves a cascading error in the child alongside the actual bad-prop diagnostic. **Fix:** maintain the surviving prefix count when filtering, or suppress the duplicate before insertion; add this combined-error regression.
+
+Verdict: LAND WITH FIXES

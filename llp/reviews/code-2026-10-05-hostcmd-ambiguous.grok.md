@@ -26,3 +26,22 @@ I'll review this commit read-only against the approved ruling: statement calls t
 5. **Nit** — `docs/contract-grammar.md:192`. The new refusal sentence sits between "is a host command when `name` is one" and "Otherwise it calls an action…", so "Otherwise" now reads as "when it was not refused." A plain `focus()` is then both the host command and an action call. Point "Otherwise" at "when `name` is not a host command."
 
 Verdict: LAND WITH FIXES
+
+## Round 2, 2026-10-05
+
+- **Method:** grok as round 1, `--cwd` a detached worktree at `25a4539ca`; brief sha256 `8c7494f86b03dec9a4fba721ae0046665ba273494d70d78fed1f775dee618325` (the fixes `38b6fddf9..25a4539ca` against this review's round-1 findings and dispositions). Blind to astra's round 2.
+- **Transcription:** stdout, unedited; the first sentences are progress narration.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** both fixed in `2cdc57f87`:
+  1. As astra's round-2 #1 and #2: `check_command` and `posts::check_targets` skip a recorded ambiguous call, matched by span; the retain is deleted, and the ambiguity is computed before `check_targets` runs.
+  2. The `HOST_COMMANDS` header now says a same-named action, `action` prop or inject refuses the call.
+
+---
+
+I'll review the fixes read-only against the five round-1 findings and the full change from `58f264433` to `25a4539ca`. First I'll read the review guidance and both diffs.The fix commit is one change on top of the original refusal. I'll read both diffs and the call-resolution path they touch.The fix diff is small. I'll read the refusal, the error filter, and how symbols attach the declaration.Items 2 through 5 match the code. Item 1 only drops an error whose span is the call's name, so host-command diagnostics on the arguments still come out, and the surface check for `postMessage` is recorded first.
+
+1. **Should-fix** — `contract/types/src/lib.rs:1303` (with `contract/types/src/checks.rs:836` and `contract/types/src/posts.rs:57`). The retain keeps any diagnostic that is not exactly the call name's span. A `share: action` prop with `share("nope")` in its component still reports `type-share-argument` on the string ("`share` takes named arguments: `share(title=…, text=…, url=…)`") beside `syntax-call-ambiguous`. The same is true of the argument-span checks for `postMessage`, `saveFile`, the file pickers, `scrollIntoView`, and `showNotification`. `posts::check_targets` runs at `contract/types/src/lib.rs:1259`, before the ambiguity is pushed at line 1262, and reports `type-post-message` on the surface string. `contract build` prints that with the ambiguity; `compile_path` and `contract symbols` return only that first error, so the declaration hint never runs. The retain also sits after `children` is captured at line 1281. Deleting a prefix `type-close` shifts a later child-span error from `check_root` under that cutoff, and `prefer_call_sites` (`contract/types/src/lib.rs:1416`) then keeps a consequence it would have hidden. The new test only compiles `close("swiped")`, whose `type-close` uses the name span (`contract/types/src/checks.rs:1091`). Skip `check_command` and `posts::check_targets` for a statement `ambiguous` already recorded, matching the call span, and delete the retain.
+
+2. **Nit** — `contract/syntax/src/lib.rs:79`. The `HOST_COMMANDS` header still says a statement naming a command is the command, even inside an action of the same name. `action setScheme` / `setScheme(s)` is `syntax-call-ambiguous`. Say that a same-named action, action prop, or inject refuses the call.
+
+Verdict: LAND WITH FIXES
