@@ -406,6 +406,19 @@ independent assertions continue. The terminal shows checks and failure details;
 `replies.json` retains complete operation replies. Browser runs provide canvas pixels; the GPU-less
 Linux host exercises simulation, input, Contract UI, CPU picks and saves.
 
+### The shipped Mac bundle
+
+Proofs drive development builds. `bun scripts/exact.mjs release <game> --check` drives
+what `exact release` ships: the distribution build, stripped and signed inside out
+(ad hoc with no timestamp, so it needs no certificate or network; nothing is notarised),
+launched from `<target>/dist/<game>-check/` with only its own resources and modules. It
+taps `play` when the title has no canvas, then requires the GPU module to load (no
+`GPU module …` refusal), the world to tick and hold entities, and the canvas to hold a
+picture rather than its background (`shipped.png` beside the bundle). A failure is a
+`FAIL <game> <check>: <why>` line. `exact release` drives its Developer ID bundle the same
+way before notarising, and the async lane runs it for garden. To drive any bundle by hand:
+`bun scripts/agent.mjs macos --app <game> --bundle <Name.app> …`.
+
 ### Compare captured world state
 
 In a proof or an agent session, capture inspected state before and after an action:

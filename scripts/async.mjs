@@ -7,6 +7,8 @@
  * the web host's app-building document test in its own step, the web JS target's conformance run
  * (`host/web-js/conform.mjs --strict`), the UIKit XCTests on a simulator when the commit
  * touches host/apple (`build.mjs --test --ios`; Charlie, 2026-09-23), the
+ * release bundle of a game launched and driven when the commit touches what
+ * makes one (`exact release garden --check`; Charlie, 2026-10-05), the
  * Contract semantics' proofs and differential run (`semantics/README.md`), then
  * `metrics.mjs --long` (every RULES budget;
  * a VIOLATION or FAILED row or a failed run counts, an OVER time does not — it
@@ -68,6 +70,8 @@ function checks(sha) {
   if (TIER === 2) return TIER_2;
   const lane = laneTests();
   const apple = git(['diff', '--name-only', `${sha}^`, sha, '--', 'host/apple'], WT) !== '';
+  // What a shipped Mac bundle is made by, beyond the dev build the smokes run.
+  const shipped = git(['diff', '--name-only', `${sha}^`, sha, '--', 'host/apple', 'scripts/exact.mjs', 'game', 'gpu'], WT) !== '';
   const glue = [...new Bun.Glob('host/web/**/*.test.mjs').scanSync({ cwd: WT, onlyFiles: true })].sort().map(file => `./${file}`);
   return [
     ['build', 'cargo', ['build', ...workspace, '--all-targets', '--keep-going']],
@@ -98,6 +102,10 @@ function checks(sha) {
     // Real touches through the XCTest runner on a simulator (LLP 1080.000 §6):
     // a runner that does not start fails here, never skips.
     ...(apple ? [['ios-touch', 'bun', ['scripts/smoke-touch.mjs', '--build']]] : []),
+    // The game's release bundle, stripped and signed (ad hoc, offline) as
+    // `exact release` ships it, launched and driven to its world: the dev
+    // build cannot show a module the release step changed after the bake.
+    ...(shipped ? [['release', 'bun', ['scripts/exact.mjs', 'release', 'garden', '--check']]] : []),
     // The Contract semantics (semantics/README.md; Charlie, 2026-10-03): the
     // Lean project builds with every proof checked (the app proofs among
     // them, over embeddings `difftest apps` checks are current), then the runner against
@@ -240,8 +248,9 @@ async function once(state) {
   for (const sha of TIER === 2 ? pending.slice(-1) : pending) {
     const since = TIER === 2 && pending.length > 1 ? state.last : null;
     const result = await check(sha);
-    // A commit outside host/apple runs no iOS tests: the last ones stand.
-    if (!result.checks.ios) result.failures.push(...(state.failures ?? []).filter(f => f.startsWith('ios: ')));
+    // A commit outside host/apple runs no iOS tests, and one outside what
+    // makes a release bundle drives none: the last ones stand.
+    for (const gated of ['ios', 'release']) if (!result.checks[gated]) result.failures.push(...(state.failures ?? []).filter(f => f.startsWith(`${gated}: `)));
     // The first commit checked has no parent result: it sets the baseline,
     // since its failures cannot be attributed to it.
     const baseline = state.failures === undefined;

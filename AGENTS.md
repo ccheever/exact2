@@ -43,7 +43,10 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   the web JS target's conformance run (`host/web-js/conform.mjs --strict`) and its
   Chrome-oracle Firefox/WebKit steps (`conform-firefox`, `conform-webkit`),
   the UIKit XCTests for commits under `host/apple` (`build.mjs --test --ios`), the
-  Contract semantics (`semantics/README.md`: the Lean proofs, then `contract-difftest`
+  shipped garden bundle launched and driven to its world for commits under `host/apple`,
+  `game`, `gpu` or `scripts/exact.mjs` (`exact.mjs release garden --check`: the release
+  bundle signed ad hoc, offline, not notarised; `exact release` drives its own before
+  notarising), the Contract semantics (`semantics/README.md`: the Lean proofs, then `contract-difftest`
   running the runner against the Lean semantics over `semantics/corpus` and a fixed
   random sweep), then `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
   the platforms that ride on another host's code: tvOS on the UIKit presenter. Building
