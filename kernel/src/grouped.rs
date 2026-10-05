@@ -17,6 +17,9 @@ pub struct GroupedList {
     pub style: String,
     /// Its sections, in order.
     pub sections: Vec<GroupedSection>,
+    /// The space under the last section, when the author set its
+    /// `margin-bottom` (as `GroupedSection::space_above`).
+    pub space_below: Option<f32>,
 }
 
 /// A section: its texts and its rows.
@@ -33,6 +36,11 @@ pub struct GroupedSection {
     /// Whether its rows sit on a card: false when the section's group has a
     /// transparent background (`section background-color="transparent"`).
     pub card: bool,
+    /// The space above it, in points, when the author changed a margin at
+    /// that boundary (its `margin-top`, or the previous section's
+    /// `margin-bottom`): the web's, the two margins collapsed. `None` keeps
+    /// the platform's own gap, which Contract's sheet stands in for (§2).
+    pub space_above: Option<f32>,
 }
 
 /// What a row shows at its trailing edge (D4).
@@ -119,7 +127,8 @@ impl Kernel {
                 .collect()
         };
         let label = |n: &NodeRef<'_>| nodes(n).iter().find_map(text_of);
-        let sections = nodes(&list)
+        let shown = nodes(&list);
+        let sections = shown
             .iter()
             .map(|section| {
                 let mut out = GroupedSection {
@@ -141,8 +150,14 @@ impl Kernel {
                 }
                 out
             })
-            .collect();
-        Some(GroupedList { style, sections })
+            .collect::<Vec<GroupedSection>>();
+        let mut list = GroupedList {
+            style,
+            sections,
+            space_below: None,
+        };
+        authored_space(&mut list, &shown);
+        Some(list)
     }
 
     fn grouped_row(&self, row: &NodeRef<'_>) -> GroupedRow {
@@ -248,4 +263,49 @@ impl Kernel {
         }
         out
     }
+}
+
+/// A margin Contract's sheet writes (LLP 1084 §2): 0 beside a header or a
+/// footer and in a plain list, else 17.33, or 35.33 above a first section.
+/// Any other number is the author's. Compared as the f32 the sheet's
+/// numbers become, so only those exact numbers match.
+fn sheet_margin(value: f32, top: bool, labelled: bool, plain: bool) -> bool {
+    if labelled || plain {
+        value == 0.0
+    } else {
+        value == 17.33 || (top && value == 35.33)
+    }
+}
+
+/// Two adjoining vertical margins as CSS collapses them: the largest
+/// positive plus the most negative (CSS 2 §8.3.1).
+fn collapse(a: f32, b: f32) -> f32 {
+    a.max(b).max(0.0) + a.min(b).min(0.0)
+}
+
+/// Each boundary the author changed takes the web's space: the margins that
+/// meet there collapsed, as block margins do (§6.4).
+fn authored_space(list: &mut GroupedList, shown: &[NodeRef<'_>]) {
+    use crate::style::Dimension;
+    let plain = list.style == "plain";
+    let mut below: Option<(f32, bool)> = None;
+    for (section, node) in list.sections.iter_mut().zip(shown) {
+        let points = |d: Dimension| match d {
+            Dimension::Points(p) => p,
+            _ => 0.0,
+        };
+        let top = points(node.style.margin_top);
+        let authored = !sheet_margin(top, true, section.header.is_some(), plain);
+        section.space_above = match below {
+            Some((bottom, mine)) if mine || authored => Some(collapse(top, bottom)),
+            None if authored => Some(top),
+            _ => None,
+        };
+        let bottom = points(node.style.margin_bottom);
+        below = Some((
+            bottom,
+            !sheet_margin(bottom, false, section.footer.is_some(), plain),
+        ));
+    }
+    list.space_below = below.and_then(|(bottom, mine)| mine.then_some(bottom));
 }
