@@ -1172,6 +1172,10 @@ impl Em<'_> {
                         "{p}({e},{},{f});",
                         serde_json::to_string(&name).unwrap()
                     );
+                    // A bound context menu popover (LLP 1021 §5.1): read at the event.
+                    if prop == PropId::ContextPopover {
+                        let _ = write!(self.out, "{}({e});", self.uses.rt("cp"));
+                    }
                 }
                 BindingKind::Style => self.style_row(i, b, &parts, &e, &f)?,
             }

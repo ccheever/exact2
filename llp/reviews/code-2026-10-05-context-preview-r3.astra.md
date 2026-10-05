@@ -1,0 +1,23 @@
+# Code review: context menus with a preview and a commit (LLP 1021 §5.1), round 3, 2026-10-05 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via `codex exec`, reasoning effort xhigh, sandbox read-only, `-C /private/tmp/x2-peek-review`.
+- **Method:** one brief (sha256 `60b0644156dbab0114d1e321ab604dec2a0ae014d0210061ffd08a86505f0865`), shared with grok, pointing at rounds 1 and 2 and their dispositions. Blind to grok's round-3 review. Reviewed the uncommitted diff in a detached worktree at `a51d6ecab`. The author (Claude) is not a reviewer.
+- **Transcription:** the review's findings and verdict, unedited.
+- **Verdict:** NOT READY.
+- **Disposition:** Round 3, the last (rules/RULES.md: fix loops get three rounds); the fixes below were verified by the UIKit and AppKit tests, a simulator recording and both web listeners' syntax, not by a fourth review. 1 taken: the row records whether its home is its popover (`inPopover`), so a children op that keeps it in the popover's replaced container still returns it to the popover's container as it is then. 2 taken: the row is placed in the preview by its center, and its home is its untransformed layout box (center and bounds), restored the same way. 3 taken: a popover the author hid (`display: none`) refuses the commit, the host's own hiding excepted (test). 4 taken: macOS's `context` refuses a source its action hid.
+
+---
+
+1. **[P2] Material changes can still strand the lifted row.** [ContextMenusIOS.swift:121](/private/tmp/x2-peek-review/host/apple/Sources/ExactKit/IOS/ContextMenusIOS.swift:121), [restore at :203](/private/tmp/x2-peek-review/host/apple/Sources/ExactKit/IOS/ContextMenusIOS.swift:203). Lift from a plain popover, add glass, deliver a children op retaining the preview, then remove glass. The children op replaces `owner.container` with the glass container while `owner.lifted` remains the original popover. Restoration consequently chooses the obsolete container—or nil after deallocation—instead of the popover’s current container. The row becomes detached or invisible. Round 1’s container-restoration fix remains incomplete.
+
+2. **[P2] Preview placement corrupts geometry for transformed rows.** [ContextMenusIOS.swift:111](/private/tmp/x2-peek-review/host/apple/Sources/ExactKit/IOS/ContextMenusIOS.swift:111), [PresenterIOS.swift:1043](/private/tmp/x2-peek-review/host/apple/Sources/ExactKit/IOS/PresenterIOS.swift:1043). `place` assigns `frame` while the row’s transform remains applied. For a scaled row, setting the frame’s size to its bounds size changes those bounds, then reports the altered size as `preferredContentSize`. The new frame hook also runs **after** `applyTransform`, so `home` records transformed geometry rather than the delivered layout rectangle. This violates §5.1’s layout-size guarantee; the origin-zero test covers only identity transforms.
+
+3. **[P2] An explicitly hidden popover still permits preview commits.** [ContextMenusIOS.swift:273](/private/tmp/x2-peek-review/host/apple/Sources/ExactKit/IOS/ContextMenusIOS.swift:273). The visibility exception skips every reason the popover is hidden, including authored `display: none`. Set that style while its preview is lifted: the row remains individually visible, and `committable` still dispatches its press. Only the popover’s presentation hiding should be exempt. The new visibility test checks the row itself, leaving this eligibility hole uncovered.
+
+4. **[P2] macOS can open a context menu after its source hides itself.** [MenusMac.swift:192](/private/tmp/x2-peek-review/host/apple/Sources/ExactKit/Mac/MenusMac.swift:192). If the source’s synchronous `contextmenu` action sets itself or its ancestor to `display: none`, it remains live and attached to the same window, so the deferred guard passes. With a shared popover elsewhere, enabled menu items still appear. This path bypasses the visibility check used by `show`, including the agent’s presentation.
+
+The other taken fixes appear implemented correctly by inspection, including synchronous commit invalidation, configuration-specific ending, ordinary reparenting, dismissal targeting, deferred `unanimated` handling/reset, and agent eligibility rechecking. The pooling and deferred-web-commit deferrals remain out of scope.
+
+The tests still call helpers directly and never observe `setViewControllers(animated:)`; §5.1 overstates their provider-order and animation evidence. `git diff --check`, both presence-loader tests, and in-memory checks of both web listeners’ synchronous retargeting and cleared bindings passed. Native tests were not run in this read-only checkout. No files were edited.
+
+**Verdict: NOT READY.**

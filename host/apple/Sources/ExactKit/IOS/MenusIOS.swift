@@ -92,6 +92,10 @@ final class MenuHost {
     }
 
     init(presenter: Presenter) { self.presenter = presenter }
+    #if os(iOS)
+    /// The context menus (LLP 1021 §5.1, ContextMenusIOS.swift).
+    private(set) lazy var context = ContextMenuHost(presenter: presenter!, menus: self)
+    #endif
 
     private func isDialog(_ node: NodeView) -> Bool { node.props["semanticTag"] == "dialog" }
     private func isConfirmation(_ node: NodeView) -> Bool {
@@ -207,6 +211,9 @@ final class MenuHost {
             overlays[id] = nil
             menuShapes[id] = nil
         }
+        #if os(iOS)
+        context.sync()
+        #endif
     }
 
     /// A live popover by its id.
@@ -215,7 +222,7 @@ final class MenuHost {
     }
 
     private func live(_ node: NodeView) -> Bool { presenter?.views[node.id] === node }
-    private func eligible(_ node: NodeView, inertBoundary: UIView? = nil) -> Bool {
+    func eligible(_ node: NodeView, inertBoundary: UIView? = nil) -> Bool {
         guard live(node), !node.disabled, presenter?.navigation.isInactiveRoute(containing: node) == false else { return false }
         var ancestor: UIView? = node
         var checksInert = true
@@ -296,14 +303,31 @@ final class MenuHost {
         overlays.values.forEach { $0.removeFromSuperview() }
         overlays.removeAll()
         for name in Array(agentOpen.keys) { drop(name) }
+        #if os(iOS)
+        context.reset()
+        #endif
     }
 
     /// Whether `node` is an open popover in the top layer (the agent's).
-    func lifted(_ node: NodeView) -> Bool { agentOpen.values.contains { $0.popover === node } }
+    func lifted(_ node: NodeView) -> Bool {
+        #if os(iOS)
+        if context.lifts(node) { return true }
+        #endif
+        return agentOpen.values.contains { $0.popover === node }
+    }
     /// A children op on `parent` while a child of it is in the top layer:
     /// the child stays there, its index kept for its return; one the op
     /// drops closes.
+    /// A frame op on `node`: a context menu's lifted row takes it as its home.
+    func framed(_ node: NodeView) {
+        #if os(iOS)
+        context.framed(node)
+        #endif
+    }
     func children(_ parent: UIView, _ wanted: [NodeView]) {
+        #if os(iOS)
+        context.children(parent, wanted)
+        #endif
         for (name, entry) in agentOpen where entry.parent === parent {
             if let i = wanted.firstIndex(where: { $0 === entry.popover }) { entry.index = i } else { drop(name) }
         }
@@ -375,11 +399,32 @@ final class MenuHost {
             guard let self, let presenter, let pop, presenter.views[pop.id] === pop else { return }
             if self.agentOpen[name] != nil { self.drop(name); return }
             guard !hides else { return }
-            let entry = Lifted(source: source, popover: pop)
-            self.agentOpen[name] = entry
-            self.lift(entry)
-            if let field = Self.autofocus(in: pop) { presenter.focusNode(field) }
+            self.agentShow(pop, named: name, from: source)
         }
+    }
+    private func agentShow(_ pop: NodeView, named name: String, from source: UInt32) {
+        let entry = Lifted(source: source, popover: pop)
+        agentOpen[name] = entry
+        lift(entry)
+        if let field = Self.autofocus(in: pop) { presenter?.focusNode(field) }
+    }
+    /// Under the agent, a context menu (LLP 1021 §5.1) is its popover painted
+    /// in the top layer, anchored to `node`, as an invoker's (D4): its
+    /// preview row and menu rows are nodes the agent reads and taps. Called
+    /// after `node`'s own `contextmenu` has been delivered; any other open
+    /// popover closes, as a tap outside it would.
+    /// Whether it opened one.
+    @discardableResult
+    func agentContext(_ node: NodeView) -> Bool {
+        // Its own action may have unmounted or disabled it, or renamed its popover.
+        guard ExactEnv.agentMode, let presenter, let name = node.props["contextPopover"], eligible(node) else { return false }
+        for other in Array(agentOpen.keys) { drop(other) }
+        guard let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name && !isConfirmation($0) }) else {
+            presenter.session?.log("context menu \(name) refused: no popover has that id")
+            return false
+        }
+        agentShow(pop, named: name, from: node.id)
+        return true
     }
     /// Whether a tap on `node` goes through the agent's painted popovers —
     /// one is open (the tap dismisses it first), or `node` is a painted
@@ -404,6 +449,9 @@ final class MenuHost {
         return owner.finishing || owner.alert.isBeingPresented || owner.alert.isBeingDismissed
     }
     func observation() -> [String: Any]? {
+        #if os(iOS)
+        if let open = context.observation() { return open }
+        #endif
         if confirmation == nil, ExactEnv.agentMode, let open = agentOpen.values.first, let pop = open.popover {
             return ["kind": "popover", "source": Int(open.source), "popover": Int(pop.id), "phase": "open"]
         }
@@ -566,6 +614,8 @@ final class MenuHost {
     func items(of pop: NodeView) -> [UIMenuElement] {
         var sections: [[UIMenuElement]] = [[]]
         for case let row as NodeView in pop.container.subviews {
+            // A context menu's preview (§5.1) is not one of its items.
+            if row.props["contextPreview"] == "true" { continue }
             if row.handlers.contains("press") {
                 let id = row.id
                 let image = image(of: row)

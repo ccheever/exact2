@@ -1476,7 +1476,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // menu opens.
         pointerPressed(event)
         let canvas = canvasInput?.pointer(event, phase: "down") == true
-        if !disabled, handlers.contains("contextmenu") { presenter?.mouseEvent(id, 10, pointerSample(event).line); return }
+        let menu = !disabled && props["contextPopover"]?.isEmpty == false // and its popover's NSMenu (LLP 1021 §5.1)
+        if !disabled, handlers.contains("contextmenu") { presenter?.mouseEvent(id, 10, pointerSample(event).line) }
+        if menu { presenter?.menus.context(self, at: convert(event.locationInWindow, from: nil)) }
+        if menu || (!disabled && handlers.contains("contextmenu")) { return }
         if !canvas { super.rightMouseDown(with: event) }
     }
     override func scrollWheel(with event: NSEvent) {

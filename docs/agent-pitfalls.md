@@ -282,6 +282,16 @@ guide's rules don't make obvious.
   `axe touch -x <x> -y <y> --down --up`; or the agent's `tap <testId>`.
   (Signal Clone Privacy, 2026-10-04.)
 
+- **A native menu on an iOS 27 simulator brings up the software keyboard.**
+  A long press on a context menu (or a tap on a pull-down) shows the menu,
+  then the keyboard slides over its lower rows. Cause: UIKit's menu
+  type-to-select input (`_UITypeSelectKeyInput`) becomes first responder, and a
+  simulator with no hardware keyboard connected (headless, as the agents run
+  them) draws the software keyboard for it. App code does not cause it. Fix: none needed in the app.
+  For a clean recording, keep the menu's rows above the keyboard or connect the
+  simulator's hardware keyboard. (Native fixture's `peek` and bar menu,
+  2026-10-05.)
+
 - **A storage test fails with `storage is busy`, or storage is "unavailable in
   agent mode".** Cause: a drive has no storage unless it names a scratch store, and
   an open SQLite database locks its file, so a mutation and the refresh it triggers

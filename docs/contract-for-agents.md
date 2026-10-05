@@ -762,6 +762,17 @@ the scroll from happening; `drop` hands a `DragEvent` whose `files` are `doc:`
 handles of the types `file_handlers` declares. See
 [Pointer](contract-grammar.md#pointer).
 
+A long-press or right-click menu is a `popover` the node names with
+`contextPopover="<id>"`: its `button` rows (with `popovertarget="<id>"
+popovertargetaction="hide"`) and `hr` separators are the menu, and one row with
+`contextPreview=true` is the preview, whose `press` is what tapping the preview
+does (open the conversation). iOS presents UIKit's context menu, with the row
+lifting and the preview popping into the screen its press pushes; macOS an
+`NSMenu` without the preview; the web and the agent open the popover anchored to
+the node. The node's own `contextmenu` action runs first, so one popover can
+serve every row of a list. The agent opens it with `tap <node> contextmenu`
+([LLP 1021](../llp/1021-menus.rfc.md) §5.1).
+
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
 `Geometry`. Handle `unavailable` and `provisional`. `frame` reads the last layout's border box
 where the viewer sees it, as `getBoundingClientRect` does: in the viewport, with every

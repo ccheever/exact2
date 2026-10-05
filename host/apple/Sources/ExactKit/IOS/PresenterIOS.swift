@@ -1040,6 +1040,7 @@ final class Presenter {
             v.web?.frame = v.bounds
             v.fitScroll()
             v.applyTransform()
+            menus.framed(v)
         case .content:
             v.content = CGSize(width: op.w, height: op.h)
             v.fitScroll()
