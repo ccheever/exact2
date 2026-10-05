@@ -268,3 +268,16 @@ fn a_ternary_broken_before_its_colon_is_told_to_wrap_it() {
     assert!(!error.message.contains("next line"), "{error}");
     contract::compile("component App\n  state done = false\n  state label = \"\"\n  action go\n    let next = (done\n      ? \"Done\"\n      : \"Open\")\n    label = next\n  view\n    text label press=go\n").unwrap();
 }
+
+#[test]
+fn a_mistaken_section_word_names_the_section() {
+    let src = "component App\n  view\n    Meter(pct=1)\ncomponent Meter\n  prop pct: number\n  view\n    text \"a\"\n";
+    let error = contract::compile(src).unwrap_err();
+    assert_eq!(
+        (error.id.as_str(), error.message.as_str()),
+        (
+            "syntax-unknown-section",
+            "unknown section `prop`: did you mean `props`?"
+        )
+    );
+}

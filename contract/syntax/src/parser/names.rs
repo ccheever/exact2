@@ -34,6 +34,26 @@ pub(super) fn reserved_message(w: &str) -> String {
     format!("`{w}` is reserved in Contract ({why}); choose another name")
 }
 
+/// The section a mistaken section word means, as a refusal's tail (authoring
+/// bench: `prop pct: number` in a child component).
+pub(super) fn section_hint(word: &str) -> String {
+    let section = match word.trim_end_matches('s') {
+        "prop" | "propertie" | "property" | "param" | "arg" => "props",
+        "state" | "var" | "let" => "state",
+        "derive" | "derived" | "computed" | "memo" | "getter" => "derive",
+        "resource" | "query" | "fetch" => "resource",
+        "mutation" => "mutation",
+        "action" | "method" | "function" | "handler" | "on" => "action",
+        "task" | "effect" | "timer" | "interval" | "every" => "task",
+        "view" | "render" | "template" | "body" => "view",
+        "slot" | "children" => "slot",
+        "provide" => "provide",
+        "inject" | "context" => "inject",
+        _ => return String::new(),
+    };
+    format!(": did you mean `{section}`?")
+}
+
 impl Parser {
     /// An expression continued on an indented line (`? …`, `: …`, `+ …`, `and …`):
     /// a declaration is one line unless parentheses hold it (authoring bench: a

@@ -766,7 +766,7 @@ impl Parser {
                         other => {
                             return self.err(
                                 "syntax-unknown-section",
-                                format!("unknown section `{other}`"),
+                                format!("unknown section `{other}`{}", names::section_hint(other)),
                             )
                         }
                     }
