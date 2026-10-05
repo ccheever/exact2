@@ -173,6 +173,7 @@ async function looks() {
       console.log(`| ${index} | ${f.key} | ${f.missing ? '-' : `${(f.differing * 100).toFixed(2)}%`} | ${f.missing ? '-' : f.mean.toFixed(2)} | ${f.missing ? 'no reference' : f.ok ? 'match' : 'FAIL'} |`);
     const status = runs.every(r => r.code === 0 && r.summary?.status === 'PASS') ? 'PASS' : 'FAIL';
     console.log(`LOOKS ${status} ${name}: ${runs.length} run(s) against ${relative(process.cwd(), dir)}`);
+    if (status === 'FAIL') console.log(`Each failing frame's reference | now | difference is <frame>.diff.png under ${relative(process.cwd(), root)}/web-*/looks/. If the change is intended: ${proofCommand(import.meta.path, local ? app : name, '--looks', '--retake', '--reason', '<why the pictures changed>')}`);
     return status === 'PASS' ? 0 : 1;
   }
   const failed = runs.filter(r => r.code !== 0 || r.summary?.status !== 'UNVERIFIED' || !r.summary?.looks?.length);
