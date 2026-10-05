@@ -1387,3 +1387,33 @@ passing observation, not evidence that prior process-launch variance is
 fixed. The final Forest test source also passes all 26 cases after the
 Material-copy cleanup. Logs: `/tmp/exact2-forest-supplies-checks.json` and
 `/tmp/exact2-forest-supplies-logic-tests.log`.
+
+The strict seven-run baseline is accepted at
+`artifacts/prove/run-pc3WeM/`: Linux Off/Save/FreshGame takes
+4.784/26.127/26.171 s, web Off/Save/FreshGame 158.317/194.231/190.863 s,
+and Linux release 30.532 s. All source-input and pin comparisons agree,
+all assertions pass, and every cleanup audit leaves zero recorded children.
+The original three tick pins stay unchanged; save pins reflect the new
+input binding/HUD and a new `cached-supply` continuation. Each run emits
+23 save files across 14 final scenario observations. The normal browser's
+spare-fuel and cached-supply images were inspected: the refusal is readable,
+the pack retains its log, and dropping places that log visibly on the ground
+with the matching pickup prompt. The exploratory observation also includes
+the visible drop label, so the last item's kind is available to Jev.
+
+The normal web/macOS sweep (`artifacts/prove/run-cboxBu/`) passes in
+116.431/192.285 s, with identical source inputs, pins, all 14 final world
+observations and all 23 save files. Both cleanup audits are available and
+leave zero recorded children. The original three tick pins and the previous
+12 world hashes remain unchanged. These overlapping runs measure verification
+work, not interactive latency; no new Jev trial was run for this change.
+
+Image review found a separate open host defect: macOS's `cached-supply.png`
+loses parts of several HUD text lines although the preceding `spare-fuel.png`
+is clean. A short fresh-process restore/pickup/drop reproduction under
+`artifacts/supplies-redraw/` also produces damaged text, and another screenshot
+alone does not reliably repair it. A second run,
+`artifacts/supplies-redraw-window/`, has clean agent and window-server images
+at the final tick; it does not isolate the fault to screenshots or prove the
+live HUD unaffected. No host fix has been made. Investigate the canvas HUD
+capture and backing-layer redraw before calling native image parity complete.

@@ -40,7 +40,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     let stalled = 0;
     for (let turn = 0; turn < (crafting ? 96 : survival ? 128 : 48); turn++) {
       const tree = await s.tree();
-      const state = Object.fromEntries(['objective','prompt','health','hunger','pack','fuel','battery','day','left','children','survived','camp-bearing','night-plan','night-supplies','build-status','build-cost']
+      const state = Object.fromEntries(['objective','prompt','health','hunger','pack','drop-hint','fuel','battery','day','left','children','survived','camp-bearing','night-plan','night-supplies','build-status','build-cost']
         .map(id => [id, node(tree, id)?.props?.text ?? '']));
       const rescued = state.children === 'Children 2 of 2 rescued';
       const built = state['build-status'].startsWith('Built');

@@ -5,21 +5,22 @@
     "7378": "0xf04f5d9a791ffe97"
   },
   "saves": {
-    "chopping": "b16e73694892a876e92fc2166f103ba213bcae699ff58cafb9e193d07f8cc5d9",
-    "night": "295430c3ace28676e3c983b3434f486f640fd41cc0143977cf0539adef92ea31",
-    "rescue": "3c4153e7822d45df6feca50fa7e95198c0c7c6c15df5fb6b2a865168a07a9daa",
-    "supplies": "b0ff76906eaf385e1f64140aecc99d92571e57e4a250d9af537c58ffcc59dfb2",
-    "dawn": "c73b7409e2057d1b6f2d8902a5e6975a9d396fa734254005d9a48f684403095e",
-    "windbreak": "44e4c058bfae2e7c1221ee532b17982f49df4520bb98b868ba83d6d352eacb8b",
-    "windbreak-dawn": "3b88c858dd5b63734142daf158d4654f44c2a123fe4a34ca1a27297818e17306"
+    "chopping": "9a3010f42d9d4fd40e4e7d9b1a1e7afb24ecb57c197cb9e4b9bb6b09dfc5e636",
+    "night": "38d7c8e39d80010abbfc7c277de17b5526b4b3ae6b04646e959741f7b71f7f11",
+    "rescue": "3680add0e1172705dff81ed922698e62e37696030713b95269373cd8452fe56a",
+    "supplies": "734f5de211ede5769e7dbf3e6e4fea66363fa4eab6922ed17173d7b852396bca",
+    "dawn": "512807add70fa19731a4e447d1991cc4383d8e7d0e45f3600adb68fd26238d75",
+    "windbreak": "37b4319b011de1ed89cb5557517198d43d57e7cd3e9163a3057e6b0095385777",
+    "windbreak-dawn": "1831deb318301f82bedc69ee96802fcaeec464134b2d031fbf1b17a794ae06db",
+    "cached-supply": "f533d85ba2f89386e6248e2e5682fac718de7ed065ee898a5faa5af528991b4c"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "5821e4548e1be5f2c1130c1c8c94774c8760dfae182ffbe57eb70b1bdf04a367",
+  "inputs": "e165371e4ddc8bf7837634dfea6c3f51552a588328d9792fce7f0a660062ff6c",
   "game": "forest",
   "generated": "bun game/prove.mjs forest --repin --hosts 'linux,web'",
-  "at": "98a989b55a01c8760e1749fc1f12a6f08ccb9ecb",
-  "reason": "Camp readiness no longer waits for rescued children; prove the built camp shelters through dawn and preserves its unfinished rescue"
+  "at": "ad53b271bf0abae6739b38c1ed2209f65ffafe67",
+  "reason": "Feed only whole supplies that fit and allow dropping and retrieving saved supplies through G or the HUD"
 }
