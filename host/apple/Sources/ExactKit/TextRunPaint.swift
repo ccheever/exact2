@@ -88,6 +88,13 @@ extension Spec {
     }
 }
 
+extension TextEngine {
+    /// A `text-shadow`: offset x, y, blur, then a colour as `color` takes it.
+    static func isShadow(_ s: [Double]) -> Bool { s.count == 7 || s.count == 12 }
+
+    static func shadowColor(_ s: [Double]) -> CGColor { color(Array(s[3...])).cgColor }
+}
+
 /// A run's own shadow as a Core Text attribute: offset x, y and blur in
 /// points (CSS's radius), and its colour.
 final class TextRunShadow: NSObject {

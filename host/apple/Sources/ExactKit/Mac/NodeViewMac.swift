@@ -761,17 +761,12 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
         style[key]?.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast)
     }
-    func textChannels(_ key: String, dark: Bool? = nil) -> [Double]? { style[key]?.textChannels(dark: dark ?? drawsDark, contrast: drawsHighContrast) }
 
     /// Whether any colour on this node is a pair — what says an appearance
     /// change is something to this view rather than nothing.
     var hasSchemeColor: Bool {
         style.values.contains { $0.isSchemeColor || $0.isSchemeGradient || $0.containsSystemColor }
     }
-
-    func color(_ key: String, _ fallback: NSColor) -> NSColor { cgColor(key).flatMap { NSColor(cgColor: $0) } ?? fallback }
-    /// A colour row as Core Graphics draws it (LLP 1100 D2).
-    func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key]?.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast) }
 
     /// The appearance changed under this view. A repaint is not enough: the
     /// text engine caches a paragraph spec and a laid-out paragraph, and a
