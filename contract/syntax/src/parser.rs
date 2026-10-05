@@ -346,7 +346,10 @@ impl Parser {
                 TokenKind::Ident(w) if w == "font" => file.fonts.push(self.font_decl()?),
                 TokenKind::Ident(w) if w == "routes" => {
                     if file.routes.is_some() {
-                        return self.err("route-duplicate", "an app declares exactly one `routes` table");
+                        return self.err(
+                            "route-duplicate",
+                            "an app declares exactly one `routes` table",
+                        );
                     }
                     file.routes = Some(self.routes_decl()?);
                 }
@@ -373,7 +376,12 @@ impl Parser {
                 TokenKind::Ident(w) if LAUNCH.contains(&w.as_str()) => {
                     let line = self.step()?;
                     if let Some(first) = file.launch.iter().find(|s| same_launch(s, &line)) {
-                        return duplicate("launch line", launch_word(&line), line.span(), first.span());
+                        return duplicate(
+                            "launch line",
+                            launch_word(&line),
+                            line.span(),
+                            first.span(),
+                        );
                     }
                     file.launch.push(line);
                 }
@@ -399,7 +407,7 @@ impl Parser {
                         "expected `routes`, `font`, `shape`, `style`, `keyframes`, `timeline`, `fn`, `use`, or `component`, found {}",
                         describe(other)
                     ),
-                    )
+                    );
                 }
             }
         }
