@@ -311,3 +311,21 @@ fn a_stray_else_and_a_body_on_the_next_line_say_where_they_go() {
     );
     contract::compile("fn label(done: bool): string = (done\n  ? \"Done\"\n  : \"Open\")\ncomponent App\n  view\n    text label(true)\n").unwrap();
 }
+
+#[test]
+fn flex_none_beside_another_error_is_not_refused() {
+    let src = "component App\n  state done = false\n  state text = \"\"\n  action toggle(v: bool)\n    done = v\n  action commit\n    text = \"\"\n  view\n    column\n      input type=\"checkbox\" checked=done change=toggle aria-label=\"Done\" flex=\"none\"\n      textarea value=text change=commit aria-label=\"Text\"\n";
+    let Err(errors) =
+        contract::compile_path_source_all(std::path::Path::new("app.contract"), src, false)
+    else {
+        panic!("the arity error refuses this app")
+    };
+    assert!(
+        errors.iter().all(|e| !e.message.contains("`flex")),
+        "{errors:?}"
+    );
+    assert!(
+        errors.iter().any(|e| e.id == "analyze-handler-arity"),
+        "{errors:?}"
+    );
+}

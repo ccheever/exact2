@@ -187,12 +187,24 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 {
                                     values::check_style_value(a, rows, &Ty::Unknown, &[])
                                 }
-                                Some(tags::AttrTarget::Flex) => values::check_style_value(
-                                    a,
-                                    &[StyleId::FlexGrow],
-                                    &Ty::Unknown,
-                                    &[],
-                                ),
+                                // The shorthand's parts, as lowering checks them: `flex="none"`
+                                // was refused here as a grow number beside another error
+                                // (authoring bench: three builders).
+                                Some(tags::AttrTarget::Flex) => {
+                                    [StyleId::FlexGrow, StyleId::FlexShrink, StyleId::FlexBasis]
+                                        .into_iter()
+                                        .enumerate()
+                                        .try_for_each(|(index, row)| {
+                                            let value = values::flex_component(&a.value, index)?;
+                                            let part = contract_syntax::Attr { value, ..a.clone() };
+                                            values::check_style_value(
+                                                &part,
+                                                &[row],
+                                                &Ty::Unknown,
+                                                &[],
+                                            )
+                                        })
+                                }
                                 Some(tags::AttrTarget::Shorthand) => {
                                     super::shorthands::component(&a.value, &a.name, 0).map(|_| ())
                                 }
