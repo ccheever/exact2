@@ -686,7 +686,7 @@ export function gs(e, name, values) {
     const pending = x.pendingSurfaces ??= [], queued = pending.find(p => p.id === id);
     if (queued) queued.values = v; else pending.push({ id, name, values: v, generation: 0 });
     if (!Gpu && typeof requestAnimationFrame === "function" && !globalThis.__exactRender) {
-      x.views = Views; x.generation = 0; x.devAssets = null; x.root = document.getElementById("exact-root");
+      x.views = Views; x.generation = 0; x.devAssets = null; x.root = document.getElementById("exact-root"); x.assetURL = v => rel("src", v); // a release's asset path, as the wasm glue's `localAssetURL` (LLP 1098 D6)
       // A surface's published record (LLP 1009 D6), as the glue hands it to
       // the wasm host: `name` or `name\0json`, to `exactSurface` readers
       // (facts.js); dropped where no resource reads one.
