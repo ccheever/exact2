@@ -144,6 +144,7 @@ export function parseFlags(argv) {
     else if (argv[i] === '--epoch') flags.epoch = argv[++i];
     else if (argv[i] === '--timing') flags.timing = argv[++i];
     else if (argv[i] === '--touch') flags.touch = argv[++i];
+    else if (argv[i] === '--chrome') flags.chrome = argv[++i];
     else if (argv[i] === '--phone') flags.phone = argv[++i];
     else if (argv[i] === '--storage') flags.storage = argv[++i];
     else rest.push(argv[i]);

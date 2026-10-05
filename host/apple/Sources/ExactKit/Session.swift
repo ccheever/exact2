@@ -71,6 +71,14 @@ public enum ExactEnv {
     /// Whether the agent's world is settled between calls: native animation
     /// applies at once. False under `platform` timing.
     public static let agentFreezes = agentMode && agentTiming != "platform"
+    /// `EXACT_AGENT_CHROME=platform` (opt-in; splitter rough 4, 11): under
+    /// the agent, the native navigation bar and tab bar show as a person
+    /// sees them, their items pressing the authored controls they stand for.
+    /// The default paints the authored header and tablist in their place.
+    public static let agentChrome = environment["EXACT_AGENT_CHROME"] ?? "agent"
+    /// Whether the authored header and tablist paint instead of UIKit's
+    /// bars: the agent's default chrome.
+    public static let authoredChrome = agentMode && agentChrome != "platform"
     public static let smoke = environment["EXACT_SMOKE"] == "1"
     /// Baked host metadata: a bundle normally; the existing product sidecar in bare development builds.
     nonisolated(unsafe) public static let appMetadata: [String: Any] = {

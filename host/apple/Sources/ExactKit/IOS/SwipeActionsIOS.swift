@@ -40,6 +40,8 @@ final class SwipeActionsHost {
     }
     /// The row projected for `owner`, if any (tests and diagnostics).
     func cell(of owner: NodeView) -> UITableViewCell? { rows[owner.id]?.projection }
+    /// Why `owner`'s native swipe is refused, as the log says it, if it is.
+    func refusal(of owner: NodeView) -> String? { refusals[owner.id] }
     func reset() {
         for row in rows.values { row.remove() }
         rows.removeAll(); refusals.removeAll()
@@ -74,13 +76,31 @@ final class SwipeActionsHost {
                 return node !== owner && node.isDescendant(of: owner) ? node : nil
             }
             let controls = names.compactMap(resolve)
-            guard owner.scroll != nil || owner.scrollDormant, let body = resolve(content),
-                  !names.isEmpty, Set(names).count == names.count, controls.count == names.count,
-                  controls.allSatisfy({ $0.handlers.contains("press") && !$0.isDescendant(of: body) && $0 !== body && !label($0).isEmpty }),
-                  abs(body.bounds.width - owner.bounds.width) < 0.5,
-                  abs(body.bounds.height - owner.bounds.height) < 0.5,
-                  claimed.insert(body.id).inserted else {
-                let message = "swipeContent on #\(owner.id) requires one full-size descendant and uniquely named descendant press controls with accessible names"
+            let body = resolve(content)
+            // The first rule the row breaks, by name and with the sizes it
+            // compared (splitter rough 10: a hairline border on the scroll
+            // left its content half a point short, and the refusal said only
+            // what a row needs).
+            let broken: String? = {
+                let size = { (v: NodeView) in String(format: "%gx%g", v.bounds.width, v.bounds.height) }
+                if owner.scroll == nil && !owner.scrollDormant { return "it is not a scroll container (overflow-x)" }
+                guard let body else { return "swipeContent \"\(content)\" names no one descendant of it" }
+                if names.isEmpty { return "it names no swipeLeading or swipeTrailing control" }
+                if let twice = names.first(where: { n in names.filter { $0 == n }.count > 1 }) { return "\"\(twice)\" is named twice" }
+                if let missing = names.first(where: { resolve($0) == nil }) { return "\"\(missing)\" names no one descendant of it" }
+                for (name, control) in zip(names, controls) {
+                    if !control.handlers.contains("press") { return "\"\(name)\" has no press handler" }
+                    if control === body || control.isDescendant(of: body) { return "\"\(name)\" is inside swipeContent \"\(content)\"" }
+                    if label(control).isEmpty { return "\"\(name)\" has no accessible name (aria-label or text)" }
+                }
+                if abs(body.bounds.width - owner.bounds.width) >= 0.5 || abs(body.bounds.height - owner.bounds.height) >= 0.5 {
+                    return "swipeContent \"\(content)\" is \(size(body)), not the row's \(size(owner)) border box (a border or padding on the row shrinks it)"
+                }
+                if claimed.contains(body.id) { return "swipeContent \"\(content)\" is another row's too" }
+                return nil
+            }()
+            guard broken == nil, let body, claimed.insert(body.id).inserted else {
+                let message = "swipeContent on #\(owner.id) is refused: \(broken ?? "its content is another row's"); a row needs one full-size descendant and uniquely named descendant press controls with accessible names"
                 if refusals[owner.id] != message { fputs("exact: \(message)\n", stderr); refusals[owner.id] = message }
                 // A refused row swipes as the web does: by its scroll.
                 owner.needScroll()
@@ -115,6 +135,17 @@ final class SwipeActionsHost {
         for row in rows.values {
             if let button = row.actionView(id) { return button }
         }
+        return nil
+    }
+    /// The agent's tap on an action no swipe has revealed (an authored
+    /// test's `tap delete-…`, splitter rough 12): the action UIKit would
+    /// offer, performed as VoiceOver performs a cell's swipe action, with
+    /// no swipe; the web's tap scrolls the row to the same control. False
+    /// when UIKit would offer no such action (disabled, hidden, inert); nil
+    /// when no row owns `id`.
+    func perform(_ id: UInt32) -> Bool? {
+        // A loop, not `lazy.compactMap(…).first`, which asks its element twice: two presses.
+        for row in rows.values { if let offered = row.perform(id) { return offered } }
         return nil
     }
 
@@ -294,6 +325,19 @@ final class SwipeActionsHost {
                 cell.accessibilityTraits = []
             }
             table.layoutIfNeeded()
+        }
+        /// See `SwipeActionsHost.perform`: projected for the check UIKit's
+        /// own configuration makes, then released again as after a touch.
+        func perform(_ id: UInt32) -> Bool? {
+            guard let target = (leading + trailing).first(where: { $0.id == id }) else { return nil }
+            // A projected row's content is the cell's already: mounting it
+            // again would carry the table into its own cell.
+            let was = projected
+            if !was { mount() }
+            let offered = projected && enabled(target)
+            if !was { DispatchQueue.main.async { [weak self] in self?.settle() } }
+            if offered { host.presenter.press(target.id) }
+            return offered
         }
         /// Hidden while projected; `restore` gives back what it was, once.
         private func hide(_ view: NodeView) {

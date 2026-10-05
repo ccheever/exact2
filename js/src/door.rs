@@ -64,21 +64,20 @@ pub(crate) unsafe extern "C" fn host_door(
                     // `a` is the path a file operation names: a document
                     // needs no app storage, as for a Rust source.
                     let document = state.documents && a.starts_with("doc:/");
-                    Ok((!state.storage && !document).then(|| {
-                        if state.agent.is_some() {
-                            "agent"
-                        } else {
-                            "unsupported"
-                        }
-                        .into()
-                    }))
+                    super::storage::refusal(true, state.storage || document, state.agent.is_some())
                 }
             }
-            // Background work has no store (LLP 1097 D5): nothing it
-            // reads is an answer's, and storage is the host's as ever.
-            None if state.between_answers => Ok((!state.storage
-                && !(state.documents && a.starts_with("doc:/")))
-            .then(|| "unsupported".into())),
+            // No answer's store: a background round (LLP 1097 D5) or a
+            // let-go chain (splitter rough 7). Storage is live, with the
+            // same refusal codes as an answer's call, not the bake's.
+            None if state.between_answers => {
+                let document = state.documents && a.starts_with("doc:/");
+                super::storage::refusal(
+                    !state.baking,
+                    state.storage || document,
+                    state.agent.is_some(),
+                )
+            }
             None => Err("bake".into()),
         },
         6 => {

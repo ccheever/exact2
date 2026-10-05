@@ -167,9 +167,10 @@ guide's rules don't make obvious.
   2026-10-04.)
 - **The agent's screenshots and tree don't show the native bars.** Under
   `scripts/agent.mjs` the navigation bar, tab bar, `UIMenu`s and header search are
-  not presented; the authored header, tablist and popover paint instead, by design.
-  To see native chrome, launch normally and take `xcrun simctl io <udid>
-  screenshot`. (Signal Clone, builds 5 and 10.)
+  not presented; the authored header, tablist and popover paint instead, by default.
+  To see the bars, the tab bar and sheets as a person does, drive with `--chrome
+  platform` and take `screenshot out.png window`; menus stay the agent's popovers
+  there. (Signal Clone, builds 5 and 10; Splitter, rough 4 and 11.)
 - **An overlay's backdrop stops at the navigation or tab bar.** Cause: content
   inside a route draws under the native bars. Fix: render full-screen overlays
   (menus, action sheets) as root children after the tab container, or as a
@@ -273,7 +274,11 @@ guide's rules don't make obvious.
   children, naming them with `swipeContent`, `swipeLeading` and `swipeTrailing` ids,
   which the web scrolls and iOS turns into UIKit's own swipe actions. Fix: copy
   `apps/messages/app.contract`'s inbox row (`thread-swipe-…`). (Ledger2 DIARY, "Needed:
-  swipe gesture", about 15 minutes, 2026-10-04.)
+  swipe gesture", about 15 minutes, 2026-10-04.) iOS refuses a row whose content is
+  not exactly the scroll's size, and `logs` says which rule failed (`swipeContent on
+  #243 is refused: swipeContent "row" is 390x68, not the row's 390x68.5 border box`):
+  a border on the scroll itself shrinks it, so put a hairline on the content (Splitter
+  DIARY, rough 10).
 
 - **A `swiperight` hears nothing from a finger on iOS.** A mouse drag fires it on
   the web and macOS, in a drive and in a test, while a real touch on an iPhone

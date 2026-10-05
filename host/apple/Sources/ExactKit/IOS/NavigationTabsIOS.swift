@@ -81,9 +81,9 @@ extension NavigationHost {
         return (tabs.isEmpty ? [primaryNavigation].compactMap { $0 } : tabs) + presentedNavigations
     }
 
-    /// Whether Exact's tab bar shows: never under the agent, which sees the
-    /// authored tablist (LLP 1021 D4's one presentation).
-    var tabBarShows: Bool { tabController != nil && tabOwner === tabController && !ExactEnv.agentMode }
+    /// Whether Exact's tab bar shows: not under the agent's own chrome,
+    /// which sees the authored tablist (LLP 1021 D4's one presentation).
+    var tabBarShows: Bool { tabController != nil && tabOwner === tabController && !ExactEnv.authoredChrome }
 
     /// What a tab other than the selected one holds: its stack up to its
     /// first presentation. A sheet is presented only over the selected tab;
@@ -119,7 +119,7 @@ extension NavigationHost {
             container.delegate = tabProxy
             container.setViewControllers(navs, animated: false)
             container.selectedIndex = p.at
-            if ExactEnv.agentMode { hideTabBar(container) }
+            if ExactEnv.authoredChrome { hideTabBar(container) }
             tabController = container
             return container
         }()
@@ -133,7 +133,7 @@ extension NavigationHost {
             presenter.session?.natives.tabsHook(container, event: 0)
             tabsHooked = true
         }
-        presenter.session?.log("navigation: \(navs.count) tabs in \(owned.map { "the app's \(type(of: $0))" } ?? "a UITabBarController")\(ExactEnv.agentMode ? " (the authored tablist shows)" : "")")
+        presenter.session?.log("navigation: \(navs.count) tabs in \(owned.map { "the app's \(type(of: $0))" } ?? "a UITabBarController")\(ExactEnv.authoredChrome ? " (the authored tablist shows)" : "")")
     }
 
     private func mount(_ holder: UIViewController, in parent: UIViewController, at root: NodeView) {
@@ -312,6 +312,6 @@ extension NavigationHost {
     }
 
     /// Whether a tab container takes this tablist's place.
-    func adopts(tablist: NodeView) -> Bool { adoptedTablist == tablist.id && tabOwner != nil && !ExactEnv.agentMode }
+    func adopts(tablist: NodeView) -> Bool { adoptedTablist == tablist.id && tabOwner != nil && !ExactEnv.authoredChrome }
 }
 #endif

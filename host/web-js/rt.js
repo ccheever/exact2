@@ -901,8 +901,10 @@ export function on(e, kind, f) {
     case "wheel": return e.addEventListener("wheel", ev => { if (e.matches(":disabled") || e.closest("[inert]")) return; const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false });
     // Files dropped from outside, each a `doc:` handle (files.js, documents-glue.js; studio diary R19).
     case "drop": return OnHooks.drop?.(e, f);
-    // Chrome blurs an element it is removing (still connected); a retired view's blur is dropped (glue.js).
-    case "blur": return l(kind, () => queueMicrotask(() => e.isConnected && f())); case "copy": case "cut": case "paste": return l(kind, ev => { ev.stopPropagation(); f([ev.clipboardData?.getData("text/plain") ?? ""]); }); // the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds
+    // Chrome blurs an element it is removing (still connected); a retired view's blur is dropped (glue.js). A `focus`
+    // waits the same microtask, so moving the focus runs the old field's `blur` before the new one's `focus`, in DOM
+    // order: undeferred, `type` into a second field ran its `focus` first and the first's `blur` undid it (splitter rough 13).
+    case "blur": case "focus": return l(kind, () => queueMicrotask(() => e.isConnected && f())); case "copy": case "cut": case "paste": return l(kind, ev => { ev.stopPropagation(); f([ev.clipboardData?.getData("text/plain") ?? ""]); }); // the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds
     case "selectionchange": return onSelection(e, (text, a, b) => f([text, a, b])); // its part of the page's selection, the `Selection` record (navigation.js)
     default: return l(kind, () => f());
   }

@@ -105,6 +105,16 @@ impl Session {
     }
 }
 
+/// Storage's availability as the prelude's refusal code (kanban F28): `bake`
+/// where storage is not live; none where the module reaches it; else `agent`
+/// for a drive that names no scratch store, or `unsupported`.
+pub(crate) fn refusal(live: bool, reaches: bool, agent: bool) -> Result<Option<String>, String> {
+    if !live {
+        return Err("bake".into());
+    }
+    Ok((!reaches).then(|| if agent { "agent" } else { "unsupported" }.into()))
+}
+
 /// The documents a host minted ([`exact_data::documents`]), as ibex2's
 /// table: the one a Rust source's storage requests resolve through.
 fn documents(path: &str) -> Result<Document, String> {

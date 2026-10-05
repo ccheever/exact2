@@ -248,10 +248,11 @@ pub fn compile(src: &str) -> Result<Plan, CompileError> {
 /// Compile a file by path, resolving every `use … from "./other.contract"`
 /// (LLP 1017 P8): the used file is loaded the same way, transitively, and
 /// all of its declarations — shapes, styles, components — are merged into
-/// the using file after its own, so the using file's first component stays
-/// the root and a used component is a child. The named declaration must
-/// exist in the used file; a name declared differently in both is refused;
-/// a cycle is refused.
+/// the using file after its own, each file's names its own (LLP 1091), so
+/// the using file's first component stays the root and a used component is
+/// a child. The named declaration must exist in the used file; one name
+/// brought from two files' declarations, however alike, is refused; a cycle
+/// is refused.
 pub fn compile_path(path: &Path) -> Result<Plan, CompileError> {
     compile_path_source(path, &read_source(path)?)
 }

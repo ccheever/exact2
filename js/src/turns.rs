@@ -107,6 +107,10 @@ impl Module {
         let (Some(session), Some(engine)) = (self.storage.as_ref(), self.engine.as_mut()) else {
             return;
         };
+        // Each step the chain begins after the first must reach storage too:
+        // a refusal there ends the chain with its write unmade (splitter
+        // rough 7). `between_answers` is that window: no store, and storage
+        // is not refused as at bake.
         self.host.between_answers = true;
         let mut delivered = false;
         while engine
