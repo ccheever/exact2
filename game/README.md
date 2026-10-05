@@ -103,8 +103,9 @@ generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.
 The crate is `<Game::ID>-logic` and the bundle id `com.exact.<Game::ID>`; the title
 follows the directory name. Run the Rust tests with
 `bun game/app/shells.mjs ./my-game --test` — in a fresh clone too, with no bake and
-no environment variables. It generates `.shells/`, resolves offline and locked, runs
-the determinism lints and then `cargo test` on the game's crates.
+no environment variables. It generates `.shells/`, resolves offline and locked, bakes
+`art/` into `assets/` (what `Sim::baked` delivers), runs the determinism lints and
+then `cargo test` on the game's crates.
 The generated workspace carries the SDK's Rust toolchain pin, including for games
 outside the SDK. Explicit `cargo +toolchain` and `RUSTUP_TOOLCHAIN` overrides still
 apply. Run direct Cargo commands from the game's `.shells/` directory so they also load its deterministic compiler
@@ -704,6 +705,19 @@ saved causes, and draws once the model lands (below). Streamed names are
 models and textures (sounds are not streamed yet), and never also in `ASSETS`.
 A generated model (`w.generated`) cannot take a name `ASSETS`, `STREAMED` or the
 level declares: registration refuses it, so a hostless test sees the collision.
+
+Hostless tests see the asset states hosts do, real bytes included, with
+`Sim::<MyGame>::baked(args)`: what setup awaits lands before setup, and whatever
+a host would ask for next (streamed and prefetched names, a model first shown
+mid-play, a model's textures) lands at the end of each `run` and `settle` round,
+as on a host whose fetches finish within the frame. The bytes are the game's
+`assets/`, which `shells.mjs --test` bakes from `art/` before the tests; a missing
+or refused asset fails the run, naming it (a look generating a name the bake
+streams would have failed this way). `Sim::delivered(args,
+Delivery::baked().after_ticks(30))` lands each name 30 ticks after a host would
+ask for it, as a slow network would; `Sim::with_assets(args, |name| …)` delivers
+from any loader. `Sim::new` delivers nothing: a test that reads the requests
+themselves (`take_assets`) uses it.
 Models and sprites need the asset-capable module; sounds and untextured emitters do
 not. See [the audio executor](audio/README.md) and
 [the audio fixture](games/audio-fixture/logic/src/lib.rs) for sampled sounds.

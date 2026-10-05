@@ -51,7 +51,7 @@ pub use placed::{CanvasChild, Facing, Placed, PlacedPlane};
 pub use present::{Derived, Keys, Present, PresentationComponent};
 pub use rng::{RangeValue, Rng};
 pub use scene::*;
-pub use sim::{Clock, Game, Now, Paranoid, Sim};
+pub use sim::{Clock, Delivery, Game, Now, Paranoid, Sim};
 pub use spring::Spring;
 pub use sprite::{Sprite, SpriteAnimation};
 pub use storage::{

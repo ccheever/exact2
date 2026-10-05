@@ -5,12 +5,12 @@ use garden_logic::garden::{now_ms, Census, Fruit, GardenClock, Plant, Schedule, 
 use garden_logic::shop::Shop;
 use garden_logic::{census_of, Garden, Options};
 
+/// A garden fed its baked art as a host feeds it (`Sim::baked`).
 fn new(seed: u64) -> Sim<Garden> {
-    Sim::<Garden>::new(Options {
+    Sim::<Garden>::baked(Options {
         seed,
         ..Options::default()
     })
-    .unwrap()
 }
 
 /// A HUD command, as Contract's `postMessage("world", cmd)` sends it.
@@ -1088,14 +1088,14 @@ fn feeding_improves_one_harvest_without_rerolling_it_and_survives_restore() {
     }
 }
 
-/// A game in a look, bound the way the canvas binds its arguments.
+/// A game in a look, bound the way the canvas binds its arguments, with the
+/// bake's real bytes delivered as a host delivers them.
 fn in_look(seed: u64, art: &str) -> Sim<Garden> {
-    Sim::<Garden>::new(Options {
+    Sim::<Garden>::baked(Options {
         seed,
         art: art.into(),
         ..Options::default()
     })
-    .unwrap()
 }
 
 /// Switch a running game's look, as the Garden panel's Look row does.
@@ -1280,7 +1280,12 @@ fn the_art_pass_draws_day_and_night_without_simulating_them() {
 #[test]
 fn no_look_generates_a_streamed_model_name() {
     use exact_game::{Game, Mesh};
-    let mut game = in_look(1, "");
+    // Undelivered: this test reads the requests a host would make itself.
+    let mut game = Sim::<Garden>::new(Options {
+        seed: 1,
+        ..Options::default()
+    })
+    .unwrap();
     send(&mut game, "fill 30");
     game.run(900_000.0);
     for art in ["", "golden", "storybook"] {
@@ -1319,6 +1324,44 @@ fn no_look_generates_a_streamed_model_name() {
             && fetched.len() < Garden::STREAMED.len(),
         "what the art pass shows, alone first: {fetched:?}"
     );
+}
+
+/// Every look beside the art pass's real streamed bytes, delivered as a host
+/// delivers them: started in each look and switched live through all of them,
+/// no delivery is refused, every streamed model the pass asks for is Loaded,
+/// and what the world holds under a streamed name is the bake's model, not a
+/// look's own. (Golden and storybook once generated `meadow.model`, a name
+/// the pass streams: macOS crashed only once those bytes landed, which no
+/// hostless test delivered.)
+#[test]
+fn every_look_lives_beside_the_streamed_art() {
+    use exact_game::{asset::Model, bin, hash, Game};
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+    let baked = |name: &str| {
+        let bytes = std::fs::read(dir.join(name)).unwrap();
+        hash::of(&bin::from_slice::<Model>(&bytes).unwrap())
+    };
+    for start in ["", "golden", "storybook", "pass"] {
+        let mut game = in_look(1, start);
+        send(&mut game, "fill 30");
+        game.run(300_000.0);
+        for art in ["pass", "golden", "storybook", "", "pass", start] {
+            switch(&mut game, 1, art);
+            game.run(1000.0);
+            let state = game.agent(r#"{"op":"state"}"#);
+            assert!(!state.contains("Failed"), "{start:?} -> {art:?}: {state}");
+            game.save().unwrap();
+        }
+        let held: Vec<_> = game
+            .presentation_models()
+            .filter(|(n, _)| Garden::STREAMED.contains(n))
+            .map(|(n, m)| (n.to_owned(), hash::of(m)))
+            .collect();
+        assert_eq!(held.len(), Garden::STREAMED.len(), "{start:?}");
+        for (name, digest) in held {
+            assert_eq!(digest, baked(&name), "{start:?}: {name} is not the bake's");
+        }
+    }
 }
 
 /// The art pass under the paranoid modes: every sampled tick rebuilds the

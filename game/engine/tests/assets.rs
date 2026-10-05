@@ -1080,3 +1080,65 @@ fn delivery_cost_by_model_count() {
         );
     }
 }
+
+// A hostless test fed as a host feeds it (`Sim::with_assets`, `Sim::baked`):
+// what setup awaits before setup; the rest at the observation that asked (the
+// end of a run), or `after_ticks` later; a refusal fails the run, by name.
+struct Fed;
+impl Game for Fed {
+    const ID: &'static str = "fed";
+    const ASSETS: &'static [&'static str] = &["first.model"];
+    const STREAMED: &'static [&'static str] = &["later.model"];
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn_named("first", (Transform::default(), Mesh::asset("first.model")));
+    }
+    fn tick(w: &mut World, _: &Input, _: &()) {
+        if w.tick() == 30 {
+            w.spawn_named("pop", (Transform::default(), Mesh::asset("pop.model")));
+        }
+    }
+}
+fn fed_read(refuse: &'static str) -> impl FnMut(&str) -> Result<Vec<u8>, String> + Send {
+    let model = bin::to_vec(&asset::Model::default());
+    move |name: &str| match name {
+        "first.model" | "later.model" | "pop.model" if name != refuse => Ok(model.clone()),
+        _ => Err(format!("no {name}")),
+    }
+}
+fn landed(sim: &mut Sim<Fed>, name: &str) -> bool {
+    let state = sim.agent(r#"{"op":"state"}"#);
+    state.contains(&format!(r#"{{"name":"{name}","state":"Loaded"}}"#))
+}
+#[test]
+fn a_fed_sim_lands_requests_at_once_or_some_ticks_later() {
+    let mut sim = Sim::<Fed>::with_assets((), fed_read("")).unwrap();
+    assert!(landed(&mut sim, "first.model") && landed(&mut sim, "later.model"));
+    sim.run(1000.);
+    assert!(
+        landed(&mut sim, "pop.model"),
+        "first sight lands by the run's end"
+    );
+
+    let late = Delivery::new(fed_read("")).after_ticks(10);
+    let mut sim = Sim::<Fed>::delivered((), late).unwrap();
+    assert!(!sim.is_loading(), "setup's own assets land before setup");
+    assert!(!landed(&mut sim, "later.model"));
+    sim.run(100.); // tick 6
+    assert!(!landed(&mut sim, "later.model"));
+    sim.run(100.); // tick 12: landed at 10
+    assert!(landed(&mut sim, "later.model"));
+    sim.run(400.); // tick 36: pop, shown at 30, asked for now
+    assert!(!landed(&mut sim, "pop.model"));
+    sim.run(100.); // tick 42
+    assert!(!landed(&mut sim, "pop.model"));
+    sim.run(100.); // tick 48: landed at 46
+    assert!(landed(&mut sim, "pop.model"));
+    assert_eq!(sim.world().tick(), 48);
+}
+#[test]
+#[should_panic(expected = "asset `pop.model`: no pop.model")]
+fn a_fed_sim_fails_the_run_that_cannot_land_an_asset() {
+    let mut sim = Sim::<Fed>::with_assets((), fed_read("pop.model")).unwrap();
+    sim.run(1000.);
+}

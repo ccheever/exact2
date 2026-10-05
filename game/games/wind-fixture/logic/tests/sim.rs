@@ -4,11 +4,7 @@ use wind_fixture_logic::{WindGame, SIDE};
 /// A sim with the reeds' texture: `shells.mjs --test` bakes `art/` into `assets/`
 /// first. Settling and saving wait for what the reed model shows.
 fn field() -> Sim<WindGame> {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
-    Sim::with_assets((), |name| {
-        std::fs::read(dir.join(name)).map_err(|e| format!("{name}: {e}"))
-    })
-    .unwrap()
+    Sim::baked(())
 }
 
 #[test]

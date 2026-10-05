@@ -188,6 +188,7 @@ impl<G: Game> Sim<G> {
         next.textures = std::mem::take(&mut self.textures);
         next.paranoid = self.paranoid;
         next.restarted = self.restarted;
+        next.delivery = self.delivery.take();
         *self = next;
         Ok(())
     }
