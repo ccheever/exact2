@@ -92,6 +92,45 @@ final class PresenceIOSTests: XCTestCase {
         p.reset()
     }
 
+    func testSegmentsReportNativeHeightWithoutRepeatedOrStaleMeasurements() throws {
+        let p = tabBarFixture()
+        defer { p.reset() }
+        var reports: [CGSize?] = []
+        p.onIntrinsic = { sizes in
+            for (id, size) in sizes where id == 10 { reports.append(size) }
+        }
+        p.apply(wireBatch([
+            ["op": "children", "id": 11, "ids": [14]],
+            ["op": "children", "id": 12, "ids": [16]],
+        ]))
+        let owner = try XCTUnwrap(p.views[10])
+        let control = try XCTUnwrap(p.segments.control(of: 10))
+        drainIntrinsicSizes()
+        let size = try XCTUnwrap(reports.last ?? nil)
+        XCTAssertEqual(size.height, control.intrinsicContentSize.height)
+        XCTAssertGreaterThan(size.height, 20, "an unsized text row must not squash the native control")
+        XCTAssertEqual(control.frame, owner.bounds, "the kernel still owns the final box")
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
+                            "w": 400.0, "h": Double(size.height)]]))
+        drainIntrinsicSizes()
+        let count = reports.count
+        p.segments.sync()
+        drainIntrinsicSizes()
+        XCTAssertEqual(reports.count, count, "unchanged native sizes are not published again")
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
+                            "w": 300.0, "h": Double(size.height)]]))
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.width, 300)
+        XCTAssertEqual((reports.last ?? nil)?.height, size.height)
+        XCTAssertEqual(control.frame, owner.bounds)
+        p.apply(wireBatch([["op": "props", "id": 10,
+                            "set": ["accessibilityRole": "tablist", "accessibilityOrientation": "vertical"]]]))
+        drainIntrinsicSizes()
+        XCTAssertNil(reports.last ?? nil, "leaving the projection clears its native minimum")
+        XCTAssertNil(control.superview)
+        XCTAssertFalse(try XCTUnwrap(p.views[11]).isHidden)
+    }
+
     func testMissingRawSymbolsKeepTabBarsAndClearSegmentImages() throws {
         let p = tabBarFixture()
         defer { p.reset() }

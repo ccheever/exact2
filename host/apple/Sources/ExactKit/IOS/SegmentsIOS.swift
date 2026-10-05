@@ -2,7 +2,7 @@
 // segmented control, or — when every tab is a symbol over its label, which is
 // a tab bar item's own shape — to a tab bar (LLP 1059). Contract remains the
 // state owner; UIKit owns the control. Layout stays authored: the control
-// fills the tablist's box.
+// fills the tablist's box and reports its native minimum height to layout.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -181,19 +181,26 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         }
         controls.removeValue(forKey: id)?.removeFromSuperview()
         removeBar(owner: id)
+        clearSize(owner: id)
     }
 
     private func removeBar(owner id: UInt32) {
-        bars.removeValue(forKey: id)?.removeFromSuperview()
+        guard let bar = bars.removeValue(forKey: id) else { return }
+        bar.removeFromSuperview()
+        clearSize(owner: id)
+    }
+
+    private func clearSize(owner id: UInt32) {
         if sizes.removeValue(forKey: id) != nil, let owner = presenter.views[id] {
             presenter.queueIntrinsicSize(owner, generation: owner.loadGeneration, nil)
         }
     }
 
-    private func measure(_ owner: NodeView, _ bar: ExactTabBar) {
-        guard bars[owner.id] === bar, presenter.views[owner.id] === owner,
+    private func measure(_ owner: NodeView, _ control: UIView) {
+        guard (bars[owner.id] === control || controls[owner.id] === control), presenter.views[owner.id] === owner,
               owner.bounds.width > 0 else { return }
-        let height = bar.sizeThatFits(CGSize(width: owner.bounds.width, height: 0)).height
+        let height = control is UISegmentedControl ? control.intrinsicContentSize.height
+            : control.sizeThatFits(CGSize(width: owner.bounds.width, height: 0)).height
         guard height.isFinite, height > 0 else { return }
         let size = CGSize(width: owner.bounds.width, height: height)
         guard sizes[owner.id] != size else { return }
@@ -332,6 +339,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? UISegmentedControl.noSegment
             if control.selectedSegmentIndex != selected { control.selectedSegmentIndex = selected }
             owner.bringSubviewToFront(control)
+            measure(owner, control)
         }
     }
 
