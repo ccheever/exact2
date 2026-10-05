@@ -14,8 +14,7 @@ impl<G: Game> Sim<G> {
         let revision = self.world.revision::<crate::Mesh>();
         let sprites_changed =
             crate::sprite::texture_names_changed(&self.world, &mut self.asset_sprite_names);
-        // Present rewrites DrawnMesh rows at every boundary: only a changed
-        // set of drawn model names reaches the requests below.
+        // Only a changed set of drawn model names reaches the requests below.
         let drawn_changed = drawn_names_changed(&self.world, &mut self.asset_drawn_names);
         if revision != self.asset_mesh_revision || sprites_changed || drawn_changed {
             let names: Vec<_> = self
@@ -31,6 +30,7 @@ impl<G: Game> Sim<G> {
                 })
                 .chain(
                     self.asset_drawn_names
+                        .1
                         .iter()
                         .map(|name| (name.clone(), ".model")),
                 )
@@ -89,8 +89,16 @@ impl<G: Game> Sim<G> {
 }
 
 /// The distinct model names `DrawnMesh` rows draw, sorted; true when they
-/// differ from `names` (which then takes them).
-fn drawn_names_changed(w: &World, names: &mut Vec<String>) -> bool {
+/// differ from `names` (which then takes them). Reads the rows only when the
+/// column changed since `names` was taken.
+fn drawn_names_changed(w: &World, names: &mut ((u64, u64), Vec<String>)) -> bool {
+    let at = (
+        w.presentation_generation(),
+        w.revision::<crate::DrawnMesh>(),
+    );
+    if std::mem::replace(&mut names.0, at) == at {
+        return false;
+    }
     let mut drawn = std::collections::BTreeSet::new();
     let mut rows = w.query::<&crate::DrawnMesh>();
     for (_, d) in rows.iter() {
@@ -98,9 +106,9 @@ fn drawn_names_changed(w: &World, names: &mut Vec<String>) -> bool {
             drawn.insert(name.as_str());
         }
     }
-    if drawn.iter().copied().eq(names.iter().map(String::as_str)) {
+    if drawn.iter().copied().eq(names.1.iter().map(String::as_str)) {
         return false;
     }
-    *names = drawn.into_iter().map(str::to_owned).collect();
+    names.1 = drawn.into_iter().map(str::to_owned).collect();
     true
 }

@@ -126,36 +126,6 @@ fn a_tick_cannot_query_presentation_state() {
 }
 
 #[test]
-fn present_rebuilds_from_nothing_so_a_stateful_present_cannot_drift() {
-    // Counts its own presents: continuous and restored worlds would differ if
-    // the previous present's rows survived into the next.
-    #[derive(Default, Presentation)]
-    struct Count(u32);
-    struct Counts;
-    impl Game for Counts {
-        const ID: &'static str = "counts";
-        type Args = ();
-        fn setup(w: &mut World, a: &()) {
-            Plain::setup(w, a);
-        }
-        fn tick(w: &mut World, i: &Input, a: &()) {
-            Plain::tick(w, i, a);
-        }
-        fn present(p: &mut Present<'_>, _: &()) {
-            let e = p.named("crate").unwrap();
-            let seen = p.get::<Count>(e).map_or(0, |c| c.0);
-            p.insert(e, Count(seen + 1));
-        }
-    }
-    let mut a = Sim::<Counts>::new(()).unwrap();
-    a.run(500.);
-    assert_eq!(a.world().require::<Count>("crate").0, 1);
-    let mut b = Sim::<Counts>::new(()).unwrap();
-    b.restore(&a.save().unwrap()).unwrap();
-    assert_eq!(b.world().require::<Count>("crate").0, 1);
-}
-
-#[test]
 fn a_save_carrying_presentation_rows_is_refused_by_name() {
     // A save written where `Bob` was simulation state, read where it is drawn.
     mod sim_side {

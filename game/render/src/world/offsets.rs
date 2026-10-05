@@ -1,8 +1,8 @@
-//! Presentation offsets (`exact_game::Offset`) by content. `Game::present`
-//! rewrites every row each tick, so the feed compares values, and an offset that
-//! changed moves the drawn poses of its own subtree only: a walk cycle costs its
-//! walkers, not the world.
-use exact_game::{Entity, Parent, Transform, World, PAGE};
+//! Presentation offsets (`exact_game::Offset`) by row. A present writes a
+//! row's revision only when its content changes, so the feed visits the rows
+//! that changed, and an offset that changed moves the drawn poses of its own
+//! subtree only: a walk cycle costs its walkers, not the world.
+use exact_game::{Entity, Offset, Parent, World, PAGE};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Change {
@@ -15,9 +15,9 @@ pub(super) enum Change {
 
 #[derive(Default)]
 pub(super) struct Offsets {
-    // Last fed rows in entity order, as bits so NaN compares equal to itself.
-    rows: Vec<(Entity, [u32; 10])>,
-    next: Vec<(Entity, [u32; 10])>,
+    // The Offset column's revision and membership at the last feed; none
+    // after a reset, when every row is new.
+    since: Option<(u64, u64)>,
     // Every Parent edge as (parent index, child), sorted: descendants without a
     // world scan. Rebuilt with the feed's parented overrides.
     children: Vec<(u32, Entity)>,
@@ -31,64 +31,39 @@ pub(super) struct Offsets {
     pending: [Vec<usize>; 2],
 }
 
-fn bits(t: Transform) -> [u32; 10] {
-    super::floats(t).map(f32::to_bits)
-}
-
 impl Offsets {
     pub fn reset(&mut self) {
-        self.rows.clear();
+        self.since = None;
         self.children.clear();
         self.roots.clear();
         self.moved.clear();
         self.pending.iter_mut().for_each(Vec::clear);
     }
-    /// Compare this boundary's offsets with the last feed's, collecting the
-    /// entities whose offset changed. O(offset rows).
+    /// The entities whose offset changed, appeared or went since the last
+    /// feed. O(rows changed).
     pub fn diff(&mut self, w: &World) -> Change {
-        self.next.clear();
-        self.next.extend(
-            w.query::<&exact_game::Offset>()
-                .iter()
-                .map(|(e, o)| (e, bits(o.0))),
-        );
         self.roots.clear();
         self.moved.clear();
-        let (old, new) = (&self.rows, &self.next);
-        let mut rows = old.len() != new.len();
-        let (mut i, mut j) = (0, 0);
-        while i < old.len() || j < new.len() {
-            let a = old.get(i).map(|r| r.0);
-            let b = new.get(j).map(|r| r.0);
-            if a.is_some() && a == b {
-                if old[i].1 != new[j].1 {
-                    self.roots.push(old[i].0);
-                }
-                i += 1;
-                j += 1;
-                continue;
-            }
-            rows = true;
-            match (a, b) {
-                // Gone (or a different generation in the slot): its subtree is
-                // drawn without it, if it still lives.
-                (Some(a), b) if b.is_none_or(|b| a.index() <= b.index()) => {
-                    if w.contains(a) {
-                        self.roots.push(a);
-                    }
-                    i += 1;
-                }
-                (_, Some(b)) => {
-                    self.roots.push(b);
-                    j += 1;
-                }
-                _ => unreachable!("the loop runs while either list has rows"),
-            }
+        let now = (w.revision::<Offset>(), w.membership::<Offset>());
+        let Some((revision, membership)) = self.since.replace(now) else {
+            self.roots
+                .extend(w.query::<&Offset>().iter().map(|(e, _)| e));
+            return if self.roots.is_empty() {
+                Change::None
+            } else {
+                Change::Rows
+            };
+        };
+        if now.0 == revision {
+            return Change::None;
         }
-        std::mem::swap(&mut self.rows, &mut self.next);
-        match (self.roots.is_empty(), rows) {
-            (true, false) => Change::None,
+        // A slot whose row went with its entity reports its next occupant (or
+        // none): the subtree of a living one is drawn without the old offset.
+        self.roots
+            .extend(w.changed::<Offset>(revision).filter(|&e| w.contains(e)));
+        match (self.roots.is_empty(), now.1 != membership) {
             (_, true) => Change::Rows,
+            (true, false) => Change::None,
             (false, false) => Change::Values,
         }
     }

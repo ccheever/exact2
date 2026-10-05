@@ -276,9 +276,9 @@ struct Versions {
     lod: u64,
     // An animated rig moves its socket followers' subtrees without a Transform write.
     pose: u64,
-    // Presentation tints (exact_game::Tint), by content for the same reason.
+    // Presentation tints and meshes: a present's revisions move only for
+    // rows whose content changed.
     tint: u64,
-    // Presentation meshes (exact_game::DrawnMesh), by content.
     drawn: u64,
     live: u64,
     membership: u64,
@@ -320,34 +320,6 @@ fn effective_opacity(w: &World, out: &mut Vec<(u32, f32)>) {
     }
     out.sort_by_key(|&(slot, _)| slot);
     out.dedup_by_key(|&mut (slot, _)| slot);
-}
-/// Content of every presentation `Tint`.
-fn tints(w: &World) -> u64 {
-    let mut h = 0xcbf2_9ce4_8422_2325u64;
-    for (e, t) in w.query::<&exact_game::Tint>().iter() {
-        let words = (t.color.iter().chain(&t.emissive))
-            .map(|v| v.to_bits())
-            .chain([e.index(), e.generation()]);
-        for word in words {
-            h = (h ^ u64::from(word)).wrapping_mul(0x100_0000_01b3);
-        }
-    }
-    h
-}
-/// Content of every presentation `DrawnMesh`.
-fn drawn_meshes(w: &World) -> u64 {
-    let mut h = 0xcbf2_9ce4_8422_2325u64;
-    for (e, d) in w.query::<&DrawnMesh>().iter() {
-        let words = [
-            u64::from(e.index()),
-            u64::from(e.generation()),
-            exact_game::hash::of(d),
-        ];
-        for word in words {
-            h = (h ^ word).wrapping_mul(0x100_0000_01b3);
-        }
-    }
-    h
 }
 /// What an entity draws, for `with`: its presentation `DrawnMesh`, else its `Mesh`.
 pub(crate) fn shown<R>(
@@ -403,8 +375,8 @@ impl Versions {
             material_overrides: w.revision::<exact_game::MaterialOverrides>(),
             lod: w.revision::<exact_game::ModelLod>(),
             pose: w.revision::<exact_game::Pose>(),
-            tint: tints(w),
-            drawn: drawn_meshes(w),
+            tint: w.revision::<exact_game::Tint>(),
+            drawn: w.revision::<DrawnMesh>(),
             live: w.entities_revision(),
             membership: w.membership::<Transform>(),
         }
@@ -451,7 +423,7 @@ pub struct Feed {
     fades_next: Vec<(u32, f32)>,
     // Each tinted slot's Tint, rebuilt when their content changes.
     tints: BTreeMap<u32, exact_game::Tint>,
-    // Presentation offsets by content, and the drawn subtrees they moved.
+    // Presentation offsets that changed, and the drawn subtrees they moved.
     offsets: offsets::Offsets,
     // Each slot's presentation material (`DrawnMesh::material`), likewise.
     swapped: BTreeMap<u32, Material>,
@@ -584,7 +556,7 @@ impl Feed {
         let next = Versions::of(w, r.assets_revision());
         let initial = self.versions.is_none();
         let old = self.versions.unwrap_or_default();
-        // Present rewrites every Offset row each tick: compare content.
+        // The Offset rows a present changed, and the subtrees they move.
         let offset_change = self.offsets.diff(w);
         let moved = initial
             || next.transform != old.transform
@@ -610,7 +582,7 @@ impl Feed {
             || next.drawn != old.drawn
             || next.live != old.live
             || next.membership != old.membership;
-        // Present rewrites looks every tick: patch changed content in place.
+        // Changed looks (a shimmer, a flash) patch their records in place.
         if !batches && looks_changed && !self.assets.patch_looks(w, r)? {
             batches = true;
         }

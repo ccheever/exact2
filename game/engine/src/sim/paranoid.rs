@@ -3,6 +3,44 @@
 use super::*;
 
 impl<G: Game> Sim<G> {
+    /// Present a boundary of an advance, keeping what `each` derived. Under a
+    /// paranoid mode, a fresh present must then write exactly the rows kept:
+    /// that proves every derivation read only its keys.
+    pub(super) fn present_boundary(&mut self) {
+        Self::present_rows(&mut self.world, &self.args, false);
+        if self.paranoid.is_none() {
+            return;
+        }
+        let kept = self.world.presentation_rows();
+        Self::present(&mut self.world, &self.args);
+        let fresh = self.world.presentation_rows();
+        let key = |&(name, index, digest, _): &(&'static str, usize, u64, _)| (name, index, digest);
+        if kept.iter().map(key).eq(fresh.iter().map(key)) {
+            return;
+        }
+        let (mut a, mut b) = (kept.iter().peekable(), fresh.iter().peekable());
+        let differs = loop {
+            match (a.peek(), b.peek()) {
+                (Some(x), Some(y)) if key(x) == key(y) => {
+                    a.next();
+                    b.next();
+                }
+                (Some(x), Some(y)) => break if (x.0, x.1) <= (y.0, y.1) { *x } else { *y },
+                (Some(x), None) => break *x,
+                (None, Some(y)) => break *y,
+                (None, None) => unreachable!("the rows differ"),
+            }
+        };
+        let (name, index, _, at) = differs;
+        let by = at.map_or("outside `each`".into(), |at| {
+            format!("by the `each` at {at}")
+        });
+        panic!(
+            "paranoid tick {}: presentation `{name}` of #{index} kept {by} differs from a fresh present; a derivation read something other than its entity's keys. Rerun bun game/games/{}/proof.mjs linux --paranoid",
+            self.world.tick(),
+            G::ID
+        );
+    }
     pub(super) fn paranoid_rebuild(&mut self, mode: Paranoid) {
         // An asset first shown this tick is still in flight: no save can be
         // taken until it lands (a model first requested mid-game), so the

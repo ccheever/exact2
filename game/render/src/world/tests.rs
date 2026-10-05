@@ -288,7 +288,8 @@ fn presentation_looks_rebuilt_unchanged_neither_rebatch_nor_refade() {
     let mut f = Feed::default();
     let mut r = Recording::default();
     f.feed_to(&w, &mut r).unwrap();
-    // Game::present erases and rewrites presentation rows every tick.
+    // A full present erases and rewrites every presentation row: the same
+    // looks and fades rebatch nothing.
     r.calls.clear();
     w.remove::<exact_game::NodeMaterials>(e);
     w.remove::<exact_game::Opacity>(e);

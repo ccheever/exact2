@@ -430,12 +430,17 @@ pub fn present(p: &mut Present, style: Style) {
             ]
         })
         .collect();
-    let mut crops = Vec::new();
-    p.for_each::<crate::garden::Plant>(|e, pl| crops.push((e, pl.kind, 0)));
-    p.for_each::<crate::garden::Fruit>(|e, f| crops.push((e, f.kind, 1)));
-    for (e, kind, part) in crops {
-        p.insert(e, models[kind as usize][part].clone());
-    }
+    // Kept per crop: a present redraws only the plants and fruit that appeared.
+    p.each::<crate::garden::Plant>(|p, e| {
+        let kind = p.require::<crate::garden::Plant>(e).kind as usize;
+        p.insert(e, models[kind][0].clone());
+        Derived::Kept
+    });
+    p.each::<crate::garden::Fruit>(|p, e| {
+        let kind = p.require::<crate::garden::Fruit>(e).kind as usize;
+        p.insert(e, models[kind][1].clone());
+        Derived::Kept
+    });
     let picked = p
         .resource::<crate::feedback::Feedback>()
         .is_some_and(|f| f.cue == crate::feedback::Cue::Harvest);

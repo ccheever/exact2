@@ -311,15 +311,18 @@ Visual-only state belongs in `#[derive(Presentation)]` components (presentation
 resources are not supported; a world-wide look, such as the sky, goes on the camera
 as `DrawnEnvironment`): they are excluded from saves, hashes and the
 simulation, so a bob, a flash or a sway phase cannot move a pin; agents can still read
-them (diagnostics). `Game::present(p, args)` rebuilds them from nothing after setup,
-after a restore (once its journal and publications are back), after a live-argument
-change or a `world_mut` edit, and at the boundaries an advance shows: its last two
-ticks, which the renderer interpolates between. A long seek does not present every
-tick; paranoid modes do, and compare, which proves present is pure. `p: Present` reads
-the simulation (`get`, `require`, `for_each`, `resource`, `global`, `is_visible`,
-`published`, the tick and seed) and writes only presentation components on existing
-entities (`insert`, `get_mut`); `p.rng(salt)` is a stream hashed from the seed, tick and
-salt, never the world's. It has no simulation RNG, events, spawning, publications or
+them (diagnostics). `Game::present(p, args)` describes them all. After setup, after a
+restore (once its journal and publications are back), after a live-argument change
+or a `world_mut` edit it rebuilds them from nothing; at the boundaries an advance
+shows (its last two ticks, which the renderer interpolates between) it writes over
+the last present's rows: a row written with the value it holds (bit for bit) is not
+a change, and a row not written is removed, so revisions, `changed` and the renderer see only what
+differs. A long seek does not present every tick; paranoid modes do, and compare,
+which proves present is pure. `p: Present` reads the simulation (`get`, `require`,
+`for_each`, `resource`, `global`, `is_visible`, `published`, the tick and seed; never
+presentation) and writes only presentation components on existing entities
+(`insert`; each row has one writer per present); `p.rng(salt)` is a
+stream hashed from the seed, tick and salt, never the world's. It has no simulation RNG, events, spawning, publications or
 busy reasons. Behind that type, any simulation write while presenting panics naming
 it, and the guard stays armed after a caught panic; a tick reading or writing a
 presentation component panics too. Rebuilding presentation is not a simulation
@@ -345,8 +348,23 @@ ambient_occlusion }` on the camera replaces the `Environment` and `AmbientOcclus
 resources for its frames. A model a `DrawnMesh` names is requested like a `Mesh`'s;
 saves, picking, physics and animation keep the simulated mesh. A look that is
 presentation only is a `#[live]` argument `present` reads: switching it keeps the
-world (Grow a Garden's `art`). Every row is rebuilt at each present, so a look that
-swaps every crop of a 12,000-plant garden costs milliseconds per present.
+world (Grow a Garden's `art`).
+
+A look over every entity derives its rows per entity and keeps them:
+`p.each::<K>(|p, e| { ...; Derived::Kept })`, where `K` is a simulation component or a
+tuple of up to four (the entities derived are those with the first). A full present
+derives every entity; a boundary only those whose `K` rows were written, inserted or
+removed since the last, and those whose last derivation returned `Derived::Animated`
+(rows that follow the time, such as a shimmer). Rows a derivation wrote before and not
+again are removed, and an entity that loses the first key loses them. So Grow a
+Garden's art pass, a model and a pose per plant and fruit, costs the crops that grew:
+a tick and its present take 0.13 ms at 12,100 plants, against 4.8 when every row was
+rebuilt, and the feed 0.5 ms against 5.2 (release, `tests/render.rs`). A derivation
+writes only its entity's rows, and reads its keys and only what cannot change while
+they do not: the arguments, constants, another entity's row fixed for this one's life
+(a fruit's plant's tile).
+Paranoid modes check it: at every present the kept rows must equal a fresh present's,
+or the panic names the row and the `each` that kept it.
 
 **The authoring rule: save the cause, derive the appearance.** Anything later
 gameplay reads stays simulation state; only its look is presentation. Examples:
@@ -364,7 +382,7 @@ gameplay reads stays simulation state; only its look is presentation. Examples:
 - A purely cosmetic blink belongs in `Opacity` written by `present`, not in a
   `Visible` toggled each tick (which moves pins).
 - Garden's art pass: a plant's growth stage is simulation; its model per stage is a
-  `DrawnMesh`, and the ten-minute day's sun, moon and sky are a `DrawnLight` per
+  `DrawnMesh` derived per plant with `each`, and the ten-minute day's sun, moon and sky are a `DrawnLight` per
   light and the camera's `DrawnEnvironment`, derived from the saved garden time.
 
 `present` holds no state between calls: a flash or a decay derives from a simulated

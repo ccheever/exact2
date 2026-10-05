@@ -2,19 +2,19 @@ use super::*;
 use exact_game::Offset;
 
 #[test]
-fn rewriting_the_same_offsets_is_not_a_pose_change() {
-    // Game::present rewrites every Offset row each tick; only content counts.
+fn the_feed_visits_the_offset_rows_that_changed() {
+    // A present writes an Offset row only when its content changes
+    // (Present::insert), so a row the feed is told of is a change.
     let mut w = World::new(60, 1);
     let e = w.spawn(Transform::default());
+    let still = w.spawn((Transform::default(), Offset(Transform::at(2., 0., 0.))));
     let mut offsets = super::offsets::Offsets::default();
     w.insert(e, Offset(Transform::at(1., 0., 0.)));
     assert_eq!(offsets.diff(&w), super::offsets::Change::Rows);
-    w.remove::<Offset>(e);
-    w.insert(e, Offset(Transform::at(1., 0., 0.)));
     assert_eq!(offsets.diff(&w), super::offsets::Change::None);
     w.insert(e, Offset(Transform::at(1.5, 0., 0.)));
     assert_eq!(offsets.diff(&w), super::offsets::Change::Values);
-    assert_eq!(offsets.roots(), [e]);
+    assert_eq!(offsets.roots(), [e], "not {still:?}");
     w.remove::<Offset>(e);
     assert_eq!(offsets.diff(&w), super::offsets::Change::Rows);
     assert_eq!(
@@ -22,9 +22,15 @@ fn rewriting_the_same_offsets_is_not_a_pose_change() {
         [e],
         "a removed offset moves its entity too"
     );
+    w.despawn(still);
+    assert_eq!(offsets.diff(&w), super::offsets::Change::Rows);
+    assert!(
+        offsets.roots().is_empty(),
+        "a despawned entity moves nothing"
+    );
 }
 
-// Present rewrites every Offset row each tick; with nothing moving, the feed
+// Present writes the same Offset row each tick; with nothing moving, the feed
 // writes no transform page after the first, parented ones included.
 struct Bobbing;
 impl Game for Bobbing {
