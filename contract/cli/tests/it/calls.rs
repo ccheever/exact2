@@ -970,9 +970,45 @@ component Viewer
     let all = contract::compile_path_all(&path, false)
         .map(|_| ())
         .expect_err("refused");
-    std::fs::remove_dir_all(&dir).unwrap();
     let ids: Vec<&str> = all.iter().map(|e| e.id.as_str()).collect();
     assert_eq!(ids, ["syntax-call-ambiguous"], "{all:?}");
+    // Nor checked as the command where it checks the arguments themselves
+    // (`share`'s named arguments, `postMessage`'s surface), in a child and
+    // in the root.
+    let argued = r#"component App
+  state n = 0
+  action share(v: number)
+    n = v
+  action go
+    share(1)
+  view
+    column
+      button press=go testId="go"
+        text "go"
+      Viewer(close=go, postMessage=go, value=1)
+
+component Viewer
+  props
+    close: action
+    value: number
+    postMessage: action
+  action swiped
+    close("swiped")
+    postMessage("hi", "nowhere")
+  view
+    button press=swiped testId="swipe"
+      text `${value + 1}`
+"#;
+    std::fs::write(&path, argued).unwrap();
+    let all = contract::compile_path_all(&path, false)
+        .map(|_| ())
+        .expect_err("refused");
+    std::fs::remove_dir_all(&dir).unwrap();
+    let ids: Vec<&str> = all.iter().map(|e| e.id.as_str()).collect();
+    assert_eq!(
+        ids, ["syntax-call-ambiguous"; 3],
+        "share, close and postMessage, and nothing else: {all:#?}"
+    );
     // A prop whose type is a shape the file names `action` is a record.
     let record = r#"shape action
   value: number
