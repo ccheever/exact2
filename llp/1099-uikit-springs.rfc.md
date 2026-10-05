@@ -1240,15 +1240,18 @@ springs keep LLP 1062 D3: they start from rest and interrupt as CSS does.
     advice and writes the physical spelling.
   - *Scope of the band.* A hold release never enters the duration solver
     (D5: a release keeps the authored k and injects its velocity), so a
-    user's fling is never refused. The band affects literal and dynamic
-    duration-form *strings* only.
+    user's fling is never refused. The band affects duration-form strings
+    only, and only a *dynamic* string is ever refused there; a literal is
+    warned and rewritten.
   - Or, for dynamic strings, never refuse: run the reconstruction and, when
     its answer is not a root, fall back to the nearest real root. Not
     recommended, for two reasons:
     - *The fallback does not reach UIKit's root.* At ζ 0.2, u 0.5 the
       twelve steps diverge (W ≈ 2.9·10¹⁶). The roots are about 2.48, 2.52
       and 26.1, and UIKit took 2.48. Nearest, by absolute or by log
-      distance, picks 26.1, a curve 1.43 moves off.
+      distance, picks 26.1, a curve 1.43 moves off. On the sweep, a
+      log-nearest fallback matched UIKit on 0 of the 27 (Grok's
+      computation).
     - *It covers only some misses.* It applies to only 27 of the 100
       misses; the other 73 are already other-basin roots, up to 1.85 moves
       off.
@@ -1306,7 +1309,9 @@ springs keep LLP 1062 D3: they start from rest and interrupt as CSS does.
     re-solve at 87 % confidence: scalar releases only, v = V/Δ through
     Q1's resolver, falling back to the authored k at zero distance or when
     the axes' normalised velocities differ, and never for bounce. Grok
-    prefers the recommendation at 82 %. The scoped re-solve could be added
+    prefers the recommendation at 82 %, objecting that V/Δ is undefined at
+    zero distance and that per-axis solves would give each axis its own k
+    where UIKit shares one. The scoped re-solve could be added
     later as an opt-in without changing the default.
 
 ## 11. Review dispositions
