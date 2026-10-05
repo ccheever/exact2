@@ -283,6 +283,15 @@ guide's rules don't make obvious.
   `axe describe-ui` before the next, and `xcrun simctl shutdown` / `boot` the
   simulator when taps stop landing. `axe` also cannot press tab bar items or
   `UIMenu` rows. (Signal Clone, builds 10 and 11; reproduced on `05d0c576e`.)
+- **A `UISwitch` does not flip under `axe tap -x -y`.** Cause: a tap by
+  coordinates resolves no element, so `--tap-style automatic` sends the
+  simulator's own tap, a touch with no duration, and iOS 27's `UISwitch`
+  ignores it: a bare UIKit app's switch does not flip either. A grouped
+  list's toggle (LLP 1084) looks broken while its app logic is fine. Fix:
+  `axe tap --id <testId>` (a switch element gets a physical touch),
+  `axe tap -x <x> -y <y> --tap-style physical`, or
+  `axe touch -x <x> -y <y> --down --up`; or the agent's `tap <testId>`.
+  (Signal Clone Privacy, 2026-10-04.)
 
 - **A storage test fails with `storage is busy`, or storage is "unavailable in
   agent mode".** Cause: a drive has no storage unless it names a scratch store, and

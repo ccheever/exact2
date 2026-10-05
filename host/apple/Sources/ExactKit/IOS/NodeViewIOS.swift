@@ -603,6 +603,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { followEndIfOwed() }
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         followingEndAnimated = false
+        // A smooth correction's driver ends its own motion (`OffsetDriver`);
+        // a UIKit animation's end is not its end.
+        if let c = presenter?.collections, c.offsetDrivers[id] != nil || c.startOwed.contains(id) { return }
         // Whether it ended at the running animation's target, clamped to
         // the content as it is now (`CollectionHost.animationEnded`).
         let atTarget = presenter?.collections.animationTargets[id].map { t -> Bool in
@@ -964,6 +967,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func applyPendingScroll() {
         defer { pendingScrollTop = nil; pendingScrollLeft = nil }
         guard let sv = scroll else { return }
+        // An authored position takes over from a smooth correction.
+        if (pendingScrollTop != nil || pendingScrollLeft != nil), presenter?.collections.animating.contains(id) == true {
+            presenter?.collections.stopAnimation(id)
+        }
         if pendingScrollTop != nil { retainedScrollTop = nil }
         guard hasScrollLayoutBox else {
             if hiddenScroll == nil { hiddenScroll = beforeLayoutScroll ?? .zero }

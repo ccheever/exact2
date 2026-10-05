@@ -3,8 +3,8 @@ import XCTest
 @testable import ExactKit
 import UIKit
 
-/// Under platform timing (LLP 1035.003 D5) a smooth correction is UIKit's
-/// scroll animation: a list following its end after an appended row.
+/// Under platform timing (LLP 1035.003 D5) a smooth correction is an
+/// animated port (LLP 1010 §6.8): a list following its end after an appended row.
 /// `clock settle` must not read the fixed point mid-flight, and an
 /// interrupted one must not keep it waiting.
 final class SettleScrollAnimationIOSTests: XCTestCase {
@@ -41,10 +41,10 @@ final class SettleScrollAnimationIOSTests: XCTestCase {
         if ExactEnv.agentFreezes { throw XCTSkip("frozen agent timing sets a correction at once") }
         XCTAssertTrue(p.collections.animating.contains(1), "the host animates the correction")
         XCTAssertTrue(agent.nativeInFlight(), "a running end-follow keeps settle waiting")
-        // Its end (UIKit's display link may not run in a unit test's window).
-        scroll.setContentOffset(CGPoint(x: 0, y: 1700), animated: false)
-        list.scrollViewDidEndScrollingAnimation(scroll)
+        // Its end, after the 0.3 s motion.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
         XCTAssertFalse(agent.nativeInFlight(), "landed: settle may read the fixed point")
+        _ = list
         // A wheel before the next one's first tick interrupts it, as a drag does.
         let seq = String(try XCTUnwrap(p.collections.entries[1]?.cursor.sequence))
         p.apply(wireBatch([collections(revision: 3, correction: ["scrollSequence": seq, "offset": 1000, "smooth": true])]))
