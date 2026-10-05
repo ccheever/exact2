@@ -53,6 +53,9 @@ fn stamp_of(path: &Path) -> Option<(SystemTime, u64)> {
     let meta = std::fs::metadata(path).ok()?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     std::fs::read(path).ok()?.hash(&mut hasher);
+    // Which file it really is, on every platform: a link or junction
+    // retargeted at a byte-identical twin leads to another path.
+    std::fs::canonicalize(path).ok().hash(&mut hasher);
     // And, where the platform has one, which file it is: a link retargeted
     // at a byte-identical twin whose relative uses differ.
     #[cfg(unix)]
@@ -68,6 +71,9 @@ fn stamp_of(path: &Path) -> Option<(SystemTime, u64)> {
 fn uses(root: &Path) -> Vec<(PathBuf, Option<(SystemTime, u64)>)> {
     let graph = contract::source_graph(root);
     let mut out = graph.consulted;
+    // The root by the path it is opened at: retargeting it at a twin whose
+    // relative uses differ is a change its bytes do not show.
+    out.push(root.to_path_buf());
     for source in graph.sources.into_iter().skip(1) {
         if source.path.is_absolute() {
             out.push(source.path);

@@ -499,7 +499,9 @@ function contractGraph() {
         try { if (lstatSync(dir).isSymbolicLink()) shallow.set(`${dirname(dir)}\0${basename(dir)}`, [dirname(dir), basename(dir)]); } catch {}
       }
     }
-    const sources = new Set(graph.sources.filter(s => isAbsolute(s.path)).map(s => s.path));
+    // Every source and every path resolution looked at: a hidden import not
+    // made yet, or a link whose target is elsewhere, is scanned by its path.
+    const sources = new Set([...graph.sources.filter(s => isAbsolute(s.path)).map(s => s.path), ...graph.consulted]);
     return { files, dirs, shallow: [...shallow.values()], sources };
   } catch { return { files: new Set(), dirs: new Set(), shallow: [], sources: new Set() }; }
 }
@@ -577,7 +579,7 @@ function startModuleCompiler() {
   // A Contract source the compile read is an input even in a dot directory.
   const contractSources = new Set(contractGraph().sources);
   // A source, or a directory on the way to one: the scan descends into it.
-  const contractInput = path => contractSources.has(path) || [...contractSources].some(s => s.startsWith(path + '/'));
+  const contractInput = path => contractSources.has(path) || [...contractSources].some(s => s.startsWith(path + '/') || s.startsWith(path + '\\'));
   const watches = [watchModuleSources(app.dir, name => name === 'app.contract.d.ts' || skipped.test(name)
     || (/(^|\/)\./.test(name) && !contractInput(resolve(app.dir, name)))
     || assetTrees.some(([tree]) => resolve(app.dir,name) === tree || resolve(app.dir,name).startsWith(tree+'/')), moduleChanged)];

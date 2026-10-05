@@ -123,7 +123,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   const packages = new Set();
   const contractSources = new Set();
   // A source, or a directory holding one (its event names the directory).
-  const contractInput = path => contractSources.has(path) || [...contractSources].some(s => s.startsWith(path + '/'));
+  const contractInput = path => contractSources.has(path) || [...contractSources].some(s => s.startsWith(path + '/') || s.startsWith(path + '\\'));
   const watchPackages = ({ trees = [], shallow = [], sources = [] } = {}) => {
     for (const source of sources) contractSources.add(source);
     for (const dir of trees) {
