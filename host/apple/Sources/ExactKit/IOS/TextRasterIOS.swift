@@ -262,6 +262,7 @@ extension NodeView {
         NumeralRoll.roll(ink, node: self)
         ink.contents = result.image
         TextShadowLayer.apply(key.spec.shadow, to: ink)
+        ink.applyTextRange(headroom: result.headroom, limit: style["dynamic_range_limit"]?.string)
         textRasterLayer = ink
     }
     func dropTextRaster() {

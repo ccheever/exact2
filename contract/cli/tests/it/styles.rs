@@ -204,6 +204,7 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
         ),
         ("touch-action", StyleId::TouchAction, "swipe"),
         ("cursor", StyleId::Cursor, "hand"),
+        ("dynamic-range-limit", StyleId::DynamicRangeLimit, "high"),
     ] {
         for named_style in [false, true] {
             let source = if named_style {

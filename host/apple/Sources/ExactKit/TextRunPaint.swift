@@ -49,8 +49,8 @@ struct RunPaintRows: Equatable {
     /// The shadow (offset x, y, blur, r g b a) and stroke (width, r g b a)
     /// for an appearance, `currentcolor` being `color`, the text's own.
     func resolve(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil, color: [Double]) -> (shadow: [Double]?, stroke: [Double]?) {
-        let shade = shadow.map { $0 + (shadowColor?.channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) ?? color) }
-        let stroke = strokeWidth > 0 ? [strokeWidth] + (strokeColor?.channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) ?? color) : nil
+        let shade = shadow.map { $0 + (shadowColor?.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) ?? color) }
+        let stroke = strokeWidth > 0 ? [strokeWidth] + (strokeColor?.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) ?? color) : nil
         return (shade, stroke)
     }
 }
@@ -78,7 +78,7 @@ extension Spec {
     var runShadowReach: (left: CGFloat, right: CGFloat) {
         var left: CGFloat = 0, right: CGFloat = 0
         for run in runs {
-            guard let s = run.shadow, s.count == 7 else { continue }
+            guard let s = run.shadow, TextEngine.isShadow(s) else { continue }
             // As `TextRunShadow.reach`: a Gaussian of σ = blur / 2 is spent by 3σ.
             let spread = s[2] * 1.5 + 1
             left = max(left, spread - s[0]); right = max(right, spread + s[0])
@@ -88,16 +88,23 @@ extension Spec {
     }
 }
 
+extension TextEngine {
+    /// A `text-shadow`: offset x, y, blur, then a colour as `color` takes it.
+    static func isShadow(_ s: [Double]) -> Bool { s.count == 7 || s.count == 12 }
+
+    static func shadowColor(_ s: [Double]) -> CGColor { color(Array(s[3...])).cgColor }
+}
+
 /// A run's own shadow as a Core Text attribute: offset x, y and blur in
 /// points (CSS's radius), and its colour.
 final class TextRunShadow: NSObject {
     let offset: CGSize
     let blur: CGFloat
     let color: CGColor
-    /// `s`: offset x, y, blur, r g b a (0–255), as `Run.shadow`.
+    /// `s`: offset x, y, blur, then the colour, as `Run.shadow`.
     init(_ s: [Double]) {
         offset = CGSize(width: s[0], height: s[1]); blur = s[2]
-        color = CGColor(srgbRed: s[3] / 255, green: s[4] / 255, blue: s[5] / 255, alpha: s[6] / 255)
+        color = TextEngine.shadowColor(s)
     }
     override func isEqual(_ object: Any?) -> Bool {
         guard let other = object as? TextRunShadow else { return false }

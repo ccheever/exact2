@@ -219,7 +219,8 @@ final class FlatLeaves {
         let radius = radii.max() ?? 0
         let oneRadius = radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
             && radius <= min(bounds.width, bounds.height) / 2 + 0.01
-        if fill != nil, !oneRadius { promote(leaf.id, style: leaf.style); return }
+        // An HDR fill needs its own layer's range (LLP 1100 D8): promote it.
+        if fill != nil, !oneRadius || ColorRange.isHDR(fill) { promote(leaf.id, style: leaf.style); return }
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
         for (v, mask) in zip(radii, masks) where v > 0 { corners.insert(mask) }

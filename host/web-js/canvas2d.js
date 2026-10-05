@@ -44,7 +44,7 @@ function client({ exports: e, session, writer, reader, encode, ABI }) {
       const [time, mounted, cause, width, height, pw, ph, scale] = q.frame;
       w.f64(time); w.f64(mounted); w.u8(cause); w.f64(width); w.f64(height); w.u32(pw); w.u32(ph); w.f64(scale);
       if (q.color) { w.u8(1); for (const c of q.color.slice(0, 3)) w.u8(c); w.f64(q.color[3]); } else w.u8(0);
-      w.u8(q.rtl ? 1 : 0);
+      w.u8((q.rtl ? 1 : 0) | (q.p3 ? 2 : 0)); // logic/abi/src/draw.rs: rtl, display-p3
     }),
     retire: canvas => call(w => { w.u8(1); u64(w, canvas); }),
   };
@@ -77,7 +77,7 @@ export function engine(rt) {
       try {
         reply = module.draw({
           canvas: r.lifetime, generation: r.generation, seq, surface: r.c.name, args: r.c.args, types: r.c.types, names: r.c.names,
-          frame: [clock.now, r.c.mounted, causes, b.width, b.height, b.w, b.h, b.scale], color: colour(el), rtl: getComputedStyle(el).direction === 'rtl',
+          frame: [clock.now, r.c.mounted, causes, b.width, b.height, b.w, b.h, b.scale], color: colour(el), rtl: getComputedStyle(el).direction === 'rtl', p3: b.p3,
         });
       } catch (e) { reply = { lists: [], frame: false, error: String(e?.message ?? e) }; }
       // The lists, 8-aligned in one buffer the glue reads in place.
@@ -107,14 +107,16 @@ export function engine(rt) {
     // An explicit bitmap size (`bitmap-width`/`bitmap-height`, LLP 1056 D6
     // r3; an unset one is the web's 300 or 150) is its own coordinate
     // space, stretched to the box: the runner's `Backing::of`.
-    const { bitmapWidth: bw, bitmapHeight: bh } = r.c.e.dataset;
+    const { bitmapWidth: bw, bitmapHeight: bh, colorSpace, colorType } = r.c.e.dataset;
     const b = bw != null || bh != null ? { w: +(bw ?? 300), h: +(bh ?? 150), width: +(bw ?? 300), height: +(bh ?? 150), scale: 1, stretch: true }
       : { w: Math.max(0, Math.round(width * scale)), h: Math.max(0, Math.round(height * scale)), width, height, scale, stretch: false };
+    // Its getContext settings (LLP 1100 D12a): the runner's `canvas_settings`.
+    b.p3 = colorSpace === 'display-p3'; b.float16 = colorType === 'float16';
     if (r.backing && r.backing.w === b.w && r.backing.h === b.h && r.backing.stretch === b.stretch && (b.stretch || r.backing.scale === b.scale)) { r.backing = b; return 0; }
     // A new size generation: a fresh bitmap and recorder (D4).
     if (r.backing) { r.generation++; r.causes |= SIZE; }
     r.backing = b;
-    glue.op({ id, lifetime: r.lifetime, generation: r.generation, seq: 0, fresh: true, w: b.w, h: b.h, scale: b.scale, stretch: b.stretch, lists: [] });
+    glue.op({ id, lifetime: r.lifetime, generation: r.generation, seq: 0, fresh: true, w: b.w, h: b.h, scale: b.scale, stretch: b.stretch, p3: b.p3, float16: b.float16, lists: [] });
     if (r.waiting) { r.waiting = false; inflight.n--; }
     drawAll();
     return 0;
@@ -160,7 +162,8 @@ export function engine(rt) {
   // 2D canvas's generation, draws, backing and last error.
   x.canvas2dState = () => [...records].map(([view, r]) => ({ view, surface: r.c.name, context: '2d', artifact: 'data', lifetime: r.lifetime, generation: r.generation,
     pending: !r.draws || !!r.causes, animating: !!r.frames, draws: r.draws ?? 0,
-    width: r.backing?.w ?? null, height: r.backing?.h ?? null, scale: r.backing?.scale ?? null, stretch: !!r.backing?.stretch, error: r.error ?? null, refused: null }));
+    width: r.backing?.w ?? null, height: r.backing?.h ?? null, scale: r.backing?.scale ?? null, stretch: !!r.backing?.stretch,
+    colorSpace: r.backing ? (r.backing.p3 ? 'display-p3' : 'srgb') : null, colorType: r.backing ? (r.backing.float16 ? 'float16' : 'unorm8') : null, error: r.error ?? null, refused: null }));
   if (clock.agent && x.advance) { const advance = x.advance; x.advance = (to, wall, stop) => { const r = advance(to, wall, stop); frame(); return r; }; }
   const glue = x.canvas2dGlue({ views: rt.views, now: () => clock.now });
   host();

@@ -27,6 +27,9 @@ struct TextRasterImage {
     /// The part of the box these pixels answer for: the box and any ink past
     /// it, within a band's clip. `frame` is the same unless the job crops.
     let covered: CGRect
+    /// The ink's peak: 0 for ordinary SDR, 1 for extended SDR storage,
+    /// above 1 for HDR (LLP 1100 D8).
+    var headroom: Float = 0
 }
 
 struct TextRasterJob {
@@ -59,7 +62,37 @@ struct TextRasterJob {
     /// a 390 × 70 paragraph at 3× is at most 1414 × 1094 points, 56 MB,
     /// and a shadow cast 512 points to one side about 2 MB.
     static let maxShadowReach: CGFloat = 512
-    private static let space = CGColorSpace(name: CGColorSpace.sRGB)!
+    private static let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
+    private static let p3 = CGColorSpace(name: CGColorSpace.displayP3)!
+    private static let extended = CGColorSpace(name: CGColorSpace.extendedSRGB)!
+    /// The bitmap's space and its colours' peak (LLP 1100 D2, D8): extended
+    /// sRGB (at half float) for a colour past SDR white, Display P3 for a
+    /// wide one, else sRGB.
+    private var format: (space: CGColorSpace, headroom: Float, deep: Bool) {
+        var wide = false, deep = false, headroom: Float = 0
+        // ColorSync round-off at gamut boundaries must not widen ordinary white.
+        let outside = { (color: CGColor) in
+            color.components?.prefix(3).contains { $0 < -0.00001 || $0 > 1.00001 } == true
+        }
+        let all = NSRange(location: 0, length: source.length)
+        for key in [NSAttributedString.Key.foregroundColor, .strokeColor, .exactBackground, .exactShadow] {
+            source.enumerateAttribute(key, in: all) { value, _, _ in
+                let ref = value.map { $0 as CFTypeRef }
+                let cg = (value as? InlineBackground)?.color ?? (value as? TextRunShadow)?.color ?? (value as? PlatformColor)?.cgColor
+                    ?? ref.flatMap { CFGetTypeID($0) == CGColor.typeID ? ($0 as! CGColor) : nil }
+                headroom = max(headroom, ColorRange.headroom(cg))
+                guard let cg else { return }
+                if let srgb = cg.converted(to: Self.extended, intent: .relativeColorimetric, options: nil) {
+                    wide = wide || outside(srgb)
+                }
+                if let p3 = CGColorSpace(name: CGColorSpace.extendedDisplayP3),
+                   let converted = cg.converted(to: p3, intent: .relativeColorimetric, options: nil) {
+                    deep = deep || outside(converted)
+                }
+            }
+        }
+        return headroom > 1 || deep ? (Self.extended, max(1, headroom), true) : (wide ? Self.p3 : Self.srgb, 0, false)
+    }
 
     /// A tall paragraph's band around `port`: 32 points past the box each
     /// side, and as far as runs' own shadows reach sideways (LLP 1077 D3,
@@ -149,19 +182,24 @@ struct TextRasterJob {
               pixelWidth > 0, pixelHeight > 0,
               pixelWidth < CGFloat(Int.max), pixelHeight < CGFloat(Int.max) else { return nil }
         let width = Int(pixelWidth), height = Int(pixelHeight)
+        let (space, headroom, deep) = format
+        let pixelBytes = deep ? 8 : 4
+        let bitmapInfo = deep
+            ? CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.floatComponents.rawValue | CGBitmapInfo.byteOrder16Little.rawValue
+            : CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
         #if os(macOS)
         guard width > 0, height > 0,
-              let surface = IOSurface(properties: [.width: width, .height: height, .bytesPerElement: 4,
-                                                   .pixelFormat: UInt32(0x42475241)]) // 'BGRA'
+              let surface = IOSurface(properties: [.width: width, .height: height, .bytesPerElement: pixelBytes,
+                                                   .pixelFormat: UInt32(deep ? 0x52476841 : 0x42475241)]) // 'RGhA' : 'BGRA'
         else { return nil }
         surface.lock(options: [], seed: nil)
         defer {
             surface.unlock(options: [], seed: nil)
-            if let profile = Self.space.copyPropertyList() { IOSurfaceSetValue(surface, kIOSurfaceColorSpace, profile) }
+            if let profile = space.copyPropertyList() { IOSurfaceSetValue(surface, kIOSurfaceColorSpace, profile) }
+            if deep, #available(macOS 15, *) { IOSurfaceSetValue(surface, kIOSurfaceContentHeadroom, NSNumber(value: headroom)) }
         }
-        guard let ctx = CGContext(data: surface.baseAddress, width: width, height: height, bitsPerComponent: 8,
-                                  bytesPerRow: surface.bytesPerRow, space: Self.space,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+        guard let ctx = CGContext(data: surface.baseAddress, width: width, height: height, bitsPerComponent: deep ? 16 : 8,
+                                  bytesPerRow: surface.bytesPerRow, space: space, bitmapInfo: bitmapInfo)
         else { return nil }
         #else
         // UIKit accepts a CGImage. Paint into a scratch bitmap and keep Core
@@ -170,24 +208,35 @@ struct TextRasterJob {
         // it is. A context's own buffer would stay the image's copy-on-write
         // storage, and be copied again at the layer's first commit.
         // Rows padded to 64 bytes, as Core Animation needs to take them as they are.
-        let (row, rowOverflow) = (width * 4).addingReportingOverflow(63)
+        let (row, rowOverflow) = (width * pixelBytes).addingReportingOverflow(63)
         let (bytes, overflow) = (row & ~63).multipliedReportingOverflow(by: height)
         guard !rowOverflow, !overflow else { return nil }
         return withScratch(bytes) { scratch -> TextRasterImage? in
-            guard let ctx = CGContext(data: scratch, width: width, height: height, bitsPerComponent: 8,
-                                      bytesPerRow: row & ~63, space: Self.space,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+            guard let ctx = CGContext(data: scratch, width: width, height: height, bitsPerComponent: deep ? 16 : 8,
+                                      bytesPerRow: row & ~63, space: space, bitmapInfo: bitmapInfo)
             else { return nil }
             paint(lines, positions, frame: frame, height: height, scale: scale, into: ctx)
-            guard let image = ctx.makeImage() else { return nil }
-            return TextRasterImage(image: image, frame: frame, covered: covered)
+            guard var image = ctx.makeImage() else { return nil }
+            if deep, #available(iOS 18, tvOS 18, *), let tagged = CGImageCreateCopyWithContentHeadroom(headroom, image) { image = tagged }
+            return TextRasterImage(image: image, frame: frame, covered: covered, headroom: headroom)
         }
         #endif
         #if os(macOS)
         paint(lines, positions, frame: frame, height: height, scale: scale, into: ctx)
-        return TextRasterImage(surface: surface, frame: frame, covered: covered)
+        return TextRasterImage(surface: surface, frame: frame, covered: covered, headroom: headroom)
         #endif
     }
+
+    #if os(macOS)
+    /// A raster's headroom, as `render` tagged its surface, or 0.
+    static func headroom(of surface: IOSurface) -> Float {
+        // Float text always needs extended presentation, even on macOS 14,
+        // before IOSurface has a standard content-headroom key.
+        let storage: Float = IOSurfaceGetBytesPerElement(surface) == 8 ? 1 : 0
+        guard #available(macOS 15, *) else { return storage }
+        return max(storage, (IOSurfaceCopyValue(surface, kIOSurfaceContentHeadroom) as? NSNumber)?.floatValue ?? 0)
+    }
+    #endif
 
     private func paint(_ lines: [CTLine], _ positions: [CGPoint], frame: CGRect, height: Int, scale: CGFloat, into ctx: CGContext) {
         ctx.translateBy(x: 0, y: CGFloat(height))

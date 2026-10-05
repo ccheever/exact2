@@ -19,7 +19,7 @@ use exact_plan::{BindingKind, BindingsRow};
 /// has no DOM name for, written as `data-<the prop's name, lowercased>`.
 /// `host/web`'s `every_data_name_the_host_writes_is_a_reserved_word` keeps
 /// the second half whole.
-const HOST_WORDS: [&str; 81] = [
+const HOST_WORDS: [&str; 83] = [
     "accept",
     "accessibilitybusy",
     "accessibilitydisabled",
@@ -36,6 +36,8 @@ const HOST_WORDS: [&str; 81] = [
     "boot-ms",
     "button-style",
     "carry-type",
+    "colorspace",
+    "colortype",
     "context-preview",
     "dataset",
     "depth",

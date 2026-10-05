@@ -465,6 +465,7 @@ name = "exact-bake"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-color",
  "exact-filesystem",
  "exact-gpu-reflect",
  "exact-kernel",
@@ -479,7 +480,15 @@ dependencies = [
 name = "exact-canvas"
 version = "0.1.0"
 dependencies = [
+ "exact-color",
  "exact-motion",
+ "exact-num",
+]
+
+[[package]]
+name = "exact-color"
+version = "0.1.0"
+dependencies = [
  "exact-num",
 ]
 
@@ -615,6 +624,7 @@ name = "exact-kernel"
 version = "0.1.0"
 dependencies = [
  "cssparser",
+ "exact-color",
  "exact-motion",
  "exact-num",
  "exact-svg-filter",
@@ -629,6 +639,7 @@ dependencies = [
 name = "exact-motion"
 version = "0.1.0"
 dependencies = [
+ "exact-color",
  "exact-num",
  "libm",
 ]

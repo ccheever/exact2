@@ -24,13 +24,22 @@ private func still<L: CALayer>(_ layer: L) -> L { layer.delegate = StillDelegate
 private func num(_ v: Any?) -> Double { (v as? NSNumber)?.doubleValue ?? 0 }
 private func nums(_ v: Any?) -> [Double] { (v as? [Any])?.map(num) ?? [] }
 
-/// A colour the host sent: `[r,g,b,a]` (0–255), or a `light-dark()` pair.
+/// A colour the host sent: `[r,g,b,a]` (0–255), a `light-dark()` pair, or a
+/// colour in its own space, `{"cs": [{"s", "v"}…]}` (LLP 1100 D2).
 private func color(_ v: Any?, dark: Bool) -> CGColor? {
-    guard let a = v as? [Any] else { return nil }
-    let c: [Double]
-    if a.count == 2, let pair = a[dark ? 1 : 0] as? [Any] { c = pair.map(num) } else { c = a.map(num) }
-    guard c.count == 4 else { return nil }
-    return CGColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
+    // Restore the typed color, including the ICC handle kept by the payload
+    // adapter, and use the same conversion/intent as every other paint path.
+    func value(_ v: Any?) -> BatchValue {
+        switch v {
+        case let p as ProfileSpaces.Handle: return .profile(p)
+        case let n as NSNumber: return .number(n.doubleValue)
+        case let s as String: return .string(s)
+        case let a as [Any]: return .array(a.map { value($0) })
+        case let o as [String: Any]: return .object(o.mapValues { value($0) })
+        default: return .null
+        }
+    }
+    return value(v).cgColor(dark: dark)
 }
 
 /// `[0,x,y, 1,x,y, 2,x1,y1,x2,y2,x,y, 3]`: move, line, cubic, close.
@@ -113,6 +122,7 @@ enum CssAnimations {
         case let n as NSNumber: h.combine(n.doubleValue.bitPattern)
         case let n as Double: h.combine(n.bitPattern)
         case let s as String: h.combine(s)
+        case let p as ProfileSpaces.Handle: h.combine(p.key)
         case let a as [Any]: h.combine(a.count); for x in a { digest(x, into: &h) }
         // A prepared path hashes as the numbers it was built from.
         case let p as PreparedPath: h.combine(p.digest)
@@ -597,15 +607,20 @@ final class SvgHost {
     private var boxInstalled: [UInt32: [String: String]] = [:]
     private var seeked: Double?
 
-    func scene(_ id: UInt32, _ payload: [String: Any], layer: CALayer?, dark: Bool, clock: Double?) {
+    /// A scene's root layer's name, by which its node re-asks its range (LLP 1100 D8).
+    static let rootName = "exact-svg"
+
+    func scene(_ id: UInt32, _ payload: [String: Any], layer: CALayer?, dark: Bool, clock: Double?, limit: String? = nil) {
         guard let layer else { return }
         let scene = scenes[id] ?? { let s = SvgScene(); scenes[id] = s; return s }()
+        scene.root.name = Self.rootName
         if scene.root.superlayer !== layer { layer.addSublayer(scene.root) }
         scene.scale = max(1, layer.contentsScale)
         scene.fonts = fonts
         let spec = payload["scene"] as? [String: Any] ?? [:]
         payloads[id] = spec
         scene.apply(spec, dark: dark, clock: clock)
+        scene.root.applyColorRange(limit: limit, deep: true)
     }
 
     /// `id`'s view changed appearance: its scene is applied again in the

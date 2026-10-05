@@ -33,12 +33,15 @@ pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, SegmentVar};
 pub use exact_motion::color::css::link_wide as link_wide_colors;
 mod viewport;
 pub use viewport::ViewportUnit;
+mod color_parse;
+pub mod profiled;
 pub mod relative;
 pub mod roles;
 mod shadow;
 pub mod space;
 pub(crate) mod stroke;
 pub mod symbols;
+pub mod wide;
 pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow};
 
 /// Largest explicit grid Taffy lays out on one axis.
@@ -670,6 +673,15 @@ pub enum ColorValue {
     Role(u8),
     /// A `platform-color()` (LLP 1095 D3), by id into the interned table.
     Platform(u16),
+    /// A colour in its own space, or a `light-dark()` with one (LLP 1100
+    /// D2), by id into `style::wide`.
+    Wide(u16),
+    /// A paint-motion frame (LLP 1100 D2): extended linear sRGB in
+    /// 1/2048ths and 8-bit alpha. Never authored; not interned.
+    Moving([i16; 3], u8),
+    /// A colour in a profile's space (LLP 1100 D3), by id into
+    /// `style::profiled`.
+    Profiled(u16),
 }
 
 impl Default for ColorValue {
@@ -696,21 +708,43 @@ impl ColorValue {
                 }
             }
             ColorValue::Fixed(c) => c,
-            ColorValue::Role(_) | ColorValue::Platform(_) => Color::TRANSPARENT,
+            ColorValue::Role(_)
+            | ColorValue::Platform(_)
+            | ColorValue::Wide(_)
+            | ColorValue::Moving(..)
+            | ColorValue::Profiled(_) => Color::TRANSPARENT,
         }
     }
 
     /// Whether this depends on the appearance: a pair or a reference — what
     /// a host asks before deciding whether an appearance change is anything to it.
     pub fn is_scheme_aware(self) -> bool {
-        !matches!(self, ColorValue::Fixed(_))
+        match self {
+            ColorValue::Fixed(_) | ColorValue::Moving(..) | ColorValue::Profiled(_) => false,
+            ColorValue::Wide(id) => wide::wide(id).is_some_and(|w| w.dark.is_some()),
+            _ => true,
+        }
     }
 
-    /// A colour that is more than one colour: a role (LLP 1095 D2, which
-    /// takes in WebKit's `-apple-system-*` names, LLP 1077 D13), a
-    /// `platform-color()` (D3), or `light-dark(<color>, <color>)`, CSS's own
-    /// spelling. Whitespace is free; anything else is not this, and falls
-    /// through to the plain colour parse.
+    /// A moving frame from extended linear sRGB and alpha, held to ±16.
+    pub fn moving(linear: [f64; 3], alpha: f64) -> ColorValue {
+        let q = |v: f64| (v.clamp(-16.0, 15.999) * 2048.0).round() as i16;
+        ColorValue::Moving(linear.map(q), (alpha.clamp(0.0, 1.0) * 255.0).round() as u8)
+    }
+
+    /// A moving frame's extended linear sRGB and alpha.
+    pub fn moving_linear(self) -> Option<([f64; 3], f64)> {
+        match self {
+            ColorValue::Moving(c, a) => {
+                Some((c.map(|v| f64::from(v) / 2048.0), f64::from(a) / 255.0))
+            }
+            _ => None,
+        }
+    }
+
+    /// A role (LLP 1095 D2), a `platform-color()` (D3), a colour in a
+    /// profile's or its own space (LLP 1100), or `light-dark(<color>,
+    /// <color>)`. Anything else falls through to the plain colour parse.
     pub fn parse_light_dark(text: &str) -> Option<ColorValue> {
         if let Some(role) = roles::role(text) {
             return Some(ColorValue::Role(role));
@@ -718,24 +752,21 @@ impl ColorValue {
         if text.trim_start().starts_with("platform-color(") {
             return roles::parse_platform(text);
         }
-        ColorValue::parse_pair(text)
+        if text
+            .trim_start()
+            .to_ascii_lowercase()
+            .starts_with("color(--")
+        {
+            return profiled::parse_profiled(text);
+        }
+        ColorValue::parse_pair(text).or_else(|| wide::parse_wide(text))
     }
 
-    /// `light-dark(<color>, <color>)` alone (LLP 1034): a reference is not
-    /// valid inside one (LLP 1095 D1).
-    pub fn parse_pair(text: &str) -> Option<ColorValue> {
+    /// `light-dark()` of two legacy colours; a reference is not valid inside
+    /// one (LLP 1095 D1).
+    pub(crate) fn parse_pair(text: &str) -> Option<ColorValue> {
         let inner = text.trim().strip_prefix("light-dark(")?.strip_suffix(')')?;
-        // The comma between the two colours, not one inside an `rgb()`.
-        let mut depth = 0;
-        let comma = inner.find(|c| {
-            match c {
-                '(' => depth += 1,
-                ')' => depth -= 1,
-                ',' if depth == 0 => return true,
-                _ => {}
-            }
-            false
-        })?;
+        let comma = top_level_comma(inner)?;
         Some(ColorValue::LightDark(
             Color::parse(&inner[..comma])?,
             Color::parse(&inner[comma + 1..])?,
@@ -743,54 +774,23 @@ impl ColorValue {
     }
 }
 
+/// The comma between two colours, not one inside an `rgb()`.
+pub(crate) fn top_level_comma(inner: &str) -> Option<usize> {
+    let mut depth = 0;
+    inner.find(|c| {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => return true,
+            _ => {}
+        }
+        false
+    })
+}
+
 impl From<Color> for ColorValue {
     fn from(c: Color) -> ColorValue {
         ColorValue::Fixed(c)
-    }
-}
-
-impl Color {
-    /// A CSS colour, by the one parser every reader shares
-    /// ([`exact_motion::color::css`]): hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`,
-    /// `hwb()`, a named colour or `transparent` (any ASCII case, whitespace
-    /// around it free), and the wide forms (`lab()`, `oklch()`, `color()`…)
-    /// clipped to sRGB once a host links them ([`link_wide_colors`]). The web
-    /// hands the same text to the browser, so a colour that paints there
-    /// paints on every host (feed F13). `currentColor` is not a colour here:
-    /// a row that takes it says so ([`StyleValue::keyword_color`]).
-    pub fn parse(text: &str) -> Option<Color> {
-        use exact_motion::color::css::{self, Parsed};
-        let c = match css::parse(text)? {
-            Parsed::Color(c) | Parsed::Wide(c, _) => c,
-            Parsed::Current => return None,
-        };
-        Some(Color::rgba(c.r, c.g, c.b, (c.a * 255.0).round() as u8))
-    }
-
-    /// Parse CSS hex notation: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`.
-    pub fn parse_hex(text: &str) -> Option<Color> {
-        let hex = text.strip_prefix('#')?;
-        let digit = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
-        let bytes = hex.as_bytes();
-        let (r, g, b, a) = match bytes.len() {
-            3 | 4 => {
-                let mut v = [0u8; 4];
-                for (i, c) in bytes.iter().enumerate() {
-                    let d = digit(*c)?;
-                    v[i] = d * 17;
-                }
-                (v[0], v[1], v[2], if bytes.len() == 4 { v[3] } else { 255 })
-            }
-            6 | 8 => {
-                let mut v = [0u8; 4];
-                for (i, pair) in bytes.chunks(2).enumerate() {
-                    v[i] = digit(pair[0])? * 16 + digit(pair[1])?;
-                }
-                (v[0], v[1], v[2], if bytes.len() == 8 { v[3] } else { 255 })
-            }
-            _ => return None,
-        };
-        Some(Color::rgba(r, g, b, a))
     }
 }
 

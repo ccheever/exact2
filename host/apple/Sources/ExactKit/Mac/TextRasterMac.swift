@@ -278,14 +278,18 @@ extension NodeView {
         // A `text-shadow` is cast by a sublayer of its own: the view's layer
         // would cast its box too (LLP 1077 D3).
         let shadow = textRasterKey?.spec.shadow
-        if textRasterFrame == CGRect(origin: .zero, size: bounds.size), shadow == nil {
+        // HDR ink too needs its own layer, for its range (LLP 1100 D8).
+        let headroom = TextRasterJob.headroom(of: surface)
+        if textRasterFrame == CGRect(origin: .zero, size: bounds.size), shadow == nil, headroom <= 1 {
             textRasterOverflowLayer?.removeFromSuperlayer()
             textRasterOverflowLayer = nil
             layer.contentsScale = textRasterScale
             layer.contentsGravity = .resize
             layer.contents = surface
+            layer.applyTextRange(headroom: headroom, limit: style["dynamic_range_limit"]?.string)
         } else {
             layer.contents = nil
+            layer.applyTextRange(headroom: 0, limit: style["dynamic_range_limit"]?.string)
             let ink = textRasterOverflowLayer ?? CALayer()
             if ink.superlayer == nil { layer.addSublayer(ink) }
             textRasterOverflowLayer = ink
@@ -294,6 +298,7 @@ extension NodeView {
             ink.contentsGravity = .resize
             ink.contents = surface
             TextShadowLayer.apply(shadow, to: ink)
+            ink.applyTextRange(headroom: headroom, limit: style["dynamic_range_limit"]?.string)
         }
         textRasterPending = false
         CATransaction.commit()
@@ -303,6 +308,7 @@ extension NodeView {
         textRasterOverflowLayer?.removeFromSuperlayer()
         textRasterOverflowLayer = nil
         if textRaster != nil, wantsUpdateLayer { layer?.contents = nil }
+        layer?.setValue(nil, forKey: CALayer.textHeadroomKey)
         textRaster = nil
         textRasterKey = nil
         textRasterReady = false

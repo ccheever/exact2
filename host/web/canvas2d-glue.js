@@ -61,10 +61,15 @@ const images = new Map();
 /** One canvas: the element, its context, and what the replayer keeps. */
 class Replayer {
   constructor(el, op) {
-    this.el = el; this.lifetime = op.lifetime; this.generation = op.generation;
+    // Its getContext settings (LLP 1100 D12a), which an element keeps from
+    // its first context: other settings take a new element.
+    const settings = { colorSpace: op.p3 ? "display-p3" : "srgb", colorType: op.float16 ? "float16" : "unorm8" }, key = `${settings.colorSpace} ${settings.colorType}`;
+    if (el.exactSettings !== undefined && el.exactSettings !== key) { const fresh = el.cloneNode(false); el.replaceWith(fresh); el = fresh; }
+    el.exactSettings = key;
+    this.el = el; this.lifetime = op.lifetime; this.generation = op.generation; this.p3 = op.p3 === true;
     // Assigning the bitmap's size clears it and resets the context (HTML).
     el.width = op.w; el.height = op.h;
-    this.ctx = el.getContext("2d");
+    this.ctx = el.getContext("2d", settings);
     this.base = op.scale; this.author = [1, 0, 0, 1, 0, 0]; this.plain = true; this.stack = []; this.objects = new Map(); this.srcs = new Map();
     this.scratch = new Path2D();
     this.ctx.setTransform(this.base, 0, 0, this.base, 0, 0);
@@ -93,7 +98,8 @@ class Replayer {
     if (view.byteLength < 8 || view.getUint32(0, true) !== MAGIC || view.getUint32(4, true) !== 1) return false;
     const ctx = this.ctx;
     let n = new Float64Array(64);
-    const rgba = (i) => colorText(n[i], n[i + 1], n[i + 2], n[i + 3]);
+    // A `display-p3` canvas's colours are Display P3 bytes.
+    const rgba = this.p3 ? (i) => `color(display-p3 ${n[i] / 255} ${n[i + 1] / 255} ${n[i + 2] / 255} / ${n[i + 3]})` : (i) => colorText(n[i], n[i + 1], n[i + 2], n[i + 3]);
     // A list in wasm memory is 8-aligned, as its records are: read it
     // through typed arrays over the memory itself (little-endian, as wasm
     // is); a DataView otherwise.
@@ -178,7 +184,7 @@ class Replayer {
         case 72: /* putImageData */ {
           const [x, y, w, h] = k, px = new Uint8ClampedArray(w * h * 4);
           for (let i = 0; i < w * h; i++) { const v = k[4 + i]; px[i * 4] = Math.floor(v / 16777216); px[i * 4 + 1] = (v >>> 16) & 255; px[i * 4 + 2] = (v >>> 8) & 255; px[i * 4 + 3] = v & 255; }
-          ctx.putImageData(new ImageData(px, w, h), x, y);
+          ctx.putImageData(new ImageData(px, w, h, { colorSpace: this.p3 ? "display-p3" : "srgb" }), x, y);
           break;
         }
         case 80: /* pMoveTo */ this.scratch.moveTo(k[0], k[1]); break;

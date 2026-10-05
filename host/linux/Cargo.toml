@@ -22,6 +22,7 @@ crate-type = ["rlib"]
 [dependencies]
 exact-canvas = { path = "../../canvas" }
 exact-data = { path = "../../data" }
+exact-color = { path = "../../color" }
 exact-kernel = { path = "../../kernel" }
 exact-textflow = { path = "../../textflow" }
 exact-motion = { path = "../../motion" }

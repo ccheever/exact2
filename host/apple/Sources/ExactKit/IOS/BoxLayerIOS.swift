@@ -110,6 +110,7 @@ extension NodeView {
         if l.contentsRect != unit { l.contentsRect = unit }
         let frame = AnimatedRasters.shared.frame(for: self) ?? bitmap.image
         if (l.contents as AnyObject?) !== frame { l.contents = frame }
+        l.applyDynamicRange(hdr: bitmap.isHDR, headroom: bitmap.headroom, limit: style["dynamic_range_limit"]?.string)
         if l.cornerRadius != radius { l.cornerRadius = radius }
         if l.cornerCurve != layer.cornerCurve { l.cornerCurve = layer.cornerCurve }
         if radius > 0, l.maskedCorners != corners { l.maskedCorners = corners }
@@ -151,7 +152,7 @@ extension NodeView {
             if g.cornerCurve != layer.cornerCurve { g.cornerCurve = layer.cornerCurve }
             if g.masksToBounds != (layer.cornerRadius > 0) { g.masksToBounds = layer.cornerRadius > 0 }
         }
-        gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark)
+        gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark, limit: style["dynamic_range_limit"]?.string)
         aimedGradient = nil
         if fixed { presenter?.fixedGradients.add(self) } else { presenter?.fixedGradients.remove(self) }
     }
@@ -186,7 +187,7 @@ extension NodeView {
         guard let gradient = last?.gradient ?? Gradient(source) else { return }
         let stops = last?.stops ?? gradient.stops(dark: dark, dense: true)
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        gradient.apply(g, bounds: bounds, box: box, dark: dark, stops: stops)
+        gradient.apply(g, bounds: bounds, box: box, dark: dark, limit: style["dynamic_range_limit"]?.string, stops: stops)
         CATransaction.commit()
         aimedGradient = AimedGradient(layer: g, source: source, dark: dark, bounds: bounds, box: box, gradient: gradient, stops: stops)
     }
@@ -196,8 +197,8 @@ extension NodeView {
     /// uniform border following the curve, the radius clipping children only
     /// where the overflow clips.
     func applyBoxLayer() {
-        defer { syncEllipticalClip() }
-        let background = channels("background_color").map { TextEngine.color($0).cgColor }
+        defer { syncEllipticalClip(); applyColorRanges() }
+        let background = cgColor("background_color")
         let fill = background.flatMap { $0.alpha > 0 ? $0 : nil }
         let uniform = number("border_width")
         let sides = ["top", "right", "bottom", "left"]

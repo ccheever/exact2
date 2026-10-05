@@ -88,6 +88,7 @@ fn draw(
         period_ms: 1000. / 60.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (image, _) = fixture::render(gpu, &mut s, &frame).unwrap();
     assert!(s.take_error().is_none());

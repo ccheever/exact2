@@ -1400,6 +1400,18 @@
       "name": "focusGuide",
       "kind": "str",
       "_comment": "`focusGuide=\"auto\"` on a container: on tvOS a focus guide over its box sends a remote move that enters it from outside to the descendant that last held the focus, else its first focusable one (react-native-tvos TVFocusGuideView `autoFocus`). Other hosts ignore it; their Tab order is sequential."
+    },
+    {
+      "id": 243,
+      "name": "colorSpace",
+      "kind": "str",
+      "_comment": "LLP 1100 D12a: getContext's `colorSpace`, `srgb` (default) or `display-p3`."
+    },
+    {
+      "id": 244,
+      "name": "colorType",
+      "kind": "str",
+      "_comment": "LLP 1100 D12a: getContext's `colorType`, `unorm8` (default) or `float16`."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -1774,6 +1786,14 @@
         "fixed"
       ],
       "default": "scroll"
+    },
+    "DynamicRangeLimit": {
+      "values": [
+        "standard",
+        "constrained",
+        "no-limit"
+      ],
+      "default": "no-limit"
     },
     "FieldSizing": {
       "values": [
@@ -3251,6 +3271,13 @@
         0
       ],
       "_comment": "CSS `translate`'s percentages, of the node's own border box (chess diary #4: `-50% -50%` centres a box), set with the lengths by the one `translate` attribute: the used x is `translate.x + translate_percent.x / 100 \u00d7 width`, y likewise, resolved where the box's size is known (the presenter, at paint). The engine animates both rows as one `translate` value, its percentages componentwise as CSS interpolates a `calc()`."
+    },
+    {
+      "bit": 180,
+      "field": "dynamic_range_limit",
+      "codec": "enum:DynamicRangeLimit",
+      "inherited": true,
+      "_comment": "CSS Color HDR's `dynamic-range-limit` (LLP 1100 D8): how bright HDR images and video may draw."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

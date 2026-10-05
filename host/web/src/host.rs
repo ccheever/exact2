@@ -275,6 +275,7 @@ impl exact_kernel::TextMeasurer for BrowserMeasures {
 /// engine's tree only if a layout is ever asked for, and links no text
 /// measurer of its own (LLP 1047 §6).
 pub(crate) fn browser_kernel() -> Kernel {
+    exact_kernel::style::wide::set_available(|wide| !wide.space.is_hdr());
     Kernel::on_demand(Box::new(BrowserMeasures))
 }
 

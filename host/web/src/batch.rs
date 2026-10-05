@@ -469,10 +469,11 @@ impl Batch {
     /// A 2D canvas's stamped lists (LLP 1056 D4), in order, as `[address,
     /// length]` pairs in this wasm's memory: the glue replays them in place,
     /// with no text between (the host keeps them alive for the batch);
-    /// `fresh` starts a new bitmap at `w`×`h`.
+    /// `fresh` starts a new bitmap at `w`×`h`, `p3` and `float16` its
+    /// getContext settings (LLP 1100 D12a).
     pub fn canvas2d(&mut self, c: &exact_runner::CanvasList) {
         let mut s = text!(
-            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"lists\":[",
+            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"p3\":{},\"float16\":{},\"lists\":[",
             c.view,
             Shortest(c.lifetime as f64),
             c.generation,
@@ -481,7 +482,9 @@ impl Batch {
             c.pixel_width,
             c.pixel_height,
             Shortest(c.scale),
-            c.stretch
+            c.stretch,
+            c.settings.p3,
+            c.settings.float16
         );
         for (i, l) in c.lists.iter().enumerate() {
             if i > 0 {

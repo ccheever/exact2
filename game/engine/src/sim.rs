@@ -66,6 +66,8 @@ pub trait Game: 'static {
     fn present(_present: &mut crate::Present<'_>, _args: &Self::Args) {}
     /// Fixed steps per second.
     const HZ: u32 = 60;
+    /// Draw above SDR white where the display can (LLP 1100 D12b).
+    const HIGH_DYNAMIC_RANGE: bool = false;
 }
 /// How host elapsed time becomes simulation time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

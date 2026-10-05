@@ -331,3 +331,27 @@ fn box_shadow_keyframes_round_trip_and_play() {
     let shade = css(night.sampled_value(NODE, Property::ShadowColor).unwrap());
     assert_eq!(shade, [255.0, 255.0, 255.0, 0.5]);
 }
+
+/// LLP 1100 D2.
+#[test]
+fn a_modern_colour_moves_in_oklab() {
+    use exact_motion::Value;
+    let red = Value::rgba8(255, 0, 0, 255);
+    let blue = Value::rgba8(0, 0, 255, 255);
+    let ok_blue = blue.to_oklab();
+    assert!(ok_blue.oklab);
+    let [r, g, b, a] = ok_blue.straight();
+    assert!((r - 0.0).abs() < 1e-6 && (g - 0.0).abs() < 1e-6 && (b - 1.0).abs() < 1e-6 && a == 1.0);
+    let legacy = red.lerp(blue, 0.5).straight();
+    let modern = red.lerp(ok_blue, 0.5);
+    assert!(modern.oklab, "a modern endpoint takes the pair into Oklab");
+    let modern = modern.straight();
+    assert!((legacy[0] - 0.5).abs() < 1e-9 && (legacy[2] - 0.5).abs() < 1e-9);
+    let lum = |c: [f64; 4]| c[0] + c[1] + c[2];
+    assert!(lum(modern) > lum(legacy), "{modern:?} vs {legacy:?}");
+    // A modern colour outside sRGB keeps its value until it is read.
+    let p3_red = Value::oklab(0.6486, 0.2716, 0.1325, 1.0);
+    let (lin, _) = p3_red.linear_srgb();
+    assert!(lin[0] > 1.0, "outside sRGB, unclipped: {lin:?}");
+    assert_eq!(p3_red.to_rgba8()[0], 255, "an 8-bit reader gets the clip");
+}

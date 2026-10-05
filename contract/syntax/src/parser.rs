@@ -8,6 +8,7 @@ use crate::ast::*;
 use crate::lexer::{escaped, template_expr_end, LexError, Lexer, Token, TokenKind};
 use crate::Span;
 
+mod color_profile;
 mod decls;
 mod expr;
 mod keyframes;
@@ -372,6 +373,7 @@ impl Parser {
                     }
                     file.timelines.push(TimelineDecl { name, span });
                 }
+                TokenKind::Ident(w) if w == "color-profile" => self.color_profile(file)?,
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
                 TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
                 TokenKind::Ident(w) if LAUNCH.contains(&w.as_str()) => {
@@ -405,7 +407,7 @@ impl Parser {
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                        "expected `routes`, `font`, `shape`, `style`, `keyframes`, `timeline`, `fn`, `use`, or `component`, found {}",
+                        "expected `routes`, `font`, `shape`, `style`, `keyframes`, `timeline`, `color-profile`, `fn`, `use`, or `component`, found {}",
                         describe(other)
                     ),
                     );

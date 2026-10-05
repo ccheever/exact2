@@ -20,7 +20,7 @@ fn demand(view: u64, source: u64, output_mib: u64, scratch_mib: u64) -> Demand {
             source,
             generation: 1,
             pixels,
-            variant: 0,
+            variant: variant::SRGB8,
         },
         metadata: Metadata {
             natural: PixelSize {
@@ -839,4 +839,56 @@ fn concurrent_budget_changes_keep_decode_admission_atomic() {
     session.cancel(request);
     drop(permit);
     assert_eq!(total(&session), 0);
+}
+
+#[test]
+fn a_variant_names_its_bytes_per_pixel_and_an_unknown_one_is_refused() {
+    let gate = Gate::new();
+    let session = gate.session();
+    // 256 pixels wide: 1024 bytes a row at 4 bytes a pixel, 2048 at 8.
+    let base = demand(1, 1, 1, 0);
+    for v in [variant::SRGB8, variant::OWN8, variant::REDUCED8] {
+        let mut d = base;
+        d.key.variant = v;
+        d.view.view = u64::from(v);
+        assert!(session.request(d).is_ok(), "variant {v} at 4 bytes a pixel");
+    }
+    for v in [variant::DEEP, variant::HDR] {
+        let mut d = base;
+        d.key.variant = v;
+        d.view.view = u64::from(v);
+        assert_eq!(
+            session.request(d),
+            Err(Refusal::InvalidDimensions),
+            "variant {v} needs 8 bytes a pixel"
+        );
+        d.cost = DecodeCost::checked(2048, d.key.pixels.height / 2, 0, 0).unwrap();
+        d.key.pixels.height /= 2;
+        assert!(session.request(d).is_ok(), "variant {v} at 8 bytes a pixel");
+    }
+    for v in [0, 6, u32::MAX] {
+        let mut d = base;
+        d.key.variant = v;
+        d.view.view = 100 + u64::from(v % 1000);
+        assert_eq!(
+            session.request(d),
+            Err(Refusal::InvalidDimensions),
+            "unknown variant {v}"
+        );
+    }
+}
+
+#[test]
+fn the_same_pixels_in_two_variants_are_two_entries() {
+    let gate = Gate::new();
+    let session = gate.session();
+    let mut wide = demand(1, 1, 1, 0);
+    wide.key.variant = variant::OWN8;
+    let mut reduced = demand(2, 1, 1, 0);
+    reduced.key.variant = variant::REDUCED8;
+    session.request(wide).unwrap();
+    session.request(reduced).unwrap();
+    // Two keys, so two decodes: a variant never answers for another.
+    assert!(gate.next_decode().is_some());
+    assert!(gate.next_decode().is_some());
 }

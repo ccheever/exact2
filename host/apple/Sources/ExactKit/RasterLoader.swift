@@ -156,7 +156,7 @@ private final class RasterBackend: @unchecked Sendable {
             // Decode scope drops encoded data, source and staging before complete.
             let image: RasterImage = try autoreleasepool {
                 let bytes = try withExtendedLifetime(resolver) { try input.bytes() }
-                let plan = try RasterDecodePlan(metadata: metadata, maxPixel: Int(max(work.width, work.height)))
+                let plan = try RasterDecodePlan(metadata: metadata, maxPixel: Int(max(work.width, work.height)), variant: work.variant)
                 guard plan.width == work.width, plan.height == work.height else { throw RasterFailure.reservation }
                 guard exact_raster_is_cancelled(work.permit) == 0 else { throw RasterFailure.decode }
                 return try RasterImage.decode(bytes, metadata: metadata, plan: plan, charge: charge, sourceOwner: source, url: input.url)
@@ -294,6 +294,7 @@ final class RasterLoader {
         let generation: Int
         let source: RasterSource
         var request: UInt64 = 0
+        var variant = RasterVariant.own8
         var requestedPixel = 0
         var offeredPixel = 0
         var failure: String?
@@ -332,11 +333,19 @@ final class RasterLoader {
         budget = next
         exact_raster_session_budget(id, next)
     }
-    /// Reconsider decode resolution even when the boxes kept their point sizes.
+    /// Reconsider decode resolution even when the boxes kept their point
+    /// sizes, and HDR against the display (LLP 1100 D9).
     func displayChanged() {
         for interest in Array(interests.values) {
-            if let view = interest.view { resized(view) }
+            if let view = interest.view { resized(view); rangeChanged(view) }
         }
+    }
+    /// Re-plan an HDR picture whose decode no longer matches its node's
+    /// limit or display (LLP 1100 D8, D9).
+    func rangeChanged(_ view: NodeView) {
+        guard let interest = interests[view.id], interest.request != 0 || interest.delivered,
+              let metadata = backend.metadata(interest.source).0, metadata.hdr else { return }
+        if Self.wantsHDR(view, metadata) != (interest.variant == RasterVariant.hdr) { retry(view.id) }
     }
     @discardableResult func load(_ view: NodeView, source: String, resolver: AssetResolver) -> Bool {
         if source.hasPrefix("data:"), source.utf8.count > RasterInput.dataLimit {
@@ -452,7 +461,7 @@ final class RasterLoader {
                 // unless it fits once the decodes holding reservations land:
                 // then it waits for them, at the size it asked for.
                 if let metadata = backend.metadata(item.source).0,
-                   let plan = try? RasterDecodePlan(metadata: metadata, maxPixel: item.requestedPixel),
+                   let plan = try? RasterDecodePlan(metadata: metadata, maxPixel: item.requestedPixel, variant: item.variant),
                    plan.peakBytes <= available() { continue }
                 exact_raster_cancel(id, item.request); item.request = 0
                 item.requestedPixel = max(1, item.requestedPixel / 2)
@@ -467,9 +476,10 @@ final class RasterLoader {
             let offered = requestedPixel(view, metadata)
             var pixel = item.requestedPixel > 0 ? min(offered, item.requestedPixel) : offered
             let available = available()
-            var plan = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel)
+            let hdr = Self.wantsHDR(view, metadata)
+            var plan = Self.fit(metadata, pixel: pixel, available: available, hdr: hdr)
             while pixel > 1 && (plan == nil || plan!.peakBytes > available) {
-                pixel = max(1, pixel / 2); plan = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel)
+                pixel = max(1, pixel / 2); plan = Self.fit(metadata, pixel: pixel, available: available, hdr: hdr)
             }
             guard let plan else { item.failure = "decode plan too large"; interests[viewID] = item; continue }
             var demand = ExactRasterDemand()
@@ -484,7 +494,9 @@ final class RasterLoader {
             demand.natural_width = UInt32(metadata.naturalSize.width); demand.natural_height = UInt32(metadata.naturalSize.height)
             demand.encoded_bytes = UInt64(metadata.encodedBytes); demand.header_bytes = UInt64(metadata.headerBytes)
             demand.stride = UInt64(plan.stride); demand.scratch_bytes = UInt64(plan.scratchBytes)
+            demand.variant = plan.variant
             item.request = exact_raster_request(id, demand); item.requestedPixel = pixel; item.offeredPixel = offered
+            item.variant = plan.variant
             if item.request == 0 {
                 item.failure = Self.refusal(exact_raster_stats(id).last_refusal)
                 view.presenter?.session?.log("image deferred: \(item.failure!)")
@@ -494,6 +506,19 @@ final class RasterLoader {
             // coalesced UI turn, keeping intrinsic publication outside a batch.
             if item.request != 0 && exact_raster_status(id, item.request) >= 4 { backend.wake() }
         }
+    }
+    /// The plan for a picture at `pixel` (LLP 1100 D7): HDR if wanted and it
+    /// fits, else its own variant, else for a deep picture 8 bits before any
+    /// resolution is given up.
+    private static func fit(_ metadata: RasterMetadata, pixel: Int, available: Int, hdr: Bool) -> RasterDecodePlan? {
+        if hdr, let shown = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, variant: RasterVariant.hdr),
+           shown.peakBytes <= available { return shown }
+        let full = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel)
+        if let full, full.peakBytes <= available || !full.deep { return full }
+        return (try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, variant: RasterVariant.reduced8)) ?? full
+    }
+    private static func wantsHDR(_ view: NodeView, _ metadata: RasterMetadata) -> Bool {
+        metadata.hdr && DisplayRange.showsHDR(view, limit: view.style["dynamic_range_limit"]?.string)
     }
     /// What a decode can have without lowering its resolution: the budget
     /// less the pixels views hold (pinned, retiring). Cold pixels are
@@ -541,10 +566,30 @@ final class RasterLoader {
             "images": interests.map { view, interest -> [String: Any] in
                 ["view": view, "source": String(interest.source.id), "offeredPixel": interest.offeredPixel,
                  "admittedPixel": interest.requestedPixel, "status": exact_raster_status(id, interest.request),
-                 "failure": interest.failure ?? "", "pixels": [interest.view?.raster?.image.image.width ?? 0, interest.view?.raster?.image.image.height ?? 0]]
+                 "failure": interest.failure ?? "", "pixels": [interest.view?.raster?.image.image.width ?? 0, interest.view?.raster?.image.image.height ?? 0],
+                 "color": Self.colorFacts(interest)]
             },
             "deferred": interests.values.filter { $0.failure != nil || ($0.request != 0 && exact_raster_status(id, $0.request) == 2) }.count,
             "scope": "Exact-owned RGBA storage plus conservative thumbnail/conversion reservation; ImageIO internals excluded"]
+    }
+    /// What the agent sees of a picture's storage (LLP 1100 D12).
+    private static func colorFacts(_ interest: Interest) -> [String: Any] {
+        let names: [UInt32: String] = [RasterVariant.srgb8: "srgb8", RasterVariant.own8: "own8",
+                                       RasterVariant.deep: "deep", RasterVariant.hdr: "hdr", RasterVariant.reduced8: "reduced8"]
+        var facts: [String: Any] = ["variant": names[interest.variant] ?? String(interest.variant),
+                                    "fallback": interest.variant == RasterVariant.reduced8 ? "budget" : NSNull()]
+        if let image = interest.view?.raster?.image.image {
+            facts["space"] = image.colorSpace.map(colorSpaceName) ?? "none"
+            facts["bitsPerComponent"] = image.bitsPerComponent
+            facts["bytesPerPixel"] = image.bitsPerPixel / 8
+            if let raster = interest.view?.raster?.image, raster.isHDR { facts["headroom"] = raster.headroom }
+            if let layer = interest.view?.imageLayer {
+                var shown = layer.dynamicRangeFacts
+                shown["current"] = (layer.contents as AnyObject?) === image
+                facts["layer"] = shown
+            }
+        }
+        return facts
     }
     private static func refusal(_ code: UInt64) -> String {
         let names = ["none", "overflow", "invalid dimensions", "encoded limit", "header limit", "source pixels",

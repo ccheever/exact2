@@ -250,6 +250,7 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         seekable: false,
         period_ms: 0.0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     with(|m| match m.render(id, &frame) {
         Some(true) => 1,
@@ -298,6 +299,16 @@ pub fn placement(id: u32, index: u32, out: &mut [f32]) -> u32 {
 /// Whether a canvas wants raw input.
 pub fn wants_input(id: u32) -> bool {
     with(|m| m.wants_input(id)).unwrap_or(false)
+}
+
+/// Whether a canvas draws above SDR white (LLP 1100 D12b).
+pub fn high_dynamic_range(id: u32) -> bool {
+    with(|m| m.high_dynamic_range(id)).unwrap_or(false)
+}
+
+/// The headroom an HDR canvas draws its next frames to (LLP 1100 D12b).
+pub fn headroom(id: u32, headroom: f32) {
+    with(|m| m.set_headroom(id, headroom));
 }
 
 /// Deliver a JSON device event. True on success.
@@ -494,6 +505,18 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_wants_input(id: u32) -> bool {
             $crate::web::wants_input(id)
+        }
+
+        /// Whether a canvas draws above SDR white (LLP 1100 D12b).
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_high_dynamic_range(id: u32) -> bool {
+            $crate::web::high_dynamic_range(id)
+        }
+
+        /// The headroom an HDR canvas draws its next frames to.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_headroom(id: u32, headroom: f32) {
+            $crate::web::headroom(id, headroom)
         }
 
         /// Deliver one JSON event; true on success.

@@ -564,6 +564,24 @@
       ]
     },
     {
+      "name": "profiles",
+      "_comment": "@ref LLP 1100 D3: the app's `@color-profile`s by name: the ICC file (an asset path) and the rendering intent; `color(--name …)` resolves against them, and the platform draws it.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "src",
+          "codec": "str"
+        },
+        {
+          "name": "intent",
+          "codec": "str"
+        }
+      ]
+    },
+    {
       "name": "texts",
       "_comment": "@ref LLP 1060 D3: one localized text, `{name}` placeholders unfilled. Within a locale, sorted by key.",
       "fields": [

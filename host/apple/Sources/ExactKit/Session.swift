@@ -774,6 +774,7 @@ public final class ExactSession {
             }
         }
         let cp = text.checkpoint()
+        runtime.setProfileResolver(app.resolver)
         let batch = runtime.boot(width: size.width, height: size.height)
         if batch.error != nil { text.restore(cp) }
         return finishBoot(batch, started: t)
@@ -785,6 +786,7 @@ public final class ExactSession {
         let t = CACurrentMediaTime()
         primePreferences()
         let cp = text.checkpoint()
+        runtime.setProfileResolver(app.resolver)
         let batch = runtime.bootPlan(bytes, width: size.width, height: size.height)
         if batch.error == nil { updateToken = 0; app.invalidateDevGeneration() }
         if batch.error != nil { text.restore(cp) }
@@ -837,6 +839,8 @@ public final class ExactSession {
         // The running tree's focus, read before the candidate replaces it.
         keptFocus = booted ? presenter.focusPlace(tree: agent("{\"op\":\"tree\"}")) : nil
         let module = module ?? app.lastModule
+        runtime.setProfileResolver(resolver)
+        defer { runtime.setProfileResolver(app.resolver) }
         let candidate = TextEngine.pair(resolve: { resolver.url($0) }, read: { resolver.bytes($0) }, bundled: { resolver.bundledURL($0) })
         runtime.setMeasure(TextEngine.measureText, ctx: candidate.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: candidate.measuring.opaque)
@@ -867,6 +871,7 @@ public final class ExactSession {
 
     func commit(_ candidate: Prepared) -> Batch {
         text = candidate.text
+        runtime.setProfileResolver(candidate.resolver)
         updateToken = candidate.token
         runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
@@ -1247,7 +1252,7 @@ public final class ExactSession {
         #else
         let dark = DisplayPreferences.systemDark
         #endif
-        return DisplayPreferences.bits(systemDark: dark)
+        return DisplayPreferences.bits(systemDark: dark, view: view)
     }
     /// @ref LLP 1069.000 D2 — told after every boot and on each change; a
     /// change while iOS suspends the process lands with the foreground

@@ -179,6 +179,8 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         styles,
         keyframes,
         timelines,
+        // A `@color-profile`'s dashed name is global, as in CSS.
+        color_profiles: _,
         fns,
         tests,
         launch: _,

@@ -25,7 +25,14 @@ enum SvgPaint {
     /// Whether an element needs part layers: a gradient paint, or a
     /// paint order other than fill then stroke.
     static func needsParts(_ e: [String: Any]) -> Bool {
-        e["f"] is [String: Any] || e["s"] is [String: Any] || numbers(e["po"]).count == 3
+        server(e["f"]) != nil || server(e["s"]) != nil || numbers(e["po"]).count == 3
+    }
+
+    /// A paint server (a gradient or a pattern): an object that is not a
+    /// colour in its own space, `{"cs": …}` (LLP 1100 D2).
+    static func server(_ v: Any?) -> [String: Any]? {
+        guard let o = v as? [String: Any], o["cs"] == nil else { return nil }
+        return o
     }
 
     /// Rebuild `shape`'s part layers from the element: fill and stroke in
@@ -41,7 +48,7 @@ enum SvgPaint {
             switch part {
             case 0:
                 guard let spec = e["f"], !(spec is NSNull) else { continue }
-                if let g = spec as? [String: Any] {
+                if let g = server(spec) {
                     if let layer = g["pt"] != nil ? SvgIsland.pattern(g, rect: path.boundingBoxOfPath, scale: shows, dark: dark, fonts: fonts)
                         : gradient(g, rect: path.boundingBoxOfPath, scale: shows, dark: dark, color: color) {
                         var box = CGRect.null
@@ -69,7 +76,7 @@ enum SvgPaint {
                 }
             case 1:
                 guard let spec = e["s"], !(spec is NSNull), shape.lineWidth > 0 else { continue }
-                if let g = spec as? [String: Any] {
+                if let g = server(spec) {
                     if let layer = g["pt"] != nil ? SvgIsland.pattern(g, rect: stroke.boundingBoxOfPath, scale: shows, dark: dark, fonts: fonts)
                         : gradient(g, rect: stroke.boundingBoxOfPath, scale: shows, dark: dark, color: color) {
                         layer.mask = mask(path, of: layer, fill: false, like: shape)

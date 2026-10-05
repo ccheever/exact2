@@ -555,6 +555,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ec7c5eb7a16992b1904d76c517d170ab353b0e0b3d5a0c81a8a0cd1037893cf"
 
 [[package]]
+name = "color-gallery-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "color-gallery-web"
+version = "0.1.0"
+dependencies = [
+ "exact-js-bake",
+ "exact-js-web",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+]
+
+[[package]]
 name = "combine"
 version = "4.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1110,6 +1131,7 @@ dependencies = [
  "caltrain",
  "caltrain-data",
  "contract",
+ "exact-color",
  "exact-data",
  "exact-kernel",
  "exact-markdown",
@@ -1142,6 +1164,7 @@ name = "exact-bake"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-color",
  "exact-filesystem",
  "exact-gpu-reflect",
  "exact-kernel",
@@ -1156,6 +1179,7 @@ dependencies = [
 name = "exact-canvas"
 version = "0.1.0"
 dependencies = [
+ "exact-color",
  "exact-motion",
  "exact-num",
 ]
@@ -1172,6 +1196,13 @@ dependencies = [
  "vello_shaders",
  "wgpu 29.0.4",
  "wgpu-hal 29.0.4",
+]
+
+[[package]]
+name = "exact-color"
+version = "0.1.0"
+dependencies = [
+ "exact-num",
 ]
 
 [[package]]
@@ -1303,6 +1334,7 @@ name = "exact-kernel"
 version = "0.1.0"
 dependencies = [
  "cssparser",
+ "exact-color",
  "exact-motion",
  "exact-num",
  "exact-svg-filter",
@@ -1328,6 +1360,7 @@ dependencies = [
  "drm",
  "evdev",
  "exact-canvas",
+ "exact-color",
  "exact-data",
  "exact-kernel",
  "exact-markdown",
@@ -1468,6 +1501,7 @@ dependencies = [
 name = "exact-motion"
 version = "0.1.0"
 dependencies = [
+ "exact-color",
  "exact-num",
  "libm",
 ]

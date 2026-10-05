@@ -45,11 +45,12 @@ typedef struct ExactRasterDemand {
     uint64_t view, view_generation, source, generation;
     uint32_t width, height, natural_width, natural_height;
     uint32_t priority; /* 0 visible, 1 overscan */
+    uint32_t variant;  /* storage (LLP 1100 D7): 1 sRGB8, 2 own-space 8, 3 deep 16F, 4 HDR 16F, 5 reduced 8 */
     uint64_t encoded_bytes, header_bytes, stride, scratch_bytes;
 } ExactRasterDemand;
 typedef struct ExactRasterWork {
     uint64_t permit, session, source, generation, charge;
-    uint32_t width, height;
+    uint32_t width, height, variant;
 } ExactRasterWork;
 typedef struct ExactRasterReady { uint64_t lease, payload; } ExactRasterReady;
 typedef struct ExactRasterStats {

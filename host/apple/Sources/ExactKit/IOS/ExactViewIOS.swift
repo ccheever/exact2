@@ -73,6 +73,13 @@ public final class ExactView: UIView {
         #endif
         session.presenter.observeKeyboard()
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self, UITraitAccessibilityContrast.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
+        // The tvOS SDK has no Swift UITraitDefinition for this trait. OS
+        // suppression still applies to its layers without a re-decode (D9).
+        #if os(iOS)
+        if #available(iOS 26, *) {
+            registerForTraitChanges([UITraitHDRHeadroomUsageLimit.self]) { (view: ExactView, _: UITraitCollection) in view.session.rasters.displayChanged() }
+        }
+        #endif
         // A hinge moving from flat to a book angle changes the division
         // regions' `isActive` without changing any bounds; nothing else would
         // lay out again (LLP 1078 D5). The status is kept: the posture

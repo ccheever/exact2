@@ -758,12 +758,16 @@ final class TextEngine {
         return CTFontCreateCopyWithAttributes(font as CTFont, size, nil, d) as PlatformFont
     }
 
-    /// A color from the style dictionary's `[r,g,b,a]` bytes (sRGB).
+    /// A color from the style dictionary's `[r,g,b,a]` bytes (sRGB), or
+    /// `textChannels`' nine, in the colour's own space (LLP 1100 D2).
     static func color(_ c: [Double]) -> PlatformColor {
+        if c.count == 9, (0...2).contains(Int(c[4])), case let name = [CGColorSpace.extendedSRGB, CGColorSpace.extendedDisplayP3, CGColorSpace.extendedLinearSRGB][Int(c[4])],
+           let space = CGColorSpace(name: name), let made = CGColor(colorSpace: space, components: c[5...].map { CGFloat($0) }),
+           let color = PlatformColor(cgColor: ColorRange.tagged(made)) as PlatformColor? { return color }
         #if canImport(UIKit)
-        UIColor(red: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
+        return UIColor(red: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
         #else
-        NSColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
+        return NSColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
         #endif
     }
 
@@ -783,7 +787,7 @@ final class TextEngine {
                 a[.strokeWidth] = -st[0] / Double(r.size) * 100
                 a[.strokeColor] = TextEngine.color(Array(st[1...]))
             }
-            if let sh = r.shadow, sh.count == 7 { a[.exactShadow] = TextRunShadow(sh) }
+            if let sh = r.shadow, TextEngine.isShadow(sh) { a[.exactShadow] = TextRunShadow(sh) }
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
             if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
@@ -1270,8 +1274,7 @@ final class TextEngine {
         // Graphics' blur is CSS's radius; its offset is base space, y up.
         if let s = spec.shadow {
             ctx.saveGState()
-            ctx.setShadow(offset: CGSize(width: s[0], height: -s[1]), blur: s[2],
-                          color: CGColor(srgbRed: s[3] / 255, green: s[4] / 255, blue: s[5] / 255, alpha: s[6] / 255))
+            ctx.setShadow(offset: CGSize(width: s[0], height: -s[1]), blur: s[2], color: TextEngine.shadowColor(s))
             ctx.beginTransparencyLayer(auxiliaryInfo: nil)
         }
         defer { if spec.shadow != nil { ctx.endTransparencyLayer(); ctx.restoreGState() } }

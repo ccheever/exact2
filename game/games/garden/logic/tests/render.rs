@@ -64,6 +64,7 @@ fn frames_at_scale() {
             period_ms: 0.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         };
         let step = |surface: &mut WorldSurface<Garden>, frame: &mut Frame, ms: f64| {
             frame.now_ms += ms;

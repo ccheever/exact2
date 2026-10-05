@@ -23,6 +23,11 @@ enum DisplayPreferences {
     nonisolated(unsafe) static var agentContrast: String? = ExactEnv.agentMode ? "no-preference" : nil {
         didSet { changed() }
     }
+    /// What an agent's `prefer` set for `color-gamut`; `srgb` from launch
+    /// under the agent (LLP 1069.007 D2).
+    nonisolated(unsafe) static var agentGamut: String? = ExactEnv.agentMode ? "srgb" : nil {
+        didSet { changed() }
+    }
     private static let agentChanged = Notification.Name("ExactDisplayPreferencesChanged")
     private static var center: NotificationCenter {
         #if os(macOS)
@@ -62,6 +67,24 @@ enum DisplayPreferences {
         return UIAccessibility.isDarkerSystemColorsEnabled ? "more" : "no-preference"
         #endif
     }
+    /// `color-gamut` (LLP 1100 D9). Neither platform reports a rec2020 panel.
+    static var gamut: String {
+        if let agentGamut { return agentGamut }
+        #if os(macOS)
+        return NSScreen.main?.canRepresent(.p3) == true ? "p3" : "srgb"
+        #else
+        return UIScreen.main.traitCollection.displayGamut == .P3 ? "p3" : "srgb"
+        #endif
+    }
+    /// `dynamic-range: high` (LLP 1100 D9): the main display's potential headroom.
+    static var highDynamicRange: Bool {
+        if let pinned = DisplayRange.pinned { return pinned > 1 }
+        #if os(macOS)
+        return (NSScreen.main?.maximumPotentialExtendedDynamicRangeColorComponentValue ?? 1) > 1
+        #else
+        return UIScreen.main.potentialEDRHeadroom > 1
+        #endif
+    }
     /// `prefers-color-scheme: dark` — the *system's* appearance, beneath any
     /// `setScheme` the app chose (LLP 1034 D3 as amended by LLP 1069.000 D1).
     #if os(macOS)
@@ -73,10 +96,19 @@ enum DisplayPreferences {
     /// The ABI's form (`exact_set_preferences`): bit 0 reduced motion, bit 1
     /// reduced transparency, bit 2 contrast more, bit 3 contrast less (both:
     /// custom), bit 4 a dark system, bit 5 pointer `coarse`, bit 6 pointer
-    /// `none`, bit 7 hover `none` (zero: a mouse, `fine` and `hover`).
-    static func bits(systemDark: Bool) -> UInt32 {
+    /// `none`, bit 7 hover `none` (zero: a mouse, `fine` and `hover`), bits
+    /// 8–9 the gamut (1 P3, 2 rec2020), bit 10 a high dynamic range.
+    static func bits(systemDark: Bool, view: PlatformView? = nil) -> UInt32 {
         let contrastBits: UInt32 = switch contrast { case "more": 4; case "less": 8; case "custom": 12; default: 0 }
+        #if os(macOS)
+        let displayGamut = agentGamut ?? ((view?.window?.screen ?? NSScreen.main)?.canRepresent(.p3) == true ? "p3" : "srgb")
+        #else
+        let displayGamut = agentGamut ?? ((view?.window?.screen ?? UIScreen.main).traitCollection.displayGamut == .P3 ? "p3" : "srgb")
+        #endif
+        let high = view.map { DisplayRange.headroom($0) > 1 } ?? highDynamicRange
+        let gamutBits: UInt32 = switch displayGamut { case "p3": 256; case "rec2020": 512; default: 0 }
         return (reducedMotion ? 1 : 0) | (reducedTransparency ? 2 : 0) | contrastBits | (systemDark ? 16 : 0) | inputBits
+            | gamutBits | (high ? 1024 : 0)
     }
     /// CSS's `pointer` and `hover` for the primary input: a Siri Remote
     /// points at nothing, a finger is coarse, and neither hovers.

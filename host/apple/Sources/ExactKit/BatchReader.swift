@@ -8,6 +8,7 @@ struct BatchReader {
     let bytes: UnsafeBufferPointer<UInt8>
     var offset = 0
     var depth = 0
+    var profileResolver: AssetResolver? = nil
 
     @inline(__always) var byte: UInt8 { offset < bytes.count ? bytes[offset] : 0 }
     @inline(__always) mutating func whitespace() {
@@ -226,19 +227,29 @@ struct BatchReader {
         let start = offset
         try skip()
         let span = UnsafeRawBufferPointer(rebasing: UnsafeRawBufferPointer(bytes)[start..<offset])
-        if let hit = StyleCache.shared.get(span) { return hit }
+        // Raw ICC paths are generation-relative; resolve them on every decode.
+        let hasICC = span.count >= 4 && (0..<(span.count - 3)).contains {
+            span[$0] == 105 && span[$0 + 1] == 99 && span[$0 + 2] == 99 && span[$0 + 3] == 58
+        }
+        if !hasICC, let hit = StyleCache.shared.get(span) { return hit }
         let end = offset
         offset = start
         let style = try values()
         guard offset == end else { throw Invalid.wire }
-        StyleCache.shared.put(span, style)
+        if !hasICC { StyleCache.shared.put(span, style) }
         return style
     }
     mutating func value() throws -> BatchValue {
         whitespace()
         switch byte {
         case 34: return .string(try string())
-        case 123: return .object(try values())
+        case 123:
+            var object = try values()
+            if let name = object["s"]?.string, name.hasPrefix("icc:"),
+               let handle = ProfileSpaces.bind(name, resolver: profileResolver) {
+                object["s"] = .profile(handle)
+            }
+            return .object(object)
         case 91: return .array(try array { try $0.value() })
         case 116, 102: return .bool(try bool())
         case 110: try literal("null"); return .null

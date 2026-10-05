@@ -189,6 +189,7 @@ final class Canvas2DRecordLayer: CALayer {
         let start: Canvas2DReplayState
         let env: Canvas2DEnv
         let width: Int, height: Int, scale: Double
+        var space = Canvas2DSpace.srgb8
     }
     private var frame_: Frame?
 
@@ -226,6 +227,7 @@ final class Canvas2DRecordLayer: CALayer {
         // To the bitmap's pixels, the space the bitmap replayer draws in.
         ctx.scaleBy(x: bounds.width / CGFloat(f.width), y: bounds.height / CGFloat(f.height))
         let r = Canvas2DReplayer(recording: ctx, scale: f.scale, yDown: ctx.ctm.d < 0, width: f.width, height: f.height)
+        r.space = f.space
         r.env = f.env
         r.restore(f.start)
         for l in f.lists { _ = r.apply(l) }

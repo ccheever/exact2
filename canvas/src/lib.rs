@@ -28,8 +28,8 @@ pub mod seam;
 
 pub use color::Rgba;
 pub use context::{
-    images_in, CanvasGradient, CanvasPattern, CanvasWindingRule, Context2d, DomException,
-    DomMatrix, Env, ImageData, ImageSlot, ImageTable, Images, Style,
+    images_in, CanvasGradient, CanvasPattern, CanvasWindingRule, ColorSpace, Context2d,
+    DomException, DomMatrix, Env, ImageData, ImageSlot, ImageTable, Images, Style,
 };
 pub use font::{Font, RawMetrics, TextEngine, TextMetrics, TextRun};
 pub use geom::{Matrix, Radius};
