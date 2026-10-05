@@ -431,8 +431,8 @@ and while a refresh is out `saved` keeps its value, so the editor stays.
 A native host (and the wasm web target; the default JS target keeps none) can make
 that child from a kept answer. When the data module is not ready at boot, a resource
 whose source read device state (a file, a database, a secret, a watched topic) shows
-the last answer the runner kept for it, one under 8 KB, so the form's states take
-those fields. A write the resource does not hear about (a file or database save from
+the last answer the runner kept for it (a small answer, asked with the same
+arguments), so the form's states take those fields. A write the resource does not hear about (a file or database save from
 a mutation without `refreshes saved`, not a `store` write it reads) leaves that
 answer behind: after a restart the form opens with the old fields and keeps them
 when the fresh answer lands. Refresh the resource after each write, as below, or key
