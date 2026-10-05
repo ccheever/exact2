@@ -285,8 +285,8 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         return { resized: pair, viewport: await evaluate('[innerWidth, innerHeight]'), delivery: 'browser-viewport' };
       }
       if (req.op === 'tap' && req.close !== undefined) return closePage(req, { cdp, sessionId, call, frame });
-      // A clock op runs up to the page's 20 s deadline (a jump waits that long for a request in flight; a settle,
-      // twice: requests, then rounds), past CDP's default 15 s (ios21 t3: a request that never answered).
+      // A clock op waits up to the page's one 20 s request deadline (a jump, for a request in flight before a due timer;
+      // a settle or `data`, across its rounds); 60 s is headroom past it and CDP's default 15 s (ios21 t3: one never answered).
       const timeout = req.op === 'clock' ? 60000 : req.op === 'perf' && req.live > 0 ? req.live + 30000 : undefined;
       return JSON.parse(await evaluate(`(typeof globalThis.exact?.agentSettled === 'function' ? exact.agentSettled(${JSON.stringify(req)}) : Promise.reject(new Error('the page has no agent adapter: open a development build with ?agent=1'))).then((r) => JSON.stringify(r))`, timeout));
     };
@@ -1201,7 +1201,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       else if (typeof spec === 'string' && spec.startsWith('+')) req.to = s.now + Number(spec.slice(1));
       else req.to = Number(spec);
       if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}; use clock +100, clock +100 real, clock settle or clock data; state shows the current clock`);
-      // A long seek steps by wall clock (each operation ~CLOCK_BUDGET_MS of Chrome's 15 s window, from CLOCK_STEP_MS of world
+      // A long seek steps by wall clock (each operation ~CLOCK_BUDGET_MS of a web clock op's 60 s, from CLOCK_STEP_MS of world
       // time, at most 4x a step and CLOCK_SPAN_MS), so a cheap hour is a few presents, not 3,600; the final reply is the seek's.
       let span = CLOCK_STEP_MS;
       for (let t0; !req.settle && req.to - s.now > span; span = clockSpan(span, performance.now() - t0)) t0 = performance.now(), s.now = (await s.op({ op: 'clock', to: s.now + span })).clock;
