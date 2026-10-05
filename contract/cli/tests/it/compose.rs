@@ -281,3 +281,33 @@ fn a_mistaken_section_word_names_the_section() {
         )
     );
 }
+
+#[test]
+fn a_stray_else_and_a_body_on_the_next_line_say_where_they_go() {
+    let deep = "component App\n  state on = false\n  view\n    column\n      when on\n        text \"a\"\n        else\n          text \"b\"\n";
+    let error = contract::compile(deep).unwrap_err();
+    assert!(
+        error.message.ends_with(
+            "an `else` sits at its `when`'s indentation, on the line after the `when`'s block"
+        ),
+        "{error}"
+    );
+    let body = "fn label(done: bool): string =\n  done ? \"Done\" : \"Open\"\ncomponent App\n  view\n    text label(true)\n";
+    let error = contract::compile(body).unwrap_err();
+    assert_eq!(error.id, "syntax-expected-expression");
+    assert!(
+        error
+            .message
+            .starts_with("a fn's expression starts on its `=` line"),
+        "{error}"
+    );
+    let derive = "component App\n  state done = false\n  derive label =\n    done ? \"Done\" : \"Open\"\n  view\n    text label\n";
+    let error = contract::compile(derive).unwrap_err();
+    assert!(
+        error
+            .message
+            .starts_with("a derive's expression starts on its `=` line"),
+        "{error}"
+    );
+    contract::compile("fn label(done: bool): string = (done\n  ? \"Done\"\n  : \"Open\")\ncomponent App\n  view\n    text label(true)\n").unwrap();
+}

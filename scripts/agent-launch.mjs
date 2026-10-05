@@ -310,8 +310,8 @@ export function gitIgnored(dir, keep = []) {
 // deck, a game's art and logic, a native module's scripts, the host crates,
 // fonts and strings). A build reads more than the bake captures, so the rule
 // names the outputs and leaves everything else an input.
-const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world)$/i;
-const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|ios|macos|linux)(\/|$)/;
+export const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world)$/i;
+export const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|ios|macos|linux)(\/|$)/;
 /** A skip for an app's own files that no build reads. A file a build can
  * read always counts, ignored by Git or not: what the bake captures, anything
  * in an input tree, under `keep` (declared shader roots) or in one of the

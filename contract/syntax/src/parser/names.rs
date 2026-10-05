@@ -59,6 +59,17 @@ pub(super) fn section_hint(word: &str) -> String {
     format!(": did you mean `{section}`{place}?")
 }
 
+/// A view's `else` or `case` with nothing to belong to, and where it goes (authoring
+/// bench: an `else` indented one level under its `when`).
+pub(super) fn stray(word: &str) -> String {
+    let goes = if word == "else" {
+        "an `else` sits at its `when`'s indentation, on the line after the `when`'s block"
+    } else {
+        "a `case` arm sits indented under its `match`"
+    };
+    format!("`{word}` without a matching construct: {goes}")
+}
+
 impl Parser {
     /// An expression continued on an indented line (`? …`, `: …`, `+ …`, `and …`):
     /// a declaration is one line unless parentheses hold it (authoring bench: a
@@ -109,6 +120,20 @@ impl Parser {
             );
         }
         self.newline()
+    }
+
+    /// A declaration whose expression starts on the line after its `=` (authoring bench).
+    pub(super) fn on_its_line(&self, what: &str) -> R<()> {
+        if matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Indent) {
+            return self.err(
+                "syntax-expected-expression",
+                format!(
+                    "a {what}'s expression starts on its `=` line; a long one is wrapped in \
+                     parentheses opened there, `= (…`, with the rest of it on the lines under it"
+                ),
+            );
+        }
+        Ok(())
     }
 
     /// A TypeScript-style `: T` before a state's or derive's `=`, or `as T` after its

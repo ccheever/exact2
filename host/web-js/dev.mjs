@@ -16,6 +16,7 @@ import { createServer, request } from 'node:http';
 import { existsSync, readFileSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { webRequestURL } from '../../scripts/origin.mjs';
+import { INPUT_TREE, OUTPUT } from '../../scripts/agent-launch.mjs';
 import { appManifestDigest, buildFileCards, buildTreeFile, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 
@@ -99,6 +100,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     if (name && skip.test(String(name))) return;
     // The declarations a build writes beside app.ts, for an editor.
     if (base === app.dir && String(name) === 'app.contract.d.ts') return;
+    // A screenshot, log or film written into the app folder is not an input, as the driver's
+    // staleness check counts it: it does not reload a page under a test.
+    if (base === app.dir && OUTPUT.test(String(name)) && !INPUT_TREE.test(String(name))) return;
     try { if (name && statSync(resolve(base, String(name))).mtimeMs < since) return; } catch { /* removed: an edit */ }
     if (!timer) saved = Date.now();
     clearTimeout(timer);

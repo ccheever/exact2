@@ -272,6 +272,24 @@ guide's rules don't make obvious.
 
 ## Driving and testing
 
+- **A drive script kept in the app folder makes the build stale.** Editing
+  `verify.mjs` beside `app.contract` made the driver refuse the next drive until
+  `bun exact.mjs web-build`. Cause: every file in the app folder that is not
+  git-ignored or output (a screenshot, a log) counts as a build input.
+  Fix: keep drive scripts outside the app folder, or in a git-ignored one. (Authoring
+  bench, LLP 1087: five builders, 2026-10-05.)
+
+- **An iOS screenshot right after a tap shows a segmented control on its old
+  segment.** The tree says the new one is selected. Cause: UIKit animates the
+  selection on real time, and `clock +N` does not move it. Fix: `clock +1000 real`
+  before the screenshot. (Authoring bench, t1-tip on iOS, 2026-10-05.)
+
+- **The same test passes on the web and fails on iOS at a date past `max`.** Cause:
+  `UIDatePicker` refuses a value outside `min`/`max` (the agent says the date was
+  refused), where the web's date input takes it. Fix: test
+  values inside the range, or the bound itself. (Authoring bench, t7-wizard on iOS,
+  2026-10-05.)
+
 - **The agent taps the simulator by screen coordinates** (`axe tap -x -y`,
   `simctl`), and the drive breaks whenever layout moves. Cause: the controls have
   no `testId`, or the driver was not used on iOS. Fix: give every control a

@@ -498,6 +498,7 @@ impl Parser {
         self.expect_punct(":")?;
         let ret = self.type_expr()?;
         self.expect_punct("=")?;
+        self.on_its_line("fn")?;
         let body = self.expr()?;
         self.newline()?;
         Ok(FnDecl {
@@ -729,6 +730,7 @@ impl Parser {
                             let name = self.named_ident(t.span)?;
                             self.type_annotation(&w, &name, ":")?;
                             self.expect_punct("=")?;
+                            self.on_its_line(&w)?;
                             let expr = self.expr()?;
                             let none = matches!(expr, Expr::None(_));
                             self.type_annotation(&w, &name, if none { "as none" } else { "as" })?;
@@ -1269,7 +1271,7 @@ impl Parser {
             }
             "else" | "case" => self.err(
                 "syntax-stray-keyword",
-                format!("`{word}` without a matching construct"),
+                names::stray(&word),
             ),
             "map" | "filter" if matches!(self.peek2(), TokenKind::Punct("(")) => self.err(
                 "syntax-map-view",
