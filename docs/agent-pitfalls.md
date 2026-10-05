@@ -300,7 +300,11 @@ guide's rules don't make obvious.
   at once is there with the input. Fix: `clock settle` after the edit in the
   test, or answer edits from memory and save from a `task` that sends a `persist`
   mutation when the document changed ([the reference](reference.md#what-a-data-module-can-use)).
-  (x2apps drums R11, 2026-10-04.)
+  An answer that saves nothing is late the same way when it is asked while
+  another answer's storage is in flight: it waits for that turn to end (a tap
+  that blurs a field whose `change` saves, then sends an answer from memory).
+  Fix: the same `clock settle`. LLP 1097 removes both waits.
+  (x2apps drums R11, survey #3, 2026-10-04.)
 
 ## Working on exact2 itself
 
