@@ -11,7 +11,7 @@ await import('../media-glue.js');
 function audio(props, { readyState = 4, error = null } = {}) {
   const listeners = {}, el = {
     localName: 'audio', readyState, error, isConnected: true, paused: true, seeks: [], loads: 0, plays: 0, attrs: new Set(),
-    exactMedia: { props, handlers: ['error', 'seeked'] },
+    exactMedia: { props, handlers: ['error', 'seeked', 'loadedmetadata'] }, duration: NaN,
     set currentTime(t) { this.seeks.push(t); }, get currentTime() { return this.seeks.at(-1) ?? 0; },
     addEventListener(name, f) { (listeners[name] ??= []).push(f); },
     toggleAttribute(name, on) { if (on) this.attrs.add(name); else this.attrs.delete(name); },
@@ -59,4 +59,14 @@ test('load loads the source again, as a changed src does: the bound time waits f
 test('a source refused before the glue had the element is reported', () => {
   const el = audio({ src: 'app:/data/missing.wav' }, { readyState: 0, error: { code: 4, message: 'MEDIA_ELEMENT_ERROR: Format error' } });
   expect(el.sent).toEqual(['error\nsrc-not-supported']);
+});
+
+test('metadata the glue reported on attaching is not reported again by the event HTML had queued', () => {
+  const el = audio({ src: 'a.mp3' });
+  expect(el.sent).toEqual(['loadedmetadata\n']);
+  el.fire('loadedmetadata');
+  expect(el.sent).toEqual(['loadedmetadata\n']);
+  el.fire('emptied'); // a new load
+  el.fire('loadedmetadata');
+  expect(el.sent).toEqual(['loadedmetadata\n', 'loadedmetadata\n']);
 });

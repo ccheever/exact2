@@ -88,13 +88,22 @@ globalThis.exact.installMedia = (el, send) => {
   };
   const state = { applied: {}, seek: null, threshold: null, visibilityBlocked: false, retired: false, error(code, message) { if (!state.retired) console.warn(`exact: ${el.localName} ${code}: ${message}`); emit('error', code); } };
   states.set(el, state);
+  // What the glue reported for itself on attaching (below): HTML sets
+  // `readyState` before its queued event fires, so the event may still come;
+  // it is not reported twice. A new load (`emptied`) forgets them.
+  const early = new Set();
+  el.addEventListener('emptied', () => early.clear());
   for (const name of mediaEvents) el.addEventListener(name, () => {
     if (name === 'loadedmetadata' && state.seek !== null) { el.currentTime = state.seek; state.seek = null; }
+    if (early.delete(name)) return;
     const payload = name === 'timeupdate' ? el.currentTime : name === 'durationchange' ? el.duration : name === 'error' ? errorCodes[el.error?.code] ?? 'src-not-supported' : '';
     if (typeof payload !== 'number' || Number.isFinite(payload)) emit(name, String(payload));
   });
   update(el);
-  if (el.readyState) { emit('loadedmetadata'); if (Number.isFinite(el.duration)) emit('durationchange', String(el.duration)); }
+  if (el.readyState) {
+    emit('loadedmetadata'); early.add('loadedmetadata');
+    if (Number.isFinite(el.duration)) { emit('durationchange', String(el.duration)); early.add('durationchange'); }
+  }
   // A source refused before the glue had the element (an unknown scheme, a
   // missing `app:/` file) failed while no one listened (podcast F19).
   else if (el.error) emit('error', errorCodes[el.error.code] ?? 'src-not-supported');
