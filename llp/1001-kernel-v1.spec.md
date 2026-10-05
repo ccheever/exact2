@@ -862,8 +862,9 @@ fragmented; a content-sized multi-column box takes its content's width as one
 column and divides it; under `rtl` overflow columns left of the box are
 painted and clipped but not scrollable on native hosts. `position: sticky`
 inside a flow is `relative`. `column-span`, paged media and regions are
-refused by name. On Apple, paragraphs are kept whole until its `lines` hook
-lands (LLP 1093 stage 2).
+refused by name. A host's text engine answers a paragraph's line boxes
+(`TextMeasurer::lines`; Apple's `exact_set_lines`, ABI 12); one that answers
+none keeps every paragraph whole.
 
 **CSS line height** (LLP 1035.000.000, 2026-09-11). Bit 72 uses the
 `line-height` codec: `Normal` (schema default), `Number(ratio)`, or

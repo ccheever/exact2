@@ -1,7 +1,7 @@
 # LLP 1093: Text that flows across boxes — CSS multi-column, and the break rules that only mean something with it
 
 **Type:** RFC
-**Status:** Accepted (r4, by the orchestrator under Charlie's delegation after three review rounds; Grok 4.7 only — Codex budget exhausted; round-3 findings folded unreviewed — the implementation review checks them), 2026-10-05. Stage 1 built 2026-10-04 (§7, As built); stage 2 not yet.
+**Status:** Accepted (r4, by the orchestrator under Charlie's delegation after three review rounds; Grok 4.7 only — Codex budget exhausted; round-3 findings folded unreviewed — the implementation review checks them), 2026-10-05. Stage 1 and stage 2's Apple half built 2026-10-04 (§7, As built); the reader port waits on the element resize event.
 - r1 was reviewed with two scopes: CSS fidelity against Chrome 154 (`llp/reviews/1093-r1.grok-a.md`) and kernel and host implementation (`llp/reviews/1093-r1.grok-b.md`). Both were NOT READY.
 - r2 had a delta review (`llp/reviews/1093-r2.grok.md`): NOT READY, with five MATERIAL findings.
 - r3 had the final round (`llp/reviews/1093-r3.grok.md`): NOT READY, with four MATERIAL findings.
@@ -335,6 +335,22 @@ Not taken:
   - A balanced three-column, 400-paragraph container takes 2 walks.
 - **Driven.** A scratch app (paged flow, `translate` page turns, a balanced block with a rule) was driven with `agent web`, `agent linux` (its plan on `caltrain-linux`) and `agent macos`. Web and Linux page alike; macOS places every box in its column but keeps paragraphs whole. The reader was not ported: that is stage 2, and it waits on the element resize event, which has not landed.
 - **Not built in stage 1:** the Apple half (stage 2, below); `TextParityMacTests`; the reader port.
+
+### Stage 2, Apple's half, 2026-10-04
+
+- **D6.** `exact_set_lines` (`host/apple/src/abi/exports.rs`) registers an `ExactLinesFn` hook. It takes the measure request and returns each line box's bottom, and `CallbackMeasurer::lines` calls it. `EXACT_ABI_VERSION` is 12. Swift's `Runtime.setMeasure` registers `TextEngine.linesText` with the measurer. The hook answers from the paragraph the presenter paints at that width (`requestSpec`, which is now `measure`'s own spec construction, and `Paragraph.lineBottoms`).
+- **D7.** A `fragments` op beside `sticky` (`Batch::fragments`, `Host::emit_fragments`) carries each box's fragments in its own frame and each container's columns. It is sent when a record changes and cleared when one goes. `Kernel::fragmented` lists what a host must read.
+- **D8, as built:**
+  - `host/apple/Sources/ExactKit/Columns.swift`. A fragmented paragraph is laid out at its unfragmented width (`paragraphBox`) and drawn once per fragment in its own view: clipped to the fragment and moved by its offset (`eachFragment`, called from `draw` on both platforms). It is not one layer per fragment, so a paragraph across a gap backs one layer as wide as its union. Text rasters and the content-region reader paragraph stand aside for it.
+  - `column-rule` is a layer under the container's children, one rectangle per gap between two columns that both hold a box. It is rebuilt on the record and on a restyle.
+  - Hits follow Linux's rule: both `hitTest` overrides refuse a point in the union's gap.
+  - One map, the fragment's rectangle less its offset, feeds `TextSelectionMac`'s `line`, `index` and `draw` and `InlineText.textOffset`. The caret's map snaps a gap point to the nearest fragment, so a selection dragged across a gap keeps its focus.
+- **D12.** The Apple agents' `tap` aims at the first fragment's centre (`tapBox`).
+- **Tests and drives.**
+  - `TextParityMacTests.testAParagraphInColumnsBreaksAsChromesColumns`: the paragraph's lines at the column width equal Chrome 154's columns, and its line boxes are 20px apart.
+  - The scratch app on macOS: a three-column block with a rule matches the web's screenshot, line for line. A drag selection across the column boundary picks exactly the text the web picks ("teen seventeen "). A tap lands in the first fragment.
+  - The scratch app on iOS: the same split.
+  - The Swift host tests' three macOS failures (`BorderParityMacTests`, `BoxPaintMacTests`, `ClipMacTests`) fail on the base too.
 
 ## 8. Questions, as decided (orchestrator for Charlie, 2026-10-05)
 
