@@ -238,6 +238,17 @@ pub fn settle(w: &World) {
     }
 }
 
+/// The rules' slots and derives, published under the program's own names:
+/// the HUD (app.contract's `shape Hud`) reads the ones it shows as
+/// rules.contract names them, and no Rust copy stands between.
+pub fn publish(w: &World) {
+    let r = w.resource::<Rules>();
+    let r = program(w).derived(&r).unwrap_or_else(|e| panic!("{e}"));
+    for (name, value) in r.slots.iter().chain(r.derived.iter()) {
+        w.publish(name, value.clone());
+    }
+}
+
 /// What one event did, for the world's side effects.
 pub struct Raised {
     pub before: Match,

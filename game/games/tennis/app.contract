@@ -1,22 +1,24 @@
+// The rules' slots and derives as rules/rules.contract names them (the
+// world publishes every one), then Jev's side.
 shape Hud
-  you_games: number
-  jev_games: number
-  you_points: string
-  jev_points: string
-  serving: string
+  nearGames: number
+  farGames: number
+  nearLabel: string
+  farLabel: string
+  nearServes: bool
   call: string
   prompt: string
+  phase: string
+  winner: string
+  rally: number
+  longest: number
   jev: string
   jev_state: string
   jev_status: string
   ask: string
-  over: bool
-  winner: string
   asked: number
   on_time: number
   late: number
-  rally: number
-  longest: number
 
 // The world publishes a numbered question in hud.ask; this resource carries
 // it to Jev (data/src/lib.rs) and its answer returns as the world's live
@@ -54,22 +56,22 @@ component Tennis
     main width="100%" height="100%" background-color="#0b1726" color="#f8fafc"
       when playing
         canvas surface=world(seed=7, offline=offline, paused=paused, restart=again, plan=plan) testId="world" width="100%" height="100%" position="relative"
-          when paused and not hud.over
+          when paused and hud.phase != "over"
             column testId="paused" position="absolute" inset=0 align-items="center" justify-content="center" gap=12 background-color="#0b172699"
               text "Paused" font-size=40 font-weight=800
               text "Jev's clock stops too." color="#cbd5e1"
           row position="absolute" top=16 left=16 right=16 gap=12 align-items="flex-start" justify-content="space-between"
             column testId="scoreboard" gap=4 padding=10 border-radius=12 background-color="#0b1726d9" min-width=176
               row gap=8 align-items="center"
-                text (hud.serving == "you" ? "●" : " ") width=10 color="#c6f432" font-size=12
+                text (hud.nearServes ? "●" : " ") width=10 color="#c6f432" font-size=12
                 text "You" width=64 font-weight=600 color="#fdba74"
-                text `${hud.you_games}` testId="you-games" width=20 text-align="center" font-weight=700
-                text hud.you_points testId="you-points" width=36 padding-top=2 padding-bottom=2 text-align="center" border-radius=6 background-color="#1e3a5f" font-weight=700
+                text `${hud.nearGames}` testId="you-games" width=20 text-align="center" font-weight=700
+                text hud.nearLabel testId="you-points" width=36 padding-top=2 padding-bottom=2 text-align="center" border-radius=6 background-color="#1e3a5f" font-weight=700
               row gap=8 align-items="center"
-                text (hud.serving == "jev" ? "●" : " ") width=10 color="#c6f432" font-size=12
+                text (hud.nearServes ? " " : "●") width=10 color="#c6f432" font-size=12
                 text "Jev" width=64 font-weight=600 color="#5eead4"
-                text `${hud.jev_games}` testId="jev-games" width=20 text-align="center" font-weight=700
-                text hud.jev_points testId="jev-points" width=36 padding-top=2 padding-bottom=2 text-align="center" border-radius=6 background-color="#1e3a5f" font-weight=700
+                text `${hud.farGames}` testId="jev-games" width=20 text-align="center" font-weight=700
+                text hud.farLabel testId="jev-points" width=36 padding-top=2 padding-bottom=2 text-align="center" border-radius=6 background-color="#1e3a5f" font-weight=700
             column flex-shrink=1 align-items="center" gap=8
               row testId="jev" gap=8 align-items="center" padding-top=8 padding-bottom=8 padding-left=14 padding-right=14 border-radius=20 background-color="#0b1726d9" border-width=1 border-color=(hud.jev_state == "late" ? "#fbbf24" : hud.jev_state == "unavailable" ? "#f87171" : hud.jev_state == "thinking" ? "#5eead4" : "#1e3a5f")
                 text (pending(plan) ? "◌" : hud.jev_state == "late" ? "!" : "●") testId="jev-dot" color=(hud.jev_state == "late" ? "#fbbf24" : hud.jev_state == "unavailable" ? "#f87171" : "#5eead4") font-weight=700
@@ -100,10 +102,10 @@ component Tennis
               column align-items="center"
                 text "Forehand" font-size=15 font-weight=800
                 text "J" font-size=12 color="#334155"
-          when hud.over
+          when hud.phase == "over"
             column testId="match-over" position="absolute" inset=0 align-items="center" justify-content="center" gap=16 background-color="#0b1726cc"
-              text (hud.winner == "You" ? "You win!" : "Jev wins") testId="winner" font-size=48 font-weight=800 color=(hud.winner == "You" ? "#fdba74" : "#5eead4")
-              text `${hud.you_games} – ${hud.jev_games} in games · longest rally ${hud.longest}` font-size=18
+              text (hud.winner == "near" ? "You win!" : "Jev wins") testId="winner" font-size=48 font-weight=800 color=(hud.winner == "near" ? "#fdba74" : "#5eead4")
+              text `${hud.nearGames} – ${hud.farGames} in games · longest rally ${hud.longest}` font-size=18
               text (offline ? "Offline opponent" : `Jev decided ${hud.on_time} shots in time · ${hud.late} late (fallback played)`) color="#cbd5e1" testId="jev-stats"
               row gap=12
                 button press=restart autofocus aria-label="Play again" testId="again" padding=16 border-radius=12 background-color="#c6f432"

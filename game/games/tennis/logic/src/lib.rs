@@ -41,28 +41,18 @@ pub struct Ball {
     pub mark: Option<Vec3>,
 }
 
-/// What the HUD reads through `exactSurface("world")`.
+/// What the HUD reads through `exactSurface("world")` besides the rules'
+/// own slots and derives (`rules::publish`): Jev's side.
 #[derive(Clone, Debug, Default, PartialEq, Data)]
 pub struct Hud {
-    pub you_games: u32,
-    pub jev_games: u32,
-    pub you_points: String,
-    pub jev_points: String,
-    pub serving: String,
-    pub call: String,
-    pub prompt: String,
     pub jev: String,
     pub jev_state: String,
     pub jev_status: String,
     /// The open question for Jev, or "" — the `jev` resource's argument.
     pub ask: String,
-    pub over: bool,
-    pub winner: String,
     pub asked: u32,
     pub on_time: u32,
     pub late: u32,
-    pub rally: u32,
-    pub longest: u32,
 }
 
 const TOSS_UP: f32 = 5.6;
@@ -800,22 +790,9 @@ fn follow_camera(w: &World) {
 }
 
 fn publish(w: &World) {
-    let m = Match::of(w);
+    rules::publish(w);
     let brain = w.resource::<Brain>();
-    let (you, jev) = m.labels();
-    let prompt = m.prompt.clone();
     w.publish_record(&Hud {
-        you_games: m.games[0],
-        jev_games: m.games[1],
-        you_points: you,
-        jev_points: jev,
-        serving: if m.server == Side::Near {
-            "you".into()
-        } else {
-            "jev".into()
-        },
-        call: m.call.clone(),
-        prompt,
         jev: brain.line.clone(),
         jev_state: brain.state.clone(),
         jev_status: brain.status.clone(),
@@ -824,13 +801,9 @@ fn publish(w: &World) {
             .as_ref()
             .map(|a| a.json.clone())
             .unwrap_or_default(),
-        over: m.phase == Phase::Over,
-        winner: m.winner.map(|s| s.name().to_string()).unwrap_or_default(),
         asked: brain.stats.asked,
         on_time: brain.stats.on_time,
         late: brain.stats.late,
-        rally: m.rally,
-        longest: m.longest_rally,
     });
 }
 
