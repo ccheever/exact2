@@ -182,6 +182,12 @@ impl Session {
             })?;
         let compile_ms = t.elapsed().as_secs_f64() * 1000.0;
         let t = Instant::now();
+        // A game without app.json has no manifest the compiler reads; the dev
+        // loop names it (`EXACT_APP_ID`), as its bake receipt does.
+        let mut plan = plan;
+        if plan.app_id.is_empty() {
+            plan.app_id = std::env::var("EXACT_APP_ID").unwrap_or_default();
+        }
         let baked = contract::bake(plan, D::default()).map_err(|e| {
             map.as_ref().map_or_else(
                 || format!("bake: {e:?}"),

@@ -315,7 +315,36 @@ extension Canvases {
         return e
     }
 
+    /// A plan restart reassigns view ids (LLP 1046.009 G1): each surface whose
+    /// name is unique carries its world, by name, to the new plan's canvas of that
+    /// name, as the web does (gpu-glue.js `reset`). Duplicates start fresh.
+    func carryForRestart() {
+        planCarries = [:]
+        for e in entries.values where e.id != 0 && entries.values.filter({ $0.name == e.name }).count == 1 {
+            guard let m = e.module, let carry = m.carry else { continue }
+            let length = carry(e.id)
+            if length == UInt32.max { continue }
+            guard length != UInt32.max - 1, length <= WorldCarrier.limit, let bytes = length == 0 ? Data() : m.output(length) else {
+                restoreJournal.append(["canvas": e.view.id, "lines": ["surface \(e.name): carry refused: \(m.error())"]])
+                continue
+            }
+            planCarries[e.name] = bytes
+        }
+    }
+
+    /// The restarted plan has made its canvases; an unclaimed carry is dropped.
+    func finishRestart() { planCarries = [:] }
+
     func restoreWorld(_ m: GpuModule, _ e: Entry) {
+        if let bytes = e.carry {
+            e.carry = nil
+            e.restoreAttempted = true
+            let ok = bytes.withUnsafeBytes { m.restore?(e.id, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count, 1) ?? false }
+            e.restorePending = true
+            e.carrying = true
+            finishRestore(m, e, refusal: ok ? nil : m.error())
+            return
+        }
         guard !e.restoreAttempted, let bytes = worldInput.bytes else { return }
         e.restoreAttempted = true
         guard m.restore != nil else { return }
@@ -344,7 +373,8 @@ extension Canvases {
               let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let world = reply["world"] as? [String: Any], world["restored"] as? Bool == true else { return }
         e.restorePending = false
-        worldInput.bytes = nil
+        if !e.carrying { worldInput.bytes = nil }
+        e.carrying = false
         let input = world["input"] as? [String: Any] ?? [:]
         e.controls.removeAll()
         for row in input["controlContacts"] as? [[String: Any]] ?? [] {

@@ -26,6 +26,8 @@ const publishers = new Map(); // name -> first live entry
 const pendingRecords = [];
 let drainingRecords = false;
 let planCarries = new Map();
+// A plan restart's surfaces, alive, until the new plan's canvas of the name adopts one (LLP 1046.009 G1).
+const parked = new Map(); // surface name -> entry
 const surfaces = new Map(); // view id -> surface, input listeners and journal cursor
 // postMessage(text, name): held per surface name (at most exact.postBound, glue.js's
 // POST_BOUND = Linux POST_BOUND = Apple Canvases.postBound) until a canvas of
@@ -428,6 +430,32 @@ function attach(entry) {
   messages(entry); schedule();
   deliverPosts(entry.name);
 }
+// A plan restart with the module unchanged (LLP 1046.009 G1): the surface leaves
+// its view without leaving the module, then the new plan's canvas of its name
+// takes the old leaf — its context and world — in place of its own.
+function park(entry) {
+  for (const row of entry.children ?? []) restoreChild(row);
+  entry.children = undefined;
+  entry.observer?.disconnect(); entry.unlisten?.(); entry.observer = entry.unlisten = null;
+  surfaces.delete(entry.view);
+  if (publishers.get(entry.name) === entry) publishers.delete(entry.name);
+  parked.set(entry.name, entry);
+}
+function adopt(entry, view, host, el) {
+  el.replaceWith(entry.el);
+  Object.assign(entry, { view, host });
+  surfaces.set(view, entry);
+  const publisher = publishers.get(entry.name);
+  if (!publisher || surfaces.get(publisher.view) !== publisher || !publisher.el.isConnected) publishers.set(entry.name, entry);
+  attach(entry);
+  if (entry.record !== undefined && publishers.get(entry.name) === entry) surfaceRecord(entry.name, entry.record);
+}
+function release(entry, clear = true) {
+  cancelAssets(entry);
+  if (entry.id) gpu.gpu_destroy(entry.id);
+  entry.id = 0;
+  if (clear && !publishers.has(entry.name)) surfaceRecord(entry.name, null);
+}
 function restorePending(entry, module = gpu, carrier = exact) {
   if (carrier.worldCarry === undefined || entry.attemptedCarry === carrier.worldCarry) return;
   let carried;
@@ -494,6 +522,7 @@ function messages(entry, drainAssets = true) {
   finishRestore(entry, gpu);
   reportRestore(entry);
   const record = gpu.gpu_published(entry.id);
+  if (record !== undefined) entry.record = record; // a parked world republishes it to the plan that adopts it
   if (record !== undefined && live(entry.view) === entry && publishers.get(entry.name) === entry) surfaceRecord(entry.name, record);
   const texts = gpu.gpu_messages(entry.id);
   if (texts === undefined) return;
@@ -849,6 +878,15 @@ const api = {
         if (surfaces.get(old.view) === old) this.destroy(old.view);
         else { publishers.delete(name); surfaceRecord(name, null); }
       }
+      const kept = parked.get(name);
+      if (kept) {
+        parked.delete(name);
+        if (JSON.stringify(kept.values) === JSON.stringify(values) && !terminalDevice && !recoveringDevice) { adopt(kept, view, host, el); return; }
+        // Other arguments: the world carries across a fresh surface, as a restart's always did.
+        try { const bytes = gpu.gpu_carry(kept.id); if (bytes !== undefined) planCarries.set(name, { name, bytes }); }
+        catch (error) { restoreJournal.push({canvas:kept.view,error:`carry refused: ${error}`}); }
+        release(kept, false);
+      }
       entry = { view, host, el, name, values, id: 0, wants: false, wantsInput: false, logCursor: 0, terminal: terminalDevice }; surfaces.set(view, entry);
       const carried = planCarries.get(name);
       if (carried?.name === name) entry.carry = carried.bytes;
@@ -884,9 +922,12 @@ const api = {
   // A plan restart reassigns view ids. Unique surface names can carry across it;
   // duplicate instances are ambiguous and are deliberately left fresh.
   reset(carry = false) {
-    planCarries = new Map();
-    if (carry) for (const entry of surfaces.values()) if (entry.id) {
+    planCarries = new Map(); for (const entry of parked.values()) release(entry); parked.clear();
+    if (carry) for (const entry of [...surfaces.values()]) if (entry.id) {
       if ([...surfaces.values()].filter(e => e.name === entry.name).length !== 1) continue;
+      // The module is unchanged, so the world need not be saved and restored: it
+      // waits, alive, for the new plan's canvas of its name (LLP 1046.009 G1).
+      if (!entry.terminal && !recoveringDevice) { park(entry); continue; }
       try {
         const bytes = gpu.gpu_carry(entry.id);
         if (bytes !== undefined) planCarries.set(entry.name, { name: entry.name, bytes });
@@ -894,7 +935,7 @@ const api = {
     }
     for (const view of [...surfaces.keys()]) this.destroy(view);
   },
-  finishRestart() { planCarries.clear(); },
+  finishRestart() { planCarries.clear(); for (const entry of parked.values()) release(entry); parked.clear(); },
   /// A dev generation's changed asset names (LLP 1046.009 G2): each surface
   /// takes those it was delivered in place and fetches them again from the new
   /// generation. False when this module cannot (one built before the seam).
@@ -909,6 +950,14 @@ const api = {
   },
   // Dev only; callers serialize versions. Agent pages never receive automatic swaps.
   swap(version) { return exact.mutate(() => swap(version)); },
+  /// The driver's `clock code` (LLP 1046.009 G4): the newest module the dev loop has
+  /// announced, swapped in as a person's page takes it — at a boundary the driver chose.
+  async code() {
+    const latest = (stem === "gpu" ? exact.gpuLatest?.gpuVersion : exact.gpuLatest?.[stem]) ?? api.version;
+    if (latest === api.version) return { artifact: stem, version: api.version, swapped: false };
+    try { const { ms, errors } = await api.swap(latest); return { artifact: stem, version: api.version, swapped: true, ms, errors }; }
+    catch (error) { return { artifact: stem, version: api.version, swapped: false, error: String(error) }; }
+  },
   /// A shader's text (LLP 1030 D8) — the dev loop's edit, or the first
   /// registration: validated, its interface checked against the module's;
   /// every surface renders again through the new pipeline. False, with the
@@ -1023,6 +1072,8 @@ async function swap(version) {
       staged.push([old, entry]);
       const carry = old.id ? gpu.gpu_carry(old.id) : old.carry;
       create(entry, next, carry);
+      // New code that refuses the running world never replaces it (LLP 1041.006 §6, 1046.009 G3).
+      if (carry !== undefined && entry.restoreError) throw new Error(`${entry.restoreError}\nkept the running world and its code; a fresh page takes the new code (reload, or f + Enter in the dev loop)`);
       restorePending(entry, next, carrier);
       const {w,h,s} = size(old.host);
       supplyChildren(entry, next, true);

@@ -91,6 +91,8 @@ const router = {
   // Dev only (dev.js): a module's rebuilt artifact; one not loaded yet reads
   // its version from `exact.gpuVersions` when it loads.
   swap(version, module) { return hosts.get(module ? `gpu/${module}` : "gpu")?.swap(version) ?? { ms: 0, errors: [] }; },
+  // The driver's `clock code`: every loaded artifact takes its newest announced version.
+  async code() { const out = []; for (const host of hosts.values()) out.push(await host.code()); return out; },
   // A lost device is one artifact's; the others answer "healthy" and keep theirs.
   deviceLost: () => each("deviceLost"),
   finishRestart: () => each("finishRestart"),
