@@ -229,7 +229,7 @@ fn fresh_preparation_reads_platform_secrets_and_defers_effects_until_commit() {
     let _restore = Restore;
     let name = "exact.prepare.returning";
     let grants = "secret.keep exact.prepare.returning\n";
-    let bindings = endow(grants).unwrap();
+    let bindings = crate::store::endow(grants).unwrap();
     assert_eq!(bindings.secrets.get(name).unwrap(), None);
     bindings.secrets.set(name, "returning").unwrap();
     let seen = Arc::new(Mutex::new(Vec::new()));
@@ -1007,4 +1007,52 @@ fn kept_answers_reach_the_platform_store_without_an_app_grant() {
         !kept.is_empty() && kept.iter().all(|l| !l.contains("failed")),
         "{kept:?}"
     );
+}
+
+#[test]
+fn candidate_profiles_are_isolated_until_commit_and_after_discard() {
+    let source = |asset: &str| {
+        format!("color-profile --candidate-test src=\"{asset}\" rendering-intent=\"perceptual\"\ncomponent App\n  state on = false\n  action toggle\n    on = !on\n  view\n    column\n      button testId=\"toggle\" press=toggle\n        text \"Toggle\"\n      box testId=\"color\" width=20 height=20 background-color=(on ? \"color(--candidate-test 0 1 0)\" : \"color(--candidate-test 1 0 0)\")\n")
+    };
+    let a = contract::compile(&source("assets/live.icc"))
+        .unwrap()
+        .encode();
+    let b = contract::compile(&source("assets/candidate.icc"))
+        .unwrap()
+        .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&a, StorageModule::default(), Hooks::none(), 100.0, 100.0);
+    let check = |bridge: &mut Bridge<StorageModule>, expected: &str| {
+        let host = bridge.host.as_mut().unwrap();
+        let kernel = host.runner().kernel();
+        let button = kernel
+            .node_by_key(kernel.find_by_test_id("toggle")[0])
+            .unwrap()
+            .id;
+        let batch = host.dispatch_at(button, Event::Press, 1.0);
+        assert!(batch.contains(expected), "{batch}");
+    };
+    bridge.input_write(&b);
+    bridge.prepare_plan(
+        b.len(),
+        StorageModule::default(),
+        Hooks::none(),
+        100.0,
+        100.0,
+    );
+    assert!(bridge.prepared.is_some());
+    check(&mut bridge, "icc:assets/live.icc");
+    bridge.discard_plan();
+    check(&mut bridge, "icc:assets/live.icc");
+    bridge.input_write(&b);
+    bridge.prepare_plan(
+        b.len(),
+        StorageModule::default(),
+        Hooks::none(),
+        100.0,
+        100.0,
+    );
+    assert!(bridge.prepared.is_some());
+    bridge.commit_plan();
+    check(&mut bridge, "icc:assets/candidate.icc");
 }

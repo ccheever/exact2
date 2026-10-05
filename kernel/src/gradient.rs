@@ -29,6 +29,8 @@ pub struct Gradient {
     pub kind: GradientKind,
     /// At least two; positions are percentages 0–100, nondecreasing.
     pub stops: Vec<Stop>,
+    /// `in <space> [<method> hue]`, as written (LLP 1100 D2).
+    pub interpolation: Option<exact_color::Interpolation>,
 }
 
 /// A colour stop, positioned.
@@ -269,15 +271,39 @@ fn one_gradient(css: &str) -> Result<Gradient, &'static str> {
         return Err(EXPECTED);
     }
     let args = split_top(&css[open + 1..close], ',');
+    // `in …` may precede or follow the shape.
+    let words = split_top(args[0], ' ');
+    let mut interpolation = None;
+    let mut prelude = args[0].to_string();
+    if let Some(i) = words.iter().position(|w| w.eq_ignore_ascii_case("in")) {
+        let (how, n) = exact_color::Interpolation::parse(&words[i..]).ok_or(
+            "`in` names a color space to interpolate in, as `in oklch` or `in oklch longer hue`",
+        )?;
+        interpolation = Some(how);
+        prelude = words[..i]
+            .iter()
+            .chain(&words[i + n..])
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" ");
+    }
     let (kind, first) = match lower[..open].trim_end() {
-        "linear-gradient" => linear_prelude(args[0])?,
-        "radial-gradient" => radial_prelude(args[0])?,
-        "conic-gradient" => conic_prelude(args[0])?,
+        "linear-gradient" => linear_prelude(&prelude)?,
+        "radial-gradient" => radial_prelude(&prelude)?,
+        "conic-gradient" => conic_prelude(&prelude)?,
         _ => return Err(EXPECTED),
     };
+    if interpolation.is_some() && !first && !prelude.trim().is_empty() {
+        return Err("`in` goes with the gradient's shape, before the first color stop");
+    }
+    let first = first || interpolation.is_some();
     let conic = matches!(kind, GradientKind::Conic { .. });
     let stops = stops(&args[usize::from(first)..], conic)?;
-    Ok(Gradient { kind, stops })
+    Ok(Gradient {
+        kind,
+        stops,
+        interpolation,
+    })
 }
 
 impl Gradient {
@@ -326,6 +352,10 @@ impl Gradient {
                 position(&mut out, at);
             }
         }
+        if let Some(how) = self.interpolation {
+            out.push(' ');
+            out.push_str(&how.css());
+        }
         for stop in &self.stops {
             out.push_str(", ");
             color_text(&mut out, stop.color, mode);
@@ -346,6 +376,12 @@ impl Gradient {
     /// extends them, so no painter has to (Vello's ramp starts its first
     /// stretch at 0 whatever the first stop's offset).
     pub fn resolved(&self, dark: bool) -> Vec<(f32, Color)> {
+        if let Some(ramp) = self.interpolated(dark) {
+            return ramp
+                .into_iter()
+                .map(|(at, c, a)| (at, Color::from_linear_srgb(c, a)))
+                .collect();
+        }
         let mut out: Vec<(f32, Color)> = self
             .stops
             .iter()
@@ -358,6 +394,66 @@ impl Gradient {
             out.push((1.0, c));
         }
         out
+    }
+
+    /// As written; else Oklab when a stop is a modern colour; `None` is
+    /// legacy sRGB, as CSS says.
+    pub fn interpolation(&self, dark: bool) -> Option<exact_color::Interpolation> {
+        self.interpolation.or_else(|| {
+            self.stops
+                .iter()
+                .any(|s| match s.color {
+                    ColorValue::Wide(id) => crate::style::wide::wide(id)
+                        .is_some_and(|w| w.modern[usize::from(dark && w.dark.is_some())]),
+                    _ => false,
+                })
+                .then_some(exact_color::Interpolation::OKLAB)
+        })
+    }
+
+    /// The sampled ramp when not legacy sRGB: positions 0–1, extended
+    /// linear sRGB and alpha.
+    pub fn interpolated(&self, dark: bool) -> Option<Vec<(f32, [f64; 3], f64)>> {
+        let how = self.interpolation(dark)?;
+        let wide = |c: ColorValue| match c {
+            ColorValue::Wide(id) => crate::style::wide::wide(id).map(|w| w.half(dark)),
+            other => {
+                let c = other.resolve(dark);
+                Some(exact_color::Wide {
+                    space: exact_color::Space::Srgb,
+                    c: [c.r(), c.g(), c.b()].map(|v| f64::from(v) / 255.0),
+                    alpha: f64::from(c.a()) / 255.0,
+                })
+            }
+        };
+        let mut stops: Vec<(f32, exact_color::Wide)> = self
+            .stops
+            .iter()
+            .filter_map(|s| Some((s.at / 100.0, wide(s.color)?)))
+            .collect();
+        if let Some(&(_, c)) = stops.first().filter(|s| s.0 > 0.0) {
+            stops.insert(0, (0.0, c));
+        }
+        if let Some(&(_, c)) = stops.last().filter(|s| s.0 < 1.0) {
+            stops.push((1.0, c));
+        }
+        const STEPS: usize = 16;
+        let mut out = Vec::with_capacity(stops.len() * STEPS);
+        for (i, &(at, c)) in stops.iter().enumerate() {
+            out.push((at, c.linear_srgb(), c.alpha));
+            let Some(&(end, n)) = stops.get(i + 1) else {
+                continue;
+            };
+            if end <= at || (c == n && how.hue != exact_color::HueMethod::Longer) {
+                continue;
+            }
+            for k in 1..STEPS {
+                let t = k as f64 / STEPS as f64;
+                let (v, a) = exact_color::mix(&c, &n, t, how);
+                out.push((at + (end - at) * t as f32, v, a));
+            }
+        }
+        Some(out)
     }
 
     /// Placement in a `width` × `height` box — CSS's gradient box, the
@@ -555,6 +651,23 @@ pub fn color_text(out: &mut String, color: ColorValue, mode: ColorText) {
             hex(out, light);
             out.push_str(", ");
             hex(out, dark);
+            out.push(')');
+        }
+        ColorValue::Wide(id) => match crate::style::wide::wide(id) {
+            Some(w) => out.push_str(&w.text),
+            None => out.push_str("transparent"),
+        },
+        ColorValue::Profiled(id) => match crate::style::profiled::profiled(id) {
+            Some(p) => out.push_str(&p.text),
+            None => out.push_str("transparent"),
+        },
+        ColorValue::Moving(..) => {
+            let ([r, g, b], a) = color.moving_linear().unwrap_or_default();
+            let n = exact_color::number_text;
+            let _ = write!(out, "color(srgb-linear {} {} {}", n(r), n(g), n(b));
+            if a < 1.0 {
+                let _ = write!(out, " / {}", n(a));
+            }
             out.push(')');
         }
         reference => crate::style::roles::reference_css(out, reference, mode),
@@ -801,6 +914,10 @@ fn stops(args: &[&str], conic: bool) -> Result<Vec<Stop>, &'static str> {
         let color = ColorValue::parse_light_dark(&color)
             .or_else(|| Color::parse(&color).map(ColorValue::Fixed))
             .ok_or("a stop's colour is a CSS colour (hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `transparent`) or `light-dark(a, b)`")?;
+        // LLP 1100 D3: nothing converts a profile's colour, so nothing mixes it.
+        if matches!(color, ColorValue::Profiled(_)) {
+            return Err("a color in a profile's space (`color(--name …)`) is drawn by the platform and never mixed: not in a gradient");
+        }
         if split == words.len() {
             authored.push((color, None));
         }

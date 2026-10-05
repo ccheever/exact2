@@ -1,5 +1,7 @@
 // @ref LLP 1035.001 D10 — the same tab semantics use AppKit's segmented
 // control on macOS; Contract remains the owner of selection and actions.
+// The control fills the tablist's content box and reports its native height
+// to layout as the tablist's automatic minimum, as on iOS (LLP 1059 D2a).
 #if os(macOS)
 import AppKit
 
@@ -21,6 +23,13 @@ final class SegmentHost {
     func control(of id: UInt32) -> NSSegmentedControl? { controls[id] }
     private var hidden: [UInt32: Bool] = [:]
     private var members: [UInt32: [UInt32]] = [:]
+    /// What each tablist last reported: its control's size, until the
+    /// projection ends.
+    private var sizes: [UInt32: CGSize] = [:]
+    /// Reports for after the batch being applied, as controls' and images'
+    /// are; the latest per tablist reaches the runner.
+    private struct Report { weak var view: NodeView?; let generation: Int; let size: CGSize? }
+    private var reports: [Report] = []
     /// LLP 1080.001 D3: the control standing in for a tablist; its hidden tabs.
     func inspectionOwns(_ view: NSView) -> Bool { controls.values.contains { $0 === view } }
     func hides(_ node: NodeView) -> Bool { members.values.contains { $0.contains(node.id) } }
@@ -48,6 +57,40 @@ final class SegmentHost {
             else { hidden.removeValue(forKey: childID) }
         }
         controls.removeValue(forKey: id)?.removeFromSuperview()
+        if sizes.removeValue(forKey: id) != nil, let owner = presenter.views[id] { report(owner, nil) }
+    }
+
+    /// The control's own size, at any width of the box: its height does not
+    /// follow that width, and a tablist's reported width is never read (the
+    /// seam takes only a positive one). It fills the content box, so a
+    /// border-box minimum also holds the padding and border around it.
+    private func measure(_ owner: NodeView, _ control: NSSegmentedControl) {
+        let natural = control.intrinsicContentSize
+        var size = CGSize(width: max(natural.width, 1), height: natural.height)
+        if owner.style["box_sizing"]?.string == "border-box" {
+            let border = owner.number("border_width")
+            size.height += owner.number("border_width_top", border) + owner.number("padding_top")
+                + owner.number("border_width_bottom", border) + owner.number("padding_bottom")
+        }
+        guard size.width.isFinite, size.height.isFinite, size.height > 0, sizes[owner.id] != size else { return }
+        sizes[owner.id] = size
+        report(owner, size)
+    }
+
+    private func report(_ owner: NodeView, _ size: CGSize?) {
+        if reports.isEmpty { DispatchQueue.main.async { [weak self] in self?.publish() } }
+        reports.append(Report(view: owner, generation: owner.loadGeneration, size: size))
+    }
+
+    /// A tablist destroyed or reset before then reports nothing.
+    private func publish() {
+        var latest: [UInt32: CGSize?] = [:], order: [UInt32] = []
+        for entry in reports {
+            guard let view = entry.view, view.loadGeneration == entry.generation, presenter.views[view.id] === view else { continue }
+            if latest.updateValue(entry.size, forKey: view.id) == nil { order.append(view.id) }
+        }
+        reports = []
+        if !order.isEmpty { presenter.onIntrinsic?(order.map { ($0, latest[$0]!) }) }
     }
 
     func sync() {
@@ -115,6 +158,7 @@ final class SegmentHost {
             }
             control.selectedSegment = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? -1
             owner.addSubview(control, positioned: .above, relativeTo: nil)
+            measure(owner, control)
         }
     }
 

@@ -131,7 +131,9 @@ Each file has its own names (LLP 1091): its own declarations, and the names its
 `use` lines list. Nothing comes along unnamed: if `parts.contract` uses `Icon`,
 `Card` still works, but this file writes `Icon()` only after naming it too,
 from `./icons.contract` or from `./parts.contract`, which passes on what it
-names. `as` renames one name in this file. Any component, shape, `fn`, style,
+names. The refusal names the lines a file lacks, and `contract fmt --uses
+app.contract` writes them in every file of the app. `as` renames one name in
+this file. Any component, shape, `fn`, style,
 keyframes or timeline can be named; there is no `export` keyword.
 
 Two files may declare the same name: each file's references mean its own
@@ -245,8 +247,10 @@ The `some` branch's binding exists only in that branch. Both arms are required.
 A state initialized to `none` needs enough information elsewhere, usually an
 action's assignment of `some(...)`, to infer the element type. Actions and the
 view see that type, but derives are typed first: match such a state in the view,
-not in a derive. Similarly, `[]` needs an inferable list element type. A nonempty list literal such as `[1, 2]` is not
-supported; obtain lists from sources, record fields, or list operations.
+not in a derive. Similarly, `[]` needs an inferable list element type. A list
+literal such as `[1, 2]` holds its items, which share one type; a list the screen
+keeps for the session (a selection, open ids) is built in Contract, and a list the
+app keeps across launches comes from the data module.
 
 ## State, derives, and actions
 
@@ -307,7 +311,8 @@ of its component, an `action` prop or an injected action as a statement:
 they too read the state the action started with. So a helper does not see what
 its caller assigned before the call; the compiler refuses such a read and asks
 for the value to be passed (`arrive(next)`). A name that is a host command, such
-as `focus`, stays the command. A call returns nothing: share calculations through
+as `focus`, stays the command, and calling an action, prop or inject that
+shares a host command's name is refused: rename it. A call returns nothing: share calculations through
 `fn`. The compiler infers the state an action writes, through its calls. Do not
 write a `writes` clause.
 
@@ -573,6 +578,15 @@ Requests use newest-request-wins behavior; stale answers do not overwrite newer
 requests. A failed resource keeps its retained value or placeholder and clears
 pending. A changed argument or explicit refresh allows another attempt.
 
+A write log wants every send, not the newest. Declare the mutation `queue`
+(`mutation saved as shape SaveResult queue then afterSave`): one request is in
+flight, and each later send waits, in order, with the arguments it was made
+with, until the reply before it has landed and its `then` has run. The source
+sees one request at a time, `then` runs once per reply, and `pending(saved)`
+stays true while anything waits. Assigning `saved = none` forgets nothing under
+`queue`: every reply still lands. Keep newest-wins for a sign-in or a draft whose
+late reply should be dropped (LLP 1092).
+
 A source sometimes needs current context to answer a question whose last answer
 is still suitable to show. For example, a stored car status may need the current
 minute to decide whether it must be fetched again:
@@ -772,12 +786,12 @@ call outside them fails. The capabilities are:
   [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
 - *There is no storage or network at build time.* The build bakes each
   resource's first value into the plan, and a storage call then is refused
-  with `code: 'bake'`. Catch that and return a first-frame value, as `books`
-  does: a source that throws during the bake fails the build on native hosts
-  and in the bake-based development producers. (The web's JS build happens to
-  leave it unbaked; don't rely on that.) The app asks again when it runs. A `fetch` at bake is left unbaked instead; to show
-  something better than the type's zero meanwhile, give the resource an
-  `else` placeholder, as `quote` does.
+  with `code: 'bake'`. An uncaught storage refusal leaves the resource unbaked;
+  its placeholder (or the type's zero) shows until the app asks again at launch.
+  Catching that code can also supply a first-frame value, as `books` does.
+  Other source errors still fail the build. A source used as an `else` placeholder
+  must answer at bake without storage. A `fetch` also stays unbaked; an `else`
+  placeholder supplies something better than the type's zero, as `quote` does.
 - *An open database locks its file.* A mutation and the refresh it triggers
   overlap, and the second `open` fails as busy. Queue every open, as
   `withBooks` does.
@@ -810,7 +824,8 @@ bun exact.mjs agent web --storage demo "type title Dune" "tap add" "clock settle
 A scratch store is kept between drives on every host, so a second drive with the
 same `--storage demo` opens the list the first one saved: on the web, Chrome's
 profile for that name, served at one origin (Firefox and WebKit drives start
-fresh). A test's `reload` restarts the app on its store within one drive.
+fresh). A test's `reload` restarts the app on its store within one drive,
+including a data module's `secret.keep`.
 
 **Rust instead.** A data module can be a Rust crate rather than `app.ts`:
 `bun exact.mjs contract rust app.contract -o shapes.rs` generates the shapes as
@@ -885,8 +900,9 @@ label an image; `aria-labelledby` (the ids of the elements whose text names this
 one, as a radiogroup names itself by its visible heading) wins over `aria-label`;
 `aria-describedby` (the ids of the elements whose text describes
 this one) and `aria-description` are its description. `aria-invalid`,
-`aria-required` and `aria-haspopup` take their ARIA words or a bool; UIKit has
-no property for those three, so iOS exposes none of them.
+`aria-required`, `aria-haspopup` and `aria-current` (a navigation link's
+`"page"`, a wizard's `"step"`) take their ARIA words or a bool; UIKit has no
+property for those four, so iOS exposes none of them.
 Font sizes, touch targets, focus behavior, and contrast remain author decisions.
 
 Declare bundled fonts at file scope:
@@ -950,6 +966,11 @@ Safari) they refuse with `cancel` too: read `exactPage().canOpenFiles` to tell
 that from a person's dismissal and offer an import instead. A save there still
 works: what the app writes to its handle downloads under the suggested name. File content, durable storage, and permissions belong
 in the data module. See [file-picker syntax](../contract/corpus/file-pickers.contract).
+
+On tvOS, `focusGuide="auto"` on a container guides a remote move entering its
+box to the descendant that last held focus, or its first focusable descendant.
+Moving within the container keeps UIKit's geometry. Other hosts ignore the
+attribute and retain their normal focus order.
 
 ### Choosing a native button
 
@@ -1017,7 +1038,9 @@ list appearance="auto" listStyle="inset-grouped" flex=1
 `listStyle` is `inset-grouped` (the default), `grouped` or `plain`, a literal.
 iOS draws UIKit's own list (`UICollectionView` with a list configuration); the
 other hosts draw a sheet measured from it, and your own attributes replace any
-of its rows. See [the grouped-list fixture](../scripts/fixtures/grouped-list.contract)
+of its rows. A section's own `margin-top` or `margin-bottom` is the space iOS
+leaves there too, collapsed with its neighbour's as on the web (LLP 1084 §6.4).
+See [the grouped-list fixture](../scripts/fixtures/grouped-list.contract)
 and LLP 1084.
 
 ## Navigation and documents
@@ -1106,6 +1129,30 @@ fires once, `ms` after boot. Intervals are whole-number literals of at least 1.
 `every(frame, action)` runs once per presented frame without catching up missed
 frames. Each task body contains one schedule. Tasks are root-owned, not child
 lifecycle hooks.
+
+A task can wait for state instead of starting at mount:
+
+```contract
+component Undo
+  state toast = ""
+  state toastUntil = 0
+  action deleted
+    toast = "Deleted"
+    toastUntil = now() + 5000
+  action hideToast
+    toast = ""
+  task hide when toast != "" key=toastUntil
+    after(5000, hideToast)
+  view
+    text toast testId="toast"
+```
+
+The timer exists while `toast != ""` holds, as a `when` arm's nodes do, and a new
+`toastUntil` restarts it, as a new key makes a new `each` row: a replaced toast
+gets its whole five seconds. Nothing runs when the gate changes, and an idle task
+keeps no host awake. The action runs at the deadline exactly, so it clears the
+toast without testing the time again. Gates and keys read state, never `now()`
+(LLP 1092).
 
 `now()` reads milliseconds since boot on the runner's clock (the driver's clock
 under the agent); it is not a date. For the date, read the reserved `exactTime`

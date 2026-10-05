@@ -42,6 +42,8 @@ pub struct File {
     /// `timeline` declarations, in order (LLP 1055.002 D1): clock timelines
     /// that `animation-timeline=Name` puts animations on.
     pub timelines: Vec<TimelineDecl>,
+    /// `color-profile` declarations, in order (LLP 1100 D3).
+    pub color_profiles: Vec<ColorProfileDecl>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
@@ -159,16 +161,21 @@ pub enum Step {
         span: Span,
     },
     /// `tap "testId" drag dx dy [from x y] [mouse] [press ms] [over ms]
-    /// [hold ms]`: one whole drag from the node's middle, or from `from` in
-    /// its box, a finger's or the left button's; the driver's `tap … drag`
-    /// (kanban F18, files diary F10).
+    /// [hold ms] [during "op" …]`: one whole drag from the node's middle, or
+    /// from `from` in its box, a finger's or the left button's; the driver's
+    /// `tap … drag` (kanban F18, files diary F10). `tap "A" drag to "B" [at x y] …`
+    /// ends at B's middle, or at `at` from its top left (LLP 1094 D12).
+    /// `during` is last: quoted reads or `clock` while the finger is down,
+    /// after the move and before the hold (drums R8).
     Drag {
         /// The node, by `testId`.
         target: String,
-        /// Points across.
+        /// Points across (0 for a drag `to` a node).
         dx: f64,
-        /// Points down.
+        /// Points down (0 for a drag `to` a node).
         dy: f64,
+        /// The node it ends on, by `testId`, and where in its box.
+        to: Option<(String, Option<(f64, f64)>)>,
         /// Where it starts, an offset from the node's top left; its middle
         /// when `None`.
         from: Option<(f64, f64)>,
@@ -180,6 +187,9 @@ pub enum Step {
         over: Option<f64>,
         /// Milliseconds held after the move.
         hold: Option<f64>,
+        /// Quoted ops run while the finger is down, after the move, before
+        /// the hold. Empty when the step names none.
+        during: Vec<String>,
         /// Where.
         span: Span,
     },
@@ -242,12 +252,16 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `type "testId" key "Enter"`.
+    /// `type "testId" key "Enter"`, or `down`, `up`, or `for <ms>` (platformer R7).
     Key {
         /// The field, by `testId`.
         target: String,
         /// The key's web name.
         key: String,
+        /// `down` or `up`; `None` is a press (down and up).
+        phase: Option<String>,
+        /// Milliseconds the key stays down, on the virtual clock. Not with `phase`.
+        duration: Option<f64>,
         /// Where.
         span: Span,
     },
@@ -325,11 +339,19 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `close`: the window's close button, as ⌘W or the red button press
+    /// it, asking its `beforeunload` first (the driver's `close`, studio
+    /// diary R17); a window a handler keeps stays, and the test goes on.
+    Close {
+        /// Where.
+        span: Span,
+    },
     /// `expect state name == literal`: a slot, derive, or resource from the
-    /// `state` reply, or a field of one (`name.field.field`, feed F10),
-    /// compared to a number, string, bool, or `none`.
+    /// `state` reply, or a field of one (`name.field.field`, feed F10), or a
+    /// list index (`rows.0`, drums R7), compared to a number (negative
+    /// included), string, bool, or `none`.
     ExpectState {
-        /// The declaration's name, then any fields, joined by `.`.
+        /// The declaration's name, then fields and list indexes, joined by `.`.
         name: String,
         /// The literal.
         value: Expr,
@@ -352,6 +374,14 @@ pub enum TapForm {
     /// `into "key"`: a virtualized list's row brought into view by its key
     /// (LLP 1070.000 §5), so a row outside the rendered window can be tapped.
     Into(String),
+    /// `pinch <scale> [at x y]`: two fingers about the node's middle, or
+    /// about `at` in its box (stocks: the agent's pinch, in a test file).
+    Pinch {
+        /// How far the fingers spread, greater than 0. `1` is no change.
+        scale: f64,
+        /// Where the pinch is centred, in the node's box; its middle when `None`.
+        at: Option<(f64, f64)>,
+    },
 }
 
 /// `fn name(param: type, …): type = expr` — a pure function written in
@@ -433,6 +463,17 @@ pub struct KeyframesDecl {
 pub struct TimelineDecl {
     /// The name `animation-timeline` refers to.
     pub name: String,
+    /// Where.
+    pub span: Span,
+}
+
+/// `color-profile --name src="…" rendering-intent=…`: CSS's `@color-profile`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColorProfileDecl {
+    /// The dashed name `color()` refers to, `--` included.
+    pub name: String,
+    /// The descriptors, literal: `src` and `rendering-intent`.
+    pub attrs: Vec<Attr>,
     /// Where.
     pub span: Span,
 }
@@ -595,6 +636,9 @@ pub struct MutationDecl {
     pub name: String,
     /// The reply's shape, `T`.
     pub shape: TypeExpr,
+    /// `queue`: one send in flight, later sends wait their turn in order
+    /// (LLP 1092 D1, D2); otherwise the newest send wins (LLP 1016 §4).
+    pub queue: bool,
     /// `refreshes a, b`: resources the runner re-asks, forced, when a send
     /// to this mutation runs and when its reply lands (LLP 1054.000.000 D1).
     pub refreshes: Vec<(String, Span)>,
@@ -809,14 +853,20 @@ impl Stmt {
     }
 }
 
-/// `task name mount` with `every(ms, action)`, `every(frame, action)` or
-/// `after(ms, action)`.
+/// `task name mount` (or `when cond [key=expr]`, or `key=expr`) with
+/// `every(ms, action)`, `every(frame, action)` or `after(ms, action)`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Task {
     /// Name.
     pub name: String,
     /// Whether the timer repeats or fires once.
     pub kind: TaskKind,
+    /// `when cond`: the timer exists while `cond` holds (LLP 1092 D7);
+    /// `None` for `mount` and for `key=` alone (`when true`).
+    pub gate: Option<Expr>,
+    /// `key=expr`: a new key restarts the timer, as a new `each` key makes
+    /// a new row (LLP 1092 D7).
+    pub key: Option<Expr>,
     /// `(ms, action)` and the entry's span.
     pub timer: (Expr, String, Span),
     /// Where.
@@ -1098,11 +1148,11 @@ pub enum Expr {
     Bool(bool, Span),
     /// `none`.
     None(Span),
-    /// `[]`: the empty list. Its element type comes from where it is
+    /// `[a, b, c]`: a list of its items, which unify as the arms of `?:`
+    /// do (LLP 1088 §9.1). `[]`'s element type comes from where it is
     /// written (the other arm of a `match` or `?:`, a declared `list<T>`,
-    /// a write into the state it initializes); Contract has no list literal
-    /// with items (LLP 1017.003 D4).
-    EmptyList(Span),
+    /// a write into the state it initializes).
+    List(Vec<Expr>, Span),
     /// `some(expr)`.
     Some(Box<Expr>, Span),
     /// A name.
@@ -1191,6 +1241,7 @@ impl Step {
             | Step::Clipboard { span, .. }
             | Step::Clock { span, .. }
             | Step::Reload { span, .. }
+            | Step::Close { span }
             | Step::Resize { span, .. }
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }
@@ -1209,7 +1260,7 @@ impl Expr {
             | Expr::Template(_, s)
             | Expr::Bool(_, s)
             | Expr::None(s)
-            | Expr::EmptyList(s)
+            | Expr::List(_, s)
             | Expr::Some(_, s)
             | Expr::Ident(_, s)
             | Expr::Member(_, _, s)

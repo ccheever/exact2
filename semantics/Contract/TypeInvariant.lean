@@ -220,6 +220,8 @@ theorem runAction_slotsOK {p : Program} {o c name args rows c' out} (hp : SlotTy
   next fx hx =>
   split at h
   · exact keep h
+  split at h
+  · exact keep h
   next answered hans =>
   split at h
   · exact keep h
@@ -237,7 +239,7 @@ theorem runAction_slotsOK {p : Program} {o c name args rows c' out} (hp : SlotTy
       · next hconf =>
         simp only [Except.pure_ok_iff] at hf
         subst hf
-        have hm := hsends _ hmem
+        have hm := hsends _ (splitSends_sub hmem)
         obtain ⟨hty, md, hmd⟩ := slotTy_mutation hp.names hm
         simp only [hty, conforms]
         simpa using hconf
@@ -247,8 +249,26 @@ theorem runAction_slotsOK {p : Program} {o c name args rows c' out} (hp : SlotTy
   · exact keep h
   split at h
   · exact keep h
+  split at h
+  · exact keep h
+  split at h
   · simp only [Prod.mk.injEq] at h; rw [← h.1]; exact hok
   · simp only [Prod.mk.injEq] at h; rw [← h.1]; exact hok
+
+/-- A queued send's commit (LLP 1092 D3) keeps every root slot of its
+type: it writes its mutation's slot with an answer of the mutation's shape. -/
+theorem nextCommit_slotsOK {p : Program} {o c m c' out} (hp : SlotTyped p) (hq : isQueue p m = true)
+    (hc : SlotsOK p c.slots) (h : nextCommit p o c m = (c', out)) : SlotsOK p c'.slots := by
+  rcases nextCommit_slots h with he | ⟨v, hv, he⟩
+  · rw [he]; exact hc
+  · rw [he]
+    have hmut : isMutation p m = true := by
+      simp only [isQueue, List.any_eq_true, Bool.and_eq_true, beq_iff_eq] at hq
+      obtain ⟨md, hmd, rfl, -⟩ := hq
+      simp only [isMutation, List.any_eq_true, beq_iff_eq]
+      exact ⟨md, hmd, rfl⟩
+    obtain ⟨hty, -⟩ := slotTy_mutation hp.names hmut
+    exact hc.applyWrites (ws := [(m, .some v)]) (by simp [hty, conforms, hv])
 
 /-! ## Boot -/
 
@@ -417,9 +437,10 @@ built. -/
 theorem reachable_slotsOK {p : Program} {c} (hp : WellTyped p) (h : Reachable p c) : SlotsOK p c.slots :=
   Reachable.invariant (fun c => SlotsOK p c.slots)
     (fun _ => boot_slotsOK hp.slotTyped)
-    (fun _ _ _ _ hc => hc)
+    (fun _ _ _ _ _ hc => hc)
     (fun _ _ _ _ _ _ _ _ _ _ _ _ hc _ _ hr => runAction_slotsOK hp.slotTyped hc hr)
-    (fun _ _ _ _ _ _ hc hr => runAction_slotsOK hp.slotTyped hc hr) c h
+    (fun _ _ _ _ _ _ hc hr => runAction_slotsOK hp.slotTyped hc hr)
+    (fun _ _ _ _ _ hc hq hr => nextCommit_slotsOK hp.slotTyped hq hc hr) c h
 
 /-- The same as types: each root slot holds a value of its declared type
 (the router slot's boot value too: `Route.routerValue` builds one). -/

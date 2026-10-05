@@ -198,7 +198,11 @@ class Collection {
     let inPlace = null;
     if (compare && !rekeyed) { inPlace = []; items.forEach((it, p) => { if (!same(it, this.items[p])) inPlace.push(p); }); }
     if (rekeyed) { this.index.replace(idents); this.idents = idents; this.dups = dups; }
-    if (this.preview && (rekeyed || !inPlace || inPlace.length)) this.endPreview();
+    const moved = rekeyed || !inPlace || inPlace.length;
+    if (this.preview && moved) this.endPreview();
+    // A grouped session's offsets move with its rows, at once (LLP 1094 D8).
+    this.instant = !!(moved && (this.incoming || this.preview?.grouped));
+    if (moved) this.preparedMove?.();
     this.items = items;
     if (this.kept.size) for (const k of [...this.kept.keys()]) if (!this.index.pos.has(k.split("\0")[0])) this.kept.delete(k);
     const previous = inPlace && JSON.stringify(this.snapshot());
@@ -213,7 +217,7 @@ class Collection {
     if (kept !== undefined && (kept < this.index.len - 1 || this.index.len > count)) this.edgeArmed[1] = true;
     this.restore(anchor);
     this.startAtEnd();
-    this.realize(true, {});
+    try { this.realize(true, {}); } finally { this.instant = false; }
     const now = this.snapshot();
     if (!previous || previous !== JSON.stringify(now)) this.revision++;
   }
@@ -342,7 +346,7 @@ class Collection {
     }
     this.pending = pending;
     this.emit();
-    if (this.preview) this.emitPreview();
+    if (this.preview || this.incoming || this.hidden != null) this.emitPreview();
   }
   distance(p, [top, end]) {
     const start = this.index.prefix(p), finish = start + this.index.h[p];

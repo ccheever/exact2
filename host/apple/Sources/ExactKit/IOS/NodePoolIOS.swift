@@ -45,7 +45,8 @@
 // boxes, text, images, buttons, `svg`s, waiting scrolls and heavy leaves; a
 // live UIScrollView; a platform subview other than the node's glyph, its
 // material or its clip box; a placement; gesture recognizers or
-// interactions (menus, reorder handles, drags); a press, drag or swipe in
+// interactions (menus, reorder handles, drags) other than a context menu's
+// at rest (LLP 1021 §5.1, `contextual`); a press, drag or swipe in
 // progress, or a projected swipe row; focus, a focus ring, editing, a
 // pending focus — on a heavy leaf too; flow shapes, a context transform, a
 // pending scroll; a view kept by a modal's retiring root; a subtree node
@@ -149,6 +150,9 @@ final class NodePool {
         let root = tree.views[0]!
         roots.remove(ObjectIdentifier(root))
         if tree.list != nil { innerCount -= 1 } else { count -= 1 }
+        #if os(iOS)
+        for case let view? in tree.views { presenter.menus.context.dropped(view) }
+        #endif
         for view in tree.views { view?.forget() }
         root.removeFromSuperview()
     }
@@ -283,6 +287,9 @@ final class NodePool {
         let images = views.lazy.compactMap { $0 }.filter { $0.kind == "image" }.map { $0.imageSource ?? "" }.joined(separator: "|")
         for case let view? in views {
             view.incarnation = 0
+            #if os(iOS)
+            presenter.menus.context.parked(view)
+            #endif
             presenter.release(view.id) { $0.recycle() }
         }
         root.isHidden = true
@@ -322,8 +329,8 @@ final class NodePool {
             && v.overlay == nil && v.canvasInput == nil
             && idle(v)
             && v.swipeHold == nil && v.heightHold == nil && v.reorderHold == nil && v.transformHold == nil
-            && !v.pressed && (v.gestureRecognizers ?? []).allSatisfy({ ($0 as? PointerRecognizer)?.idle == true })
-            && v.interactions.isEmpty
+            && !v.pressed && (v.gestureRecognizers ?? []).allSatisfy({ ($0 as? PointerRecognizer)?.idle == true || contextual($0, of: v) })
+            && v.interactions.allSatisfy({ contextual($0, of: v) })
             && v.flowShapes.isEmpty && v.contextTransform.isIdentity
             && v.pendingScrollLeft == nil && v.pendingScrollTop == nil
             // A hooked node's view is the app's to keep (LLP 1075.003.000),
@@ -339,6 +346,28 @@ final class NodePool {
     private func unhooked(_ v: NodeView) -> Bool { v.props["hook"] == nil || v.hookReusable }
     /// Not placed, focused, editing or about to be: a leaf so held keeps
     /// its row out of the pool, destroyed as before.
+    /// A context menu's own (LLP 1021 §5.1): the node's long-press
+    /// recognizer at rest, and its menu's interaction while no menu shows
+    /// from it. They follow the node's handlers and props, so the next row's
+    /// create ops and the menu host's sync set them again (`park` takes the
+    /// interaction off first). A row whose menu is up is destroyed as before,
+    /// and the menu ends as any unmounted source's does.
+    private func contextual(_ recognizer: UIGestureRecognizer, of v: NodeView) -> Bool {
+        // `.possible` holds while a touch is still being judged (a long press
+        // waiting out its duration): at rest means no touch as well.
+        guard recognizer.state == .possible, recognizer.numberOfTouches == 0 else { return false }
+        #if os(iOS)
+        if presenter.menus.context.owns(recognizer, on: v) { return true }
+        #endif
+        return recognizer === v.contextRecognizer
+    }
+    private func contextual(_ interaction: UIInteraction, of v: NodeView) -> Bool {
+        #if os(iOS)
+        return presenter.menus.context.owns(interaction, on: v) && presenter.menus.context.open?.source !== v
+        #else
+        return false
+        #endif
+    }
     private func idle(_ v: NodeView) -> Bool {
         presenter.views[v.id] === v && v.placement == nil && !v.placementHidden && v.focusRing == nil
             && !v.isFirstResponder && v.field?.isFirstResponder != true && v.textArea?.isFirstResponder != true
@@ -507,7 +536,7 @@ extension NodeView {
         // UIKit's setters are not free, even to the same value.
         if isHidden { isHidden = false }
         if alpha != 1 { alpha = 1 }
-        translate = .zero; layoutOffset = .zero; layoutScale = CGPoint(x: 1, y: 1); endSurface(); scale = 1; rotate = 0; press = PressFeedback()
+        translatePx = .zero; translatePercent = .zero; layoutOffset = .zero; layoutScale = CGPoint(x: 1, y: 1); endSurface(); scale = 1; rotate = 0; press = PressFeedback()
         if !transform.isIdentity { transform = .identity }
         if !isUserInteractionEnabled { isUserInteractionEnabled = true }
         if isAccessibilityElement { isAccessibilityElement = false }

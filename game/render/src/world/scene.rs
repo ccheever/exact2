@@ -637,6 +637,7 @@ impl Scene {
             ),
             timestamps: None,
             attachments: &self.attachments.output,
+            headroom: 1.0,
         }
     }
 }

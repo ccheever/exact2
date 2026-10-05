@@ -1,0 +1,17 @@
+# Code review: a flying view that is not an image is scaled whole (LLP 1013.000 D4.4 as amended), round 2, 2026-10-05 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via `codex exec`, reasoning effort xhigh, sandbox read-only, `-C /tmp/x21`.
+- **Method:** one brief (sha256 `262b7f69291fc599f81c61d6b4234a58675010b5f67cb2a4e5874274b5d77137`), shared with grok. Round 2, blind to the other review. Reviewed the staged diff (the round 1 redesign) in a worktree at df7dc73a5. The author (Claude) is not a reviewer.
+- **Transcription:** the review's findings and verdict, unedited.
+- **Verdict:** NOT READY.
+- **Disposition (r3):** Taken: a `FlightClip` now ranks among the flight layer's children as the view it holds (`PaintOrder.siblingPaintRank`, and `rankChildren` includes clips); a rank change in a flying view refreshes the flight layer as well as the clip; the flight layer is re-ranked when a flight is lifted, image or not. Regression: an overlapping card (clip) and image flight order by rank, both ways after a rank change. On macOS a flying view is hidden from accessibility for the flight (its saved state restored on land and on the place-went path), as iOS already did. Tests: the iOS test now sets a non-centred `anchorPoint` (0.1, 0.9) and checks the child's placement, and the card carries a 2-pt border with its bounds asserted at the full 714 while the clip is shorter than 714 x scale. NOT TAKEN (Astra 2's painted-pixel check): the surface is not repainted because the node's bounds never change in flight, which the bounds assertion covers; a pixel test would need an offscreen render this suite does not have.
+
+---
+
+NOT READY
+
+1. **[FlightsIOS.swift:262](/tmp/x21/host/apple/Sources/ExactKit/IOS/FlightsIOS.swift:262), [FlightsMac.swift:234](/tmp/x21/host/apple/Sources/ExactKit/Mac/FlightsMac.swift:234) — must-fix:** The clip loses the arriver’s paint rank. `PaintOrder.rankChildren` ranks only `NodeView`s and registered foreground views, so every `FlightClip` stays at zPosition 0. The node’s rank inside it cannot order the clip against other flights—[ordinary layers flatten their children](https://developer.apple.com/documentation/quartzcore/catransformlayer). Consequently, an overlapping positive-rank image flight paints above a higher-rank card flight; two card flights follow insertion order regardless of rank. `FlightLayer.setPaintForeground()` only orders the outer container. **Fix:** make each clip participate in sibling ranking as a proxy for its arriver, including subsequent rank changes. Add overlapping card/card and card/image regression tests.
+
+2. **[FlightScaleIOSTests.swift:67](/tmp/x21/host/apple/tests/ExactKitTests/FlightScaleIOSTests.swift:67), [FlightScaleMacTests.swift:24](/tmp/x21/host/apple/tests/ExactKitTests/FlightScaleMacTests.swift:24) — should-fix:** Round 1’s test finding remains partly unresolved. Changing `transform_origin` does not change `layer.anchorPoint`, so the assertion labelled “a non-default anchor” still exercises the default anchor. Both “text” children also remain empty views; neither test verifies painted surface preservation. **Fix:** explicitly set a non-centred anchor while preserving placement, then assert geometry immediately after the style callback. Add a painted gradient or bottom border and verify that it scales and clips at the full layout size.
+
+The round 1 bounds, layout-size, interrupted-capture and missing-slot geometry defects are resolved. The two cached macOS `FlightScale` tests pass. No files changed.

@@ -81,6 +81,12 @@ fn one(name: &str, json: bool) -> ExitCode {
             if let Some(only) = only_on(name) {
                 println!("  only on {only}");
             }
+            if name == "markup" {
+                println!("  \"markdown\" or \"none\" (the default): a `text` reads its string as Markdown, a `textarea` edits it (LLP 1045)");
+            }
+            if name == "resize" {
+                println!("  given an action, the element resize event: ResizeObserver's, after layout, with the content box's width and height and its `DOMRectReadOnly`");
+            }
             if name == "title" {
                 println!("  on `head`, the document's title; elsewhere HTML's advisory text, the platform's tooltip (prop title, str)");
             }
@@ -244,7 +250,17 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             lines
         }
-        AttrTarget::Prop(p) => vec![format!("prop {}, {}", p.name(), prop_type(*p))],
+        AttrTarget::Prop(p) => {
+            let mut line = format!("prop {}, {}", p.name(), prop_type(*p));
+            // A prop with a fixed set of names lists them (authoring bench: `vocab buttonStyle`).
+            if p.name() == "buttonStyle" {
+                line += &format!(
+                    ", one of {}",
+                    exact_kernel::generated::BUTTON_STYLES.join("|")
+                );
+            }
+            vec![line]
+        }
         AttrTarget::InvertedBoolProp(p) => {
             vec![format!("prop {}, bool, set to the inverse", p.name())]
         }

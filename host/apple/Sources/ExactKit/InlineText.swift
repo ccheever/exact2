@@ -59,10 +59,11 @@ struct InlineText {
                       family: Int(number("font_family")), italic: style["font_style"]?.string == "italic",
                       lineHeight: height, letterSpacing: CGFloat(Float(number("letter_spacing"))),
                       numeric: Int(number("font_variant_numeric")),
-                      color: style["text_color"]?.channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint),
+                      color: style["text_color"]?.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint),
                       decoration: style["text_decoration_line"]?.string ?? "", href: href)
         (run.shadow, run.stroke) = RunPaintRows(style).resolve(dark: dark, contrast: contrast, elevated: elevated, tint: tint,
                                                                color: run.color ?? SystemColor.canvasTextChannels(dark: dark, contrast: contrast))
+        run.hidden = style["visibility"]?.string == "hidden"
         return run
     }
 }
@@ -183,15 +184,21 @@ extension NodeView {
         }
         return nil
     }
+    var defaultLink: String? {
+        guard kind == "button", !handlers.contains("press"), let url = props["href"], !url.isEmpty else { return nil }
+        return url
+    }
+    func activateLink(_ url: String) -> Bool {
+        guard let session = presenter?.session, !disabled, !inert else { return false }
+        if url.hasPrefix("/") && !url.hasPrefix("//") { return session.navigate(url) }
+        session.delegate?.exactSession(session, command: "openURL", args: [url]); return true
+    }
     func activateInline(_ id: UInt32) -> Bool {
         guard let presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id) else { return false }
         if run.handlers.contains("press") { presenter.press(id); return true }
-        if let url = run.props["href"], !url.isEmpty, let session = presenter.session {
-            // A path in this app is a location for the navigation root, as the
-            // web's same-document link is; anything else leaves the app.
-            if url.hasPrefix("/") && !url.hasPrefix("//") { return session.navigate(url) }
-            session.delegate?.exactSession(session, command: "openURL", args: [url]); return true
-        }
+        // A route in the note navigates; anything else is the app's to open
+        // (session.follow). A button's own `href` uses `activateLink`.
+        if let url = run.props["href"], !url.isEmpty, let session = presenter.session { return session.follow(url) }
         return false
     }
 }

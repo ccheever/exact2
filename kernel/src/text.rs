@@ -293,6 +293,26 @@ pub trait TextMeasurer {
     ) -> TextMetrics {
         self.measure(request)
     }
+
+    /// Whether this measurer's metrics never depend on the height offered
+    /// (only width wraps): the kernel then reuses a leaf's measurement
+    /// across heights instead of asking again.
+    fn height_free(&self) -> bool {
+        false
+    }
+
+    /// The metrics of a kernel-identified paragraph this measurer already
+    /// holds by `stamp`, at an offer, without its runs (no exclusions): the
+    /// kernel builds runs and paragraph style only when this is `None`.
+    /// Measurers that keep no identities answer `None`.
+    fn measure_known(
+        &mut self,
+        _stamp: &ParagraphStamp,
+        _width: AxisOffer,
+        _height: AxisOffer,
+    ) -> Option<TextMetrics> {
+        None
+    }
 }
 
 /// Deterministic reference measurer: every glyph advances `advance_em` ems

@@ -280,6 +280,12 @@ impl<D: DataSource> Presenter<D> {
     pub fn hardware_key(&mut self, code: &str, key: &str, down: bool, repeat: bool) {
         self.restore_controls();
         self.hold_modifier(code, down);
+        // A hardware release returns before `type_key`, which is what forgets
+        // a shortcut's code. Left set, an agent key of that code after the
+        // button is gone delivers the down and swallows the up.
+        if !down {
+            self.shortcut_keys.remove(code);
+        }
         // A Control or Meta chord is a shortcut, as a browser's: the focus's
         // `key` handlers hear it, and no canvas or control starts with it.
         if down && self.held & 0b1100_1100 != 0 {
@@ -486,6 +492,10 @@ impl<D: DataSource> Presenter<D> {
     /// control), where HTML defines it; on a box it means nothing to focus,
     /// as in Chrome (LLP 1088 D7.3, amended 2026-10-04).
     pub(crate) fn focusable(&self, id: ViewId) -> bool {
+        // A grouped list's grip takes the keys that move its row (LLP 1094 D9).
+        if self.group_grip(id).is_some() {
+            return true;
+        }
         self.host.kernel().node(id).is_some_and(|n| {
             !disabled_control(&n)
                 && (n.props.get(PropId::TabIndex).is_some()
@@ -546,10 +556,20 @@ impl<D: DataSource> Presenter<D> {
         if self.press_range(hit, x) || self.toggle_control(hit, now_ms) {
             return Some(hit);
         }
+        // A link under the press is followed after the press's own handler,
+        // as a click's default action follows its listeners (LLP 1038 §7).
+        let link = self.link_at(hit, x, y);
         let Some(target) = self.handler_target(hit, EventKind::Press) else {
+            if let Some(href) = link {
+                self.follow(hit, &href, now_ms);
+                return Some(hit);
+            }
             return self.surface_pointer(hit, x, y, now_ms);
         };
         self.dispatch_press(target, now_ms, true);
+        if let Some(href) = link {
+            self.follow(hit, &href, now_ms);
+        }
         Some(target)
     }
 

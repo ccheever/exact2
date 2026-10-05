@@ -27,7 +27,7 @@ fn pure_utilities_match_the_web_executor() {
         String::from_utf8_lossy(&reference.stderr)
     );
     let expected: Vec<String> = serde_json::from_slice(&reference.stdout).unwrap();
-    let plan = contract::compile("component App\n  resource text = text() as shape string\n  resource url = url() as shape string\n  resource base64 = base64() as shape string\n  resource standard = standard() as shape string\n  resource microtask = microtask() as shape string\n  resource abort = abort() as shape string\n  view\n    text text\n").unwrap();
+    let plan = contract::compile("component App\n  resource text = text() as shape string\n  resource url = url() as shape string\n  resource base64 = base64() as shape string\n  resource standard = standard() as shape string\n  resource microtask = microtask() as shape string\n  resource abort = abort() as shape string\n  resource intl = intl() as shape string\n  view\n    text text\n").unwrap();
     let mut module = Module::loaded(
         include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
         "test.pure",
@@ -35,9 +35,19 @@ fn pure_utilities_match_the_web_executor() {
     )
     .unwrap();
     module.bind(&plan);
-    for (source, expected) in ["text", "url", "base64", "standard", "microtask", "abort"]
-        .into_iter()
-        .zip(expected)
+    // A formatter per locale and option set is slow to make on Apple's Intl.
+    module.set_budget_ms(f64::INFINITY);
+    for (source, expected) in [
+        "text",
+        "url",
+        "base64",
+        "standard",
+        "microtask",
+        "abort",
+        "intl",
+    ]
+    .into_iter()
+    .zip(expected)
     {
         assert_eq!(
             module.query(source, &[]).unwrap().as_str().unwrap(),
@@ -71,7 +81,7 @@ try {
   });
   const fixture = readFileSync(process.env.EXACT_PURE_SCRIPT, 'utf8');
   const result = await cdp.send('Runtime.evaluate', {
-    expression:fixture + '\n;Promise.all(["text","url","base64","standard","microtask","abort"].map(source=>globalThis.exact.answer(source))).then(JSON.stringify)',
+    expression:fixture + '\n;Promise.all(["text","url","base64","standard","microtask","abort","intl"].map(source=>globalThis.exact.answer(source))).then(JSON.stringify)',
     returnByValue:true, awaitPromise:true,
   }, sessionId);
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);

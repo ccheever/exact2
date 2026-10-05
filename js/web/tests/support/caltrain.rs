@@ -57,7 +57,7 @@ pub fn oracle() -> Vec<Json> {
         }).collect();
         let expected = match Caltrain.query(source,&args) {
             Ok(value)=>json!({"tag":0,"value":to_json(&value,&Shape::from_plan(&plan,signature.unwrap().ty).unwrap()).unwrap()}),
-            Err(error)=> { let (kind,message)=match error {DataError::UnknownSource(s)=>("UnknownSource",s),DataError::BadArguments(s)=>("BadArguments",s),DataError::Unavailable(s)|DataError::Interface(s)=>("Unavailable",s)};json!({"tag":2,"kind":kind,"message":message}) }
+            Err(error)=> { let (kind,message)=match error {DataError::UnknownSource(s)=>("UnknownSource",s),DataError::BadArguments(s)=>("BadArguments",s),DataError::Unavailable(s)|DataError::Interface(s)|DataError::DeferredAtBake(s)=>("Unavailable",s)};json!({"tag":2,"kind":kind,"message":message}) }
         };
         json!({"source":source,"args":input,"expected":expected})
     }).collect()

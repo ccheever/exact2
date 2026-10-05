@@ -324,7 +324,7 @@ So canvas code written for a fixed bitmap runs unchanged, including its blur on 
 
 **Pixels are raw backing pixels, as on the web.** `createImageData` and `putImageData` address device pixels, and `putImageData` ignores the transform, clip, alpha, compositing and smoothing, per the spec. An author sizes a full-canvas `ImageData` from `frame.pixelWidth` and `frame.pixelHeight`.
 
-Context attributes are fixed: `alpha: true`, `colorSpace: "srgb"`, `willReadFrequently: false`, `desynchronized: false` (§3).
+Context attributes are fixed: `alpha: true`, `colorSpace: "srgb"`, `willReadFrequently: false`, `desynchronized: false` (§3). (LLP 1100 D12a later made `colorSpace` and `colorType` the canvas's `color-space` and `color-type`.)
 
 ### D7. Per-host backends
 
@@ -468,7 +468,7 @@ A stage's unsupported enum values are ignored as invalid values are, with a deve
 | hit regions | removed from HTML | never |
 | `ctx.canvas`, `getContext`, `OffscreenCanvas`, `transferControlToOffscreen` in app code | the app never holds an element. Worker placement records off the main thread, but the host owns the bitmap: it is not `OffscreenCanvas` | none |
 | `drawImage` of a canvas, video or element; `createImageBitmap` | cross-surface pixels (HTML-in-Canvas `drawElementImage`); images are host-decoded handles | a consumer, with LLP 1014's capture as the route |
-| `colorSpace: "display-p3"` | sRGB bitmap (D6) | a wide-colour consumer |
+| ~~`colorSpace: "display-p3"`~~ | landed with `colorType: "float16"` as the canvas's `color-space` and `color-type` (LLP 1100 D12a) | — |
 | `alpha: false` | an opaque bitmap saves nothing measurable at these sizes | a measured full-screen consumer |
 | `willReadFrequently`, `desynchronized` | no readback; the host owns presentation | follows readback |
 

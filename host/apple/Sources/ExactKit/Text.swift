@@ -41,18 +41,25 @@ struct Run: Hashable {
     var href: String = ""
     /// The inline box's `background-color`: paint, never metrics.
     var background: [Double]? = nil
+    /// CSS visibility hides ink without changing shaping or descendant visibility.
+    var hidden = false
     /// Its own `text-shadow` (offset x, y, blur, r g b a) when the
     /// paragraph's runs differ (`Spec.gatherShadows`), and its
     /// `-webkit-text-stroke` (width, r g b a): paint (LLP 1077 D3, D7).
     var shadow: [Double]? = nil
     var stroke: [Double]? = nil
+    /// A Markdown list item's head indent and hung marker (LLP 1045 D4,
+    /// `LineInsets`): where its paragraph's lines start, so a metric.
+    var indent: CGFloat = 0
+    var hang = false
 
     static func == (lhs: Run, rhs: Run) -> Bool {
         guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
               lhs.letterSpacing == rhs.letterSpacing, lhs.numeric == rhs.numeric, lhs.color == rhs.color,
               lhs.decoration == rhs.decoration, lhs.href == rhs.href,
-              lhs.background == rhs.background, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke else { return false }
+              lhs.hidden == rhs.hidden, lhs.background == rhs.background, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke,
+              lhs.indent == rhs.indent, lhs.hang == rhs.hang else { return false }
         // CoreText's ranges address the original UTF16 source. Swift String's
         // canonical equality would alias NFC/NFD paragraphs with different
         // source lengths, so both equality and hashing use the exact UTF8.
@@ -77,8 +84,11 @@ struct Run: Hashable {
         hasher.combine(decoration)
         hasher.combine(href)
         hasher.combine(background)
+        hasher.combine(hidden)
         hasher.combine(shadow)
         hasher.combine(stroke)
+        hasher.combine(indent)
+        hasher.combine(hang)
     }
 }
 
@@ -109,11 +119,6 @@ struct Spec: Hashable {
     /// The document language whose hyphenation points `auto` takes; empty
     /// for `none` and `manual`, which need none.
     var language = ""
-    /// Where the first line's room starts and how much `text-indent` takes:
-    /// from the start edge, which `rtl` puts on the right.
-    var firstLineInset: (left: CGFloat, width: CGFloat) {
-        (direction == 1 ? 0 : textIndent, textIndent)
-    }
     /// CSS `text-shadow` (LLP 1077 D3) shared by every run: offset x, y and
     /// blur in points, then the colour's r g b a (0–255), resolved for the
     /// appearance. Nil when the runs' own differ (`gatherShadows`).
@@ -256,9 +261,8 @@ final class Paragraph {
     let baselines: [CGFloat]
     /// Flow origins already include interval alignment; empty for ordinary text.
     let origins: [CGFloat]
-    /// The first line's `text-indent` (`Spec.firstLineInset`), when the
-    /// paragraph's first line is `lines[0]`.
-    var firstLineInset: (left: CGFloat, width: CGFloat) = (0, 0)
+    /// Where each line starts: `text-indent`, a list item's head indent.
+    var insets = LineInsets()
     /// Logical source ownership, including trimmed whitespace, one per fragment.
     let fragments: [ExactFlowFragment]
     var flowIncomplete = false
@@ -401,6 +405,7 @@ extension Spec {
         value.ellipsis = false
         value.source = SourceMap()
         for i in value.runs.indices {
+            value.runs[i].hidden = false
             value.runs[i].color = nil
             value.runs[i].decoration = ""
             value.runs[i].href = ""
@@ -753,12 +758,16 @@ final class TextEngine {
         return CTFontCreateCopyWithAttributes(font as CTFont, size, nil, d) as PlatformFont
     }
 
-    /// A color from the style dictionary's `[r,g,b,a]` bytes (sRGB).
+    /// A color from the style dictionary's `[r,g,b,a]` bytes (sRGB), or
+    /// `textChannels`' nine, in the colour's own space (LLP 1100 D2).
     static func color(_ c: [Double]) -> PlatformColor {
+        if c.count == 9, (0...2).contains(Int(c[4])), case let name = [CGColorSpace.extendedSRGB, CGColorSpace.extendedDisplayP3, CGColorSpace.extendedLinearSRGB][Int(c[4])],
+           let space = CGColorSpace(name: name), let made = CGColor(colorSpace: space, components: c[5...].map { CGFloat($0) }),
+           let color = PlatformColor(cgColor: ColorRange.tagged(made)) as PlatformColor? { return color }
         #if canImport(UIKit)
-        UIColor(red: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
+        return UIColor(red: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
         #else
-        NSColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
+        return NSColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
         #endif
     }
 
@@ -771,17 +780,18 @@ final class TextEngine {
         var offset = 0
         for r in spec.runs {
             var a: [NSAttributedString.Key: Any] = [.font: font(r), .foregroundColor: r.color.map(TextEngine.color) ?? color]
+            if r.hidden { a[.exactHidden] = true }
             // A centred stroke over the fill: Core Text's negative width,
             // in percent of the run's size (LLP 1077 D7). Each run's own.
             if let st = r.stroke, st.count == 5, st[0] > 0, r.size > 0 {
                 a[.strokeWidth] = -st[0] / Double(r.size) * 100
                 a[.strokeColor] = TextEngine.color(Array(st[1...]))
             }
-            if let sh = r.shadow, sh.count == 7 { a[.exactShadow] = TextRunShadow(sh) }
+            if let sh = r.shadow, TextEngine.isShadow(sh) { a[.exactShadow] = TextRunShadow(sh) }
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
             if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-            if let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
+            if !r.hidden, let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
                 let f = a[.font] as! PlatformFont
                 let (ascent, descent) = CSSLineBox.content(f as CTFont)
                 a[.exactBackground] = InlineBackground(color: fill.cgColor, ascent: ascent, descent: descent)
@@ -836,8 +846,9 @@ final class TextEngine {
     func rasterLines(_ spec: Spec, ranges: [CFRange], width: CGFloat = .infinity) -> (NSAttributedString, [CTLine]) {
         let identity = residency.identity(spec)
         let source = shape(TextShapeKey(identity: identity, paint: TextPaint(spec)), identity: identity)
+        let insets = source.lineInsets
         return (source.attributed, ranges.map {
-            let inset = $0.location == 0 ? spec.textIndent : 0
+            let inset = insets.at($0.location).width
             return TextEngine.finishedLine(CTTypesetterCreateLine(source.typesetter, $0), source: source.attributed, range: $0,
                                            justify: spec.align == 3 ? Double(width - inset) : nil)
         })
@@ -954,7 +965,7 @@ final class TextEngine {
     }
 
     func layout(_ shape: TextShape, width: CGFloat, breaks: Paragraph? = nil, ranges: [CFRange]? = nil) -> Paragraph {
-        let spec = shape.spec, typesetter = shape.typesetter
+        let spec = shape.spec, typesetter = shape.typesetter, insets = shape.lineInsets
         let length = shape.identity.utf16Count
         let strut = spec.strut ?? spec.runs.first
         func extents(_ run: Run) -> (CGFloat, CGFloat) { CSSLineBox.extents(font(run) as CTFont, height: run.lineHeight) }
@@ -1013,8 +1024,9 @@ final class TextEngine {
                 // ones CoreText and pre-wrap take) ends a line; nothing else does.
                 count = CTTypesetterSuggestLineBreak(typesetter, start, Double.greatestFiniteMagnitude)
             } else {
-                // CSS `text-indent` takes its room from the first line only.
-                let room = start == 0 ? limit - Double(spec.textIndent) : limit
+                // CSS `text-indent` takes its room from the first line only,
+                // a list item's indent from each of its lines.
+                let room = limit - Double(insets.at(start).width)
                 let from = boundaryIndex
                 func suggest(_ room: Double) -> Int {
                     var count = CTTypesetterSuggestLineBreak(typesetter, start, room)
@@ -1056,7 +1068,7 @@ final class TextEngine {
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
             // The natural width, the first line's indent in it: justification
             // fills the box, never sizes it.
-            let indent = start == 0 ? spec.textIndent : 0
+            let indent = insets.at(start).width
             let w = max(0, CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading)) + indent)
             if spec.align == 3, !clamps, width.isFinite {
                 line = TextEngine.justified(line, source: shape.attributed, range: range, width: limit - Double(indent))
@@ -1133,7 +1145,7 @@ final class TextEngine {
                                   height: explicit ? y : ceil(y), lineBottoms: lineBottoms,
                                   shape: shape, offeredWidth: width, glyphCount: glyphCount)
         paragraph.clampedRange = clampedRange
-        paragraph.firstLineInset = spec.firstLineInset
+        paragraph.insets = insets
         return paragraph
     }
 
@@ -1227,20 +1239,22 @@ final class TextEngine {
         // target; unique words beyond it are measured normally, never omitted.
         var words: [Run: CGFloat] = [:]
         var wordBytes = 0
-        // CSS `text-indent` is part of the first line, so of its first word's piece.
+        // CSS `text-indent` is part of the first line, so of its first word's
+        // piece; a list item's indent of each of its words, its marker hung.
         var indent = spec.textIndent
-        for r in spec.runs {
+        for r in spec.runs where !r.hang {
             for word in r.text.split(whereSeparator: { $0.isWhitespace }) {
                 var one = spec
                 one.runs = [Run(text: String(word), size: r.size, weight: r.weight, family: r.family, italic: r.italic, lineHeight: r.lineHeight, letterSpacing: r.letterSpacing, numeric: r.numeric)]
                 let key = one.runs[0]
                 defer { indent = 0 }
-                if let width = words[key] { widest = max(widest, width + indent); continue }
+                let inset = indent + r.indent
+                if let width = words[key] { widest = max(widest, width + inset); continue }
                 // This probe needs one scalar, never a cached width-specific
                 // Paragraph or a historical per-word CTTypesetter.
                 let line = CTLineCreateWithAttributedString(attributed(one))
                 let width = CSSLineBox.layoutWidth(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
-                widest = max(widest, width + indent)
+                widest = max(widest, width + inset)
                 let bytes = key.text.utf8.count + MemoryLayout<Run>.stride + MemoryLayout<CGFloat>.stride
                 if bytes <= residency.softTargetBytes - wordBytes {
                     words[key] = width; wordBytes += bytes
@@ -1260,8 +1274,7 @@ final class TextEngine {
         // Graphics' blur is CSS's radius; its offset is base space, y up.
         if let s = spec.shadow {
             ctx.saveGState()
-            ctx.setShadow(offset: CGSize(width: s[0], height: -s[1]), blur: s[2],
-                          color: CGColor(srgbRed: s[3] / 255, green: s[4] / 255, blue: s[5] / 255, alpha: s[6] / 255))
+            ctx.setShadow(offset: CGSize(width: s[0], height: -s[1]), blur: s[2], color: TextEngine.shadowColor(s))
             ctx.beginTransparencyLayer(auxiliaryInfo: nil)
         }
         defer { if spec.shadow != nil { ctx.endTransparencyLayer(); ctx.restoreGState() } }

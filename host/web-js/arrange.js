@@ -6,6 +6,7 @@
 // geometry are checked before any value; no item key crosses from the page:
 // the collection certifies the gap and names the keys the action receives.
 import { arrangeController } from './motion-glue.js';
+import { groupController } from './group-glue.js';
 import { install } from './reorder.js';
 
 export function arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatch, authored, holds, held, hooks, After }) {
@@ -13,6 +14,8 @@ export function arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatc
   let active = null, reorder = null;
   // The collection half, installed on list.js's collections at the first grip.
   const L = () => reorder ??= globalThis.exact?.lists?.internals ? install(globalThis.exact.lists, hooks, After) : null;
+  // `state.reorder` (LLP 1094 D12), as the runner's agent writes it.
+  globalThis.exact.reorderState = () => reorder?.json() ?? null;
   const KEYS = ['handle', 'list', 'wrapper', 'root', 'rowEpoch'];
   const GEOMETRY = ['list', 'revision', 'scrollSequence', 'scrollTop', 'portWidth', 'portHeight', 'rowWidth', 'totalExtent'];
   const same = (a, b, keys) => !!a && !!b && keys.every(k => a[k] === b[k]);
@@ -36,9 +39,47 @@ export function arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatc
   };
   const reply = (certified, dispatched, list) => ({ accepted: true, certified, dispatched, runtime: RUNTIME, token: String(active.token),
     terminal: active.terminal, released: active.released, frame: frame(), batch: ops(list) });
+  // A grouped list's session (LLP 1094; host/web/src/group_drag.rs): no
+  // holds, the page's ghost; the same packets as JSON facts.
+  const groupReply = (certified, dispatched) => {
+    const f = active && L().frame(active.token);
+    return { accepted: true, certified, dispatched, runtime: RUNTIME, token: String(active?.token ?? 0), phase: active ? f?.phase ?? 'finished' : 'finished',
+      ending: f?.ending ?? null, target: f?.target ?? null, row: f?.row ?? null, batch: ops(lower()) };
+  };
+  function groupRequest(f, op, b, g, token) {
+    if (op === 'reorder-begin') {
+      if (token !== 0 || active || !same(L().binding(b.handle), b, KEYS) || !same(L().geometry(b.list), g, GEOMETRY)) return stale();
+      const started = L().beginGroup(b, g, f.flags === 1);
+      if (!started) return stale();
+      active = { binding: b, token: started.token, grouped: true, holds: new Map(), terminal: false, captured: false, released: false, velocity: [0, 0] };
+      return groupReply(true, false);
+    }
+    if (!active?.grouped || !same(active.binding, b, KEYS) || active.token !== token) return stale();
+    const target = f.targetView != null ? Number(f.targetView) : null, tg = target != null ? { ...g, list: target } : g;
+    if (op === 'reorder-preview' || op === 'reorder-preview-into') {
+      const progress = L().into(active.token, target ?? b.list, tg, f.contentY ?? 0);
+      if (progress === 'stale') return stale();
+      return groupReply(progress === 'accepted', false);
+    }
+    if (op === 'reorder-step') return L().step(active.token, f.flags) ? groupReply(true, false) : groupReply(false, false);
+    if (op === 'reorder-terminal') {
+      const dropped = L().dropGroup(active.token, tg);
+      if (!dropped) L().cancelGroup(active.token);
+      return groupReply(dropped, dropped);
+    }
+    if (op === 'reorder-cancel') { L().cancelGroup(active.token); return groupReply(false, false); }
+    if (op === 'reorder-finish') {
+      const tk = active.token;
+      if (!L().finish(tk)) return stale();
+      active = null;
+      return { accepted: true, batch: ops(lower()) };
+    }
+    return stale();
+  }
   function request(f) {
     if (f.runtime !== RUNTIME || !L()) return stale();
     const op = f.op, b = bindingOf(f), g = geometryOf(f), token = Number(f.token ?? 0), t = f.now / 1000;
+    if (op === 'reorder-begin' && f.flags || active?.grouped || op === 'reorder-preview-into' || op === 'reorder-step') return groupRequest(f, op, b, g, token);
     if (op === 'reorder-begin') {
       if (token !== 0 || active || !same(L().binding(b.handle), b, KEYS) || !same(L().geometry(b.list), g, GEOMETRY)) return stale();
     } else {
@@ -116,22 +157,40 @@ export function arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatc
     const dispatched = certified ? L().drop(active.token, geometryOf(f)) : (L().cancel(active.token), false);
     return reply(certified, !!dispatched, [...extra, ...lower()]);
   }
-  const controller = arrangeController({ views, collections: new Proxy({}, { get: (_, k) => L()?.controller()?.[k] }), motion: api, request, applyBatch, now, generation: () => 0, inert: el => !!el.closest('[inert]') });
+  const controller = arrangeController({ views, collections: new Proxy({}, { get: (_, k) => L()?.controller()?.[k] }), motion: api, request, applyBatch, now, generation: () => 0, inert: el => !!el.closest('[inert]'),
+    grouped: groupController, root: document.getElementById('exact-root'), viewOf: viewId });
+  // A grip's group, and whether the keys may drive it (LLP 1094 D9: no `press`, `key`, `pan` or `pointerdown` of its own).
+  const groupOf = (h, b) => {
+    const group = b ? views.get(b.list)?.dataset.reordergroup || null : null;
+    const on = (h.el.dataset.exactOn ?? '').split(' ');
+    return { group, keys: !['press', 'key', 'pan', 'pointerdown'].some(k => on.includes(k)) };
+  };
   return {
     request, controller,
+    // Before the commit's motion is lowered: a grouped session's commit-end
+    // check, so the offsets it closes are presented in this commit.
+    before() { if (active?.grouped) L()?.reconcileGroup(); },
     // After each commit: each handle's binding, published when it changed,
     // and the live preview's state (ReorderDrags::emit_reorder_drags).
     reconcile() {
       if (!L()) return;
       for (const [id, h] of handles) {
-        if (!h.el.isConnected) { handles.delete(id); continue; }
+        // A virtualized row is built detached and inserted after: its grip
+        // waits for the document, and leaves only by `gone` (stocks diary
+        // #1: a grip registered while its row was detached was dropped here
+        // and never heard of again, so no listener ever reached it).
+        if (!h.el.isConnected) continue;
         const b = L().binding(id);
         if (same(b, h.published, KEYS) || !b && h.published === null) continue;
         h.published = b ?? null;
         controller.binding({ id, runtime: RUNTIME, handleKey: String(id), list: b?.list ?? null, listKey: b ? String(b.list) : null,
           wrapper: b?.wrapper ?? null, wrapperKey: b ? String(b.wrapper) : null, rootKey: b ? String(b.root) : null, rowEpoch: String(b?.rowEpoch ?? 0) });
+        controller.group({ id, ...groupOf(h, b) });
       }
-      if (active) {
+      if (active?.grouped) {
+        const f = L().frame(active.token);
+        controller.state({ grouped: true, runtime: RUNTIME, token: String(active.token), phase: f?.phase ?? 'finished', ending: f?.ending ?? null, target: f?.target ?? null, row: f?.row ?? null });
+      } else if (active) {
         const f = L().frame(active.token);
         active.terminal ||= !f || f.terminal;
         controller.state({ runtime: RUNTIME, token: String(active.token), terminal: active.terminal, released: active.released, frame: frame() });
@@ -139,6 +198,6 @@ export function arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatc
       controller.commit();
     },
     handle(el) { handles.set(viewId(el), { el, published: undefined }); },
-    gone(id) { controller.destroy(id); },
+    gone(id) { handles.delete(id); controller.destroy(id); },
   };
 }

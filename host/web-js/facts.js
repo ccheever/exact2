@@ -20,12 +20,14 @@ const again = (source, why) => () => commit(() => { for (const r of Resources) i
 const byName = (readers, name, v) => readers[name][0].map(n => v[n]);
 
 const CONTRAST = ["no-preference", "more", "less", "custom"];
+const GAMUT = ["srgb", "p3", "rec2020", "rec2020"];
 export function viewport(readers) {
   (data.reserved ??= {}).exactViewport = (_, a, name) => {
     const p = preferences(), f = fold();
     return byName(readers, name, { width: innerWidth, height: innerHeight, prefersReducedMotion: !!(p & 1), prefersReducedTransparency: !!(p & 2),
       prefersContrast: CONTRAST[(p >> 2) & 3], prefersColorScheme: p & 16 ? "dark" : "light",
       devicePosture: f.posture, horizontalViewportSegments: f.cols, verticalViewportSegments: f.rows, // @ref LLP 1078 D2, D6
+      colorGamut: GAMUT[(p >> 8) & 3], dynamicRange: p & 1024 ? "high" : "standard", // @ref LLP 1100 D9
       pointer: p & 64 ? "none" : p & 32 ? "coarse" : "fine", hover: p & 128 ? "none" : "hover" });
   };
   if (typeof addEventListener !== "function") return;

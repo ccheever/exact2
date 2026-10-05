@@ -250,6 +250,9 @@ pub enum Event {
     /// A changed scroll position, in CSS pixels, and the scroller's extents
     /// as the host had them: what a web handler reads off `event.target`.
     Scroll(ScrollEvent),
+    /// The element's content box after layout, ResizeObserver's
+    /// `contentRect` (`super::resize`).
+    Resize(super::ResizeRect),
     /// Incremental recognized pan displacement in viewport CSS pixels.
     /// @ref LLP 1043.000 §3 D8 — the action commits layout state, never a hold.
     Pan(f64, f64),
@@ -453,12 +456,15 @@ impl Event {
                     pressure: 0.0,
                     pointer_type: "mouse".into(),
                     pointer_id: 1.0,
+                    client_x: 0.0,
+                    client_y: 0.0,
                     held: KeyModifiers::default(),
                 }
                 .value(),
             ),
             Event::Wheel(w) => Some(w.value()),
             Event::Drop(d) => Some(d.value()),
+            Event::Resize(r) => Some(r.value()),
             Event::Scroll(s) => Some(Value::record(
                 [
                     s.left,
@@ -1024,6 +1030,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Swiperight => "swiperight",
                 Event::Refresh => "refresh",
                 Event::Scroll(_) => "scroll",
+                Event::Resize(_) => "resize",
                 Event::Pan(_, _) => "pan",
                 Event::PanRelease(_, _) => "panrelease",
                 Event::Media(kind, _) | Event::Clipboard(kind, _) => kind.name(),
@@ -1115,6 +1122,7 @@ impl<D: DataSource> Runner<D> {
             Event::Swiperight => (EventKind::Swiperight, None, "swiperight"),
             Event::Refresh => (EventKind::Refresh, None, "refresh"),
             Event::Scroll(_) => (EventKind::Scroll, None, "scroll"),
+            Event::Resize(_) => (EventKind::Resize, None, "resize"),
             Event::Media(kind, value) => (
                 *kind,
                 match kind {
@@ -1162,13 +1170,22 @@ impl<D: DataSource> Runner<D> {
         }
         // The event's record, after what it always carries, to an action
         // that declares one more parameter (`contract_types::event_record`).
-        let record = event.record();
+        // A drop's `ReorderEvent` names its lists (LLP 1094 D2).
+        let record = match &event {
+            Event::ReorderDrop { .. } => Some(self.reorder_record(view)),
+            _ => event.record(),
+        };
         match event {
             Event::ReorderDrop { item, before } => {
                 args.push(Value::str(&item));
                 args.push(before.map_or(Value::NONE, |s| Value::some(Value::str(&s))));
             }
             Event::Scroll(ScrollEvent { left, top, .. })
+            | Event::Resize(super::ResizeRect {
+                width: left,
+                height: top,
+                ..
+            })
             | Event::Pan(left, top)
             | Event::PanRelease(left, top) => {
                 args.extend([Value::Number(left), Value::Number(top)])

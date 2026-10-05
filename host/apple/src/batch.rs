@@ -192,6 +192,10 @@ impl Batch {
     /// One Arrange contact's state (LLP 1041 §8.5): its reorder serial as a
     /// decimal string, the List and lifted wrapper views (0 once gone), and
     /// `active`, `settling`, `finished` or `refused`.
+    /// A grouped session's `reorder` op, built whole (`arrange_group.rs`).
+    pub(crate) fn push_op(&mut self, op: String) {
+        self.ops.push(op);
+    }
     pub(crate) fn reorder(&mut self, token: u64, ids: (u32, u32), phase: &str, dispatched: bool) {
         self.ops.push(format!("{{\"op\":\"reorder\",\"token\":\"{token}\",\"list\":{},\"wrapper\":{},\"phase\":\"{phase}\",\"dispatched\":{dispatched}}}", ids.0, ids.1));
     }
@@ -305,7 +309,8 @@ impl Batch {
     /// A 2D canvas's stamped lists (LLP 1056 D4), in order, for the Core
     /// Graphics replayer: `[address, length]` pairs the reader copies out
     /// as it decodes the batch (the host keeps them alive until then). `fresh` starts a new bitmap at `w`×`h`;
-    /// `box` is the content box in the view's border box, where it shows.
+    /// `box` is the content box in the view's border box, where it shows;
+    /// `p3` and `float16` are its getContext settings (LLP 1100 D12a).
     pub fn canvas2d(
         &mut self,
         c: &exact_runner::CanvasList,
@@ -315,8 +320,8 @@ impl Batch {
         let mut s = String::new();
         let _ = write!(
             s,
-            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"animating\":{},\"box\":[{},{},{},{}],\"radii\":[{},{},{},{},{},{},{},{}],\"lists\":[",
-            c.view, c.lifetime, c.generation, c.seq, c.fresh, c.pixel_width, c.pixel_height, c.scale, c.stretch, c.animating,
+            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"animating\":{},\"p3\":{},\"float16\":{},\"box\":[{},{},{},{}],\"radii\":[{},{},{},{},{},{},{},{}],\"lists\":[",
+            c.view, c.lifetime, c.generation, c.seq, c.fresh, c.pixel_width, c.pixel_height, c.scale, c.stretch, c.animating, c.settings.p3, c.settings.float16,
             content.0, content.1, content.2, content.3, radii[0].0, radii[0].1, radii[1].0, radii[1].1, radii[2].0, radii[2].1, radii[3].0, radii[3].1
         );
         for (i, l) in c.lists.iter().enumerate() {

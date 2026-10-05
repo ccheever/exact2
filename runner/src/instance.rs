@@ -347,6 +347,9 @@ pub struct InstanceWork {
     pub derives_evaluated: usize,
     /// Store bytes copied so a refusal could put the store back.
     pub store_bytes_copied: usize,
+    /// Retiring list rows rebound to another item instead of building one
+    /// (LLP 1078).
+    pub rows_rebound: usize,
 }
 
 /// Per-commit evaluation context and deterministic work counters.
@@ -395,6 +398,13 @@ pub struct Update<'a> {
     /// kept update would have written as a style op: what tells a list its
     /// rows' typography changed ([`Tree::update`]).
     text_styled: bool,
+    /// The views of list rows rebound to another item (LLP 1078), every one
+    /// a fresh mount to motion and to the host: the commit's receipt names
+    /// them `renewed`.
+    pub renewed: Vec<ViewId>,
+    /// Rebind retiring list rows to new items (LLP 1078), as the runner was
+    /// told ([`crate::Runner::set_row_reuse`]).
+    pub reuse: bool,
 }
 
 impl<'a> Update<'a> {
@@ -417,6 +427,8 @@ impl<'a> Update<'a> {
             notes: Vec::new(),
             discard: false,
             text_styled: false,
+            renewed: Vec::new(),
+            reuse: false,
         }
     }
 
@@ -1027,16 +1039,24 @@ fn repeated(region: RegionsId, key: &Value, ident: &str) -> String {
 
 /// One canonical key text: strings, finite numbers (`-0` is `0`, matching the
 /// VM's equality), bools. NaN is not a key.
-fn key_text(v: &Value) -> Option<String> {
+pub(crate) fn key_text(v: &Value) -> Option<String> {
+    let mut text = String::new();
+    key_text_into(v, &mut text).then_some(text)
+}
+
+/// [`key_text`] appended to `out`; whether `v` is a key.
+fn key_text_into(v: &Value, out: &mut String) -> bool {
     match v {
-        v @ exact_plan::str_value!() => Some(exact_num::text!("s:{}", v.text())),
-        Value::Number(n) if n.is_finite() => Some(exact_num::text!(
+        v @ exact_plan::str_value!() => exact_num::push_text!(out, "s:{}", v.text()),
+        Value::Number(n) if n.is_finite() => exact_num::push_text!(
+            out,
             "n:{}",
             exact_num::Shortest(if *n == 0.0 { 0.0 } else { *n })
-        )),
-        Value::Bool(b) => Some(exact_num::text!("b:{}", b)),
-        _ => None,
+        ),
+        Value::Bool(b) => exact_num::push_text!(out, "b:{}", b),
+        _ => return false,
     }
+    true
 }
 
 /// The root of the instance tree: the plan's top-level sites.

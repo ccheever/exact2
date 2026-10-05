@@ -212,7 +212,10 @@ export function installedContractPackage(appDir, packageRoot) {
 
 export function assertCapturedContractSources(graph, sourceRoot) {
   const root = realpathSync.native(sourceRoot);
-  const paths = [...graph.sources.filter((source) => source.origin !== 'builtin').map((source) => source.path), ...graph.consulted];
+  // A consulted path that does not exist is a place resolution looked and
+  // found nothing (a nearer install candidate): nothing there to capture.
+  const paths = [...graph.sources.filter((source) => source.origin !== 'builtin').map((source) => source.path),
+    ...graph.consulted.filter((path) => typeof path !== 'string' || existsSync(path))];
   for (const path of paths) {
     if (typeof path !== 'string' || !isAbsolute(path)) refuse(`${path}: a Contract source is not an absolute filesystem path`);
     const file = realpathSync.native(path);

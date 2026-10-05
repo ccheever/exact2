@@ -1,0 +1,53 @@
+// Synthetic conformance plan: tasks that wait for state (`task … when cond
+// key=expr`, LLP 1092 D7–D10) on both executors. A toast's `after` is
+// armed while it shows and re-armed by a new deadline (`key=until`), so a
+// replaced toast gets its whole five seconds and the first deadline does
+// nothing; it fires at its deadline exactly. An `every` runs while its gate
+// holds and its own third tick drops it. A frame task runs its virtual
+// frames on the driver's clock only while armed, and stops itself.
+component Gates
+  state toast = ""
+  state until = 0
+  state log = ""
+  state on = false
+  state n = 0
+  state flying = false
+  state framed = 0
+  action show(t: string)
+    toast = t
+    until = now() + 5000
+  action expire
+    log = `${log} X${toast}@${now()}`
+    toast = ""
+  action start
+    on = true
+  action tick
+    n = n + 1
+    log = `${log} T${n}@${now()}`
+    if n % 3 == 2
+      on = false
+  action fly
+    flying = not flying
+  action step
+    framed = framed + 1
+    if framed % 30 == 29
+      flying = false
+  task hide when toast != "" key=until
+    after(5000, expire)
+  task beat when on
+    every(700, tick)
+  task wing when flying
+    every(frame, step)
+  view
+    column testId="root" padding=10 gap=6
+      text log testId="log"
+      text `toast ${toast} until ${until} on ${on} n ${n} framed ${framed}` testId="state"
+      row gap=4
+        button press=show("A") testId="show-a"
+          text "A"
+        button press=show("B") testId="show-b"
+          text "B"
+        button press=start testId="start"
+          text "start"
+        button press=fly testId="fly"
+          text "fly"

@@ -67,7 +67,8 @@ export function provisionHermesIos(platform, env = process.env) {
   console.error(`host/apple: building lean Hermes for ${platform} (facebook/hermes ${pin.slice(0, 12)}) into ${out}, once for this machine`);
   mkdirSync(root, { recursive: true });
   const { SDKROOT, ...clean } = env; // the platform names its own SDK
-  const sdk = platform === 'ios' ? 'iphoneos' : 'iphonesimulator', arch = platform === 'ios' || process.arch === 'arm64' ? 'arm64' : 'x86_64';
+  const sdk = { ios: 'iphoneos', 'ios-simulator': 'iphonesimulator', tvos: 'appletvos', 'tvos-simulator': 'appletvsimulator' }[platform];
+  const arch = platform === 'ios' || platform === 'tvos' || process.arch === 'arm64' ? 'arm64' : 'x86_64';
   const r = spawnSync('perl', ['-MFcntl=:flock', '-e', 'open(my $l, ">>", shift) or die "lock: $!\\n"; flock($l, LOCK_EX) or die "flock: $!\\n"; exit(system(@ARGV) == 0 ? 0 : 1)',
     resolve(cache, 'hermes-source-build.lock'), 'sh', '-c', HERMES_IOS_SCRIPT, 'hermes', resolve(cache, 'hermes/hermes-src'), pin, root, platform, sdk, arch, ...HERMES_IOS_ARCHIVES],
     { env: clean, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });

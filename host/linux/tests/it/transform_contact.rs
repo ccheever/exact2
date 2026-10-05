@@ -338,3 +338,86 @@ fn malformed_live_terminal_does_not_consume_contact_or_clock() {
     assert!(p.pointer_up(106., 86., 30.).unwrap());
     assert_eq!(text(&p, "count"), "1");
 }
+/// Chess diary #4: `translate` in percentages of the box paints, hits and
+/// measures where CSS puts it — a dialog centred by `-50% -50%` — and
+/// `frame()` is that box, as `getBoundingClientRect` (LLP 1051.000 D1).
+#[test]
+fn a_box_centred_by_translate_percentages_is_hit_and_framed_where_it_paints() {
+    let mut p = boot(
+        r#"component App
+  state where = ""
+  action measure
+    let f = frame("dialog")
+    where = `${f.x},${f.y},${f.width},${f.height}`
+  view
+    box width="100%" height="100%" position="relative"
+      box id="dialog" testId="dialog" position="absolute" left="50%" top="50%" width=200 height=100 translate="-50% -50%"
+        button testId="ok" press=measure width=200 height=100
+          text "OK"
+      text where testId="where"
+"#,
+    );
+    let ok = id(&p, "ok");
+    // Laid out at 200,250; painted at 100,200.
+    assert_eq!(p.hit(110., 210.), Some(ok));
+    assert_ne!(p.hit(390., 340.), Some(ok));
+    press(&mut p, "ok");
+    assert_eq!(text(&p, "where"), "100,200,200,100");
+}
+/// The element resize event (`resize=action`, ResizeObserver's): its
+/// content box after the first layout and after every change of size, not
+/// after a commit that leaves it; `resize="none"` stays CSS's property. A
+/// handler that grows its own box each time is delivered once per layout,
+/// as the browser's loop does, and the log says what it left undelivered.
+#[test]
+fn a_resize_handler_hears_its_content_box_after_layout_and_cannot_spin() {
+    let mut p = boot(
+        r#"component App
+  state wide = false
+  state seen = ""
+  state calls = 0
+  state grow = 100
+  action widen
+    wide = true
+  action other
+    calls = calls
+  action fit(w: number, h: number, r: DOMRectReadOnly)
+    seen = `${w}x${h} at ${r.x},${r.y} right ${r.right}`
+    calls = calls + 1
+  action spin(w: number, h: number)
+    grow = w + 10
+  view
+    column
+      box testId="panel" width=(wide ? 300 : 200) height=50 padding-left=4 padding-top=2 resize=fit
+      box testId="grab" width=40 height=20 resize="none"
+      box testId="spinner" width=grow height=10 resize=spin
+      button testId="widen" press=widen
+        text "w"
+      button testId="other" press=other
+        text "o"
+      text seen testId="seen"
+      text `${calls}` testId="calls"
+"#,
+    );
+    assert_eq!(text(&p, "seen"), "200x50 at 4,2 right 204");
+    assert_eq!(text(&p, "calls"), "1");
+    press(&mut p, "other");
+    assert_eq!(
+        text(&p, "calls"),
+        "1",
+        "a commit that leaves the box says nothing"
+    );
+    press(&mut p, "widen");
+    assert_eq!(text(&p, "seen"), "300x50 at 4,2 right 304");
+    assert_eq!(text(&p, "calls"), "2");
+    let undelivered = p
+        .host()
+        .runner()
+        .journal()
+        .filter(|l| l.contains(exact_runner::RESIZE_UNDELIVERED))
+        .count();
+    assert!(undelivered >= 1, "the spinner's loop is cut and said");
+    let k = p.host().kernel();
+    let width = k.node(id(&p, "spinner")).unwrap().frame.width;
+    assert!(width < 200.0, "one growth per layout, not a spin: {width}");
+}

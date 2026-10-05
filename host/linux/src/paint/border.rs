@@ -51,7 +51,13 @@ pub struct BorderFill {
     pub clip: Option<Vec<PathOp>>,
     /// Straight RGBA.
     pub color: [u8; 4],
+    /// When the region is exactly one round-cornered ring: its outer and
+    /// inner rects and radii, for a backend that fills a ring directly.
+    pub ring: Option<Ring>,
 }
+
+/// A ring between two rounded rects: (rect, radii) outer, then inner.
+pub type Ring = ((Rect4, [(f32, f32); 4]), (Rect4, [(f32, f32); 4]));
 
 /// Circle-to-cubic control distance for a quarter arc.
 const K: f32 = 0.552_284_8;
@@ -211,10 +217,12 @@ pub fn border_fills(shape: &Shape, widths: [f32; 4], colors: [[u8; 4]; 4]) -> Ve
     if let [(color, sides)] = groups.as_slice() {
         if sides.len() == sided {
             // One colour for every side with width: no joins to draw.
+            let round = corners.as_ref().is_none_or(|c| c.is_round());
             return vec![BorderFill {
                 region: ring,
                 clip: None,
                 color: *color,
+                ring: round.then_some(((rect, outer), (inner, inner_radii))),
             }];
         }
     }
@@ -234,12 +242,14 @@ pub fn border_fills(shape: &Shape, widths: [f32; 4], colors: [[u8; 4]; 4]) -> Ve
                     region: union,
                     clip: None,
                     color,
+                    ring: None,
                 }
             } else {
                 BorderFill {
                     region: ring.clone(),
                     clip: Some(union),
                     color,
+                    ring: None,
                 }
             }
         })

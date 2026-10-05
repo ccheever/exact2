@@ -16,7 +16,7 @@ test('native and wasm execute the same translucent sort-key regression',()=>{
   try {
     const file=join(dir,'order.rs'), wasm=join(dir,'order.wasm'), native=join(dir,'order');
     // Child drawing is native-only; its portable rank is also exercised by wasm.
-    const portable=(types+'\n'+body).replaceAll('#[cfg(not(target_arch = "wasm32"))]','');
+    const portable=(types+'\n'+source.match(/const NO_LOOK: u32 = [^;]+;/)[0]+'\n'+body).replaceAll('#[cfg(not(target_arch = "wasm32"))]','');
     writeFileSync(file,`#![allow(dead_code,unused_mut)]\n${portable}\n#[no_mangle] pub extern "C" fn verify() { every_kind_and_owner_ordinal_has_the_same_total_order(); }\nfn main(){verify();}`);
     for(const args of [[file,'--edition=2021','-o',native],[file,'--edition=2021','--target','wasm32-unknown-unknown','--crate-type','cdylib','-C','panic=abort','-o',wasm]]) {
       const r=spawnSync('rustc',args,{env,encoding:'utf8',timeout:60000});expect(r.status,r.stderr).toBe(0);

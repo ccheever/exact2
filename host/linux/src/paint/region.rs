@@ -62,6 +62,14 @@ impl ScrollBounds {
     /// block list, x for a flex (row) one, the runner's rule at creation
     /// (LLP 1070 H1).
     fn capture(node: &NodeRef<'_>, kernel: &Kernel, collection_max: Option<f32>) -> Self {
+        let axes = effective_overflow(node);
+        // Not a scroll container: nothing to measure; it never moves.
+        if axes == (Overflow::Visible, Overflow::Visible) && collection_max.is_none() {
+            return Self {
+                axes,
+                max: (0., 0.),
+            };
+        }
         let (width, height) = content_size(node, kernel);
         let mut max = (
             (width - node.frame.width).max(0.),
@@ -72,10 +80,7 @@ impl ScrollBounds {
             Some(main) => max.1 = main,
             None => {}
         }
-        Self {
-            axes: effective_overflow(node),
-            max,
-        }
+        Self { axes, max }
     }
     pub(crate) fn clamp(self, offset: (f32, f32)) -> (f32, f32) {
         (
@@ -596,6 +601,7 @@ impl<'a> Replay<'a> {
                                 || !(actions.motion)(n.key, &picture.action_identity)
                                 || !p.translate.0.is_finite()
                                 || !p.translate.1.is_finite()
+                                || p.translate_percent != (0., 0.)
                                 || p.scale != 1.
                                 || p.rotate != 0.
                                 || p.layout != Presented::IDENTITY.layout
@@ -610,8 +616,9 @@ impl<'a> Replay<'a> {
                             let (x, y, w, h) = paint_rect(f.frame, offset);
                             let (ox, oy) = node.style.transform_origin.resolve(w, h);
                             let (cx, cy) = (x + ox, y + oy);
+                            let (tx, ty) = p.translate_at(w, h);
                             transform = parent.pre_concat(
-                                Transform::from_translate(cx + p.translate.0, cy + p.translate.1)
+                                Transform::from_translate(cx + tx, cy + ty)
                                     .pre_rotate(p.rotate)
                                     .pre_scale(p.scale, p.scale)
                                     .pre_translate(-cx, -cy),

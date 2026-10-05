@@ -13,9 +13,10 @@
 // place in ~20 ms, state carried).
 import { spawn } from 'node:child_process';
 import { createServer, request } from 'node:http';
-import { existsSync, readFileSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { webRequestURL } from '../../scripts/origin.mjs';
+import { INPUT_TREE, OUTPUT } from '../../scripts/agent-launch.mjs';
 import { appManifestDigest, buildFileCards, buildTreeFile, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 
@@ -29,7 +30,10 @@ let building = null; // the build in flight, stopped with the server
 /** The Contract packages a build read (LLP 1091 D10), outside the app and
  * its skipped `node_modules`: the dev loop watches them too. */
 function devPackages(stage) {
-  try { return JSON.parse(readFileSync(resolve(stage, '.gen', 'dev-sources.json'), 'utf8')).packages ?? []; } catch { return []; }
+  try {
+    const sources = JSON.parse(readFileSync(resolve(stage, '.gen', 'dev-sources.json'), 'utf8'));
+    return { trees: sources.packages ?? [], shallow: sources.shallow ?? [], sources: sources.sources ?? [] };
+  } catch { return { trees: [], shallow: [], sources: [] }; }
 }
 
 /** One build of `app` into `dist` through a stage under the app's ignored
@@ -92,11 +96,20 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   };
   // A build reading a tree (the assets it copies) is reported too on macOS:
   // a path not modified since the last build started is no edit.
-  const changed = (base) => (_, name) => {
-    if (name && skipped.test(String(name))) return;
+  const changed = (base, skip = skipped, fresh = true) => (_, name) => {
+    // A Contract source the compile read is an input even where the app's
+    // watcher skips (a dot directory).
+    if (name && skip.test(String(name)) && !contractInput(resolve(base, String(name)))) return;
     // The declarations a build writes beside app.ts, for an editor.
     if (base === app.dir && String(name) === 'app.contract.d.ts') return;
-    try { if (name && statSync(resolve(base, String(name))).mtimeMs < since) return; } catch { /* removed: an edit */ }
+    // A screenshot, film, log or note written into the app folder, outside the input trees and not named by
+    // app.json, does not reload a page under a test (authoring bench).
+    if (base === app.dir && OUTPUT.test(String(name)) && !INPUT_TREE.test(String(name)) && !JSON.stringify(app.manifest ?? {}).includes(String(name))) return;
+    // A package's events are all edits: a link replaced by one to an older
+    // file is newer than nothing, and its target's time says nothing of it.
+    // The entry's own time (lstat): a link replaced by one to an older file
+    // is new, though its target is not.
+    try { if (fresh && name && lstatSync(resolve(base, String(name))).mtimeMs < since) return; } catch { /* removed: an edit */ }
     if (!timer) saved = Date.now();
     clearTimeout(timer);
     // An editor's save is one burst of events, well inside 5 ms; an event
@@ -108,8 +121,26 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   for (const f of ['navigation.js', 'index.html']) watchers.push(watch(resolve(root, 'host/web', f), changed(resolve(root, 'host/web'))));
   // Each Contract package the app uses, wherever it is installed or linked.
   const packages = new Set();
-  const watchPackages = (roots = []) => {
-    for (const dir of roots) if (!packages.has(dir)) { packages.add(dir); watchers.push(watch(dir, { recursive: true }, changed(dir))); }
+  const contractSources = new Set();
+  // A source, or a directory holding one (its event names the directory).
+  const contractInput = path => contractSources.has(path) || [...contractSources].some(s => s.startsWith(path + '/') || s.startsWith(path + '\\'));
+  const watchPackages = ({ trees = [], shallow = [], sources = [] } = {}) => {
+    for (const source of sources) contractSources.add(source);
+    for (const dir of trees) {
+      if (packages.has(dir) || !existsSync(dir)) continue;
+      packages.add(dir);
+      // A package's dot directories are its sources too; only its own
+      // node_modules is not.
+      watchers.push(watch(dir, { recursive: true }, changed(dir, /(^|\/)node_modules(\/|$)/, false)));
+    }
+    // One entry of a directory: a node_modules not made yet, or an install
+    // that is a link. Its making, or its retargeting, is an edit.
+    for (const [dir, entry] of shallow) {
+      const key = `shallow:${dir}:${entry}`;
+      if (packages.has(key) || !existsSync(dir)) continue;
+      packages.add(key);
+      watchers.push(watch(dir, (_, name) => { if (String(name) === entry) changed(dir, /^$/, false)(_, name); }));
+    }
   };
   watchPackages(built.packages);
   // The one TypeScript configuration app.ts is checked with (js/bake/src/typescript.mjs).

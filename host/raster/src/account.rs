@@ -14,7 +14,10 @@ impl Wake {
     pub fn notify(&self) {
         let mut sequence = self.sequence.lock().unwrap();
         *sequence = sequence.wrapping_add(1);
-        self.changed.notify_all();
+        // The waiters are interchangeable decode workers: one wakes. A busy one
+        // looks for work again when it finishes; the sequence covers a wake
+        // that found no one waiting.
+        self.changed.notify_one();
     }
 }
 

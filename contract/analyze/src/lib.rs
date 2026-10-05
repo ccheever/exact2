@@ -14,6 +14,7 @@
 
 mod arity;
 mod calls;
+mod gates;
 mod payload;
 mod sends;
 
@@ -66,11 +67,20 @@ fn err<T>(id: &'static str, message: impl Into<String>, span: Span) -> Result<T,
 
 /// Check surface calls against an emitted module interface, before imports merge
 /// so each refusal still belongs to its source file. No module is constructed.
+/// Every call is checked: one finding never hides another, or another pass's.
 pub fn check_surface_arguments(
     file: &File,
     declared: &BTreeMap<String, Vec<String>>,
-) -> Result<(), AnalyzeError> {
-    fn walk(nodes: &[Node], declared: &BTreeMap<String, Vec<String>>) -> Result<(), AnalyzeError> {
+) -> Result<(), Vec<AnalyzeError>> {
+    fn finding(message: String, span: Span) -> AnalyzeError {
+        AnalyzeError {
+            id: "analyze-surface-arguments",
+            message,
+            span,
+            related: Vec::new(),
+        }
+    }
+    fn walk(nodes: &[Node], declared: &BTreeMap<String, Vec<String>>, out: &mut Vec<AnalyzeError>) {
         for node in nodes {
             match node {
                 Node::Element {
@@ -87,28 +97,23 @@ pub fn check_surface_arguments(
                             continue;
                         };
                         let Some(fields) = declared.get(name) else {
-                            return err(
-                                "analyze-surface-arguments",
-                                format!("unknown surface `{name}`"),
-                                *span,
-                            );
+                            out.push(finding(format!("unknown surface `{name}`"), *span));
+                            continue;
                         };
                         for arg in args {
                             if let Expr::NamedArg(field, _, span) = arg {
                                 if !fields.contains(field) {
-                                    return err(
-                                        "analyze-surface-arguments",
-                                        format!("unknown surface argument `{field}` for `{name}`; declared names: {}", fields.join(", ")),
+                                    out.push(finding(
+                                        format!("unknown surface argument `{field}` for `{name}`; the game declares: {} (.shells/surfaces.json, from its last GPU build)", fields.join(", ")),
                                         *span,
-                                    );
+                                    ));
                                 }
                             }
                         }
                         if !args.iter().any(|a| matches!(a, Expr::NamedArg(..)))
                             && args.len() > fields.len()
                         {
-                            return err(
-                                "analyze-surface-arguments",
+                            out.push(finding(
                                 format!(
                                     "surface `{name}` expected at most {} arguments ({}), got {}",
                                     fields.len(),
@@ -116,32 +121,36 @@ pub fn check_surface_arguments(
                                     args.len()
                                 ),
                                 *span,
-                            );
+                            ));
                         }
                     }
-                    walk(children, declared)?;
+                    walk(children, declared, out);
                 }
-                Node::Use { children, .. } => walk(children, declared)?,
-                Node::Each { body, .. } => walk(body, declared)?,
+                Node::Use { children, .. } => walk(children, declared, out),
+                Node::Each { body, .. } => walk(body, declared, out),
                 Node::When {
                     then, otherwise, ..
                 } => {
-                    walk(then, declared)?;
-                    walk(otherwise, declared)?;
+                    walk(then, declared, out);
+                    walk(otherwise, declared, out);
                 }
                 Node::Match { some, none, .. } => {
-                    walk(&some.1, declared)?;
-                    walk(none, declared)?;
+                    walk(&some.1, declared, out);
+                    walk(none, declared, out);
                 }
                 Node::Children { .. } => {}
             }
         }
-        Ok(())
     }
+    let mut out = Vec::new();
     for component in &file.components {
-        walk(&component.view, declared)?;
+        walk(&component.view, declared, &mut out);
     }
-    Ok(())
+    if out.is_empty() {
+        Ok(())
+    } else {
+        Err(out)
+    }
 }
 
 /// What analysis established beyond the types. Every rule analysis checks
@@ -212,6 +221,7 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
         errors.extend(sends::check(scoped));
         if ci == 0 {
             errors.extend(calls::check(scoped));
+            errors.extend(gates::check(scoped, &file.fns));
         }
         let view = View {
             file,
@@ -308,7 +318,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 50] = [
+pub const HANDLERS: [&str; 51] = [
     "press",
     "change",
     "input",
@@ -375,7 +385,18 @@ pub const HANDLERS: [&str; 50] = [
     "reorderdrop",
     "reachstart",
     "reachend",
+    // The element resize event, ResizeObserver's: an action given to
+    // `resize`, whose string is CSS's property ([`is_handler`]).
+    "resize",
 ];
+
+/// Whether `name=value` is a handler: one of [`HANDLERS`], except `resize`
+/// with anything but an action (an `Ident` or a `Call`, never valid CSS
+/// there), which is CSS's `resize` property.
+pub fn is_handler(name: &str, value: &Expr) -> bool {
+    HANDLERS.contains(&name)
+        && (name != "resize" || matches!(value, Expr::Ident(..) | Expr::Call(..)))
+}
 
 /// What a handler's event carries as its action's last argument: `input`
 /// and `change` the new value (a text field's text, a checkbox's checked
@@ -404,7 +425,7 @@ pub fn handler_arity(attr: &str, given: usize) -> Option<std::ops::RangeInclusiv
     let payload = match attr {
         "transformgeometry" => 4,
         "transformrelease" => 6,
-        "scroll" | "pan" | "panrelease" | "heightrelease" | "reorderdrop" => 2,
+        "scroll" | "pan" | "panrelease" | "heightrelease" | "reorderdrop" | "resize" => 2,
         _ => usize::from(handler_payload(attr).is_some()),
     };
     // Then the event's record, the action's to take or leave.
@@ -455,7 +476,7 @@ fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), Anal
             } => {
                 let control = contract_syntax::input_control(tag, attrs);
                 for a in attrs {
-                    if HANDLERS.contains(&a.name.as_str()) {
+                    if is_handler(&a.name, &a.value) {
                         check_handler(&a.name, &a.value, scope, a.span, control, view)?;
                     }
                 }
@@ -586,12 +607,16 @@ fn check_handler(
                 span,
             );
         }
+        // Then optionally its `ReorderEvent` (LLP 1094 D2), which
+        // `handler_accepts` holds to its type.
         if attr == "reorderdrop"
-            && params[given..] != [Ty::String, Ty::Option(Box::new(Ty::String))]
+            && params[given..]
+                .get(..2)
+                .is_none_or(|p| p != [Ty::String, Ty::Option(Box::new(Ty::String))])
         {
             return err(
                 "analyze-handler-type",
-                "`reorderdrop` supplies string and option<string>",
+                "`reorderdrop` supplies string and option<string>, then optionally a `ReorderEvent`",
                 span,
             );
         }

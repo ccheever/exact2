@@ -138,8 +138,10 @@ pixel snapping, patterned borders and compound shorthand values remain unverifie
 or unsupported; these checks do not establish all CSS border painting.
 
 **Motion rows (2026-08-28, LLP 1002/1003).** The animatable rows carry CSS's
-individual transform property names — `translate` (vec2), `scale`, `rotate`
-(degrees) — beside `opacity`, and a `transition` row (codec `transitions`, bit 82)
+individual transform property names — `translate` (vec2, with its percentages
+of the border box in `translate_percent`, 2026-10-04: the engine's `translate`
+value is the four, lengths then percentages, and a presenter resolves them
+against the box it paints), `scale`, `rotate` (degrees) — beside `opacity`, and a `transition` row (codec `transitions`, bit 82)
 carries CSS `transition` declarations. The row's type is `exact_motion::Transitions`;
 the kernel owns its bytes (`wire/codec.rs`) and depends on `exact-motion` for the
 type, which is the only dependency edge between the two crates. `Kernel::motion_sync`
@@ -224,6 +226,13 @@ the pointer’s default focus change; iOS skips resigning the current responder.
 It neither focuses a field nor opens a keyboard. Messages also declares it on
 both Send controls: sending from a retained composer keeps its editing session.
 Other hosts currently ignore it.
+`focusGuide` (prop 241, string) accepts `"auto"` on a container. On tvOS,
+UIKit's `UIFocusGuide` sends a remote move entering its box to the descendant
+that last held focus, or its first focusable descendant. The guide is disabled
+while focus is inside the container. Other hosts ignore both literal and bound
+values. This is a declared platform deviation: CSS and HTML have no spatial
+focus guide, and the browser retains its sequential Tab order. See
+[LLP 1008 §9](1008-apple-host-v1.spec.md#tvos-doug-lowder-landed-2026-10-03).
 `swipeIndicator` (prop 56, boolean, absent/false by default) marks a direct
 child of a `swiperight` target as authored gesture feedback. Web and iOS hold
 its opacity and scale between their authored values and 1 as the rightward
@@ -440,8 +449,10 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   Markdown. This is a native coverage gap, not CSS's behavior.
 - **Projected iOS tab-bar height** ([LLP 1059 D2](1059-tab-bar-projection.rfc.md)):
   `UITabBar` reports its intrinsic height through the kernel measurement seam
-  and fills the resulting box. The former overflow deviation is removed
-  (`issues/closed/20260927-tab-bar-height-to-layout.md`).
+  and fills the resulting box; a segmented control (`UISegmentedControl`,
+  macOS's `NSSegmentedControl`) reports its own the same way and fills the
+  content box (LLP 1059 D2a). The former overflow deviation
+  is removed (`issues/closed/20260927-tab-bar-height-to-layout.md`).
 
 **Clock timelines (2026-10-03, [LLP 1055.002](1055.002-synced-animations.rfc.md)
 D2; not reviewed).** `animation-timeline` takes a third value, `clock(<ident>)`,
@@ -544,6 +555,11 @@ box was a containing block:
   This includes context-preview structural recipients (side/trailing siblings,
   repeated flow roots and the source scroll content), and Runner-generated
   row wrappers in a list with `reorderdrop` (LLP 1074 D1).
+- **`visibility: hidden` hides a box's subtree on Apple and Linux** (LLP
+  1094 stage 4–5). CSS shows a descendant that sets its own `visible`;
+  `NSView`/`UIView.isHidden` and the Linux painter hide the whole subtree,
+  as `display: none` does there, while the box keeps its layout. The web is
+  CSS's.
 - **The kernel paints in tree order.** A page paints its positioned boxes and
   stacking contexts after its in-flow boxes, so a web host makes a static box
   that follows one of those in tree order `isolation: isolate`
@@ -565,9 +581,19 @@ box was a containing block:
   behind its static wrapper. `host/web/parity.mjs --paint` holds these
   nested-z and internal/external SVG backdrop cases on web and macOS
   (2026-09-30); the latter allows the declared display-colour-space difference.
-- **`z-index` orders siblings.** Apple's presenters give it to the layer
-  (`usedZIndex`); the Linux painter stacks siblings by the same rule (LLP
-  1083 D6). CSS orders a whole stacking context.
+- **`z-index` stays inside its holder** (LLP 1083.000 §3.1, which replaced
+  "`z-index` orders siblings"). A non-zero `z-index` orders a box among its
+  siblings and never above or below its parent's turn; the web isolates the
+  holder to match. CSS orders a whole stacking context, so there a positioned
+  descendant's `z-index` reaches past a parent that is not one (chess diary
+  #5: a drag ghost inside a board square, under the squares after it; measured
+  in Chrome by `kernel/tests/it/browser_paint_order.rs`, its §3.1 cases). The
+  reason is Apple's: each node is a view inside its parent's view, and Core
+  Animation's `zPosition` orders only the sublayers of one layer, so a
+  descendant painting past its parent's turn would have to leave its parent's
+  view, with that view's clip and transform recreated where it lands. The
+  hosts paint one order rather than the web and Linux following CSS while
+  Apple does not.
 - **`order` lays out, and painting stays in tree order** (feed F19). A flex
   or grid container hands the layout engine its children in order-modified
   document order (`kernel/src/layout/order.rs`), so items are placed as CSS

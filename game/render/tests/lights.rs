@@ -173,6 +173,7 @@ fn render(gpu: &Gpu, kind: u32, name: &str) -> (fixture::Pixels, String) {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (pixels, _) = fixture::render(gpu, &mut surface, &frame).unwrap();
     assert!(surface.error().is_none(), "{:?}", surface.error());

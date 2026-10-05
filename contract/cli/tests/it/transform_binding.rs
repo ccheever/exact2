@@ -186,7 +186,7 @@ fn pixel_translate_literals_and_dynamic_template_reach_kernel_rows() {
     );
     for bad in [
         "1 2",
-        "20% 0",
+        "20%% 0",
         "calc(1px + 2px) 0",
         "1px 2px 3px 4px",
         "NaNpx 0",

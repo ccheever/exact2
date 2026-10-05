@@ -9,7 +9,6 @@ use std::{
     path::PathBuf,
 };
 #[cfg(not(target_arch = "wasm32"))]
-#[cfg(not(target_arch = "wasm32"))]
 mod native;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;
@@ -31,12 +30,6 @@ enum Pending {
     Child(u64),
     #[cfg(not(target_arch = "wasm32"))]
     Storage(Vec<u8>, String),
-    /// A send's storage request made before activation (a document the
-    /// host hands over at launch, before first pixel: studio diary R14),
-    /// with the grants it asked under: checked and run once storage is
-    /// ready, never refused for being early.
-    #[cfg(not(target_arch = "wasm32"))]
-    Early(Vec<u8>, Option<String>),
 }
 
 /// A source with optional host-owned storage. Native storage uses the existing
@@ -52,8 +45,6 @@ pub struct Storage<D> {
     /// A scripted drive (`EXACT_AGENT=1`): storage is the scratch store it
     /// names, else none.
     agent: bool,
-    /// Early requests dispatch held until activation, in order.
-    held: Vec<u64>,
 }
 impl<D> Storage<D> {
     /// Wrap a source without creating storage or starting any thread.
@@ -67,7 +58,6 @@ impl<D> Storage<D> {
             pending: BTreeMap::new(),
             alive: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
             agent: std::env::var("EXACT_AGENT").as_deref() == Ok("1"),
-            held: Vec::new(),
         }
     }
 }
@@ -82,18 +72,6 @@ impl<D: DataSource> Storage<D> {
         store: &mut Store,
         result: Result<Answer, DataError>,
     ) -> Result<Answer, DataError> {
-        self.step_for(None, store, result)
-    }
-
-    fn step_for(
-        &mut self,
-        target: Option<Target>,
-        store: &mut Store,
-        result: Result<Answer, DataError>,
-    ) -> Result<Answer, DataError> {
-        // The web's storage is the browser's, ready before any send.
-        #[cfg(target_arch = "wasm32")]
-        let _ = target;
         let mut answer = result?;
         if let Answer::Later(request) = &mut answer {
             if request.http != exact_runner::HttpScheduling::Ordered
@@ -103,26 +81,6 @@ impl<D: DataSource> Storage<D> {
             }
             if let Some(payload) = &request.storage {
                 store.observe_external_read();
-                // A send before activation waits for storage (studio diary
-                // R14: the document a launch hands over, sent to the data
-                // module before first pixel, was refused and lost); a
-                // resource is asked again at `data_ready` instead.
-                #[cfg(not(target_arch = "wasm32"))]
-                if !self.active && matches!(target, Some(Target::Mutation(_))) {
-                    if payload.len() > exact_data::storage::MAX_BYTES {
-                        return Err(unavailable("storage request exceeds its byte limit"));
-                    }
-                    self.next = self
-                        .next
-                        .checked_add(1)
-                        .ok_or_else(|| unavailable("storage token space exhausted"))?;
-                    self.pending.insert(
-                        self.next,
-                        Pending::Early(payload.clone(), request.grants.clone()),
-                    );
-                    *request = exact_runner::Request::continuation(self.next);
-                    return Ok(answer);
-                }
                 if !self.effects {
                     return Err(unavailable(
                         "storage is unavailable during bake or validation",
@@ -180,6 +138,10 @@ fn unavailable(s: impl Into<String>) -> DataError {
     DataError::Unavailable(s.into())
 }
 impl<D: DataSource> DataSource for Storage<D> {
+    fn take_logs(&mut self) -> Vec<String> {
+        self.source.take_logs()
+    }
+
     fn preload(&self) -> Result<bool, DataError> {
         self.source.preload()
     }
@@ -213,7 +175,7 @@ impl<D: DataSource> DataSource for Storage<D> {
         args: &[Value],
     ) -> Result<Answer, DataError> {
         let answer = self.source.answer_for(target, store, name, args);
-        self.step_for(Some(target), store, answer)
+        self.step(store, answer)
     }
     fn parse_for(
         &mut self,
@@ -224,7 +186,7 @@ impl<D: DataSource> DataSource for Storage<D> {
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
         let answer = self.source.parse_for(target, store, name, args, outcome);
-        self.step_for(Some(target), store, answer)
+        self.step(store, answer)
     }
     fn app_id(&self) -> &str {
         self.source.app_id()
@@ -307,7 +269,7 @@ impl<D: DataSource> DataSource for Storage<D> {
     /// child's where the child handed one out (a storage request's never
     /// did, and one already dispatched can't be told any more), and an entry
     /// the runner no longer has in flight is let go.
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
+    fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
         let view: Vec<InFlight<'_>> = in_flight
             .iter()
             .map(|f| InFlight {
@@ -322,9 +284,7 @@ impl<D: DataSource> DataSource for Storage<D> {
             .collect();
         let tokens: HashSet<u64> = in_flight.iter().filter_map(|f| f.continuation).collect();
         self.pending.retain(|outer, _| tokens.contains(outer));
-        let pending = &self.pending;
-        self.held.retain(|t| pending.contains_key(t));
-        self.source.forgotten(&view);
+        self.source.forgotten(store, &view);
     }
 
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
@@ -338,12 +298,7 @@ impl<D: DataSource> DataSource for Storage<D> {
                 dispatch
             }
             #[cfg(not(target_arch = "wasm32"))]
-            Some(Pending::Early(..)) if !self.effects => {
-                self.held.push(token);
-                Dispatch::Held
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            Some(Pending::Storage(..) | Pending::Early(..)) => match self.continuation(token) {
+            Some(Pending::Storage(..)) => match self.continuation(token) {
                 Some(work) => Dispatch::Run(exact_runner::Work::Now(work)),
                 None => Dispatch::Missing,
             },
@@ -353,15 +308,6 @@ impl<D: DataSource> DataSource for Storage<D> {
 
     fn release(&mut self, store: &Store) -> Vec<(u64, Dispatch)> {
         let mut released = Vec::new();
-        // Early sends, in order, once storage is ready.
-        #[cfg(not(target_arch = "wasm32"))]
-        if self.effects {
-            for token in std::mem::take(&mut self.held) {
-                if let Some(work) = self.continuation(token) {
-                    released.push((token, Dispatch::Run(exact_runner::Work::Now(work))));
-                }
-            }
-        }
         for (child, dispatch) in self.source.release(store) {
             let outer = self
                 .pending
@@ -388,33 +334,6 @@ impl<D: DataSource> DataSource for Storage<D> {
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
         match self.pending.remove(&token)? {
             Pending::Child(token) => self.source.continuation(token),
-            #[cfg(not(target_arch = "wasm32"))]
-            Pending::Early(payload, asked) => {
-                // The checks a send made after activation meets at once.
-                let scope = exact_data::storage::scope(self.grants(), asked.as_deref()).map(|_| ());
-                let configured = self.directories.is_some()
-                    || native::independent_storage(&payload)
-                    || self.agent;
-                let refusal = match (scope, std::str::from_utf8(&payload).is_ok()) {
-                    (Err(e), _) => Some((exact_runner::FailureKind::Refused, e)),
-                    (_, false) => Some((
-                        exact_runner::FailureKind::Refused,
-                        "storage request must be UTF-8".into(),
-                    )),
-                    (Ok(()), true) if !configured => Some((
-                        exact_runner::FailureKind::Unsupported,
-                        "storage is unavailable in an unconfigured host".into(),
-                    )),
-                    (Ok(()), true) => {
-                        let grants = asked.unwrap_or_else(|| self.grants().into());
-                        self.pending
-                            .insert(token, Pending::Storage(payload, grants));
-                        return self.continuation(token);
-                    }
-                };
-                let (kind, message) = refusal?;
-                Some(Box::new(move || Outcome::Failed { kind, message }))
-            }
             #[cfg(not(target_arch = "wasm32"))]
             Pending::Storage(payload, grants) => {
                 let paths = self.directories.clone();

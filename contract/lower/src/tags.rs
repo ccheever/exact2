@@ -352,6 +352,17 @@ pub fn style(name: &str) -> bool {
         Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand)
     )
 }
+/// Look up an attribute as written, routed by its value where one name is
+/// two things: `resize` is CSS's property for a string, and given an action
+/// (an `Ident` or a `Call`, never valid CSS there) the element resize event,
+/// ResizeObserver's (x2apps backlog: decided, route by value).
+pub fn attr_valued(name: &str, value: &contract_syntax::Expr) -> Option<AttrTarget> {
+    use contract_syntax::Expr;
+    if name == "resize" && matches!(value, Expr::Ident(..) | Expr::Call(..)) {
+        return Some(AttrTarget::Handler("resize"));
+    }
+    attr(name)
+}
 /// Look up an attribute.
 pub fn attr(name: &str) -> Option<AttrTarget> {
     let styles = |rows: &'static [StyleId]| AttrTarget::Styles(rows);
@@ -424,6 +435,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "transformrelease" => AttrTarget::Handler("transformrelease"),
         "reorderdrop" => AttrTarget::Handler("reorderdrop"),
         "reorderFor" => AttrTarget::Prop(p("reorderFor")),
+        "reorderGroup" => AttrTarget::Prop(p("reorderGroup")),
         "transformDragFor" => AttrTarget::Prop(p("transformDragFor")),
         "heightDragFor" => AttrTarget::Prop(p("heightDragFor")),
         "surface" => AttrTarget::Surface, // the canvas's surface (LLP 1009 D3)
@@ -488,6 +500,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "closedby" => AttrTarget::Prop(p("closedby")),
         "contextTarget" => AttrTarget::Prop(p("contextTarget")),
         "contextMagnify" => AttrTarget::Prop(p("contextMagnify")),
+        // @ref LLP 1021 §5.1 — the popover a node's context menu shows, and its preview row.
+        "contextPopover" | "contextPreview" => AttrTarget::Prop(p(name)),
         "emojiPicker" => AttrTarget::Prop(p("emojiPicker")),
         "backgroundMaterial" => AttrTarget::Prop(p("backgroundMaterial")),
         "glassGroup" => AttrTarget::Prop(p("glassGroup")),
@@ -495,6 +509,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "listStyle" => AttrTarget::Prop(p("listStyle")),
         "toolbarPlacement" => AttrTarget::Prop(p("toolbarPlacement")),
         "retainFocus" => AttrTarget::Prop(p("retainFocus")),
+        "focusGuide" => AttrTarget::Prop(p("focusGuide")),
         "swipeIndicator" => AttrTarget::Prop(p("swipeIndicator")),
         "aria-live" => AttrTarget::Prop(p("accessibilityLive")),
         "autofocus" => AttrTarget::Prop(p("autofocus")),
@@ -544,6 +559,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // `width`/`height` content attributes (Contract's are the CSS box).
         "bitmap-width" => AttrTarget::Prop(p("bitmapWidth")),
         "bitmap-height" => AttrTarget::Prop(p("bitmapHeight")),
+        // LLP 1100 D12a: getContext's settings.
+        "color-space" => AttrTarget::Prop(p("colorSpace")),
+        "color-type" => AttrTarget::Prop(p("colorType")),
         "scrollTop" => AttrTarget::Prop(p("scrollTop")),
         "scrollLeft" => AttrTarget::Prop(p("scrollLeft")),
         "swipeContent" => AttrTarget::Prop(p("swipeContent")),
@@ -592,6 +610,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "tabindex" => AttrTarget::Prop(p("tabIndex")),
         "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
         "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
+        "aria-current" => AttrTarget::Prop(p("accessibilityCurrent")), // Depot: a nav link's page
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),
@@ -922,9 +941,14 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1063 — how the laid-out box moves when layout moves it.
         "layout-transition" => styles(&[StyleId::LayoutTransition]),
         "interpolate-size" => styles(&[StyleId::InterpolateSize]),
-        // @ref LLP 1077 D8 — one value to two rows: x and y, and z; the
+        // @ref LLP 1077 D8 — one value to two rows: x and y (their lengths,
+        // and their percentages of the box, chess diary #4), and z; the
         // angle, and its axis.
-        "translate" => styles(&[StyleId::Translate, StyleId::TranslateZ]),
+        "translate" => styles(&[
+            StyleId::Translate,
+            StyleId::TranslatePercent,
+            StyleId::TranslateZ,
+        ]),
         "scale" => styles(&[StyleId::Scale]),
         "rotate" => styles(&[StyleId::Rotate, StyleId::RotateAxis]),
         "perspective" => styles(&[StyleId::Perspective]),
@@ -940,6 +964,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "scroll-edge-effect" => styles(&[StyleId::ScrollEdgeEffect]),
         "hover-effect" => styles(&[StyleId::HoverEffect]),
         "smart-invert" => styles(&[StyleId::SmartInvert]),
+        "dynamic-range-limit" => styles(&[StyleId::DynamicRangeLimit]),
         // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
         "press-scale" => styles(&[StyleId::PressScale]),
         _ => return None,
@@ -1123,7 +1148,10 @@ pub(crate) fn similar_tag(name: &str) -> Option<String> {
 pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
     Some(match name {
         "div" => "a flex container is `column` or `row`, and a plain box `view`",
-        "span" | "p" | "label" | "strong" | "em" | "b" | "i" => "text is `text`",
+        "span" | "p" | "strong" | "em" | "b" | "i" => "text is `text`",
+        "label" => {
+            "a label is `text` beside its field, and the field is named by `aria-label` (or `aria-labelledby` with the text's `id`)"
+        }
         "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
             "a heading is `text role=\"heading\" aria-level=1` (2 and on for the level)"
         }

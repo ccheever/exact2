@@ -1,7 +1,8 @@
 //! The positional event payloads shared with the runner: `select`'s
 //! (LLP 1045 D6), a file input's `change` (LLP 1069.002 D3), the
-//! pointer's (LLP 1056 §3 stage 3), `key`'s optional `KeyboardEvent` and
-//! `scroll`'s optional `ScrollEvent` (chat F4).
+//! pointer's (LLP 1056 §3 stage 3), `key`'s optional `KeyboardEvent`,
+//! `scroll`'s optional `ScrollEvent` (chat F4) and `reorderdrop`'s optional
+//! `ReorderEvent` (LLP 1094 D2).
 use super::{Shapes, Ty};
 
 /// The DOM event record a handler's event offers its action as an optional
@@ -23,6 +24,8 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "press" => Some("MouseEvent"),
         "copy" | "cut" | "paste" => Some("ClipboardEvent"),
         "selectionchange" => Some("Selection"),
+        "resize" => Some("DOMRectReadOnly"),
+        "reorderdrop" => Some("ReorderEvent"),
         _ => None,
     }
 }
@@ -71,8 +74,9 @@ pub(super) fn declare(shapes: &mut Shapes) {
     );
     // DOM's `PointerEvent`, the subset every host measures, in the order
     // `exact_runner::PointerEvent` writes it: the point from the node's
-    // content box, the buttons' bits, the pressure, the device, its id, and
-    // the modifiers held (a `MouseEvent`'s).
+    // content box, the buttons' bits, the pressure, the device, its id, the
+    // point from the viewport (`frame()`'s space, LLP 1094 D11), and the
+    // modifiers held (a `MouseEvent`'s).
     shapes.map.insert(
         "PointerEvent".into(),
         vec![
@@ -82,11 +86,21 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("pressure".into(), Ty::Number),
             ("pointerType".into(), Ty::String),
             ("pointerId".into(), Ty::Number),
+            ("clientX".into(), Ty::Number),
+            ("clientY".into(), Ty::Number),
             ("shiftKey".into(), Ty::Bool),
             ("ctrlKey".into(), Ty::Bool),
             ("altKey".into(), Ty::Bool),
             ("metaKey".into(), Ty::Bool),
         ],
+    );
+    // What a `reorderdrop` action hears after the row's key and the key it
+    // lands before, when it takes one more parameter (LLP 1094 D2): the
+    // source list's `id` and the target's, SortableJS's `from` and `to`.
+    // Within one list they are equal.
+    shapes.map.insert(
+        "ReorderEvent".into(),
+        vec![("from".into(), Ty::String), ("to".into(), Ty::String)],
     );
     // DOM's `MouseEvent`, the modifiers held, what a `press` action may take
     // (gallery F20: shift-click range select, ⌘-click), in the order
@@ -141,6 +155,19 @@ pub(super) fn declare(shapes: &mut Shapes) {
             "scrollHeight",
             "clientWidth",
             "clientHeight",
+        ]
+        .map(|f| (f.into(), Ty::Number))
+        .to_vec(),
+    );
+    // What a `resize` handler's action hears after the content box's width
+    // and height when it takes one more parameter, in the order
+    // `exact_runner::ResizeRect` writes it: ResizeObserverEntry's
+    // `contentRect`, DOM's `DOMRectReadOnly` (x and y are the padding's left
+    // and top, the content box's place in the padding box).
+    shapes.map.insert(
+        "DOMRectReadOnly".into(),
+        [
+            "x", "y", "width", "height", "top", "right", "bottom", "left",
         ]
         .map(|f| (f.into(), Ty::Number))
         .to_vec(),

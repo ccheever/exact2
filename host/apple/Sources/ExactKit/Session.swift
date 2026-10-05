@@ -731,7 +731,7 @@ public final class ExactSession {
         presenter.onPanRelease = { [unowned self] id, vx, vy in apply(runtime.panRelease(id, vx: vx, vy: vy, now: now())) }
         presenter.onPanSample = { [unowned self] first, x, y, t in runtime.panSample(first: first, x: x, y: y, t: t) }
         presenter.panVelocity = { [unowned self] t in runtime.panVelocity(at: t) }
-        presenter.onScroll = { [unowned self] id, metrics in apply(runtime.scroll(id, metrics: metrics, now: now())) }
+        presenter.onScroll = { [unowned self] id, metrics in applyUnlessEmpty(runtime.scroll(id, metrics: metrics, now: now()), scrolled: true) }
         presenter.onScrolled = { [unowned self] id, left, top in runtime.scrolled(id, left: left, top: top) }
         #if canImport(AppKit)
         presenter.onListIndex = { [unowned self] id, key in runtime.listIndex(id, key: key) }
@@ -774,6 +774,7 @@ public final class ExactSession {
             }
         }
         let cp = text.checkpoint()
+        runtime.setProfileResolver(app.resolver)
         let batch = runtime.boot(width: size.width, height: size.height)
         if batch.error != nil { text.restore(cp) }
         return finishBoot(batch, started: t)
@@ -785,6 +786,7 @@ public final class ExactSession {
         let t = CACurrentMediaTime()
         primePreferences()
         let cp = text.checkpoint()
+        runtime.setProfileResolver(app.resolver)
         let batch = runtime.bootPlan(bytes, width: size.width, height: size.height)
         if batch.error == nil { updateToken = 0; app.invalidateDevGeneration() }
         if batch.error != nil { text.restore(cp) }
@@ -837,6 +839,8 @@ public final class ExactSession {
         // The running tree's focus, read before the candidate replaces it.
         keptFocus = booted ? presenter.focusPlace(tree: agent("{\"op\":\"tree\"}")) : nil
         let module = module ?? app.lastModule
+        runtime.setProfileResolver(resolver)
+        defer { runtime.setProfileResolver(app.resolver) }
         let candidate = TextEngine.pair(resolve: { resolver.url($0) }, read: { resolver.bytes($0) }, bundled: { resolver.bundledURL($0) })
         runtime.setMeasure(TextEngine.measureText, ctx: candidate.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: candidate.measuring.opaque)
@@ -867,6 +871,7 @@ public final class ExactSession {
 
     func commit(_ candidate: Prepared) -> Batch {
         text = candidate.text
+        runtime.setProfileResolver(candidate.resolver)
         updateToken = candidate.token
         runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
@@ -928,19 +933,26 @@ public final class ExactSession {
             && batch.canvas == frames.canvas2d && batch.frames == frames.tasks
     }
 
-    /// A timer's batch. An app's timer that writes nothing (a poll that finds
-    /// no news) still commits a batch, with only its next deadline: that one
-    /// only moves the clock, as fills and list feedback already skip theirs,
-    /// instead of running the presenter's whole pass four times a second.
-    func applyTick(_ batch: Batch) {
+    /// A batch from a timer or a scroll event: one that changes nothing only
+    /// moves the clock. An app's timer that writes nothing (a poll that
+    /// finds no news) and a `scroll=` handler whose writes show nowhere
+    /// (every frame of a fling) still commit, and the presenter's whole pass
+    /// cost ~4.5 ms a batch on the simulator, which a fling paid every
+    /// frame. Fills and list feedback already skip theirs. Other events
+    /// still apply an empty batch: a native control that changed itself
+    /// before its handler ran is reconciled by the pass (a refused tab), and
+    /// the agent's clock seeks native animations through it.
+    func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false) {
         guard !applying, !(fillInFlight || tickInFlight || canvasInFlight), changesNothing(batch) else { apply(batch); return }
         // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
         sampler?.batch(batch.seq, ms: 0)
         timerDue = batch.timerDueMs
         scheduleClock(due: batch.timerDueMs)
+        // What the pass did that a scroll moves (`scrolledWithoutPass`).
+        if scrolled { presenter.scrolledWithoutPass() }
     }
 
-    /// Batches that reached `apply` (`applyTick`'s tests read it).
+    /// Batches that reached `apply` (`IdleTickTests` read it).
     private(set) var appliedBatches = 0
 
     func apply(_ batch: Batch) {
@@ -977,7 +989,7 @@ public final class ExactSession {
         presenter.apply(batch)
         if !batch.canvasImages.isEmpty { presenter.canvas2d.load(batch.canvasImages) }
         AnimatedRasters.shared.poke()
-        for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)) }
+        for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)); presenter.reorderGroup?.observe(ReorderGroupState(op.payload)) }
         presenter.reorder?.raiseLifted()
         frames.motion = batch.motion
         frames.spatial = batch.spatial
@@ -1172,7 +1184,7 @@ public final class ExactSession {
             clockTimer = SessionClockTimer.schedule(after: delay / 1000) { [weak self] _ in
                 guard let self, state != .destroyed else { return }
                 clockTimer = nil
-                whenIdle { [weak self] in guard let self, state != .destroyed else { return }; followOffset(); applyTick(runtime.advance(now: now())) }
+                whenIdle { [weak self] in guard let self, state != .destroyed else { return }; followOffset(); applyUnlessEmpty(runtime.advance(now: now())) }
             }
         }
         frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
@@ -1240,7 +1252,7 @@ public final class ExactSession {
         #else
         let dark = DisplayPreferences.systemDark
         #endif
-        return DisplayPreferences.bits(systemDark: dark)
+        return DisplayPreferences.bits(systemDark: dark, view: view)
     }
     /// @ref LLP 1069.000 D2 — told after every boot and on each change; a
     /// change while iOS suspends the process lands with the foreground
@@ -1332,6 +1344,17 @@ public final class ExactSession {
         let location = runtime.location(of: url.absoluteString)
         if !booted { runtime.launch(location); return true }
         return navigate(location)
+    }
+    /// A link the reader followed — a `link href`, a text run's `href`, a
+    /// Markdown link. A path naming one of the app's routes is a location
+    /// for the navigation root, as the web's same-document link is (LLP 1038
+    /// §7); anything else — a page, a file beside a document — is the
+    /// containing app's to open (`openURL`).
+    @discardableResult public func follow(_ href: String) -> Bool {
+        guard state != .destroyed, !href.isEmpty else { return false }
+        if href.hasPrefix("/"), !href.hasPrefix("//"), booted, runtime.routeMatches(href) { return navigate(href) }
+        delegate?.exactSession(self, command: "openURL", args: [href])
+        return true
     }
     @discardableResult public func navigate(_ location: String) -> Bool {
         guard state != .destroyed, booted else { return false }

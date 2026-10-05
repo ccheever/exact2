@@ -268,6 +268,7 @@ fn identical<G: Game, P: crate::Executor, const ASSETS: bool>(
             period_ms: 0.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         };
         if let Some(r) = surface.renderer_for_test() {
             r.count_culled(true);
@@ -440,6 +441,7 @@ fn armed_perf_reports_culled_views_and_pass_times_without_hooks() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     fixture::render(&gpu, &mut surface, &frame).unwrap();
     let unarmed = surface.agent("{\"op\":\"state\"}").unwrap();
@@ -477,6 +479,7 @@ fn devices_without_indirect_execution_draw_the_same_pixels_directly() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (culled, _) = fixture::render(&gpu, &mut surface, &frame).unwrap();
     // As on the iOS simulator: no indirect execution, so every group draws directly.

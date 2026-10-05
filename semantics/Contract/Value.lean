@@ -81,6 +81,24 @@ def asList : Value → Result (List Value)
   | .list xs => .ok xs
   | _ => .error (.type "list")
 
+/-- `Array.prototype.includes`'s SameValueZero on what `includes` takes of a
+list's items (LLP 1088 §9.1): numbers by IEEE `==` with NaN equal to NaN
+(`-0` is `0`), strings and bools by value. -/
+def sameValueZero : Value → Value → Bool
+  | .num a, .num b => a == b || (Number.isNaN a && Number.isNaN b)
+  | .str a, .str b => a == b
+  | .bool a, .bool b => a == b
+  | _, _ => false
+
+/-- `Array.prototype.indexOf`'s IsStrictlyEqual on what `indexOf` takes of a
+list's items (LLP 1088 §9.1): numbers by IEEE `==` (NaN is never found,
+`-0` is `0`), strings and bools by value. -/
+def strictEq : Value → Value → Bool
+  | .num a, .num b => a == b
+  | .str a, .str b => a == b
+  | .bool a, .bool b => a == b
+  | _, _ => false
+
 end Value
 
 namespace Str
@@ -209,6 +227,36 @@ def replaceFrom (str find w : List Nat) : Nat → Nat → List Nat → List Nat
     else match rest with
       | [] => []
       | u :: us => u :: replaceFrom str find w fuel (p + 1) us
+
+/-- Where `needle`'s units first match from position `p` of `rest`; the
+empty needle at once. -/
+def indexFrom (needle : List Nat) : Nat → List Nat → Option Nat
+  | p, [] => if needle.isEmpty then .some p else .none
+  | p, u :: us => if isPrefixN needle (u :: us) then .some p else indexFrom needle (p + 1) us
+
+/-- `String.prototype.indexOf(needle)` (LLP 1088 §9.1): the first match's
+position in UTF-16 code units. -/
+def indexOf (hay needle : String) : Option Nat :=
+  indexFrom (utf16Units needle) 0 (utf16Units hay)
+
+/-- `split`'s pieces of `rest`, `cur` the units of the piece so far: a
+match of `sep` (not empty) ends a piece. Each step consumes a unit or a
+match, so the string's length bounds the steps (`fuel`). -/
+def splitFrom (sep : List Nat) : Nat → List Nat → List Nat → List (List Nat)
+  | 0, cur, _ => [cur]
+  | fuel + 1, cur, rest =>
+    if isPrefixN sep rest then cur :: splitFrom sep fuel [] (rest.drop sep.length)
+    else match rest with
+      | [] => [cur]
+      | u :: us => splitFrom sep fuel (cur ++ [u]) us
+
+/-- `String.prototype.split(sep)` with a string `sep` (LLP 1088 §9.1), each
+piece well formed: an empty `sep` splits into code units, `""` into none. -/
+def split (s sep : String) : List String :=
+  let us := utf16Units s
+  let sp := utf16Units sep
+  if sp.isEmpty then us.map fun u => ofUnits [u]
+  else (splitFrom sp (us.length + 1) [] us).map ofUnits
 
 /-- `String.prototype.replaceAll(find, with)` with a string `find`, well
 formed. The runner's `MAX_STRING` bound is not modelled. -/

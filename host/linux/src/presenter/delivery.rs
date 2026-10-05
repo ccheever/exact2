@@ -226,6 +226,7 @@ impl<D: DataSource> Presenter<D> {
         self.brush.text = text;
         self.assets = assets;
         images.enable_decode();
+        images.fit(self.viewport, self.brush.scale);
         self.images = images;
         self.executor = self.host.executor();
         self.parked.clear();
@@ -235,7 +236,8 @@ impl<D: DataSource> Presenter<D> {
         self.retained_motion = None;
         self.transform_geometry = Default::default();
         self.arrange = None;
-        self.brush.arrange_lift = None;
+        self.group = None;
+        self.brush.lift = Default::default();
         self.page = (0.0, 0.0);
         self.restore_focus(kept);
         self.pointer = None;

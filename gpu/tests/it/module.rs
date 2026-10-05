@@ -574,6 +574,7 @@ fn headless_ownership_keeps_every_non_drawing_seam() {
         period_ms: 0.0,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     for _ in 0..2 {
         assert_eq!(m.render(id, &f), None);
@@ -930,6 +931,7 @@ fn every_render_prepares_retained_assets_before_surface_readiness() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     assert!(module.readback(id, &frame).is_some());
     module.lose_device();

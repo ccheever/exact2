@@ -1,7 +1,7 @@
 // @ref LLP 1043.000 §3 D7/D8 — flow settlement must not change LLP 1012's API.
 import { test, expect } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
@@ -13,6 +13,7 @@ import { focusController, placeReporter, timeReporter, pageReporter, viewBox, gr
 import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
+import { nodeNamed } from '../../scripts/agent-test.mjs';
 
 const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.contract', line, col: 3, end_col: 9, component: 'Bubble',
   chain: [{file: '/app/app.contract', line: 45, col: 5, end_col: 11, component: 'App'}],
@@ -543,6 +544,12 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
     process.env.EXACT_WEB_BROWSER = 'firefox';
     chrome = await open({ host:'web', url });
     expect(chrome.carrier.browser).toBe('chrome');
+    // evaluate takes a function of no arguments as Playwright's carriers do (r23 t2).
+    expect(await chrome.carrier.evaluate(() => 1 + 1)).toBe(2);
+    expect(await chrome.carrier.evaluate('1 + 2')).toBe(3);
+    expect(await chrome.carrier.evaluate(async () => 4)).toBe(4);
+    expect(await chrome.carrier.evaluate(({ probe() { return 5; } }).probe)).toBe(5);
+    expect(await chrome.carrier.evaluate(({ async probe() { return 6; } }).probe)).toBe(6);
     await chrome.close(); chrome = null;
     const { firefox } = await import('playwright-core');
     if (!existsSync(firefox.executablePath())) {
@@ -569,10 +576,19 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
     await expect(session.pointer('up')).rejects.toThrow('firefox up unsupported:');
     await expect(session.tap('touch', {pinch:1.2})).rejects.toThrow('firefox pinch unsupported:');
     expect(JSON.stringify((await session.state()).slots)).toBe(beforeRefusals);
+    // A mouse drag is a real button, twice, so the first lift cleared the contact (drums R13).
+    const dragged = await session.tap('touch', { drag: { dx: 20, dy: 0, mouse: true, over: 16 } });
+    expect(dragged.delivery).toBe('platform');
+    expect(dragged.drag.mouse).toBe(true);
+    await session.tap('touch', { drag: { dx: -20, dy: 0, mouse: true, over: 16 } });
+    await session.carrier.evaluate(`(() => { window.__exactShift = null; addEventListener('pointerdown', (e) => { window.__exactShift = e.shiftKey; }, { capture: true, once: true }); })()`);
+    await session.tap('press', { modifiers: 'Shift' });
+    expect(await session.carrier.evaluate('window.__exactShift')).toBe(true);
     await session.tap('scroll', {wheel:[0,120]});
     const state = (await session.state()).slots;
     expect(state.presses).toBeGreaterThan(0);
     expect(state.words).toBe('hia');
+    await session.type('root', { key: ' ' }); // the column takes no focus; the key is still pressed (drums R13)
     expect((await session.layout()).nodes.find(node => node.testId === 'scroll').sy).toBeGreaterThan(0);
     expect((await session.clock('+25')).clock).toBe(25);
     expect((await session.prefer({'prefers-color-scheme':'dark'})).media['prefers-color-scheme']).toBe('dark');
@@ -1364,3 +1380,110 @@ test('a native mouse contact holds the button until it lifts or its down fails',
   await c.ask('down', { mouse: true }, send({ error: 'no input under it' }));
   expect(c.held).toBe(false);
 });
+
+test('perf frames live lends the clock to the wall for its window and measures what it presented (LLP 1079 D4; platformer R11)', async () => {
+  const saved = Object.fromEntries(['document', 'addEventListener', 'requestAnimationFrame', 'cancelAnimationFrame', 'performance'].map(k => [k, Object.getOwnPropertyDescriptor(globalThis, k)]));
+  let wall = 1000, next = 0; const queued = new Map();
+  const set = (k, value) => Object.defineProperty(globalThis, k, { value, configurable: true, writable: true });
+  set('document', { visibilityState: 'visible', addEventListener() {}, getAnimations: () => [] });
+  set('addEventListener', () => {});
+  set('requestAnimationFrame', fn => (queued.set(++next, fn), next));
+  set('cancelAnimationFrame', id => queued.delete(id));
+  set('performance', { now: () => wall });
+  try {
+    await import('./frames.js');
+    let clock = 500;
+    const advanced = [], gpu = [];
+    const window = globalThis.exact.liveFrames({ ms: 200, origin: () => 0, log() {}, clock: () => clock,
+      advance: to => { advanced.push(to); clock = to; },
+      gpu: { live: on => (gpu.push(on), on ? [] : [{ canvas: 7, perf: { frameMs: { p50: 16.7 } } }]) } });
+    let done = false; window.then(() => { done = true; });
+    for (let i = 0; i < 40 && !done; i++) {
+      wall += 1000 / 60;
+      const due = [...queued.values()]; queued.clear();
+      for (const fn of due) fn(wall);
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    const reply = await window;
+    expect(gpu).toEqual([true, false]); // the world left the seek for its own frames, and came back
+    expect(reply.live).toEqual({ ms: 200, from: 500, to: 700 });
+    expect(advanced.at(-1)).toBe(700); // the runner followed the wall to the window's end, and no further
+    expect(reply.window.samples).toBeGreaterThan(8);
+    expect(reply.window.p50).toBeCloseTo(16.67, 1);
+    expect(reply.world).toEqual([{ canvas: 7, perf: { frameMs: { p50: 16.7 } } }]);
+    expect(globalThis.exact.frames).toBeUndefined(); // the window's sampler does not outlive it
+  } finally {
+    for (const [k, d] of Object.entries(saved)) d ? Object.defineProperty(globalThis, k, d) : delete globalThis[k];
+  }
+});
+// A target no testId carries, by the label or text a person reads (Exact-new iOS feedback, 2026-10-04).
+const N = (id, depth, type, props = {}, handlers = [], inactive = false) => ({ id, depth, type, props, handlers, inactive });
+test('a scroller with a scroll handler does not steal a button name', () => {
+  const nodes = [N(1, 0, 'View', {}, ['scroll']), N(2, 1, 'Pressable', { accessibilityLabel: 'Save' }, ['press']), N(3, 2, 'Text', { text: 'Save' })];
+  expect(nodeNamed(nodes, 'Save').id).toBe(2);
+  const t = [N(1, 0, 'View', {}, ['scroll']), N(2, 1, 'Pressable', {}, ['press']), N(3, 2, 'Text', { text: 'Save' })];
+  expect(nodeNamed(t, 'Save').id).toBe(2);
+});
+test('an active screen heading beats a covered button', () => {
+  const nodes = [N(1, 0, 'View'), N(2, 1, 'Pressable', {}, ['press'], true), N(3, 2, 'Text', { text: 'Settings' }, [], true), N(4, 1, 'Text', { text: 'Settings' })];
+  expect(nodeNamed(nodes, 'Settings').id).toBe(4);
+});
+test('ambiguity refuses, fast on a flat list', () => {
+  const nodes = [N(0, 0, 'View')];
+  for (let i = 1; i <= 5000; i++) nodes.push(N(i, 1, 'Pressable', { accessibilityLabel: 'Delete' }, ['press']));
+  const t0 = performance.now();
+  expect(() => nodeNamed(nodes, 'Delete')).toThrow(/names 5000 views/);
+  expect(performance.now() - t0).toBeLessThan(200);
+});
+test('a press beats an ancestor taking only focus, a pan or a context menu', () => {
+  for (const h of ['focus', 'pan', 'contextmenu']) {
+    const nodes = [N(1, 0, 'View', {}, [h]), N(2, 1, 'Pressable', {}, ['press']), N(3, 2, 'Text', { text: 'Save' })];
+    expect(nodeNamed(nodes, 'Save').id).toBe(2);
+  }
+});
+test('active text beats a covered label, and a covered descendant names no active ancestor', () => {
+  const covered = [N(1, 0, 'View'), N(2, 1, 'Pressable', { accessibilityLabel: 'Settings' }, ['press'], true), N(4, 1, 'Text', { text: 'Settings' })];
+  expect(nodeNamed(covered, 'Settings').id).toBe(4);
+  const only = [N(1, 0, 'View'), N(2, 1, 'Pressable', {}, ['press'], true), N(3, 2, 'Text', { text: 'Save' }, [], true)];
+  expect(nodeNamed(only, 'Save').id).toBe(2);
+});
+test('innermost non-interactive text; none is null', () => {
+  const nodes = [N(1, 0, 'View'), N(2, 1, 'View'), N(3, 2, 'Text', { text: 'Hi' })];
+  expect(nodeNamed(nodes, 'Hi').id).toBe(3);
+  expect(nodeNamed(nodes, 'Nope')).toBe(null);
+});
+
+
+test('iOS drives serialize the same device and bundle and release on launch or close failure', async () => {
+  const { exclusiveIOS } = await import('../../scripts/agent-launch.mjs');
+  const directory = mkdtempSync(join(tmpdir(), 'exact-drive-lock-')), events = [];
+  const options = { directory, timeout: 1000 };
+  const launch = label => async () => { events.push(label); return { close: async () => events.push('close ' + label) }; };
+  let first, second, other;
+  try {
+    first = await exclusiveIOS('sim', 'app', launch('first'), options);
+    const waiting = exclusiveIOS('sim', 'app', launch('second'), options);
+    other = await exclusiveIOS('sim', 'other', launch('other'), options);
+    expect(events).toEqual(['first', 'other']);
+    await first.close(); second = await waiting;
+    expect(events).toEqual(['first', 'other', 'close first', 'second']);
+    await expect(exclusiveIOS('sim', 'app', launch('blocked'), {...options, timeout:0})).rejects.toThrow('iOS drive busy');
+    await second.close(); await other.close();
+    await expect(exclusiveIOS('sim', 'app', async () => { throw Error('launch failed'); }, options)).rejects.toThrow('launch failed');
+    first = await exclusiveIOS('sim', 'app', async () => ({ close: async () => { throw Error('close failed'); } }), options);
+    await expect(first.close()).rejects.toThrow('close failed'); first = null;
+    second = await exclusiveIOS('sim', 'app', launch('released'), options); await second.close();
+    // Kill the recorded driver PID while it holds the lock: EOF must release
+    // the helper's OS lock without a stale-file cleanup or a wall-clock lease.
+    const script = join(directory, 'holder.mjs');
+    writeFileSync(script, `import {exclusiveIOS} from ${JSON.stringify(new URL('../../scripts/agent-launch.mjs', import.meta.url).href)};
+await exclusiveIOS('sim','app',async()=>({close:async()=>{}}),${JSON.stringify(options)});console.log('held');`);
+    const child = spawn(process.execPath, [script], {stdio:['ignore','pipe','pipe']});
+    const exited = new Promise(resolve => child.once('exit', resolve));
+    try {
+      await new Promise((resolve,reject)=>{child.stdout.once('data',resolve);child.once('error',reject);child.once('exit',()=>reject(Error('holder exited before locking')));});
+      child.kill('SIGKILL'); await exited;
+      second = await exclusiveIOS('sim', 'app', launch('after death'), options); await second.close();
+    } finally { child.kill('SIGKILL'); await exited; }
+  } finally { await first?.close(); await second?.close(); await other?.close(); rmSync(directory,{recursive:true,force:true}); }
+}, 60000);

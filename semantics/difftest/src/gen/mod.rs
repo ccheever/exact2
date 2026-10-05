@@ -43,6 +43,9 @@ pub struct Size {
     pub depth: usize,
     /// Script events.
     pub events: usize,
+    /// Whether a mutation may be `queue` and a task gated (LLP 1092): the
+    /// component-level semantics has neither (`difftest expansion`).
+    pub schedule: bool,
 }
 
 impl Default for Size {
@@ -53,6 +56,7 @@ impl Default for Size {
             actions: 4,
             depth: 3,
             events: 12,
+            schedule: true,
         }
     }
 }
@@ -128,6 +132,8 @@ pub(crate) struct Mutation {
     pub(crate) name: String,
     pub(crate) source: String,
     pub(crate) args: Vec<Ty>,
+    /// `queue` (LLP 1092 D1): a path may send it more than once.
+    pub(crate) queue: bool,
 }
 
 /// A child component as a use site needs it.
@@ -229,17 +235,14 @@ impl<'s> Gen<'s> {
         format!("{prefix}{}", self.next)
     }
 
-    /// Whether a value of `t` holds a string, so a write of it could grow
-    /// without bound across events.
-    pub(crate) fn holds_str(&self, t: &Ty) -> bool {
+    /// Whether a value of `t` holds a string or a list, so a write of it
+    /// could grow without bound across events (`s + s`, `concat(xs, xs)`).
+    pub(crate) fn grows(&self, t: &Ty) -> bool {
         match t {
-            Ty::Str => true,
+            Ty::Str | Ty::List(_) => true,
             Ty::Num | Ty::Bool => false,
-            Ty::Opt(t) | Ty::List(t) => self.holds_str(t),
-            Ty::Rec(i) => self.shapes[*i]
-                .fields
-                .iter()
-                .any(|(_, t)| self.holds_str(t)),
+            Ty::Opt(t) => self.grows(t),
+            Ty::Rec(i) => self.shapes[*i].fields.iter().any(|(_, t)| self.grows(t)),
         }
     }
 

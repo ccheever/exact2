@@ -482,6 +482,7 @@ final class Canvases {
             // D4 (d): every frame while editing under the overlay — but not
             // twice on the turn a batch already captured.
             if e.through, !e.view.paintedThisTurn, let overlay = e.view.overlay, Canvases.editing(under: overlay) { capture(m, e) }
+            m.syncDynamicRange(e.id, view: e.view, layer: e.view.metal?.layer)
             guard live(e.view.id) === e, e.wants || m.dirty(e.id) != 0, let metal = e.view.metal else { continue }
             let wall = CACurrentMediaTime()
             if wall < e.starvedUntil { more = true; continue }

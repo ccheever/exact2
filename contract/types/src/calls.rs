@@ -38,12 +38,8 @@ fn inside<'e>(e: &'e Expr, scope: &Scope, shapes: &Shapes) -> Option<(&'e str, S
         }
     };
     match e {
-        Expr::Number(..)
-        | Expr::Str(..)
-        | Expr::Bool(..)
-        | Expr::None(_)
-        | Expr::EmptyList(_)
-        | Expr::Ident(..) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {}
+        Expr::List(items, _) => items.iter().for_each(&mut look),
         Expr::Template(parts, _) => {
             for p in parts {
                 if let TemplatePart::Expr(x) = p {

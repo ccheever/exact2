@@ -34,6 +34,8 @@ mod acquire;
 mod binding;
 mod children;
 mod frame;
+#[cfg(all(test, target_os = "macos"))]
+mod hdr_tests;
 mod input;
 pub use input::{InputEvent, PointerKind, PointerPhase};
 pub mod json;
@@ -70,6 +72,10 @@ pub struct Frame {
     /// pipeline at the next frame. The module sets it; a fixture passes
     /// what [`shaders::shader_generation`] says.
     pub shader_generation: u32,
+    /// How far above SDR white (1.0) this frame may draw (LLP 1100 D12b); 1
+    /// unless the surface asked ([`Surface::high_dynamic_range`]) and got an
+    /// HDR target.
+    pub headroom: f32,
 }
 
 impl Frame {
@@ -249,6 +255,12 @@ pub trait Surface {
     fn take_error(&mut self) -> Option<SurfaceError> {
         None
     }
+    /// Draw above SDR white (LLP 1100 D12b): where the platform can, the
+    /// target is `Rgba16Float` in extended sRGB, up to [`Frame::headroom`].
+    /// Asked once, when the canvas is created.
+    fn high_dynamic_range(&self) -> bool {
+        false
+    }
     /// Raw input inside this canvas (LLP 1046.002 S1); app gestures elsewhere are untouched.
     fn wants_input(&self) -> bool {
         false
@@ -391,6 +403,9 @@ struct Instance {
     children_generation: u32,
     /// Per-child textures (LLP 1014 D5), by index.
     each: Vec<Option<ChildTexture>>,
+    /// Its target is extended sRGB (LLP 1100 D12b).
+    hdr: bool,
+    headroom: f32,
 }
 
 impl Instance {
@@ -589,6 +604,77 @@ impl Module {
         // The browser's canvas default is linear `bgra8unorm`; a native
         // executor that picked an sRGB format would show every color lighter
         // (LLP 1009 D1: the browser is the oracle). Prefer a non-sRGB format.
+        let caps = target.get_capabilities(&gpu.adapter);
+        if let Some(f) = caps.formats.iter().find(|f| !f.is_srgb()) {
+            config.format = *f;
+            config.view_formats = vec![];
+        }
+        // LLP 1100 D12b: extended sRGB continues the 8-bit target's encoding
+        // past 1, so one shader serves both.
+        let surface = factory();
+        let hdr = surface.high_dynamic_range()
+            && caps
+                .color_spaces(wgpu::TextureFormat::Rgba16Float)
+                .contains(wgpu::SurfaceColorSpaces::EXTENDED_SRGB);
+        if hdr {
+            config.format = wgpu::TextureFormat::Rgba16Float;
+            config.color_space = wgpu::SurfaceColorSpace::ExtendedSrgb;
+            config.view_formats = vec![];
+        }
+        config.present_mode = wgpu::PresentMode::AutoVsync;
+        target.configure(&gpu.device, &config);
+        let id = self.insert(surface, Some((target, config)))?;
+        if let Some(inst) = self.instances.get_mut(&id) {
+            inst.hdr = hdr;
+        }
+        Some(id)
+    }
+
+    /// Whether canvas `id` draws above SDR white: it asked, and its target
+    /// is extended sRGB (LLP 1100 D12b).
+    pub fn high_dynamic_range(&self, id: u32) -> bool {
+        self.instances.get(&id).is_some_and(|i| i.hdr)
+    }
+
+    /// The headroom an HDR canvas draws its next frames to (LLP 1100 D12b);
+    /// at least 1.
+    pub fn set_headroom(&mut self, id: u32, headroom: f32) {
+        if let Some(inst) = self.instances.get_mut(&id) {
+            let h = if headroom.is_finite() {
+                headroom.max(1.0)
+            } else {
+                1.0
+            };
+            if inst.headroom != h {
+                inst.headroom = h;
+                inst.dirty = true;
+            }
+        }
+    }
+
+    /// Give a canvas made without a target ([`Module::create_headless`]) a
+    /// platform target to present to, configured as [`Module::create`] does
+    /// (a host whose windows come after the surface, as Android's do).
+    pub fn attach(
+        &mut self,
+        id: u32,
+        target: wgpu::Surface<'static>,
+        width: u32,
+        height: u32,
+    ) -> bool {
+        self.check_device();
+        let Some(gpu) = self.gpu.as_ref() else {
+            return self.fail::<()>("no device").is_some();
+        };
+        if let Some(why) = shaders::missing(self.registry.shaders) {
+            return self.fail::<()>(why).is_some();
+        }
+        let Some(mut config) = target.get_default_config(&gpu.adapter, width.max(1), height.max(1))
+        else {
+            return self
+                .fail::<()>("the adapter cannot present to this target")
+                .is_some();
+        };
         let formats = target.get_capabilities(&gpu.adapter).formats;
         if let Some(f) = formats.iter().find(|f| !f.is_srgb()) {
             config.format = *f;
@@ -596,7 +682,31 @@ impl Module {
         }
         config.present_mode = wgpu::PresentMode::AutoVsync;
         target.configure(&gpu.device, &config);
-        self.insert(*factory, Some((target, config)))
+        let features = gpu.device.features();
+        let Some(inst) = self.instances.get_mut(&id) else {
+            return self.fail::<()>(format!("no canvas {id}")).is_some();
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            inst.acquire = Default::default();
+        }
+        inst.presentation = Some(Arc::new(target));
+        inst.config = Some(config);
+        inst.surface.device_ready(features);
+        inst.dirty = true;
+        true
+    }
+
+    /// Drop a canvas's target (its window is going); its state stays.
+    pub fn detach(&mut self, id: u32) {
+        if let Some(inst) = self.instances.get_mut(&id) {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                inst.acquire = Default::default();
+            }
+            inst.presentation = None;
+            inst.config = None;
+        }
     }
 
     /// Create surface ownership without a device, target, or registered shaders.
@@ -605,17 +715,16 @@ impl Module {
         else {
             return self.fail(format!("no surface named `{name}` in this module"));
         };
-        self.insert(*factory, None)
+        self.insert(factory(), None)
     }
 
     fn insert(
         &mut self,
-        factory: Factory,
+        mut surface: Box<dyn Surface>,
         presentation: Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
     ) -> Option<u32> {
         self.next += 1;
         let id = self.next;
-        let mut surface = factory();
         surface.clock(self.seekable);
         if let Some(gpu) = &self.gpu {
             surface.device_ready(gpu.device.features());
@@ -643,6 +752,8 @@ impl Module {
                 children: None,
                 children_generation: 0,
                 each: Vec::new(),
+                hdr: false,
+                headroom: 1.0,
             },
         );
         Some(id)
@@ -1129,6 +1240,7 @@ impl Module {
             period_ms: self.period_ms,
             children_generation: inst.children_generation,
             shader_generation: shaders::shader_generation(),
+            headroom: 1.0,
             ..*frame
         };
         let (width, height) = frame.pixels();

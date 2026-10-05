@@ -11,7 +11,7 @@
 
 use super::{Painter, Rect4};
 use crate::text::{Paragraph, RunPaint};
-use exact_kernel::{Kernel, NodeRef, StyleId, StyleMask};
+use exact_kernel::{Kernel, NodeRef, StyleId};
 use std::sync::Arc;
 use tiny_skia::Transform;
 
@@ -25,26 +25,25 @@ struct RunLook {
 
 impl Painter {
     fn run_looks(&self, kernel: &Kernel, palette: &[RunPaint]) -> Vec<RunLook> {
-        let mut mask = StyleMask::of(StyleId::TextShadow);
-        mask.set(StyleId::TextStrokeWidth);
-        mask.set(StyleId::TextStrokeColor);
         palette
             .iter()
             .map(|run| {
                 let Some(node) = kernel.node(run.source) else {
                     return RunLook::default();
                 };
-                let style = node.computed_style(mask);
-                let shadow = style.text_shadow.shadow().map(|s| {
-                    let color = s
-                        .color
-                        .map_or(run.color, |c| super::rgba(c.resolve(self.dark)));
-                    ((s.offset.x, s.offset.y), s.blur, color)
-                });
-                let width = style.text_stroke_width;
+                // Each row where it is set: no whole style copied per run.
+                let shadow = node
+                    .computed_row(StyleId::TextShadow, |s| s.text_shadow.shadow().copied())
+                    .map(|s| {
+                        let color = s
+                            .color
+                            .map_or(run.color, |c| super::rgba(c.resolve(self.dark)));
+                        ((s.offset.x, s.offset.y), s.blur, color)
+                    });
+                let width = node.computed_row(StyleId::TextStrokeWidth, |s| s.text_stroke_width);
                 let stroke = (width > 0.0 && width.is_finite()).then(|| {
-                    let color = style
-                        .text_stroke_color
+                    let color = node
+                        .computed_row(StyleId::TextStrokeColor, |s| s.text_stroke_color)
                         .map_or(run.color, |c| super::rgba(c.resolve(self.dark)));
                     (width, color)
                 });

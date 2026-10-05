@@ -10,7 +10,7 @@ private let recoveryReply = UnsafeMutablePointer<UInt8>.allocate(capacity: 128)
 private var recoveryLength: UInt32 = 0
 private var replacementLost = true
 private var replacements = 0
-private var controlEvents: [[String: Any]] = []
+var controlEvents: [[String: Any]] = []
 private var boundObjects: [NSDictionary] = []
 #if os(macOS)
 private final class ContactEventWindow: NSWindow {
@@ -19,7 +19,7 @@ private final class ContactEventWindow: NSWindow {
 }
 #endif
 final class SurfaceControlTests: XCTestCase {
-    private func fixture() -> (ExactSession, NodeView, NodeView) {
+    func fixture() -> (ExactSession, NodeView, NodeView) {
         #if os(macOS)
         _ = NSApplication.shared
         #endif
@@ -411,6 +411,27 @@ final class SurfaceControlTests: XCTestCase {
         XCTAssertNil(agent.contact("up", [:])["error"])
         XCTAssertEqual(window.events.last!.deltaX, 0)
         XCTAssertEqual(window.events.last!.deltaY, 0)
+        withExtendedLifetime(window) {}
+    }
+    /// The platformer's diary, R8: a key the agent types at a world's canvas
+    /// takes the keyboard's route, as on the web — the canvas's `key`
+    /// handlers hear it, and one that prevents it keeps it from the world.
+    func testAgentCanvasKeyReachesKeyHandlersAndPreventedOnesStopThere() {
+        let (s, canvas, _) = fixture(); defer { s.destroy() }
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:200,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
+        window.contentView=s.presenter.viewport
+        canvas.handlers.insert("key")
+        var heard: [String] = [], prevent = false
+        s.presenter.onKey = { id, name in heard.append("\(id) \(name)"); if prevent { s.presenter.defaultPrevented = true } }
+        controlEvents = []
+        let agent = s.agentInstance
+        XCTAssertNil(agent.type(["id": 100, "key": "KeyO"])["error"])
+        XCTAssertEqual(heard, ["100 o"])
+        XCTAssertEqual(controlEvents.compactMap { $0["code"] as? String }, ["KeyO", "KeyO"], "a key nothing prevents reaches the world too")
+        prevent = true; heard = []; controlEvents = []
+        XCTAssertNil(agent.type(["id": 100, "key": "KeyO"])["error"])
+        XCTAssertEqual(heard, ["100 o"])
+        XCTAssertTrue(controlEvents.isEmpty, "a prevented key goes no further")
         withExtendedLifetime(window) {}
     }
     func testAgentCancelClearsMouseContact() {

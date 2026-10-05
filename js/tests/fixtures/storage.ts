@@ -6,21 +6,39 @@ const grants = "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write d
 // Work queued behind whatever the module started last, the way an app serializes its
 // database operations. The second answer's storage calls run in a later microtask.
 let tail: Promise<unknown> = Promise.resolve();
+let saves: Promise<unknown> = Promise.resolve(), saveError = "";
+let shared: Promise<{text:string}>;
 
 // Writes an answer starts and does not await (kanban F22): the answer is
 // given before they land, and they must land all the same.
 function answer(source:string, args:unknown[], store:Store, storage:Storage, native:any) {
   const op = String(args[0]), value = String(args[1]);
+  if (op === "shared-live") {
+    shared = fetch("https://example.test/shared").then(async () => {
+      await storage.fs.atomicWriteFile(storage.fs.directories.data + "/shared", new Uint8Array([1]));
+      store.set("session", value);
+      return {text: value};
+    });
+    return shared;
+  }
+  if (op === "shared-wait") return shared.then(() => ({text: "waited"}));
   if (op === "unawaited") {
     storage.fs.atomicWriteFile(storage.fs.directories.data + "/unawaited", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
     return {text:"answered"};
   }
-  if (op === "queued") {
+  // drums R10: a value given at once, its save chained behind a promise
+  // already resolved, so the write begins in the checkpoint after the call.
+  if (op === "deferred") {
+    saves = saves.then(() => storage.fs.atomicWriteFile(storage.fs.directories.data + "/deferred", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0)))))
+      .catch((e) => { saveError = String(e); });
+    return {text:"answered" + saveError};
+  }
+  if (op === "queued" || op === "queued-sync") {
     tail = tail.then(async () => {
       await storage.fs.mkdir(storage.fs.directories.data + "/queued");
       await storage.fs.atomicWriteFile(storage.fs.directories.data + "/queued/file", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
     });
-    return Promise.resolve({text:"answered"});
+    return op === "queued-sync" ? {text:"answered"} : Promise.resolve({text:"answered"});
   }
   return work(source, args, store, storage, native);
 }
@@ -109,9 +127,18 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     const result = await fetch("https://example.test/status/" + value + "?minute=" + minute);
     return {text:await result.text()};
   }
-  if (op === "file") {
+  if (op === "ordered") {
+    const ordered = storage.fs.directories.data + "/ordered";
+    let before = "";
+    try { before = String.fromCharCode(...new Uint8Array(await storage.fs.readFile(ordered))); } catch (_) {}
+    await storage.fs.atomicWriteFile(ordered, new Uint8Array(Array.from(before + value).map(c => c.charCodeAt(0))));
+    store.set("session", value);
+    return {text: value};
+  }
+  if (op === "file" || op === "file-kept") {
     await storage.fs.atomicWriteFile(path, new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
     const bytes = new Uint8Array(await storage.fs.readFile(path));
+    if (op === "file-kept") store.set("session", value);
     return { text: String.fromCharCode(...bytes) };
   }
   if (op === "library") {

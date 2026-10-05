@@ -71,13 +71,16 @@ impl Lowerer<'_> {
                 a.span,
             );
         }
+        // Then optionally its `ReorderEvent` (LLP 1094 D2), which the
+        // arity rule holds to its type.
         if event == "reorderdrop"
             && self.types.components[0].actions[ai][args.len()..]
-                != [Ty::String, Ty::Option(Box::new(Ty::String))]
+                .get(..2)
+                .is_none_or(|p| p != [Ty::String, Ty::Option(Box::new(Ty::String))])
         {
             return err(
                 "lower-handler-type",
-                "`reorderdrop` supplies string and option<string>",
+                "`reorderdrop` supplies string and option<string>, then optionally a `ReorderEvent`",
                 a.span,
             );
         }

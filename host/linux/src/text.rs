@@ -14,12 +14,13 @@
 //! in the box, which cosmic-text does itself. Glyphs are rasterized by swash
 //! once per (glyph, color) into small premultiplied pixmaps.
 
-mod cache;
+pub(crate) mod cache;
 mod catalog;
 mod catalog_recipe;
 mod flow;
 #[cfg(test)]
 mod flow_tests;
+mod font_cache;
 mod shaping;
 #[allow(dead_code)] // Private transfer proof; controller integration is a separate increment.
 pub(crate) mod transfer;
@@ -27,6 +28,7 @@ pub(crate) mod transfer;
 mod transfer_tests;
 use shaping::ShapedSource;
 mod ink;
+pub(crate) mod markup;
 pub use cache::{HandoffResidency, Residency, RetiringResidency};
 
 use crate::image::Assets;
@@ -70,6 +72,16 @@ pub struct Run {
     pub letter_spacing: f32,
     /// CSS `font-variant-numeric` bits (LLP 1053 G4): 1 is `tabular-nums`.
     pub font_variant_numeric: u8,
+    /// A Markdown list item's head indent, points: where its paragraph's
+    /// lines start (LLP 1045 D4).
+    pub indent: f32,
+    /// A Markdown list item's marker, hung before the indent.
+    pub hang: bool,
+    /// A Markdown piece's paint ([`markup::QUIET`], `UNDERLINE`, `STRIKE`);
+    /// 0 for every other run.
+    pub mark: u8,
+    /// A Markdown link's target ([`markup::target`]); empty otherwise.
+    pub href: String,
 }
 
 #[cfg(test)]
@@ -85,6 +97,10 @@ impl Clone for Run {
             line_height: self.line_height,
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
+            indent: self.indent,
+            hang: self.hang,
+            mark: self.mark,
+            href: self.href.clone(),
         }
     }
 }
@@ -103,6 +119,10 @@ impl Run {
             line_height: style.line_height,
             letter_spacing: style.letter_spacing,
             font_variant_numeric: style.font_variant_numeric,
+            indent: 0.0,
+            hang: false,
+            mark: 0,
+            href: String::new(),
         }
     }
 }
@@ -142,6 +162,26 @@ impl Spec {
         self
     }
 
+    /// The runs as the paragraph shows them: Markdown expanded ([`Self::markdown`]),
+    /// anything else collapsed ([`Self::collapse_white_space`]).
+    pub fn shown(self, markdown: bool) -> Self {
+        if markdown {
+            self.markdown()
+        } else {
+            self.collapse_white_space()
+        }
+    }
+
+    /// A `markup="markdown"` paragraph's: its one run of source expanded
+    /// into pieces (LLP 1045 D3), which keep their own lines — the source
+    /// is never collapsed, as on Apple.
+    pub fn markdown(mut self) -> Self {
+        if let [source] = self.runs.as_slice() {
+            self.runs = markup::expand(source);
+        }
+        self
+    }
+
     /// The spec a kernel measure request describes.
     pub fn from_request(request: &TextMeasureRequest<'_>) -> Spec {
         // A soft hyphen breaks and shows here as on every host; `auto`'s own
@@ -151,7 +191,7 @@ impl Spec {
         if request.paragraph.hyphens == exact_kernel::Hyphens::Auto {
             AUTO.call_once(|| eprintln!("[Text] hyphens-auto: Linux has no hyphenation dictionary; `hyphens: auto` breaks only at soft hyphens, as `manual` (LLP 1001)"));
         }
-        Spec {
+        let spec = Spec {
             strut: Run::from_style("", request.paragraph.strut),
             runs: request
                 .runs
@@ -164,8 +204,8 @@ impl Spec {
             white_space: request.paragraph.white_space,
             direction: request.paragraph.direction,
             text_indent: request.paragraph.text_indent,
-        }
-        .collapse_white_space()
+        };
+        spec.shown(request.paragraph.markup == exact_kernel::Markup::Markdown)
     }
 
     /// Whether there is nothing to shape.
@@ -219,6 +259,11 @@ impl Paragraph {
 
     fn layout_capacity_bytes(&self) -> usize {
         self.owned_capacity_bytes() - self.source.accessible_capacity_bytes
+    }
+
+    /// The runs it was shaped from, in the order glyphs' `metadata` index.
+    pub fn runs(&self) -> &[Run] {
+        &self.source.spec.runs
     }
 
     /// CSS baselines in original wrapped-line order.
@@ -414,6 +459,12 @@ impl FamilyChoice {
 pub struct GlyphRun {
     /// The font's data and collection index.
     pub font: PenikoFont,
+    /// Normalized variation coordinates (a variable face's `wght`).
+    pub coords: std::sync::Arc<[i16]>,
+    /// The face's file and collection index, when it was loaded from one.
+    pub file: Option<(std::sync::Arc<str>, u32)>,
+    /// The weight shaped with (the `wght` a variable face is set to).
+    pub weight: u16,
     /// Points.
     pub size: f32,
     /// Canonical run index, retained across font fallback and wrapping.
@@ -943,9 +994,12 @@ impl TextEngine {
         runs.into_iter()
             .filter_map(
                 |((id, weight, size, run_index, synthetic_italic), glyphs)| {
-                    let font = catalog.font_data(id, Weight(weight))?;
+                    let face = catalog.font_data(id, Weight(weight))?;
                     Some(GlyphRun {
-                        font,
+                        font: face.font,
+                        coords: face.coords,
+                        file: face.file,
+                        weight,
                         size: f32::from_bits(size),
                         run_index,
                         paint: palette[run_index],
@@ -1000,6 +1054,20 @@ impl TextMeasurer for Measurer {
         request: &TextMeasureRequest<'_>,
     ) -> TextMetrics {
         self.0.borrow_mut().measure_identified(stamp, request)
+    }
+    fn height_free(&self) -> bool {
+        true
+    }
+    fn measure_known(
+        &mut self,
+        stamp: &ParagraphStamp,
+        width: AxisOffer,
+        _height: AxisOffer,
+    ) -> Option<TextMetrics> {
+        // Offers here are width-only: height never changes a paragraph.
+        let mut engine = self.0.borrow_mut();
+        let (key, spec) = engine.paragraphs.identified(stamp)?;
+        Some(engine.measure_for(&spec, width, key))
     }
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         let spec = Spec::from_request(request);

@@ -147,7 +147,7 @@ export function router(slot, history) {
     if (!a || !root?.contains(a) || ev.defaultPrevented) return;
     const press = (a.dataset.exactOn ?? "").split(" ").includes("press");
     if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || (a.target && a.target !== "_self") || a.hasAttribute("download")) { if (press) ev.stopPropagation(); return; }
-    const url = new URL(a.href), to = url.pathname + url.search, here = to === location.pathname + location.search, m = matchRoute(canonical(to));
+    const url = new URL(a.href), to = url.pathname + url.search, here = to === location.pathname + location.search || to === globalThis.history?.state?.url, m = matchRoute(canonical(to));
     if (url.origin !== location.origin || (here && url.hash) || !m || Routes[m[0]].notfound) return;
     if (!press && !Navigate) return;
     ev.preventDefault();

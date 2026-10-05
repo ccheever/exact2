@@ -76,6 +76,7 @@ impl<D: DataSource> Host<D> {
                 height,
                 scale,
                 bitmap,
+                settings: self.runner.canvas_settings(view),
             },
         );
         let mut batch = Batch::new();

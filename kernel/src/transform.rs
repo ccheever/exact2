@@ -57,6 +57,9 @@ impl Kernel {
                 target = Some(arena.key(slot));
             }
             if s.rotate != 0.0
+                // Pixel translation only: a percentage moves with the box.
+                || s.translate_percent.x != 0.0
+                || s.translate_percent.y != 0.0
                 || !s.translate.x.is_finite()
                 || !s.translate.y.is_finite()
                 || !s.scale.is_finite()

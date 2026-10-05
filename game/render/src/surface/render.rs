@@ -178,6 +178,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         }
         let mut input = feed.frame_pixels(sim.world(), sim.alpha(), (frame.width, frame.height));
         self.perf.lights(input.lights.len(), input.lights_dropped);
+        input.headroom = frame.headroom;
         // Armed perf adds asynchronous pass timings and per-view culling counts.
         if self.perf.armed() {
             renderer.count_culled(true);

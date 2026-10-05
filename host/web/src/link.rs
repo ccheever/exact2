@@ -334,9 +334,11 @@ pub(crate) fn admit(plan: &exact_plan::Plan) -> Result<(), HostError> {
 mod tests {
     use crate::{Host, HostError};
 
-    /// Nothing registers on this test's thread, so it is the core alone.
+    /// The core alone on this test's thread, whatever an earlier test on
+    /// it linked (the test harness may reuse a thread).
     #[test]
     fn a_plan_that_uses_an_unlinked_capability_is_refused_by_name() {
+        crate::link::link(crate::link::Linked::CORE);
         let markdown =
             contract::compile("component A\n  view\n    text \"**b**\" markup=\"markdown\"\n")
                 .unwrap()

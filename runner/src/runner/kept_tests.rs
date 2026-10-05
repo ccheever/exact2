@@ -592,3 +592,24 @@ fn runner_owned_facts_never_admit_or_persist_kept_answers() {
     assert_eq!(answer_writes(&r), 0);
     assert!(r.data.asks.is_empty());
 }
+
+#[test]
+fn a_cold_boot_forgets_kept_answers_no_declared_reader_seeds() {
+    // `answer` is a declared reader; `gone` names no resource, as after a
+    // reader is removed or made transient (the Brooks port's Health summary).
+    let mut snapshot = entry(&[Value::str("A")], &Value::str("kept"));
+    let gone = kept::kept_name("gone");
+    snapshot.push((gone.clone(), kept::encode(&[], &Value::str("private"))));
+    let r = boot(plan(2, false), Source::default(), snapshot);
+    shows(&r, "kept");
+    assert_eq!(r.store.kept(&gone), None);
+    let removed: Vec<_> = r
+        .store
+        .writes()
+        .iter()
+        .filter(|w| w.value.is_none())
+        .map(|w| w.name.as_str())
+        .collect();
+    assert_eq!(removed, [gone.as_str()]);
+    assert_eq!(answer_writes(&r), 0);
+}

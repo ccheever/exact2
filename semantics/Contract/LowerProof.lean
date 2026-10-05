@@ -22,9 +22,9 @@ theorem spec_push {e i w ty} (hev : ∀ v, EvalR env inFn ls e v ↔ v = w) (hty
   exact ⟨hty, hr.step (hex pc S cbs fx)⟩
 
 theorem case_lit (hc : compile (fuel + 1) p depth sc n e = .ok (c, t)) (_hx : Ctx env inFn ls venv L p sc n)
-    (he : e = .num b ∨ e = .str s ∨ e = .bool bb ∨ e = .none ∨ e = .emptyList) :
+    (he : e = .num b ∨ e = .str s ∨ e = .bool bb ∨ e = .none) :
     ExprSpec env inFn ls venv P L e c t := by
-  rcases he with rfl | rfl | rfl | rfl | rfl <;> simp [compile] at hc <;> obtain ⟨rfl, rfl⟩ := hc
+  rcases he with rfl | rfl | rfl | rfl <;> simp [compile] at hc <;> obtain ⟨rfl, rfl⟩ := hc
   · exact spec_push (w := .num (F64.ofBits b)) (fun v => ⟨fun h => by cases h; rfl, fun h => h ▸ .num⟩)
       (by simp [VTy]) (fun _ _ _ _ => by simp [Vm.exec])
   · exact spec_push (w := .str s) (fun v => ⟨fun h => by cases h; rfl, fun h => h ▸ .str⟩)
@@ -33,8 +33,6 @@ theorem case_lit (hc : compile (fuel + 1) p depth sc n e = .ok (c, t)) (_hx : Ct
       (by simp [VTy]) (fun _ _ _ _ => by simp [Vm.exec])
   · exact spec_push (w := .none) (fun v => ⟨fun h => by cases h; rfl, fun h => h ▸ .none⟩)
       (by simp [VTy]) (fun _ _ _ _ => by simp [Vm.exec])
-  · exact spec_push (w := .list []) (fun v => ⟨fun h => by cases h; rfl, fun h => h ▸ .emptyList⟩)
-      (by simp [VTy, VTyAll]) (fun _ _ _ _ => by simp [Vm.exec, popN])
 
 theorem case_some (ih : AllOk fuel) (hc : compile (fuel + 1) p depth sc n (.some e) = .ok (c, t))
     (hx : Ctx env inFn ls venv L p sc n) : ExprSpec env inFn ls venv P L (.some e) c t := by

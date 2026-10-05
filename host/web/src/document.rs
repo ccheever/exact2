@@ -878,14 +878,19 @@ impl<S: Source> Walk<'_, '_, S> {
     }
 
     /// `renderMarkup`: each piece a `span`, or an `a` when it is a link to
-    /// a navigable destination; newlines are `<br>`s.
+    /// a navigable destination; newlines are `<br>`s. A list item's
+    /// paragraph is a block `span` padded by its indent, its marker hung in
+    /// the gutter by a negative `text-indent` (LLP 1045 D4).
     fn markup(&mut self, id: ViewId, json: &str) -> Result<(), DocumentError> {
         let refuse = |reason: String| DocumentError { view: id, reason };
+        // At a paragraph's start; inside a list item's block.
+        let (mut start, mut block) = (true, false);
         for piece in markup_pieces(json).map_err(refuse)? {
             let link = piece.flags & 8 != 0 && !piece.href.is_empty() && navigable(&piece.href);
             if link && self.links > 0 {
                 return Err(refuse("a Markdown link inside a link".into()));
             }
+            let hang = piece.flags & 32 != 0;
             let mut style = String::new();
             if piece.scale != "1" {
                 style.push_str(&format!("font-size:{}em;", piece.scale));
@@ -905,6 +910,11 @@ impl<S: Source> Walk<'_, '_, S> {
             if piece.flags & 16 != 0 {
                 style.push_str("opacity:0.62;");
             }
+            if hang {
+                style.push_str(
+                    "display:inline-flex;justify-content:flex-end;width:40px;white-space:pre;text-indent:0;",
+                );
+            }
             let element = if link { "a" } else { "span" };
             let mut attrs = Vec::new();
             if !style.is_empty() {
@@ -913,16 +923,69 @@ impl<S: Source> Walk<'_, '_, S> {
             if link {
                 attrs.push(("href".to_owned(), Some(piece.href.clone())));
             }
-            self.open(id, element, &attrs)?;
-            for (n, line) in piece.text.split('\n').enumerate() {
+            let lines: Vec<&str> = if hang {
+                vec![piece.text.as_str()]
+            } else {
+                piece.text.split('\n').collect()
+            };
+            // One element per paragraph the piece is in, as the page makes them.
+            let mut open = false;
+            for (n, line) in lines.into_iter().enumerate() {
                 if n > 0 {
-                    self.out.push_str("<br>");
+                    if !open {
+                        self.paragraph(id, (&mut start, &mut block), &piece.indent, hang)?;
+                        self.open(id, element, &attrs)?;
+                    }
+                    self.out.push_str("<br></");
+                    self.out.push_str(element);
+                    self.out.push('>');
+                    (open, start) = (false, true);
                 }
-                escape(&mut self.out, line, false).map_err(|e| refuse(e.to_owned()))?;
+                if !line.is_empty() {
+                    if !open {
+                        self.paragraph(id, (&mut start, &mut block), &piece.indent, hang)?;
+                        self.open(id, element, &attrs)?;
+                        open = true;
+                    }
+                    escape(&mut self.out, line, false).map_err(|e| refuse(e.to_owned()))?;
+                }
             }
-            self.out.push_str("</");
-            self.out.push_str(element);
-            self.out.push('>');
+            if open {
+                self.out.push_str("</");
+                self.out.push_str(element);
+                self.out.push('>');
+            }
+        }
+        if block {
+            self.out.push_str("</span>");
+        }
+        Ok(())
+    }
+
+    /// A paragraph begins at `state.0`: a list item's (a nonzero indent) is
+    /// a block, closing the one before it, and a hung marker pulls its first
+    /// line back by the gutter.
+    fn paragraph(
+        &mut self,
+        id: ViewId,
+        state: (&mut bool, &mut bool),
+        indent: &str,
+        hang: bool,
+    ) -> Result<(), DocumentError> {
+        let (start, block) = state;
+        if !std::mem::take(start) {
+            return Ok(());
+        }
+        if std::mem::take(block) {
+            self.out.push_str("</span>");
+        }
+        if indent != "0" {
+            let mut css = format!("display:block;padding-left:{indent}px;");
+            if hang {
+                css.push_str("text-indent:-40px;");
+            }
+            self.open(id, "span", &[("style".to_owned(), Some(css))])?;
+            *block = true;
         }
         Ok(())
     }
@@ -1132,10 +1195,12 @@ struct Piece {
     weight: String,
     flags: u8,
     href: String,
+    /// A list item's indent, CSS px; "0" outside a list.
+    indent: String,
 }
 
 /// Read the host's own `markupPieces` back (`[[text, scale, weight, flags,
-/// href], …]`), as the linked Markdown capability wrote them; anything else
+/// href, indent?], …]`), as the linked Markdown capability wrote them; anything else
 /// is a defect.
 fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
     let mut p = Json::new(json);
@@ -1155,6 +1220,12 @@ fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
         let flags = p.number()?.parse::<u8>().map_err(|e| e.to_string())?;
         p.expect(b',')?;
         let href = p.string()?;
+        let indent = if p.peek() == Some(b',') {
+            p.next();
+            p.number()?
+        } else {
+            "0".to_owned()
+        };
         p.expect(b']')?;
         pieces.push(Piece {
             text,
@@ -1162,6 +1233,7 @@ fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
             weight,
             flags,
             href,
+            indent,
         });
         match p.next() {
             Some(b',') => continue,

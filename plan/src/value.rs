@@ -259,9 +259,16 @@ impl Value {
             (TypeKind::Option, Value::Option(Some(v))) => {
                 row.elem.is_some_and(|e| v.conforms_finite(plan, e, finite))
             }
-            (TypeKind::List, Value::List(items)) => row
-                .elem
-                .is_some_and(|e| items.iter().all(|v| v.conforms_finite(plan, e, finite))),
+            (TypeKind::List, Value::List(items)) => row.elem.is_some_and(|e| {
+                // A list of scalars (a series' points) checks in one loop.
+                match plan.type_(e).kind {
+                    TypeKind::Number => items
+                        .iter()
+                        .all(|v| matches!(v, Value::Number(n) if !finite || n.is_finite())),
+                    TypeKind::String => items.iter().all(Value::is_str),
+                    _ => items.iter().all(|v| v.conforms_finite(plan, e, finite)),
+                }
+            }),
             (TypeKind::Record, Value::Record(values)) => {
                 let fields = row.fields;
                 values.len() == fields.len as usize
@@ -365,14 +372,30 @@ impl Value {
             }
             tag @ (6 | 7) => {
                 let n = r.count()?;
-                let mut items = Vec::with_capacity(n.min(crate::bytes::RESERVE));
+                // The items gather on the pool's stack, then move into
+                // their object: no vector of their own (an allocation and
+                // a free per object, most of a decode's cost).
+                let start = pool.stack.len();
+                pool.stack.reserve(n.min(crate::bytes::RESERVE));
                 let mut unique = false;
                 for _ in 0..n {
-                    items.push(Self::decode_depth(r, depth + 1, pool)?);
+                    // A number item (a series' points) decodes here: what
+                    // `decode_depth` does for one, without the call.
+                    if r.peek() == Some(0) && depth < 64 {
+                        r.u8()?;
+                        let n = r.f64()?;
+                        if !n.is_finite() {
+                            return Err(PlanError::NonFiniteValue);
+                        }
+                        pool.stack.push(Value::Number(n));
+                        continue;
+                    }
+                    let item = Self::decode_depth(r, depth + 1, pool)?;
+                    pool.stack.push(item);
                     unique |= pool.unique;
                 }
                 let record = tag == 7;
-                let items = pool.objects.get(record, items, unique);
+                let items = pool.objects.get(record, &mut pool.stack, start, unique);
                 pool.unique = unique || items.len() > Objects::LONGEST;
                 return Ok(if record {
                     Value::Record(items)
@@ -392,6 +415,8 @@ impl Value {
 struct Pool {
     strings: Strings,
     objects: Objects,
+    /// The items of the objects being decoded, innermost last.
+    stack: Vec<Value>,
     /// The value just decoded is a part no other object can share by
     /// allocation (a long string, an option's box, or an object holding
     /// one), so an object holding it is not looked up: it cannot repeat.
@@ -476,14 +501,16 @@ impl Objects {
     /// each of its items would cost a hash.
     const LONGEST: usize = 32;
 
-    fn get(&mut self, record: bool, items: Vec<Value>, unique: bool) -> Items {
+    /// The object of `stack[start..]`, which it takes off the stack.
+    fn get(&mut self, record: bool, stack: &mut Vec<Value>, start: usize, unique: bool) -> Items {
+        let items = &stack[start..];
         if unique || items.len() > Self::LONGEST {
-            return Items::from(items);
+            return Items::from(stack.drain(start..));
         }
         if self.slots.is_empty() {
             self.seen += 1;
             if self.seen < Self::AFTER {
-                return Items::from(items);
+                return Items::from(stack.drain(start..));
             }
             self.slots = vec![None; Self::SLOTS];
         }
@@ -499,12 +526,14 @@ impl Objects {
             Some((stored, rc))
                 if *stored == h
                     && rc.len() == items.len()
-                    && rc.iter().zip(&items).all(|(a, b)| shallow_eq(a, b)) =>
+                    && rc.iter().zip(items).all(|(a, b)| shallow_eq(a, b)) =>
             {
-                rc.clone()
+                let rc = rc.clone();
+                stack.truncate(start);
+                rc
             }
             _ => {
-                let rc = Items::from(items);
+                let rc = Items::from(stack.drain(start..));
                 *slot = Some((h, rc.clone()));
                 rc
             }

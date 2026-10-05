@@ -276,6 +276,14 @@ impl PlanBuilder {
         KeyframesId(self.plan.keyframes.len() as u32 - 1)
     }
 
+    /// A `@color-profile` (LLP 1100 D3): its dashed name, ICC file and
+    /// rendering intent.
+    pub fn color_profile(&mut self, name: &str, src: &str, intent: &str) -> ProfilesId {
+        let (name, src, intent) = (self.str(name), self.str(src), self.str(intent));
+        self.plan.profiles.push(ProfilesRow { name, src, intent });
+        ProfilesId(self.plan.profiles.len() as u32 - 1)
+    }
+
     /// An ordered CSS font fallback list (one to 64 members).
     pub fn font_stack(&mut self, members: &[(StackMemberKind, Option<FamiliesId>)]) -> StacksId {
         let start = self.plan.stack_members.len() as u32;
@@ -448,6 +456,7 @@ impl PlanBuilder {
             ty,
             refreshes: MutationRefreshesRange { start: 0, len: 0 },
             then: None,
+            queue: false,
         });
         MutationsId(self.plan.mutations.len() as u32 - 1)
     }
@@ -455,6 +464,11 @@ impl PlanBuilder {
     /// The action run after each of `mutation`'s answers lands.
     pub fn set_mutation_then(&mut self, mutation: MutationsId, action: ActionsId) {
         self.plan.mutations[mutation.0 as usize].then = Some(action);
+    }
+
+    /// `mutation … queue` (LLP 1092 D1): its sends wait their turn.
+    pub fn set_mutation_queue(&mut self, mutation: MutationsId) {
+        self.plan.mutations[mutation.0 as usize].queue = true;
     }
 
     /// The resources a send to `mutation` refreshes (LLP 1054.000.000 D1),
@@ -539,25 +553,55 @@ impl PlanBuilder {
     /// A timer that dispatches `action` at boot+`interval_ms`, then every
     /// `interval_ms` — or, when `once`, never again.
     pub fn timer(&mut self, interval_ms: u32, action: ActionsId, once: bool) -> TimersId {
-        self.plan.timers.push(TimersRow {
-            interval_ms,
-            action,
-            once,
-            frame: false,
-        });
-        TimersId(self.plan.timers.len() as u32 - 1)
+        self.timer_row(interval_ms, action, once, false)
     }
 
     /// A frame task (LLP 1073): dispatches `action` once per presented
     /// frame, or per virtual frame on a seek.
     pub fn frame_timer(&mut self, action: ActionsId) -> TimersId {
+        self.timer_row(0, action, false, true)
+    }
+
+    fn timer_row(
+        &mut self,
+        interval_ms: u32,
+        action: ActionsId,
+        once: bool,
+        frame: bool,
+    ) -> TimersId {
+        let always = self.constant(&Value::Bool(true));
+        let name = self.str("");
         self.plan.timers.push(TimersRow {
-            interval_ms: 0,
+            interval_ms,
             action,
-            once: false,
-            frame: true,
+            once,
+            frame,
+            name,
+            gated: false,
+            gate: always,
+            keyed: false,
+            key: always,
         });
         TimersId(self.plan.timers.len() as u32 - 1)
+    }
+
+    /// A task's name, for the agent (LLP 1092 D10).
+    pub fn set_timer_name(&mut self, timer: TimersId, name: &str) {
+        self.plan.timers[timer.0 as usize].name = self.str(name);
+    }
+
+    /// `task … when gate key=key` (LLP 1092 D7, D9): the gate and the key as
+    /// plan code; `None` keeps the task ungated or unkeyed.
+    pub fn set_timer_gate(&mut self, timer: TimersId, gate: Option<Code>, key: Option<Code>) {
+        let row = &mut self.plan.timers[timer.0 as usize];
+        if let Some(gate) = gate {
+            row.gated = true;
+            row.gate = gate;
+        }
+        if let Some(key) = key {
+            row.keyed = true;
+            row.key = key;
+        }
     }
 
     /// A region under `parent` (or an arm root when `parent` is `None`),

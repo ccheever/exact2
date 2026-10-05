@@ -31,7 +31,6 @@ fn fixture() -> (Presenter<NoData>, PathBuf) {
     fixture_with_hud_removal(false)
 }
 fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
-    let (path, compat) = super::tests::fixture();
     let source = r#"component Controls
   state removed = false
   state text = ""
@@ -63,7 +62,12 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
     } else {
         source.to_owned()
     };
-    let plan = contract::compile(&source).unwrap();
+    boot(&source, &["a", "b", "raw"])
+}
+/// A presenter over `source` whose canvases named by testId are worlds of the probe module.
+fn boot(source: &str, canvases: &[&str]) -> (Presenter<NoData>, PathBuf) {
+    let (path, compat) = super::tests::fixture();
+    let plan = contract::compile(source).unwrap();
     let (mut p, _) = Presenter::boot(
         &plan.encode(),
         NoData,
@@ -75,7 +79,7 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
     p.surfaces
         .abis
         .insert(String::new(), Abi::open_path(&path, &compat, "").unwrap());
-    for (i, name) in ["a", "b", "raw"].iter().enumerate() {
+    for (i, name) in canvases.iter().enumerate() {
         let view = find(&p, name);
         p.surfaces.canvases.insert(
             view,
@@ -349,6 +353,161 @@ fn r13_named_and_empty_arguments_reach_linux_gpu_binding() {
         assert_eq!(serde_json::from_str::<Value>(&text).unwrap(), expected);
         done(p, path);
     }
+}
+
+/// The platformer's diary, R8: a key typed at a world's canvas reaches the
+/// canvas's `key` handler as on the web, and the world unless one prevents it.
+#[test]
+fn a_world_key_reaches_the_canvas_key_handler_first() {
+    let (mut p, path) = boot(
+        r#"component Keys
+  state heard = ""
+  action key(k: string)
+    heard = heard + k
+    if k == "x"
+      preventDefault()
+  view
+    canvas testId="world" key=key width=100 height=100
+      text heard testId="heard"
+"#,
+        &["world"],
+    );
+    let world = find(&p, "world");
+    p.type_key(world, "KeyO", "o", true, false).unwrap();
+    p.type_key(world, "KeyX", "x", true, false).unwrap();
+    let held = &p.surfaces.canvases[&world].held;
+    assert!(
+        held.contains("KeyO"),
+        "an unprevented key reaches the world"
+    );
+    assert!(!held.contains("KeyX"), "a prevented key goes no further");
+    let text = find(&p, "heard");
+    assert_eq!(
+        p.host
+            .kernel()
+            .node(text)
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text),
+        Some("ox")
+    );
+    done(p, path);
+}
+
+/// b6 review B1: at a world's canvas an `aria-keyshortcuts` button takes
+/// its key before the `key` handlers and the world, down and up, as the
+/// web's capture listener and macOS's `routeKey` do.
+#[test]
+fn a_shortcut_button_takes_a_world_key_before_its_handlers() {
+    let (mut p, path) = boot(
+        r#"component Keys
+  state heard = ""
+  state paused = 0
+  action key(k: string)
+    heard = heard + k
+  action pause
+    paused = paused + 1
+  view
+    column
+      button aria-keyshortcuts="Escape" press=pause testId="pause"
+        text `${paused}` testId="paused"
+      canvas testId="world" key=key width=100 height=100
+        text heard testId="heard"
+"#,
+        &["world"],
+    );
+    let world = find(&p, "world");
+    let text = |p: &super::Presenter<_>, id: &str| {
+        p.host
+            .kernel()
+            .node(find(p, id))
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    p.type_key(world, "KeyO", "o", true, false).unwrap();
+    p.type_key(world, "Escape", "Escape", true, false).unwrap();
+    assert!(!p.surfaces.canvases[&world].held.contains("Escape"));
+    p.type_key(world, "Escape", "Escape", false, false).unwrap();
+    assert_eq!(text(&p, "paused"), "1", "the button pressed");
+    assert_eq!(text(&p, "heard"), "o", "no key handler heard Escape");
+    assert!(p.surfaces.canvases[&world].held.contains("KeyO"));
+    done(p, path);
+}
+
+/// A hardware keyup returns before `type_key`, which is what forgets a
+/// shortcut's code. The down inserts it; once that button is gone, an agent
+/// key of the same code delivers the down and swallows the up, so the world
+/// keeps the key down.
+#[test]
+fn a_hardware_shortcut_keyup_does_not_stick_the_key_in_the_world() {
+    let (mut p, path) = boot(
+        r#"component Keys
+  state gone = false
+  state heard = ""
+  action key(k: string)
+    heard = heard + k
+  action go
+    gone = true
+  view
+    column
+      when !gone
+        button aria-keyshortcuts="Escape" press=go testId="go" height=24
+          text "go"
+      canvas testId="world" key=key width=100 height=100
+        text heard testId="heard"
+"#,
+        &["world"],
+    );
+    let world = find(&p, "world");
+    let text = |p: &Presenter<NoData>, id: &str| {
+        p.host
+            .kernel()
+            .node(find(p, id))
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    let shown = |p: &Presenter<NoData>, name: &str| {
+        p.host.preorder().into_iter().any(|id| {
+            p.host
+                .kernel()
+                .node(id)
+                .unwrap()
+                .props
+                .str(exact_kernel::PropId::TestId)
+                == Some(name)
+        })
+    };
+    p.focus = Some(world);
+    p.hardware_key("Escape", "Escape", true, false);
+    assert!(!shown(&p, "go"), "the shortcut pressed its button away");
+    assert_eq!(text(&p, "heard"), "", "the world did not hear the shortcut");
+    assert!(
+        !p.surfaces.canvases[&world].held.contains("Escape"),
+        "a shortcut down does not reach the world"
+    );
+    p.hardware_key("Escape", "Escape", false, false);
+    assert!(
+        p.shortcut_keys.is_empty(),
+        "the hardware keyup forgets the shortcut code"
+    );
+    p.type_key(world, "Escape", "Escape", true, false).unwrap();
+    assert!(
+        p.surfaces.canvases[&world].held.contains("Escape"),
+        "with the button gone the key reaches the world"
+    );
+    p.type_key(world, "Escape", "Escape", false, false).unwrap();
+    assert!(
+        !p.surfaces.canvases[&world].held.contains("Escape"),
+        "its up reaches the world too"
+    );
+    assert_eq!(text(&p, "heard"), "Escape");
+    done(p, path);
 }
 
 #[test]
@@ -1068,7 +1227,9 @@ fn agent_primary_mouse_after_touch_preserves_device_identity_and_refusal_atomici
         r#""at":null"#,
         r#""at":[25]"#,
         r#""at":[1e100,75]"#,
-        r#""phase":"down""#,
+        // A phase with `mouse` is a held contact (9d75806c8, review A1),
+        // which takes x/y, never a click's `at`.
+        r#""phase":"down","at":[25,75]"#,
         r#""contextmenu":true"#,
         r#""resize":[200,200]"#,
     ] {

@@ -43,6 +43,10 @@ public final class Agent {
             guard let fragment = fragments.first(where: { viewport.contains(CGPoint(x: $0.midX, y: $0.midY)) }) ?? fragments.first else { return nil }
             bounds = fragment
         } else { bounds = box(node) }
+        // `at` is target-relative (a mouse click, a context menu). `x`/`y` are viewport points.
+        if let at = request["at"] as? [Double], at.count == 2, at.allSatisfy(\.isFinite) {
+            return CGPoint(x: bounds.minX + at[0], y: bounds.minY + at[1])
+        }
         return CGPoint(x: request["x"] as? Double ?? bounds.midX, y: request["y"] as? Double ?? bounds.midY)
     }
 
@@ -173,8 +177,24 @@ public final class Agent {
         // after a frame, so the frame is rendered here, not left to the
         // display link to get to between two calls).
         case "tap":
-            let r: [String: Any]
-            if req["resize"] != nil {
+            var r: [String: Any]
+            #if os(macOS)
+            let wasOpen = presenter.viewport.window?.isVisible == true
+            #endif
+            if req["close"] != nil {
+                // The window's close button, as ⌘W and File ▸ Close Window
+                // press it: an input, as `resize` is, so a `beforeunload`
+                // flow can be driven (the agent's window is never key, so a
+                // ⌘W it typed would go nowhere).
+                guard req.keys.allSatisfy({ ["op", "session", "close"].contains($0) }), req["close"] as? Bool == true else {
+                    Agent.reply(["error": "tap close takes no other input fields"]); return
+                }
+                #if os(macOS)
+                r = closeWindow()
+                #else
+                r = ["error": "unsupported: an iOS app closes no window; close drives a macOS window or the browser's page (`beforeunload`)"]
+                #endif
+            } else if req["resize"] != nil {
                 // LLP 1041 §8's opt-in diagnostic is an input variant, not a
                 // ninth operation. Reject ambiguous input before touching UI.
                 guard req.keys.allSatisfy({ ["op", "session", "resize"].contains($0) }),
@@ -190,6 +210,12 @@ public final class Agent {
             } else if let into = req["into"] as? [String: Any] {
                 r = intoView(req, into)
             } else { r = session.canvases.releaseContact(req) ?? tap(req) }
+            #if os(macOS)
+            // A press the app answered with `close()` (a "Don't Save") took
+            // the window, and its session with it: the reply says so, as
+            // `close`'s does, since nothing is left to read after it.
+            if wasOpen, r["error"] == nil, req["close"] == nil, presenter.viewport.window?.isVisible != true { r["closed"] = true }
+            #endif
             session.canvases.settle(now: session.now())
             Agent.reply(tagged(r))
         case "type": let r = releaseCanvasKey(req) ?? type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
@@ -197,6 +223,7 @@ public final class Agent {
         case "clock": let r = clock(req); session.tellAgentOffset(); Agent.reply(tagged(r))
         case "prefer": Agent.reply(tagged(prefer(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
+        case "sample": Agent.reply(tagged(sample(req)))
         case "logs":
             var forward = req
             forward.removeValue(forKey: "session")
@@ -320,12 +347,16 @@ public final class Agent {
         if let fold, let refused = preferFold(fold) { return ["error": refused] }
         var (motion, transparency, contrast) = (DisplayPreferences.reducedMotion, DisplayPreferences.reducedTransparency, DisplayPreferences.contrast)
         var dark: Bool?
+        var (gamut, high) = (DisplayPreferences.gamut, DisplayPreferences.highDynamicRange)
         for (name, value) in media ?? [:] {
             switch (name, value) {
             case ("prefers-reduced-motion", "reduce"), ("prefers-reduced-motion", "no-preference"): motion = value == "reduce"
             case ("prefers-reduced-transparency", "reduce"), ("prefers-reduced-transparency", "no-preference"): transparency = value == "reduce"
             case ("prefers-contrast", "more"), ("prefers-contrast", "less"), ("prefers-contrast", "custom"), ("prefers-contrast", "no-preference"): contrast = value
             case ("prefers-color-scheme", "light"), ("prefers-color-scheme", "dark"): dark = value == "dark"
+            // @ref LLP 1100 D9
+            case ("color-gamut", "srgb"), ("color-gamut", "p3"), ("color-gamut", "rec2020"): gamut = value
+            case ("dynamic-range", "standard"), ("dynamic-range", "high"): high = value == "high"
             default: return ["error": "prefer: \(name): \(value) is not a preference this host sets"]
             }
         }
@@ -344,6 +375,11 @@ public final class Agent {
         // The scheme first: the preferences' notification reads it.
         if let dark { systemScheme(dark: dark) }
         DisplayPreferences.agentContrast = contrast
+        if DisplayPreferences.gamut != gamut || DisplayPreferences.highDynamicRange != high {
+            DisplayRange.pinned = high ? 4 : 1
+            DisplayPreferences.agentGamut = gamut
+            session.rasters.displayChanged()
+        }
         systemContrast(more: DisplayPreferences.contrast == "more")
         DisplayPreferences.agent = (motion, transparency)
         if page != nil { PageFacts.agent = facts }
@@ -351,7 +387,9 @@ public final class Agent {
         return ["media": ["prefers-reduced-motion": keyword(DisplayPreferences.reducedMotion),
                           "prefers-reduced-transparency": keyword(DisplayPreferences.reducedTransparency),
                           "prefers-contrast": DisplayPreferences.contrast,
-                          "prefers-color-scheme": systemDark ? "dark" : "light"],
+                          "prefers-color-scheme": systemDark ? "dark" : "light",
+                          "color-gamut": DisplayPreferences.gamut,
+                          "dynamic-range": DisplayPreferences.highDynamicRange ? "high" : "standard"],
                 "page": ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
                          "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles, "root-font-size": PageFacts.rootFontSize],
                 "fold": presenter.fold.env]

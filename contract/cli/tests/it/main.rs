@@ -1,6 +1,7 @@
 //! The compiler's integration tests: one binary, so one link and one launch.
 
 mod action_related;
+mod ancestor_row_state;
 mod announce;
 mod aria;
 mod at;
@@ -20,7 +21,9 @@ mod collection_edge_async;
 mod collection_edges;
 mod collection_into_view;
 mod collection_nest;
+mod collection_reuse;
 mod collection_start;
+mod color_spaces;
 mod compose;
 mod controls;
 mod corpus;
@@ -64,12 +67,14 @@ mod placeholder;
 mod pointer;
 mod post_message;
 mod presence;
+mod queue;
 mod realworld_then;
 mod records;
 mod refreshes;
 mod rem;
 mod reorder_binding;
 mod reorder_collection;
+mod reorder_group;
 mod routes;
 mod rust_shapes;
 mod scope_review;

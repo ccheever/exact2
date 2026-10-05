@@ -336,6 +336,9 @@ pub struct FrameInput<'a> {
     /// Optional pass timestamps. Requires TIMESTAMP_QUERY on the device.
     /// Reserve [`GPU_PASS_COUNT`] pairs in the query set. Resolve/read outside draw.
     pub timestamps: Option<&'a wgpu::QuerySet>,
+    /// How far above SDR white the tone curve reaches (LLP 1100 D12b); 1 for
+    /// an SDR target.
+    pub headroom: f32,
 }
 
 impl Default for FrameInput<'_> {
@@ -361,6 +364,7 @@ impl Default for FrameInput<'_> {
             environment_map: None,
             ambient_occlusion: None,
             timestamps: None,
+            headroom: 1.0,
         }
     }
 }

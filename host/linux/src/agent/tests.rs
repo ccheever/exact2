@@ -646,9 +646,30 @@ fn resize_input_uses_presenter_and_paints_before_ack() {
     }
 }
 
+/// The driver's `close` (the window's close button, `beforeunload`): the
+/// Linux presenter closes no window, and says so rather than doing nothing.
+#[test]
+fn close_is_refused_by_name() {
+    let plan = contract::compile("component App\n  view\n    text \"a\"\n").unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (390.0, 844.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let reply = handle(&mut p, r#"{"op":"tap","close":true}"#);
+    assert!(
+        reply.contains("unsupported: the Linux presenter closes no window"),
+        "{reply}"
+    );
+}
+
 #[test]
 fn a_hover_never_presses_and_a_key_is_never_text() {
-    let plan = contract::compile("component App\n  state hot = false\n  state presses = 0\n  state text = \"kept\"\n  state lastKey = \"\"\n  action hovered(value)\n    hot = value\n  action pressed\n    presses = presses + 1\n  action edit(value)\n    text = value\n  action keyed(value)\n    lastKey = value\n  view\n    column width=300 height=300\n      box hover=hovered press=pressed testId=\"hot\" width=200 height=60\n      box testId=\"away\" width=200 height=60\n      input value=text change=edit key=keyed testId=\"field\" height=32\n      text `${hot} ${presses} ${text} ${lastKey}` testId=\"log\" height=20\n").unwrap();
+    let plan = contract::compile("component App\n  state hot = false\n  state presses = 0\n  state text = \"kept\"\n  state lastKey = \"\"\n  action hovered(value)\n    hot = value\n  action pressed\n    presses = presses + 1\n  action edit(value)\n    text = value\n  action keyed(value)\n    lastKey = value\n  view\n    column width=300 height=300\n      box hover=hovered press=pressed testId=\"hot\" width=200 height=60\n      box testId=\"away\" width=200 height=60\n      input value=text input=edit key=keyed testId=\"field\" height=32\n      text `${hot} ${presses} ${text} ${lastKey}` testId=\"log\" height=20\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
         NoData,
@@ -698,7 +719,7 @@ fn a_hover_never_presses_and_a_key_is_never_text() {
 fn a_target_out_of_view_is_revealed_and_a_control_takes_a_value() {
     // ledger F7, shop F11: a scroller's row and a row below the fold
     // scroll into view; kanban F17: a checkbox and a select by label.
-    let plan = contract::compile("component App\n  state on = false\n  state pick = \"a\"\n  action set(value: bool)\n    on = value\n  action choose(value: string)\n    pick = value\n  view\n    column width=300\n      input type=\"checkbox\" checked=on change=set testId=\"agree\"\n      select value=pick change=choose testId=\"pick\"\n        option \"Alpha\" value=\"a\"\n        option \"Beta\" value=\"b\"\n      text `${on} ${pick}` testId=\"log\" height=20\n      scroll testId=\"inner\" height=100\n        box height=400\n        box testId=\"deep\" width=50 height=20\n      box testId=\"auto\" height=100 overflow-y=\"auto\"\n        box height=400\n        box testId=\"autodeep\" width=50 height=20\n      box height=900\n      box testId=\"far\" width=50 height=20\n").unwrap();
+    let plan = contract::compile("component App\n  state on = false\n  state pick = \"a\"\n  state due = \"\"\n  state noted = \"\"\n  action set(value: bool)\n    on = value\n  action choose(value: string)\n    pick = value\n  action note(value: string)\n    noted = value\n  action level(value: number)\n    noted = `${value}`\n  view\n    column width=300\n      input type=\"date\" value=due change=note testId=\"due\"\n      input type=\"range\" value=10 change=level testId=\"level\"\n      input type=\"checkbox\" checked=on change=set testId=\"agree\"\n      select value=pick change=choose testId=\"pick\"\n        option \"Alpha\" value=\"a\"\n        option \"Beta\" value=\"b\"\n      text `${on} ${pick}` testId=\"log\" height=20\n      scroll testId=\"inner\" height=100\n        box height=400\n        box testId=\"deep\" width=50 height=20\n      box testId=\"auto\" height=100 overflow-y=\"auto\"\n        box height=400\n        box testId=\"autodeep\" width=50 height=20\n      box height=900\n      box testId=\"far\" width=50 height=20\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
         NoData,
@@ -754,6 +775,24 @@ fn a_target_out_of_view_is_revealed_and_a_control_takes_a_value() {
         &format!(r#"{{"op":"type","id":{agree},"text":"yes"}}"#),
     );
     assert!(reply.contains("takes true or false"), "{reply}");
+    // A date keeps the choice while its bound value is unchanged, as the
+    // web build's input does (kanban2 #5: an action that only sent).
+    let due = id(&p, "due");
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{due},"text":"2026-06-01"}}"#),
+    );
+    assert!(reply.contains("\"value\":\"2026-06-01\""), "{reply}");
+    assert_eq!(p.chosen.get(&due), Some(&("2026-06-01".into(), "".into())));
+    // So does a range (LLP 1069.001 D4, amended 2026-10-04): its action
+    // wrote something else, and the thumb stays at 70, not 10.
+    let level = id(&p, "level");
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{level},"text":"70"}}"#),
+    );
+    assert!(reply.contains("\"value\":\"70\""), "{reply}");
+    assert_eq!(p.chosen.get(&level), Some(&("70".into(), "10".into())));
     for target in [deep, autodeep, far] {
         let reply = handle(&mut p, &format!(r#"{{"op":"reveal","id":{target}}}"#));
         assert!(reply.contains("\"scrolled\":true"), "{reply}");
@@ -883,6 +922,93 @@ fn the_clipboard_events_reach_the_nearest_handler() {
     assert!(reply.contains("no cut handler"), "{reply}");
 }
 
+/// A paste is Ctrl+V first. A `key` handler that `preventDefault()`s that
+/// chord keeps the clipboard event from landing; one that does not still
+/// hears the key and the paste. Copy stays the clipboard event alone
+/// (drums R15: the driver's paste skipped the key and hid that bug).
+#[test]
+fn a_paste_is_ctrl_v_and_a_prevented_chord_skips_the_clipboard() {
+    let head = r#"component App
+  state log = ""
+  action keyed(k: string, e: KeyboardEvent)
+    log = `${log}key:${k}:${e.ctrlKey};`
+"#;
+    let tail = r#"  action pasted(e: ClipboardEvent)
+    log = `${log}paste:${e.text};`
+  action copied
+    log = `${log}copy;`
+  view
+    column width=300
+      box key=keyed paste=pasted copy=copied testId="cell" width=80 height=24
+      text log testId="log" height=20
+"#;
+    let text_of = |p: &Presenter<NoData>| {
+        let k = p.host().kernel();
+        let log = k.node_by_key(k.find_by_test_id("log")[0]).unwrap().id;
+        k.node(log)
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap()
+            .to_string()
+    };
+    for prevent in [false, true] {
+        let guard = if prevent {
+            "    if k == \"v\" and e.ctrlKey\n      preventDefault()\n"
+        } else {
+            ""
+        };
+        let plan = contract::compile(&format!("{head}{guard}{tail}")).unwrap();
+        let (mut p, boot_error) = Presenter::boot_with(
+            &plan.encode(),
+            NoData,
+            (300.0, 300.0),
+            1.0,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(boot_error.is_none(), "{boot_error:?}");
+        let k = p.host().kernel();
+        let cell = k.node_by_key(k.find_by_test_id("cell")[0]).unwrap().id;
+        let reply = handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{cell},"clipboard":"paste","text":"secret"}}"#),
+        );
+        assert!(reply.contains("\"clipboard\":\"paste\""), "{reply}");
+        assert!(!reply.contains("error"), "{reply}");
+        let log = text_of(&p);
+        assert!(
+            log.starts_with("key:v:true;"),
+            "prevent={prevent} the chord was not delivered: {log}"
+        );
+        if prevent {
+            assert!(
+                !log.contains("paste:") && !log.contains("secret"),
+                "a prevented chord still pasted: {log}"
+            );
+        } else {
+            assert_eq!(log, "key:v:true;paste:secret;");
+        }
+        handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{cell},"clipboard":"copy"}}"#),
+        );
+        let log = text_of(&p);
+        assert!(
+            log.ends_with("copy;") && log.matches("key:").count() == 1,
+            "copy sent a key or dropped the chord: {log}"
+        );
+        let reply = handle(&mut p, &format!(r#"{{"op":"type","id":{cell},"key":"a"}}"#));
+        assert!(!reply.contains("error"), "{reply}");
+        let log = text_of(&p);
+        assert!(
+            log.ends_with("key:a:false;"),
+            "Ctrl stayed down after the paste: {log}"
+        );
+    }
+}
+
 /// Gallery F20: `tap <id> modifiers Shift+Meta` presses with the keys held,
 /// which the action's `MouseEvent` reports; the keys are released after.
 #[test]
@@ -1000,17 +1126,167 @@ fn a_mouse_contact_goes_down_holds_and_lifts() {
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
     let (pad, log) = (id(&p, "pad"), id(&p, "log"));
-    for line in [
-        format!(r#"{{"op":"tap","phase":"down","id":{pad},"x":20,"y":20,"mouse":true}}"#),
-        r#"{"op":"tap","phase":"hold","ms":32,"mouse":true}"#.to_string(),
-        r#"{"op":"tap","phase":"up","mouse":true}"#.to_string(),
-    ] {
-        let reply = handle(&mut p, &line);
-        assert!(!reply.contains("\"error\""), "{line}: {reply}");
-    }
+    let down = handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","phase":"down","id":{pad},"x":20,"y":20,"mouse":true}}"#),
+    );
+    assert!(!down.contains("\"error\""), "{down}");
+    // A hold seeks the presenter clock and reports it, so the driver does not seek again (platformer R7).
+    let before = p.host().now();
+    let held = handle(
+        &mut p,
+        r#"{"op":"tap","phase":"hold","ms":32,"mouse":true,"virtual":true}"#,
+    );
+    assert!(!held.contains("\"error\""), "{held}");
+    let held: serde_json::Value = serde_json::from_str(&held).unwrap();
+    assert_eq!(held["clock"].as_f64(), Some(before + 32.0), "{held}");
+    let up = handle(&mut p, r#"{"op":"tap","phase":"up","mouse":true}"#);
+    assert!(!up.contains("\"error\""), "{up}");
     let k = p.host().kernel();
     assert_eq!(
         k.node(log).unwrap().props.str(exact_kernel::PropId::Text),
         Some("down:mouse;up:mouse;")
     );
+}
+
+#[test]
+fn driver_key_uses_the_web_vocabulary() {
+    assert_eq!(driver_key("p"), Some(("KeyP", "p")));
+    assert_eq!(driver_key("P"), Some(("KeyP", "P")));
+    assert_eq!(driver_key("KeyP"), Some(("KeyP", "p")));
+    assert_eq!(driver_key("7"), Some(("Digit7", "7")));
+    assert_eq!(driver_key("Digit7"), Some(("Digit7", "7")));
+    assert_eq!(driver_key("End"), Some(("End", "End")));
+    assert_eq!(driver_key("Home"), Some(("Home", "Home")));
+    assert_eq!(driver_key("Delete"), Some(("Delete", "Delete")));
+    assert_eq!(driver_key(" "), Some(("Space", " ")));
+    assert_eq!(driver_key("Space"), Some(("Space", " ")));
+    assert_eq!(driver_key("-"), Some(("Minus", "-")));
+    assert_eq!(driver_key("+"), Some(("Equal", "+")));
+    assert_eq!(driver_key("!"), Some(("Digit1", "!")));
+    assert_eq!(driver_key("F1"), Some(("F1", "F1")));
+    assert_eq!(driver_key("F12"), Some(("F12", "F12")));
+    assert_eq!(driver_key("F24"), Some(("F24", "F24")));
+    assert_eq!(driver_key("Shift"), Some(("ShiftLeft", "Shift")));
+    assert_eq!(driver_key("ArrowLeft"), Some(("ArrowLeft", "ArrowLeft")));
+    assert_eq!(driver_key("Nope"), None);
+    assert_eq!(driver_key("Endd"), None);
+}
+
+/// `aria-keyshortcuts` (the web's input-glue rule, the Apple hosts'
+/// `Shortcuts.swift`): a declared chord presses its button before the
+/// focus's `key` handlers hear it, and goes no further — F13–F24 as F1 —
+/// with or without a focus; the paste chord is one, so a button declaring
+/// Control+V takes it and the clipboard event never lands; a text field
+/// keeps its plain keys; nothing behind a shown `aria-modal`.
+#[test]
+fn aria_keyshortcuts_press_their_button_before_the_key_handlers() {
+    let plan = contract::compile(
+        r#"component App
+  state log = ""
+  state armed = false
+  state modal = false
+  state text = ""
+  action keyed(k: string)
+    log = `${log}key:${k};`
+  action pasted(e: ClipboardEvent)
+    log = `${log}paste:${e.text};`
+  action pressed(what: string)
+    log = `${log}${what};`
+  action arm
+    armed = not armed
+  action edit(v: string)
+    text = v
+  action open
+    modal = true
+  view
+    column width=300
+      box key=keyed paste=pasted tabindex=0 testId="pad" width=80 height=24
+      input value=text input=edit testId="field" height=24
+      when armed
+        button "Paste" aria-keyshortcuts="Meta+V Control+V" press=pressed("button-paste") testId="paste" height=24
+      button "F13" aria-keyshortcuts="F13" press=pressed("f13") testId="f13" height=24
+      button "F24" aria-keyshortcuts="Shift+F24" press=pressed("f24") testId="f24" height=24
+      button "S" aria-keyshortcuts="s" press=pressed("s") testId="s" height=24
+      button "arm" press=arm testId="arm" height=24
+      button "open" press=open testId="open" height=24
+      when modal
+        column aria-modal=true testId="dialog" height=40
+          button "Close" aria-keyshortcuts="Escape" press=pressed("close") testId="close" height=24
+      button "Away" aria-keyshortcuts="Escape" press=pressed("away") testId="away" height=24
+      text log testId="log" height=20
+"#,
+    )
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 600.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let named = |p: &Presenter<NoData>, id: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(id)[0]).unwrap().id
+    };
+    let log = |p: &mut Presenter<NoData>| {
+        let k = p.host().kernel();
+        let id = k.node_by_key(k.find_by_test_id("log")[0]).unwrap().id;
+        let text = k.node(id).unwrap().props.str(exact_kernel::PropId::Text);
+        text.unwrap_or("").to_string()
+    };
+    let (pad, field, root) = (named(&p, "pad"), named(&p, "field"), named(&p, "log"));
+    let key = |p: &mut Presenter<NoData>, id: u32, chord: &str| {
+        handle(p, &format!(r#"{{"op":"type","id":{id},"key":"{chord}"}}"#))
+    };
+    for (chord, want) in [
+        ("F13", "f13;"),
+        ("Shift+F24", "f24;"),
+        ("F24", "key:F24;"),
+        ("s", "s;"),
+    ] {
+        let before = log(&mut p);
+        let reply = key(&mut p, pad, chord);
+        assert!(!reply.contains("error"), "{chord}: {reply}");
+        assert_eq!(log(&mut p), format!("{before}{want}"), "{chord}");
+    }
+    // A target that takes no focus (a text) leaves it where it is; the
+    // page's shortcuts hear the key all the same.
+    let before = log(&mut p);
+    assert!(!key(&mut p, root, "F13").contains("error"));
+    assert_eq!(log(&mut p), format!("{before}f13;"));
+    // A field keeps its plain keys: `s` is typed, not the shortcut.
+    let before = log(&mut p);
+    key(&mut p, field, "s");
+    assert_eq!(log(&mut p), before, "a field's plain key is its typing");
+    // The paste chord: the key handler, then the paste, until a button declares it.
+    let paste = |p: &mut Presenter<NoData>| {
+        handle(
+            p,
+            &format!(r#"{{"op":"type","id":{pad},"clipboard":"paste","text":"x"}}"#),
+        )
+    };
+    let before = log(&mut p);
+    paste(&mut p);
+    assert_eq!(log(&mut p), format!("{before}key:v;paste:x;"));
+    p.tap(named(&p, "arm")).unwrap();
+    let before = log(&mut p);
+    paste(&mut p);
+    assert_eq!(
+        log(&mut p),
+        format!("{before}button-paste;"),
+        "the button took the chord"
+    );
+    // Behind a shown `aria-modal`, only its own shortcuts.
+    let before = log(&mut p);
+    key(&mut p, pad, "Escape");
+    assert_eq!(log(&mut p), format!("{before}away;"));
+    p.tap(named(&p, "open")).unwrap();
+    let before = log(&mut p);
+    key(&mut p, pad, "Escape");
+    key(&mut p, pad, "F13");
+    assert_eq!(log(&mut p), format!("{before}close;key:F13;"));
 }

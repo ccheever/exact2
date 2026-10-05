@@ -686,6 +686,10 @@ impl RasterSession {
             self.trim();
         }
     }
+    /// Work arrived outside the gate (a source to read): wake a worker.
+    pub fn wake(&self) {
+        self.owner.gate.inner.wake.notify();
+    }
     /// Memory pressure: drop unpinned cold owners, retaining displayed dedup.
     /// Surviving backing owners always retain their independent byte charge.
     pub fn trim(&self) {
@@ -983,10 +987,11 @@ fn validate(d: Demand) -> Result<(), Refusal> {
     if u64::from(natural.width) * u64::from(natural.height) > MAX_SOURCE_PIXELS {
         return Err(Refusal::SourcePixels);
     }
-    // Both native adapters normalize to RGBA8. Variant identifies their fixed
-    // orientation/color policy, not an arbitrary output storage format.
+    // The variant names the output's storage, and with it the bytes a pixel
+    // costs (LLP 1100 D7); an unknown one is refused.
+    let bytes = variant::bytes_per_pixel(d.key.variant).ok_or(Refusal::InvalidDimensions)?;
     let minimum = u64::from(d.key.pixels.width)
-        .checked_mul(4)
+        .checked_mul(bytes)
         .ok_or(Refusal::Overflow)?;
     let output = d
         .cost

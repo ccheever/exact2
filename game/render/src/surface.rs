@@ -594,6 +594,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
     fn placement(&self, index: usize) -> Option<exact_gpu::Placement> {
         self.placed.placement(index)
     }
+    fn high_dynamic_range(&self) -> bool {
+        G::HIGH_DYNAMIC_RANGE
+    }
     fn wants_input(&self) -> bool {
         true
     }
@@ -1040,6 +1043,7 @@ mod residency_tests {
             period_ms: 0.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         }
     }
     fn model() -> exact_game::asset::Model {
@@ -1369,6 +1373,7 @@ mod residency_tests {
             period_ms: 0.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         };
         exact_gpu::fixture::render(&gpu, &mut surface, &frame).unwrap();
         let before = surface.render.as_ref().unwrap().0.residency_work().json();

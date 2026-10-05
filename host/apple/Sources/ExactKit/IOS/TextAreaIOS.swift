@@ -140,6 +140,7 @@ final class TextArea: UITextView {
     // attributedText would reset a selection (including a read-only one).
     func applyLineHeight(_ height: CGFloat?) {
         let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = textAlignment
         if let height {
             paragraph.minimumLineHeight = height
             paragraph.maximumLineHeight = height
@@ -240,6 +241,7 @@ extension NodeView {
         (f as? TextArea)?.placeholder = props["placeholder"] ?? ""
     }
     func styleTextArea() {
+        textArea?.textAlignment = NSTextAlignment(rawValue: textAlignmentCode) ?? .left
         guard let f = textArea, let t = text else { return }
         guard f.markedTextRange == nil else { layoutTextArea(); return }
         f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))

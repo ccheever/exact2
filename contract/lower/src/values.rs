@@ -131,7 +131,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         ),
         StyleValueError::AutoNotAdmitted { .. } => "`auto` is not admitted here".into(),
         StyleValueError::OutOfRange { .. } => "out of the row's range".into(),
-        StyleValueError::BadColor { .. } => "a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, `lab()`, `oklch()`, a named colour, `transparent`, `light-dark(a, b)` of two, a role (`\"secondary-label\"`, `\"CanvasText\"`: LLP 1095), or `platform-color(ios <name>Color, …, <fallback>)` written whole as a string literal".into(),
+        StyleValueError::BadColor { .. } => "a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `transparent`, or one in its own space: `color(display-p3 1 0 0)`, `oklch()`, `oklab()`, `lab()`, `lch()` (LLP 1100) — `light-dark(a, b)` of two, a role (`\"secondary-label\"`, `\"CanvasText\"`: LLP 1095), or `platform-color(ios <name>Color, …, <fallback>)` written whole as a string literal".into(),
         StyleValueError::BadShapeOutside { .. } => "expected none, circle(), ellipse(), inset() with one round radius, or polygon() with at most 64 vertices; lengths are points/px or percentages".into(),
         StyleValueError::BadClipPath { .. } => "expected none or path() with explicit absolute M/L/Q/C/Z commands and separated finite coordinates".into(),
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
@@ -420,11 +420,8 @@ fn builds_platform_color(e: &Expr) -> bool {
         Expr::Let { value, body, .. } => {
             builds_platform_color(value) || builds_platform_color(body)
         }
-        Expr::Number(..)
-        | Expr::Bool(..)
-        | Expr::None(_)
-        | Expr::EmptyList(_)
-        | Expr::Ident(..) => false,
+        Expr::List(items, _) => items.iter().any(builds_platform_color),
+        Expr::Number(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => false,
     }
 }
 
@@ -711,6 +708,17 @@ pub(crate) fn check_style_value(
                                 .map(|n| format!("; write `{}={n}` (a number is pixels)", a.name)),
                             _ => None,
                         };
+                        // A viewport-pinned box (authoring bench, t6-todo-more).
+                        let hint = pixels.or_else(|| {
+                            (a.name == "position"
+                                && matches!(value, Expr::Str(t, _) if t.trim() == "fixed"))
+                            .then(|| {
+                                "; `fixed` is not a row (LLP 1001): pin a box to the viewport \
+                                 with `absolute`, directly inside a viewport-sized root that \
+                                 does not scroll (its content scrolls in a `scroll` beside it)"
+                                    .to_string()
+                            })
+                        });
                         return err(
                             "lower-attr-value",
                             format!(
@@ -719,7 +727,7 @@ pub(crate) fn check_style_value(
                                 literal_text(value),
                                 a.name,
                                 named(&e, &v).map_or_else(|| describe(&e), String::from),
-                                pixels.unwrap_or_default()
+                                hint.unwrap_or_default()
                             ),
                             span,
                         );
@@ -803,6 +811,10 @@ pub(crate) fn aria_words(prop: PropId) -> Option<(&'static str, &'static [&'stat
             "aria-haspopup",
             &["true", "false", "menu", "listbox", "tree", "grid", "dialog"],
         ),
+        PropId::AccessibilityCurrent => (
+            "aria-current",
+            &["true", "false", "page", "step", "location", "date", "time"],
+        ),
         _ => return None,
     })
 }
@@ -836,6 +848,9 @@ pub(crate) fn check_prop_value(
             "`target` takes \"_blank\" or \"_self\"",
             span,
         );
+    }
+    if prop == PropId::FocusGuide && matches!(value, Expr::Str(s, _) if s != "auto") {
+        return err("lower-attr-value", "`focusGuide` takes \"auto\"", span);
     }
     if prop == PropId::AccessibilityLive
         && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "off" | "polite" | "assertive"))

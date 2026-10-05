@@ -88,6 +88,7 @@ fn contextual_attributes_are_refused_elsewhere() {
         ("reachend", "view", "reachend=done"),
         ("text-transform", "input", "text-transform=\"uppercase\""),
         ("selectionchange", "view", "selectionchange=done"),
+        ("markup", "view", "markup=\"markdown\""),
     ];
     let listed: Vec<&str> = contract_lower::vocab::CONTEXTUAL
         .iter()

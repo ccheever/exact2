@@ -432,6 +432,9 @@ the current index. Fresh boot `replaceState`s index 0 with the first op.
 An in-document reboot retains the mirror if its first router op has
 `top == written[cursor].id` (the router carried); otherwise it resets to
 index 0. A DOM teardown alone never erases the session-history mirror.
+A driven development page preserves the agent launch parameters in every
+address-bar URL so a browser reload retains its carrier. They are excluded
+from the stamped router URL and from `navigate` payloads.
 
 | on a `router` op | history |
 |---|---|

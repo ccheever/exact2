@@ -55,6 +55,7 @@ pub mod grants;
 pub mod head;
 pub mod held;
 pub mod instance;
+pub mod lists;
 pub mod notify;
 pub mod page;
 pub mod perf;
@@ -80,10 +81,12 @@ pub use exact_canvas;
 pub use exact_plan::{Items, Str, Value};
 pub use format::formatting;
 pub use head::Head;
+pub use instance::collection::{set_bootstrap_extent, set_lead_scale};
 pub use instance::collection::{
     AnchorCorrection, CollectionFeedback, CollectionFill, CollectionRow, CollectionSnapshot,
-    FeedbackError, ListAxis, ReorderBinding, ReorderFrame, ReorderGeometry, ReorderProgress,
-    ReorderStart, ReorderToken, ReorderWrapper, RowMeasurement,
+    FeedbackError, ListAxis, ReorderBinding, ReorderEnding, ReorderFrame, ReorderGeometry,
+    ReorderPhase, ReorderProgress, ReorderStart, ReorderStep, ReorderToken, ReorderWrapper,
+    RowMeasurement,
 };
 pub use instance::{DocNode, DocTree, DocTreeError, ListLinks, SurfaceUpdate, LISTS};
 pub use page::Page;
@@ -97,11 +100,12 @@ pub use runner::{
     CanvasList, Carried, Checkpoint, Command, ControlValue, DataError, DataSource, DeviceLinks,
     DrawReply, DrawRequest, Drawn, DropEvent, Event, FormatLink, Geometry, GeometryLink, Hold,
     HoldAnswer, InFlight, Interrupt, KeyModifiers, Limits, ListTextPosition, Native, NativeCall,
-    NativeHandler, Picked, PickerLinks, PickerRequest, PointerEvent, RouterChange, RouterLink,
-    Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, StreamCount, SurfaceAnswer, Target,
-    Timed, WheelEvent, JOURNAL_RING, MAX_CLOCK_MS, PICKED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
+    NativeHandler, Picked, PickerLinks, PickerRequest, PointerEvent, ResizeRect, RouterChange,
+    RouterLink, Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, StreamCount, SurfaceAnswer,
+    Target, Timed, WheelEvent, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED,
+    TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};
-pub use viewport::{Contrast, Fold, Hover, Pointer, Posture, Preferences, Viewport};
+pub use viewport::{Contrast, Fold, Gamut, Hover, Pointer, Posture, Preferences, Viewport};
 pub use vm::Trap;

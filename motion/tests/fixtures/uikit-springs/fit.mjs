@@ -65,7 +65,8 @@ export function caSettle(k, c, v0) {
 // P(T) = −1 + (v0 − ω)·T. P is linear, so f has at most two lobes: one from
 // 0, and, when v0 > ω, a second after P's zero T0 = 1/(v0 − ω), peaking at
 // T0 + 1/ω. The last crossing is on the falling side of the last lobe whose
-// peak exceeds ε; bisect there (each falling side is monotone).
+// peak exceeds ε; bisect there (each falling side is monotone). This is LLP
+// 1099 D3's procedure: hi from max(lo, 1/ω), doubling while F(hi) > 0.
 export function criticalSettle(w, v0) {
   const f = (T) => Math.abs(-1 + (v0 - w) * T) * Math.exp(-w * T) - EPS;
   const bisect = (lo, hi) => { for (let i = 0; i < 200; i++) { const m = (lo + hi) / 2; if (f(m) > 0) lo = m; else hi = m; } return lo; };
@@ -74,7 +75,7 @@ export function criticalSettle(w, v0) {
     const T0 = 1 / (v0 - w), peak = T0 + 1 / w;
     if (f(peak) > 0) return bisect(peak, far(peak));
     // First lobe: P = −1 + (v0 − ω)T falls in magnitude from 1 at 0 to 0 at T0.
-    return f(0) > 0 ? bisect(0, T0) : 0;
+    return f(0) > 0 ? bisect(0, far(0)) : 0;
   }
   // v0 ≤ ω: |P| = 1 + (ω − v0)T; f peaks at T = max(0, 1/ω − 1/(ω − v0)) then falls.
   const peak = v0 < w ? Math.max(0, 1 / w - 1 / (w - v0)) : 0;
@@ -209,7 +210,7 @@ console.log('\nRetargets (R lines):');
 {
   const A = rows('A'), kOf = (d, z, v) => A.find((r) => r.d === d && r.z === z && r.v === v).stiffness;
   const k0 = kOf(0.4, 0.8, 0), k1 = kOf(0.4, 0.8, 1), c = (k) => 1.6 * Math.sqrt(k);
-  for (const l of lines.filter((l) => l.startsWith('R '))) {
+  for (const l of lines.filter((l) => /^R (center|alpha)/.test(l))) {
     const name = l.split(' ')[1], t1 = Number(l.match(/t1=([\d.]+)/)[1]);
     const pts = samples(l.slice(l.lastIndexOf(']') + 1));
     if (name.startsWith('center')) {
@@ -226,6 +227,33 @@ console.log('\nRetargets (R lines):');
       const from = Number(l.match(/from=Optional\(([\d.]+)\)/)[1]), k = Number(l.match(/ k=([\d.]+)/)[1]), v0 = Number(l.match(/ v0=([\d.]+)/)[1]);
       console.log(`  ${name.padEnd(13)} t1 ${t1}: one animation, from ${from} (${Math.abs(from - 0.2) < 1e-6 ? 'the model value: the presented value jumps' : 'the presented value'}), k ${k.toFixed(4)}, initialVelocity ${v0} (inherited velocity dropped; the authored one kept)`);
     }
+  }
+}
+
+// 7b. Transform retargets (R scale, scale-up, scale-to-zero, rotate): scale
+// components multiply, each factor running from old/new to 1 along its curve
+// (velocity relative to that factor distance); rotation adds in degrees.
+console.log('\nTransform retargets (R lines):');
+{
+  const A = rows('A'), kOf = (d, z, v) => A.find((r) => r.d === d && r.z === z && r.v === v).stiffness;
+  const k0 = kOf(0.4, 0.8, 0), k1 = kOf(0.4, 0.8, 1), c = (k) => 1.6 * Math.sqrt(k);
+  for (const l of lines.filter((l) => /^R (scale|scale-up|scale-to-zero|rotate) /.test(l))) {
+    const name = l.split(' ')[1], t1 = Number(l.match(/t1=([\d.]+)/)[1]);
+    const pts = samples(l.slice(l.lastIndexOf(']') + 1));
+    let worst = 0;
+    for (const [t, x] of pts) {
+      const p0 = t < 0.4 - 1e-9 ? caPos(k0, c(k0), 0, t) : 1;
+      const p1 = t >= t1 - 1e-9 && t < t1 + 0.4 - 1e-9 ? caPos(k1, c(k1), name === 'scale-to-zero' ? 0 : 1, t - t1) : 1;
+      let m;
+      if (name === 'rotate') m = t < t1 - 1e-9 ? 60 - 60 * (1 - p0) : 150 - 60 * (1 - p0) - 90 * (1 - p1);
+      else if (name === 'scale-to-zero') m = 0;
+      else {
+        const [a, b] = name === 'scale' ? [0.5, 0.25] : [2, 3], f0 = 1 / a, f1 = a / b;
+        m = t < t1 - 1e-9 ? a * (f0 + (1 - f0) * p0) : b * (f0 + (1 - f0) * p0) * (f1 + (1 - f1) * p1);
+      }
+      worst = Math.max(worst, Math.abs(m - x));
+    }
+    console.log(`  ${name.padEnd(13)} t1 ${t1}: worst error ${worst.toExponential(2)} ${name === 'rotate' ? 'degrees (of 150)' : name === 'scale-to-zero' ? '(presented 0 from the retarget on; the sweep runs after both calls, so earlier samples show the new model value too)' : 'in scale'}`);
   }
 }
 

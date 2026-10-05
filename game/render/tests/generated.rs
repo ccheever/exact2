@@ -73,6 +73,7 @@ fn generated_props_upload_once_share_a_draw_and_keep_vertex_colors() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (pixels, _) = fixture::render(&gpu, &mut surface, &frame).unwrap();
     assert!(surface.error().is_none(), "{:?}", surface.error());
@@ -251,6 +252,7 @@ fn a_generated_model_shades_each_part_with_its_own_material() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (pixels, _) = fixture::render(&gpu, &mut surface, &frame).unwrap();
     assert!(surface.error().is_none(), "{:?}", surface.error());
@@ -408,6 +410,7 @@ fn grove_frame_cpu() {
             period_ms: 0.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         };
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         let start = std::time::Instant::now();

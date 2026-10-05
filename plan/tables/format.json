@@ -222,6 +222,11 @@
           "name": "then",
           "codec": "opt:actions",
           "_comment": "The action a `mutation … then action` runs after each answer lands, as its own commit (LLP 1016.001). None: nothing runs."
+        },
+        {
+          "name": "queue",
+          "codec": "bool",
+          "_comment": "@ref LLP 1092 D1, D2: `mutation m as shape T queue` — one send in flight; a later send waits, with its send-time arguments, until the one before it is answered or let go and its `then` has run. False: the newest send wins (LLP 1016 §4)."
         }
       ]
     },
@@ -330,6 +335,31 @@
         {
           "name": "frame",
           "codec": "bool"
+        },
+        {
+          "name": "name",
+          "codec": "str",
+          "_comment": "The task's name, for the agent's `state.tasks` (LLP 1092 D10)."
+        },
+        {
+          "name": "gated",
+          "codec": "bool",
+          "_comment": "@ref LLP 1092 D7, D8: `task t when cond`: the timer is armed while `gate` is true and idle (an infinite deadline) while it is false. False: `mount`, armed from boot."
+        },
+        {
+          "name": "gate",
+          "codec": "code",
+          "_comment": "@ref LLP 1092 D9: the gate, a bool, evaluated at each commit after its settlement; the constant `true` for an ungated task."
+        },
+        {
+          "name": "keyed",
+          "codec": "bool",
+          "_comment": "@ref LLP 1092 D7, D8: `key=expr`: a changed key (compared as an `each` key is) re-arms the timer from the commit's time."
+        },
+        {
+          "name": "key",
+          "codec": "code",
+          "_comment": "@ref LLP 1092 D9: the key, a string, number or bool; the constant `true` when not keyed."
         }
       ]
     },
@@ -534,6 +564,24 @@
       ]
     },
     {
+      "name": "profiles",
+      "_comment": "@ref LLP 1100 D3: the app's `@color-profile`s by name: the ICC file (an asset path) and the rendering intent; `color(--name …)` resolves against them, and the platform draws it.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "src",
+          "codec": "str"
+        },
+        {
+          "name": "intent",
+          "codec": "str"
+        }
+      ]
+    },
+    {
       "name": "texts",
       "_comment": "@ref LLP 1060 D3: one localized text, `{name}` placeholders unfilled. Within a locale, sorted by key.",
       "fields": [
@@ -649,7 +697,8 @@
       "selectionchange",
       "beforeunload",
       "wheel",
-      "drop"
+      "drop",
+      "resize"
     ]
   },
   "_opcodes": "The expression VM: a stack machine over values with a small locals stack (`BindLocal` pops into it, `LoadLocal` copies from it, `DropLocal` pops it) for names an inline `match` binds and the item and index a `Map`/`Filter` callback binds. Each opcode names its operand layout; the decoder validates framing and every index operand. `depth` operands count enclosing instance scopes (0 = innermost). Type inference guarantees stack discipline; the VM still traps, never UB.",
@@ -1074,9 +1123,9 @@
     },
     {
       "name": "includes",
-      "params": ["string", "string"],
+      "params": ["any", "any"],
       "returns": "bool",
-      "_comment": "The web's `String.prototype.includes(needle)`: a case-sensitive literal substring search; the empty needle matches. The web's optional position argument is not taken."
+      "_comment": "The web's `String.prototype.includes(needle)`: a case-sensitive literal substring search; the empty needle matches. @ref LLP 1088 §9.1: over a list of strings, numbers or bools, `Array.prototype.includes(item)` (SameValueZero: NaN is NaN, -0 is 0), one list step per item scanned up to the match. `any` is the type checker's. The web's optional position argument is not taken."
     },
     {
       "name": "trim",
@@ -1158,10 +1207,10 @@
     },
     {
       "name": "slice",
-      "params": ["string", "number", "number"],
+      "params": ["any", "number", "number"],
       "optional": ["Number.MAX_VALUE"],
-      "returns": "string",
-      "_comment": "@ref LLP 1088 D2: JavaScript's `String.prototype.slice(start, end?)` over UTF-16 code units (ToIntegerOrInfinity: NaN is 0, fractions truncate, a negative index counts from the end, both clamped); an omitted `end` is `Number.MAX_VALUE`, which clamps as `undefined` does (a plan's constants are finite, so not `Infinity`). The result is made well formed: a lone surrogate half becomes U+FFFD."
+      "returns": "any",
+      "_comment": "@ref LLP 1088 D2: JavaScript's `String.prototype.slice(start, end?)` over UTF-16 code units (ToIntegerOrInfinity: NaN is 0, fractions truncate, a negative index counts from the end, both clamped); an omitted `end` is `Number.MAX_VALUE`, which clamps as `undefined` does (a plan's constants are finite, so not `Infinity`). The result is made well formed: a lone surrogate half becomes U+FFFD. @ref LLP 1088 §9.1: over a list, `Array.prototype.slice(start, end?)` by the same clamp, one list step per item kept, the result's extent checked as a `List` is; `any` is `string` or `list<T>` in and the same out (the type checker's)."
     },
     {
       "name": "replaceAll",
@@ -1174,6 +1223,30 @@
       "params": ["string"],
       "returns": "string",
       "_comment": "@ref LLP 1088 D2: JavaScript's `String.prototype.toLowerCase()`: Unicode's default, locale-independent mapping with final sigma. Linked by use: it reaches the kernel's case tables through `text-transform`'s link (capability `text_transform`), bounded by `MAX_STRING`."
+    },
+    {
+      "name": "concat",
+      "params": ["any", "any"],
+      "returns": "any",
+      "_comment": "@ref LLP 1088 §9.1: JavaScript's `Array.prototype.concat(other)` of two lists of one item type, `list<T>, list<T> -> list<T>` (the type checker's): one list step per item of the result, taken before it is built, then its extent checked as a `List` is (LLP 1090 D3)."
+    },
+    {
+      "name": "indexOf",
+      "params": ["any", "any"],
+      "returns": "number",
+      "_comment": "@ref LLP 1088 §9.1 (2026-10-04 note): JavaScript's `String.prototype.indexOf(needle)` — the first match's position in UTF-16 code units, `-1` for none, 0 for the empty needle — or, over a list of strings, numbers or bools, `Array.prototype.indexOf(item)` by IsStrictlyEqual (NaN is never found, -0 is 0), one list step per item scanned up to the match. `any` is the type checker's. The web's optional position argument is not taken."
+    },
+    {
+      "name": "split",
+      "params": ["string", "string"],
+      "returns": "list<string>",
+      "_comment": "@ref LLP 1088 §9.1 (2026-10-04 note): JavaScript's `String.prototype.split(separator)` with a string separator: the pieces between its matches, left to right; an empty separator splits into UTF-16 code units (each piece made well formed: a lone half is U+FFFD), and `\"\"` into no pieces. One list step per piece, taken before the list is built, then its extent checked as a `List` is (LLP 1090 D3). The web's limit argument and regular expressions are not taken."
+    },
+    {
+      "name": "elementFromPoint",
+      "params": ["number", "number"],
+      "returns": "option<string>",
+      "_comment": "@ref LLP 1094 D10: DOM's `document.elementFromPoint(x, y)?.closest(\"[id]\")?.id` over `frame`'s boxes: the `id` of the front-most laid-out box at the viewport point (every scroll applied, no transforms; ancestors' overflow clips; `pointer-events: none`, `display: none` and `visibility: hidden` skipped; LLP 1083.000's paint order), or of its nearest ancestor with one; `none` where no box or ancestor has one. Actions only."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

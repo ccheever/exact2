@@ -230,12 +230,12 @@ On Apple these reach the batch as a `fragments` op beside `sticky`, the presente
 
 ```
 end   = frame("flow-end")                          // an empty block after the last paragraph
-flow  = frame("flow")                              // untransformed, so translate is ignored
+flow  = frame("flow")                              // the flow's translate moves both reads alike
 pages = floor((end.x - flow.x) / (pageW + gap)) + 1
 page  = floor((frame(para).x - flow.x) / (pageW + gap))   // keep the place on resize
 ```
 
-`frame()` is untransformed, and a straddling paragraph's union starts in its first column, so both reads hold on every host. Under `rtl`, measure from the right edges instead. The reader's page-turn animations keep working, because a turn moves the container by its transform and that never re-lays anything out (LLP 1002 D2).
+`frame()` places every box through the same transforms (`getBoundingClientRect`'s box, LLP 1051.000 D1 as changed 2026-10-04), so the flow's own `translate` cancels in each difference, and a straddling paragraph's union starts in its first column, so both reads hold on every host. Under `rtl`, measure from the right edges instead. The reader's page-turn animations keep working, because a turn moves the container by its transform and that never re-lays anything out (LLP 1002 D2).
 
 Not taken:
 

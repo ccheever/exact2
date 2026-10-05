@@ -52,6 +52,76 @@ impl<D: DataSource> Host<D> {
         self.arrange_finish(start.token)?;
         hold.map(|_| None)
     }
+    /// A grouped session (LLP 1094 D4): no hold, the runner hides the row
+    /// when a ghost stands for it.
+    pub(crate) fn group_begin(
+        &mut self,
+        binding: ReorderBinding,
+        geometry: ReorderGeometry,
+        ghost: bool,
+        now: f64,
+    ) -> Result<Option<ReorderToken>, String> {
+        self.arrange_clock(now)?;
+        let Some(start) = self
+            .runner
+            .begin_group_reorder(binding, geometry, ghost)
+            .map_err(|e| format!("{e:?}"))?
+        else {
+            return Ok(None);
+        };
+        self.now_ms = now;
+        self.arrange_receipt(start.receipt)?;
+        Ok(Some(start.token))
+    }
+    /// The gap in `target` at content `y` (LLP 1094 D5).
+    pub(crate) fn group_into(
+        &mut self,
+        token: ReorderToken,
+        target: NodeKey,
+        geometry: ReorderGeometry,
+        y: f64,
+    ) -> Result<bool, String> {
+        match self
+            .runner
+            .preview_reorder_into(token, target, geometry, y)
+            .map_err(|e| format!("{e:?}"))?
+        {
+            ReorderProgress::Accepted { receipt } => {
+                self.arrange_receipt(receipt)?;
+                Ok(true)
+            }
+            ReorderProgress::Stale | ReorderProgress::NeedsMeasurement => Ok(false),
+        }
+    }
+    /// A key's step (LLP 1094 D9).
+    pub(crate) fn group_step(
+        &mut self,
+        token: ReorderToken,
+        step: exact_runner::ReorderStep,
+    ) -> Result<(), String> {
+        let receipts = self
+            .runner
+            .reorder_step(token, step)
+            .map_err(|e| format!("{e:?}"))?;
+        for receipt in receipts {
+            self.arrange_receipt(Some(receipt))?;
+        }
+        Ok(())
+    }
+    /// A grouped drop on its target, which may hold (LLP 1094 D8).
+    pub(crate) fn group_drop(
+        &mut self,
+        token: ReorderToken,
+        geometry: ReorderGeometry,
+    ) -> Result<bool, String> {
+        let receipt = self
+            .runner
+            .drop_reorder(token, geometry)
+            .map_err(|e| format!("{e:?}"))?;
+        let accepted = receipt.is_some();
+        self.arrange_receipt(receipt)?;
+        Ok(accepted)
+    }
     pub(crate) fn arrange_clock(&self, now: f64) -> Result<(), String> {
         if !now.is_finite() || now < self.now_ms || now / 1000. < self.engine.now() {
             Err("invalid Arrange clock".into())

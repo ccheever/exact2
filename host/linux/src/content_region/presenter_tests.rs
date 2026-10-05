@@ -40,7 +40,7 @@ const APP: &str = r#"component App
         text "replace again"
       button press=hide testId="hide" height=20
         text "hide"
-      input value=draft change=edit testId="input" height=32
+      input value=draft input=edit testId="input" height=32
       text `${count}` testId="count" height=24
       when showing
         view id="owner" width=400 height=200 overflow-x="hidden" overflow-y="hidden"

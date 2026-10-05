@@ -22,6 +22,7 @@ crate-type = ["rlib"]
 [dependencies]
 exact-canvas = { path = "../../canvas" }
 exact-data = { path = "../../data" }
+exact-color = { path = "../../color" }
 exact-kernel = { path = "../../kernel" }
 exact-textflow = { path = "../../textflow" }
 exact-motion = { path = "../../motion" }
@@ -31,6 +32,9 @@ exact-raster = { path = "../raster" }
 # here beside the tiny-skia this host already has.
 exact-svg-raster = { path = "../svg-raster" }
 exact-route = { path = "../../route" }
+# A `markup="markdown"` text's pieces (LLP 1045 D4): the painter links Rust,
+# so the reader expands its source here, as Apple's archive does.
+exact-markdown = { path = "../../markdown" }
 exact-runner = { path = "../../runner" }
 # The executor for a request that leaves the process (LLP 1016 D2): ibex2's
 # standard library for a Rust consumer (ibex LLP 0068) — rustls off Apple
@@ -54,6 +58,12 @@ iana-time-zone = "0.1"
 # device shared (the module is a separate artifact).
 vello = "0.10"
 wgpu = { version = "29", default-features = false, features = ["wgsl", "metal", "vulkan"] }
+
+# Android presents into the window's swapchain (gpu/present.rs).
+[target.'cfg(target_os = "android")'.dependencies]
+raw-window-handle = "0.6"
+jni-sys = "0.3"
+mimalloc = { version = "0.1", default-features = false, features = ["local_dynamic_tls", "v2"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 drm = "0.15"

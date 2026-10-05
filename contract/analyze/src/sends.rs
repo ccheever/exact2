@@ -13,6 +13,9 @@
 //! when each tests one name against literals (`k == "m" or k == "M"`, alone
 //! or as a conjunct of an `and`), the literals differ, and nothing assigns
 //! or sends that name between them.
+//!
+//! A `queue` mutation is exempt (LLP 1092 D6): its sends wait in order and
+//! each reply reaches its `then`.
 
 use super::{AnalyzeError, Related};
 use contract_syntax::{BinOp, Component, Expr, Span, Stmt};
@@ -83,7 +86,9 @@ pub(super) fn facts(cond: &Expr) -> Guard {
 /// the action's own body.
 pub(super) type Frame<'a> = Option<(&'a str, Span)>;
 
-type Sent<'a> = BTreeMap<&'a str, Vec<(Span, Guard, Frame<'a>)>>;
+/// A send: where, the guard it was made under, the call it is made in, and
+/// whether an `if` or `match` arm encloses it.
+type Sent<'a> = BTreeMap<&'a str, Vec<(Span, Guard, Frame<'a>, bool)>>;
 
 /// Whether a fact is about `name`, or a member of it.
 pub(super) fn about(name: &str) -> impl Fn(&(String, BTreeSet<String>)) -> bool + '_ {
@@ -94,7 +99,7 @@ pub(super) fn about(name: &str) -> impl Fn(&(String, BTreeSet<String>)) -> bool 
 fn changed(name: &str, guard: &mut Guard, sent: &mut Sent<'_>) {
     guard.retain(|f| !about(name)(f));
     for sends in sent.values_mut() {
-        for (_, g, _) in sends.iter_mut() {
+        for (_, g, _, _) in sends.iter_mut() {
             g.retain(|f| !about(name)(f));
         }
     }
@@ -118,7 +123,34 @@ struct Walk<'a> {
     action: &'a str,
     /// The call being walked, innermost.
     frame: Frame<'a>,
+    /// The `if` and `match` arms around the statement being walked.
+    arms: usize,
+    /// The slots the action assigns anywhere, its calls included.
+    assigns: BTreeSet<&'a str>,
     errors: Vec<AnalyzeError>,
+}
+
+/// Every name `stmts` assigns, on any path, through calls too.
+fn assigned<'a>(stmts: &'a [Stmt], into: &mut BTreeSet<&'a str>) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Assign { target, .. } => {
+                into.insert(target);
+            }
+            Stmt::Call { body, .. } => assigned(body, into),
+            Stmt::If {
+                then, otherwise, ..
+            } => {
+                assigned(then, into);
+                assigned(otherwise, into);
+            }
+            Stmt::Match { some, none, .. } => {
+                assigned(&some.1, into);
+                assigned(none, into);
+            }
+            Stmt::Send { .. } | Stmt::Let { .. } | Stmt::Command { .. } | Stmt::Refresh { .. } => {}
+        }
+    }
 }
 
 impl<'a> Walk<'a> {
@@ -128,11 +160,17 @@ impl<'a> Walk<'a> {
         for stmt in stmts {
             match stmt {
                 Stmt::Send { target, span, .. } => {
+                    let mutation = self.c.mutations.iter().find(|m| &m.name == target);
+                    // @ref LLP 1092 D2 — a queue's sends each wait their
+                    // turn: none forgets another's reply.
+                    if mutation.is_some_and(|m| m.queue) {
+                        continue;
+                    }
                     let earlier = sent.entry(target).or_default();
-                    if let Some((first, _, frame)) =
-                        earlier.iter().find(|(_, g, _)| !exclusive(g, guard))
+                    if let Some((first, _, frame, armed)) =
+                        earlier.iter().find(|(_, g, _, _)| !exclusive(g, guard))
                     {
-                        let reaches = match self.c.mutations.iter().find(|m| &m.name == target) {
+                        let reaches = match mutation {
                             Some(m) => match &m.then {
                                 Some((then, _)) => format!("`then {then}`"),
                                 None => format!("`{target}`"),
@@ -140,15 +178,44 @@ impl<'a> Walk<'a> {
                             None => format!("`{target}`"),
                         };
                         let action = contract_syntax::inline::calls::shown(self.action);
+                        // The fix names `queue` (LLP 1092 D6) unless the
+                        // action also assigns the slot: a reply it means to
+                        // drop, which a queue would land anyway (D4).
+                        let fix = if self.assigns.contains(target.as_str()) {
+                            "send once, or use a mutation per request".to_string()
+                        } else {
+                            format!("send once, use a mutation per request, or declare `mutation {target} … queue` to run both in order")
+                        };
                         // Through a call, the refusal names the calls (LLP
                         // 1089 D6): neither body shows both sends.
-                        let message = if frame.is_none() && self.frame.is_none() {
+                        // A send in an arm: say why both can run (chess #2).
+                        let message = if *armed || self.arms > 0 {
+                            let both = if frame.is_none() && self.frame.is_none() {
+                                format!("at lines {} and {}", first.line, span.line)
+                            } else {
+                                format!(
+                                    "{} and {}",
+                                    made_in(action, *frame, *first),
+                                    made_in(action, self.frame, *span)
+                                )
+                            };
+                            let fix = if self.assigns.contains(target.as_str()) {
+                                "send once, make the sends arms of one `if … else if`, or use a mutation per request".to_string()
+                            } else {
+                                format!("send once, make the sends arms of one `if … else if`, use a mutation per request, or declare `mutation {target} … queue` to run both in order")
+                            };
                             format!(
-                                "`{action}` sends `{target}` twice; only the last send's reply reaches {reaches} (LLP 1016 D5). Send once, or use a mutation per request"
+                                "`{action}` sends `{target}` twice on one path, {both}: every `if` is read as one that can run, unless the two sends are arms of one `if`/`else` or `match`, or sit in `if`s testing one unchanged name against different literals. Only the last send's reply reaches {reaches} (LLP 1016 D5): {fix}"
+                            )
+                        } else if frame.is_none() && self.frame.is_none() {
+                            let mut fix = fix;
+                            fix[..1].make_ascii_uppercase();
+                            format!(
+                                "`{action}` sends `{target}` twice; only the last send's reply reaches {reaches} (LLP 1016 D5). {fix}"
                             )
                         } else {
                             format!(
-                                "`{action}` sends `{target}` twice on one path: {} and {}. Only the last send's reply reaches {reaches} (LLP 1016 D5): send once, or use a mutation per request",
+                                "`{action}` sends `{target}` twice on one path: {} and {}. Only the last send's reply reaches {reaches} (LLP 1016 D5): {fix}",
                                 made_in(action, *frame, *first),
                                 made_in(action, self.frame, *span)
                             )
@@ -163,7 +230,7 @@ impl<'a> Walk<'a> {
                             }],
                         });
                     }
-                    earlier.push((*span, guard.clone(), self.frame));
+                    earlier.push((*span, guard.clone(), self.frame, self.arms > 0));
                     changed(target, guard, sent);
                 }
                 Stmt::Call {
@@ -184,8 +251,10 @@ impl<'a> Walk<'a> {
                     inner.extend(facts(cond));
                     let mut other = sent.clone();
                     let mut outer = guard.clone();
+                    self.arms += 1;
                     self.block(then, &mut inner, sent);
                     self.block(otherwise, &mut outer, &mut other);
+                    self.arms -= 1;
                     merge(sent, other);
                     // What an arm changed no longer holds after the branch.
                     guard.retain(|f| inner.contains(f) && outer.contains(f));
@@ -193,8 +262,10 @@ impl<'a> Walk<'a> {
                 Stmt::Match { some, none, .. } => {
                     let mut other = sent.clone();
                     let (mut a, mut b) = (guard.clone(), guard.clone());
+                    self.arms += 1;
                     self.block(&some.1, &mut a, sent);
                     self.block(none, &mut b, &mut other);
+                    self.arms -= 1;
                     merge(sent, other);
                     guard.retain(|f| a.contains(f) && b.contains(f));
                 }
@@ -209,10 +280,13 @@ impl<'a> Walk<'a> {
 fn merge<'a>(into: &mut Sent<'a>, from: Sent<'a>) {
     for (target, sends) in from {
         let have = into.entry(target).or_default();
-        for (span, guard, frame) in sends {
-            match have.iter_mut().find(|(s, _, f)| *s == span && *f == frame) {
-                Some((_, kept, _)) => kept.retain(|f| guard.contains(f)),
-                None => have.push((span, guard, frame)),
+        for (span, guard, frame, armed) in sends {
+            match have
+                .iter_mut()
+                .find(|(s, _, f, _)| *s == span && *f == frame)
+            {
+                Some((_, kept, _, _)) => kept.retain(|f| guard.contains(f)),
+                None => have.push((span, guard, frame, armed)),
             }
         }
     }
@@ -222,10 +296,14 @@ fn merge<'a>(into: &mut Sent<'a>, from: Sent<'a>) {
 pub(super) fn check(c: &Component) -> Vec<AnalyzeError> {
     let mut errors = Vec::new();
     for a in &c.actions {
+        let mut assigns = BTreeSet::new();
+        assigned(&a.body, &mut assigns);
         let mut walk = Walk {
             c,
             action: &a.name,
             frame: None,
+            arms: 0,
+            assigns,
             errors: Vec::new(),
         };
         walk.block(&a.body, &mut Guard::new(), &mut BTreeMap::new());

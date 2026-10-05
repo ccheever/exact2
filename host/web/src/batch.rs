@@ -118,6 +118,10 @@ impl Batch {
         let key = |i: usize| keys.map_or("null".into(), |k| format!("\"{}\"", motion_node(k[i])));
         self.ops.push(format!("{{\"op\":\"reorder-drag\",\"id\":{view},\"runtime\":\"{runtime}\",\"handleKey\":\"{}\",\"list\":{},\"listKey\":{},\"wrapper\":{},\"wrapperKey\":{},\"rootKey\":{},\"rowEpoch\":\"{}\"}}",motion_node(handle),id(0),key(0),id(1),key(1),key(2),binding.map_or(0,|b|b.row_epoch)));
     }
+    /// One op already written as JSON (a grouped reorder's, LLP 1094).
+    pub(crate) fn push_op(&mut self, json: String) {
+        self.ops.push(json);
+    }
     pub(crate) fn reorder_state(
         &mut self,
         runtime: u64,
@@ -345,14 +349,15 @@ impl Batch {
 
     /// `{"op":"animate","id":…,"property":…,"delay":ms,"duration":ms,"values":[…]}`
     /// — a spring's frames, evenly spaced; `translate` values are `[x,y]`
-    /// pairs, the rest numbers. No values means stop playing the property.
+    /// pairs, `[x,y,px,py]` with percentages of the box (chess diary #4),
+    /// the rest numbers. No values means stop playing the property.
     pub fn animate(
         &mut self,
         id: u32,
         property: &str,
         delay_ms: f64,
         duration_ms: f64,
-        values: &[(f64, f64)],
+        values: &[[f64; 4]],
         pair: bool,
     ) {
         self.animate_op(None, id, property, (delay_ms, duration_ms), values, pair);
@@ -368,7 +373,7 @@ impl Batch {
         id: u32,
         property: &str,
         (delay_ms, duration_ms): (f64, f64),
-        values: &[(f64, f64)],
+        values: &[[f64; 4]],
     ) {
         let pair = property == "translate";
         self.animate_op(
@@ -387,7 +392,7 @@ impl Batch {
         id: u32,
         property: &str,
         (delay_ms, duration_ms): (f64, f64),
-        values: &[(f64, f64)],
+        values: &[[f64; 4]],
         pair: bool,
     ) {
         let mut s = text!("{{\"op\":\"animate\",\"id\":{},\"property\":", id);
@@ -402,12 +407,14 @@ impl Batch {
             delay_ms,
             duration_ms
         );
-        for (i, (x, y)) in values.iter().enumerate() {
+        for (i, [x, y, px, py]) in values.iter().enumerate() {
             if i > 0 {
                 s.push(',');
             }
             let (x, y) = (Shortest(*x), Shortest(*y));
-            if pair {
+            if pair && (*px != 0.0 || *py != 0.0) {
+                push_text!(&mut s, "[{},{},{},{}]", x, y, Shortest(*px), Shortest(*py));
+            } else if pair {
                 push_text!(&mut s, "[{},{}]", x, y);
             } else {
                 x.push_to(&mut s);
@@ -462,10 +469,11 @@ impl Batch {
     /// A 2D canvas's stamped lists (LLP 1056 D4), in order, as `[address,
     /// length]` pairs in this wasm's memory: the glue replays them in place,
     /// with no text between (the host keeps them alive for the batch);
-    /// `fresh` starts a new bitmap at `w`×`h`.
+    /// `fresh` starts a new bitmap at `w`×`h`, `p3` and `float16` its
+    /// getContext settings (LLP 1100 D12a).
     pub fn canvas2d(&mut self, c: &exact_runner::CanvasList) {
         let mut s = text!(
-            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"lists\":[",
+            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"p3\":{},\"float16\":{},\"lists\":[",
             c.view,
             Shortest(c.lifetime as f64),
             c.generation,
@@ -474,7 +482,9 @@ impl Batch {
             c.pixel_width,
             c.pixel_height,
             Shortest(c.scale),
-            c.stretch
+            c.stretch,
+            c.settings.p3,
+            c.settings.float16
         );
         for (i, l) in c.lists.iter().enumerate() {
             if i > 0 {

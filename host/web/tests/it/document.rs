@@ -261,6 +261,21 @@ component App
     assert!(doc.contains("<span>unsafe</span>"), "{doc}");
     assert!(!doc.contains("javascript"), "{doc}");
     assert!(doc.contains("<br>"), "{doc}");
+    // A list item is a block padded by its indent, its marker hung in the
+    // gutter, as `renderMarkup` builds it (LLP 1045 D4).
+    let list = document(
+        "component App\n  view\n    text \"Top\\n\\n- one\\n  - two\" markup=\"markdown\"\n",
+    );
+    let marker =
+        "display:inline-flex;justify-content:flex-end;width:40px;white-space:pre;text-indent:0;";
+    assert!(
+        list.contains(&format!("<span style=\"display:block;padding-left:40px;text-indent:-40px;\"><span style=\"opacity:0.62;{marker}\">• </span><span>one</span><span><br></span></span>")),
+        "{list}"
+    );
+    assert!(
+        list.contains(&format!("<span style=\"display:block;padding-left:80px;text-indent:-40px;\"><span style=\"opacity:0.62;{marker}\">◦ </span><span>two</span></span>")),
+        "{list}"
+    );
 }
 
 #[test]

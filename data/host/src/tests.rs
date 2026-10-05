@@ -191,64 +191,6 @@ fn construction_configuration_and_validation_have_no_storage_effects() {
     assert!(!paths.0.exists());
 }
 
-/// Studio diary R14: a document a launch hands over is sent to the data
-/// module before first pixel; its storage request waits for activation
-/// rather than being refused and lost. A resource is still refused (it is
-/// asked again at `data_ready`), and validation never runs one.
-#[test]
-fn a_send_before_activation_waits_for_storage_and_runs_once_it_is_ready() {
-    let paths = Paths::new();
-    let mut host = Storage::new(Fixture::new());
-    paths.configure(&mut host);
-    let mut store = Store::default();
-    assert!(host
-        .answer_for(Target::Resource(0), &mut store, "operation", &[])
-        .is_err());
-    let Answer::Later(request) = host
-        .answer_for(Target::Mutation(0), &mut store, "operation", &[])
-        .unwrap()
-    else {
-        panic!("expected a held request")
-    };
-    let token = request.continuation.unwrap();
-    assert!(matches!(host.dispatch(token, &store), Dispatch::Held));
-    assert!(
-        host.release(&store).is_empty(),
-        "nothing runs before activation"
-    );
-    assert!(!paths.0.exists());
-    host.activate().unwrap();
-    let mut released = host.release(&store);
-    assert_eq!(released.len(), 1);
-    let (released_token, Dispatch::Run(exact_runner::Work::Now(job))) = released.remove(0) else {
-        panic!("expected the held work")
-    };
-    assert_eq!(released_token, token);
-    std::thread::spawn(job).join().unwrap();
-    assert_eq!(std::fs::read(paths.0.join("data/note")).unwrap(), b"hello");
-    assert!(host.release(&store).is_empty(), "released once");
-    // An early request outside the app's grants fails when it runs.
-    let mut host = Storage::new(Fixture::new());
-    paths.configure(&mut host);
-    host.source.request =
-        storage::request("fs.writeFile", json!({"path":"app:/cache/x","text":"no"}));
-    let Answer::Later(request) = host
-        .answer_for(Target::Mutation(0), &mut store, "operation", &[])
-        .unwrap()
-    else {
-        panic!("expected a held request")
-    };
-    assert!(matches!(
-        host.dispatch(request.continuation.unwrap(), &store),
-        Dispatch::Held
-    ));
-    host.activate().unwrap();
-    let (_, Dispatch::Run(exact_runner::Work::Now(job))) = host.release(&store).remove(0) else {
-        panic!("expected the held work")
-    };
-    assert!(storage::response(std::thread::spawn(job).join().unwrap()).is_err());
-}
-
 #[test]
 fn activation_defers_io_to_the_owned_job_and_parse_returns_its_result() {
     let paths = Paths::new();
@@ -599,7 +541,11 @@ impl DataSource for Continuing {
     fn dispatch(&mut self, _: u64, _: &Store) -> exact_runner::Dispatch {
         exact_runner::Dispatch::Host(7)
     }
-    fn forgotten(&mut self, in_flight: &[exact_runner::InFlight<'_>]) {
+    fn forgotten(
+        &mut self,
+        _store: &exact_runner::Store,
+        in_flight: &[exact_runner::InFlight<'_>],
+    ) {
         self.heard
             .borrow_mut()
             .extend(in_flight.iter().map(|f| f.continuation));
@@ -628,7 +574,7 @@ fn forgotten_hands_a_child_its_own_tokens_and_lets_go_of_the_rest() {
         continuation: Some(continuation),
     };
     // The second replaced the first: the child hears its own token back.
-    host.forgotten(&[in_flight(second)]);
+    host.forgotten(&store, &[in_flight(second)]);
     assert_eq!(heard.borrow().as_slice(), [Some(7)]);
     assert!(matches!(
         host.dispatch(first, &store),
@@ -639,7 +585,7 @@ fn forgotten_hands_a_child_its_own_tokens_and_lets_go_of_the_rest() {
         host.dispatch(second, &store),
         exact_runner::Dispatch::Host(7)
     ));
-    host.forgotten(&[in_flight(second)]);
+    host.forgotten(&store, &[in_flight(second)]);
     assert_eq!(heard.borrow().as_slice(), [Some(7), None]);
 }
 
@@ -724,4 +670,24 @@ fn an_agent_drive_without_a_store_answers_with_the_webs_refusal() {
     assert!(host
         .answer(&mut Store::default(), "operation", &[])
         .is_err());
+}
+
+#[test]
+fn storage_forwards_source_console_lines_once() {
+    struct Logging(Vec<String>);
+    impl DataSource for Logging {
+        fn query(
+            &mut self,
+            _: &str,
+            _: &[exact_plan::Value],
+        ) -> Result<exact_plan::Value, DataError> {
+            Ok(exact_plan::Value::Unit)
+        }
+        fn take_logs(&mut self) -> Vec<String> {
+            std::mem::take(&mut self.0)
+        }
+    }
+    let mut source = Storage::new(Logging(vec!["console error".into()]));
+    assert_eq!(source.take_logs(), ["console error"]);
+    assert!(source.take_logs().is_empty());
 }

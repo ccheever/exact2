@@ -24,6 +24,8 @@
 //! - [`animation`] — CSS `@keyframes` and `animation`, sampled in closed form
 //!   (LLP 1055 D5).
 //! - [`engine`] — per-node presentation state under a seekable clock.
+//! - [`uikit`] — UIKit's spring parameterisations, resolved to the springs
+//!   UIKit builds (LLP 1099).
 //! - [`velocity`] — a pointer-velocity estimate for hosts without one.
 //! - [`math`] — pinned transcendentals, so the same input yields the same bits.
 //!
@@ -40,11 +42,11 @@ pub mod easing;
 pub mod engine;
 pub mod gesture;
 pub mod math;
-pub mod named;
 pub mod parse;
 pub mod property;
 pub mod spring;
 pub mod transition;
+pub mod uikit;
 pub mod velocity;
 
 pub use animation::link as link_animations;
@@ -55,7 +57,7 @@ pub use animation::{
 pub use easing::{Easing, EasingError, LinearStop, StepPosition};
 pub use engine::{
     AnimationPlay, Change, Engine, EngineError, HoldEnd, HoldStart, HoldToken, NamedTimeline,
-    Presentation, SpringDescriptor, SpringFrames, TransformHold,
+    PlayedCurve, PlayedTransition, Presentation, SpringDescriptor, SpringFrames, TransformHold,
 };
 pub use parse::ParseError;
 pub use property::{Property, Value};

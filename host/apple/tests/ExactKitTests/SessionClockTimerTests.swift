@@ -2,6 +2,9 @@ import CoreFoundation
 import Foundation
 import QuartzCore
 import XCTest
+#if os(macOS)
+import AppKit
+#endif
 @testable import ExactKit
 
 // Exercise the production decoder even when a fixture is written as JSON values.
@@ -106,6 +109,33 @@ final class SessionClockTimerTests: XCTestCase {
         defer { c.destroy() }
         XCTAssertNil(c.boot(plan: plan, size: CGSize(width: 390, height: 844)).error)
         XCTAssertTrue(c.presenter.views.values.contains { $0.props["text"] == "reduce motion" })
+        #endif
+    }
+
+    func testScreenNotificationsRepublishDynamicRange() throws {
+        #if os(macOS)
+        let old = DisplayRange.pinned
+        defer { DisplayRange.pinned = old }
+        DisplayRange.pinned = 1
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = "shape Display\n  dynamicRange: string\ncomponent App\n  resource display = exactViewport() as shape Display\n  view\n    text display.dynamicRange\n"
+        try source.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
+        compiler.arguments = ["build", dir.appendingPathComponent("app.contract").path, "-o", dir.appendingPathComponent("app.plan").path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        let view = ExactView(session: session)
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: dir.appendingPathComponent("app.plan")), size: CGSize(width: 100, height: 100)).error)
+        XCTAssertTrue(session.presenter.views.values.contains { $0.props["text"] == "standard" })
+        DisplayRange.pinned = 4 // no preferences notification: only the screen change below
+        NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: NSApplication.shared)
+        XCTAssertTrue(session.presenter.views.values.contains { $0.props["text"] == "high" })
+        withExtendedLifetime(view) {}
         #endif
     }
 

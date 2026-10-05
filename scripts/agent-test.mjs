@@ -7,20 +7,77 @@ import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { open } from './agent.mjs';
+import { duringOp } from './agent-drag.mjs';
 import { driveStore, launchFacts } from './agent-launch.mjs';
 import { resolveApp } from './app.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
  * are its choices, not its text; LLP 1087 wizard trials), else its descendants' in order — the web's `textContent`, a button's
  * label — else a field's value. `nodes` is a `tree` reply's, in preorder. */
-export function textOf(nodes, node) {
+export function textOf(nodes, node, live = false) {
   if (node.props.text != null) return node.props.text;
   const at = nodes.indexOf(node), runs = [];
   // A checkbox or switch (only those take `checked`): `true` or `false`.
   if (node.type === 'Control' && node.props.checked != null) return String(node.props.checked);
   if (node.type === 'Control' && node.props.value != null) return node.props.value;
-  for (let i = at + 1; i < nodes.length && nodes[i].depth > node.depth; i++) if (nodes[i].props.text != null) runs.push(nodes[i].props.text);
+  // `live`: only what an active screen shows (a covered descendant's text is not this node's name).
+  for (let i = at + 1; i < nodes.length && nodes[i].depth > node.depth; i++) if (nodes[i].props.text != null && !(live && nodes[i].inactive)) runs.push(nodes[i].props.text);
   return runs.length ? runs.join('') : node.props.value;
+}
+
+// What a person activates, most direct first: a control, or a view a press or an edit acts on (2); one taking a gesture
+// or focus (1); none (0) — a `scroll` or `pointermove` handler only watches.
+const PRESSES = new Set(['press', 'change', 'input', 'submit', 'select', 'dblclick']);
+const GESTURES = new Set(['contextmenu', 'focus', 'swiperight', 'pan', 'drop']);
+const tier = (n) => n.type === 'Control' || n.type === 'TextInput' || (n.handlers ?? []).some((h) => PRESSES.has(h)) ? 2 : (n.handlers ?? []).some((h) => GESTURES.has(h)) ? 1 : 0;
+const interactive = (n) => tier(n) > 0;
+const name = (n) => n.props.testId ?? (n.props.accessibilityLabel ? `"${n.props.accessibilityLabel}"` : null);
+
+/** A target no testId carries, by the name a person reads (`nodes` a whole `tree` reply's, in preorder): the node whose
+ * accessibilityLabel is exactly `target`, else whose text (`textOf`) is: on the active screens first (their text without a
+ * covered descendant's), then anywhere. The most directly interactive win; of nested ones the outermost interactive,
+ * or the innermost otherwise. More than one left
+ * refuses, naming them; none returns null. */
+export function nodeNamed(nodes, target) {
+  let ends = null; // each node's preorder index and the end of its subtree, computed once and only on a match
+  const spans = () => {
+    ends = new Map();
+    const open = [];
+    nodes.forEach((n, i) => {
+      while (open.length && open.at(-1).n.depth >= n.depth) { const o = open.pop(); ends.set(o.n, [o.i, i]); }
+      open.push({ n, i });
+    });
+    for (const o of open) ends.set(o.n, [o.i, nodes.length]);
+  };
+  const passes = [true, false].flatMap((live) => [(n) => n.props.accessibilityLabel, (n) => textOf(nodes, n, live)].map((read) => [live, read]));
+  for (const [live, read] of passes) {
+    let found = nodes.filter((n) => { if (live && n.inactive) return false; const v = read(n); return v != null && String(v).trim() === target; });
+    if (!found.length) continue;
+    const top = found.reduce((t, n) => Math.max(t, tier(n)), 0);
+    found = found.filter((n) => tier(n) === top);
+    if (found.length > 1) {
+      if (!ends) spans();
+      const kept = [];
+      for (const n of found) { // preorder: an ancestor comes before what it holds
+        const inside = (m) => { const [i, end] = ends.get(m), [j] = ends.get(n); return j > i && j < end; };
+        if (interactive(n)) { if (!kept.length || !inside(kept.at(-1))) kept.push(n); } // kept subtrees are disjoint
+        else { while (kept.length && inside(kept.at(-1))) kept.pop(); kept.push(n); }
+      }
+      found = kept;
+    }
+    if (found.length === 1) return found[0];
+    throw new Error(`${JSON.stringify(target)} names ${found.length} views: ${found.slice(0, 8).map((n) => `${n.id}${n.props.testId ? ` (${n.props.testId})` : ''} ${n.type}`).join(', ')}${found.length > 8 ? ', …' : ''}; target one by its view id`);
+  }
+  return null;
+}
+
+/** A few targets an agent can name instead of a point: interactive views' testIds and labels, else their text. */
+export function targetsIn(nodes, limit = 12) {
+  const named = [...new Set(nodes.filter((n) => interactive(n) && !n.inactive).map((n) => {
+    const text = textOf(nodes, n);
+    return name(n) ?? (text != null && String(text).trim() ? JSON.stringify(String(text).trim()) : null);
+  }).filter(Boolean))];
+  return named.length ? `; targets here: ${named.slice(0, limit).join(', ')}${named.length > limit ? ', …' : ''}` : '';
 }
 
 /** Where a native host keeps a drive's scratch stores (host/apple and host/linux `configure_storage`), or
@@ -89,7 +146,10 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       results.push({ name: t.name, failures: [`${t.name}: ${lines.length ? `line ${lines.join(', ')}` : "the drive's launch flags"}: ${e.message}`] });
       continue;
     }
-    const launch = (environment) => open({ host, browser, plan, ...facts, env: environment, app, webDist, device, phone, url, storage: store });
+    // A drag on an iOS simulator is the touch runner's real gesture (LLP 1080.000 §11; chat2 diary: an authored
+    // test could not drag there); every other step stays the agent's. A phone has no runner yet: its drag says so.
+    const drags = !device && ['ios', 'host-ios'].includes(host) && t.steps.some((st) => st.op === 'drag');
+    const launch = (environment) => open({ host, browser, plan, ...facts, env: environment, app, webDist, device, phone, url, storage: store, ...(drags ? { touch: 'drag' } : {}) });
     let s = await launch(fresh);
     // The app's data lands before the first step, as `clock data` lands it: activation and every request in flight,
     // the clock unmoved and no timer fired (habits, pomodoro, kanban: a store opened at launch raced the first step).
@@ -106,8 +166,12 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // a mutation's `then`, a timer, a transition) lands at a clock step. A
     // failed expect after an input with none says so (kanban F19).
     let input = null;
+    // The line whose `close` closed the window, if one did.
+    let closedAt = null;
     // An input the host could not perform fails its step: an unsupported drag or a refused tap did nothing to assert on.
-    const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); };
+    // An input that closed the window (`close`, or a press the app answered with `close()`) ends what can run.
+    let current = null;
+    const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); if (r?.closed) closedAt = current; };
     // With no input since the clock last moved, a request still in flight (the boot's own, or one a jump
     // left on real time) is named: the expect read the value before its reply (workout F1).
     const fail = async (message) => {
@@ -119,12 +183,24 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       try { await data(); } catch (e) { failures.push(`${t.name}: waiting for the app's data before the first step: ${e.message}`); }
       for (const st of failures.length ? [] : t.steps) {
         const at = `${t.name}: line ${st.line}`;
+        if (closedAt != null) { failures.push(`${at}: the window closed at line ${closedAt}, so nothing after it runs`); break; }
+        current = st.line;
         try {
           switch (st.op) {
             case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': break; // the session opened with it
             // The driver's `tap` forms (feed F10): `into` brings a virtualized list's row into view by its key.
-            case 'tap': delivered(await s.tap(st.target, st.form === 'into' ? { into: { key: st.key } } : st.form !== 'press' ? { [st.form]: true } : st.modifiers ? { modifiers: st.modifiers } : undefined)); input = st.line; break;
-            case 'drag': delivered(await s.tap(st.target, { drag: { dx: st.dx, dy: st.dy, ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) } })); input = st.line; break;
+            case 'tap': {
+              const opts = st.form === 'into' ? { into: { key: st.key } }
+                : st.form === 'pinch' ? { pinch: st.scale, ...(st.at ? { at: st.at } : {}) }
+                : st.form !== 'press' ? { [st.form]: true }
+                : st.modifiers ? { modifiers: st.modifiers } : undefined;
+              delivered(await s.tap(st.target, opts)); input = st.line; break;
+            }
+            case 'drag': {
+              const drag = { ...(st.to != null ? { to: st.to, ...(st.at ? { at: st.at } : {}) } : { dx: st.dx, dy: st.dy }), ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) };
+              if (st.during?.length) drag.during = st.during.map((op) => () => duringOp(s, op));
+              delivered(await s.tap(st.target, { drag })); input = st.line; break;
+            }
             case 'type': {
               // `append`: after the field's value as the tree shows it, the text a keyboard would add (feed F8).
               let text = st.text;
@@ -136,17 +212,22 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               delivered(await s.type(st.target, text)); input = st.line; break;
             }
             case 'reload': await reload(); await data(); input = null; break;
-            case 'key': delivered(await s.type(st.target, { key: st.key })); input = st.line; break;
+            case 'key': delivered(await s.type(st.target, { key: st.key, ...(st.phase ? { phase: st.phase } : {}), ...(st.for != null ? { for: st.for } : {}) })); input = st.line; break;
             // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
             case 'pick': delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); input = st.line; break;
             case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
             case 'clock': await s.clock(st.arg); input = null; break;
             case 'resize': delivered(await s.resize(st.width, st.height)); input = st.line; break;
+            // The window's close button (studio diary R17): a window a `beforeunload` keeps stays and the test goes on;
+            // one that closed takes the session, so a step after it fails naming it.
+            case 'close': delivered(await s.closeWindow()); input = st.line; break;
             case 'screenshot': await s.screenshot(st.path); break;
             case 'expect-tree': {
               const tree = await s.tree();
               const found = tree.nodes.some((n) => n.props.testId === st.target);
-              if (found !== st.present) await fail(`${at}: expected testId "${st.target}" ${st.present ? 'present' : 'absent'}, it was ${found ? 'present' : 'absent'}`);
+              // The first step of a test that waited for data cannot see the boot's loading view (authoring bench).
+              const first = !beforeData && t.steps.slice(0, t.steps.indexOf(st)).every((p) => p.op in LAUNCH || p.op === 'size');
+              if (found !== st.present) await fail(`${at}: expected testId "${st.target}" ${st.present ? 'present' : 'absent'}, it was ${found ? 'present' : 'absent'}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
               break;
             }
             case 'expect-text': {
@@ -160,7 +241,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             case 'expect-state': {
               const state = await s.state();
               const bag = { ...(state.resources ?? {}), ...(state.derives ?? {}), ...(state.slots ?? {}) };
-              // A field of a record at any depth, `name.field` (feed F10).
+              // A field or a list index at any depth, `name.field` or `rows.0` (feed F10, drums R7).
               const [name, ...fields] = st.name.split('.');
               if (!(name in bag)) { failures.push(`${at}: no state named "${name}"`); break; }
               let got = bag[name], path = name, missing = null;
@@ -180,7 +261,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         }
       }
     } finally {
-      await s.close();
+      // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
+      await s.close().catch((e) => { if (closedAt == null) throw e; });
     }
     results.push({ name: t.name, failures });
     if (base) rmSync(resolve(base, store), { recursive: true, force: true });

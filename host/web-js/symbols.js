@@ -37,7 +37,9 @@ export function symbols(table) {
     if (e.localName !== "img" || !v?.startsWith("symbol:")) { template(e, v); return false; }
     template(e, null);
     if (!Table[v.slice(7)] && !All && !v.startsWith("symbol:sf/")) everyRole();
-    e.setAttribute("data-symbol-source", v); draw(e, v.slice(7)); e.alt = "";
+    e.setAttribute("data-symbol-source", v); draw(e, v.slice(7));
+    // Decorative unless its author named it (`alt`, `aria-label`), as the template writes it.
+    if (!e.getAttribute("alt")) e.alt = "";
     return true;
   };
   After.push(refresh);

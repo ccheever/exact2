@@ -124,12 +124,19 @@ export const DETAILED = `This session keeps the detailed diary. In the same diar
 - Every workaround left in the app.
 - At the end, a self-assessment for each platform: what works, how you checked it, and what you are unsure of.`;
 
+const MEANING = {
+  ask: 'keep the diary; ask once before sending',
+  always: 'keep the diary; send it at the end of each task, saying so',
+  never: 'keep no diary; never ask',
+};
+
 /** The standing answer and what is unsent; the detailed diary's instructions when a study asks for them. */
 export function status(dir, env = process.env) {
   const { diaries, commands } = pending(dir);
   const answer = standing(dir);
-  const line = answer === 'local' ? `local: ${diaries.length} unsent diaries, kept on this machine; ${commands.length} logged commands`
-    : `${answer}: ${diaries.length} unsent diaries, ${commands.length} unsent logged commands`;
+  // Each answer says what it asks of the agent (docs/diary.md; the chess diary read `ask` as undefined).
+  const line = answer === 'local' ? `local (keep the diary; ask nothing, send nothing): ${diaries.length} unsent diaries, kept on this machine; ${commands.length} logged commands`
+    : `${answer} (${MEANING[answer]}): ${diaries.length} unsent diaries, ${commands.length} unsent logged commands`;
   return env.EXACT_DIARY === 'detailed' && answer !== 'never' ? `${line}\n\n${DETAILED}` : line;
 }
 

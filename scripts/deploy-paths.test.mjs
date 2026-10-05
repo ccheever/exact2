@@ -46,7 +46,10 @@ test('outside physical sources and consulted manifests cannot be silently filter
   }
   const missing = join(fixture, 'stage/missing.contract');
   expect(() => assertCapturedContractSources(graph(missing), join(fixture, 'stage'))).toThrow('ENOENT');
-  expect(() => assertCapturedContractSources(graph(inside, 'app', [join(fixture, 'stage/missing-package.json')]), join(fixture, 'stage'))).toThrow('ENOENT');
+  // A consulted path that does not exist is where resolution looked and found
+  // nothing (a nearer install candidate of a hoisted package): nothing to capture.
+  expect(() => assertCapturedContractSources(graph(inside, 'app', [join(fixture, 'stage/missing-package.json')]), join(fixture, 'stage'))).not.toThrow();
+  expect(() => assertCapturedContractSources(graph(inside, 'app', [join(fixture, 'nowhere/node_modules/ui/package.json')]), join(fixture, 'stage'))).not.toThrow();
 });
 
 test('a real junction or directory symlink cannot lead outside the capture', () => {

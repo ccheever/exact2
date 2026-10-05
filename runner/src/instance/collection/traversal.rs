@@ -70,6 +70,22 @@ impl Collection {
 impl Tree {
     /// O(live instances) snapshots. No unmounted record/key serialization.
     pub fn collections(&self) -> Vec<CollectionSnapshot> {
+        self.collections_with(usize::MAX)
+    }
+    /// [`Tree::collections`] with only each list's first mounted row: what a
+    /// host's per-step scheduling and port geometry read, without a row
+    /// record per mounted row.
+    pub fn collections_shallow(&self) -> Vec<CollectionSnapshot> {
+        self.collections_with(1)
+    }
+    /// One list's snapshot ([`Tree::collections`]'s entry for `view`).
+    pub fn collection(&self, view: ViewId) -> Option<CollectionSnapshot> {
+        if !self.has_collections {
+            return None;
+        }
+        find_collection(&self.children, view).map(Collection::snapshot)
+    }
+    fn collections_with(&self, rows: usize) -> Vec<CollectionSnapshot> {
         if !self.has_collections {
             return Vec::new();
         }
@@ -79,7 +95,7 @@ impl Tree {
             match child {
                 Child::Node(node) => {
                     if let Some(collection) = &node.collection {
-                        out.push(collection.snapshot());
+                        out.push(collection.snapshot_rows(rows));
                         collection.add_children(&mut stack);
                     }
                     stack.extend(node.children.iter());
@@ -161,7 +177,7 @@ impl Tree {
                     start: c.index.prefix(row.position).unwrap(),
                     size: c.index.height(row.position).unwrap(),
                     epoch: row.epoch,
-                    measured: c.index.is_measured(c.index.key(row.position).unwrap()),
+                    measured: c.index.is_measured_at(row.position),
                 });
             }
             out.push(CollectionSnapshot {

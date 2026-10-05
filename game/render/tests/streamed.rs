@@ -96,6 +96,7 @@ fn streamed_models_wait_for_the_first_drawn_frame_then_prepare_a_few_per_frame_s
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let unprepared = |s: &WorldSurface<Streams, ModelExecutor, true>| {
         s.sim().unwrap().streamed_unprepared().len()

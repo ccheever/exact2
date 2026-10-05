@@ -42,16 +42,16 @@ theorem cmono_aux : ∀ n,
       | root => simp only [ceval] at h ⊢; exact eval_mono hm h
       | inst c id binds =>
       cases e with
-      | num | str | bool | none | emptyList | arrow | named => exact h
+      | num | str | bool | none | arrow | named => exact h
       | var x =>
         simp only [ceval] at h ⊢
         split at h
         · exact h
         · exact ihV hm h
-      | some e | template e =>
+      | some e | template e | list e =>
         simp only [ceval, Except.bind_ok_iff] at h ⊢
         obtain ⟨a, h1, h2⟩ := h
-        first | exact ⟨a, ihE hm h1, h2⟩ | exact ⟨a, ihD hm h1, h2⟩
+        first | exact ⟨a, ihE hm h1, h2⟩ | exact ⟨a, ihD hm h1, h2⟩ | exact ⟨a, ihL hm h1, h2⟩
       | member e f =>
         simp only [ceval, Except.bind_ok_iff] at h ⊢
         obtain ⟨a, h1, h2⟩ := h

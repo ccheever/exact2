@@ -7,6 +7,8 @@ mod nest;
 mod rekey;
 mod reorder;
 mod reorder_api;
+mod reorder_group;
+mod reuse;
 mod start;
 #[cfg(test)]
 mod tests;
@@ -66,10 +68,43 @@ fn in_collection_row(plan: &Plan, frames: &[Frame]) -> bool {
 /// second of that travel more, up to two viewports.
 fn lead(viewport: f64, velocity: f64) -> [f64; 2] {
     let extra = (velocity.abs() * LEAD_SECONDS).min(viewport * 2.0);
+    let k = f64::from_bits(LEAD_SCALE.load(std::sync::atomic::Ordering::Relaxed));
     if velocity > 0.0 {
-        [viewport, viewport + extra]
+        [viewport * k, (viewport + extra) * k]
     } else {
-        [viewport + extra, viewport]
+        [(viewport + extra) * k, viewport * k]
+    }
+}
+
+/// 1.0's bits: the process's lead scale (a host may boot on one thread and
+/// run on another).
+static LEAD_SCALE: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0x3FF0_0000_0000_0000);
+
+/// How much of a window's lead past its viewport collections realize: 1,
+/// the default, all of it; a host drawing its first frame may ask for 0 (the
+/// rows that show), then 1 once that frame is out, so the rows past the
+/// viewport mount after the first frame instead of before it.
+pub fn set_lead_scale(scale: f64) {
+    LEAD_SCALE.store(
+        scale.clamp(0.0, 1.0).to_bits(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+/// The provisional extent (px along the axis) a list with no port yet
+/// realizes rows for: by default sixteen 32 px rows' worth; a host that knows
+/// its viewport sets it ([`set_bootstrap_extent`]).
+static BOOTSTRAP_EXTENT: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new((BOOTSTRAP_ROWS as f64 * ESTIMATED_HEIGHT).to_bits());
+
+/// How far a new list's first rows reach before its port is reported: a
+/// host passes its viewport's extent, so the rows that can show are built
+/// with the list instead of in a second commit after the first layout (at
+/// most sixteen rows; a list's `initial-item-count` still wins).
+pub fn set_bootstrap_extent(px: f64) {
+    if px.is_finite() && px > 0.0 {
+        BOOTSTRAP_EXTENT.store(px.to_bits(), std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -87,6 +122,8 @@ struct Mounted {
     epoch: u64,
     token: MeasurementToken,
     preview_target: Option<f64>,
+    /// Hidden while a ghost stands for it (LLP 1094 D6).
+    preview_hidden: bool,
     /// The position and count the wrapper last published (`aria-posinset`,
     /// `aria-setsize`), for hosts that select and copy across rows.
     published: (usize, usize),
@@ -95,6 +132,12 @@ struct Mounted {
 #[derive(Debug)]
 pub(crate) struct Collection {
     preview: Option<reorder::Preview>,
+    /// The gap a grouped session opens here as its target (LLP 1094 D4).
+    incoming: Option<reorder_group::Incoming>,
+    /// The dragged row's identity while a ghost stands for it (D6).
+    hidden: Option<String>,
+    /// Emit preview offsets at once: the rows moved with them (D8).
+    instant: bool,
     view: ViewId,
     /// Fixed at creation from the list's style (LLP 1070 H1).
     axis: ListAxis,
@@ -153,6 +196,9 @@ pub(crate) struct Collection {
     at_end: bool,
     /// Consecutive reports that said the port was travelling, while it opens.
     end_travel: u8,
+    /// What a retiring row may be rebound to another item under (LLP 1078):
+    /// `None` when no row of this list can be.
+    reuse: Option<Rc<reuse::Reuse>>,
 }
 fn index_error(e: index::IndexError) -> InstanceError {
     InstanceError::Collection(e.to_string())
@@ -339,6 +385,7 @@ impl Collection {
             return Err(invalid("collection row needs one flow root"));
         }
         let inner = traversal::validate_nesting(plan, u.sites, region)?;
+        let reuse = reuse::Reuse::new(plan, u.sites, region);
         let nested = inner.is_some();
         let port = declared[match axis {
             ListAxis::Vertical => 0,
@@ -353,16 +400,20 @@ impl Collection {
         }
         let mut this = Box::new(Self {
             preview: None,
+            incoming: None,
+            hidden: None,
+            instant: false,
             view,
             axis,
             region,
             index: SizeIndex::new(estimated_height).map_err(index_error)?,
             estimated_height,
-            // Keep the original provisional pixel budget, capped at sixteen
-            // rows, unless the list says how many (`initial-item-count`).
+            // The provisional extent ([`set_bootstrap_extent`]), capped at
+            // sixteen rows, unless the list says how many (`initial-item-count`).
             // Actual nested-scrollport feedback determines the real window.
             bootstrap_rows: initial.unwrap_or(
-                ((BOOTSTRAP_ROWS as f64 * ESTIMATED_HEIGHT / estimated_height)
+                ((f64::from_bits(BOOTSTRAP_EXTENT.load(std::sync::atomic::Ordering::Relaxed))
+                    / estimated_height)
                     .ceil()
                     .min(
                         port.filter(|_| in_collection_row(plan, frames))
@@ -410,6 +461,7 @@ impl Collection {
             start_offset: 0.0,
             at_end,
             end_travel: 0,
+            reuse,
         });
         this.update_data(u, frames, true)?;
         Ok(Some(this))
@@ -437,9 +489,15 @@ impl Collection {
         let rows_changed =
             u.changed_outside(&deps.keys[index], 1) || u.changed_outside(&deps.bodies[index], 1);
         let changed = fresh || rows_changed || u.changed_outside(&deps.subjects[index], 0);
+        // A grouped session's offsets move with its rows, at once (LLP 1094
+        // D8): the layout moved by what they gave.
+        let instant = changed
+            && (self.incoming.is_some() || self.preview.as_ref().is_some_and(|p| p.grouped));
         if changed {
             self.end_preview(u)?;
+            self.unsettle_incoming();
         }
+        self.instant = instant;
         let anchor = if changed { self.anchor()? } else { None };
         // Items that changed in place: the same keys in the same order, and
         // no input of the rows' bodies or keys changed (a live tick's prices).
@@ -512,7 +570,9 @@ impl Collection {
             self.restore(anchor)?;
         }
         self.start_at_end();
-        self.realize_window(u, frames, true, CollectionFill::default())?;
+        let realized = self.realize_window(u, frames, true, CollectionFill::default());
+        self.instant = false;
+        realized?;
         if changed {
             let unchanged = previous.is_some_and(|mut before| {
                 let now = self.snapshot();
@@ -564,8 +624,16 @@ impl Collection {
             keys.reserve(items.len());
             text_keys.reserve(items.len());
         }
-        let mut unique = std::collections::BTreeSet::new();
+        // Membership only: hashed, and holding the identities the index
+        // keeps (no copy of each key's text).
+        // Each identity's position: the index takes it as its key map.
+        let mut unique: std::collections::HashMap<Rc<str>, usize> = Default::default();
+        if changed {
+            unique.reserve(items.len());
+        }
         let mut dups = BTreeMap::new();
+        // Each key's text, written here before its identity is made.
+        let mut text = String::new();
         let mut inner = frames.to_vec();
         inner.push(Frame::default());
         for (position, item) in items.iter().enumerate() {
@@ -588,35 +656,46 @@ impl Collection {
                 // following row now preserves duplicate-before-later-trap.
                 keys.reserve(items.len());
                 text_keys.reserve(items.len());
+                unique.reserve(items.len());
                 for prefix in 0..position {
                     let text = self.index.shared_key(prefix).unwrap().clone();
-                    unique.insert(text.to_string());
+                    unique.insert(text.clone(), prefix);
                     text_keys.push(text);
                     keys.push(self.keys[prefix].clone());
                 }
                 dups.extend(self.dups.range(..position).map(|(p, d)| (*p, *d)));
                 changed = true;
             }
-            let text = key_text(&key).ok_or(InstanceError::KeyKind {
-                region: self.region,
-            })?;
+            text.clear();
+            if !super::key_text_into(&key, &mut text) {
+                return Err(InstanceError::KeyKind {
+                    region: self.region,
+                });
+            }
             // A repeated key is the data's error: the repeat takes the
             // next identity in order (as an `each` does).
             let mut dup = 0;
-            let mut ident = text.clone();
-            while unique.contains(&ident) {
-                dup += 1;
-                ident = super::disambiguate(text.clone(), dup);
-            }
-            unique.insert(ident.clone());
+            let ident: Rc<str> = if unique.contains_key(text.as_str()) {
+                let mut ident = text.clone();
+                while unique.contains_key(ident.as_str()) {
+                    dup += 1;
+                    ident = super::disambiguate(text.clone(), dup);
+                }
+                Rc::from(ident)
+            } else {
+                Rc::from(text.as_str())
+            };
+            unique.insert(ident.clone(), position);
             if dup > 0 {
                 dups.insert(position, dup);
             }
             keys.push(key);
-            text_keys.push(Rc::from(ident));
+            text_keys.push(ident);
         }
         if changed {
-            self.index.replace_keys(text_keys).map_err(index_error)?;
+            self.index
+                .replace_keys_indexed(text_keys, unique)
+                .map_err(index_error)?;
             self.string_keys = keys.iter().all(|key| key.as_str().is_some());
             self.keys = keys;
             self.dups = dups;
@@ -797,6 +876,10 @@ impl Collection {
             pending = optional.len() > limit as usize;
             admitted.extend(optional.into_iter().take(limit as usize).map(|(_, _, p)| p));
         }
+        // With reuse, the rows nothing mounts are built once the retiring
+        // rows are known, so one can be rebound to each (LLP 1078).
+        let reusing = self.reusing(u);
+        let mut needed: Vec<(usize, String)> = Vec::new();
         for position in ranges.into_iter().flatten() {
             let text = self.index.key(position).unwrap().to_owned();
             let mounted = match old.remove(&text) {
@@ -814,25 +897,11 @@ impl Collection {
                     if building.is_some() && !is_owed(position) && !admitted.contains(&position) {
                         continue;
                     }
-                    let token = self.index.invalidate_row(&text).map_err(index_error)?;
-                    let mut row = self.create_row(u, position, frames)?;
-                    self.adopt_nested(u, &mut row, &text, frames)?;
-                    let wrapper = views::row_wrapper(
-                        u,
-                        self.axis,
-                        roots_of(&row.roots),
-                        &text,
-                        self.reorderable,
-                    )?;
-                    Mounted {
-                        position,
-                        wrapper,
-                        epoch: advance(&mut self.next_epoch)?,
-                        token,
-                        preview_target: None,
-                        published: (usize::MAX, usize::MAX),
-                        row,
+                    if reusing {
+                        needed.push((position, text));
+                        continue;
                     }
+                    self.build_row(u, position, &text, frames)?
                 }
             };
             self.settle_mounted(u, mounted, &text)?;
@@ -840,6 +909,7 @@ impl Collection {
         // A build-only report retires nothing (LLP 1072 §5): rows past the
         // window stay, and the report is pending until an immediate one.
         if fill.create_only && !update {
+            self.build_needed(u, needed, Vec::new(), Vec::new(), frames)?;
             let mut kept = false;
             for (text, mut mounted) in old {
                 match self.index.position(&text) {
@@ -867,20 +937,22 @@ impl Collection {
         }
         // Rows past the window: all retire, unless a limited report bounds it.
         let mut leaving: Vec<(f64, String, Mounted)> = Vec::new();
+        let mut retiring: Vec<Mounted> = Vec::new();
+        let mut kept: Vec<(f64, String, Mounted)> = Vec::new();
         for (text, mut mounted) in old {
             match (limited, self.index.position(&text)) {
                 (Some((_, (top, end))), Some(p)) => {
                     leaving.push((self.distance(p, top, end).1, text, mounted))
                 }
-                (_, position) => {
-                    if position.is_none() {
-                        views::item_left(u, mounted.wrapper);
-                    } else {
-                        self.keep_positions(&mut mounted, &text);
-                    }
+                (_, None) => {
+                    views::item_left(u, mounted.wrapper);
                     u.ops.push(Op::DestroyView {
                         id: mounted.wrapper,
                     })
+                }
+                (_, Some(_)) => {
+                    self.keep_positions(&mut mounted, &text);
+                    retiring.push(mounted);
                 }
             }
         }
@@ -899,22 +971,29 @@ impl Collection {
             // viewport of rows (a thousand on an iPad at 48,000 pt/s, each
             // with its canvas's Metal layer and surface) until the list
             // stopped, and every report and frame walked them all.
-            let cap = cap.max(leaving.len().saturating_sub(self.mounted.len()));
+            let cap = cap.max(
+                leaving
+                    .len()
+                    .saturating_sub(self.mounted.len() + needed.len()),
+            );
             leaving.sort_by(|a, b| b.0.total_cmp(&a.0));
             let far = leaving.partition_point(|row| row.0 > FAR_VIEWPORTS * (end - top));
-            let kept = leaving.split_off(far.max(cap).min(leaving.len()));
+            kept = leaving.split_off(far.max(cap).min(leaving.len()));
             for (_, text, mut gone) in leaving {
                 self.keep_positions(&mut gone, &text);
-                u.ops.push(Op::DestroyView { id: gone.wrapper });
+                retiring.push(gone);
             }
-            pending |= !kept.is_empty();
-            for (_, text, mut mounted) in kept {
-                let position = self.index.position(&text).unwrap();
-                self.reposition(&mut mounted, position);
-                self.settle_mounted(u, mounted, &text)?;
-            }
-            self.mounted.sort_by_key(|row| row.position);
         }
+        // Rows still needed after the retiring ones may take the kept rows
+        // past the window, farthest first.
+        let kept = self.build_needed(u, needed, retiring, kept, frames)?;
+        pending |= !kept.is_empty();
+        for (_, text, mut mounted) in kept {
+            let position = self.index.position(&text).unwrap();
+            self.reposition(&mut mounted, position);
+            self.settle_mounted(u, mounted, &text)?;
+        }
+        self.mounted.sort_by_key(|row| row.position);
         self.pending = pending;
         self.emit_children(u)?;
         self.emit_preview(u)?;
@@ -953,7 +1032,8 @@ impl Collection {
             views::publish_position(u, mounted.wrapper, position, count);
             mounted.published = (position, count);
         }
-        let token = self.index.measurement_token(text).unwrap();
+        debug_assert_eq!(self.index.key(position), Some(text));
+        let token = self.index.measurement_token_at(position).unwrap();
         if token != mounted.token {
             mounted.token = token;
             mounted.epoch = advance(&mut self.next_epoch)?;
@@ -970,6 +1050,30 @@ impl Collection {
         } else {
             (false, (start - end).max(0.0))
         }
+    }
+    /// Build the row for `position` (key `text`) and its wrapper.
+    fn build_row(
+        &mut self,
+        u: &mut Update<'_>,
+        position: usize,
+        text: &str,
+        frames: &[Frame],
+    ) -> Result<Mounted, InstanceError> {
+        let token = self.index.invalidate_row(text).map_err(index_error)?;
+        let mut row = self.create_row(u, position, frames)?;
+        self.adopt_nested(u, &mut row, text, frames)?;
+        let wrapper =
+            views::row_wrapper(u, self.axis, roots_of(&row.roots), text, self.reorderable)?;
+        Ok(Mounted {
+            position,
+            wrapper,
+            epoch: advance(&mut self.next_epoch)?,
+            token,
+            preview_target: None,
+            preview_hidden: false,
+            published: (usize::MAX, usize::MAX),
+            row,
+        })
     }
     fn create_row(
         &self,
@@ -1114,8 +1218,10 @@ impl Collection {
             .as_ref()
             .is_none_or(|g| g.cross != feedback.cross);
         // A new port size, width or pin retires every row that left and
-        // builds the whole window: only travel is sliced.
-        if self.geometry.as_ref().is_none_or(|g| {
+        // builds the whole window: only travel is sliced. A list's first
+        // report retires nothing, so a slice there builds what shows and
+        // leaves its lead pending (a tap's response frame, LLP 1072 §5).
+        if self.geometry.as_ref().is_some_and(|g| {
             (
                 g.port_cross,
                 g.port_main,
@@ -1157,8 +1263,7 @@ impl Collection {
         if self.axis == ListAxis::Horizontal && !changed_width {
             let (again, first): (Vec<_>, Vec<_>) = feedback.measurements.drain(..).partition(|m| {
                 let row = &self.mounted[by_view[&m.view]];
-                self.index
-                    .is_measured(self.index.key(row.position).unwrap())
+                self.index.is_measured_at(row.position)
             });
             for measurement in again {
                 self.measure(by_view, measurement)?;
@@ -1219,14 +1324,14 @@ impl Collection {
         measurement: RowMeasurement,
     ) -> Result<(), InstanceError> {
         let row = &self.mounted[by_view[&measurement.view]];
-        let key = self.index.key(row.position).unwrap().to_owned();
+        let key = self.index.shared_key(row.position).unwrap().clone();
         self.index
-            .set_measured_height(&key, row.token, measurement.size)
+            .set_measured_height_at(row.position, row.token, measurement.size)
             .map_err(index_error)?;
         if measurement.size == 0.0 {
-            self.zero_heights.insert(key);
-        } else {
-            self.zero_heights.remove(&key);
+            self.zero_heights.insert(key.to_string());
+        } else if !self.zero_heights.is_empty() {
+            self.zero_heights.remove(&*key);
         }
         Ok(())
     }
@@ -1285,6 +1390,8 @@ impl Collection {
             || self.target.is_some()
             || self.pending
             || self.preview.is_some()
+            || self.incoming.is_some()
+            || self.hidden.is_some()
             || self.correction.is_some()
             || (
                 g.port_cross,
@@ -1371,35 +1478,5 @@ impl Collection {
         // even when its old pinned row happens to remain inside the window.
         advance(&mut self.revision)?;
         Ok(true)
-    }
-    fn snapshot(&self) -> CollectionSnapshot {
-        CollectionSnapshot {
-            view: self.view,
-            axis: self.axis,
-            parent: self.parent,
-            restored: self.restored,
-            seeking: self.target.is_some(),
-            revision: self.revision,
-            scroll_sequence: self.geometry.as_ref().map_or(0, |g| g.scroll_sequence),
-            count: self.index.len(),
-            total_extent: self.index.total_height(),
-            rows: self
-                .mounted
-                .iter()
-                .map(|row| CollectionRow {
-                    view: row.wrapper,
-                    root: roots_of(&row.row.roots)[0],
-                    index: row.position,
-                    start: self.index.prefix(row.position).unwrap(),
-                    size: self.index.height(row.position).unwrap(),
-                    epoch: row.epoch,
-                    measured: self
-                        .index
-                        .is_measured(self.index.key(row.position).unwrap()),
-                })
-                .collect(),
-            correction: self.correction,
-            pending: self.pending || self.target.is_some(), // an into-view request wants its next report
-        }
     }
 }

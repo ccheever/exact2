@@ -20,6 +20,8 @@ use exact_kernel::{Color, ColorValue, Dimension, Edge, NodeRef, PropValue, RowVa
 use exact_plan::{BindingKind, Plan, TypeKind, TypesId, Value};
 use std::fmt::Write as _;
 
+mod schedule;
+
 /// Answer one request: `{"op":"tree"}`, `{"op":"state"}`,
 /// `{"op":"logs","since":N}`, `{"op":"node","id":V}` — the runner's half
 /// of `layout <node>` (LLP 1035.002 D1) — or `{"op":"tags"}`, the identity
@@ -733,6 +735,16 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
                 None => quote("transparent", out),
             }
         }
+        // @ref LLP 1100 D2 — a colour in its own space reports as CSS writes it.
+        RowValue::ColorValue(ColorValue::Wide(id)) => match exact_kernel::style::wide::wide(id) {
+            Some(w) => quote(&w.text, out),
+            None => quote("transparent", out),
+        },
+        RowValue::ColorValue(c @ (ColorValue::Moving(..) | ColorValue::Profiled(_))) => {
+            let mut text = String::new();
+            exact_kernel::gradient::color_css(&mut text, c);
+            quote(&text, out)
+        }
         RowValue::Enum(name) => quote(name, out),
         RowValue::Vec2(v) => {
             let _ = write!(out, "[{},{}]", num(v.x as f64), num(v.y as f64));
@@ -821,7 +833,7 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     );
     let _ = write!(
         s,
-        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canOpenFiles\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{}",
+        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canOpenFiles\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{},\"colorGamut\":\"{}\",\"dynamicRange\":\"{}\"",
         media.reduced_motion,
         media.reduced_transparency,
         media.contrast.keyword(),
@@ -833,7 +845,9 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         num(runner.root_font_size()),
         fold.posture.keyword(),
         fold.cols,
-        fold.rows
+        fold.rows,
+        media.gamut.keyword(),
+        if media.high_dynamic_range { "high" } else { "standard" }
     );
     s.push_str("},\"derives\":{");
     for (i, row) in plan.derives.iter().enumerate() {
@@ -909,8 +923,11 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
             count.messages, count.coalesced
         );
     }
+    s.push(']');
+    schedule::tasks(runner, &mut s);
+    schedule::queued(runner, &mut s);
     // Notifications posted under the agent, where none reaches the system.
-    s.push_str("],\"notifications\":[");
+    s.push_str(",\"notifications\":[");
     for (i, n) in runner.notifications().iter().enumerate() {
         if i > 0 {
             s.push(',');
@@ -953,6 +970,9 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     // count, its offset's extent and its mounted rows (LLP 1070 G3).
     s.push_str(",\"collections\":");
     s.push_str(&runner.collections_json());
+    // The reorder session, if one is under way (LLP 1094 D12).
+    s.push_str(",\"reorder\":");
+    s.push_str(&runner.reorder_json());
     // Each list's latest scrollIntoView and how it stands (LLP 1070.000).
     s.push_str(",\"scrollIntoView\":");
     s.push_str(&runner.into_view_json());

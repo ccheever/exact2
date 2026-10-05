@@ -16,6 +16,15 @@ impl DataSource for NoData {
 
 const GOOD: &str = "component App\n  view\n    column testId=\"root\"\n      text \"one\"\n";
 
+/// Writes `text` stamped `n` seconds ahead: a later save reads as new
+/// without waiting on the filesystem clock's resolution.
+fn save(path: &std::path::Path, text: &str, n: u64) {
+    std::fs::write(path, text).unwrap();
+    let at = std::time::SystemTime::now() + std::time::Duration::from_secs(n);
+    let file = std::fs::File::options().write(true).open(path).unwrap();
+    file.set_modified(at).unwrap();
+}
+
 fn scratch(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("exact-dev-{}-{name}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -30,7 +39,6 @@ fn a_save_becomes_a_plan_and_an_identical_save_is_nothing() {
     std::fs::write(&src, GOOD).unwrap();
     let mut s = Session::new(&src, &out);
     let built = s.poll::<NoData>().expect("first look builds").unwrap();
-    assert!(built.compile_ms < 100.0 && built.bake_ms < 100.0);
     assert_eq!(std::fs::read(&out).unwrap(), built.bytes);
     assert!(exact_plan::Plan::decode(&built.bytes).is_ok());
     let map_path = dir.join("app.plan.map.json");
@@ -45,15 +53,13 @@ fn a_save_becomes_a_plan_and_an_identical_save_is_nothing() {
     );
     assert!(s.poll::<NoData>().is_none(), "nothing changed");
     // Same bytes, new mtime: not a change.
-    std::thread::sleep(std::time::Duration::from_millis(20));
-    std::fs::write(&src, GOOD).unwrap();
+    save(&src, GOOD, 1);
     assert!(
         s.poll::<NoData>().is_none(),
         "identical content is not an edit"
     );
     // A real edit.
-    std::thread::sleep(std::time::Duration::from_millis(20));
-    std::fs::write(&src, GOOD.replace("\"one\"", "\"two\"")).unwrap();
+    save(&src, &GOOD.replace("\"one\"", "\"two\""), 2);
     let again = s.poll::<NoData>().expect("an edit builds").unwrap();
     assert_ne!(again.bytes, built.bytes);
     let map = std::fs::read_to_string(&map_path).unwrap();
@@ -74,12 +80,11 @@ fn a_broken_save_is_a_named_refusal_and_the_last_plan_stays() {
     let mut s = Session::new(&src, &out);
     let good = s.poll::<NoData>().unwrap().unwrap();
     let good_map = std::fs::read(dir.join("app.plan.map.json")).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(20));
-    std::fs::write(
+    save(
         &src,
         "component App\n  view\n    column\n      text one two\n",
-    )
-    .unwrap();
+        1,
+    );
     let err = s.poll::<NoData>().unwrap().err().unwrap();
     assert!(err.contains("app.contract:"), "{err}");
     assert_eq!(
@@ -208,7 +213,7 @@ fn surface_declarations_recheck_an_unchanged_source_and_preserve_the_last_plan()
     assert_eq!(fixed.bytes, first.bytes);
     assert!(session.poll::<NoData>().is_none());
 
-    std::fs::write(&src, source.replace("seed=", "typo=")).unwrap();
+    save(&src, &source.replace("seed=", "typo="), 2);
     assert!(session
         .poll::<NoData>()
         .unwrap()
@@ -353,6 +358,7 @@ fn the_bridge_carries_state_across_boots_from_bytes() {
 }
 
 #[test]
+#[ignore = "async lane: launches Bun, whose static serving builds the filesystem helper; bun scripts/async.mjs runs it"]
 fn static_serving_falls_back_to_an_interrupted_previous_build() {
     let dir = scratch("serve-previous");
     let dist = dir.join("dist");

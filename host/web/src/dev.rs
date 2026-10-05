@@ -44,9 +44,26 @@ pub struct Session {
     source_map: bool,
 }
 
+/// A used file as it reads: its time and a fingerprint of its bytes, so a
+/// link retargeted at a twin, a copy that kept its times, or a junction
+/// moved on any platform is a change. Used files are small Contract sources
+/// and manifests.
 fn stamp_of(path: &Path) -> Option<(SystemTime, u64)> {
+    use std::hash::{Hash, Hasher};
     let meta = std::fs::metadata(path).ok()?;
-    Some((meta.modified().ok()?, meta.len()))
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    std::fs::read(path).ok()?.hash(&mut hasher);
+    // Which file it really is, on every platform: a link or junction
+    // retargeted at a byte-identical twin leads to another path.
+    std::fs::canonicalize(path).ok().hash(&mut hasher);
+    // And, where the platform has one, which file it is: a link retargeted
+    // at a byte-identical twin whose relative uses differ.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        (meta.dev(), meta.ino()).hash(&mut hasher);
+    }
+    Some((meta.modified().ok()?, hasher.finish()))
 }
 
 /// The files compiling `root` reads besides itself: used files, packages'
@@ -54,6 +71,9 @@ fn stamp_of(path: &Path) -> Option<(SystemTime, u64)> {
 fn uses(root: &Path) -> Vec<(PathBuf, Option<(SystemTime, u64)>)> {
     let graph = contract::source_graph(root);
     let mut out = graph.consulted;
+    // The root by the path it is opened at: retargeting it at a twin whose
+    // relative uses differ is a change its bytes do not show.
+    out.push(root.to_path_buf());
     for source in graph.sources.into_iter().skip(1) {
         if source.path.is_absolute() {
             out.push(source.path);
@@ -110,7 +130,13 @@ impl Session {
         let surfaces_stamp = std::fs::metadata(self.source.with_file_name(".shells/surfaces.json"))
             .ok()
             .and_then(|m| Some((m.modified().ok()?, m.len())));
-        let uses_changed = self.uses.iter().any(|(path, seen)| stamp_of(path) != *seen);
+        // By fingerprint (bytes and which file it is), not time: a used file
+        // re-saved with identical bytes is no change, as the root is not.
+        let print = |s: Option<(SystemTime, u64)>| s.map(|s| s.1);
+        let uses_changed = self
+            .uses
+            .iter()
+            .any(|(path, seen)| print(stamp_of(path)) != print(*seen));
         let surfaces_changed = self.surfaces_stamp != surfaces_stamp || uses_changed;
         // A failed compile may have observed a file while an editor was
         // replacing its bytes. Until a good plan lands, re-read even when

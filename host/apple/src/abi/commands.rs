@@ -2,12 +2,26 @@
 //! system UI about to run (`share`, LLP 1069.003; `saveFile`, LLP 1069.010),
 //! an auth session's arm and report (LLP 1069.006), a host line into the
 //! runner's journal, a select's options for the menu the presenter
-//! builds (LLP 1069.001 D5), and a grouped list's sections (LLP 1084).
+//! builds (LLP 1069.001 D5), a grouped list's sections (LLP 1084), and
+//! whether a followed link names one of the app's routes (LLP 1038 §7).
 use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// `exact_route_matches`: whether the location in the input buffer names
+    /// a pattern the plan's route table declares (LLP 1038 §7) — a link to
+    /// it is followed in the app, as the web's same-document link is; any
+    /// other path (a file beside a document) is the containing app's.
+    pub fn route_matches(&self, len: usize) -> u32 {
+        let location = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        u32::from(
+            self.host
+                .as_ref()
+                .is_some_and(|h| h.runner().route_matches(&location)),
+        )
+    }
+
     /// `exact_scrolled`: a scroller the presenter shows, or the page, now
     /// stands at `(left, top)` CSS px, for `frame` (LLP 1051.000 D1).
     pub fn scrolled(&mut self, page: bool, view: u32, left: f64, top: f64) {
@@ -232,9 +246,9 @@ impl<D: DataSource> Bridge<D> {
 
     /// A grouped list's sections and rows (`exact_grouped_list`, LLP 1084
     /// D4), as JSON in the output buffer: `{"style","sections":[{"view",
-    /// "header","footer","card","rows":[{"view","custom","symbol","title",
+    /// "header","footer","card","spaceAbove","rows":[{"view","custom","symbol","title",
     /// "secondary","subtitle","accessory","target","pressable",
-    /// "destructive","disabled"}]}]}`, `null` for a node that is not one.
+    /// "destructive","disabled"}]}],"spaceBelow"}`, `null` for a node that is not one.
     /// `accessory` is `none`, `disclosure`, `checkmark`, `toggle` or
     /// `detail`; `target` the toggle's control or the detail's button. Not
     /// a batch: nothing changes.
@@ -263,6 +277,10 @@ impl<D: DataSource> Bridge<D> {
                     json.push_str(",\"footer\":");
                     opt(&s.footer, &mut json);
                     json.push_str(&format!(",\"card\":{}", s.card));
+                    json.push_str(&format!(
+                        ",\"spaceAbove\":{}",
+                        s.space_above.map_or("null".into(), |v| v.to_string())
+                    ));
                     json.push_str(",\"rows\":[");
                     for (j, r) in s.rows.iter().enumerate() {
                         json.push_str(if j == 0 { "{" } else { ",{" });
@@ -293,7 +311,10 @@ impl<D: DataSource> Bridge<D> {
                     }
                     json.push_str("]}");
                 }
-                json.push_str("]}");
+                json.push_str(&format!(
+                    "],\"spaceBelow\":{}}}",
+                    list.space_below.map_or("null".into(), |v| v.to_string())
+                ));
             }
         }
         self.output = json.into_bytes();

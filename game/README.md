@@ -82,6 +82,11 @@ beacons, pause/restart, touch controls, a ground grid, pads, fog, sun shadows an
 
 A bare name (`bun game/new.mjs my-game`) creates `game/games/my-game`; a path chooses
 the directory. From an empty directory, `bun /path/to/exact2/game/new.mjs .` works too.
+A game outside this checkout — `bun scripts/exact.mjs new ../my-game --game` makes
+one, as `exact new` makes an app — also gets an app's `exact.mjs` and `AGENTS.md`:
+`bun exact.mjs test-rust` (the hostless tests), `web`, `web-build`, `test web`
+(`app.test.contract`; also `macos`, `ios`), `agent`, `mac`, `ios`, `contract`,
+`prove` and `feedback`, with the exact2 checkout named once (LLP 1086).
 Generation writes only inside that game. A game is the files its author writes; bakes
 generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.
 
@@ -90,6 +95,7 @@ generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.
 | `logic/src/lib.rs` | Scene setup, typed arguments and the tick function |
 | `app.contract` | Menus, HUD, layout, accessibility and app actions |
 | `proof.mjs`, `logic/tests/*.rs` | Real-host assertions and hostless simulation tests |
+| `app.test.contract` | Menus and HUD driven on a host (`bun scripts/agent.mjs <host> --test`) |
 | `pins.json` | Verified tick/save baselines, written by `prove.mjs` |
 | `app.json` (optional) | Authored keys only: a title, bundle id, `game.audio`, `game.assets`, data and render crates |
 | `logic/Cargo.toml`, `Cargo.lock` (optional) | Only when the game adds dependencies ([below](#exact2-integration)) |
@@ -237,7 +243,10 @@ in components or resources.
 
 After the first GPU build, the compiler and dev loop check surface names and
 arguments against the emitted `.shells/surfaces.json`, including hidden branches
-and imports. Rust argument edits reach that declaration through the next GPU build.
+and imports. Rust argument edits reach that declaration through the next GPU build,
+so while the game's Rust is newer than it, `contract build` reports its findings as
+warnings beside every other diagnostic, and `contract types` and `contract rust`
+never stop on them; a bake checks them against the declaration it has just written.
 The dev compiler retains its last good plan on an error.
 
 ### Movement and appearance
@@ -618,6 +627,9 @@ like any added dependency, it resolves against the SDK lock or the game's own.
 The type implements `DataSource + Default`; the generated hosts supply the existing
 `Storage<D>` adapter. Return synchronous resource placeholders before `activate`;
 storage work starts after first pixel. This linked composition uses `rust: false`.
+Keep saves, scores and settings in app storage (SQLite or files under `app:/data`,
+with `exact-data.workspace = true`), not under `secret.keep`, which is for secrets;
+`docs/reference.md`, "Rust data sources", has the requests and a best-times example.
 Games without `game.data` add no data-source dependency.
 
 [Tennis](games/tennis/README.md) uses one for HTTP: the world publishes a numbered
@@ -753,8 +765,9 @@ The checkout expects sibling `../ibex` and `../snapback-sb4` source repositories
 For an isolated checkout, links in its private parent may point at existing copies.
 Run `bun install --frozen-lockfile` at the Exact2 root before Cargo validation.
 
-If the Cargo cache is empty, first generate the game, then materialize its adapters
-and fetch the SDK lock's versions from the Exact2 root:
+`bun scripts/exact.mjs setup` fetches the SDK lock's versions into Cargo's cache
+(`setup --check` says whether they are all there). A game that adds packages fetches
+its own after materializing its adapters:
 
 ```sh
 bun game/app/shells.mjs ./my-game

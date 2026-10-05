@@ -12,6 +12,7 @@ mod paint;
 mod presence;
 mod spring;
 mod transform_hold;
+mod uikit;
 
 use exact_motion::{Animations, Keyframes};
 

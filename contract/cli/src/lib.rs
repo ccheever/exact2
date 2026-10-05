@@ -81,6 +81,17 @@ pub enum BakeError {
 impl std::fmt::Display for BakeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            // A TypeScript source that read storage at build (the prelude's refusal;
+            // authoring bench: an iOS bake panicked where the web build had not).
+            BakeError::Runner(RunnerError::Data {
+                resource,
+                error: exact_runner::DataError::Unavailable(m),
+            }) if m == "storage is unavailable during bake" => write!(
+                f,
+                "`{resource}` read storage while baking, where there is none ({m}): catch \
+                 the refusal in the source (`e.code === 'bake'` in TypeScript) and answer a \
+                 placeholder; every host asks the source again at launch"
+            ),
             BakeError::Runner(e) => write!(f, "{e:?}"),
             BakeError::Lint { id, message, .. } => write!(f, "[{id}] {message}"),
         }
@@ -345,6 +356,60 @@ pub fn source_graph(path: &Path) -> SourceGraph {
     }
 }
 
+/// A file [`fix_uses`] wrote, and the `use` lines it wrote there.
+pub type WrittenUses = (PathBuf, Vec<String>);
+
+/// Write the `use` lines each file of the program rooted at `path` lacks
+/// (LLP 1091 D1), as `contract-use-missing` names them: each file written,
+/// with its lines, and the refusals no line answers (a name two files
+/// declare, a generated name), which stay the author's.
+pub fn fix_uses(path: &Path) -> Result<(Vec<WrittenUses>, Vec<CompileError>), Vec<CompileError>> {
+    let source_root = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let unreadable = |p: &Path, e: std::io::Error| CompileError {
+        pass: "use",
+        id: "contract-use-unreadable".into(),
+        message: format!("{}: {e}", p.display()),
+        span: Span::default(),
+        file: Some(p.into()),
+        related: Box::new([]),
+    };
+    let app_root = source_root
+        .canonicalize()
+        .map_err(|e| vec![unreadable(source_root, e)])?;
+    let mut written: Vec<WrittenUses> = Vec::new();
+    // A written line can only bring names, never hide one, so a second
+    // pass finds nothing new; the third is a bound, not a loop.
+    for _ in 0..3 {
+        let src = read_source(path).map_err(|e| vec![e])?;
+        let fixes = sources::use_fixes(path, &src, &app_root)?;
+        let mut wrote = false;
+        let mut refused = Vec::new();
+        for fix in fixes {
+            if !fix.unresolved.is_empty() || fix.lines.is_empty() {
+                refused.push(fix.error.clone());
+            }
+            if fix.lines.is_empty() {
+                continue;
+            }
+            let before =
+                std::fs::read_to_string(&fix.path).map_err(|e| vec![unreadable(&fix.path, e)])?;
+            let after = sources::apply_uses(&before, &fix.lines);
+            if after != before {
+                std::fs::write(&fix.path, &after).map_err(|e| vec![unreadable(&fix.path, e)])?;
+                written.push((fix.path, fix.lines.into_iter().map(|l| l.text).collect()));
+                wrote = true;
+            }
+        }
+        if !wrote {
+            return Ok((written, refused));
+        }
+    }
+    Ok((written, Vec::new()))
+}
+
 /// For a build script: `cargo:rerun-if-changed` for every source compiling
 /// `path` reads, and each package's `package.json` (LLP 1091 D10), so an
 /// edit to a used file or a library rebuilds the plan, not only an edit to
@@ -357,9 +422,89 @@ pub fn rerun_if_changed(path: &Path) {
             println!("cargo:rerun-if-changed={}", source.path.display());
         }
     }
-    for manifest in graph.consulted {
-        println!("cargo:rerun-if-changed={}", manifest.display());
+    // Only what exists: Cargo reruns a script whose path is missing on every
+    // build, and a failed build reruns it anyway (a resolution that looked
+    // for a file not there failed, or found one farther up).
+    for consulted in graph.consulted.iter().filter(|path| path.exists()) {
+        println!("cargo:rerun-if-changed={}", consulted.display());
     }
+    // A nearer `node_modules` an install could create or fill: installing
+    // edits the `package.json` and lockfile beside it, which exist.
+    for consulted in graph.consulted.iter().filter(|path| !path.exists()) {
+        let Some(modules) = consulted
+            .ancestors()
+            .find(|a| a.file_name().is_some_and(|n| n == "node_modules"))
+        else {
+            continue;
+        };
+        for file in ["package.json", "bun.lock", "package-lock.json"] {
+            let beside = modules.with_file_name(file);
+            if beside.is_file() {
+                println!("cargo:rerun-if-changed={}", beside.display());
+            }
+        }
+    }
+}
+
+/// Canvas surface arguments checked against a game's emitted declaration
+/// (`.shells/surfaces.json`, written by its last GPU build), apart from the
+/// compile: the author's commands report them as warnings while the game's
+/// Rust is newer than the declaration, and `contract types`/`rust` never
+/// stop on them (the platformer's diary, R4). A bake checks them as errors,
+/// against the declaration its GPU build has just written.
+pub struct SurfaceFindings {
+    /// Every call the declaration refuses.
+    pub findings: Vec<CompileError>,
+    /// The game source newer than the declaration, when one is.
+    pub newer: Option<PathBuf>,
+}
+
+/// [`SurfaceFindings`] for the file at `path`; Err when its sources or the
+/// declaration cannot be read.
+pub fn surface_findings(path: &Path) -> Result<SurfaceFindings, Vec<CompileError>> {
+    let src = read_source(path).map_err(|e| vec![e])?;
+    let app_root = app_root(path)?;
+    let (file, sources) = sources::load(path, &src, &app_root)?;
+    let findings = match surface::arguments(&app_root).map_err(|e| vec![e])? {
+        Some(declared) => contract_analyze::check_surface_arguments(&file, &declared)
+            .err()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| sources.resolve(e.into()))
+            .collect(),
+        None => Vec::new(),
+    };
+    Ok(SurfaceFindings {
+        findings,
+        newer: surface::newer_rust(&app_root),
+    })
+}
+
+/// [`compile_path_all`] without the surface-argument check, which the
+/// author's commands make apart ([`surface_findings`]).
+pub fn compile_path_all_unchecked(
+    path: &Path,
+    mapped: bool,
+) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
+    let src = read_source(path).map_err(|e| vec![e])?;
+    compile_path_checked(path, &src, mapped, false)
+}
+
+fn app_root(path: &Path) -> Result<PathBuf, Vec<CompileError>> {
+    let source_root = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    source_root.canonicalize().map_err(|e| {
+        vec![CompileError {
+            pass: "use",
+            id: "contract-use-unreadable".into(),
+            message: format!("{}: {e}", source_root.display()),
+            span: Span::default(),
+            file: Some(path.into()),
+            related: Box::new([]),
+        }]
+    })
 }
 
 fn compile_path_output(
@@ -367,18 +512,16 @@ fn compile_path_output(
     src: &str,
     mapped: bool,
 ) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
-    let source_root = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let app_root = source_root.canonicalize().map_err(|e| CompileError {
-        pass: "use",
-        id: "contract-use-unreadable".into(),
-        message: format!("{}: {e}", source_root.display()),
-        span: Span::default(),
-        file: Some(path.into()),
-        related: Box::new([]),
-    })?;
+    compile_path_checked(path, src, mapped, true)
+}
+
+fn compile_path_checked(
+    path: &Path,
+    src: &str,
+    mapped: bool,
+    surfaces: bool,
+) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
+    let app_root = app_root(path)?;
     let (file, sources) = sources::load(path, src, &app_root)?;
     native::check(&file, &app_root).map_err(|all| {
         all.into_iter()
@@ -390,17 +533,36 @@ fn compile_path_output(
             .map(|e| sources.resolve(e))
             .collect::<Vec<_>>()
     })?;
-    if let Some(declared) = surface::arguments(&app_root)? {
-        contract_analyze::check_surface_arguments(&file, &declared)
-            .map_err(|e| sources.resolve(e.into()))?;
-    }
-    let strings = strings::load(&app_root, path)?;
+    // Surface findings join the compile's own refusals; neither hides the other.
+    let surface: Vec<CompileError> = match surfaces.then(|| surface::arguments(&app_root)) {
+        Some(declared) => match declared.map_err(|e| vec![e])? {
+            Some(declared) => contract_analyze::check_surface_arguments(&file, &declared)
+                .err()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|e| sources.resolve(e.into()))
+                .collect(),
+            None => Vec::new(),
+        },
+        None => Vec::new(),
+    };
+    let joined = |mut all: Vec<CompileError>| {
+        all.extend(surface.iter().cloned());
+        all.truncate(MAX_DIAGNOSTICS);
+        all
+    };
+    let strings = strings::load(&app_root, path).map_err(joined)?;
     let (mut plan, sites) =
         compile_file_output(&file, Some(&app_root), strings, mapped).map_err(|all| {
-            all.into_iter()
-                .map(|e| sources.resolve(e))
-                .collect::<Vec<_>>()
+            joined(
+                all.into_iter()
+                    .map(|e| sources.resolve(e))
+                    .collect::<Vec<_>>(),
+            )
         })?;
+    if !surface.is_empty() {
+        return Err(surface);
+    }
     if app_root.join("app.json").is_file() {
         let manifest = Manifest::read(&app_root).map_err(|message| CompileError {
             pass: "app",
@@ -498,6 +660,12 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                             s.push_str("\"into\",\"key\":");
                             q(key, &mut s);
                         }
+                        TapForm::Pinch { scale, at } => {
+                            s.push_str(&format!("\"pinch\",\"scale\":{scale}"));
+                            if let Some((x, y)) = at {
+                                s.push_str(&format!(",\"at\":[{x},{y}]"));
+                            }
+                        }
                     }
                     if !modifiers.is_empty() {
                         s.push_str(",\"modifiers\":");
@@ -508,16 +676,28 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     target,
                     dx,
                     dy,
+                    to,
                     from,
                     mouse,
                     press,
                     over,
                     hold,
+                    during,
                     ..
                 } => {
                     s.push_str("{\"op\":\"drag\",\"target\":");
                     q(target, &mut s);
-                    s.push_str(&format!(",\"dx\":{dx},\"dy\":{dy}"));
+                    match to {
+                        // LLP 1094 D12: the driver's `drag to`.
+                        Some((to, at)) => {
+                            s.push_str(",\"to\":");
+                            q(to, &mut s);
+                            if let Some((x, y)) = at {
+                                s.push_str(&format!(",\"at\":[{x},{y}]"));
+                            }
+                        }
+                        None => s.push_str(&format!(",\"dx\":{dx},\"dy\":{dy}")),
+                    }
                     if let Some((x, y)) = from {
                         s.push_str(&format!(",\"from\":[{x},{y}]"));
                     }
@@ -528,6 +708,16 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                         if let Some(ms) = ms {
                             s.push_str(&format!(",\"{name}\":{ms}"));
                         }
+                    }
+                    if !during.is_empty() {
+                        s.push_str(",\"during\":[");
+                        for (i, op) in during.iter().enumerate() {
+                            if i > 0 {
+                                s.push(',');
+                            }
+                            q(op, &mut s);
+                        }
+                        s.push(']');
                     }
                 }
                 Step::Size { width, height, .. } => {
@@ -563,17 +753,31 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     s.push_str(&format!(",\"append\":{append}"));
                 }
                 Step::Reload { .. } => s.push_str("{\"op\":\"reload\""),
+                Step::Close { .. } => s.push_str("{\"op\":\"close\""),
                 Step::BeforeData { .. } => s.push_str("{\"op\":\"before-data\""),
                 Step::Resize { width, height, .. } => {
                     s.push_str(&format!(
                         "{{\"op\":\"resize\",\"width\":{width},\"height\":{height}"
                     ));
                 }
-                Step::Key { target, key, .. } => {
+                Step::Key {
+                    target,
+                    key,
+                    phase,
+                    duration,
+                    ..
+                } => {
                     s.push_str("{\"op\":\"key\",\"target\":");
                     q(target, &mut s);
                     s.push_str(",\"key\":");
                     q(key, &mut s);
+                    if let Some(phase) = phase {
+                        s.push_str(",\"phase\":");
+                        q(phase, &mut s);
+                    }
+                    if let Some(ms) = duration {
+                        s.push_str(&format!(",\"for\":{ms}"));
+                    }
                 }
                 Step::Pick { target, paths, .. } => {
                     s.push_str("{\"op\":\"pick\",\"target\":");
@@ -626,7 +830,7 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                         Expr::Number(n, _) => s.push_str(&format!("{n}")),
                         Expr::Str(t, _) => q(t, &mut s),
                         Expr::Bool(b, _) => s.push_str(&format!("{b}")),
-                        Expr::EmptyList(_) => s.push_str("[]"),
+                        Expr::List(items, _) if items.is_empty() => s.push_str("[]"),
                         _ => s.push_str("null"),
                     }
                 }

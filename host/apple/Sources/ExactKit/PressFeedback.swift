@@ -96,6 +96,13 @@ extension NodeView {
         PressClock.shared.run(self)
     }
 
+    /// The used `translate`: its lengths, and its percentages of the border
+    /// box resolved against the box as it stands now, as CSS resolves them,
+    /// so a box that changes size stays where `-50% -50%` puts it.
+    var translate: CGPoint {
+        CGPoint(x: translatePx.x + translatePercent.x / 100 * bounds.width, y: translatePx.y + translatePercent.y / 100 * bounds.height)
+    }
+
     /// `transform-origin` in the box's own coordinates (LLP 1061 D6): each
     /// axis points or `{"pct": n}` of the border box; the centre when unset.
     var transformOriginPoint: CGPoint {
@@ -111,6 +118,12 @@ extension NodeView {
 
     #if os(iOS) || os(tvOS)
     func applyTransform() {
+        // Flying scaled whole in its clip (LLP 1013.000 D4.4): the
+        // flight's scale only.
+        if let s = flightLook?.scale {
+            transform = CGAffineTransform(scaleX: s, y: s)
+            return
+        }
         // CSS's individual transforms: translate, then rotate, then scale,
         // about `transform-origin` — offset from the centre, UIKit's anchor;
         // a press folds into the scale.
@@ -140,6 +153,12 @@ extension NodeView {
     }
     #else
     func applyTransform() {
+        // Flying scaled whole in its clip (LLP 1013.000 D4.4): the flight's
+        // scale only, about the layer's origin, the clip's top left.
+        if let s = flightLook?.scale {
+            layer?.setAffineTransform(CGAffineTransform(scaleX: s, y: s))
+            return
+        }
         // A lifted Arrange row moves by its frame: AppKit paints and culls a
         // view where its frame is, never where its layer was moved. So does
         // a sticky box by its scroll offset (LLP 1083).

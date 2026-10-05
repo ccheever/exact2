@@ -1,5 +1,6 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderAx } from './agent-ax.mjs';
 
@@ -247,11 +248,18 @@ function renderNode(n) {
 /** The counters a `perf` site row may carry, in the order they print (LLP 1079 D1). */
 const COUNTERS = ['instances', 'created', 'retired', 'evaluated', 'unchanged', 'authored', 'inherited', 'moved'];
 
-/** `perf [<target>] [during "<op>" …]` and `perf frames [late <n>]` (LLP
- * 1079 D2, D4). `during` reads, drives each quoted op through `step`, reads
- * again, and subtracts: the delta belongs to the driver, a read changes nothing. */
+/** `perf [<target>] [during "<op>" …]` and `perf frames [live <ms>] [late <n>]`
+ * (LLP 1079 D2, D4). `during` reads, drives each quoted op through `step`, reads
+ * again, and subtracts: the delta belongs to the driver, a read changes nothing.
+ * `live <ms>` lends the page's clock to the wall for that long and measures the
+ * frames it presents (the platformer's diary, R11: a game's 60 fps). */
 export async function perfOp(s, args, line, step) {
-  if (args[0] === 'frames') return s.perf(null, { frames: true, late: args[1] === 'late' ? Number(args[2]) : undefined });
+  if (args[0] === 'frames') {
+    const at = word => { const i = args.indexOf(word); return i < 0 ? undefined : Number(args[i + 1]); };
+    const live = at('live'), late = at('late');
+    if (live !== undefined && !(Number.isInteger(live) && live > 0 && live <= 120000)) throw Error('perf frames live <ms>: a whole number of milliseconds, 1–120000');
+    return s.perf(null, { frames: true, late, ...(live !== undefined ? { live } : {}) });
+  }
   const target = args[0] && args[0] !== 'during' ? args[0] : undefined;
   const at = line.search(/\sduring\s/);
   if (at < 0) return s.perf(target);
@@ -285,12 +293,17 @@ export function perfDelta(a, b) {
 }
 
 function renderPerf(r) {
-  if (r.virtual) return 'virtual clock: no frame was presented (LLP 1079 D4)';
+  if (r.virtual) return 'virtual clock: no frame was presented (LLP 1079 D4); `perf frames live <ms>` measures a live window';
   if (r.unavailable) return 'this host observes no presented frames';
   if (r.lifetime) {
     const w = r.window ?? {}, f = n => n == null ? '—' : `${n} ms`;
     const out = [`period ${r.period.ms} ms (${r.period.source}) · presented ${r.lifetime.presented} · late ${r.lifetime.late} · missed ${r.lifetime.missed} · segments ${r.lifetime.segments}${r.covers?.length ? ` · covers ${r.covers.join(', ')}` : ''}`,
       `window t=${w.from}..${w.to} · ${w.samples} samples (${w.dropped} dropped) · p50 ${f(w.p50)} · p95 ${f(w.p95)} · p99 ${f(w.p99)} · max ${f(w.max)}`];
+    if (r.live) out.unshift(`live window ${r.live.ms} ms · clock ${r.live.from}..${r.live.to}`);
+    for (const w of r.world ?? []) {
+      const g = n => n == null ? '—' : `${Math.round(n * 100) / 100} ms`, ms = x => x ? `p50 ${g(x.p50)} p95 ${g(x.p95)} p99 ${g(x.p99)} mean ${g(x.mean)}` : '—';
+      out.push(`  world ${w.canvas}: frame ${ms(w.perf.frameMs)} · tick ${ms(w.perf.tickMs)} · feed ${ms(w.perf.feedMs)} · encode ${ms(w.perf.encodeMs)}`);
+    }
     for (const l of r.late ?? []) out.push(`  t=${l.t} late: ${l.missed} missed (${l.interval} ms) · seq ${l.seq ? l.seq.join('..') : '—'}${l.apply != null ? ` · apply ${l.apply}` : ''}${l.layout != null ? ` · layout ${l.layout}` : ''}${l.loaf ? ` · loaf script ${l.loaf.script}${l.loaf.styleLayout != null ? ` style+layout ${l.loaf.styleLayout}` : ''}` : ''}`);
     return out.join('\n');
   }
@@ -317,6 +330,32 @@ export async function readTrace(file, locate = () => []) {
   const perf = t.perf && !t.perf.error ? { target: 'every root', ...t.perf } : null;
   for (const site of perf?.sites ?? []) { const n = { planDigest: perf.plan ?? t.plan, site: site.site }; maps.attach(n); site.source = n.sourceMap; }
   return { ...t, perf };
+}
+
+/** The trace a phone's dev menu saved last (`ExactSession.latestTrace`,
+ * `tmp/trace-latest.json` in the app's container), copied into the app's
+ * `target/traces/` (LLP 1079 D5): from a simulator's container, which
+ * devicectl cannot copy, else off the phone as its screenshots are. */
+export function phoneTrace(ph, a, run = spawnSync) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const file = resolve(a.target, 'traces', `trace-${String(ph.name ?? ph.udid).replace(/[^\w.-]/g, '_')}-${stamp}.json`);
+  mkdirSync(resolve(a.target, 'traces'), { recursive: true });
+  const unsaved = `no trace saved in ${a.id} on ${ph.name ?? ph.udid}: Save Trace in its dev menu first (four fingers tapped once)`;
+  const container = run('xcrun', ['simctl', 'get_app_container', ph.udid, a.id, 'data'], { encoding: 'utf8' });
+  // simctl's 148: no simulator by that id, so a phone. A simulator it knows
+  // but cannot answer for (shut down, the app not installed) says why.
+  if (container.status !== 0 && container.status !== 148) throw new Error(`${ph.name ?? ph.udid}: ${container.stderr.trim() || 'simctl get_app_container failed'}`);
+  if (container.status === 0) {
+    const saved = resolve(container.stdout.trim(), 'tmp/trace-latest.json');
+    if (!container.stdout.trim() || !existsSync(saved)) throw new Error(unsaved);
+    copyFileSync(saved, file);
+  } else {
+    const copied = run('xcrun', ['devicectl', 'device', 'copy', 'from', '--quiet', '--device', ph.udid,
+      '--domain-type', 'appDataContainer', '--domain-identifier', a.id, '--source', 'tmp/trace-latest.json', '--destination', file], { encoding: 'utf8', timeout: 20000 });
+    if (copied.status !== 0) throw new Error(`${unsaved}, or the phone is unreachable: ${copied.stderr || copied.error || copied.stdout}`);
+  }
+  console.error(`trace copied to ${file}`);
+  return file;
 }
 
 /** A trace as text: who and what made it, each timing's proxy, the frames,
@@ -402,4 +441,73 @@ function renderAgreement(a) {
   const listed = a.disagreements?.length ?? 0;
   if (a.truncated?.includes('disagreements')) out.push(`  … ${total - listed} more (truncated)`);
   return out.join('\n');
+}
+
+/** Explain a refused placed-child tap using the world's own visibility. */
+export async function tapRefusal(session, target, error) {
+  if (error.transport) return error; // the carrier failed: no diagnostic read can answer
+  try {
+    for (const canvas of (await session.tree()).nodes.filter(n => n.world)) {
+      const canvasName = canvas.props?.testId ?? canvas.id;
+      const outline = await session.tree(canvasName);
+      if (!outline.entities?.some(entity => entity.name === target)) continue;
+      const owner = `${canvasName}:${target}`;
+      const state = await session.state(owner).catch(() => null);
+      if (!state?.entity?.placed?.hidden) continue;
+      const box = await session.layout(owner);
+      const reason = box.entity?.visible?.behindCamera ? 'hidden (behind the camera)' : 'hidden';
+      error.message = `${target} is ${reason}: \`layout ${owner}\` (with --json before the quoted operation) shows visibility and any available screen box; layout ${target} shows the child when mounted`;
+      return error;
+    }
+  } catch { /* Preserve the original refusal if the diagnostic target also vanished. */ }
+  return error;
+}
+
+/** A convenience over state, screenshot and type; wire replies keep all tags. */
+export function worldView(session, name) {
+  return {
+    /** The first page of entities (512), or every page with {all:true}, read at one tick and hash. */
+    async snapshot({all = false} = {}) {
+      const page = {limit:5000};
+      const first = all ? await session.state(`${name}:*`, undefined, false, false, page) : await session.state(`${name}:*`);
+      const {tick, hash} = first, entities = [...first.entities];
+      for (let r = first; all && r.truncated;) {
+        r = await session.state(`${name}:*`, undefined, false, false, {...page, from:r.next});
+        if (r.tick !== tick || r.hash !== hash) throw new Error('world changed while paging; capture on the agent clock with no concurrent drive');
+        entities.push(...r.entities);
+      }
+      return {tick, hash, entities, truncated: all ? false : first.truncated};
+    },
+    /** Every resource's value, as `state world:* resources` reads them. */
+    async resources() { return (await session.state(`${name}:*`, undefined, false, false, {limit:1, resources:true})).resources; },
+    state: entity => session.state(`${name}:${entity}`),
+    save: path => session.screenshot(path, name, 'save'),
+    run: ms => {
+      if (!Number.isFinite(ms) || ms < 0) throw new Error('run duration must be finite and nonnegative');
+      // Like Sim::run, establish the current epoch after deferred assets settle
+      // before moving time. Otherwise a newly ready world can eat the first seek.
+      return session.clock('+0').then(() => session.clock(`+${ms}`));
+    },
+    settle: async () => (await session.clock('settle')).settled === true,
+    tap: code => session.type(name, {key:code}),
+    key_down: code => session.type(name, {key:code, phase:'down'}),
+    key_up: code => session.type(name, {key:code, phase:'up'}),
+    async local_position(entity) { return (await this.get(entity, 'Transform'))?.position; },
+    async global_position(entity) {
+      try { return (await session.layout(`${name}:${entity}`)).entity?.world?.position; }
+      catch (error) {
+        if ((error.reply?.error === `no entity named \`${entity}\`` || error.reply?.error?.startsWith(`no entity named \`${entity}\`; `))) return undefined;
+        throw error;
+      }
+    },
+    async get(entity, component) {
+      try {
+        return (await session.state(`${name}:${entity}`)).entity?.components?.[component];
+      } catch (error) {
+        if ((error.reply?.error === `no entity named \`${entity}\`` || error.reply?.error?.startsWith(`no entity named \`${entity}\`; `))) return undefined;
+        throw error;
+      }
+    },
+    hold: (code, ms) => session.type(name, {key:code, for:ms}),
+  };
 }

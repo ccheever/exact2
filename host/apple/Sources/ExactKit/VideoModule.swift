@@ -182,6 +182,8 @@ final class VideoView {
             owner.presenter?.videoVisibility?.remove(self)
         }
         props["objectFit"] = owner.style["object_fit"]?.string ?? "contain"
+        // @ref LLP 1100 D11
+        props["dynamicRangeLimit"] = owner.style["dynamic_range_limit"]?.string ?? "no-limit"
         for name in ["src", "poster"] {
             if let source = props[name], !source.isEmpty {
                 let url: URL?

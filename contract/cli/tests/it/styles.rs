@@ -204,6 +204,7 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
         ),
         ("touch-action", StyleId::TouchAction, "swipe"),
         ("cursor", StyleId::Cursor, "hand"),
+        ("dynamic-range-limit", StyleId::DynamicRangeLimit, "high"),
     ] {
         for named_style in [false, true] {
             let source = if named_style {
@@ -215,6 +216,8 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
             assert_eq!(error.id, "lower-attr-value");
             assert_eq!(error.span.line, if named_style { 2 } else { 3 });
             let values = error.message.split_once("expected one of ").unwrap().1;
+            // A hint may follow the list (`position="fixed"`'s).
+            let values = values.split_once("; ").map_or(values, |(list, _)| list);
             let expected = row
                 .enum_names()
                 .iter()
@@ -1205,6 +1208,23 @@ fn css_flex_shorthands_lower_in_order_to_the_longhands() {
     for value in ["-1", "1 -2 auto", "1 2 3px garbage", "1 2 3"] {
         assert_eq!(refused(&format!("flex=\"{value}\"")).id, "lower-attr-value");
     }
+    // A computed basis is the longhands' (Depot): the refusal says so, and
+    // the longhands take it.
+    let e = contract::compile(
+        "component App\n  state w = 200\n  view\n    row\n      view flex=`0 0 ${w}px`\n",
+    )
+    .unwrap_err();
+    assert!(
+        e.message
+            .contains("write the longhands, as in `flex-grow=1 flex-shrink=1 flex-basis=w`"),
+        "{e}"
+    );
+    let r = boot("component App\n  state w = 200\n  view\n    row\n      view flex-grow=1 flex-shrink=0 flex-basis=`${w}px` testId=\"item\"\n");
+    let s = style_of(&r, "item");
+    assert_eq!(
+        (s.flex_grow, s.flex_shrink, s.flex_basis),
+        (1.0, 0.0, Dimension::Points(200.0))
+    );
 }
 
 #[test]

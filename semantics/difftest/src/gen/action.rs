@@ -9,8 +9,9 @@
 use super::ty::Ty;
 use super::{Env, Gen};
 
-/// Longest a string-holding slot may print before a write resets it, so a
-/// self-concatenating action cannot grow a slot past the runner's limits.
+/// Longest a slot holding a string or a list may print before a write resets
+/// it, so a self-concatenating action cannot grow a slot past the runner's
+/// limits.
 const GROWTH_CAP: usize = 200;
 
 /// What a body may write.
@@ -194,7 +195,7 @@ impl Gen<'_> {
     fn unsent(&self) -> Vec<super::Mutation> {
         self.mutations
             .iter()
-            .filter(|m| !self.sent.contains(&m.name))
+            .filter(|m| m.queue || !self.sent.contains(&m.name))
             .cloned()
             .collect()
     }
@@ -205,8 +206,9 @@ impl Gen<'_> {
         let then = self.then == Some(self.callable);
         (0..self.callable)
             .filter(|&j| {
-                self.sends[j].iter().all(|m| !self.sent.contains(m))
-                    && !(then && !self.sends[j].is_empty())
+                self.sends[j].iter().all(|m| {
+                    !self.sent.contains(m) || self.mutations.iter().any(|q| &q.name == m && q.queue)
+                }) && !(then && !self.sends[j].is_empty())
             })
             .collect()
     }
@@ -220,16 +222,11 @@ impl Gen<'_> {
         }
     }
 
-    /// `slot = …`. A value holding a string is bound first and reset to a
+    /// `slot = …`. A value that can grow is bound first and reset to a
     /// literal when it prints longer than [`GROWTH_CAP`].
     fn assign(&mut self, env: &Env, slot: &str, t: &Ty, d: usize, pad: &str, out: &mut String) {
-        if !self.holds_str(t) {
+        if !self.grows(t) {
             let e = self.expr(env, t, d, true);
-            out.push_str(&format!("{pad}{slot} = {e}\n"));
-            return;
-        }
-        if !self.makeable(env, t, false) {
-            let e = self.lit(t, true);
             out.push_str(&format!("{pad}{slot} = {e}\n"));
             return;
         }

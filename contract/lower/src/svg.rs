@@ -554,7 +554,10 @@ impl Lowerer<'_> {
                     Some(tags::AttrTarget::Handler("press"))
                 ) {
                     "a definition handles no events: it renders only where it is referenced (LLP 1055.000 D17)"
-                } else if matches!(tags::attr(&a.name), Some(tags::AttrTarget::Handler(_))) {
+                } else if matches!(
+                    tags::attr_valued(&a.name, &a.value),
+                    Some(tags::AttrTarget::Handler(_))
+                ) {
                     "an SVG element takes `press` so far; its other handlers are a later stage (LLP 1055.000 D17)"
                 } else {
                     "it does not apply to an SVG element"

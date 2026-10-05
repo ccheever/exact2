@@ -130,7 +130,7 @@ final class TextRasterizer {
         guard let geometry = measured ?? paragraph.map(LineGeometry.init) else { return true }
         let source = paragraph?.shape?.attributed ?? engine.attributed(key.spec)
         let job = TextRasterJob(source: source.copy() as! NSAttributedString, ranges: geometry.ranges, baselines: geometry.baselines,
-            flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, justifies: key.spec.align == 3, firstLineInset: key.spec.firstLineInset,
+            flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, justifies: key.spec.align == 3, insets: paragraph?.insets ?? LineInsets(key.spec, source: source),
             box: key.box, size: key.size, scale: key.scale, clip: key.clip,
             ellipsis: key.spec.ellipsis, crop: true, clamped: geometry.clamped)
         // A job for the paragraph's previous text or box paints nothing now.
@@ -262,6 +262,7 @@ extension NodeView {
         NumeralRoll.roll(ink, node: self)
         ink.contents = result.image
         TextShadowLayer.apply(key.spec.shadow, to: ink)
+        ink.applyTextRange(headroom: result.headroom, limit: style["dynamic_range_limit"]?.string)
         textRasterLayer = ink
     }
     func dropTextRaster() {

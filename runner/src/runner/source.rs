@@ -169,6 +169,12 @@ impl Target {
 /// The app's data source: the one seam through which computation enters
 /// (LLP 1004 D4). Implemented once, in Rust, by the app's data crate.
 pub trait DataSource {
+    /// Console output since the last drain, including a refused answer's turn.
+    /// The runner journals it after each answer and reply (LLP 1012).
+    fn take_logs(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Host-selected application directories. Configuration records paths only;
     /// implementations must defer opening storage until after first pixel.
     fn configure_storage(
@@ -389,8 +395,10 @@ pub trait DataSource {
     /// a target (`answer`) is its own to keep. A source that forwards
     /// `answer_for` forwards this too, translating any continuation token it
     /// remapped back to the one its child handed out.
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
-        let _ = in_flight;
+    /// `store` supplies read context for external work that must finish.
+    /// Its reply and any Store writes are discarded, never committed here.
+    fn forgotten(&mut self, store: &Store, in_flight: &[InFlight<'_>]) {
+        let _ = (store, in_flight);
     }
 
     /// A handle another thread may trigger to stop this source's running
@@ -485,6 +493,8 @@ pub enum DataError {
     UnknownSource(String),
     BadArguments(String),
     Unavailable(String),
+    /// Build-time storage cannot answer; use the resource placeholder until activation.
+    DeferredAtBake(String),
     /// The seam to a loaded Rust module could not carry the call (an
     /// answer over its bound, a trap): the source is there but cannot
     /// answer now. A resource asked this fails; it does not refuse the

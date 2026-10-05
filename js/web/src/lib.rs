@@ -422,7 +422,8 @@ impl DataSource for Module {
                 DataError::Unavailable(e)
                 | DataError::BadArguments(e)
                 | DataError::UnknownSource(e)
-                | DataError::Interface(e),
+                | DataError::Interface(e)
+                | DataError::DeferredAtBake(e),
             ) => exact_runner::DrawReply {
                 error: Some(e),
                 ..Default::default()
@@ -537,7 +538,7 @@ impl DataSource for Module {
     }
     /// Calls whose requests the runner let go are dropped here, and the
     /// realm hears what is still in flight, to drop its own (LLP 1016 D5).
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
+    fn forgotten(&mut self, _store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
         let mut keep = Vec::new();
         let mut requests = Vec::new();
         for InFlight {
@@ -711,12 +712,15 @@ mod tests {
                 .is_ok());
         }
         // Newer arguments replaced "a": only "ab" is in flight for the target.
-        module.forgotten(&[InFlight {
-            target: Target::Mutation(0),
-            source: "source",
-            args: &[Value::str("ab")],
-            continuation: Some(1),
-        }]);
+        module.forgotten(
+            &store,
+            &[InFlight {
+                target: Target::Mutation(0),
+                source: "source",
+                args: &[Value::str("ab")],
+                continuation: Some(1),
+            }],
+        );
         assert_eq!(module.waiting.len(), 2);
         let reply = |text: &str| {
             Outcome::Response(exact_runner::Response {

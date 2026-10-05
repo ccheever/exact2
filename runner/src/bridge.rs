@@ -80,6 +80,24 @@ pub fn set_plan_style(
             });
         }
     }
+    // Profiles are parsed in the owning plan, even before a candidate is accepted.
+    // Ordinary styles allocate no declaration table.
+    let _profiles = matches!(value, exact_plan::str_value!())
+        .then(|| {
+            value
+                .text()
+                .as_bytes()
+                .windows(8)
+                .any(|w| w.eq_ignore_ascii_case(b"color(--"))
+        })
+        .unwrap_or(false)
+        .then(|| {
+            exact_kernel::style::profiled::declarations(
+                plan.profiles
+                    .iter()
+                    .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
+            )
+        });
     set_style(patch, id, value, plan.stacks.len())
 }
 
@@ -132,19 +150,30 @@ pub fn set_style(
     Ok(style)
 }
 
-/// The plan's `@keyframes` by name, parsed once per plan (LLP 1055 D5).
+/// The plan's `@keyframes` by name, each parsed once per plan (LLP 1055 D5),
+/// the first time an `animation` names it: a plan's rules are many and a
+/// first frame starts few of them.
 #[derive(Debug, Default)]
-pub struct KeyframesTable(Vec<(String, exact_motion::Keyframes)>);
+pub struct KeyframesTable(
+    Vec<(
+        String,
+        String,
+        std::cell::OnceCell<Option<exact_motion::Keyframes>>,
+    )>,
+);
 
-/// Parse the plan's `keyframes` table. The compiler validated every row; one
-/// that no longer parses (a plan from another evaluator) names nothing.
+/// The plan's `keyframes` table. The compiler validated every row; one that
+/// no longer parses (a plan from another evaluator) names nothing.
 pub fn keyframes(plan: &exact_plan::Plan) -> KeyframesTable {
     KeyframesTable(
         plan.keyframes
             .iter()
-            .filter_map(|row| {
-                let rule = exact_motion::Keyframes::parse(plan.str(row.css)).ok()?;
-                Some((plan.str(row.name).to_string(), rule))
+            .map(|row| {
+                (
+                    plan.str(row.name).to_string(),
+                    plan.str(row.css).to_string(),
+                    std::cell::OnceCell::new(),
+                )
             })
             .collect(),
     )
@@ -154,10 +183,18 @@ impl KeyframesTable {
     /// Give an `animation` row its keyframes; a name no rule has starts no
     /// animation, as in CSS, and is returned as a journal line.
     pub fn resolve(&self, row: &mut exact_motion::Animations) -> Vec<String> {
-        row.resolve(|name| self.0.iter().find(|(n, _)| n == name).map(|(_, k)| k))
-            .into_iter()
-            .map(|name| format!("animation-name `{name}` matches no keyframes: no animation"))
-            .collect()
+        row.resolve(|name| {
+            self.0
+                .iter()
+                .filter(|(n, ..)| n == name)
+                .find_map(|(_, css, rule)| {
+                    rule.get_or_init(|| exact_motion::Keyframes::parse(css).ok())
+                        .as_ref()
+                })
+        })
+        .into_iter()
+        .map(|name| format!("animation-name `{name}` matches no keyframes: no animation"))
+        .collect()
     }
 }
 

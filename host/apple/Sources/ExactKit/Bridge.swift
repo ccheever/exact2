@@ -40,11 +40,11 @@ public struct Batch {
         self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
         self.error = error; self.timerDueMs = timerDueMs; self.pending = pending
     }
-    static func decode(_ data: Data) -> Batch {
-        data.withUnsafeBytes { decode($0.bindMemory(to: UInt8.self)) }
+    static func decode(_ data: Data, resolver: AssetResolver? = nil) -> Batch {
+        data.withUnsafeBytes { decode($0.bindMemory(to: UInt8.self), resolver: resolver) }
     }
-    static func decode(_ bytes: UnsafeBufferPointer<UInt8>) -> Batch {
-        var reader = BatchReader(bytes: bytes)
+    static func decode(_ bytes: UnsafeBufferPointer<UInt8>, resolver: AssetResolver? = nil) -> Batch {
+        var reader = BatchReader(bytes: bytes, profileResolver: resolver)
         do {
             let batch = try reader.batch()
             try reader.end()
@@ -119,11 +119,14 @@ final class Runtime {
         }
     }
 
+    private var profileResolver: AssetResolver?
+    func setProfileResolver(_ resolver: AssetResolver?) { on { profileResolver = resolver } }
+
     func read(_ len: UInt32) -> Batch {
         // The runtime owns these bytes until its next call. The reader copies
         // strings into Swift values before returning; no batch borrows the buffer.
         let bytes = UnsafeBufferPointer(start: exact_out(rt), count: Int(len))
-        var batch = Batch.decode(bytes)
+        var batch = Batch.decode(bytes, resolver: profileResolver)
         #if DEBUG
         // What was decoded, before `prepare` adds the owner's values.
         observeBatch?(Data(bytes), batch)
@@ -435,6 +438,10 @@ final class Runtime {
             return String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
         }
     }
+    /// Whether `location` names one of the app's declared routes (LLP 1038 §7).
+    func routeMatches(_ location: String) -> Bool {
+        return on(busy: false) { exact_route_matches(rt, write(location)) != 0 }
+    }
     func launch(_ location: String) { on { () -> Void in let n = write(location); _ = exact_set_launch_location(rt, n) } }
     func navigate(_ view: UInt32, _ location: String, now: Double) -> Batch {
         return on {
@@ -637,10 +644,12 @@ enum PointerKind: UInt32 { case down = 29, up = 30, move = 31 }
 /// stage 3): the point from the node's content box in its own points, DOM's
 /// button bits (AppKit's `pressedMouseButtons` uses the same), 0 to 1 of
 /// pressure (DOM's 0.5 while pressed where nothing measures it), the device
-/// (`mouse`, `pen`, `touch`) and its id (the mouse is 1, as browsers number it).
+/// (`mouse`, `pen`, `touch`), its id (the mouse is 1, as browsers number it),
+/// and the point from the viewport, `frame()`'s space (LLP 1094 D11).
 struct PointerSample {
     var x: Double, y: Double, buttons: Int, pressure: Double, type: String, id: Int
+    var clientX: Double, clientY: Double
     /// The modifiers held, a chord prefix (`KeyCodes.held`): a `MouseEvent`'s.
     var held = ""
-    var line: String { "\(x),\(y),\(buttons),\(min(1, max(0, pressure))),\(type),\(id),\(held)" }
+    var line: String { "\(x),\(y),\(buttons),\(min(1, max(0, pressure))),\(type),\(id),\(clientX),\(clientY),\(held)" }
 }

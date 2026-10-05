@@ -123,7 +123,7 @@ export async function phoneBridge() {
 }
 
 
-/** Every phone this Mac knows (devicectl): { id, udid, name, model, os, reachable }. */
+/** Every phone this Mac knows (devicectl, which lists simulators too): { id, udid, name, model, os, reachable, simulated }. */
 export function phones() {
   const out = resolve(mkdtempSync(resolve(tmpdir(), 'exact-devices-')), 'devices.json');
   const r = read('xcrun', ['devicectl', 'list', 'devices', '--json-output', out]);
@@ -131,14 +131,15 @@ export function phones() {
   const list = JSON.parse(readFileSync(out, 'utf8')).result.devices.map((d) => ({
     id: d.identifier, udid: d.hardwareProperties?.udid, name: d.deviceProperties?.name, model: d.hardwareProperties?.marketingName,
     os: d.deviceProperties?.osVersionNumber, reachable: d.connectionProperties?.tunnelState !== 'unavailable', paired: d.connectionProperties?.pairingState === 'paired',
+    simulated: d.hardwareProperties?.reality === 'simulated',
   }));
   rmSync(resolve(out, '..'), { recursive: true, force: true });
   return list;
 }
 
-/** The phone to use: `pick` (a udid or a name; EXACT_PHONE by default), else a reachable phone, else the one phone this Mac knows — the bundle is built and signed for it either way; installing needs it connected (`reachable`). */
+/** The phone to use: `pick` (a udid or a name; EXACT_PHONE by default), else a reachable phone, else the one phone this Mac knows — the bundle is built and signed for it either way; installing needs it connected (`reachable`). Unpicked, a simulator devicectl lists is no phone. */
 export function phone(pick = process.env.EXACT_PHONE) {
-  const all = phones();
+  const named = phones(), all = pick ? named : named.filter((d) => !d.simulated);
   const dev = pick ? all.find((d) => d.udid === pick || d.id === pick || d.name === pick) : all.find((d) => d.reachable) ?? (all.length === 1 ? all[0] : null);
   if (!dev) throw new Error(pick ? `no phone ${pick} (xcrun devicectl list devices)` : `no phone is known to this Mac (${all.length ? all.map((d) => `${d.name}, not connected`).join('; ') : 'xcrun devicectl list devices shows none'}): plug one in, unlock it, and trust this Mac`);
   return dev;

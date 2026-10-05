@@ -488,6 +488,40 @@ final class TextGeometryTests: XCTestCase {
                        breaks(session.text.paragraph(node.paragraphSpec(), width: 300)))
     }
 
+    func testBlockLinksOpenWithoutAHandlerAndRespectAuthoredPressAndDisabled() {
+        final class Delegate: ExactSessionDelegate {
+            var urls: [String] = []
+            func exactSession(_ session: ExactSession, command name: String, args: [Any]) {
+                if name == "openURL", let url = args.first as? String { urls.append(url) }
+            }
+        }
+        let delegate = Delegate()
+        let session = ExactApp.shared.makeSession(delegate: delegate, label: "block-link")
+        defer { session.destroy() }
+        let p = session.presenter
+        let link = NodeView(id: 9001, kind: "button", presenter: p)
+        p.root.addSubview(link); p.views[link.id] = link
+        link.applyProps(set: ["href": "https://example.test/article"], clear: [])
+        p.press(link.id)
+        XCTAssertEqual(delegate.urls, ["https://example.test/article"])
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        link.handlers = ["press"]
+        p.press(link.id)
+        XCTAssertEqual(presses, [link.id])
+        XCTAssertEqual(delegate.urls.count, 1)
+        link.handlers = []
+        link.applyProps(set: ["disabled": "true"], clear: [])
+        p.press(link.id)
+        XCTAssertEqual(delegate.urls.count, 1)
+        link.applyProps(set: ["inert": "true"], clear: ["disabled"])
+        p.press(link.id)
+        XCTAssertEqual(delegate.urls.count, 1)
+        link.applyProps(set: ["href": "//example.test/relative"], clear: ["inert"])
+        p.press(link.id)
+        XCTAssertEqual(delegate.urls.last, "//example.test/relative")
+    }
+
     func testPaddedAlignedLinksAndSelectionUseThePaintedLine() throws {
         final class Delegate: ExactSessionDelegate {
             var urls: [String] = []

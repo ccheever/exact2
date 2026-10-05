@@ -108,8 +108,9 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// The agent's answer to a held export: copy the `app:/` file to the
-    /// driver's path and fire `change` with its name, or `cancel`.
+    /// The agent's answer to a held export: copy the `app:/` file (or write
+    /// the `text=`) to the driver's path and fire `change` with its name,
+    /// or `cancel`.
     pub(crate) fn answer_save(&mut self, request: &str, reply: &str) {
         let r: serde_json::Value = serde_json::from_str(reply).unwrap_or_default();
         if r["capability"] != "export" {
@@ -125,11 +126,18 @@ impl<D: DataSource> Presenter<D> {
         }
         let q: serde_json::Value = serde_json::from_str(request).unwrap_or_default();
         let to = std::path::PathBuf::from(q["text"].as_str().unwrap_or("").trim());
-        let copied = r["request"]["from"]
-            .as_str()
-            .and_then(crate::picker::resolve)
-            .ok_or_else(|| "no app file to copy".to_owned())
-            .and_then(|from| std::fs::copy(from, &to).map_err(|e| e.to_string()));
+        let copied = match r["request"]["text"].as_str() {
+            Some(text) => std::fs::write(&to, text).map_err(|e| e.to_string()),
+            None => r["request"]["from"]
+                .as_str()
+                .and_then(crate::picker::resolve)
+                .ok_or_else(|| "no app file to copy".to_owned())
+                .and_then(|from| {
+                    std::fs::copy(from, &to)
+                        .map(drop)
+                        .map_err(|e| e.to_string())
+                }),
+        };
         match copied {
             Ok(_) => {
                 self.host.log("saveFile: saved");
