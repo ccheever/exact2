@@ -144,8 +144,14 @@ A script drives the same session in JavaScript: `const s = await open({ host:
 'web', app, epoch, timeZone, storage, size: [390, 844] })` from `scripts/agent.mjs`
 (`size` is `[width, height]`, or the CLI's `'390x844'`), then
 `s.tap(target, opts)`, `s.type(target, text | { key })`, `s.clock(arg)`,
-`s.tree()`, `s.state()`, `s.logs()`, `s.layout()`, `s.screenshot(path)` and
-`s.close()` — the CLI's operations by the same names. `s.op(request)` is the
+`s.tree()`, `s.state()`, `s.logs()`, `s.layout()`, `s.screenshot(path)`,
+`s.resize(width, height)`, `s.prefer({ … })`, `s.perf(target)` and `s.close()` — the
+CLI's operations by the same names. Their replies are the CLI's `--json` output: `s.tree()`
+is `{ roots, nodes: [{ id, type, depth, props: { testId, text, value, … }, children }] }`,
+every node in one preorder list (`depth` and `children` give the nesting), and `s.state()` is `{ slots, derives, resources,
+pending, … }`. `app` is the app's name; an app outside the exact2
+checkout is found through `EXACT_APP_DIR` (its directory), as its own `exact.mjs agent`
+sets it, and `webDist` alone does not select an app. `s.op(request)` is the
 host's wire beneath them: it addresses views by numeric `id`, and it refuses a
 request it would answer by doing nothing (a `target`, an unknown op, a web
 `tap` with no browser input behind it). A reload or a raw browser step goes
@@ -621,7 +627,13 @@ streaming, or deployment correctness from a client-only screenshot.
 ## Time, motion, graphics, and platform facts
 
 A root task has one `every(ms, action)`, `after(ms, action)`, or
-`every(frame, action)` entry. The action is parameterless. Millisecond intervals
+`every(frame, action)` entry, on the line under it:
+
+```contract
+  task ticker mount
+    every(1000, tick)
+```
+ The action is parameterless. Millisecond intervals
 are whole-number literals of at least 1. The frame form has no delta-time argument and does not
 catch up missed display frames. For deterministic tests, use the driver's clock.
 
@@ -737,6 +749,9 @@ ancestor that would take the press itself included.
 `change`: a `select` takes an option's value or its label, a date, time or
 `datetime-local` input its HTML value (`2026-10-09`, `14:00`,
 `2026-10-09T14:30`), a range a number, a checkbox `true` or `false`.
+On a text field or textarea `type` inserts the text, one `input`; `change` comes as a
+person's would, when the field commits (`type <id> key Enter` on a field, or the
+focus leaving it), so an edit saved on `change` needs one of those.
 `tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
 move, with the finger still down. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires

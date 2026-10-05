@@ -1,9 +1,6 @@
 #!/usr/bin/env bun
-// The agent API's driver (LLP 1012, 1079): the ten operations —
+// The agent API's driver (LLP 1012, 1079), on a clock moved only by calls:
 //   tree · screenshot · tap · type · state · layout · logs · clock · prefer · perf
-// — against a running app on either host, from one script, with the clock in
-// the driver's hands: nothing moves between two calls unless a call moved it.
-//
 // Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--open <document> …] [--size <w>x<h>] [--json] <op> [<op> …]
 //   Web defaults to Chrome; EXACT_WEB_BROWSER selects the same option. Install
 //   the other engines with: bunx playwright@1.63.0 install firefox webkit
@@ -55,8 +52,7 @@ import { bakeOutput, bakeTarget, linuxBinary, linuxBuild, resolveApp, webDist as
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// A completed operation must release its deadline too, so an otherwise closed
-// driver does not stay alive until a losing timeout expires.
+// Release completed deadlines so their losing timeout cannot keep the driver alive.
 async function waitAtMost(operation, ms, onTimeout) {
   let timer;
   const deadline = new Promise(resolve => { timer = setTimeout(resolve, ms); }).then(onTimeout);
@@ -71,9 +67,7 @@ export function browserDiagnosticNoise(line) {
     // Linux without a session bus: Chrome's dbus client reports it on every launch.
     || /:ERROR:dbus\/(bus|object_proxy)\.cc:\d+\] (Failed to connect to the bus|Failed to call method: org\.freedesktop\.DBus)/.test(line)
     || /CVDisplayLinkCreateWithCGDisplay failed|CVReturn:\s*-6670/i.test(line)
-    // The browser process checking the renderer's paint-timing report
-    // against itself (two paints in one frame, image before first): its
-    // bookkeeping, not the page's. The page's own errors come over CDP.
+    // Browser paint-timing bookkeeping; page errors arrive over CDP.
     || /\bpage_load_metrics_update_dispatcher\.cc:\d+\] Invalid first_\w+ [\d.]+ s for \w+ [\d.]+ s$/.test(line);
 }
 
@@ -1026,7 +1020,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const text = String(target), colon = text.indexOf(':');
       const node = await s.find(target, false);
       if (node) return { id: node.id };
-      if (colon < 0) throw new Error(`no view matches ${target}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)`);
+      if (colon < 0) throw new Error(`no view matches ${target}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)${await s.inFlight()}`);
       return { id: (await s.find(text.slice(0, colon))).id, entity: text.slice(colon + 1) };
     },
     /** The node for a target: a testId (first in preorder on a selected route; a covered screen's copy only when no active one carries it) or a view id. */
@@ -1035,8 +1029,15 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const t = await s.op(required ? {op:'tree', target, shallow:true} : {op:'tree'});
       const matches = typeof target === 'number' || /^\d+$/.test(String(target)) ? t.nodes.filter((n) => n.id === Number(target)) : t.nodes.filter((n) => n.props.testId === target);
       const node = matches.find((n) => !n.inactive) ?? matches[0];
-      if (!node && required) throw new Error(`no view matches ${target}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)`);
+      if (!node && required) throw new Error(`no view matches ${target}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)${await s.inFlight()}`);
       return node;
+    },
+    /** For a miss: the requests still in flight, whose answers may bring the view (authoring bench: a drive's first op ran before a stored list loaded). */
+    async inFlight() {
+      if (host !== 'web') return ''; // a native read on the error path could time out and close the transport
+      const st = await s.op({ op: 'state' }).catch(() => null);
+      const pending = (st?.pending ?? []).map((p) => p.name).filter(Boolean);
+      return pending.length ? `; ${pending.length} request${pending.length === 1 ? ' is' : 's are'} still in flight (${[...new Set(pending)].join(', ')}): \`clock data\` waits for data, and \`state\` shows what is still pending` : '';
     },
     /**
      * What this carrier's input actually is (LLP 1035.003 D2/D3): whether it
