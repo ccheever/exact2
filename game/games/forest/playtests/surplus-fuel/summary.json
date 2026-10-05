@@ -1,0 +1,31 @@
+{
+  "name": "forest",
+  "host": "web",
+  "args": [
+    "web",
+    "--playtest",
+    "--build-camp"
+  ],
+  "device": false,
+  "status": "UNVERIFIED",
+  "inputs": "27632f182a6d79545e73a59bff592ba6167776ef521738af8ed05fad1a28e9bc",
+  "mode": "0",
+  "pins": {
+    "ticks": {},
+    "saves": {}
+  },
+  "facilities": [
+    "no recorded stalls or refusals"
+  ],
+  "failures": [],
+  "seconds": 74.473042584,
+  "worlds": [
+    {
+      "session": 1,
+      "tick": 2232,
+      "hash": "0x7bfbc452422d1140"
+    }
+  ],
+  "saves": [],
+  "auditUnavailable": false
+}

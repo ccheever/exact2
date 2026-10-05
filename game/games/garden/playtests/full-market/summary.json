@@ -1,0 +1,31 @@
+{
+  "name": "garden",
+  "host": "web",
+  "args": [
+    "web",
+    "--playtest",
+    "--full-market"
+  ],
+  "device": false,
+  "status": "UNVERIFIED",
+  "inputs": "d2520c99988c17165446a62e4046652e37bc97365e0e25a708a889792af0f537",
+  "mode": "0",
+  "pins": {
+    "ticks": {},
+    "saves": {}
+  },
+  "facilities": [
+    "no recorded stalls or refusals"
+  ],
+  "failures": [],
+  "seconds": 29.852839333,
+  "worlds": [
+    {
+      "session": 1,
+      "tick": 15729,
+      "hash": "0x19d9b73f16dc1635"
+    }
+  ],
+  "saves": [],
+  "auditUnavailable": false
+}

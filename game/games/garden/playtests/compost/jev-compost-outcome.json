@@ -1,0 +1,509 @@
+{
+  "achieved": true,
+  "decisions": 18,
+  "purse": 0,
+  "last": "Harvested Fed Carrot (39¢)",
+  "food": "Plant food · 0/3",
+  "backpack": "Backpack 2",
+  "world": {
+    "tick": 2136,
+    "hash": "0x1f1046adb8f4d2e6",
+    "entities": [
+      {
+        "id": 0,
+        "name": "ground",
+        "components": {
+          "Material": {
+            "color": [
+              0.2,
+              0.11,
+              0.05,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 2
+          },
+          "Mesh": {
+            "Plane": {
+              "width": 16,
+              "depth": 16
+            }
+          },
+          "Transform": {
+            "position": [
+              5,
+              0,
+              -5
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 1,
+        "name": "player",
+        "components": {
+          "Character": {
+            "velocity": [
+              0,
+              0,
+              0
+            ],
+            "speed": 4,
+            "accel": 12,
+            "brake": 20,
+            "jump": 1.2,
+            "gravity": 9.81,
+            "ground": 0.9,
+            "bounds": [
+              [
+                -12,
+                12
+              ]
+            ],
+            "airborne": false
+          },
+          "Material": {
+            "color": [
+              0.9025,
+              0.5625,
+              0.09,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Capsule": {
+              "radius": 0.4,
+              "height": 1.8
+            }
+          },
+          "Transform": {
+            "position": [
+              0,
+              0.9,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 2,
+        "name": "camera",
+        "components": {
+          "Camera": {
+            "projection": {
+              "Perspective": {}
+            },
+            "fov_y_degrees": 60,
+            "near": 0.1,
+            "far": 1000,
+            "active": true
+          },
+          "Follow": {
+            "target": {
+              "Entity": [
+                {
+                  "index": 1,
+                  "generation": 0
+                }
+              ]
+            },
+            "resolved": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ],
+            "offset": [
+              0,
+              9,
+              11
+            ],
+            "look_at_offset": [
+              0,
+              0,
+              0
+            ],
+            "lag": 0.15,
+            "initialized": true
+          },
+          "Transform": {
+            "position": [
+              0,
+              9.9,
+              11
+            ],
+            "rotation": [
+              -0.3361865,
+              0,
+              0,
+              0.94179547
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 3,
+        "name": "sun",
+        "components": {
+          "DirectionalLight": {
+            "color": [
+              1,
+              1,
+              1
+            ],
+            "illuminance": 10000,
+            "shadows": true
+          },
+          "Transform": {
+            "position": [
+              10,
+              20,
+              8
+            ],
+            "rotation": [
+              -0.43260664,
+              0.3800278,
+              0.20792149,
+              0.79069537
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 4,
+        "name": "plot-north",
+        "components": {
+          "Material": {
+            "color": [
+              0.040000003,
+              0.7225,
+              1,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0.030000001,
+              0.12750001,
+              0.15
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Plane": {
+              "width": 1.96,
+              "depth": 0.04
+            }
+          },
+          "Transform": {
+            "position": [
+              0,
+              0.025,
+              -0.96
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 5,
+        "name": "plot-south",
+        "components": {
+          "Material": {
+            "color": [
+              0.040000003,
+              0.7225,
+              1,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0.030000001,
+              0.12750001,
+              0.15
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Plane": {
+              "width": 1.96,
+              "depth": 0.04
+            }
+          },
+          "Transform": {
+            "position": [
+              0,
+              0.025,
+              0.96
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 6,
+        "name": "plot-west",
+        "components": {
+          "Material": {
+            "color": [
+              0.040000003,
+              0.7225,
+              1,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0.030000001,
+              0.12750001,
+              0.15
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Plane": {
+              "width": 0.04,
+              "depth": 1.96
+            }
+          },
+          "Transform": {
+            "position": [
+              -0.96,
+              0.025,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 7,
+        "name": "plot-east",
+        "components": {
+          "Material": {
+            "color": [
+              0.040000003,
+              0.7225,
+              1,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0.030000001,
+              0.12750001,
+              0.15
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Plane": {
+              "width": 0.04,
+              "depth": 1.96
+            }
+          },
+          "Transform": {
+            "position": [
+              0.96,
+              0.025,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 8,
+        "name": "water-barrel",
+        "components": {
+          "Material": {
+            "color": [
+              0.040000003,
+              0.122499995,
+              0.42249995,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Cylinder": {
+              "radius": 0.65,
+              "height": 1
+            }
+          },
+          "Transform": {
+            "position": [
+              -2,
+              0.5,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 9,
+        "name": "barrel-water",
+        "components": {
+          "Material": {
+            "color": [
+              0.040000003,
+              0.48999998,
+              1,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Cylinder": {
+              "radius": 0.53,
+              "height": 0.04
+            }
+          },
+          "Transform": {
+            "position": [
+              -2,
+              1.01,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      }
+    ],
+    "truncated": false
+  }
+}

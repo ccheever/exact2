@@ -1,0 +1,3699 @@
+{
+  "mode": "recovery",
+  "motor": "pointer",
+  "actions": [
+    {
+      "action": "bandage",
+      "milliseconds": 1700,
+      "triggerMilliseconds": []
+    },
+    {
+      "action": "shoot_3",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "shoot_4",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "shoot_2",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "wait",
+      "milliseconds": 500,
+      "triggerMilliseconds": []
+    },
+    {
+      "action": "wait",
+      "milliseconds": 500,
+      "triggerMilliseconds": []
+    },
+    {
+      "action": "shoot_3",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "shoot_4",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "shoot_2",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "wait",
+      "milliseconds": 500,
+      "triggerMilliseconds": []
+    },
+    {
+      "action": "wait",
+      "milliseconds": 500,
+      "triggerMilliseconds": []
+    },
+    {
+      "action": "shoot_3",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "shoot_4",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "shoot_2",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "reload",
+      "milliseconds": 2300,
+      "triggerMilliseconds": []
+    },
+    {
+      "action": "shoot_3",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "shoot_4",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "shoot_2",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "reload",
+      "milliseconds": 2300,
+      "triggerMilliseconds": []
+    },
+    {
+      "action": "shoot_3",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "shoot_4",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "shoot_2",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "wait",
+      "milliseconds": 500,
+      "triggerMilliseconds": []
+    },
+    {
+      "action": "wait",
+      "milliseconds": 500,
+      "triggerMilliseconds": []
+    },
+    {
+      "action": "shoot_3",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "shoot_4",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "shoot_2",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "wait",
+      "milliseconds": 500,
+      "triggerMilliseconds": []
+    },
+    {
+      "action": "wait",
+      "milliseconds": 500,
+      "triggerMilliseconds": []
+    },
+    {
+      "action": "shoot_3",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "shoot_4",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "shoot_2",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "reload",
+      "milliseconds": 2300,
+      "triggerMilliseconds": []
+    },
+    {
+      "action": "shoot_3",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "shoot_4",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "shoot_2",
+      "milliseconds": 540,
+      "triggerMilliseconds": [
+        0,
+        180,
+        360
+      ]
+    },
+    {
+      "action": "wait",
+      "milliseconds": 500,
+      "triggerMilliseconds": []
+    },
+    {
+      "action": "wait",
+      "milliseconds": 500,
+      "triggerMilliseconds": []
+    },
+    {
+      "action": "shoot_3",
+      "milliseconds": 180,
+      "triggerMilliseconds": [
+        0
+      ]
+    }
+  ],
+  "score": "12200 points · ×5 combo · 24 targets",
+  "done": true,
+  "hp": "100",
+  "bandage": "Bandage used",
+  "world": {
+    "tick": 3604,
+    "hash": "0xf5a7ae96da385c1d",
+    "entities": [
+      {
+        "id": 0,
+        "name": "floor",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  23,
+                  0.5,
+                  23
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.33,
+              0.36,
+              0.4,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 2
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                46,
+                1,
+                46
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              0,
+              -0.5,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 1,
+        "name": "block-0",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  23,
+                  2.5,
+                  0.5
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.23,
+              0.26,
+              0.31,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                46,
+                5,
+                1
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              0,
+              2.5,
+              -22.5
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 2,
+        "name": "block-1",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  23,
+                  2.5,
+                  0.5
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.23,
+              0.26,
+              0.31,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                46,
+                5,
+                1
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              0,
+              2.5,
+              22.5
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 3,
+        "name": "block-2",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  0.5,
+                  2.5,
+                  22
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.23,
+              0.26,
+              0.31,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                1,
+                5,
+                44
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              -22.5,
+              2.5,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 4,
+        "name": "block-3",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  0.5,
+                  2.5,
+                  22
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.23,
+              0.26,
+              0.31,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                1,
+                5,
+                44
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              22.5,
+              2.5,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 5,
+        "name": "block-4",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  2.5,
+                  1.3,
+                  2.5
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.3,
+              0.48,
+              0.62,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                5,
+                2.6,
+                5
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              0,
+              1.3,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 6,
+        "name": "block-5",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  1.5,
+                  0.2,
+                  3.4
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.42,
+              0.47,
+              0.55,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                3,
+                0.4,
+                6.8
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              0,
+              1.3,
+              5.6
+            ],
+            "rotation": [
+              0.19866933,
+              0,
+              0,
+              0.9800666
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 7,
+        "name": "block-6",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  0.5,
+                  1.4,
+                  2.5
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.42,
+              0.47,
+              0.55,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                1,
+                2.8,
+                5
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              -9,
+              1.4,
+              -4
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 8,
+        "name": "block-7",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  0.5,
+                  1.4,
+                  2.5
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.42,
+              0.47,
+              0.55,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                1,
+                2.8,
+                5
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              9,
+              1.4,
+              4
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 9,
+        "name": "block-8",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  2.5,
+                  1.4,
+                  0.5
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.42,
+              0.47,
+              0.55,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                5,
+                2.8,
+                1
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              -5,
+              1.4,
+              11
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 10,
+        "name": "block-9",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  2.5,
+                  1.4,
+                  0.5
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.42,
+              0.47,
+              0.55,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                5,
+                2.8,
+                1
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              5,
+              1.4,
+              -11
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 11,
+        "name": "block-10",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  0.8,
+                  0.5,
+                  0.8
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.78,
+              0.52,
+              0.24,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                1.6,
+                1,
+                1.6
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              -3.5,
+              0.5,
+              14
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 12,
+        "name": "block-11",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  0.8,
+                  0.5,
+                  0.8
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.78,
+              0.52,
+              0.24,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                1.6,
+                1,
+                1.6
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              3.5,
+              0.5,
+              -14
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 13,
+        "name": "block-12",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  0.8,
+                  0.5,
+                  0.8
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.78,
+              0.52,
+              0.24,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                1.6,
+                1,
+                1.6
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              -14,
+              0.5,
+              3
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 14,
+        "name": "block-13",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  0.8,
+                  0.5,
+                  0.8
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.78,
+              0.52,
+              0.24,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                1.6,
+                1,
+                1.6
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              14,
+              0.5,
+              -3
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 15,
+        "name": "block-14",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  1.2,
+                  0.9,
+                  1.2
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.78,
+              0.52,
+              0.24,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                2.4,
+                1.8,
+                2.4
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              -14,
+              0.9,
+              -14
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 16,
+        "name": "block-15",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  1.2,
+                  0.9,
+                  1.2
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.78,
+              0.52,
+              0.24,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                2.4,
+                1.8,
+                2.4
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              14,
+              0.9,
+              14
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 17,
+        "name": "block-16",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  0.6,
+                  0.5,
+                  0.6
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.78,
+              0.52,
+              0.24,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                1.2,
+                1,
+                1.2
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              13,
+              0.5,
+              15.8
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 18,
+        "name": "block-17",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  0.6,
+                  0.5,
+                  0.6
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.78,
+              0.52,
+              0.24,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                1.2,
+                1,
+                1.2
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              -13,
+              0.5,
+              -15.8
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 19,
+        "name": "block-18",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  2,
+                  0.6,
+                  0.3
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.42,
+              0.47,
+              0.55,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                4,
+                1.2,
+                0.6
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              0,
+              0.6,
+              9.5
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 20,
+        "name": "block-19",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  2,
+                  0.6,
+                  0.3
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.42,
+              0.47,
+              0.55,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                4,
+                1.2,
+                0.6
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              0,
+              0.6,
+              -9.5
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 21,
+        "name": "block-20",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  0.3,
+                  0.6,
+                  2
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.42,
+              0.47,
+              0.55,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                0.6,
+                1.2,
+                4
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              -17,
+              0.6,
+              9
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 22,
+        "name": "block-21",
+        "components": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  0.3,
+                  0.6,
+                  2
+                ]
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": false,
+            "layer": 1,
+            "mask": 4294967295
+          },
+          "Material": {
+            "color": [
+              0.42,
+              0.47,
+              0.55,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.8,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                0.6,
+                1.2,
+                4
+              ]
+            }
+          },
+          "Transform": {
+            "position": [
+              17,
+              0.6,
+              -9
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 23,
+        "name": "sun",
+        "components": {
+          "DirectionalLight": {
+            "color": [
+              1,
+              1,
+              1
+            ],
+            "illuminance": 10000,
+            "shadows": true
+          },
+          "Transform": {
+            "position": [
+              12,
+              30,
+              18
+            ],
+            "rotation": [
+              -0.43602994,
+              0.25796464,
+              0.13201924,
+              0.8519994
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 24,
+        "name": "player",
+        "components": {
+          "Body": {
+            "kind": {
+              "Kinematic": {}
+            },
+            "velocity": [
+              0,
+              0,
+              0
+            ],
+            "spin": [
+              0,
+              0,
+              0
+            ],
+            "mass": 0,
+            "gravity": 1,
+            "damping": 0,
+            "spin_damping": 0,
+            "asleep": false
+          },
+          "CapsuleController": {
+            "radius": 0.35,
+            "height": 1.8,
+            "step": 0.35,
+            "slope_degrees": 50,
+            "velocity": [
+              0,
+              0,
+              0
+            ],
+            "grounded": true,
+            "mass": 80,
+            "support": [
+              {
+                "index": 0,
+                "generation": 0
+              }
+            ],
+            "support_pose": {
+              "position": [
+                0,
+                -0.5,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            }
+          },
+          "Collider": {
+            "shape": {
+              "Capsule": {
+                "radius": 0.35,
+                "height": 1.8
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": true,
+            "layer": 2,
+            "mask": 4294967295
+          },
+          "Fighter": {
+            "slot": 1,
+            "label": "player",
+            "bot": false,
+            "hp": 100,
+            "alive": true,
+            "respawn_at": 0,
+            "yaw": 0.00020507211,
+            "pitch": 0.0060000205,
+            "weapon": {
+              "Rifle": {}
+            },
+            "rifle_ammo": 20,
+            "rocket_ammo": 1,
+            "reload_until": 0,
+            "next_shot": 29.958334,
+            "bloom": 0,
+            "kick": 0,
+            "climb": 0.011,
+            "swing_at": 0,
+            "knock": [
+              0,
+              0,
+              0
+            ],
+            "planar": [
+              0,
+              0,
+              0
+            ],
+            "slide_until": 0,
+            "slide_ready": 0,
+            "slide_dir": [
+              0,
+              0,
+              0
+            ],
+            "eye": 0.7,
+            "aiming": false,
+            "kills": 24,
+            "deaths": 0,
+            "rounds": 0,
+            "last_attacker": 0,
+            "shots": 74,
+            "hits": 73,
+            "headshots": 73,
+            "bandage_used": true,
+            "bandage_until": 0
+          },
+          "Transform": {
+            "position": [
+              -9.6499555e-9,
+              0.9097964,
+              20.673758
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 25,
+        "name": "player-body",
+        "components": {
+          "Material": {
+            "color": [
+              0.2,
+              0.5,
+              0.9,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Capsule": {
+              "radius": 0.35,
+              "height": 1.5
+            }
+          },
+          "Parent": [
+            {
+              "index": 24,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              0,
+              -0.15,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            false
+          ]
+        }
+      },
+      {
+        "id": 26,
+        "name": "player-head",
+        "components": {
+          "Material": {
+            "color": [
+              0.95,
+              0.8,
+              0.66,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.22
+            }
+          },
+          "Parent": [
+            {
+              "index": 24,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              0,
+              0.66,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            false
+          ]
+        }
+      },
+      {
+        "id": 27,
+        "name": "player-visor",
+        "components": {
+          "Material": {
+            "color": [
+              0.1,
+              0.1,
+              0.12,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0.4,
+              1,
+              1.8
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                0.3,
+                0.08,
+                0.1
+              ]
+            }
+          },
+          "Parent": [
+            {
+              "index": 24,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              0,
+              0.68,
+              -0.18
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            false
+          ]
+        }
+      },
+      {
+        "id": 28,
+        "name": "bot-1",
+        "components": {
+          "Body": {
+            "kind": {
+              "Kinematic": {}
+            },
+            "velocity": [
+              0,
+              0,
+              0
+            ],
+            "spin": [
+              0,
+              0,
+              0
+            ],
+            "mass": 0,
+            "gravity": 1,
+            "damping": 0,
+            "spin_damping": 0,
+            "asleep": false
+          },
+          "Brain": {
+            "skill": 0.55,
+            "dummy": true,
+            "plan": {
+              "Hunt": {}
+            },
+            "target": [],
+            "visible": false,
+            "last_seen": [
+              0,
+              0,
+              0
+            ],
+            "react_at": 0,
+            "aim_error": [
+              0,
+              0
+            ],
+            "strafe": 0,
+            "strafe_until": 0,
+            "range": 11,
+            "goal": [
+              0,
+              0,
+              0
+            ],
+            "cover_until": 0,
+            "stalled": 0,
+            "wander_until": 0,
+            "detour": [
+              0,
+              0,
+              0
+            ],
+            "detour_until": 0,
+            "head_bias": false
+          },
+          "CapsuleController": {
+            "radius": 0.35,
+            "height": 1.8,
+            "step": 0.35,
+            "slope_degrees": 50,
+            "velocity": [
+              0,
+              0,
+              0
+            ],
+            "grounded": true,
+            "mass": 80,
+            "support": [
+              {
+                "index": 0,
+                "generation": 0
+              }
+            ],
+            "support_pose": {
+              "position": [
+                0,
+                -0.5,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            }
+          },
+          "Collider": {
+            "shape": {
+              "Capsule": {
+                "radius": 0.35,
+                "height": 1.8
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": true,
+            "layer": 0,
+            "mask": 4294967295
+          },
+          "Fighter": {
+            "slot": 2,
+            "label": "bot-1",
+            "bot": true,
+            "hp": 0,
+            "alive": false,
+            "respawn_at": 30.675,
+            "yaw": -3.1415927,
+            "pitch": 0,
+            "weapon": {
+              "Rifle": {}
+            },
+            "rifle_ammo": 30,
+            "rocket_ammo": 2,
+            "reload_until": 0,
+            "next_shot": 0,
+            "bloom": 0,
+            "kick": 0,
+            "climb": 0,
+            "swing_at": 0,
+            "knock": [
+              0,
+              0,
+              0
+            ],
+            "planar": [
+              0,
+              0,
+              0
+            ],
+            "slide_until": 0,
+            "slide_ready": 0,
+            "slide_dir": [
+              0,
+              0,
+              0
+            ],
+            "eye": 0.7,
+            "aiming": false,
+            "kills": 0,
+            "deaths": 8,
+            "rounds": 0,
+            "last_attacker": 1,
+            "shots": 0,
+            "hits": 0,
+            "headshots": 0,
+            "bandage_used": false,
+            "bandage_until": 0
+          },
+          "Transform": {
+            "position": [
+              -2,
+              0.9097929,
+              12
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 29,
+        "name": "bot-1-body",
+        "components": {
+          "Material": {
+            "color": [
+              0.86,
+              0.22,
+              0.24,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Capsule": {
+              "radius": 0.35,
+              "height": 1.5
+            }
+          },
+          "Parent": [
+            {
+              "index": 28,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              0,
+              -0.15,
+              0
+            ],
+            "rotation": [
+              0,
+              -1,
+              0,
+              -4.371139e-8
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 30,
+        "name": "bot-1-head",
+        "components": {
+          "Material": {
+            "color": [
+              0.95,
+              0.8,
+              0.66,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.22
+            }
+          },
+          "Parent": [
+            {
+              "index": 28,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              0,
+              0.66,
+              0
+            ],
+            "rotation": [
+              0,
+              -1,
+              0,
+              -4.371139e-8
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 31,
+        "name": "bot-1-visor",
+        "components": {
+          "Material": {
+            "color": [
+              0.1,
+              0.1,
+              0.12,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              1.72,
+              0.44,
+              0.48
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                0.3,
+                0.08,
+                0.1
+              ]
+            }
+          },
+          "Parent": [
+            {
+              "index": 28,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              -1.57361e-8,
+              0.68,
+              0.18
+            ],
+            "rotation": [
+              0,
+              -1,
+              0,
+              -4.371139e-8
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 32,
+        "name": "bot-2",
+        "components": {
+          "Body": {
+            "kind": {
+              "Kinematic": {}
+            },
+            "velocity": [
+              0,
+              0,
+              0
+            ],
+            "spin": [
+              0,
+              0,
+              0
+            ],
+            "mass": 0,
+            "gravity": 1,
+            "damping": 0,
+            "spin_damping": 0,
+            "asleep": false
+          },
+          "Brain": {
+            "skill": 0.55,
+            "dummy": true,
+            "plan": {
+              "Hunt": {}
+            },
+            "target": [],
+            "visible": false,
+            "last_seen": [
+              0,
+              0,
+              0
+            ],
+            "react_at": 0,
+            "aim_error": [
+              0,
+              0
+            ],
+            "strafe": 0,
+            "strafe_until": 0,
+            "range": 11,
+            "goal": [
+              0,
+              0,
+              0
+            ],
+            "cover_until": 0,
+            "stalled": 0,
+            "wander_until": 0,
+            "detour": [
+              0,
+              0,
+              0
+            ],
+            "detour_until": 0,
+            "head_bias": false
+          },
+          "CapsuleController": {
+            "radius": 0.35,
+            "height": 1.8,
+            "step": 0.35,
+            "slope_degrees": 50,
+            "velocity": [
+              0,
+              0,
+              0
+            ],
+            "grounded": true,
+            "mass": 80,
+            "support": [
+              {
+                "index": 0,
+                "generation": 0
+              }
+            ],
+            "support_pose": {
+              "position": [
+                0,
+                -0.5,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            }
+          },
+          "Collider": {
+            "shape": {
+              "Capsule": {
+                "radius": 0.35,
+                "height": 1.8
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": true,
+            "layer": 8,
+            "mask": 4294967295
+          },
+          "Fighter": {
+            "slot": 3,
+            "label": "bot-2",
+            "bot": true,
+            "hp": 64,
+            "alive": true,
+            "respawn_at": 29.6,
+            "yaw": -3.1415927,
+            "pitch": 0,
+            "weapon": {
+              "Rifle": {}
+            },
+            "rifle_ammo": 30,
+            "rocket_ammo": 2,
+            "reload_until": 0,
+            "next_shot": 0,
+            "bloom": 0,
+            "kick": 0,
+            "climb": 0,
+            "swing_at": 0,
+            "knock": [
+              0,
+              0,
+              0
+            ],
+            "planar": [
+              0,
+              0,
+              0
+            ],
+            "slide_until": 0,
+            "slide_ready": 0,
+            "slide_dir": [
+              0,
+              0,
+              0
+            ],
+            "eye": 0.7,
+            "aiming": false,
+            "kills": 0,
+            "deaths": 8,
+            "rounds": 0,
+            "last_attacker": 1,
+            "shots": 0,
+            "hits": 0,
+            "headshots": 0,
+            "bandage_used": false,
+            "bandage_until": 0
+          },
+          "Transform": {
+            "position": [
+              0,
+              0.90979713,
+              12
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 33,
+        "name": "bot-2-body",
+        "components": {
+          "Material": {
+            "color": [
+              0.94,
+              0.62,
+              0.12,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Capsule": {
+              "radius": 0.35,
+              "height": 1.5
+            }
+          },
+          "Parent": [
+            {
+              "index": 32,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              0,
+              -0.15,
+              0
+            ],
+            "rotation": [
+              0,
+              -1,
+              0,
+              -4.371139e-8
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 34,
+        "name": "bot-2-head",
+        "components": {
+          "Material": {
+            "color": [
+              0.95,
+              0.8,
+              0.66,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.22
+            }
+          },
+          "Parent": [
+            {
+              "index": 32,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              0,
+              0.66,
+              0
+            ],
+            "rotation": [
+              0,
+              -1,
+              0,
+              -4.371139e-8
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 35,
+        "name": "bot-2-visor",
+        "components": {
+          "Material": {
+            "color": [
+              0.1,
+              0.1,
+              0.12,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              1.88,
+              1.24,
+              0.24
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                0.3,
+                0.08,
+                0.1
+              ]
+            }
+          },
+          "Parent": [
+            {
+              "index": 32,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              -1.57361e-8,
+              0.68,
+              0.18
+            ],
+            "rotation": [
+              0,
+              -1,
+              0,
+              -4.371139e-8
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 36,
+        "name": "bot-3",
+        "components": {
+          "Body": {
+            "kind": {
+              "Kinematic": {}
+            },
+            "velocity": [
+              0,
+              0,
+              0
+            ],
+            "spin": [
+              0,
+              0,
+              0
+            ],
+            "mass": 0,
+            "gravity": 1,
+            "damping": 0,
+            "spin_damping": 0,
+            "asleep": false
+          },
+          "Brain": {
+            "skill": 0.55,
+            "dummy": true,
+            "plan": {
+              "Hunt": {}
+            },
+            "target": [],
+            "visible": false,
+            "last_seen": [
+              0,
+              0,
+              0
+            ],
+            "react_at": 0,
+            "aim_error": [
+              0,
+              0
+            ],
+            "strafe": 0,
+            "strafe_until": 0,
+            "range": 11,
+            "goal": [
+              0,
+              0,
+              0
+            ],
+            "cover_until": 0,
+            "stalled": 0,
+            "wander_until": 0,
+            "detour": [
+              0,
+              0,
+              0
+            ],
+            "detour_until": 0,
+            "head_bias": false
+          },
+          "CapsuleController": {
+            "radius": 0.35,
+            "height": 1.8,
+            "step": 0.35,
+            "slope_degrees": 50,
+            "velocity": [
+              0,
+              0,
+              0
+            ],
+            "grounded": true,
+            "mass": 80,
+            "support": [
+              {
+                "index": 0,
+                "generation": 0
+              }
+            ],
+            "support_pose": {
+              "position": [
+                0,
+                -0.5,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            }
+          },
+          "Collider": {
+            "shape": {
+              "Capsule": {
+                "radius": 0.35,
+                "height": 1.8
+              }
+            },
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "friction": 0.6,
+            "bounce": 0,
+            "sensor": true,
+            "layer": 0,
+            "mask": 4294967295
+          },
+          "Fighter": {
+            "slot": 4,
+            "label": "bot-3",
+            "bot": true,
+            "hp": 0,
+            "alive": false,
+            "respawn_at": 30.133333,
+            "yaw": -3.1415927,
+            "pitch": 0,
+            "weapon": {
+              "Rifle": {}
+            },
+            "rifle_ammo": 30,
+            "rocket_ammo": 2,
+            "reload_until": 0,
+            "next_shot": 0,
+            "bloom": 0,
+            "kick": 0,
+            "climb": 0,
+            "swing_at": 0,
+            "knock": [
+              0,
+              0,
+              0
+            ],
+            "planar": [
+              0,
+              0,
+              0
+            ],
+            "slide_until": 0,
+            "slide_ready": 0,
+            "slide_dir": [
+              0,
+              0,
+              0
+            ],
+            "eye": 0.7,
+            "aiming": false,
+            "kills": 0,
+            "deaths": 8,
+            "rounds": 0,
+            "last_attacker": 1,
+            "shots": 0,
+            "hits": 0,
+            "headshots": 0,
+            "bandage_used": false,
+            "bandage_until": 0
+          },
+          "Transform": {
+            "position": [
+              2,
+              0.90977836,
+              12
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 37,
+        "name": "bot-3-body",
+        "components": {
+          "Material": {
+            "color": [
+              0.55,
+              0.3,
+              0.85,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Capsule": {
+              "radius": 0.35,
+              "height": 1.5
+            }
+          },
+          "Parent": [
+            {
+              "index": 36,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              0,
+              -0.15,
+              0
+            ],
+            "rotation": [
+              0,
+              -1,
+              0,
+              -4.371139e-8
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 38,
+        "name": "bot-3-head",
+        "components": {
+          "Material": {
+            "color": [
+              0.95,
+              0.8,
+              0.66,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.22
+            }
+          },
+          "Parent": [
+            {
+              "index": 36,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              0,
+              0.66,
+              0
+            ],
+            "rotation": [
+              0,
+              -1,
+              0,
+              -4.371139e-8
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 39,
+        "name": "bot-3-visor",
+        "components": {
+          "Material": {
+            "color": [
+              0.1,
+              0.1,
+              0.12,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              1.1,
+              0.6,
+              1.7
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                0.3,
+                0.08,
+                0.1
+              ]
+            }
+          },
+          "Parent": [
+            {
+              "index": 36,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              -1.57361e-8,
+              0.68,
+              0.18
+            ],
+            "rotation": [
+              0,
+              -1,
+              0,
+              -4.371139e-8
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 40,
+        "name": "camera",
+        "components": {
+          "Camera": {
+            "projection": {
+              "Perspective": {}
+            },
+            "fov_y_degrees": 74,
+            "near": 0.05,
+            "far": 300,
+            "active": true
+          },
+          "Transform": {
+            "position": [
+              -9.6499555e-9,
+              1.6097964,
+              20.673758
+            ],
+            "rotation": [
+              0.0030000058,
+              0.000102535596,
+              -3.0760876e-7,
+              0.9999955
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 41,
+        "name": "vm-rifle",
+        "components": {
+          "Material": {
+            "color": [
+              0.12,
+              0.13,
+              0.15,
+              1
+            ],
+            "metallic": 0.6,
+            "roughness": 0.4,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                0.06,
+                0.08,
+                0.45
+              ]
+            }
+          },
+          "Parent": [
+            {
+              "index": 40,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              0.2,
+              -0.19,
+              -0.58
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "ViewModel": {},
+          "Visible": [
+            true
+          ],
+          "WeaponPart": {
+            "weapon": {
+              "Rifle": {}
+            },
+            "rest": [
+              0.2,
+              -0.19,
+              -0.58
+            ]
+          }
+        }
+      },
+      {
+        "id": 42,
+        "name": "vm-rifle-mag",
+        "components": {
+          "Material": {
+            "color": [
+              0.75,
+              0.55,
+              0.2,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                0.04,
+                0.12,
+                0.07
+              ]
+            }
+          },
+          "Parent": [
+            {
+              "index": 40,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              0.2,
+              -0.27,
+              -0.52
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "ViewModel": {},
+          "Visible": [
+            true
+          ],
+          "WeaponPart": {
+            "weapon": {
+              "Rifle": {}
+            },
+            "rest": [
+              0.2,
+              -0.27,
+              -0.52
+            ]
+          }
+        }
+      },
+      {
+        "id": 43,
+        "name": "vm-rocket",
+        "components": {
+          "Material": {
+            "color": [
+              0.25,
+              0.42,
+              0.25,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.7,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Cylinder": {
+              "radius": 0.08,
+              "height": 0.75
+            }
+          },
+          "Parent": [
+            {
+              "index": 40,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              0.22,
+              -0.2,
+              -0.4
+            ],
+            "rotation": [
+              0.70710677,
+              0,
+              0,
+              0.70710677
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "ViewModel": {},
+          "Visible": [
+            false
+          ],
+          "WeaponPart": {
+            "weapon": {
+              "Rocket": {}
+            },
+            "rest": [
+              0.22,
+              -0.2,
+              -0.4
+            ]
+          }
+        }
+      },
+      {
+        "id": 44,
+        "name": "vm-knife",
+        "components": {
+          "Material": {
+            "color": [
+              0.85,
+              0.87,
+              0.9,
+              1
+            ],
+            "metallic": 0.9,
+            "roughness": 0.2,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                0.02,
+                0.05,
+                0.3
+              ]
+            }
+          },
+          "Parent": [
+            {
+              "index": 40,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              0.22,
+              -0.2,
+              -0.38
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "ViewModel": {},
+          "Visible": [
+            false
+          ],
+          "WeaponPart": {
+            "weapon": {
+              "Knife": {}
+            },
+            "rest": [
+              0.22,
+              -0.2,
+              -0.38
+            ]
+          }
+        }
+      },
+      {
+        "id": 45,
+        "name": "vm-knife-grip",
+        "components": {
+          "Material": {
+            "color": [
+              0.1,
+              0.1,
+              0.1,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Box": {
+              "size": [
+                0.035,
+                0.06,
+                0.12
+              ]
+            }
+          },
+          "Parent": [
+            {
+              "index": 40,
+              "generation": 0
+            }
+          ],
+          "Transform": {
+            "position": [
+              0.22,
+              -0.21,
+              -0.2
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "ViewModel": {},
+          "Visible": [
+            false
+          ],
+          "WeaponPart": {
+            "weapon": {
+              "Knife": {}
+            },
+            "rest": [
+              0.22,
+              -0.21,
+              -0.2
+            ]
+          }
+        }
+      }
+    ],
+    "truncated": false
+  }
+}

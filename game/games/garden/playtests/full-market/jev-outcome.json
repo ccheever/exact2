@@ -1,0 +1,1821 @@
+{
+  "fullMarket": true,
+  "startOutside": false,
+  "strawberryHarvests": 1,
+  "purse": 3076,
+  "census": "4 plants · 13/16 ripe · 0 mutated",
+  "objective": "Market regular · all 5 orders filled!",
+  "prompt": "Corn fruiting · 1:20",
+  "last": "Delivered 3 Corn · 2665¢ including 2400¢ bonus",
+  "water": "Watering can · 0/3",
+  "care": "Can empty · refill at the blue barrel",
+  "world": {
+    "tick": 15729,
+    "hash": "0x19d9b73f16dc1635",
+    "entities": [
+      {
+        "id": 0,
+        "name": "ground",
+        "components": {
+          "Material": {
+            "color": [
+              0.2,
+              0.11,
+              0.05,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 2
+          },
+          "Mesh": {
+            "Plane": {
+              "width": 16,
+              "depth": 16
+            }
+          },
+          "Transform": {
+            "position": [
+              5,
+              0,
+              -5
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 1,
+        "name": "player",
+        "components": {
+          "Character": {
+            "velocity": [
+              0,
+              0,
+              0
+            ],
+            "speed": 4,
+            "accel": 12,
+            "brake": 20,
+            "jump": 1.2,
+            "gravity": 9.81,
+            "ground": 0.9,
+            "bounds": [
+              [
+                -12,
+                12
+              ]
+            ],
+            "airborne": false
+          },
+          "Material": {
+            "color": [
+              0.9025,
+              0.5625,
+              0.09,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Capsule": {
+              "radius": 0.4,
+              "height": 1.8
+            }
+          },
+          "Transform": {
+            "position": [
+              7.636845e-8,
+              0.9,
+              -1.7333333
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 2,
+        "name": "camera",
+        "components": {
+          "Camera": {
+            "projection": {
+              "Perspective": {}
+            },
+            "fov_y_degrees": 60,
+            "near": 0.1,
+            "far": 1000,
+            "active": true
+          },
+          "Follow": {
+            "target": {
+              "Entity": [
+                {
+                  "index": 1,
+                  "generation": 0
+                }
+              ]
+            },
+            "resolved": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ],
+            "offset": [
+              0,
+              9,
+              11
+            ],
+            "look_at_offset": [
+              0,
+              0,
+              0
+            ],
+            "lag": 0.15,
+            "initialized": true
+          },
+          "Transform": {
+            "position": [
+              7.636845e-8,
+              9.9,
+              9.266666
+            ],
+            "rotation": [
+              -0.3361865,
+              0,
+              0,
+              0.94179547
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 3,
+        "name": "sun",
+        "components": {
+          "DirectionalLight": {
+            "color": [
+              1,
+              1,
+              1
+            ],
+            "illuminance": 10000,
+            "shadows": true
+          },
+          "Transform": {
+            "position": [
+              10,
+              20,
+              8
+            ],
+            "rotation": [
+              -0.43260664,
+              0.3800278,
+              0.20792149,
+              0.79069537
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 4,
+        "name": "plot-north",
+        "components": {
+          "Material": {
+            "color": [
+              1,
+              0.48999998,
+              0.0225,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0.15,
+              0.105000004,
+              0.0225
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Plane": {
+              "width": 1.96,
+              "depth": 0.04
+            }
+          },
+          "Transform": {
+            "position": [
+              0,
+              0.025,
+              -2.96
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 5,
+        "name": "plot-south",
+        "components": {
+          "Material": {
+            "color": [
+              1,
+              0.48999998,
+              0.0225,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0.15,
+              0.105000004,
+              0.0225
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Plane": {
+              "width": 1.96,
+              "depth": 0.04
+            }
+          },
+          "Transform": {
+            "position": [
+              0,
+              0.025,
+              -1.04
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 6,
+        "name": "plot-west",
+        "components": {
+          "Material": {
+            "color": [
+              1,
+              0.48999998,
+              0.0225,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0.15,
+              0.105000004,
+              0.0225
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Plane": {
+              "width": 0.04,
+              "depth": 1.96
+            }
+          },
+          "Transform": {
+            "position": [
+              -0.96,
+              0.025,
+              -2
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 7,
+        "name": "plot-east",
+        "components": {
+          "Material": {
+            "color": [
+              1,
+              0.48999998,
+              0.0225,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0.15,
+              0.105000004,
+              0.0225
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Plane": {
+              "width": 0.04,
+              "depth": 1.96
+            }
+          },
+          "Transform": {
+            "position": [
+              0.96,
+              0.025,
+              -2
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "Visible": [
+            true
+          ]
+        }
+      },
+      {
+        "id": 8,
+        "name": "water-barrel",
+        "components": {
+          "Material": {
+            "color": [
+              0.040000003,
+              0.122499995,
+              0.42249995,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Cylinder": {
+              "radius": 0.65,
+              "height": 1
+            }
+          },
+          "Transform": {
+            "position": [
+              -2,
+              0.5,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 9,
+        "name": "barrel-water",
+        "components": {
+          "Material": {
+            "color": [
+              0.040000003,
+              0.48999998,
+              1,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Cylinder": {
+              "radius": 0.53,
+              "height": 0.04
+            }
+          },
+          "Transform": {
+            "position": [
+              -2,
+              1.01,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 10,
+        "name": null,
+        "components": {
+          "Material": {
+            "color": [
+              0.0625,
+              0.36,
+              0.0625,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Cylinder": {
+              "radius": 0.35,
+              "height": 0.5
+            }
+          },
+          "Plant": {
+            "kind": 1,
+            "tile": [
+              0,
+              0
+            ],
+            "planted": 20525,
+            "grow_ms": 30000,
+            "watered": true,
+            "stage": 4,
+            "fruits": [
+              [
+                {
+                  "index": 11,
+                  "generation": 2
+                }
+              ],
+              [
+                {
+                  "index": 12,
+                  "generation": 1
+                }
+              ],
+              [
+                {
+                  "index": 13,
+                  "generation": 1
+                }
+              ],
+              [
+                {
+                  "index": 14,
+                  "generation": 1
+                }
+              ]
+            ]
+          },
+          "Transform": {
+            "position": [
+              0.65,
+              0.25,
+              -0.35
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 11,
+        "name": null,
+        "components": {
+          "Fruit": {
+            "kind": 1,
+            "plant": [
+              {
+                "index": 10,
+                "generation": 1
+              }
+            ],
+            "slot": 0,
+            "set_at": 80700,
+            "ripe_at": 110700,
+            "ripe": true,
+            "watered": false,
+            "weight": 0.260557,
+            "muts": 0
+          },
+          "Material": {
+            "color": [
+              0.80999994,
+              0.0144,
+              0.0225,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.14
+            }
+          },
+          "Transform": {
+            "position": [
+              1.0699999,
+              0.275,
+              -0.35
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1.0208957,
+              1.0208957,
+              1.0208957
+            ]
+          }
+        }
+      },
+      {
+        "id": 12,
+        "name": null,
+        "components": {
+          "Fruit": {
+            "kind": 1,
+            "plant": [
+              {
+                "index": 10,
+                "generation": 1
+              }
+            ],
+            "slot": 1,
+            "set_at": 80700,
+            "ripe_at": 110700,
+            "ripe": true,
+            "watered": false,
+            "weight": 0.29143575,
+            "muts": 0
+          },
+          "Material": {
+            "color": [
+              0.80999994,
+              0.0144,
+              0.0225,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.14
+            }
+          },
+          "Transform": {
+            "position": [
+              0.65,
+              0.375,
+              0.06999999
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1.0796958,
+              1.0796958,
+              1.0796958
+            ]
+          }
+        }
+      },
+      {
+        "id": 13,
+        "name": null,
+        "components": {
+          "Fruit": {
+            "kind": 1,
+            "plant": [
+              {
+                "index": 10,
+                "generation": 1
+              }
+            ],
+            "slot": 2,
+            "set_at": 80700,
+            "ripe_at": 110700,
+            "ripe": true,
+            "watered": false,
+            "weight": 0.23488294,
+            "muts": 0
+          },
+          "Material": {
+            "color": [
+              0.80999994,
+              0.0144,
+              0.0225,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.14
+            }
+          },
+          "Transform": {
+            "position": [
+              0.22999999,
+              0.47500002,
+              -0.35000002
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              0.9692944,
+              0.9692944,
+              0.9692944
+            ]
+          }
+        }
+      },
+      {
+        "id": 14,
+        "name": null,
+        "components": {
+          "Fruit": {
+            "kind": 1,
+            "plant": [
+              {
+                "index": 10,
+                "generation": 1
+              }
+            ],
+            "slot": 3,
+            "set_at": 80700,
+            "ripe_at": 110700,
+            "ripe": true,
+            "watered": false,
+            "weight": 0.30453348,
+            "muts": 0
+          },
+          "Material": {
+            "color": [
+              0.80999994,
+              0.0144,
+              0.0225,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.14
+            }
+          },
+          "Transform": {
+            "position": [
+              0.65,
+              0.275,
+              -0.77
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1.1036911,
+              1.1036911,
+              1.1036911
+            ]
+          }
+        }
+      },
+      {
+        "id": 15,
+        "name": null,
+        "components": {
+          "Material": {
+            "color": [
+              0.040000003,
+              0.25,
+              0.09,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Cylinder": {
+              "radius": 0.35,
+              "height": 0.6
+            }
+          },
+          "Plant": {
+            "kind": 2,
+            "tile": [
+              1,
+              0
+            ],
+            "planted": 81625,
+            "grow_ms": 45000,
+            "watered": true,
+            "stage": 4,
+            "fruits": [
+              [
+                {
+                  "index": 16,
+                  "generation": 1
+                }
+              ],
+              [
+                {
+                  "index": 17,
+                  "generation": 1
+                }
+              ],
+              [
+                {
+                  "index": 18,
+                  "generation": 1
+                }
+              ],
+              [
+                {
+                  "index": 19,
+                  "generation": 1
+                }
+              ],
+              [
+                {
+                  "index": 20,
+                  "generation": 1
+                }
+              ]
+            ]
+          },
+          "Transform": {
+            "position": [
+              2.65,
+              0.3,
+              -0.35
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 16,
+        "name": null,
+        "components": {
+          "Fruit": {
+            "kind": 2,
+            "plant": [
+              {
+                "index": 15,
+                "generation": 0
+              }
+            ],
+            "slot": 0,
+            "set_at": 181800,
+            "ripe_at": 221800,
+            "ripe": true,
+            "watered": false,
+            "weight": 0.18219899,
+            "muts": 0
+          },
+          "Material": {
+            "color": [
+              0.0625,
+              0.09,
+              0.7225,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.12
+            }
+          },
+          "Transform": {
+            "position": [
+              3.0700002,
+              0.33,
+              -0.35
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1.0060897,
+              1.0060897,
+              1.0060897
+            ]
+          }
+        }
+      },
+      {
+        "id": 17,
+        "name": null,
+        "components": {
+          "Fruit": {
+            "kind": 2,
+            "plant": [
+              {
+                "index": 15,
+                "generation": 0
+              }
+            ],
+            "slot": 1,
+            "set_at": 181800,
+            "ripe_at": 221800,
+            "ripe": true,
+            "watered": false,
+            "weight": 0.21588412,
+            "muts": 0
+          },
+          "Material": {
+            "color": [
+              0.0625,
+              0.09,
+              0.7225,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.12
+            }
+          },
+          "Transform": {
+            "position": [
+              2.7797873,
+              0.45000002,
+              0.04944375
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1.0951512,
+              1.0951512,
+              1.0951512
+            ]
+          }
+        }
+      },
+      {
+        "id": 18,
+        "name": null,
+        "components": {
+          "Fruit": {
+            "kind": 2,
+            "plant": [
+              {
+                "index": 15,
+                "generation": 0
+              }
+            ],
+            "slot": 2,
+            "set_at": 181800,
+            "ripe_at": 221800,
+            "ripe": true,
+            "watered": false,
+            "weight": 0.21710955,
+            "muts": 0
+          },
+          "Material": {
+            "color": [
+              0.0625,
+              0.09,
+              0.7225,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.12
+            }
+          },
+          "Transform": {
+            "position": [
+              2.3102129,
+              0.57000005,
+              -0.10313022
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1.098255,
+              1.098255,
+              1.098255
+            ]
+          }
+        }
+      },
+      {
+        "id": 19,
+        "name": null,
+        "components": {
+          "Fruit": {
+            "kind": 2,
+            "plant": [
+              {
+                "index": 15,
+                "generation": 0
+              }
+            ],
+            "slot": 3,
+            "set_at": 181800,
+            "ripe_at": 221800,
+            "ripe": true,
+            "watered": false,
+            "weight": 0.18298195,
+            "muts": 0
+          },
+          "Material": {
+            "color": [
+              0.0625,
+              0.09,
+              0.7225,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.12
+            }
+          },
+          "Transform": {
+            "position": [
+              2.310213,
+              0.33,
+              -0.59686995
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1.0082492,
+              1.0082492,
+              1.0082492
+            ]
+          }
+        }
+      },
+      {
+        "id": 20,
+        "name": null,
+        "components": {
+          "Fruit": {
+            "kind": 2,
+            "plant": [
+              {
+                "index": 15,
+                "generation": 0
+              }
+            ],
+            "slot": 4,
+            "set_at": 181800,
+            "ripe_at": 221800,
+            "ripe": true,
+            "watered": false,
+            "weight": 0.17686972,
+            "muts": 0
+          },
+          "Material": {
+            "color": [
+              0.0625,
+              0.09,
+              0.7225,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.12
+            }
+          },
+          "Transform": {
+            "position": [
+              2.7797873,
+              0.45000002,
+              -0.7494437
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              0.9912666,
+              0.9912666,
+              0.9912666
+            ]
+          }
+        }
+      },
+      {
+        "id": 21,
+        "name": null,
+        "components": {
+          "Material": {
+            "color": [
+              0.0625,
+              0.3025,
+              0.040000003,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Cylinder": {
+              "radius": 0.35,
+              "height": 0.9
+            }
+          },
+          "Plant": {
+            "kind": 3,
+            "tile": [
+              1,
+              1
+            ],
+            "planted": 182725,
+            "grow_ms": 67500,
+            "watered": true,
+            "stage": 4,
+            "fruits": [
+              [
+                {
+                  "index": 22,
+                  "generation": 1
+                }
+              ],
+              [
+                {
+                  "index": 23,
+                  "generation": 1
+                }
+              ],
+              [
+                {
+                  "index": 24,
+                  "generation": 1
+                }
+              ],
+              [
+                {
+                  "index": 25,
+                  "generation": 1
+                }
+              ]
+            ]
+          },
+          "Transform": {
+            "position": [
+              2.65,
+              0.45,
+              -2.35
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 22,
+        "name": null,
+        "components": {
+          "Fruit": {
+            "kind": 3,
+            "plant": [
+              {
+                "index": 21,
+                "generation": 0
+              }
+            ],
+            "slot": 0,
+            "set_at": 322900,
+            "ripe_at": 382900,
+            "ripe": true,
+            "watered": false,
+            "weight": 0.55265015,
+            "muts": 0
+          },
+          "Material": {
+            "color": [
+              0.7225,
+              0.0225,
+              0.010000001,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.2
+            }
+          },
+          "Transform": {
+            "position": [
+              3.0700002,
+              0.49499997,
+              -2.35
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1.108202,
+              1.108202,
+              1.108202
+            ]
+          }
+        }
+      },
+      {
+        "id": 23,
+        "name": null,
+        "components": {
+          "Fruit": {
+            "kind": 3,
+            "plant": [
+              {
+                "index": 21,
+                "generation": 0
+              }
+            ],
+            "slot": 1,
+            "set_at": 322900,
+            "ripe_at": 382900,
+            "ripe": true,
+            "watered": false,
+            "weight": 0.53547025,
+            "muts": 0
+          },
+          "Material": {
+            "color": [
+              0.7225,
+              0.0225,
+              0.010000001,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.2
+            }
+          },
+          "Transform": {
+            "position": [
+              2.65,
+              0.67499995,
+              -1.93
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1.0908409,
+              1.0908409,
+              1.0908409
+            ]
+          }
+        }
+      },
+      {
+        "id": 24,
+        "name": null,
+        "components": {
+          "Fruit": {
+            "kind": 3,
+            "plant": [
+              {
+                "index": 21,
+                "generation": 0
+              }
+            ],
+            "slot": 2,
+            "set_at": 322900,
+            "ripe_at": 382900,
+            "ripe": true,
+            "watered": false,
+            "weight": 0.5304348,
+            "muts": 0
+          },
+          "Material": {
+            "color": [
+              0.7225,
+              0.0225,
+              0.010000001,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.2
+            }
+          },
+          "Transform": {
+            "position": [
+              2.23,
+              0.855,
+              -2.35
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1.0856998,
+              1.0856998,
+              1.0856998
+            ]
+          }
+        }
+      },
+      {
+        "id": 25,
+        "name": null,
+        "components": {
+          "Fruit": {
+            "kind": 3,
+            "plant": [
+              {
+                "index": 21,
+                "generation": 0
+              }
+            ],
+            "slot": 3,
+            "set_at": 322900,
+            "ripe_at": 382900,
+            "ripe": true,
+            "watered": false,
+            "weight": 0.62073773,
+            "muts": 0
+          },
+          "Material": {
+            "color": [
+              0.7225,
+              0.0225,
+              0.010000001,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.2
+            }
+          },
+          "Transform": {
+            "position": [
+              2.65,
+              0.49499997,
+              -2.77
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1.1744859,
+              1.1744859,
+              1.1744859
+            ]
+          }
+        }
+      },
+      {
+        "id": 26,
+        "name": null,
+        "components": {
+          "Material": {
+            "color": [
+              0.20249999,
+              0.42249995,
+              0.040000003,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Cylinder": {
+              "radius": 0.35,
+              "height": 1.4
+            }
+          },
+          "Plant": {
+            "kind": 4,
+            "tile": [
+              0,
+              1
+            ],
+            "planted": 324000,
+            "grow_ms": 120000,
+            "watered": false,
+            "stage": 4,
+            "fruits": [
+              [
+                {
+                  "index": 27,
+                  "generation": 1
+                }
+              ],
+              [
+                {
+                  "index": 28,
+                  "generation": 1
+                }
+              ],
+              [
+                {
+                  "index": 29,
+                  "generation": 1
+                }
+              ]
+            ]
+          },
+          "Transform": {
+            "position": [
+              0.65,
+              0.7,
+              -2.35
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "id": 27,
+        "name": null,
+        "components": {
+          "Fruit": {
+            "kind": 4,
+            "plant": [
+              {
+                "index": 26,
+                "generation": 0
+              }
+            ],
+            "slot": 0,
+            "set_at": 524100,
+            "ripe_at": 604100,
+            "ripe": false,
+            "watered": false,
+            "weight": 0.6,
+            "muts": 0
+          },
+          "Material": {
+            "color": [
+              0.3025,
+              0.5625,
+              0.122499995,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.18
+            }
+          },
+          "Transform": {
+            "position": [
+              1.0699999,
+              0.77,
+              -2.35
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              0.4,
+              0.4,
+              0.4
+            ]
+          }
+        }
+      },
+      {
+        "id": 28,
+        "name": null,
+        "components": {
+          "Fruit": {
+            "kind": 4,
+            "plant": [
+              {
+                "index": 26,
+                "generation": 0
+              }
+            ],
+            "slot": 1,
+            "set_at": 524100,
+            "ripe_at": 604100,
+            "ripe": false,
+            "watered": false,
+            "weight": 0.6,
+            "muts": 0
+          },
+          "Material": {
+            "color": [
+              0.3025,
+              0.5625,
+              0.122499995,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.18
+            }
+          },
+          "Transform": {
+            "position": [
+              0.43999994,
+              1.05,
+              -1.9862692
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              0.4,
+              0.4,
+              0.4
+            ]
+          }
+        }
+      },
+      {
+        "id": 29,
+        "name": null,
+        "components": {
+          "Fruit": {
+            "kind": 4,
+            "plant": [
+              {
+                "index": 26,
+                "generation": 0
+              }
+            ],
+            "slot": 2,
+            "set_at": 524100,
+            "ripe_at": 604100,
+            "ripe": false,
+            "watered": false,
+            "weight": 0.6,
+            "muts": 0
+          },
+          "Material": {
+            "color": [
+              0.3025,
+              0.5625,
+              0.122499995,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 0.5,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "grid_spacing": 0
+          },
+          "Mesh": {
+            "Sphere": {
+              "radius": 0.18
+            }
+          },
+          "Transform": {
+            "position": [
+              0.44000003,
+              1.3299999,
+              -2.7137306
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              0.4,
+              0.4,
+              0.4
+            ]
+          }
+        }
+      }
+    ],
+    "truncated": false
+  }
+}

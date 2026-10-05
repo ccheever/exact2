@@ -1,0 +1,31 @@
+{
+  "name": "rivals",
+  "host": "web",
+  "args": [
+    "web",
+    "--playtest",
+    "--recovery"
+  ],
+  "device": false,
+  "status": "UNVERIFIED",
+  "inputs": "3212035ee6d00bf1db2b8d61a0fb774fbd17253d0fcffd766cb6193087504065",
+  "mode": "0",
+  "pins": {
+    "ticks": {},
+    "saves": {}
+  },
+  "facilities": [
+    "no recorded stalls or refusals"
+  ],
+  "failures": [],
+  "seconds": 37.623622292,
+  "worlds": [
+    {
+      "session": 1,
+      "tick": 3604,
+      "hash": "0xf5a7ae96da385c1d"
+    }
+  ],
+  "saves": [],
+  "auditUnavailable": false
+}
