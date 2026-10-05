@@ -234,12 +234,12 @@ impl Painter {
     pub(super) fn has_rows(&mut self, node: &NodeRef<'_>) -> bool {
         let (x, y) = effective_overflow(node);
         if self.rows.recording.is_some() {
-            if x == Overflow::Scroll || y == Overflow::Scroll {
+            if scrolls(x) || scrolls(y) {
                 self.row_refuse();
             }
             return false;
         }
-        self.rows.active && (y == Overflow::Scroll || self.rows_wrapper(node.key))
+        self.rows.active && (scrolls(y) || self.rows_wrapper(node.key))
     }
 
     /// Whether `key` is the container walked for its scroller's rows.
@@ -260,7 +260,7 @@ impl Painter {
             .scene
             .kernel
             .node(*only)
-            .is_some_and(|n| n.children().len() > 1 && effective_overflow(&n).1 != Overflow::Scroll)
+            .is_some_and(|n| n.children().len() > 1 && !scrolls(effective_overflow(&n).1))
     }
 
     /// A scroller's one container, walked with its children as the rows.
@@ -472,4 +472,10 @@ impl Painter {
             },
         );
     }
+}
+
+/// Whether an overflow scrolls: `scroll`, or `auto` (a scroller's default
+/// since the kernel follows CSS there).
+fn scrolls(o: Overflow) -> bool {
+    matches!(o, Overflow::Scroll | Overflow::Auto)
 }
