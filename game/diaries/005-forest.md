@@ -1478,3 +1478,28 @@ then pass in the focused run. All root checks pass in 43.316 s, with 2,436
 passing tests and nine ignored across 81 binaries. No game drive overlaps
 those checks. Logs: `/tmp/exact2-canvas-orientation-*.log`. App drives and
 cross-host game save comparisons follow this source checkpoint.
+
+The Caltrain app rebuilds and its macOS smoke passes all three authored tests
+in 3.9 s. The search drive's title card, train, `Palo` field and Back control
+are upright in `/tmp/exact2-canvas-orientation-caltrain.png`; the old canvas
+orientation queue entry is removed. Garden (`run-2BzIul`), Forest
+(`run-XH68Ib`) and Rivals (`run-4S7b8n`) each pass on web/macOS with equal
+source inputs, pins, 37 final world observations and all 55 save files.
+Their paired durations are 56.344/43.109, 111.738/192.124 and
+71.411/57.250 s respectively. All cleanup audits are available and empty.
+The fed harvest, cached supply and bandaged drill images were inspected.
+
+The placement fixture gives a narrower mixed result (`run-4eGe0r`): projected
+geometry, hitting its placed controls, visibility, named reordering and save
+restoration pass, and the 3D glyphs are now upright. The complete proof fails:
+both hosts produce continuation digest `651e8484…` rather than pin `84506a97…`;
+macOS also captures Pull where its ordinary HUD should cover it, and the
+reorder changes its full save from 2,227 to 2,310 bytes while the world snapshot
+stays equal. Running the original `PaintCapture.swift` reproduces those same
+three native failures and every saved byte (`artifacts/canvas-orientation-original/`).
+That capture's 3D labels are inverted; the fixed capture's are upright. The
+original direct proof records two final hashes, both matching the fixed run;
+the matrix run also records publications and its third session. No broader
+before/after snapshot equality is claimed. All fixture cleanup audits are
+available and empty. The unrelated failures are queued and its pins remain
+unchanged. Comparison: `/tmp/exact2-canvas-orientation-comparison.json`.
