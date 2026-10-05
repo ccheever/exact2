@@ -93,19 +93,36 @@ public enum DevMenu {
     /// Save Trace (LLP 1079 D5): where it went, or why not, as an alert.
     static func saveTrace() {
         guard let c = controller, let session else { return }
-        let message: String
+        let message: String, saved: URL?
         switch session.saveTrace() {
-        case .success(let url): message = url.path
-        case .failure(let error): message = "Not saved: \(error)"
+        case .success(let url): message = url.path; saved = url
+        case .failure(let error): message = "Not saved: \(error)"; saved = nil
         }
         let a = UIAlertController(title: "Trace", message: message, preferredStyle: .alert)
-        // tvOS has no pasteboard.
+        // tvOS has no pasteboard and no share sheet.
         #if !os(tvOS)
+        // A phone's trace reaches the Mac the agent reads it on: AirDrop or
+        // Files from the share sheet, or `agent.mjs trace --phone` over the cable.
+        if let saved { a.addAction(UIAlertAction(title: "Share…", style: .default) { _ in share(saved) }) }
         a.addAction(UIAlertAction(title: "Copy Path", style: .default) { _ in UIPasteboard.general.string = message })
         #endif
         a.addAction(UIAlertAction(title: "OK", style: .cancel))
         c.present(a, animated: true)
     }
+
+    #if !os(tvOS)
+    /// The share sheet for a saved trace, anchored mid-screen on an iPad.
+    static func share(_ url: URL) {
+        guard let c = controller else { return }
+        let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        if let pop = sheet.popoverPresentationController {
+            pop.sourceView = c.view
+            pop.sourceRect = CGRect(x: c.view.bounds.midX, y: c.view.bounds.midY, width: 1, height: 1)
+            pop.permittedArrowDirections = []
+        }
+        c.present(sheet, animated: true)
+    }
+    #endif
 
     /// The typed URL — what a physical iPhone actually uses (LLP 1023
     /// Stage 1: a device launch carries no environment): seeded with the

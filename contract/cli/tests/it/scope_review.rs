@@ -830,3 +830,50 @@ fn a_route_pages_source_is_a_data_source_not_a_fn() {
         "{e:?}"
     );
 }
+
+// Round 11 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_keyword_whose_slot_is_settled_is_never_refused() {
+    let dir = Dir::new("settled-keyword");
+    dir.write(
+        "ui.contract",
+        "keyframes pulse\n  to opacity=0\ncomponent Card\n  state d = \"1s\"\n  view\n    view animation=`pulse ${d} linear`\n",
+    );
+    // `linear` beside `${d}`: `pulse` is already the name, so `linear` can
+    // only be the easing, whatever `d` is.
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes linear\n  to opacity=1\ncomponent App\n  state d = \"pulse\"\n  view\n    column\n      Card()\n      view animation=`linear ${d}`\n",
+    );
+    contract::compile_path(&root).unwrap();
+}
+
+#[test]
+fn a_type_never_reaches_another_files_shape_past_a_fn() {
+    let dir = Dir::new("type-foreign-shape");
+    dir.write(
+        "ui.contract",
+        "fn Info(x: number): number = x\ncomponent Card\n  props\n    value: Info\n  view\n    text `${value.n}`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nshape Info\n  n: number\ncomponent App\n  view\n    Card(value=Info(n=7))\n",
+    );
+    let e = contract::compile_path(&root).unwrap_err();
+    assert_eq!(e.id, "contract-use-missing", "{e}");
+}
+
+#[test]
+fn a_shape_named_action_never_takes_another_files_bare_action() {
+    let dir = Dir::new("shape-action");
+    dir.write(
+        "ui.contract",
+        "shape action\n  n: number\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\ncomponent App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      Card()\n      Child(onPress=go)\ncomponent Child\n  props\n    onPress: action\n  view\n    button press=onPress testId=\"b\"\n      text \"go\"\n",
+    );
+    contract::compile_path(&root).unwrap();
+}

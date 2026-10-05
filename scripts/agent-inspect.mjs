@@ -1,5 +1,6 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderAx } from './agent-ax.mjs';
 
@@ -329,6 +330,32 @@ export async function readTrace(file, locate = () => []) {
   const perf = t.perf && !t.perf.error ? { target: 'every root', ...t.perf } : null;
   for (const site of perf?.sites ?? []) { const n = { planDigest: perf.plan ?? t.plan, site: site.site }; maps.attach(n); site.source = n.sourceMap; }
   return { ...t, perf };
+}
+
+/** The trace a phone's dev menu saved last (`ExactSession.latestTrace`,
+ * `tmp/trace-latest.json` in the app's container), copied into the app's
+ * `target/traces/` (LLP 1079 D5): from a simulator's container, which
+ * devicectl cannot copy, else off the phone as its screenshots are. */
+export function phoneTrace(ph, a, run = spawnSync) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const file = resolve(a.target, 'traces', `trace-${String(ph.name ?? ph.udid).replace(/[^\w.-]/g, '_')}-${stamp}.json`);
+  mkdirSync(resolve(a.target, 'traces'), { recursive: true });
+  const unsaved = `no trace saved in ${a.id} on ${ph.name ?? ph.udid}: Save Trace in its dev menu first (four fingers tapped once)`;
+  const container = run('xcrun', ['simctl', 'get_app_container', ph.udid, a.id, 'data'], { encoding: 'utf8' });
+  // simctl's 148: no simulator by that id, so a phone. A simulator it knows
+  // but cannot answer for (shut down, the app not installed) says why.
+  if (container.status !== 0 && container.status !== 148) throw new Error(`${ph.name ?? ph.udid}: ${container.stderr.trim() || 'simctl get_app_container failed'}`);
+  if (container.status === 0) {
+    const saved = resolve(container.stdout.trim(), 'tmp/trace-latest.json');
+    if (!container.stdout.trim() || !existsSync(saved)) throw new Error(unsaved);
+    copyFileSync(saved, file);
+  } else {
+    const copied = run('xcrun', ['devicectl', 'device', 'copy', 'from', '--quiet', '--device', ph.udid,
+      '--domain-type', 'appDataContainer', '--domain-identifier', a.id, '--source', 'tmp/trace-latest.json', '--destination', file], { encoding: 'utf8', timeout: 20000 });
+    if (copied.status !== 0) throw new Error(`${unsaved}, or the phone is unreachable: ${copied.stderr || copied.error || copied.stdout}`);
+  }
+  console.error(`trace copied to ${file}`);
+  return file;
 }
 
 /** A trace as text: who and what made it, each timing's proxy, the frames,

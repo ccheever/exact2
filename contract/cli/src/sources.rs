@@ -374,12 +374,46 @@ impl Loader<'_> {
         let elsewhere = self.declared_elsewhere(&unique);
         // Every file's references to names it does not see, refused together.
         let mut missing = Vec::new();
+        let shape_owners: Vec<(usize, Vec<String>, String)> = self
+            .units
+            .iter()
+            .enumerate()
+            .flat_map(|(index, unit)| {
+                let path = &self.sources.paths[index];
+                let shown = path
+                    .strip_prefix(self.app_root)
+                    .unwrap_or(path)
+                    .display()
+                    .to_string();
+                let unique = &unique;
+                unit.file.shapes.iter().map(move |s| {
+                    let generated = unique[index]
+                        .get(&(Kind::Call, s.name.clone()))
+                        .cloned()
+                        .unwrap_or_else(|| s.name.clone());
+                    (index, vec![s.name.clone(), generated], shown.clone())
+                })
+            })
+            .collect();
         for (index, unit) in self.units.iter_mut().enumerate() {
             let mut scope = scopes[index].take().expect("every unit is scoped");
             scope.elsewhere = elsewhere
                 .iter()
                 .filter(|(key, e)| e.unit != index && !scope.names.contains_key(*key))
                 .map(|(key, e)| (key.clone(), e.clone()))
+                .collect();
+            // Every other file's shape this file does not see as a shape, by
+            // its declared and its generated name.
+            scope.foreign_shapes = shape_owners
+                .iter()
+                .filter(|(owner, _, _)| *owner != index)
+                .flat_map(|(_, names, file)| names.iter().map(move |n| (n.clone(), file.clone())))
+                .filter(|(n, _)| {
+                    !scope
+                        .names
+                        .get(&(Kind::Call, n.clone()))
+                        .is_some_and(|to| scope.shapes.contains(to))
+                })
                 .collect();
             rescope(&mut unit.file, &scope).map_err(|e| vec![e.into()])?;
             let misses = scope.missing.take();
@@ -477,9 +511,12 @@ impl Loader<'_> {
                                     && !unit.file.shapes.iter().any(|s| s.name == name)
                             })
                     };
+                    // A shape named `action` would be what every other file's bare
+                    // `action` type reads (the checker prefers a shape).
                     let roster = |name: &str| {
                         kind == Kind::Call
-                            && ((index > 0 && exact_plan::Stdlib::from_name(name).is_some())
+                            && (name == "action"
+                                || (index > 0 && exact_plan::Stdlib::from_name(name).is_some())
                                 || captures(name)
                                 || bound
                                     .iter()
@@ -588,6 +625,7 @@ impl Loader<'_> {
             // The roster plus the intrinsics (`pending`, `failed`, `path`, `t`).
             roster: Some(compiler_call),
             builtin_types: builtin_types(),
+            foreign_shapes: HashMap::new(),
             shapes: self
                 .units
                 .iter()

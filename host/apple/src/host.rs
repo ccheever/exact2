@@ -256,7 +256,8 @@ impl<D: DataSource> Host<D> {
     /// Boot with the app's kept secrets (LLP 1018 D6): `snapshot` is what
     /// the platform's store holds under the granted names, read before this
     /// call (a carried boot takes the carried store instead); `secrets` is
-    /// where the commits' writes go, after each commit, on this thread.
+    /// where the commits' writes go after each commit: secrets on this
+    /// thread, kept answers on their writer's (`store::flush_kept`).
     #[allow(clippy::too_many_arguments)]
     pub fn boot_stored(
         plan_bytes: &[u8],
@@ -695,10 +696,15 @@ impl<D: DataSource> Host<D> {
     }
 
     /// What the last commit kept or forgot, into the platform's store (LLP
-    /// 1018 D6) — synchronous, on this thread, milliseconds once per login.
-    /// A write that fails is journaled; the app is otherwise unaffected, as
-    /// a web app is when `setItem` throws: the next launch will not remember.
+    /// 1018 D6): secrets synchronously, on this thread, milliseconds once per
+    /// login; kept answers queued for their writer thread (`store.rs`). A
+    /// write that fails is journaled (a kept answer's at a later commit);
+    /// the app is otherwise unaffected, as a web app is when `setItem`
+    /// throws: the next launch will not remember.
     fn persist(&mut self) {
+        for line in self.kept_failures() {
+            self.runner.log(line);
+        }
         for w in self.runner.take_store_writes() {
             let Some(secrets) = &self.secrets else {
                 continue;
@@ -707,6 +713,14 @@ impl<D: DataSource> Host<D> {
                 self.runner.log(format!("store {} failed: {e}", w.name));
             }
         }
+    }
+
+    /// The kept answers the writer failed to write since the last call.
+    pub fn kept_failures(&self) -> Vec<String> {
+        self.secrets
+            .as_ref()
+            .map(Platform::kept_failures)
+            .unwrap_or_default()
     }
 
     /// The requests the runner handed out since the last take (LLP 1016 D2):
