@@ -5,6 +5,7 @@ import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, s
 import { homedir } from 'node:os';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { types as utilTypes } from 'node:util';
 import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -375,6 +376,73 @@ export function webChanges(dist, app) {
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
 
+// LLP 1015.000: capture bounded primitive params, never claim they are wire bytes.
+const cdpFailures = new WeakMap(), CDP_STRING_LIMIT = 256 * 1024;
+const cdpIdentity = value => typeof value === 'string' && value.length <= 256 ? value : null;
+export const cdpFailureContext = error => cdpFailures.get(error);
+function associateCdpFailure(error, context) {
+  try {
+    const prior = cdpFailures.get(error);
+    cdpFailures.set(error, prior && prior !== context
+      ? Object.freeze({schema:1, omitted:'shared-error', ambiguous:true}) : context);
+  } catch { /* A primitive throw remains a primitive throw. */ }
+  return error;
+}
+export function copyCdpFailureContext(from, to) {
+  const context = cdpFailureContext(from);
+  return context ? associateCdpFailure(to, context) : to;
+}
+
+/** Also the offline test seam: no getter, Proxy trap, coercion or hashing. */
+export function captureCdpRequest(method, params, sessionId, requestId, timeoutMs) {
+  const snapshot = {method:cdpIdentity(method), requestId, cdpSessionId:cdpIdentity(sessionId),
+    timeoutMs:typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) ? timeoutMs : null};
+  const field = method === 'Runtime.evaluate' ? 'expression' : method === 'Page.navigate' ? 'url' : null;
+  if (!field) return snapshot;
+  const unavailable = omitted => { snapshot.parameter = {field, omitted}; return snapshot; };
+  try {
+    if (typeof utilTypes.isProxy !== 'function') return unavailable('proxy-check-unavailable');
+    if (!params || typeof params !== 'object' || utilTypes.isProxy(params)) return unavailable('not-plain-data');
+    const prototype = Object.getPrototypeOf(params);
+    if (prototype !== null && (utilTypes.isProxy(prototype) || prototype !== Object.prototype)) return unavailable('not-plain-data');
+    if (Object.getOwnPropertyDescriptor(params, 'toJSON') || prototype && Object.getOwnPropertyDescriptor(prototype, 'toJSON'))
+      return unavailable('serialization-hook');
+    const property = Object.getOwnPropertyDescriptor(params, field);
+    if (!property || !Object.hasOwn(property, 'value') || typeof property.value !== 'string') return unavailable('not-string-data');
+    const characters = property.value.length;
+    snapshot.parameter = characters > CDP_STRING_LIMIT ? {field, characters, omitted:'length-limit'}
+      : {field, characters, value:property.value};
+  } catch { return unavailable('capture-unavailable'); }
+  return snapshot;
+}
+function releaseCdpRequest(snapshot) { if (snapshot.parameter) delete snapshot.parameter.value; }
+function finishCdpFailure(error, snapshot, category, input) {
+  try {
+    const {parameter, ...identity} = snapshot;
+    const context = {schema:1, ...identity, category, source:'captured-primitive-params'};
+    if (parameter) {
+      const {value, ...metadata} = parameter;
+      if (typeof value === 'string') {
+        metadata.utf8Bytes = Buffer.byteLength(value, 'utf8');
+        metadata.sha256 = createHash('sha256').update(value, 'utf8').digest('hex');
+      }
+      context.parameter = Object.freeze(metadata);
+    }
+    const pipe = {};
+    try {
+      for (const key of ['writableLength','writableNeedDrain','destroyed']) {
+        const value = input?.[key];
+        if (typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value)) pipe[key] = value;
+      }
+    } catch { pipe.omitted = 'unavailable'; }
+    context.input = Object.freeze(pipe);
+    associateCdpFailure(error, Object.freeze(Buffer.byteLength(JSON.stringify(context), 'utf8') <= 8192
+      ? context : {schema:1, omitted:'context-limit'}));
+  } catch { associateCdpFailure(error, Object.freeze({schema:1, omitted:'metadata-unavailable'})); }
+  finally { releaseCdpRequest(snapshot); }
+  return error;
+}
+
 /** The DevTools protocol over Chrome's --remote-debugging-pipe (fd 3 in, fd 4 out; NUL-delimited JSON). A closed pipe or a dead Chrome fails every pending call; every call has a deadline. */
 export class Cdp {
   constructor(input, output) {
@@ -394,7 +462,7 @@ export class Cdp {
         if (msg.id) {
           const p = this.pending.get(msg.id);
           this.pending.delete(msg.id);
-          if (msg.error) p?.reject(new Error(`${msg.error.message} (${p.method})`));
+          if (msg.error) p?.reject(new Error(`${msg.error.message} (${p.method})`), 'protocol');
           else p?.resolve(msg.result);
         } else for (const l of this.listeners) l(msg);
       }
@@ -405,15 +473,24 @@ export class Cdp {
   }
   fail(why) {
     this.closed ??= why;
-    for (const [id, p] of this.pending) { this.pending.delete(id); p.reject(new Error(`${why} (${p.method})`)); }
+    for (const [id, p] of this.pending) { this.pending.delete(id); p.reject(new Error(`${why} (${p.method})`), 'transport'); }
   }
   send(method, params = {}, sessionId, timeoutMs = 15000) {
-    if (this.closed) return Promise.reject(new Error(`${this.closed} (${method})`));
+    if (this.closed) return Promise.reject(finishCdpFailure(new Error(`${this.closed} (${method})`),
+      captureCdpRequest(method, params, sessionId, null, timeoutMs), 'closed', this.input));
     const id = this.next++;
+    const snapshot = captureCdpRequest(method, params, sessionId, id, timeoutMs);
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`${method} did not answer within ${timeoutMs} ms`)); }, timeoutMs);
-      this.pending.set(id, { resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); }, method });
-      this.input.write(JSON.stringify({ id, method, params, sessionId }) + '\0');
+      const fail = (error, category) => reject(finishCdpFailure(error, snapshot, category, this.input));
+      const timer = setTimeout(() => { this.pending.delete(id); fail(new Error(`${method} did not answer within ${timeoutMs} ms`), 'timeout'); }, timeoutMs);
+      this.pending.set(id, { resolve: (v) => { clearTimeout(timer); releaseCdpRequest(snapshot); resolve(v); },
+        reject: (e, category = 'transport') => { clearTimeout(timer); fail(e, category); }, method });
+      try { this.input.write(JSON.stringify({ id, method, params, sessionId }) + '\0'); }
+      catch (error) {
+        // Keep the existing executor rejection and pending timer; only metadata is retired.
+        finishCdpFailure(error, snapshot, 'send-refusal', this.input);
+        throw error;
+      }
     });
   }
 }
