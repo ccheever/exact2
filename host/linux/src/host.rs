@@ -1011,6 +1011,43 @@ impl<D: DataSource> Host<D> {
         error
     }
 
+    /// A symbol picture (`symbol:<role>`) a commit made, renewed or touched
+    /// takes its natural size, the em square the image sync reports for it
+    /// (LLP 1035.004), before this commit's layout: not in a second layout
+    /// once the sync after the commit reports it (every list row built
+    /// with an icon paid one).
+    fn size_new_symbols(&mut self, receipts: &[Timed]) {
+        let kernel = self.runner.kernel_mut();
+        if !kernel.has_type(exact_kernel::NodeType::Image) {
+            return;
+        }
+        let mut sizes = Vec::new();
+        for t in receipts {
+            let r = &t.receipt;
+            for key in r.created.iter().chain(&r.renewed).chain(&r.touched) {
+                let Some(node) = kernel.node_by_key(*key) else {
+                    continue;
+                };
+                if node.node_type != exact_kernel::NodeType::Image
+                    || !node
+                        .props
+                        .str(exact_kernel::PropId::ImageSource)
+                        .is_some_and(|s| s.starts_with("symbol:"))
+                {
+                    continue;
+                }
+                let size = node.computed_row(exact_kernel::StyleId::FontSize, |s| s.font_size);
+                sizes.push((node.id, (size > 0.).then_some((size, size))));
+            }
+        }
+        for (view, size) in sizes {
+            if let Err(e) = kernel.set_intrinsic_size(view, size) {
+                self.log(format!("intrinsic: {e:?}"));
+                return;
+            }
+        }
+    }
+
     /// The viewport changed: lay out again.
     pub fn resize(&mut self, width: f32, height: f32) -> Option<String> {
         // @ref LLP 1039 D2 — merge re-answer and relayout, once.
@@ -1219,6 +1256,7 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.track_presence(receipts);
+        self.size_new_symbols(receipts);
         if receipts.iter().any(|t| !t.receipt.created.is_empty()) {
             self.discover_height_handles();
             self.discover_transform_handles();
