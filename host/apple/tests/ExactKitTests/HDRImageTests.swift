@@ -8,6 +8,25 @@ import QuartzCore
 /// show it and `dynamic-range-limit` allows it; its layer asks for that
 /// range; anything else is SDR and never marked.
 final class HDRImageTests: XCTestCase {
+    func testUnknownPQAndHLGHeadroomUsesReferenceDefault() throws {
+        guard #available(iOS 18, macOS 15, tvOS 18, *) else { throw XCTSkip("headroom tag needs 18/15") }
+        for name in [CGColorSpace.itur_2100_PQ, CGColorSpace.itur_2100_HLG] {
+            let space = try XCTUnwrap(CGColorSpace(name: name))
+            let data = Data(repeating: 128, count: 4)
+            let provider = try XCTUnwrap(CGDataProvider(data: data as CFData))
+            let image = try XCTUnwrap(CGImage(width: 1, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 4,
+                space: space, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue), provider: provider,
+                decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+            let unknown = try XCTUnwrap(CGImageCreateCopyWithContentHeadroom(0, image))
+            // Some OS versions immediately synthesize the BT.2100 default
+            // on a zero-tagged CGImage; exercise an actual reported zero too.
+            XCTAssertEqual(RasterImage.headroom(reported: 0, space: space), 1000 / 203, accuracy: 0.001)
+            XCTAssertEqual(RasterImage.headroom(reported: 1, space: space), 1)
+            XCTAssertEqual(RasterImage.headroom(reported: 0, space: CGColorSpace(name: CGColorSpace.sRGB)), 0)
+            XCTAssertEqual(RasterImage.headroom(of: unknown), 1000 / 203, accuracy: 0.001)
+        }
+    }
+
     private struct Patch: Decodable { let x: Int; let w: Int; let linearSRGB: [Double]? }
     private struct Expectation: Decodable { let patches: [Patch] }
     private static let dir = URL(fileURLWithPath: #filePath)
@@ -59,7 +78,7 @@ final class HDRImageTests: XCTestCase {
             // 10 bits packed; the 16-bit PNG at 16.
             XCTAssertEqual(image.image.colorSpace?.name, CGColorSpace.itur_2100_PQ, file)
             XCTAssertEqual(image.image.bitsPerComponent, file.hasSuffix(".png") ? 16 : 10, file)
-            if #available(macOS 15, iOS 18, *) { XCTAssertGreaterThan(image.image.contentHeadroom, 3.5, "\(file): the bitmap carries it") }
+            if #available(macOS 15, iOS 18, tvOS 18, *) { XCTAssertGreaterThan(image.image.contentHeadroom, 3.5, "\(file): the bitmap carries it") }
             // HEIC and AVIF declare their 4000 cd/m² peak (make.swift); PNG
             // can't, and takes PQ's 1000 cd/m² default.
             XCTAssertEqual(image.headroom, file.hasSuffix(".png") ? 4.93 : 19.7, accuracy: 0.05, "\(file): the declared peak")
@@ -129,7 +148,7 @@ final class HDRImageTests: XCTestCase {
         XCTAssertEqual(layer.dynamicRangeFacts["dynamicRange"] as? String, "high")
         layer.applyDynamicRange(hdr: true, headroom: 4, limit: "standard")
         XCTAssertEqual(layer.dynamicRangeFacts["dynamicRange"] as? String, "standard")
-        if #available(macOS 26, iOS 26, *) {
+        if #available(macOS 26, iOS 26, tvOS 26, *) {
             layer.applyDynamicRange(hdr: true, headroom: 4, limit: "constrained")
             XCTAssertEqual(layer.dynamicRangeFacts["dynamicRange"] as? String, "constrained")
             XCTAssertEqual(layer.contentsHeadroom, 4)

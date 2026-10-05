@@ -65,6 +65,7 @@ public final class ExactView: NSView {
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated {
                     guard let self, note.object == nil || note.object as AnyObject? === self.window || note.object is NSApplication else { return }
+                    self.session.tellPreferences()
                     self.session.rasters.displayChanged()
                 }
             }

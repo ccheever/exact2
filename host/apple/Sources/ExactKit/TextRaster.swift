@@ -67,8 +67,12 @@ struct TextRasterJob {
     /// The bitmap's space and its colours' peak (LLP 1100 D2, D8): extended
     /// sRGB (at half float) for a colour past SDR white, Display P3 for a
     /// wide one, else sRGB.
-    private var format: (space: CGColorSpace, headroom: Float) {
-        var wide = false, headroom: Float = 0
+    private var format: (space: CGColorSpace, headroom: Float, deep: Bool) {
+        var wide = false, deep = false, headroom: Float = 0
+        // ColorSync round-off at gamut boundaries must not widen ordinary white.
+        let outside = { (color: CGColor) in
+            color.components?.prefix(3).contains { $0 < -0.00001 || $0 > 1.00001 } == true
+        }
         let all = NSRange(location: 0, length: source.length)
         for key in [NSAttributedString.Key.foregroundColor, .strokeColor, .exactBackground, .exactShadow] {
             source.enumerateAttribute(key, in: all) { value, _, _ in
@@ -76,11 +80,17 @@ struct TextRasterJob {
                 let cg = (value as? InlineBackground)?.color ?? (value as? TextRunShadow)?.color ?? (value as? PlatformColor)?.cgColor
                     ?? ref.flatMap { CFGetTypeID($0) == CGColor.typeID ? ($0 as! CGColor) : nil }
                 headroom = max(headroom, ColorRange.headroom(cg))
-                let name = cg?.colorSpace?.name as String?
-                if name == CGColorSpace.extendedDisplayP3 as String || name == CGColorSpace.extendedLinearSRGB as String { wide = true }
+                guard let cg else { return }
+                if let srgb = cg.converted(to: Self.extended, intent: .relativeColorimetric, options: nil) {
+                    wide = wide || outside(srgb)
+                }
+                if let p3 = CGColorSpace(name: CGColorSpace.extendedDisplayP3),
+                   let converted = cg.converted(to: p3, intent: .relativeColorimetric, options: nil) {
+                    deep = deep || outside(converted)
+                }
             }
         }
-        return headroom > 1 ? (Self.extended, headroom) : (wide ? Self.p3 : Self.srgb, 0)
+        return headroom > 1 || deep ? (Self.extended, max(1, headroom), true) : (wide ? Self.p3 : Self.srgb, 0, false)
     }
 
     /// A tall paragraph's band around `port`: 32 points past the box each
@@ -171,16 +181,16 @@ struct TextRasterJob {
               pixelWidth > 0, pixelHeight > 0,
               pixelWidth < CGFloat(Int.max), pixelHeight < CGFloat(Int.max) else { return nil }
         let width = Int(pixelWidth), height = Int(pixelHeight)
-        let (space, headroom) = format
+        let (space, headroom, deep) = format
         let hdr = headroom > 1
-        let pixelBytes = hdr ? 8 : 4
-        let bitmapInfo = hdr
+        let pixelBytes = deep ? 8 : 4
+        let bitmapInfo = deep
             ? CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.floatComponents.rawValue | CGBitmapInfo.byteOrder16Little.rawValue
             : CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
         #if os(macOS)
         guard width > 0, height > 0,
               let surface = IOSurface(properties: [.width: width, .height: height, .bytesPerElement: pixelBytes,
-                                                   .pixelFormat: UInt32(hdr ? 0x52476841 : 0x42475241)]) // 'RGhA' : 'BGRA'
+                                                   .pixelFormat: UInt32(deep ? 0x52476841 : 0x42475241)]) // 'RGhA' : 'BGRA'
         else { return nil }
         surface.lock(options: [], seed: nil)
         defer {
@@ -188,7 +198,7 @@ struct TextRasterJob {
             if let profile = space.copyPropertyList() { IOSurfaceSetValue(surface, kIOSurfaceColorSpace, profile) }
             if hdr, #available(macOS 15, *) { IOSurfaceSetValue(surface, kIOSurfaceContentHeadroom, NSNumber(value: headroom)) }
         }
-        guard let ctx = CGContext(data: surface.baseAddress, width: width, height: height, bitsPerComponent: hdr ? 16 : 8,
+        guard let ctx = CGContext(data: surface.baseAddress, width: width, height: height, bitsPerComponent: deep ? 16 : 8,
                                   bytesPerRow: surface.bytesPerRow, space: space, bitmapInfo: bitmapInfo)
         else { return nil }
         #else
@@ -202,7 +212,7 @@ struct TextRasterJob {
         let (bytes, overflow) = (row & ~63).multipliedReportingOverflow(by: height)
         guard !rowOverflow, !overflow else { return nil }
         return withScratch(bytes) { scratch -> TextRasterImage? in
-            guard let ctx = CGContext(data: scratch, width: width, height: height, bitsPerComponent: hdr ? 16 : 8,
+            guard let ctx = CGContext(data: scratch, width: width, height: height, bitsPerComponent: deep ? 16 : 8,
                                       bytesPerRow: row & ~63, space: space, bitmapInfo: bitmapInfo)
             else { return nil }
             paint(lines, positions, frame: frame, height: height, scale: scale, into: ctx)

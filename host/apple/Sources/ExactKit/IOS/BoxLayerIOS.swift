@@ -152,7 +152,7 @@ extension NodeView {
             if g.cornerCurve != layer.cornerCurve { g.cornerCurve = layer.cornerCurve }
             if g.masksToBounds != (layer.cornerRadius > 0) { g.masksToBounds = layer.cornerRadius > 0 }
         }
-        gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark)
+        gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark, limit: style["dynamic_range_limit"]?.string)
         if fixed { presenter?.fixedGradients.add(self) } else { presenter?.fixedGradients.remove(self) }
     }
 
@@ -177,7 +177,7 @@ extension NodeView {
     func reaimFixedGradient() {
         guard let g = boxGradient, let gradient = Gradient(style["background_image"]) else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark)
+        gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark, limit: style["dynamic_range_limit"]?.string)
         CATransaction.commit()
     }
 

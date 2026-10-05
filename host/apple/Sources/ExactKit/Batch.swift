@@ -81,9 +81,15 @@ enum BatchValue: Equatable {
             // @ref LLP 1100 D3
             if let space = ProfileSpaces.space(name) {
                 guard v.count == space.numberOfComponents + 1 else { return nil }
-                return CGColor(colorSpace: space, components: v.map { CGFloat($0) }).map(ColorRange.tagged)
+                guard let color = CGColor(colorSpace: space, components: v.map { CGFloat($0) }) else { return nil }
+                // CGColor carries no rendering intent. Apply the authored ICC
+                // transform once, before the color enters any paint path.
+                if name.hasPrefix("icc-sha256:"), let target = CGColorSpace(name: CGColorSpace.extendedSRGB) {
+                    return color.converted(to: target, intent: ProfileSpaces.intent(half["i"]?.string), options: nil).map(ColorRange.tagged)
+                }
+                return ColorRange.tagged(color)
             }
-            guard v.count == 4, let space = CGColorSpace(name: Self.wideSpaces[name] ?? CGColorSpace.extendedLinearSRGB) else { return nil }
+            guard v.count == 4, let spaceName = Self.wideSpaces[name], let space = CGColorSpace(name: spaceName) else { return nil }
             return CGColor(colorSpace: space, components: v.map { CGFloat($0) }).map(ColorRange.tagged)
         }
         guard let c = channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) else { return nil }

@@ -98,11 +98,17 @@ enum DisplayPreferences {
     /// custom), bit 4 a dark system, bit 5 pointer `coarse`, bit 6 pointer
     /// `none`, bit 7 hover `none` (zero: a mouse, `fine` and `hover`), bits
     /// 8–9 the gamut (1 P3, 2 rec2020), bit 10 a high dynamic range.
-    static func bits(systemDark: Bool) -> UInt32 {
+    static func bits(systemDark: Bool, view: PlatformView? = nil) -> UInt32 {
         let contrastBits: UInt32 = switch contrast { case "more": 4; case "less": 8; case "custom": 12; default: 0 }
-        let gamutBits: UInt32 = switch gamut { case "p3": 256; case "rec2020": 512; default: 0 }
+        #if os(macOS)
+        let displayGamut = agentGamut ?? ((view?.window?.screen ?? NSScreen.main)?.canRepresent(.p3) == true ? "p3" : "srgb")
+        #else
+        let displayGamut = agentGamut ?? ((view?.window?.screen ?? UIScreen.main).traitCollection.displayGamut == .P3 ? "p3" : "srgb")
+        #endif
+        let high = view.map { DisplayRange.headroom($0) > 1 } ?? highDynamicRange
+        let gamutBits: UInt32 = switch displayGamut { case "p3": 256; case "rec2020": 512; default: 0 }
         return (reducedMotion ? 1 : 0) | (reducedTransparency ? 2 : 0) | contrastBits | (systemDark ? 16 : 0) | inputBits
-            | gamutBits | (highDynamicRange ? 1024 : 0)
+            | gamutBits | (high ? 1024 : 0)
     }
     /// CSS's `pointer` and `hover` for the primary input: a Siri Remote
     /// points at nothing, a finger is coarse, and neither hovers.

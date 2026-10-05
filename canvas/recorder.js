@@ -140,6 +140,11 @@ const mul3 = (m, v) => [0, 1, 2].map((i) => m[i][0] * v[0] + m[i][1] * v[1] + m[
 const XYZ_TO_SRGB = [[3.2409699419045226, -1.537383177570094, -0.4986107602930034], [-0.9692436362808796, 1.8759675015077202, 0.04155505740717559], [0.05563007969699366, -0.20397695888897652, 1.0569715142428786]];
 const D50_TO_D65 = [[0.955473421488075, -0.02309845494876471, 0.06325924320057072], [-0.0283697093338637, 1.0099953980813041, 0.021041441191917323], [0.012314014864481998, -0.020507649298898964, 1.330365926242124]];
 const P3_TO_XYZ = [[0.4865709486482162, 0.26566769316909306, 0.1982172852343625], [0.2289745640697488, 0.6917385218365064, 0.079286914093745], [0, 0.04511338185890264, 1.043944368900976]];
+const A98_TO_XYZ = [[0.5766690429101305, 0.1855582379065463, 0.1882286462349947], [0.29734497525053605, 0.6273635662554661, 0.0752914584939978], [0.02703136138641234, 0.07068885253582723, 0.9913375368376388]];
+const PROPHOTO_TO_XYZ_D50 = [[0.7977666449006423, 0.13518129740053308, 0.0313477341283922], [0.2880748288194013, 0.711835234241873, 0.00008993693872564], [0, 0, 0.8251046025104602]];
+const REC2020_TO_XYZ = [[0.6369580483012914, 0.14461690358620832, 0.1688809751641721], [0.2627002120112671, 0.6779980715188708, 0.05930171646986196], [0, 0.028072693049087428, 1.060985057710791]];
+const signed = (c, f) => Math.sign(c) * f(Math.abs(c));
+const rec2020Linear = (c) => signed(c, a => a < 0.018053968510807 * 4.5 ? a / 4.5 : ((a + 1.09929682680944 - 1) / 1.09929682680944) ** (1 / 0.45));
 const toLinear = (c) => { const a = Math.abs(c); return Math.sign(c) * (a <= 0.04045 ? a / 12.92 : ((a + 0.055) / 1.055) ** 2.4); };
 const fromLinear = (c) => { const a = Math.abs(c); return Math.min(1, Math.max(0, Math.sign(c) * (a <= 0.0031308 ? 12.92 * a : 1.055 * a ** (1 / 2.4) - 0.055))); };
 function labToLinear(l, a, b) {
@@ -152,7 +157,7 @@ function oklabToLinear(l, a, b) {
   return [4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_, -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_, -0.0041960863 * l_ - 0.7034186147 * m_ + 1.7076147010 * s_];
 }
 const WIDE = { lab: 0, lch: 1, oklab: 2, oklch: 3 };
-const WIDE_SPACES = { srgb: 4, "srgb-linear": 5, "display-p3": 6, xyz: 7, "xyz-d65": 7, "xyz-d50": 8 };
+const WIDE_SPACES = { srgb: 4, "srgb-linear": 5, "display-p3": 6, xyz: 7, "xyz-d65": 7, "xyz-d50": 8, "a98-rgb": 9, "prophoto-rgb": 10, rec2020: 11 };
 function wide(name, body) {
   let space = null, kind;
   if (name === "color") {
@@ -168,7 +173,7 @@ function wide(name, body) {
   if (parts.length !== 3) return undefined;
   const c = parts.map(component);
   if (c.some((x) => !x)) return undefined;
-  const pct = [[100, 125, 125], [100, 150, 0], [1, 0.4, 0.4], [1, 0.4, 0], [1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1]][kind];
+  const pct = [[100, 125, 125], [100, 150, 0], [1, 0.4, 0.4], [1, 0.4, 0], [1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1]][kind] ?? [1, 1, 1];
   const v = [];
   for (let i = 0; i < 3; i++) {
     if (c[i].pct === undefined) v.push(c[i].num);
@@ -185,7 +190,11 @@ function wide(name, body) {
   const lin = kind === 0 ? labToLinear(v[0], v[1], v[2]) : kind === 1 ? labToLinear(v[0], v[1] * Math.cos(rad(v[2])), v[1] * Math.sin(rad(v[2])))
     : kind === 2 ? oklabToLinear(v[0], v[1], v[2]) : kind === 3 ? oklabToLinear(v[0], v[1] * Math.cos(rad(v[2])), v[1] * Math.sin(rad(v[2])))
     : kind === 4 ? v.map(toLinear) : kind === 5 ? v : kind === 6 ? mul3(XYZ_TO_SRGB, mul3(P3_TO_XYZ, v.map(toLinear)))
-    : kind === 7 ? mul3(XYZ_TO_SRGB, v) : mul3(XYZ_TO_SRGB, mul3(D50_TO_D65, v));
+    : kind === 7 ? mul3(XYZ_TO_SRGB, v)
+    : kind === 9 ? mul3(XYZ_TO_SRGB, mul3(A98_TO_XYZ, v.map(c => signed(c, a => a ** (563 / 256)))))
+    : kind === 10 ? mul3(XYZ_TO_SRGB, mul3(D50_TO_D65, mul3(PROPHOTO_TO_XYZ_D50, v.map(c => signed(c, a => a <= 16 / 512 ? a / 16 : a ** 1.8)))))
+    : kind === 11 ? mul3(XYZ_TO_SRGB, mul3(REC2020_TO_XYZ, v.map(rec2020Linear)))
+    : mul3(XYZ_TO_SRGB, mul3(D50_TO_D65, v));
   const out = [...lin.map((x) => channel(fromLinear(x) * 255)), Math.round(alpha * 255) / 255];
   out.lin = lin;
   out.text = `${space ? `color(${space} ` : `${name}(`}${v.map(jsNumber).join(" ")}${alpha < 1 ? ` / ${jsNumber(alpha)}` : ""})`;

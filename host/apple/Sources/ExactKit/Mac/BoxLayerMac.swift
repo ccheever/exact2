@@ -241,7 +241,7 @@ extension NodeView {
         if round, g.maskedCorners != p.corners { g.maskedCorners = p.corners }
         if g.cornerCurve != p.curve { g.cornerCurve = p.curve }
         if g.masksToBounds != round { g.masksToBounds = round }
-        gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark)
+        gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark, limit: style["dynamic_range_limit"]?.string)
     }
 
     /// The viewport in this view's coordinates: a `background-attachment:
@@ -302,6 +302,7 @@ extension NodeView {
             if (l.contents as AnyObject?) !== frame { l.contents = frame }
             l.cornerRadius = 0
             l.masksToBounds = false
+            l.applyDynamicRange(hdr: bitmap.isHDR, headroom: bitmap.headroom, limit: style["dynamic_range_limit"]?.string)
             return
         }
         guard let layer, layerBoxEligible, let plan = imagePlan, let bitmap = raster?.image else {

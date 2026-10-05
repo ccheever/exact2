@@ -32,6 +32,11 @@ fn ops(batch: &str) -> Vec<serde_json::Value> {
     v["ops"].as_array().cloned().unwrap_or_default()
 }
 
+fn view(host: &Host<NoData>, test_id: &str) -> u32 {
+    let k = host.runner().kernel();
+    k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+}
+
 fn brand() -> ColorValue {
     roles::references(cfg!(target_os = "macos"))
         .into_iter()
@@ -109,7 +114,7 @@ fn a_report_re_presents_what_the_kernel_resolved() {
     assert_eq!(v["motion"], true, "a transition runs");
     // The same report again changes nothing and sends nothing.
     let again = host.set_colors(vec![(c, false, red), (c, true, green)]);
-    assert!(ops_of(&again).is_empty(), "{again}");
+    assert!(self::ops(&again).is_empty(), "{again}");
     // No report: the fallback pair again.
     host.set_colors(Vec::new());
     assert_eq!(c.resolve(false), Color(0x1020_30ff));
@@ -354,4 +359,33 @@ fn a_platform_colour_in_a_branch_not_yet_taken_is_reported_from_boot() {
     ]);
     assert_eq!(c.resolve(false), Color(0xff00_00ff));
     host.set_colors(Vec::new());
+}
+
+#[test]
+fn wide_shadow_motion_reaches_the_presenter_unclipped() {
+    let (mut host, _) = boot("component A\n  state on = false\n  action go\n    on = true\n  view\n    column\n      button testId=\"go\" press=go\n        text \"Go\"\n      box testId=\"b\" width=20 height=20 box-shadow=(on ? \"0 2px 4px color(rec2100-linear 4 4 4)\" : \"0 2px 4px #000000\") transition=\"box-shadow 1s linear\"\n");
+    let (go, b) = (view(&host, "go"), view(&host, "b"));
+    host.dispatch_at(go, exact_runner::Event::Press, 100.0);
+    let frame = ops(&host.tick(900.0));
+    let shadow = frame
+        .iter()
+        .find(|op| op["id"] == b && op["style"].get("box_shadow").is_some())
+        .unwrap();
+    let color = &shadow["style"]["box_shadow"][0]["c"]["cs"][0];
+    assert_eq!(color["s"], "srgb-linear");
+    assert!(color["v"][0].as_f64().unwrap() > 1.5, "{shadow}");
+}
+
+#[test]
+fn mixed_appearance_gradient_keeps_one_wire_space() {
+    let (_, batch) = boot("component A\n  view\n    box width=20 height=20 background-image=\"linear-gradient(light-dark(red, color(display-p3 1 0 0)), blue)\"\n");
+    let parsed = ops(&batch);
+    let gradient = parsed
+        .iter()
+        .find_map(|op| op["style"].get("background_image"))
+        .unwrap();
+    assert_eq!(gradient["space"], "srgb-linear");
+    assert_eq!(gradient["stops"][1], 1.0);
+    assert_eq!(gradient["stops"][4], 1.0);
+    assert!(gradient["dark"][1].as_f64().unwrap() > 1.1);
 }

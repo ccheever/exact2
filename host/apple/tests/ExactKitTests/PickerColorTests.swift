@@ -18,7 +18,7 @@ final class PickerColorTests: XCTestCase {
     }
 
     func testAnHDRPhotoKeepsItsGainMapAndProfile() throws {
-        guard #available(macOS 15, iOS 18, *) else { throw XCTSkip("gain maps encode from macOS 15 / iOS 18") }
+        guard #available(macOS 15, iOS 18, tvOS 18, *) else { throw XCTSkip("gain maps encode from macOS 15 / iOS 18") }
         for file in ["gainmap-iso.heic", "pq.heic"] {
             let jpeg = try convert(file)
             XCTAssertTrue(Picker.isHDR(jpeg), "\(file): still HDR as JPEG")
@@ -31,7 +31,7 @@ final class PickerColorTests: XCTestCase {
     }
 
     func testOrientationIsAppliedNotCopied() throws {
-        guard #available(macOS 15, iOS 18, *) else { throw XCTSkip("gain maps encode from macOS 15 / iOS 18") }
+        guard #available(macOS 15, iOS 18, tvOS 18, *) else { throw XCTSkip("gain maps encode from macOS 15 / iOS 18") }
         let jpeg = try convert("gainmap-orient6.heic")
         let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(jpeg, 0, nil) as? [CFString: Any])
         XCTAssertEqual(properties[kCGImagePropertyPixelWidth] as? Int, 64)

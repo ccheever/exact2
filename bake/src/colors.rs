@@ -59,6 +59,51 @@ fn profiled_colors(text: &str) -> Vec<(&str, String, usize)> {
     out
 }
 
+/// Remove non-selected `platform-color()` branches before inspecting nested colors.
+/// The compiler checks the function's syntax; native names need no CSS validation.
+fn target_colors(text: &str, platform: &str) -> String {
+    let Some(start) = text.find("platform-color(") else {
+        return text.into();
+    };
+    let inner = start + "platform-color(".len();
+    let (mut depth, mut part, mut parts) = (0, inner, Vec::new());
+    for (offset, c) in text[inner..].char_indices() {
+        let i = inner + offset;
+        match c {
+            '(' => depth += 1,
+            ')' if depth > 0 => depth -= 1,
+            ',' if depth == 0 => {
+                parts.push(text[part..i].trim());
+                part = i + 1;
+            }
+            ')' => {
+                let fallback = text[part..i].trim();
+                let selected = parts
+                    .iter()
+                    .find_map(|p| {
+                        let (name, value) = p.split_once(char::is_whitespace)?;
+                        (name == platform || (platform == "tvos" && name == "ios")).then_some(
+                            if name == "web" {
+                                value.trim()
+                            } else {
+                                "transparent"
+                            },
+                        )
+                    })
+                    .unwrap_or(fallback);
+                return format!(
+                    "{}{}{}",
+                    &text[..start],
+                    target_colors(selected, platform),
+                    target_colors(&text[i + 1..], platform)
+                );
+            }
+            _ => {}
+        }
+    }
+    text.into()
+}
+
 /// An ICC profile's channel count from its header's data colour space
 /// (ICC.1 §7.2.6), the only part of it Exact reads.
 fn icc_channels(bytes: &[u8]) -> Option<usize> {
@@ -94,11 +139,12 @@ pub fn check(app_dir: &Path, platform: &str) -> Result<(), String> {
     }
     let plan = contract::compile_path(&source).map_err(|e| format!("app.contract: {e}"))?;
     // A row computed by an expression is the runtime's to refuse.
-    let literals: Vec<&str> = plan
+    let literals: Vec<String> = plan
         .bindings
         .iter()
         .filter(|b| b.kind == exact_plan::BindingKind::Style)
         .filter_map(|b| literal(&plan, b))
+        .map(|text| target_colors(text, platform))
         .collect();
     let mut channels = std::collections::BTreeMap::new();
     for row in &plan.profiles {
@@ -255,6 +301,19 @@ mod tests {
         assert!(check(&declared, "ios")
             .unwrap_err()
             .contains("takes 3 components, not 4"));
+    }
+
+    #[test]
+    fn platform_color_validates_only_the_selected_branch() {
+        let fallback = app("box width=4 height=4 background-color=\"platform-color(web color(display-p3 1 0 0), #ff0000)\"");
+        assert_eq!(check(&fallback, "linux"), Ok(()));
+        assert_eq!(check(&fallback, "web"), Ok(()));
+        let hdr = app("box width=4 height=4 background-image=\"linear-gradient(platform-color(web color(rec2100-linear 4 4 4), #ff0000), blue)\"");
+        assert_eq!(check(&hdr, "linux"), Ok(()));
+        assert!(check(&hdr, "web").is_err());
+        let profile = app("box width=4 height=4 box-shadow=\"0 0 4px platform-color(web color(--dci-p3 1 0 0), #ff0000)\"");
+        assert_eq!(check(&profile, "linux"), Ok(()));
+        assert!(check(&profile, "web").is_err());
     }
 
     #[test]

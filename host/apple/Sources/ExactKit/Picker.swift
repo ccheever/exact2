@@ -180,7 +180,7 @@ final class Picker: NSObject {
             kCGImageSourceThumbnailMaxPixelSize: max(w, h),
         ]
         var encode: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: 0.9]
-        if #available(iOS 18, macOS 15, *), isHDR(source) {
+        if #available(iOS 18, macOS 15, tvOS 18, *), isHDR(source) {
             decode[kCGImageSourceDecodeRequest] = kCGImageSourceDecodeToHDR
             encode[kCGImageDestinationEncodeRequest] = kCGImageDestinationEncodeToISOGainmap
         }
@@ -193,7 +193,7 @@ final class Picker: NSObject {
     /// A gain map of either kind, or a PQ or HLG transfer (LLP 1100 D4).
     static func isHDR(_ source: CGImageSource) -> Bool {
         if CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeHDRGainMap) != nil { return true }
-        if #available(iOS 18, macOS 15, *),
+        if #available(iOS 18, macOS 15, tvOS 18, *),
            CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeISOGainMap) != nil { return true }
         return CGImageSourceCreateImageAtIndex(source, 0, nil)?.colorSpace.map(isHDRSpace) ?? false
     }

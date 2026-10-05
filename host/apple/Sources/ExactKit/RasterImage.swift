@@ -103,7 +103,7 @@ struct RasterMetadata: Equatable, Sendable {
 /// segments though the map is at the end (ISO 21496-1, `hdrgm`, Apple's).
 func hasGainMap(_ source: CGImageSource, prefix: Data) -> Bool {
     if CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeHDRGainMap) != nil { return true }
-    if #available(iOS 18, macOS 15, *),
+    if #available(iOS 18, macOS 15, tvOS 18, *),
        CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeISOGainMap) != nil { return true }
     return gainMapMarkers.contains { prefix.range(of: $0) != nil }
 }
@@ -111,7 +111,13 @@ private let gainMapMarkers = ["urn:iso:std:iso:ts:21496", "hdrgm:Version", "http
 
 /// A PQ or HLG transfer (LLP 1100 D4).
 func isHDRSpace(_ space: CGColorSpace) -> Bool {
-    CGColorSpaceIsPQBased(space) || CGColorSpaceIsHLGBased(space)
+    #if os(tvOS)
+    // The PQ/HLG-specific queries have no tvOS availability annotation.
+    // This query covers both BT.2100 transfers and is available on tvOS.
+    return CGColorSpaceUsesITUR_2100TF(space)
+    #else
+    return CGColorSpaceIsPQBased(space) || CGColorSpaceIsHLGBased(space)
+    #endif
 }
 
 /// A colour space's name as the agent reports it (LLP 1100 D1): CSS's where
@@ -129,7 +135,7 @@ func colorSpaceName(_ space: CGColorSpace) -> String {
         CGColorSpace.dcip3: "--dci-p3", CGColorSpace.itur_709: "--rec709", CGColorSpace.acescgLinear: "--aces-cg",
         CGColorSpace.genericGrayGamma2_2: "--gray-gamma-2.2", CGColorSpace.linearGray: "--gray-linear"]
     if let name = space.name, let standard = names[name] { return standard }
-    if #available(iOS 18, macOS 15, *) {
+    if #available(iOS 18, macOS 15, tvOS 18, *) {
         // Nil for a space with no base (device RGB), whatever the overlay says.
         let base: CGColorSpace? = CGColorSpaceCopyBaseColorSpace(space)
         if let base, base != space { return colorSpaceName(base) }
@@ -322,8 +328,8 @@ final class RasterImage: @unchecked Sendable {
             var headroom: Float = 0
             if plan.variant == RasterVariant.hdr {
                 // The decode's headroom, tagged on the stored bitmap too.
-                headroom = max(1, Self.headroom(of: thumbnail))
-                if #available(iOS 18, macOS 15, *), let tagged = CGImageCreateCopyWithContentHeadroom(headroom, image) { image = tagged }
+                headroom = Self.headroom(of: thumbnail)
+                if headroom > 0, #available(iOS 18, macOS 15, tvOS 18, *), let tagged = CGImageCreateCopyWithContentHeadroom(headroom, image) { image = tagged }
             }
             let animation = url.flatMap { RasterAnimation.read(source, url: $0, plan: plan, owner: sourceOwner) }
             return RasterImage(image: owner.own(image), natural: metadata.naturalSize, bytes: plan.outputBytes,
@@ -334,8 +340,15 @@ final class RasterImage: @unchecked Sendable {
     /// An image's headroom, where the system says one (iOS 18 / macOS 15);
     /// before that, PQ's and HLG's default (1000 / 203 cd/m²).
     static func headroom(of image: CGImage) -> Float {
-        if #available(iOS 18, macOS 15, *) { return image.contentHeadroom }
-        return image.colorSpace.map(isHDRSpace) == true ? 1000 / 203 : 0
+        if #available(iOS 18, macOS 15, tvOS 18, *) { return headroom(reported: image.contentHeadroom, space: image.colorSpace) }
+        return headroom(reported: 0, space: image.colorSpace)
+    }
+
+    /// Zero is unknown, not SDR. Preserve a known tag; otherwise BT.2100
+    /// supplies its reference default, and other spaces remain untagged.
+    static func headroom(reported: Float, space: CGColorSpace?) -> Float {
+        if reported > 0 { return reported }
+        return space.map(isHDRSpace) == true ? 1000 / 203 : 0
     }
 
     /// ImageIO's reduced decode of one frame at the plan's longest side; an

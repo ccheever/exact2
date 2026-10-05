@@ -398,11 +398,15 @@ impl Gradient {
 
     /// As written; else Oklab when a stop is a modern colour; `None` is
     /// legacy sRGB, as CSS says.
-    pub fn interpolation(&self) -> Option<exact_color::Interpolation> {
+    pub fn interpolation(&self, dark: bool) -> Option<exact_color::Interpolation> {
         self.interpolation.or_else(|| {
             self.stops
                 .iter()
-                .any(|s| matches!(s.color, ColorValue::Wide(_)))
+                .any(|s| match s.color {
+                    ColorValue::Wide(id) => crate::style::wide::wide(id)
+                        .is_some_and(|w| w.modern[usize::from(dark && w.dark.is_some())]),
+                    _ => false,
+                })
                 .then_some(exact_color::Interpolation::OKLAB)
         })
     }
@@ -410,7 +414,7 @@ impl Gradient {
     /// The sampled ramp when not legacy sRGB: positions 0–1, extended
     /// linear sRGB and alpha.
     pub fn interpolated(&self, dark: bool) -> Option<Vec<(f32, [f64; 3], f64)>> {
-        let how = self.interpolation()?;
+        let how = self.interpolation(dark)?;
         let wide = |c: ColorValue| match c {
             ColorValue::Wide(id) => crate::style::wide::wide(id).map(|w| w.half(dark)),
             other => {
@@ -440,7 +444,7 @@ impl Gradient {
             let Some(&(end, n)) = stops.get(i + 1) else {
                 continue;
             };
-            if end <= at || c == n {
+            if end <= at || (c == n && how.hue != exact_color::HueMethod::Longer) {
                 continue;
             }
             for k in 1..STEPS {

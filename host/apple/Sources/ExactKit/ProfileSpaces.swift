@@ -1,30 +1,33 @@
-// @ref LLP 1100 D1, D3 — a profile colour's space: a Core Graphics name
-// (`cg:kCGColorSpaceDCIP3`) or an app's ICC file (`icc:assets/brand.icc`).
+// @ref LLP 1100 D3 — bind ICC paths to immutable bytes at the owning runtime's
+// batch boundary. Views and text workers never consult another session's assets.
 import CoreGraphics
 import Foundation
+import CryptoKit
 
 enum ProfileSpaces {
-    /// Where an app's ICC files are read: the session that last drew one.
-    nonisolated(unsafe) static weak var resolver: AssetResolver?
     nonisolated(unsafe) private static var cache: [String: CGColorSpace] = [:]
     private static let lock = NSLock()
 
-    /// The space a wire name says, or nil for a wide space's name or an ICC
-    /// file Core Graphics refuses.
-    static func space(_ name: String) -> CGColorSpace? {
-        if let cg = name.strip("cg:") { return CGColorSpace(name: cg as CFString) }
-        guard let src = name.strip("icc:") else { return nil }
+    static func bind(_ name: String, resolver: AssetResolver?) -> String {
+        guard name.hasPrefix("icc:"), let data = resolver?.bytes(String(name.dropFirst(4))) else { return name }
+        let key = "icc-sha256:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         lock.lock(); defer { lock.unlock() }
-        if let known = cache[src] { return known }
-        guard let data = resolver?.bytes(src), let space = CGColorSpace(iccData: data as CFData) else {
-            FileHandle.standardError.write(Data("exact: color-profile \(src): not an ICC profile Core Graphics reads\n".utf8))
-            return nil
-        }
-        cache[src] = space
-        return space
+        if cache[key] == nil { cache[key] = CGColorSpace(iccData: data as CFData) }
+        return key
     }
-}
 
-private extension String {
-    func strip(_ prefix: String) -> String? { hasPrefix(prefix) ? String(dropFirst(prefix.count)) : nil }
+    static func space(_ name: String) -> CGColorSpace? {
+        if name.hasPrefix("cg:") { return CGColorSpace(name: String(name.dropFirst(3)) as CFString) }
+        lock.lock(); defer { lock.unlock() }
+        return cache[name]
+    }
+
+    static func intent(_ name: String?) -> CGColorRenderingIntent {
+        switch name {
+        case "perceptual": return .perceptual
+        case "absolute-colorimetric": return .absoluteColorimetric
+        case "saturation": return .saturation
+        default: return .relativeColorimetric
+        }
+    }
 }

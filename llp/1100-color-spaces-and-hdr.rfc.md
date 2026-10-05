@@ -138,7 +138,7 @@ names.
 - A row *computed* by an expression is not refused at build. Choosing a wide
   color where `exactViewport().colorGamut` says the display has it is the
   intended pattern.
-- **At run time** (`style::wide::set_available`, set by the Linux host at
+- **At run time** (`style::wide::set_available`, set by the Linux and Rust web hosts at
   boot): a color the host can't show, set dynamically, is refused as an
   invalid color is. The row takes its initial value.
 - An app that wants a different color per platform uses LLP 1095 D3's
@@ -160,8 +160,9 @@ names.
 - The legacy sRGB forms (hex, `rgb()`, `hsl()`, `hwb()`, named colors) are
   `Fixed`.
 - `lab()`, `lch()`, `oklab()`, `oklch()` and `color()` are `Wide`.
-- `Wide` colors are interned per runner, up to 4096. `Profiled` colors are
-  interned up to 1024. An overflow is a typed refusal.
+- `Wide` colors are interned up to 4096; `Profiled` colors up to 1024.
+  Overflow is a refusal (`None`), never an sRGB clip. Per-runner ownership
+  remains unbuilt (§11).
 - A `Wide` color's fallback, for a reader that needs sRGB, is its sRGB clip.
   A `Profiled` color has no fallback: such a reader gets transparent, and on
   Apple Core Graphics converts it.
@@ -205,7 +206,7 @@ names.
   answers 1000 nits for any untagged PQ or HLG color.
 - The tag is the color's own exposure. The display's headroom stays the
   platform's.
-- Tagging needs iOS 26 / macOS 26. Before 26 a color is not tagged.
+- Tagging needs iOS 26 / macOS 26 / tvOS 26. Before 26 a color is not tagged.
 
 Widening every color to `[f32; 4]` was rejected: it doubles the style
 column for every app to serve the few colors that need it.
@@ -233,7 +234,12 @@ column for every app to serve the few colors that need it.
 - **Apple** crosses a profiled color as `{"cs": [{"s": "cg:<name>" |
   "icc:<asset>", "i": <intent>, "v": [components…, alpha]}]}`.
   `ProfileSpaces` makes the space with `CGColorSpace(name:)` or
-  `CGColorSpace(iccData:)` from the session's assets, and caches it.
+  `CGColorSpace(iccData:)` from the owning runtime's asset resolver. The batch
+  decoder binds ICC paths to SHA-256 content identities before any view or
+  text worker reads them; the cache holds only immutable identities. A file
+  replacement resolves afresh, and already-bound values retain their bytes.
+  ICC colors are converted once to extended sRGB with the authored rendering
+  intent, since `CGColor` itself does not retain an intent.
 - **Web and Linux** don't have it. The web gets it when browsers ship
   `@color-profile`, and then emits the at-rule as written.
 - An image's own embedded profile needs no declaration; the decoder reads
@@ -393,7 +399,7 @@ SDR beside a glowing video, and the app would differ from its web build.
 - The OS has the last word. Low Power Mode, a backgrounded scene and
   macOS's HDR suppression lower the headroom. `no-limit` is a request.
 
-**Apple, iOS / macOS 26 and later.** Every layer a node paints something
+**Apple, iOS / macOS / tvOS 26 and later.** Every layer a node paints something
 above SDR white on gets `preferredDynamicRange` from the node's inherited
 limit:
 
@@ -427,7 +433,8 @@ Rules that follow:
 
 **Apple, before 26:** `wantsExtendedDynamicRangeContent = true` for
 `constrained` and `no-limit`. *Declared deviation:* that API has no
-"constrained", so `constrained` draws as `no-limit`.
+"constrained", so `constrained` draws as `no-limit`. tvOS has no such
+fallback API; before tvOS 26 these layers stay standard range.
 
 **Web:** emitted by name, as written. The browser applies it.
 - *Declared deviation:* Mobile Safari 27.0 rejects `constrained`
@@ -443,7 +450,8 @@ Rules that follow:
 
 - **Text raster.** A paragraph whose ink or shadow is HDR rasterizes at
   half float in extended sRGB (RGhA on macOS). SDR text keeps 4 bytes a
-  pixel. The raster is tagged with the peak of its colors where Core
+  pixel when its gamut fits sRGB or Display P3. Profiled ink outside P3
+  uses half float in extended sRGB even below SDR white. The raster is tagged with the peak of its colors where Core
   Animation reads it:
   - iOS: `CGImageCreateCopyWithContentHeadroom`
   - macOS: `kIOSurfaceContentHeadroom` on the IOSurface
@@ -461,7 +469,11 @@ Rules that follow:
     has no tag of its own
   - the layer asks for the limit's range
 
-  The backing store returns to 8 bits when the colors return to SDR.
+  Gradient stops participate too, both on `CAGradientLayer` and in conic or
+  multi-layer drawing. Stops are tagged with their exposure. Extended RGB
+  components outside [0,1] also require the extended layer and half-float
+  backing, even when their Rec. 2020 headroom is 1 (wide SDR).
+  The backing store returns to 8 bits when both light and gamut fit it.
 - **Not HDR on Apple: SVG gradients, patterns, masks and filters.** Each is
   drawn into an 8-bit sRGB picture (`SvgPaint.gradient`, `SvgIsland`,
   `SvgFilterGPU`, `SvgFilterLive`), so a color past SDR white there clips to
@@ -482,7 +494,7 @@ gamut (256 p3, 512 rec2020), bit 10 a high dynamic range.
 
 | fact | iOS | macOS | web | Linux |
 |---|---|---|---|---|
-| gamut | `UIScreen.main.traitCollection.displayGamut` | `NSScreen.main.canRepresent(.p3)` | `matchMedia('(color-gamut: …)')` | `srgb` |
+| gamut | `UIScreen.main.traitCollection.displayGamut` | `view.window.screen.canRepresent(.p3)` | `matchMedia('(color-gamut: …)')` | `srgb` |
 | dynamic range | `UIScreen.potentialEDRHeadroom > 1` | `maximumPotentialExtendedDynamicRangeColorComponentValue > 1` | `matchMedia('(dynamic-range: high)')` | `standard` |
 
 Neither Apple platform reports a rec2020 panel.
@@ -497,7 +509,8 @@ Neither Apple platform reports a rec2020 panel.
   suppression notifications) does not re-decode a picture as SDR. The OS
   already limits an HDR layer's headroom while it suppresses.
 - These re-check every HDR picture's plan: a window changing screens or the
-  screen parameters changing (macOS), the suppression notifications (macOS
+  screen parameters changing (macOS; these also republish the session's
+  viewport display facts from its own screen), the suppression notifications (macOS
   26), the `hdrHeadroomUsageLimit` trait changing (iOS 26), and a node's
   limit changing.
 - Going to `standard` re-decodes the picture to its SDR rendition, which
@@ -683,6 +696,16 @@ quality 0.9 with orientation applied and no metadata copied.
   browser's own behavior.
 
 ## 8. Verification
+
+PR #94 regressions cover wide shadow targets (including discrete profiles),
+wide-table refusal, selected `platform-color()` branches, the web's dynamic
+refusals, recorder byte parity for Rec. 2020/Adobe RGB/ProPhoto, equal hues and
+resolved `light-dark()` interpolation, and wide inset shading. Apple tests
+cover real gradient layers and drawn box stores, profile replacement between
+sessions/generations, authored ICC intents against Core Graphics, profiled
+text storage, unknown PQ/HLG headroom, screen-change publication and HDR
+image flight layers. Build/run results are reported by the fix round; these
+regressions do not replace V6's physical-panel verification.
 
 The five checks keep their 60 s. Anything on a simulator, browser or device
 runs in the async lane or by a person.
@@ -911,6 +934,24 @@ It is not built for Linux.
   `Window.setColorMode(COLOR_MODE_HDR)` (LLP 1076).
 
 ## 11. Not built
+
+- **Runner ownership of color tables:** `WIDE`, `PROFILED` and `DECLARED`
+  still belong to the process. Overflow now refuses; it never clips. Two
+  runners still share capacity, and a later declaration with the same profile
+  name changes future parses in the other runner. Already-interned values keep
+  their source. Fixing this requires threading runner context through style
+  parsing, wire decoding and color lookup; deferred from the PR #94 fix round.
+  Apple's ICC asset resolution/cache is fixed independently: owning resolver
+  at decode, immutable content hash thereafter.
+- **CSS missing components:** `none` still becomes zero before interpolation,
+  including alpha. CSS Color 4 carry-forward needs missingness on the color
+  value, analogous-component conversion between spaces, canonical/wire
+  round-tripping and motion/recorder changes. This is a value-model change,
+  deferred from this fix round; do not rely on `none` to borrow a component.
+- **Inset profile colors:** predefined wide colors shade in linear sRGB with
+  extended components retained; arbitrary ICC colors remain unshaded because
+  the kernel cannot transform profiles. At the wide interning cap, an inset
+  shade retains the authored wide color instead of clipping it.
 
 - **Images:**
   - A tinted picture is decoded as its source's class, not as standard.

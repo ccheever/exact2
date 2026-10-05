@@ -49,6 +49,12 @@ enum ColorRange {
         return max(1, Float(max(c[0], c[1], c[2])))
     }
 
+    /// Extended components can encode SDR colors outside the storage gamut.
+    static func needsExtendedComponents(_ color: CGColor?) -> Bool {
+        guard let color, let c = color.components, color.colorSpace?.model == .rgb else { return false }
+        return c.prefix(3).contains { $0 < 0 || $0 > 1 }
+    }
+
     static func isHDR(_ color: CGColor?) -> Bool { headroom(color) > 1 }
 
     /// The colour tagged with its headroom (`CGColor(headroom:)`), components unchanged.
@@ -68,12 +74,14 @@ func layerRange(_ limit: String?) -> CALayer.DynamicRange {
 
 extension CALayer {
     private func setColorRange(hdr: Bool, limit: String?) {
-        if #available(iOS 26, macOS 26, *) {
+        if #available(iOS 26, macOS 26, tvOS 26, *) {
             let range: CALayer.DynamicRange = hdr ? layerRange(limit) : .standard
             if preferredDynamicRange != range { preferredDynamicRange = range }
         } else {
+            #if !os(tvOS)
             let wants = hdr && limit != "standard"
             if wantsExtendedDynamicRangeContent != wants { wantsExtendedDynamicRangeContent = wants }
+            #endif
         }
     }
 
@@ -81,25 +89,26 @@ extension CALayer {
     private var ownColors: [CGColor?] {
         var colors = [backgroundColor, borderWidth > 0 ? borderColor : nil, shadowOpacity > 0 ? shadowColor : nil]
         if let shape = self as? CAShapeLayer { colors += [shape.fillColor, shape.strokeColor] }
+        if let gradient = self as? CAGradientLayer { colors += (gradient.colors as? [CGColor] ?? []).map { Optional($0) } }
         return colors
     }
 
     /// An HDR colour this layer paints asks for what `limit` allows; `deep`
     /// does the same for every sublayer (a shadow caster, an SVG scene).
     func applyColorRange(limit: String?, deep: Bool = false) {
-        setColorRange(hdr: ownColors.contains(where: ColorRange.isHDR), limit: limit)
+        setColorRange(hdr: ownColors.contains { ColorRange.isHDR($0) || ColorRange.needsExtendedComponents($0) }, limit: limit)
         if deep { sublayers?.forEach { $0.applyColorRange(limit: limit, deep: true) } }
     }
 
     /// A view's own drawing in an HDR colour gets a half-float backing store.
     /// Answers whether the format changed, so the view draws again.
-    func applyDrawnRange(headroom h: Float, limit: String?) -> Bool {
-        let hdr = h > 1
+    func applyDrawnRange(headroom h: Float, extended: Bool = false, limit: String?) -> Bool {
+        let hdr = h > 1 || extended
         let format: CALayerContentsFormat = hdr ? .RGBA16Float : .RGBA8Uint
         // Only a store this made half float goes back to eight bits.
         let changed = contentsFormat != format && (hdr || contentsFormat == .RGBA16Float)
         if changed { contentsFormat = format }
-        if hdr || changed { applyDynamicRange(hdr: hdr, headroom: h, limit: limit) }
+        if hdr || changed { applyDynamicRange(hdr: hdr, headroom: hdr ? max(1, h) : 0, limit: limit) }
         return changed
     }
 
@@ -111,32 +120,39 @@ extension CALayer {
         if let headroom { setValue(NSNumber(value: headroom), forKey: Self.textHeadroomKey) }
         let ink = (value(forKey: Self.textHeadroomKey) as? NSNumber)?.floatValue ?? 0
         let h = max(ink, shadowOpacity > 0 ? ColorRange.headroom(shadowColor) : 0)
-        applyDynamicRange(hdr: h > 1, headroom: h, limit: limit)
+        let extended = ink >= 1 || (shadowOpacity > 0 && ColorRange.needsExtendedComponents(shadowColor))
+        applyDynamicRange(hdr: h > 1 || extended, headroom: max(1, h), limit: limit)
     }
 
     /// An HDR bitmap's layer asks for what `limit` allows, with its headroom.
     /// Anything else stays standard: an EDR layer costs the compositor even
     /// when its content is SDR.
     func applyDynamicRange(hdr: Bool, headroom: Float, limit: String?) {
-        if #available(iOS 26, macOS 26, *) {
+        if #available(iOS 26, macOS 26, tvOS 26, *) {
             let range: CALayer.DynamicRange = hdr ? layerRange(limit) : .standard
             if preferredDynamicRange != range { preferredDynamicRange = range }
             let tag = CGFloat(hdr ? headroom : 0)
             if contentsHeadroom != tag { contentsHeadroom = tag }
         } else {
             // No "constrained" before 26: it draws as `no-limit`.
+            #if !os(tvOS)
             let wants = hdr && limit != "standard"
             if wantsExtendedDynamicRangeContent != wants { wantsExtendedDynamicRangeContent = wants }
+            #endif
         }
     }
 
     /// What the agent reports of a layer's range (LLP 1100 D12).
     var dynamicRangeFacts: [String: Any] {
-        if #available(iOS 26, macOS 26, *) {
+        if #available(iOS 26, macOS 26, tvOS 26, *) {
             let names: [CALayer.DynamicRange: String] = [.standard: "standard", .constrainedHigh: "constrained", .high: "high", .automatic: "automatic"]
             return ["dynamicRange": names[preferredDynamicRange] ?? "\(preferredDynamicRange)", "contentsHeadroom": contentsHeadroom]
         }
+        #if os(tvOS)
+        return ["dynamicRange": "standard"]
+        #else
         return ["dynamicRange": wantsExtendedDynamicRangeContent ? "high" : "standard"]
+        #endif
     }
 }
 
@@ -160,15 +176,15 @@ extension NodeView {
         let limit = style["dynamic_range_limit"]?.string
         #if os(iOS) || os(tvOS)
         let own: CALayer? = layer
-        let fills: [CALayer?] = [boxBorder]
+        let fills: [CALayer?] = [boxBorder, boxGradient]
         let ink = textRasterLayer
         #else
         let own = layer
-        let fills: [CALayer?] = [boxBorder, boxFill]
+        let fills: [CALayer?] = [boxBorder, boxFill, boxGradient]
         let ink = textRasterOverflowLayer
         #endif
         own?.applyColorRange(limit: limit)
-        if own?.applyDrawnRange(headroom: drawnHeadroom(drawing: drawing), limit: limit) == true {
+        if own?.applyDrawnRange(headroom: drawnHeadroom(drawing: drawing), extended: drawnExtended, limit: limit) == true {
             #if os(iOS) || os(tvOS)
             setNeedsDisplay()
             #else
@@ -191,6 +207,9 @@ extension NodeView {
         #endif
         var h: Float = 0
         if box {
+            for gradient in Gradient.layers(style["background_image"]) {
+                for c in gradient.stops(dark: drawsDark).1 { h = max(h, ColorRange.headroom(c)) }
+            }
             for key in ["background_color", "border_color_top", "border_color_right", "border_color_bottom", "border_color_left"] {
                 h = max(h, ColorRange.headroom(cgColor(key)))
             }
@@ -198,6 +217,18 @@ extension NodeView {
         // Outside a draw only an already-made spec counts, so a paragraph's spec stays lazy.
         if text, let spec = drawing ? paragraphSpec() : cachedTextSpec { h = max(h, spec.headroom) }
         return h
+    }
+
+    private var drawnExtended: Bool {
+        #if os(iOS) || os(tvOS)
+        let box = boxDrawn
+        #else
+        let box = boxNeedsDraw
+        #endif
+        guard box else { return false }
+        let stops = Gradient.layers(style["background_image"]).flatMap { $0.stops(dark: drawsDark).1 }
+        return stops.contains { ColorRange.needsExtendedComponents($0) }
+            || ["background_color", "border_color_top", "border_color_right", "border_color_bottom", "border_color_left"].contains { ColorRange.needsExtendedComponents(cgColor($0)) }
     }
 
     /// Before a paragraph draws: its backing store in the format its colours need.
@@ -229,7 +260,7 @@ extension GpuModule {
         guard let headroom, highDynamicRange?(id) == 1 else { return }
         let limit = view.style["dynamic_range_limit"]?.string
         headroom(id, DisplayRange.showsHDR(view, limit: limit) ? Float(DisplayRange.headroom(view)) : 1)
-        if #available(iOS 26, macOS 26, *), let layer {
+        if #available(iOS 26, macOS 26, tvOS 26, *), let layer {
             let range = layerRange(limit)
             if layer.preferredDynamicRange != range { layer.preferredDynamicRange = range }
         }

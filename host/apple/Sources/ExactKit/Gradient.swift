@@ -91,7 +91,7 @@ struct Gradient {
             var locations: [CGFloat] = [], colors: [CGColor] = []
             for i in stride(from: 0, to: s.count, by: 5) {
                 locations.append(s[i])
-                colors.append(CGColor(colorSpace: space, components: Array(s[i + 1..<i + 5])) ?? CGColor(gray: 0, alpha: 0))
+                colors.append(ColorRange.tagged(CGColor(colorSpace: space, components: Array(s[i + 1..<i + 5])) ?? CGColor(gray: 0, alpha: 0)))
             }
             return (locations, colors)
         }
@@ -163,7 +163,7 @@ struct Gradient {
 
     /// Paint inside `clip` (the border box's rounded outline), placed in
     /// `box`: over whatever was drawn before, under what is drawn after.
-    func paint(_ ctx: CGContext, clip: CGPath, box: CGRect, dark: Bool) {
+    func paint(_ ctx: CGContext, clip: CGPath, box: CGRect, dark: Bool, limit: String? = nil) {
         let place = placement(in: box)
         ctx.saveGState(); defer { ctx.restoreGState() }
         ctx.addPath(clip); ctx.clip()
@@ -231,7 +231,7 @@ struct Gradient {
     }
 
     /// A gradient layer covering `bounds`, placed in `box` (same space).
-    func apply(_ layer: CAGradientLayer, bounds: CGRect, box: CGRect, dark: Bool) {
+    func apply(_ layer: CAGradientLayer, bounds: CGRect, box: CGRect, dark: Bool, limit: String? = nil) {
         let place = placement(in: box)
         var (locations, colors) = stops(dark: dark, dense: true)
         let unit = { (p: CGPoint) in
@@ -260,6 +260,7 @@ struct Gradient {
         let numbers = locations.map { NSNumber(value: Double($0)) }
         if layer.locations != numbers { layer.locations = numbers }
         if (layer.colors as? [CGColor]) != colors { layer.colors = colors }
+        layer.applyColorRange(limit: limit)
     }
 }
 

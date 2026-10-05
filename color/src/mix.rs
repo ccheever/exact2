@@ -296,7 +296,7 @@ pub fn mix(a: &Wide, b: &Wide, t: f64, how: Interpolation) -> ([f64; 3], f64) {
             HueMethod::Shorter if d > 180.0 => h2 - 360.0,
             HueMethod::Shorter if d < -180.0 => h2 + 360.0,
             HueMethod::Longer if (0.0..180.0).contains(&d) && d != 0.0 => h2 - 360.0,
-            HueMethod::Longer if (-180.0..=0.0).contains(&d) && d != 0.0 => h2 + 360.0,
+            HueMethod::Longer if (-180.0..=0.0).contains(&d) => h2 + 360.0,
             HueMethod::Increasing if d < 0.0 => h2 + 360.0,
             HueMethod::Decreasing if d > 0.0 => h2 - 360.0,
             _ => h2,

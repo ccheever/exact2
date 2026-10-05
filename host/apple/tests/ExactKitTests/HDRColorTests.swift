@@ -17,13 +17,13 @@ final class HDRColorTests: XCTestCase {
         let c = try XCTUnwrap(fourTimesWhite.cgColor(dark: false))
         XCTAssertTrue(ColorRange.isHDR(c))
         XCTAssertEqual(c.components, [4, 4, 4, 1], "components unchanged")
-        if #available(iOS 26, macOS 26, *) { XCTAssertEqual(c.contentHeadroom, 4, accuracy: 0.001) }
+        if #available(iOS 26, macOS 26, tvOS 26, *) { XCTAssertEqual(c.contentHeadroom, 4, accuracy: 0.001) }
         // PQ: reference white is SDR, tagged 1 (untagged, CG implies 1000
         // nits and draws it grey); 1000 nits is HDR.
         let pq = try XCTUnwrap(CGColorSpace(name: CGColorSpace.itur_2100_PQ))
         let white = ColorRange.tagged(try XCTUnwrap(CGColor(colorSpace: pq, components: [0.58, 0.58, 0.58, 1])))
         XCTAssertFalse(ColorRange.isHDR(white))
-        if #available(iOS 26, macOS 26, *) { XCTAssertEqual(white.contentHeadroom, 1, accuracy: 0.05) }
+        if #available(iOS 26, macOS 26, tvOS 26, *) { XCTAssertEqual(white.contentHeadroom, 1, accuracy: 0.05) }
         XCTAssertTrue(ColorRange.isHDR(try XCTUnwrap(CGColor(colorSpace: pq, components: [0.75, 0.75, 0.75, 1]))))
         let p3: BatchValue = ["cs": [["s": "display-p3", "v": [1, 0, 0, 1]]], "c": [255, 0, 0, 255]]
         XCTAssertFalse(ColorRange.isHDR(try XCTUnwrap(p3.cgColor(dark: false))), "wide, within white")
@@ -31,7 +31,7 @@ final class HDRColorTests: XCTestCase {
     }
 
     func testALayerAsksForTheRangeTheLimitAllows() throws {
-        guard #available(iOS 26, macOS 26, *) else { throw XCTSkip("preferredDynamicRange is iOS/macOS 26") }
+        guard #available(iOS 26, macOS 26, tvOS 26, *) else { throw XCTSkip("preferredDynamicRange is iOS/macOS 26") }
         let layer = CALayer()
         layer.backgroundColor = try XCTUnwrap(fourTimesWhite.cgColor(dark: false))
         for (limit, range) in [("no-limit", CALayer.DynamicRange.high), ("constrained", .constrainedHigh), ("standard", .standard)] {
@@ -74,7 +74,7 @@ final class HDRColorTests: XCTestCase {
     /// A text layer, a border or a shadow, and an SVG scene's shapes take the
     /// node's limit for their HDR colours; SDR ones stay standard.
     func testEveryPaintLayerTakesTheLimit() throws {
-        guard #available(iOS 26, macOS 26, *) else { throw XCTSkip("preferredDynamicRange is iOS/macOS 26") }
+        guard #available(iOS 26, macOS 26, tvOS 26, *) else { throw XCTSkip("preferredDynamicRange is iOS/macOS 26") }
         let hdr = try XCTUnwrap(fourTimesWhite.cgColor(dark: false))
         let ink = CALayer()
         ink.applyTextRange(headroom: 4, limit: "constrained")
@@ -123,7 +123,7 @@ final class HDRColorTests: XCTestCase {
         let layer = CALayer()
         TextShadowLayer.apply(shadow, to: layer)
         XCTAssertTrue(ColorRange.isHDR(layer.shadowColor))
-        if #available(iOS 26, macOS 26, *) {
+        if #available(iOS 26, macOS 26, tvOS 26, *) {
             layer.applyTextRange(headroom: 0, limit: "no-limit")
             XCTAssertEqual(layer.preferredDynamicRange, .high, "SDR ink, an HDR shadow")
         }
@@ -135,7 +135,7 @@ final class HDRColorTests: XCTestCase {
         let layer = CALayer()
         XCTAssertTrue(layer.applyDrawnRange(headroom: 4, limit: "constrained"))
         XCTAssertEqual(layer.contentsFormat, .RGBA16Float)
-        if #available(iOS 26, macOS 26, *) {
+        if #available(iOS 26, macOS 26, tvOS 26, *) {
             XCTAssertEqual(layer.preferredDynamicRange, .constrainedHigh)
             XCTAssertEqual(layer.contentsHeadroom, 4, accuracy: 0.001)
         }
@@ -147,4 +147,58 @@ final class HDRColorTests: XCTestCase {
         XCTAssertFalse(other.applyDrawnRange(headroom: 0, limit: nil), "a format it didn't set is left alone")
         XCTAssertEqual(other.contentsFormat, .gray8Uint)
     }
+    func testGradientLayersPreserveWideAndHDRStops() throws {
+        guard #available(iOS 26, macOS 26, tvOS 26, *) else { throw XCTSkip("layer range needs 26") }
+        for components: [Double] in [[1.225, -0.042, -0.02, 1], [4, 4, 4, 1]] {
+            let stops = [0.0] + components + [1.0] + components
+            let row: BatchValue = ["linear": 180, "space": "srgb-linear", "stops": .array(stops.map(BatchValue.number))]
+            let gradient = try XCTUnwrap(Gradient(row)), layer = CAGradientLayer()
+            let rect = CGRect(x: 0, y: 0, width: 100, height: 100)
+            gradient.apply(layer, bounds: rect, box: rect, dark: false)
+            XCTAssertEqual(layer.preferredDynamicRange, .high)
+            let color = try XCTUnwrap((layer.colors as? [CGColor])?.first)
+            XCTAssertEqual(color.components, components.map { CGFloat($0) })
+            XCTAssertGreaterThanOrEqual(color.contentHeadroom, 1)
+            for (limit, range) in [("standard", CALayer.DynamicRange.standard), ("constrained", .constrainedHigh)] {
+                layer.applyColorRange(limit: limit)
+                XCTAssertEqual(layer.preferredDynamicRange, range)
+            }
+            let drawn = CALayer()
+            XCTAssertTrue(drawn.applyDrawnRange(headroom: ColorRange.headroom(color), extended: ColorRange.needsExtendedComponents(color), limit: "no-limit"))
+            XCTAssertEqual(drawn.contentsFormat, .RGBA16Float)
+            XCTAssertEqual(drawn.preferredDynamicRange, .high)
+        }
+    }
+
+    func testDrawnGradientAndBoxGradientTakeTheNodesLimit() throws {
+        guard #available(iOS 26, macOS 26, tvOS 26, *) else { throw XCTSkip("layer range needs 26") }
+        let presenter = Presenter()
+        let node = NodeView(id: 1, kind: "view", presenter: presenter)
+        node.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+        #if os(macOS)
+        node.wantsLayer = true
+        node.layer = CALayer()
+        #endif
+        presenter.root.addSubview(node)
+        let linear: BatchValue = ["linear": 180, "space": "srgb-linear", "stops": [0, 1.225, -0.042, -0.02, 1, 1, 1.225, -0.042, -0.02, 1]]
+        node.applyStyle(["background_image": linear, "dynamic_range_limit": "constrained"])
+        #if os(macOS)
+        node.applyLayerPaint()
+        #else
+        node.applyGradientLayer()
+        #endif
+        node.applyColorRanges()
+        XCTAssertEqual(try XCTUnwrap(node.boxGradient).preferredDynamicRange, .constrainedHigh)
+        let conic: BatchValue = ["conic": [0, 50, 0, 50, 0], "space": "srgb-linear", "stops": [0, 1.225, -0.042, -0.02, 1, 1, 1.225, -0.042, -0.02, 1]]
+        node.applyStyle(["background_image": .array([conic, linear]), "dynamic_range_limit": "no-limit"])
+        node.applyColorRanges()
+        #if os(macOS)
+        let layer = try XCTUnwrap(node.layer)
+        #else
+        let layer = node.layer
+        #endif
+        XCTAssertEqual(layer.contentsFormat, .RGBA16Float)
+        XCTAssertEqual(layer.preferredDynamicRange, .high)
+    }
+
 }

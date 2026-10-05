@@ -379,3 +379,14 @@ fn display_p3_bytes_are_css_conversion_clipped() {
         [99, 99, 99, 128]
     );
 }
+
+#[test]
+fn equal_hues_take_a_full_turn_for_longer() {
+    let c = wide("oklch(0.7 0.1 30)");
+    let how = Interpolation {
+        space: MixSpace::Oklch,
+        hue: HueMethod::Longer,
+    };
+    let (mid, _) = mix(&c, &c, 0.5, how);
+    assert!(close(mid, wide("oklch(0.7 0.1 210)").linear_srgb(), 1e-6));
+}

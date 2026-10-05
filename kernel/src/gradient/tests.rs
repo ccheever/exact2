@@ -345,7 +345,7 @@ fn a_gradient_interpolates_in_the_space_css_says() {
     };
     // Legacy colours: unsampled.
     let legacy = g("linear-gradient(#ff0000, #0000ff)");
-    assert_eq!(legacy.interpolation(), None);
+    assert_eq!(legacy.interpolation(false), None);
     assert_eq!(legacy.resolved(false).len(), 2);
     let written = g("linear-gradient(to right in oklch longer hue, red, blue)");
     assert_eq!(
@@ -365,7 +365,7 @@ fn a_gradient_interpolates_in_the_space_css_says() {
     // A modern stop: Oklab, sampled, unclipped.
     let wide = g("linear-gradient(color(display-p3 1 0 0), color(display-p3 0 0 1))");
     assert_eq!(
-        wide.interpolation(),
+        wide.interpolation(false),
         Some(exact_color::Interpolation::OKLAB)
     );
     let ramp = wide.interpolated(false).unwrap();
@@ -393,4 +393,31 @@ fn a_gradient_interpolates_in_the_space_css_says() {
         let why = BackgroundImage::check(css).unwrap_err();
         assert!(why.contains(says), "{css}: {why}");
     }
+}
+
+#[test]
+fn equal_stops_with_longer_hue_traverse_the_circle() {
+    let image = BackgroundImage::parse(
+        "linear-gradient(in oklch longer hue, oklch(0.7 0.1 30), oklch(0.7 0.1 30))",
+    )
+    .unwrap();
+    let g = image.gradient().unwrap();
+    let ramp = g.interpolated(false).unwrap();
+    assert_eq!(ramp.len(), 17);
+    assert!((ramp[8].1[0] - ramp[0].1[0]).abs() > 0.1);
+}
+
+#[test]
+fn light_dark_interpolation_uses_the_resolved_half() {
+    let image =
+        BackgroundImage::parse("linear-gradient(light-dark(red, color(display-p3 1 0 0)), blue)")
+            .unwrap();
+    let g = image.gradient().unwrap();
+    assert_eq!(g.interpolation(false), None);
+    assert_eq!(
+        g.interpolation(true),
+        Some(exact_color::Interpolation::OKLAB)
+    );
+    assert!(g.interpolated(false).is_none());
+    assert!(g.interpolated(true).is_some());
 }

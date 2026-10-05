@@ -189,3 +189,54 @@ fn the_transition_row_lowers_to_css_transition_and_springs_are_named() {
     assert_eq!(skipped.len(), 1);
     assert!(skipped[0].reason.contains("spring"));
 }
+
+#[test]
+fn dynamic_unavailable_colors_take_the_initial_value() {
+    struct NoData;
+    impl exact_runner::DataSource for NoData {
+        fn query(
+            &mut self,
+            _: &str,
+            _: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, exact_runner::DataError> {
+            unreachable!()
+        }
+    }
+    let plan = contract::compile(
+        r#"component A
+  state ink = "red"
+  action hdr
+    ink = "color(rec2100-linear 4 4 4)"
+  action profile
+    ink = "color(--dci-p3 1 0 0)"
+  view
+    column
+      box testId="paint" background-color=ink
+      button testId="hdr" press=hdr
+        text "HDR"
+      button testId="profile" press=profile
+        text "Profile"
+"#,
+    )
+    .unwrap();
+    let (mut host, _) = Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
+    for target in ["hdr", "profile"] {
+        let id = view_with_test_id_any(&host, target);
+        let batch = host.dispatch(id, Event::Press);
+        let paint = view_with_test_id_any(&host, "paint");
+        assert_eq!(
+            host.runner()
+                .kernel()
+                .node(paint)
+                .unwrap()
+                .style
+                .background_color,
+            exact_kernel::StyleProps::default().background_color,
+            "{batch}"
+        );
+        assert!(
+            !batch.contains("rec2100") && !batch.contains("--dci-p3"),
+            "{batch}"
+        );
+    }
+}

@@ -3,7 +3,7 @@
 // what an 8-bit sRGB screenshot would clip reads outside 0–1.
 import CoreGraphics
 import QuartzCore
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 #else
 import AppKit
@@ -19,7 +19,7 @@ extension Agent {
         }
         guard !points.isEmpty else { return ["error": "sample needs points: sample <x> <y> [<x> <y>…], in view points"] }
         let view = presenter.viewport
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         let layer = view.layer
         #else
         guard let layer = view.layer else { return ["error": "the session's view has no layer"] }

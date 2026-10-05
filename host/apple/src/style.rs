@@ -988,7 +988,7 @@ fn gradient_json(g: &exact_kernel::gradient::Gradient) -> String {
     use exact_kernel::gradient::{premultiplied_ramp, Direction, GradientKind, Length};
     // LLP 1100 D2: interpolated outside sRGB, the ramp crosses as unclipped
     // extended linear sRGB floats, alpha 0–1.
-    let wide = g.interpolated(false).is_some();
+    let wide = g.interpolated(false).is_some() || g.interpolated(true).is_some();
     let stops = |dark: bool| {
         if let Some(ramp) = g.interpolated(dark) {
             let parts: Vec<String> = ramp
@@ -1008,7 +1008,22 @@ fn gradient_json(g: &exact_kernel::gradient::Gradient) -> String {
         }
         let parts: Vec<String> = premultiplied_ramp(&g.resolved(dark))
             .into_iter()
-            .map(|(at, c)| format!("{},{},{},{},{}", num(at), c.r(), c.g(), c.b(), c.a()))
+            .map(|(at, c)| {
+                if wide {
+                    let [r, g, b] = [c.r(), c.g(), c.b()]
+                        .map(|v| exact_color::srgb_to_linear(f64::from(v) / 255.0));
+                    format!(
+                        "{},{},{},{},{}",
+                        num(at),
+                        r as f32,
+                        g as f32,
+                        b as f32,
+                        f32::from(c.a()) / 255.0
+                    )
+                } else {
+                    format!("{},{},{},{},{}", num(at), c.r(), c.g(), c.b(), c.a())
+                }
+            })
             .collect();
         format!("[{}]", parts.join(","))
     };

@@ -44,6 +44,33 @@ final class BoxPaintMacTests: XCTestCase {
         return style
     }
 
+    func testFlyingHDRImageKeepsItsDynamicRange() throws {
+        guard #available(macOS 26, *) else { throw XCTSkip("layer range needs 26") }
+        let pinned = DisplayRange.pinned
+        DisplayRange.pinned = 4
+        defer { DisplayRange.pinned = pinned }
+        let p = presenter(), loader = RasterLoader()
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("scripts/fixtures/color")
+        let resolver = AssetResolver(root: root)
+        defer { loader.shutdown(); withExtendedLifetime(resolver) {} }
+        let node = NodeView(id: 1, kind: "image", presenter: p)
+        node.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+        p.root.addSubview(node); p.views[1] = node
+        node.applyStyle(["object_fit": "contain", "dynamic_range_limit": "no-limit"])
+        node.loadGeneration += 1
+        loader.load(node, source: "pq.heic", resolver: resolver)
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while node.raster == nil && Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        XCTAssertTrue(try XCTUnwrap(node.raster?.image).isHDR)
+        node.imageLayer?.removeFromSuperlayer(); node.imageLayer = nil
+        node.flightLook = FlightLook(image: node.bounds)
+        node.applyImageLayer()
+        let layer = try XCTUnwrap(node.imageLayer)
+        XCTAssertEqual(layer.preferredDynamicRange, .high)
+        XCTAssertGreaterThan(layer.contentsHeadroom, 1)
+    }
+
     func testRoundedBorderStrokesTheColourTheHostSends() {
         // Caltrain's station search: equal widths, every corner rounded.
         let rep = paint(box(radii: [8, 8, 8, 8]))

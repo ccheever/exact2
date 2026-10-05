@@ -273,9 +273,9 @@ pub fn color_targets(
     // @ref LLP 1077 D4 — the engine moves the list's first shadow; the
     // rest change at once (declared in LLP 1001).
     let first = s.box_shadow.0.first();
-    let shadow = first.map_or(crate::style::Color::TRANSPARENT, |f| f.color.resolve(dark));
-    let alpha = shadow.a() as f64 / 255.0;
-    let unit = |c: u8| c as f64 / 255.0;
+    let shadow = first.map_or(ColorValue::Fixed(crate::style::Color::TRANSPARENT), |f| {
+        f.color
+    });
     wanted
         .into_iter()
         .map(|p| {
@@ -292,12 +292,7 @@ pub fn color_targets(
                 Property::BoxShadow => Some(first.map_or(Value::ZERO, |f| {
                     Value::four(f.offset.x as f64, f.offset.y as f64, f.blur as f64, 0.0)
                 })),
-                _ => Some(Value::rgba(
-                    unit(shadow.r()),
-                    unit(shadow.g()),
-                    unit(shadow.b()),
-                    alpha,
-                )),
+                _ => color(shadow, dark),
             };
             (p, value)
         })

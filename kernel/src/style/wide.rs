@@ -14,6 +14,8 @@ pub struct WideValue {
     pub dark: Option<Wide>,
     /// CSS's serialisation.
     pub text: Box<str>,
+    /// Whether each authored half uses modern syntax (CSS interpolation).
+    pub modern: [bool; 2],
 }
 
 impl WideValue {
@@ -79,7 +81,7 @@ fn half(text: &str) -> Option<Wide> {
 /// A modern colour, or a `light-dark()` with a modern half, interned.
 pub fn parse_wide(text: &str) -> Option<ColorValue> {
     let text = text.trim();
-    let (light, dark, canonical) = if let Some(inner) = text
+    let (light, dark, canonical, modern) = if let Some(inner) = text
         .strip_prefix("light-dark(")
         .and_then(|t| t.strip_suffix(')'))
     {
@@ -105,10 +107,10 @@ pub fn parse_wide(text: &str) -> Option<ColorValue> {
             }
         };
         let canonical = format!("light-dark({}, {})", css(l, a), css(d, b));
-        (l, Some(d), canonical)
+        (l, Some(d), canonical, [modern(a), modern(b)])
     } else {
         match exact_color::parse(text)? {
-            exact_color::Parsed::Wide(w) => (w, None, w.css()),
+            exact_color::Parsed::Wide(w) => (w, None, w.css(), [true; 2]),
             _ => return None,
         }
     };
@@ -117,18 +119,45 @@ pub fn parse_wide(text: &str) -> Option<ColorValue> {
             return None;
         }
     }
-    let mut table = WIDE.lock().ok()?;
-    if let Some(i) = table.iter().position(|w| *w.text == *canonical) {
-        return Some(ColorValue::Wide(u16::try_from(i).ok()?));
-    }
     let value = WideValue {
         light,
         dark,
         text: canonical.into(),
+        modern,
     };
+    intern(&mut *WIDE.lock().ok()?, value)
+}
+
+fn intern(table: &mut Vec<Arc<WideValue>>, value: WideValue) -> Option<ColorValue> {
+    if let Some(i) = table.iter().position(|w| w.text == value.text) {
+        return Some(ColorValue::Wide(u16::try_from(i).ok()?));
+    }
     if table.len() >= WIDE_CAP {
-        return Some(value.fallback());
+        return None;
     }
     table.push(Arc::new(value));
     Some(ColorValue::Wide(u16::try_from(table.len() - 1).ok()?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wide_table_overflow_refuses_without_clipping() {
+        let value = |text: &str| WideValue {
+            light: half("color(display-p3 1 0 0)").unwrap(),
+            dark: None,
+            text: text.into(),
+            modern: [true; 2],
+        };
+        let existing = Arc::new(value("existing"));
+        let mut table = vec![existing; WIDE_CAP];
+        assert_eq!(intern(&mut table, value("new")), None);
+        assert_eq!(
+            intern(&mut table, value("existing")),
+            Some(ColorValue::Wide(0))
+        );
+        assert_eq!(table.len(), WIDE_CAP);
+    }
 }
