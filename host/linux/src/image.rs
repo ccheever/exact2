@@ -555,10 +555,13 @@ fn plan(
     }
     .min(2048. / natural.width.max(natural.height) as f32);
     let longest = natural.width.max(natural.height);
-    let bucket = ((longest as f32 * scale).ceil().max(1.) as u32)
-        .div_ceil(128)
-        .saturating_mul(128)
-        .min(longest);
+    let wanted = (longest as f32 * scale).ceil().max(1.) as u32;
+    let bucket = if header.snaps() {
+        wanted
+    } else {
+        wanted.div_ceil(128).saturating_mul(128)
+    }
+    .min(longest);
     let mut pixels = (
         (u64::from(natural.width) * u64::from(bucket)).div_ceil(u64::from(longest)) as u32,
         (u64::from(natural.height) * u64::from(bucket)).div_ceil(u64::from(longest)) as u32,
@@ -581,6 +584,9 @@ fn resize_changes_decode(
     previous: (f32, f32),
     next: (f32, f32),
 ) -> bool {
+    if previous == next {
+        return false;
+    }
     let (Ok(before), Ok(after)) = (
         plan(header, previous, SESSION_BYTES),
         plan(header, next, SESSION_BYTES),

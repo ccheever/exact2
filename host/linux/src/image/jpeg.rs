@@ -177,10 +177,14 @@ pub(super) fn decode<R: Read + Seek>(
     }
     let _end = End;
     let stride = w as usize * 4;
-    let mut out = vec![0u8; stride * h as usize];
+    let len = stride * h as usize;
+    // Not zeroed first: the decoder writes every byte of it, and zeroing a
+    // picture's megabytes cost a fifth of the decode threads' time (heavy).
+    let mut out: Vec<u8> = Vec::with_capacity(len);
     let mut decoder = std::ptr::null_mut();
     // SAFETY: the buffer outlives the decoder, which is deleted on every path;
-    // the output holds `stride × h` bytes, as decodeImage is told.
+    // the output's capacity is `stride × h` bytes, as decodeImage is told,
+    // and its length is set only after decodeImage has written all of them.
     let status = unsafe {
         if AImageDecoder_createFromBuffer(bytes.as_ptr().cast(), bytes.len(), &mut decoder) != 0 {
             return Err(Refusal::DecodeFailed);
@@ -190,9 +194,12 @@ pub(super) fn decode<R: Read + Seek>(
         {
             -1
         } else {
-            AImageDecoder_decodeImage(decoder, out.as_mut_ptr().cast(), stride, out.len())
+            AImageDecoder_decodeImage(decoder, out.as_mut_ptr().cast(), stride, len)
         };
         AImageDecoder_delete(decoder);
+        if s == 0 {
+            out.set_len(len);
+        }
         s
     };
     if status != 0 {
