@@ -34,9 +34,9 @@
 //   a target whose app has no Linux host, or a plan that says `// linux:
 //   <why>`, is reported as not compared (`// linux: state only (<why>)`
 //   compares its state and not its tree), and the comparison stops at the
-//   first step the Linux host fails; a step it has no delivery for (a
-//   pointer's phases, a wheel, a list's `into`, the browser's history) is
-//   skipped and the session kept, and `LINUX_APART` names a step that ends it.
+//   first step the Linux host fails or has no delivery for (a pointer's
+//   phases, a wheel, a list's `into`, the browser's history) or that
+//   `LINUX_APART` names; a `drag` it takes.
 //   --browser runs a cross-browser comparison of the JS target instead:
 //   Chrome is the oracle and Firefox or WebKit takes the identical steps.
 //   In this mode --build compiles a plan directly for a TypeScript data app;
@@ -387,9 +387,9 @@ async function drive(t, report, fail, dir, ws, js) {
       if (jsRefused && !refused) { fail(line, `${other}: ${jsRefused}`); diverged = true; break; }
       if (!jsRefused) answered(other);
       if (refused && !jsRefused) { diverged = true; break; }
-      // A step Linux does not take is skipped, its session kept, as Firefox skips a drag (LLP 1094 D12).
-      if (L && !LINUX_OPS.includes(op)) report.steps.push({ target: t.name, step: line, linux: 'skipped', skipped: `linux: \`${op}\` is the page's pointer or history delivery, not the runner's` });
-      else await onLinux(line, L => run(L).then(() => answered('linux'), e => { if (!refused) throw e; }));
+      // A step Linux does not take ends its comparison: the page moved (a wheel, a
+      // list's `into`, history) and Linux did not, so every later step would differ.
+      await onLinux(line, L => LINUX_OPS.includes(op) ? run(L).then(() => answered('linux'), e => { if (!refused) throw e; }) : Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)));
       await settle();
       await bounds(line);
       tree = await compare(line);
@@ -608,6 +608,13 @@ const LINUX_APART = {
   'native-fixture': [null, 'its views are native modules (LLP 1024), which the web and Apple hosts load and the Linux host does not'],
   'photo-editor': [null, 'its editor is a native module (LLP 1024), which the web and Apple hosts load and the Linux host does not'],
   messages: ['tap conversation-maya', 'its data sources write drafts and reads to storage on the Linux host, where the page refuses storage in agent mode without --storage (QUEUE)'],
+  // Pointer phases and drags reach Linux since LLP 1094 D12; where its delivery
+  // still differs from the page's, the comparison stops there (QUEUE, batch 6).
+  'synthetic-press': ['up', "a mouse press focuses the button on the page and not on the Linux host"],
+  'synthetic-rowsmore': ['up', "a mouse press focuses the button on the page and not on the Linux host"],
+  'synthetic-reorder': ['drag grip-5 0 -300 500', "a drag past the list's top autoscrolls on the page and not on the Linux host, so the row lands elsewhere"],
+  'interaction-gallery': ['drag sheet-handle 0 -150 300', "a height drag ends 3 px apart (518 on the page, 521 on the Linux host)"],
+  textflow: ['drag orb-1 60 40 300', "a drag advances the scene's elapsed time on the Linux host and not on the page"],
 };
 const linuxCrate = app => { const f = resolve(root, 'apps', app, 'linux', 'Cargo.toml'); return existsSync(f) ? /^name\s*=\s*"([^"]+)"/m.exec(readFileSync(f, 'utf8'))?.[1] : null; };
 function linuxFor(t) {
