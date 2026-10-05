@@ -304,18 +304,7 @@ unsafe extern "C" fn host_door(
             // `a` is the path a file operation names: a document
             // needs no app storage, as for a Rust source.
             let document = state.documents && a.starts_with("doc:/");
-            if !live {
-                Err("bake".into())
-            } else {
-                Ok((!state.storage && !document).then(|| {
-                    if state.agent.is_some() {
-                        "agent"
-                    } else {
-                        "unsupported"
-                    }
-                    .into()
-                }))
-            }
+            storage::refusal(live, state.storage || document, state.agent.is_some())
         }
         6 => {
             if a == "kind" {
