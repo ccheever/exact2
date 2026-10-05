@@ -1,0 +1,24 @@
+// Accept fixture: strings compare in UTF-16 code-unit order, and `slice`,
+// `replaceAll` and `toLowerCase` are the web's (LLP 1088 D1, D2). Calendar's
+// end-after-start check and calc's Backspace and sign flip, written in the
+// view instead of the data module.
+component Strings
+  state start = "09:30"
+  state end = "10:00"
+  state expr = "12+3"
+  state query = "ΟΔΟΣ Paris"
+  action setEnd(value: string)
+    end = value
+  action backspace
+    expr = slice(expr, 0, -1)
+  action flip
+    expr = replaceAll(expr, "+", "-")
+  view
+    column testId="root"
+      input value=end change=setEnd testId="end"
+      text (end > start ? "ok" : "end before start") testId="valid"
+      text expr testId="expr"
+      text slice(expr, 1) testId="tail"
+      button "Backspace" press=backspace testId="back"
+      button "Flip" press=flip testId="flip"
+      text toLowerCase(query) testId="lower"

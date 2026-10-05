@@ -59,6 +59,11 @@ pub(super) struct Subst<'m, T> {
     /// spelling one constructs that record ahead of any scoped name (LLP
     /// 1035.005.000 D3), so its head is never replaced — its arguments are.
     records: &'m BTreeSet<String>,
+    /// What a called action's body is substituted with past its parameters'
+    /// `let`s (LLP 1089 D2): nothing, when this substitution is of the
+    /// caller's own names, which the callee never reads; the component's
+    /// names, when lifting substitutes them into caller and callee alike.
+    callee: Option<&'m BTreeMap<String, T>>,
 }
 
 impl<'m, T: SubstitutionValue> Subst<'m, T> {
@@ -69,6 +74,17 @@ impl<'m, T: SubstitutionValue> Subst<'m, T> {
             binders: Vec::new(),
             calls: true,
             records,
+            callee: None,
+        }
+    }
+
+    /// The same substitution, and `map` into the bodies of the calls it
+    /// meets: the component's own names, which a callee of the same
+    /// component reads as its caller does.
+    pub(super) fn into_calls(self, map: &'m BTreeMap<String, T>) -> Self {
+        Subst {
+            callee: Some(map),
+            ..self
         }
     }
 
@@ -360,6 +376,50 @@ pub(super) fn subst_stmts(
                     span: *span,
                 }
             }
+            // The arguments, and the parameters' `let`s that bind them, are
+            // the caller's expressions. The rest of the body is the callee's,
+            // closed over the caller's names (LLP 1089 D2), so a
+            // substitution of those stops at the `let`s; lifting carries the
+            // component's own names on into it.
+            Stmt::Call {
+                action,
+                args,
+                body,
+                authored,
+                curried,
+                binding,
+                span,
+            } => {
+                let params = args.len().min(body.len());
+                let mut inner: Vec<Stmt> = body[..params]
+                    .iter()
+                    .map(|st| match st {
+                        Stmt::Let { name, expr, span } => Stmt::Let {
+                            name: name.clone(),
+                            expr: subst_expr(expr, s),
+                            span: *span,
+                        },
+                        other => other.clone(),
+                    })
+                    .collect();
+                match s.callee {
+                    Some(map) => {
+                        let mut deep = Subst::new(map, s.records).into_calls(map);
+                        deep.calls = s.calls;
+                        inner.extend(subst_stmts(&body[params..], &mut deep, names));
+                    }
+                    None => inner.extend(body[params..].iter().cloned()),
+                }
+                Stmt::Call {
+                    action: names.get(action).cloned().unwrap_or_else(|| action.clone()),
+                    args: args.iter().map(|a| subst_expr(a, s)).collect(),
+                    body: inner,
+                    authored: *authored,
+                    curried: *curried,
+                    binding: *binding,
+                    span: *span,
+                }
+            }
         })
         .collect();
     for _ in 0..lets {
@@ -479,6 +539,9 @@ pub(super) fn stmt_occurs(st: &Stmt, name: &str) -> bool {
         Stmt::Let { name: n, expr, .. } => n == name || occurs(expr, name),
         Stmt::Command { args, .. } | Stmt::Send { args, .. } => {
             args.iter().any(|a| occurs(a, name))
+        }
+        Stmt::Call { args, body, .. } => {
+            args.iter().any(|a| occurs(a, name)) || body.iter().any(|s| stmt_occurs(s, name))
         }
         Stmt::Refresh { .. } => false,
         Stmt::If {

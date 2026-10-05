@@ -1183,10 +1183,10 @@ fn two_sends_to_one_mutation_on_one_path_are_refused() {
     }
 }
 
-/// LLP 1088 D8 on the inlined body: a child's action that tail-calls a root
-/// action runs that action's sends in its own commit, so the walk reads the
-/// root after tail calls are inlined — the callee's double send is refused
-/// once, and a single send through the call compiles.
+/// LLP 1088 D8 on the expanded body: a child's action that calls a root
+/// action through its prop runs that action's sends in its own commit, so the
+/// walk reads the root with every call expanded (LLP 1089 D6) — the callee's
+/// double send is refused once, and a single send through the call compiles.
 #[test]
 fn a_send_twice_is_found_through_a_tail_call_once() {
     let src = |body: &str| {

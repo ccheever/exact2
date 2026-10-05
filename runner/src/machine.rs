@@ -160,6 +160,8 @@ pub trait Val: Clone {
     fn str_eq(a: &Self, b: &Self) -> bool;
     /// Two strings joined; `None` past the string bound.
     fn concat(a: &Self, b: &Self) -> Option<Self>;
+    /// `op` (a comparison) over two strings by UTF-16 code units (LLP 1088 D1).
+    fn str_cmp(op: Num, a: &Self, b: &Self) -> bool;
 }
 
 /// The language's structural equality; `None` when the kinds differ before
@@ -475,6 +477,24 @@ fn num2<V: Val>(stack: &mut Vec<V>, op: Num, opcode: Opcode, pc: usize) -> Resul
     }
 }
 
+/// A comparison: two numbers by IEEE order (a NaN is unordered: every test
+/// false), two strings by UTF-16 code units (LLP 1088 D1).
+fn cmp2<V: Val>(stack: &mut Vec<V>, op: Num, opcode: Opcode, pc: usize) -> Result<(), Trap> {
+    let b = pop(stack, pc)?;
+    let a = pop(stack, pc)?;
+    match (a.kind(), b.kind()) {
+        (Kind::Number(x), Kind::Number(y)) => {
+            stack.push(V::num(op, x, y));
+            Ok(())
+        }
+        (Kind::Str, Kind::Str) => {
+            stack.push(V::boolean(V::str_cmp(op, &a, &b)));
+            Ok(())
+        }
+        _ => Err(Trap::TypeMismatch { pc, op: opcode }),
+    }
+}
+
 /// Run `ins`, with `m.pos` already past it.
 pub fn exec<V: Val, H: Host<V>>(
     host: &mut H,
@@ -555,10 +575,10 @@ pub fn exec<V: Val, H: Host<V>>(
         Opcode::Mul => num2(&mut m.stack, Num::Mul, op, pc)?,
         Opcode::Div => num2(&mut m.stack, Num::Div, op, pc)?,
         Opcode::Rem => num2(&mut m.stack, Num::Rem, op, pc)?,
-        Opcode::Lt => num2(&mut m.stack, Num::Lt, op, pc)?,
-        Opcode::Le => num2(&mut m.stack, Num::Le, op, pc)?,
-        Opcode::Gt => num2(&mut m.stack, Num::Gt, op, pc)?,
-        Opcode::Ge => num2(&mut m.stack, Num::Ge, op, pc)?,
+        Opcode::Lt => cmp2(&mut m.stack, Num::Lt, op, pc)?,
+        Opcode::Le => cmp2(&mut m.stack, Num::Le, op, pc)?,
+        Opcode::Gt => cmp2(&mut m.stack, Num::Gt, op, pc)?,
+        Opcode::Ge => cmp2(&mut m.stack, Num::Ge, op, pc)?,
         Opcode::Neg => {
             let v = pop(&mut m.stack, pc)?;
             let w = match v.kind() {

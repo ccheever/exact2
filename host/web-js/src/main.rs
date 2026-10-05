@@ -9,11 +9,12 @@
 //! reuses the host's element and CSS rules (`exact_web::host::template`),
 //! and `exact-web` already depends on `contract`.
 
+#[cfg(test)]
+mod budget_tests;
 mod code;
 mod emit;
 mod faces;
 mod facts;
-mod nested;
 mod paint;
 #[cfg(test)]
 mod paint_tests;
@@ -199,6 +200,11 @@ fn main() -> ExitCode {
                     .any(|c| u.has(c))
                 {
                     let _ = std::fs::write(dir.join("files.flag"), "");
+                }
+                // `showNotification`/`closeNotification` (notify.js).
+                let _ = std::fs::remove_file(dir.join("notify.flag"));
+                if u.has(Capability::Notifications) {
+                    let _ = std::fs::write(dir.join("notify.flag"), "");
                 }
             }
             // Every portable symbol role, which symbols.js loads when a bound

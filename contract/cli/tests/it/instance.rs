@@ -716,11 +716,17 @@ fn a_rows_state_types_before_its_derives_and_an_untyped_list_waits() {
         assert!(plan.is_ok(), "{src}\n{plan:?}");
     }
     // What that pass cannot grow: a derive of itself and an action handed
-    // itself are still refused, once, as before (Astra's r3 review).
+    // itself are still refused, once, as before (Astra's r3 review). A
+    // derive that wraps itself in `some` is refused at its second option
+    // (LLP 1090 D2) before it can grow.
     for (src, id) in [
         (
-            "component App\n  derive d = some(d)\n  view\n    text \"a\"\n",
+            "component App\n  derive d = d\n  view\n    text \"a\"\n",
             "type-derive-cycle",
+        ),
+        (
+            "component App\n  derive d = some(d)\n  view\n    text \"a\"\n",
+            "type-option-option",
         ),
         (
             "component App\n  state n = 0\n  action a(p, q)\n    n = 1\n  view\n    button \"x\" press=a(a, a)\n",

@@ -187,10 +187,11 @@ def binary (i : Instr) (a b : Value) : Except Trap Value :=
   | .mul => num2 (fun x y => .num (x * y)) "Mul" a b
   | .div => num2 (fun x y => .num (x / y)) "Div" a b
   | .rem => num2 (fun x y => .num (Number.fmod x y)) "Rem" a b
-  | .lt => num2 (fun x y => .bool (x < y)) "Lt" a b
-  | .le => num2 (fun x y => .bool (x ≤ y)) "Le" a b
-  | .gt => num2 (fun x y => .bool (x > y)) "Gt" a b
-  | .ge => num2 (fun x y => .bool (x ≥ y)) "Ge" a b
+  -- Two strings by UTF-16 code units (LLP 1088 D1), as `binop`.
+  | .lt => match a, b with | .str x, .str y => .ok (.bool (Str.lt x y)) | _, _ => num2 (fun x y => .bool (x < y)) "Lt" a b
+  | .le => match a, b with | .str x, .str y => .ok (.bool !(Str.lt y x)) | _, _ => num2 (fun x y => .bool (x ≤ y)) "Le" a b
+  | .gt => match a, b with | .str x, .str y => .ok (.bool (Str.lt y x)) | _, _ => num2 (fun x y => .bool (x > y)) "Gt" a b
+  | .ge => match a, b with | .str x, .str y => .ok (.bool !(Str.lt x y)) | _, _ => num2 (fun x y => .bool (x ≥ y)) "Ge" a b
   | .eq => (Value.equal a b).elim (.error (.typeMismatch "Eq")) (fun e => .ok (.bool e))
   | .ne => (Value.equal a b).elim (.error (.typeMismatch "Ne")) (fun e => .ok (.bool !e))
   | .concat =>

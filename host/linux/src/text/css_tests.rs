@@ -285,3 +285,110 @@ fn document_language_replaces_the_shaping_catalog_and_cached_paragraphs() {
     measurer.set_language("en");
     assert_eq!(shared.borrow().catalog.borrow().fonts.locale(), "en");
 }
+
+/// The reader diary: a line broken at a soft hyphen shows one (the face's
+/// own `-`, its advance part of the line), as Chrome does, and breaks there
+/// only if the hyphen fits too; one not chosen stays invisible.
+#[test]
+fn a_line_broken_at_a_soft_hyphen_shows_the_faces_hyphen() {
+    let mut e = engine(INTER, "Inter");
+    let dash = e.paragraph(&spec("-", WhiteSpace::Normal), None);
+    let dash = dash.layout_runs().next().unwrap().glyphs[0].clone();
+    let fits = e
+        .paragraph(&spec("an incom-", WhiteSpace::Normal), None)
+        .layout_runs()
+        .next()
+        .unwrap()
+        .line_w;
+    let s = spec(
+        "an extra\u{ad}ordinary incom\u{ad}prehensibly",
+        WhiteSpace::Normal,
+    );
+    let shy = |l: &cosmic_text::LayoutRun<'_>, g: &cosmic_text::LayoutGlyph| {
+        &l.text[g.start..g.end] == "\u{ad}"
+    };
+    let wide = |e: &mut TextEngine, width: f32| {
+        let s = spec("an incom\u{ad}prehensibly", WhiteSpace::Normal);
+        let p = e.paragraph(&s, Some(width));
+        let first = p.layout_runs().next().unwrap();
+        (
+            first
+                .glyphs
+                .last()
+                .map(|g| (shy(&first, g), g.glyph_id, g.w)),
+            first.line_w,
+        )
+    };
+    let (last, line_w) = wide(&mut e, fits + 0.5);
+    assert_eq!(
+        last.map(|l| (l.0, l.1)),
+        Some((true, dash.glyph_id)),
+        "breaks at the soft hyphen and shows `-`"
+    );
+    assert!(
+        (last.unwrap().2 - dash.w).abs() < 1e-3 && (line_w - fits).abs() < 0.01,
+        "its advance is the line's"
+    );
+    let (last, _) = wide(&mut e, fits - 0.5);
+    assert_eq!(
+        last.map(|l| l.0),
+        Some(false),
+        "where the hyphen would not fit the word moves whole"
+    );
+    let p = e.paragraph(&s, Some(1000.0));
+    for line in p.layout_runs() {
+        for g in line.glyphs.iter().filter(|g| shy(&line, g)) {
+            assert_eq!(g.w, 0.0, "an unchosen soft hyphen stays invisible");
+        }
+    }
+    // `hyphens: none` reaches the runs as U+034F (the kernel's): no break there.
+    let none = spec("an incom\u{34f}prehensibly", WhiteSpace::Normal);
+    let p = e.paragraph(&none, Some(fits + 0.5));
+    let first = p.layout_runs().next().unwrap();
+    assert!(
+        first
+            .glyphs
+            .iter()
+            .all(|g| &first.text[g.start..g.end] != "p"),
+        "the word moves whole"
+    );
+}
+
+/// CSS `text-indent`: the first line starts that far in and has that much
+/// less room; it counts in max-content and in the first word's min-content.
+#[test]
+fn text_indent_insets_the_first_line_only() {
+    let mut e = engine(INTER, "Inter");
+    let mut s = spec("aaa bbb ccc ddd eee fff", WhiteSpace::Normal);
+    let plain = e.measure(&s, AxisOffer::MaxContent);
+    let word = e.measure(&s, AxisOffer::MinContent);
+    s.text_indent = 24.0;
+    let indented = e.measure(&s, AxisOffer::MaxContent);
+    assert_eq!(indented.width, (plain.width + 24.0).ceil());
+    // The widest piece is now the first word with the indent before it.
+    let first = e.measure(&spec("aaa", WhiteSpace::Normal), AxisOffer::MaxContent);
+    let min = e.measure(&s, AxisOffer::MinContent);
+    assert!(
+        min.width > word.width && min.width >= first.width - 1.0 + 24.0,
+        "{min:?}"
+    );
+    let p = e.paragraph(&s, Some(100.0));
+    let lines: Vec<_> = p.layout_runs().collect();
+    assert!(lines.len() >= 2);
+    assert_eq!(lines[0].glyphs[0].x, 24.0, "the first line is inset");
+    assert_eq!(lines[1].glyphs[0].x, 0.0, "the second is not");
+    assert!(
+        lines[0].line_w <= 100.0,
+        "the indent took room from the line"
+    );
+    // Under `rtl` the start edge is the right.
+    s.direction = exact_kernel::Direction::Rtl;
+    s.align = TextAlign::Right;
+    let p = e.paragraph(&s, Some(100.0));
+    let first = p.layout_runs().next().unwrap();
+    let right = first.glyphs.iter().map(|g| g.x + g.w).fold(0.0, f32::max);
+    assert!(
+        (right - 76.0).abs() < 0.5,
+        "rtl first line ends 24 in from the right: {right}"
+    );
+}

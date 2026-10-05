@@ -119,6 +119,9 @@ pub struct Presenter<D: DataSource> {
     hovered: Vec<ViewId>,
     /// The node holding the pointer's `pointerdown` until it lifts.
     pointer_held: Option<exact_kernel::NodeKey>,
+    /// The held pointer's buttons as DOM counts them: 1 primary, 2
+    /// secondary, 4 middle (review b5-b 1).
+    pointer_buttons: u8,
     pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
@@ -413,6 +416,7 @@ impl<D: DataSource> Presenter<D> {
             pointer: None,
             hovered: Vec::new(),
             pointer_held: None,
+            pointer_buttons: 0,
             control_contact: None,
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
@@ -478,6 +482,8 @@ impl<D: DataSource> Presenter<D> {
                     let runner = self.host.runner_mut();
                     exact_runner::share::arm(runner, share, c.source, self.agent, false);
                 }
+                // No notification centre here: refused, or listed for the agent.
+                "showNotification" | "closeNotification" => self.notify(&c.name, &c.args),
                 "blur" => self.blur_command(&c.args),
                 "focus" => self.focus_command(&c.args),
                 // An element's, by its id (minesweeper F3); a row's is the runner's.
@@ -509,9 +515,9 @@ impl<D: DataSource> Presenter<D> {
                 name @ ("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
                     self.document_picker(name, &c.args)
                 }
-                // No clipboard, text selection, browser, editor or dev menu
-                // here: known, and named so.
-                name @ ("copyText" | "selectText" | "openURL" | "format" | "reload") => {
+                // No clipboard, text selection, browser, editor, dev menu or
+                // window to close here: known, and named so.
+                name @ ("copyText" | "selectText" | "openURL" | "format" | "reload" | "close") => {
                     eprintln!("exact: {name} unsupported on the headless/DRM host")
                 }
                 other => eprintln!("exact: unknown command {other}"),
@@ -1206,7 +1212,10 @@ impl<D: DataSource> Presenter<D> {
         {
             return;
         }
-        if self.surface_wheel(x, y, dx, dy, self.pointer_now()) {
+        // A canvas that wants input takes the wheel, and the nodes' own
+        // `wheel` is still heard (review b5-b 2), as the web's element hears it.
+        let canvas = self.surface_wheel(x, y, dx, dy, self.pointer_now());
+        if self.wheel_event(x, y, dx, dy) || canvas {
             return;
         }
         // A UI wheel can take over a UI gesture, but does not release a game's

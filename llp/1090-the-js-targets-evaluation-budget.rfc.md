@@ -10,6 +10,7 @@
 **Date:** 2026-10-04
 **Revised:** 2026-10-04 (r2, r3)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stages 1 and 2 on 2026-10-05, stage 3 on 2026-10-06 (§5)
+**Built:** stages 1 and 2, 2026-10-04 (`fix/impl1090`; §5, "As built"). Stage 3 is not.
 **Amends:** LLP 1017.003 D3 (what a value's extent counts) and D7 ("no second evaluator": since LLP 1071 there is one); LLP 1006 §2 (two type refusals); LLP 1088 §9.1 (this LLP meets its precondition)
 **Related:** LLP 1005 §6; LLP 1017.003; LLP 1071; LLP 1088 D2 and §9.1; `llp/reviews/1088-r2.astra.md` (the reset points); `QUEUE.md`, "The JS target's evaluation budget". Benchmark harness, kept outside the repository: `~/projects/x2apps/_reviews/llp1090-bench/`.
 
@@ -454,6 +455,57 @@ after three rounds and reports. Parity is not traded for speed.
 
 LLP 1088 §9.1 then lands as an amendment to LLP 1088. Each new list function
 states its steps and extent on both executors in D3's terms.
+
+### As built (stages 1 and 2, 2026-10-04)
+
+- **Stage 1.** The runner measures `some(v)` as `v` a level deeper
+  (`vm.rs`, `Opcode::Some` and `measure`). `contract/types/src/bounds.rs`
+  holds both refusals: every resolved type, every inferred one (`infer`), each
+  shape once its fields are known, and a mutation's `option<T>`, so a mutation
+  `as shape option<T>` is refused too (it held `some(none)`; one test fixture
+  declared one). `derive d = some(d)` is now `type-option-option` rather than
+  `type-derive-cycle`. Lean: `Ty.bounded`, `checkBounds`, and `boundedTy`
+  where `infer` grows a type (`some`, `map`, the roster); the proofs needed
+  one lemma, `boundedTy_some`. The two semantics corpus programs that built
+  `some(none)` (`options/nested`, `options/some-of-option`) are deleted, and
+  so is `host/web-js/src/nested.rs`, which the checker subsumes.
+- **Stage 2.** As D1 and D3, with `K` outlined. A loop's scalar parts are
+  counted inline and its result's extent remembered (`$m`). `.t(f)` returns
+  the handler, which appends the event's arguments.
+- **Conformance.** `host/web-js/conformance/budget.contract` (with
+  `.steps`) runs cases 1–9, 11, 12, 14–16, 18 and 19, and case 17's
+  poisoned-runner bullet. Every step is equal on wasm, JS and Linux, with the
+  same bound-refusal text. The JS target's Rust data seam carries at most
+  16 MiB a message (`MAX_HOST_WORK_BYTES`; `QUEUE.md`), so no source can
+  hand it a string past `MAX_STRING`. Cases 10, 13 (as written), 17's first
+  two bullets and 8's one-item `join` are run on the runtime instead
+  (`host/web/tests/js-runtime.test.mjs`). The plan builds case 13's
+  replacement, two 32 MiB strings in one record, and the encoders' inputs by
+  doubling in `fn`s. `conform.mjs` counts a bound refusal that a host repeats
+  once: Linux reports a settling list's edge more often than a page does.
+  The full async-lane run (`--synthetic --build --linux --strict`, 68
+  targets) has the same 17 failures as origin/main, and none in the budget plan.
+- **D5, measured** (M-series Mac, Chrome 154, Bun 1.4.2; the emitted shapes
+  over the real `budget.js`):
+
+  | Shape | V8 native → emitted | JSC native → emitted |
+  |---|---|---|
+  | `map`, 48 numbers | 83.5 → 85.0 ns | 70.1 → 68.7 ns |
+  | `filter`, 1,000 | 4,467 → 2,167 ns | 1,833 → 2,061 ns |
+  | `map`, 1,000 strings → records (`K`) | 6,067 → 9,167 ns | 8,069 → 15,298 ns |
+  | four-part template, `+` → `cc` | 11.5 → 12.0 ns | 9.1 → 15.5 ns |
+
+  - RealWorld (`bench.mjs`, mobile profile, 9 cold runs, brotli served):
+    FCP 592 → 596 ms, content 1,109 → 1,115, runtime 587 → 593, press
+    1,321 → 1,349 (a hosted API). Within noise.
+  - Caltrain: 480 hovers of the station list took 7.8–8.1 ms before and
+    7.4–7.7 ms after. Within noise.
+  - Brotli `app.js` grew 126–985 B in 28 apps. **RealWorld grew 1,205 B,
+    past the 1 KiB ceiling.** About 880 B of that is `budget.js` and the
+    rest is its 17 inlined filters and 97 concatenations. Two rounds of
+    shrinking were tried. A loop body that sends strings through `$p` saved
+    59 B but costs a call for each string item, so it was not kept. `.t(f)`
+    saved 17 B. Stage 3's emission owns the rest.
 
 ## 6. Considered and not taken
 

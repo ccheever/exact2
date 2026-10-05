@@ -184,7 +184,8 @@ public final class Agent {
                 #if os(macOS)
                 r = resizeWindow(size)
                 #else
-                r = ["error": "unsupported: resize input requires a macOS window or Linux presenter"]
+                // The device sets an iOS app's viewport: there is no window to resize.
+                r = ["error": "unsupported: an iOS app's viewport is the device's screen; resize drives a macOS window, the Linux presenter or the browser"]
                 #endif
             } else if let into = req["into"] as? [String: Any] {
                 r = intoView(req, into)
@@ -335,6 +336,7 @@ public final class Agent {
             case ("visibility-state", "visible"), ("visibility-state", "hidden"): facts.hidden = value == "hidden"
             case ("online", "true"), ("online", "false"): facts.onLine = value == "true"
             case ("can-share", "true"), ("can-share", "false"): facts.canShare = value == "true"
+            case ("can-open-files", "true"), ("can-open-files", "false"): facts.canOpenFiles = value == "true"
             case ("root-font-size", _) where (Double(value) ?? 0) > 0 && Double(value)!.isFinite: facts.rootFontSize = Double(value)!
             default: return ["error": "prefer: \(name): \(value) is not a page fact this host sets"]
             }
@@ -351,7 +353,7 @@ public final class Agent {
                           "prefers-contrast": DisplayPreferences.contrast,
                           "prefers-color-scheme": systemDark ? "dark" : "light"],
                 "page": ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
-                         "online": PageFacts.onLine, "can-share": PageFacts.canShare, "root-font-size": PageFacts.rootFontSize],
+                         "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles, "root-font-size": PageFacts.rootFontSize],
                 "fold": presenter.fold.env]
     }
 
@@ -428,6 +430,7 @@ public final class Agent {
             if let e = batch.error { return ["error": "clock: \(e)", "clock": from] }
             return ["clock": from]
         }
+        if req["data"] as? Bool == true { return landData(at: from) }
         let settle = req["settle"] as? Bool == true
         // A request in flight (LLP 1016) is waited for first: its reply
         // commits — and may start motion or ask for more — before the fixed
@@ -569,6 +572,27 @@ public final class Agent {
             if loading == 0 || Date() >= end { return loading }
             waitForImages(until: end)
         }
+    }
+
+    /// `clock data`: the app's data lands — its deferred module activated
+    /// (the turn after first draw) and every request in flight answered,
+    /// each answer's `then` landed — at the clock as it stands, no timer
+    /// fired. A test's first step waits for it (habits, pomodoro, kanban:
+    /// storage opened after the first step, which then read the placeholder).
+    func landData(at from: Double) -> [String: Any] {
+        let deadline = Date(timeIntervalSinceNow: Agent.settleBound)
+        for _ in 0..<16 {
+            while !session.dataActivated && Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+            if !session.dataActivated { return ["clock": from, "settled": false, "reason": "data"] }
+            if !waitForReplies(until: deadline) { return ["clock": from, "settled": false, "reason": "requests"] }
+            let batch = session.runtime.landThen()
+            session.apply(batch)
+            session.apply(session.runtime.tick(now: from))
+            if let e = batch.error { return ["error": "clock: \(e)", "clock": from] }
+            // A `then` that sent asks again; what it sends lands in the next round.
+            if pendingCount() == 0 { return ["clock": from, "settled": true] }
+        }
+        return ["clock": from, "settled": false, "reason": "requests"]
     }
 
     /// How many requests the runner has in flight (`state.pending`).

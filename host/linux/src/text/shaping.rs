@@ -270,9 +270,11 @@ impl ShapedSource {
             self.data
                 .lines
                 .iter()
-                .map(|line| {
+                .enumerate()
+                .map(|(index, line)| {
                     let mut output = Vec::new();
-                    line.shape.layout_to_buffer(
+                    // CSS `text-indent`: the paragraph's first line only.
+                    line.shape.layout_to_buffer_indented(
                         &mut scratch,
                         self.data.metrics.font_size,
                         width.map(|w| w.max(0.)),
@@ -282,6 +284,7 @@ impl ShapedSource {
                         &mut output,
                         None,
                         Hinting::Disabled,
+                        if index == 0 { spec.text_indent } else { 0.0 },
                     );
                     output
                 })

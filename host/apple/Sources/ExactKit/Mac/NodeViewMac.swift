@@ -87,7 +87,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
     }
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
-    var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() } } } // the media events the player reports; a hover handler's tracking area
+    var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() }; if handlers.contains("drop") != oldValue.contains("drop") { syncDropTypes() } } } // the media events the player reports; a hover handler's tracking area; a drop handler's dragged types
     var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
     var surface: SurfaceLayer? { didSet { layerPaintCache = nil } } // its surface at a layout transition's size (`Surface.swift`)
     /// How far its frame stands from layout's: a lifted Arrange row's
@@ -202,23 +202,25 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// field does by itself): the web's rule that only a focusable element
     /// hears these. A pressable is in the tab order the way a `<button>` is.
     /// A paragraph takes the focus too, for selection, but plain text is
-    /// never a Tab stop on the web.
+    /// never a Tab stop on the web. An explicit `tabindex` makes any box
+    /// focusable, and a Tab stop only when ≥ 0 (LLP 1088 D7.3).
     override var acceptsFirstResponder: Bool {
-        if disabled || inert || isHiddenOrHasHiddenAncestor { return false }
+        if formDisabled || inert || isHiddenOrHasHiddenAncestor { return false }
         if field != nil || textArea != nil { return false }
-        return props["semanticTag"] == "dialog" || isParagraph || tabbable
+        return props["semanticTag"] == "dialog" || isParagraph || explicitTabIndex != nil || tabbable
     }
     /// A native button's command is its own too (a confirmation's close row, LLP 1069.011.000 D9).
     var pressable: Bool { handlers.contains("press") || (isButton && (props["commandfor"] != nil || props["popovertarget"] != nil)) }
     var tabbable: Bool {
-        kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: Self.focusEvents)
+        if let index = explicitTabIndex { return index >= 0 }
+        return kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: Self.focusEvents)
     }
     /// Sequential focus follows the web: a button is in the loop even when
     /// macOS "Keyboard navigation" is off (that setting would otherwise
     /// skip every non-field).
     override var canBecomeKeyView: Bool { acceptsFirstResponder && tabbable }
     override func becomeFirstResponder() -> Bool {
-        guard !disabled else { return false }
+        guard !formDisabled else { return false }
         let ok = super.becomeFirstResponder()
         if ok { presenter?.collections.pinsChanged() }
         if ok, handlers.contains("focus") { presenter?.focus(id) }
@@ -1399,7 +1401,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             if (view as? NodeView)?.props["retainFocus"] == "true" { retainFocus = true; break }
             focusNode = view.superview
         }
-        if acceptsFirstResponder, !retainFocus { window?.makeFirstResponder(self) }
+        // NSView forwards a click up the chain: a node under it the web would focus (not a paragraph selecting) took it first and keeps it (LLP 1088 D7.3).
+        let inner = (window?.firstResponder as? NodeView).map { $0 !== self && ($0.tabbable || $0.explicitTabIndex != nil) && (window?.contentView?.hitTest(event.locationInWindow)?.isDescendant(of: $0) ?? false) } ?? false
+        if acceptsFirstResponder, !retainFocus, !inner { window?.makeFirstResponder(self) }
         if pressable {
             if !acceptsFirstResponder, !retainFocus { window?.makeFirstResponder(nil) }
             pressed = true
@@ -1429,9 +1433,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         else { super.mouseDragged(with: event) }
     }
     override func rightMouseUp(with event: NSEvent) {
-        if canvasInput?.pointer(event, phase: "up") == true { return }
-        guard !disabled, handlers.contains("contextmenu") else { return super.rightMouseUp(with: event) }
-        presenter?.contextmenu(id)
+        pointerReleased(event)
+        if canvasInput?.pointer(event, phase: "up") != true { super.rightMouseUp(with: event) }
     }
     override func mouseUp(with event: NSEvent) {
         pointerReleased(event)
@@ -1467,25 +1470,24 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
     }
     override func rightMouseDown(with event: NSEvent) {
-        if canvasInput?.pointer(event, phase: "down") != true { super.rightMouseDown(with: event) }
-    }
-    override func rightMouseDragged(with event: NSEvent) {
-        if canvasInput?.pointer(event, phase: "move") != true { super.rightMouseDragged(with: event) }
-    }
-    override func otherMouseDown(with event: NSEvent) {
-        if canvasInput?.pointer(event, phase: "down") != true { super.otherMouseDown(with: event) }
-    }
-    override func otherMouseDragged(with event: NSEvent) {
-        if canvasInput?.pointer(event, phase: "move") != true { super.otherMouseDragged(with: event) }
-    }
-    override func otherMouseUp(with event: NSEvent) {
-        if canvasInput?.pointer(event, phase: "up") != true { super.otherMouseUp(with: event) }
+        // DOM's order on a Mac: the secondary button's `pointerdown`, then
+        // the `contextmenu` at its point, on the button's down (studio diary R22).
+        // A canvas that wants input takes the pointer as well; the node's
+        // own `contextmenu` still runs (review b5-b 2), and then no system
+        // menu opens.
+        pointerPressed(event)
+        let canvas = canvasInput?.pointer(event, phase: "down") == true
+        if !disabled, handlers.contains("contextmenu") { presenter?.mouseEvent(id, 10, pointerSample(event).line); return }
+        if !canvas { super.rightMouseDown(with: event) }
     }
     override func scrollWheel(with event: NSEvent) {
-        if canvasInput?.wheel(event) != true, presenter?.mouseTransformDrag.scroll(self, event: event) != true { super.scrollWheel(with: event) }
+        // A canvas that wants input scrolls itself; the nodes' `wheel` is
+        // still heard (review b5-b 2).
+        if canvasInput?.wheel(event) == true { _ = wheel(event); return }
+        if presenter?.mouseTransformDrag.scroll(self, event: event) != true, !wheel(event) { super.scrollWheel(with: event) }
     }
     override func magnify(with event: NSEvent) {
-        if presenter?.mouseTransformDrag.magnify(self, event: event) != true { super.magnify(with: event) }
+        if presenter?.mouseTransformDrag.magnify(self, event: event) != true, !wheel(event) { super.magnify(with: event) }
     }
 }
 #endif

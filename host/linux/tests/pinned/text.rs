@@ -211,6 +211,7 @@ fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
                 overflow_wrap: exact_kernel::OverflowWrap::Normal,
                 white_space: exact_kernel::WhiteSpace::Normal,
                 direction: exact_kernel::Direction::Ltr,
+                text_indent: 0.0,
             },
             None,
         );

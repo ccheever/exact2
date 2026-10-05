@@ -69,6 +69,51 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertNil(p.pointerHeld)
     }
 
+    /// Any button holds the pointer, as in a browser (review b5-b 1): the
+    /// secondary button's down, moves and up and the middle button's are the
+    /// node's pointer events with `buttons` 2 and 4; the secondary's down is
+    /// then its `contextmenu` at that point. A disabled box still hears
+    /// `wheel` (it means nothing on a div); a disabled button does not
+    /// (review b5-b 4).
+    func testEveryButtonHoldsThePointerAndADisabledBoxHearsTheWheel() {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup", "pointermove", "contextmenu"]],
+            ["op": "create", "id": 2, "kind": "button", "handlers": ["wheel"]],
+            ["op": "create", "id": 3, "kind": "view", "handlers": ["wheel"]],
+            ["op": "create", "id": 4, "kind": "button", "handlers": ["wheel"]],
+            ["op": "roots", "ids": [1, 2, 3, 4]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 150.0, "w": 200.0, "h": 50.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 220.0, "w": 200.0, "h": 50.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 280.0, "w": 200.0, "h": 20.0]
+        ])
+        p.views[2]!.props["disabled"] = "true"; p.views[3]!.props["disabled"] = "true"
+        // A disabled link is the web's `<a>`, which `disabled` does not touch (review b5-delta).
+        p.views[4]!.props["disabled"] = "true"; p.views[4]!.props["href"] = "/docs"
+        var log: [String] = []
+        p.onPointer = { id, kind, sample in
+            log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id) \(sample.buttons)")
+        }
+        p.onClipboard = { id, kind, _ in log.append("event \(kind) \(id)") }
+        let node = p.views[1]!
+        node.rightMouseDown(with: event(.rightMouseDown, node))
+        node.rightMouseDragged(with: event(.rightMouseDragged, node, right: 5))
+        node.rightMouseUp(with: event(.rightMouseUp, node))
+        XCTAssertEqual(log, ["down 1 2", "event 10 1", "move 1 2", "up 1 0"])
+        log = []
+        node.otherMouseDown(with: event(.otherMouseDown, node))
+        node.otherMouseDragged(with: event(.otherMouseDragged, node, right: 5))
+        node.otherMouseUp(with: event(.otherMouseUp, node))
+        XCTAssertEqual(log, ["down 1 4", "move 1 4", "up 1 0"])
+        XCTAssertNil(p.pointerHeld)
+        log = []
+        let wheel = { NSEvent(cgEvent: CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -3, wheel2: 0, wheel3: 0)!)! }
+        _ = p.views[3]!.wheel(wheel())
+        _ = p.views[2]!.wheel(wheel())
+        _ = p.views[4]!.wheel(wheel())
+        XCTAssertEqual(log, ["event 37 3", "event 37 4"], "the disabled box and link hear the wheel, the disabled button does not")
+    }
+
     /// LLP 1056 §3: a free pointer's moves are one a display frame, the
     /// latest, as the web host sends them; a pending one goes before a down
     /// (Grok's batch 2 review). AppKit can report several `mouseMoved` a frame.

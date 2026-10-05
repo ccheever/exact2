@@ -165,3 +165,79 @@ fn a_press_hears_the_modifiers_held() {
     assert!(Event::press("Hyper").is_none());
     assert_eq!(Event::press(""), Some(Event::Press));
 }
+
+/// A board's input as a canvas editor hears it (studio diary R3, R17, R19,
+/// R22): a `contextmenu` at its point, a `wheel` (⌘-scroll and a pinch,
+/// a Control-held wheel) that it claims with `preventDefault()`, files
+/// dropped as `doc:` handles, and `beforeunload` asking before the window
+/// closes while there are unsaved changes.
+#[test]
+fn a_board_hears_its_menu_point_its_wheel_its_drop_and_its_unload() {
+    const BOARD: &str = r#"component App
+  state zoom = 1
+  state menu = ""
+  state dropped = ""
+  state dirty = true
+  action openMenu(e: PointerEvent)
+    menu = `${e.offsetX},${e.offsetY},${e.buttons}`
+  action wheeled(e: WheelEvent)
+    if e.ctrlKey or e.metaKey
+      zoom = zoom - e.deltaY / 100
+      preventDefault()
+  action took(e: DragEvent)
+    dropped = `${length(e.files)} ${join(e.files, "+")} ${e.offsetX}`
+  action leaving
+    if dirty
+      preventDefault()
+  view
+    box testId="world" width=400 height=300 contextmenu=openMenu wheel=wheeled drop=took beforeunload=leaving
+"#;
+    let plan = contract::compile(BOARD).unwrap_or_else(|e| panic!("{e}"));
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let world = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("world")[0])
+        .unwrap()
+        .id;
+    let event = |kind: u32, payload: &str| Event::of_host_kind(kind, payload).unwrap();
+    r.dispatch(world, event(10, "40,8,2,0.5,mouse,1")).unwrap();
+    assert_eq!(r.slot("menu"), Some(&Value::str("40,8,2")));
+    // A keyboard's menu key: no point, DOM's record at the origin.
+    r.dispatch(world, Event::Contextmenu).unwrap();
+    assert_eq!(r.slot("menu"), Some(&Value::str("0,0,0")));
+    // A plain wheel scrolls: nothing claims it.
+    r.dispatch(world, event(37, "10,10,0,120,0")).unwrap();
+    assert_eq!(r.slot("zoom"), Some(&Value::Number(1.0)));
+    assert!(!r.take_commands().iter().any(|c| c.name == "preventDefault"));
+    // A pinch out (Control held, a negative deltaY) zooms and is claimed.
+    r.dispatch(world, event(37, "10,10,0,-50,0,Control"))
+        .unwrap();
+    assert_eq!(r.slot("zoom"), Some(&Value::Number(1.5)));
+    assert!(r.take_commands().iter().any(|c| c.name == "preventDefault"));
+    r.dispatch(
+        world,
+        event(38, "12,30,Shift\ndoc:/3/plan.board\ndoc:/4/b.board"),
+    )
+    .unwrap();
+    assert_eq!(
+        r.slot("dropped"),
+        Some(&Value::str("2 doc:/3/plan.board+doc:/4/b.board 12"))
+    );
+    assert!(
+        Event::of_host_kind(38, "12,30\n/etc/passwd").is_err(),
+        "only minted handles drop"
+    );
+    r.take_commands();
+    r.dispatch(world, event(36, "")).unwrap();
+    assert!(
+        r.take_commands().iter().any(|c| c.name == "preventDefault"),
+        "unsaved: the window stays"
+    );
+}

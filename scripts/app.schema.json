@@ -631,6 +631,15 @@
       ],
       "description": "Rust live replacement, enabled by default in dev and prod. Resolve root, environment, platform, then platform environment. false/off removes replacement support at bake; true/auto uses browser Wasm, iOS Wasm interpreter, native desktop, Android native dev / Wasm prod. Android and Windows hosts remain future work."
     },
+    "commands": {
+      "description": "The app's own verbs for the exact.mjs `exact new` generates, by name: each a command as argv, run in the app's directory with the arguments after the verb, EXACT_APP_DIR and EXACT2 set. `\"verify\": [\"bun\", \"verify.mjs\"]` makes `bun exact.mjs verify web` run `bun verify.mjs web`. `bun exact.mjs update` rewrites exact.mjs and keeps these; a name exact.mjs already uses (test, agent, web, …) is refused.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": { "type": "string", "minLength": 1 }
+      }
+    },
     "strings": {
       "type": "object",
       "description": "The UI's string tables (LLP 1060): strings/<locale>.json beside app.contract, read by `t(\"key\", name=value)`.",

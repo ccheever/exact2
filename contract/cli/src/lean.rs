@@ -627,7 +627,23 @@ impl Emitter<'_> {
                 format!("(.call {} [{}])", string(name), self.expr(x)?)
             }
             Expr::Call(name, args, _) => {
-                format!("(.call {} {})", string(name), list(args, |a| self.expr(a))?)
+                let mut parts = args
+                    .iter()
+                    .map(|a| self.expr(a))
+                    .collect::<Result<Vec<_>, _>>()?;
+                // A roster call may leave its trailing optional parameters
+                // out (LLP 1088 D2); the semantics takes the full arity, so
+                // their defaults are written here as lowering writes them.
+                // No `fn` takes a roster name, and the semantics evaluates
+                // no action in an expression.
+                if let Some(f) =
+                    exact_plan::Stdlib::from_name(name).filter(|_| !shapes.fns.contains_key(name))
+                {
+                    for d in f.omitted(args.len()) {
+                        parts.push(format!("(.num 0x{:016x})", d.to_bits()));
+                    }
+                }
+                format!("(.call {} [{}])", string(name), parts.join(", "))
             }
             Expr::NamedArg(n, v, _) => format!("(.named {} {})", string(n), self.expr(v)?),
             Expr::Typed(e, t, _) => {
@@ -707,16 +723,7 @@ impl Emitter<'_> {
     }
 
     fn stmts(&self, body: &[Stmt]) -> Result<String, CompileError> {
-        // A tail call's type check (LLP 1017 §11) runs nothing: lowering
-        // drops it, so the semantics never sees it.
-        let run: Vec<&Stmt> = body
-            .iter()
-            .filter(|s| {
-                !matches!(s, Stmt::Command { name, .. }
-                    if name.starts_with(contract_syntax::inline::tail::CHECK))
-            })
-            .collect();
-        list(&run, |s| self.stmt(s))
+        list(body, |s| self.stmt(s))
     }
 
     fn stmt(&self, s: &Stmt) -> Result<String, CompileError> {
@@ -752,6 +759,15 @@ impl Emitter<'_> {
                 list(args, |a| self.expr(a))?
             ),
             Stmt::Refresh { target, .. } => format!("(.refresh {})", string(target)),
+            // A call by its callee's name and whole argument list (LLP 1089
+            // D9), never the body the Rust compiler expanded: the semantics
+            // gives the call its own meaning, so difftest checks the
+            // expansion against it.
+            Stmt::Call { action, args, .. } => format!(
+                "(.call {} {})",
+                string(action),
+                list(args, |a| self.expr(a))?
+            ),
             Stmt::If {
                 cond,
                 then,

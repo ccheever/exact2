@@ -123,9 +123,9 @@ record_variants! {
     Step {
         Tap { target, form, modifiers, span }, Drag { target, dx, dy, from, mouse, press, over, hold, span },
         Size { width, height, span }, Epoch { value, span }, TimeZone { zone, span },
-        Locale { tag, span }, Seed { seed, span }, Type { target, text, append, span }, Key { target, key, span },
+        Locale { tag, span }, Seed { seed, span }, BeforeData { span }, Type { target, text, append, span }, Key { target, key, span },
         Pick { target, paths, span }, Clipboard { target, edit, text, span },
-        Clock { arg, span }, Reload { span }, Screenshot { path, span }, ExpectTree { target, present, span },
+        Clock { arg, span }, Reload { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectTree { target, present, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
     }
 }
@@ -134,6 +134,7 @@ record_variants! {
         Let { name, expr, span }, Assign { target, expr, span }, Command { name, args, span },
         Send { target, source, args, span }, Refresh { target, span },
         If { cond, then, otherwise, span }, Match { subject, some, none, span },
+        Call { action, args, body, authored, curried, binding, span },
     }
 }
 record_variants! {

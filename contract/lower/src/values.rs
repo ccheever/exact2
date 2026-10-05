@@ -163,9 +163,11 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
     }
 }
 
-/// The rows CSS's `border-color` shorthand sets: top, right, bottom, left.
-/// CSS's one-to-four-value box shorthands, rows in top, right, bottom, left order.
-const FOUR_SIDED: [[StyleId; 4]; 6] = [
+/// CSS's one-to-four-value box shorthands, rows in top, right, bottom, left
+/// order — `border-radius`'s corners in top-left, top-right, bottom-right,
+/// bottom-left order, which CSS fills from fewer values the same way
+/// (ledger2 Rough 5).
+const FOUR_SIDED: [[StyleId; 4]; 7] = [
     [
         StyleId::PaddingTop,
         StyleId::PaddingRight,
@@ -197,6 +199,12 @@ const FOUR_SIDED: [[StyleId; 4]; 6] = [
         StyleId::BorderColorLeft,
     ],
     [StyleId::Top, StyleId::Right, StyleId::Bottom, StyleId::Left],
+    [
+        StyleId::BorderRadiusTopLeft,
+        StyleId::BorderRadiusTopRight,
+        StyleId::BorderRadiusBottomRight,
+        StyleId::BorderRadiusBottomLeft,
+    ],
 ];
 
 /// Whether these rows are one of CSS's `<value>{1,4}` box shorthands.
@@ -241,9 +249,14 @@ pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<[Expr; 4]>, Lower
             Expr::Str(s, span) => {
                 let n = side_values(s).len();
                 if n > 4 {
+                    let order = if name == "border-radius" {
+                        "top-left, top-right, bottom-right, bottom-left; no `/` elliptical radii"
+                    } else {
+                        "top, right, bottom, left"
+                    };
                     return err(
                         "lower-attr-value",
-                        format!("`{name}` takes one to four values (top, right, bottom, left); \"{s}\" has {n}"),
+                        format!("`{name}` takes one to four values ({order}); \"{s}\" has {n}"),
                         *span,
                     );
                 }
@@ -496,6 +509,28 @@ pub(crate) fn check_style_value(
             }
             _ => {}
         }
+        // A computed gradient is parsed where it is painted: a native host
+        // drops one its parse refuses while a browser paints it (studio
+        // diary R15). The functions a template's own text already names are
+        // refused here, on every target, as a literal's are.
+        if let Expr::Template(parts, _) = value {
+            if rows.contains(&StyleId::BackgroundImage) || rows.contains(&StyleId::MaskImage) {
+                let text: String = parts
+                    .iter()
+                    .map(|p| match p {
+                        contract_syntax::TemplatePart::Text(t) => t.as_str(),
+                        contract_syntax::TemplatePart::Expr(_) => " ",
+                    })
+                    .collect();
+                if let Some(why) = exact_kernel::gradient::refused_function(&text) {
+                    return err(
+                        "lower-attr-value",
+                        format!("`{}=…`: {why} — no host but the browser paints it, so the native ones would drop it", a.name),
+                        span,
+                    );
+                }
+            }
+        }
         // @ref LLP 1043.000 §3 D1 — keep the full wire vocabulary, narrow authoring.
         if let Expr::Str(v, _) = value {
             if rows.contains(&StyleId::Resize)
@@ -577,6 +612,11 @@ pub(crate) fn check_style_value(
                     format!("`{}=\"{v}\"`: {why}", a.name),
                     span,
                 );
+            }
+            if rows.contains(&StyleId::TextIndent)
+                && (v.trim().ends_with('%') || v.contains("hanging") || v.contains("each-line"))
+            {
+                return err("lower-attr-value", format!("`text-indent=\"{v}\"`: exact2 implements a length (a number of pixels, or `rem` or `em`; negative hangs the first line); a percentage of the containing block and the `hanging` and `each-line` keywords are not implemented. For a hanging indent write a negative length with the same `padding-left`"), span);
             }
             if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
                 return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);

@@ -48,7 +48,7 @@ pub struct File {
     /// their own beside the app, `app.test.contract`.
     pub tests: Vec<TestDecl>,
     /// A test file's launch lines (`size`, `epoch`, `time-zone`, `locale`,
-    /// `seed`), which every test in the file opens with unless it names its
+    /// `seed`, `before data`), which every test in the file opens with unless it names its
     /// own (habits F7, calendar F13).
     pub launch: Vec<Step>,
     /// `component` declarations, in order. The first is the root.
@@ -215,6 +215,15 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `before data`: the test's first step does not wait for the app's
+    /// data. Without it the driver waits, as `clock data` does, so a store
+    /// opened at launch is open before the first step (habits, pomodoro).
+    /// What has landed without the wait is the host's: a native app runs on
+    /// real time before the driver connects, the web page on the agent's.
+    BeforeData {
+        /// Where.
+        span: Span,
+    },
     /// `seed 7`: the session's `exactTime().seed`, `--seed`.
     Seed {
         /// A whole number from 0 through 2^53 − 1.
@@ -266,10 +275,20 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `clock settle`, `clock +ms`, `clock +ms real`, `clock ms`.
+    /// `clock settle`, `clock data`, `clock +ms`, `clock +ms real`, `clock ms`.
     Clock {
         /// The argument as the agent takes it.
         arg: String,
+        /// Where.
+        span: Span,
+    },
+    /// `resize 800x600`: the window (a desktop's, the browser's), mid-test,
+    /// as the driver's `resize` (reader: repagination on resize).
+    Resize {
+        /// Points.
+        width: f64,
+        /// Points.
+        height: f64,
         /// Where.
         span: Span,
     },
@@ -618,42 +637,54 @@ pub struct Effect<'a> {
     pub span: Span,
     /// `send`, not an assignment.
     pub send: bool,
+    /// The outermost call it is made through (the callee, the call's
+    /// span), when a called action makes it (LLP 1089 D5).
+    pub call: Option<(&'a str, Span)>,
 }
 
 impl Action {
     /// Every slot the body assigns or sends, through every branch of its
     /// `if`s and `match`es, in statement order with repeats. An action's
     /// effects are inferred, never declared (LLP 1035.005.000 D1).
+    ///
+    /// A call's are its callee's, through every call it makes in turn (LLP
+    /// 1089 D5): the union is the plan's write allowlist, which the VM holds
+    /// every store and send to.
     pub fn effects(&self) -> Vec<Effect<'_>> {
-        fn walk<'a>(stmts: &'a [Stmt], out: &mut Vec<Effect<'a>>) {
+        fn walk<'a>(stmts: &'a [Stmt], call: Option<(&'a str, Span)>, out: &mut Vec<Effect<'a>>) {
             for stmt in stmts {
                 match stmt {
                     Stmt::Assign { target, span, .. } => out.push(Effect {
                         target,
                         span: *span,
                         send: false,
+                        call,
                     }),
                     Stmt::Send { target, span, .. } => out.push(Effect {
                         target,
                         span: *span,
                         send: true,
+                        call,
                     }),
                     Stmt::If {
                         then, otherwise, ..
                     } => {
-                        walk(then, out);
-                        walk(otherwise, out);
+                        walk(then, call, out);
+                        walk(otherwise, call, out);
                     }
                     Stmt::Match { some, none, .. } => {
-                        walk(&some.1, out);
-                        walk(none, out);
+                        walk(&some.1, call, out);
+                        walk(none, call, out);
                     }
+                    Stmt::Call {
+                        action, body, span, ..
+                    } => walk(body, call.or(Some((action, *span))), out),
                     Stmt::Command { .. } | Stmt::Refresh { .. } | Stmt::Let { .. } => {}
                 }
             }
         }
         let mut out = Vec::new();
-        walk(&self.body, &mut out);
+        walk(&self.body, None, &mut out);
         out
     }
 }
@@ -730,6 +761,52 @@ pub enum Stmt {
         /// Where.
         span: Span,
     },
+    /// A call of an action, expanded in place (LLP 1089 D2, D8): the
+    /// callee's statements, run where the call stands in the caller's one
+    /// commit, reading the state the action started with. The parser never
+    /// makes one; expansion turns a `name(args)` statement naming an action
+    /// of the same component, an `action` prop or an injected action into
+    /// one ([`crate::inline::calls`]).
+    Call {
+        /// The callee: an action of the expanded root.
+        action: String,
+        /// The callee's whole argument list, in its parameters' order: a
+        /// lifted callee's capture parameters, the arguments curried where
+        /// the action was passed, then the call's own (the last
+        /// `authored`).
+        args: Vec<Expr>,
+        /// The callee's statements, every name it binds renamed apart, its
+        /// parameters first as `let`s of `args`. One block: its locals drop
+        /// before the statement after the call.
+        body: Vec<Stmt>,
+        /// How many arguments the call itself writes.
+        authored: usize,
+        /// How many of the callee's own parameters were curried where it
+        /// was passed (`close=dismiss("photo")`); 0 for a same-component
+        /// call.
+        curried: usize,
+        /// The prop's or the `provide`'s binding (`go=move(id)`), for a
+        /// prop or inject call.
+        binding: Option<Span>,
+        /// Where.
+        span: Span,
+    },
+}
+
+impl Stmt {
+    /// The statement's span.
+    pub fn span(&self) -> Span {
+        match self {
+            Stmt::Let { span, .. }
+            | Stmt::Assign { span, .. }
+            | Stmt::Command { span, .. }
+            | Stmt::Send { span, .. }
+            | Stmt::Refresh { span, .. }
+            | Stmt::If { span, .. }
+            | Stmt::Match { span, .. }
+            | Stmt::Call { span, .. } => *span,
+        }
+    }
 }
 
 /// `task name mount` with `every(ms, action)`, `every(frame, action)` or
@@ -1107,12 +1184,14 @@ impl Step {
             | Step::TimeZone { span, .. }
             | Step::Locale { span, .. }
             | Step::Seed { span, .. }
+            | Step::BeforeData { span }
             | Step::Type { span, .. }
             | Step::Key { span, .. }
             | Step::Pick { span, .. }
             | Step::Clipboard { span, .. }
             | Step::Clock { span, .. }
             | Step::Reload { span, .. }
+            | Step::Resize { span, .. }
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }
             | Step::ExpectText { span, .. }

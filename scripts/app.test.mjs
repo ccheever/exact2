@@ -158,7 +158,8 @@ import { homedir, tmpdir } from 'node:os';
 import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
 import { hermesIos } from './app.mjs';
 import { useXcode } from '../host/apple/devices.mjs';
-import { HERMES_IOS_ARCHIVES, provisionHermesIos, iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, macReleaseEntitlements, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
+import { HERMES_IOS_ARCHIVES, provisionHermesIos } from '../host/apple/hermes.mjs';
+import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, macReleaseEntitlements, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
 
 // Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
@@ -1278,10 +1279,22 @@ test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-types-'));
   try {
     const write = (accept) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Types', app: { id: 'com.example.types', name: 'Types' }, file_handlers: [{ action: '/', accept }] }));
-    write({ 'text/x-unknown': ['.x'] });
-    assert.throws(() => readManifest(dir, 'types'), /file_handlers\[0\]\.accept: text\/x-unknown names no type the Apple hosts map \(they map .*text\/csv/);
+    write({ 'audio/mpeg': ['.mp3'] });
+    assert.throws(() => readManifest(dir, 'types'), /file_handlers\[0\]\.accept: audio\/mpeg names no type the Apple hosts map \(they map .*text\/csv/);
     write({ 'application/octet-stream': ['.bin', '.dat'] });
     assert.deepEqual(documentTypes(app(readManifest(dir, 'types')))[0].LSItemContentTypes, ['public.data']);
+    // An app's own format (studio diary R13): a vendor or `x-` type is
+    // exported as the app's, its editor and owner, beside the system types
+    // it only views; `+json` makes it JSON. It must name its extension.
+    write({ 'application/x-studio-board+json': ['.board'], 'application/json': ['.json'] });
+    const own = { ...app(readManifest(dir, 'types')), id: 'com.example.types' };
+    assert.deepEqual(documentTypes(own).map(t => [t.LSItemContentTypes, t.CFBundleTypeRole, t.LSHandlerRank, t.CFBundleTypeExtensions]),
+      [[['com.example.types.studio-board'], 'Editor', 'Owner', ['board']], [['public.json'], 'Viewer', 'Alternate', ['json']]]);
+    assert.deepEqual(exportedTypes(own), [{ UTTypeIdentifier: 'com.example.types.studio-board', UTTypeDescription: 'application/x-studio-board+json',
+      UTTypeConformsTo: ['public.json', 'public.content'], UTTypeTagSpecification: { 'public.filename-extension': ['board'], 'public.mime-type': ['application/x-studio-board+json'] } }]);
+    assert.match(macInfoPlist(own), /<key>UTExportedTypeDeclarations<\/key>/);
+    write({ 'application/vnd.example.sheet': [] });
+    assert.throws(() => readManifest(dir, 'types'), /application\/vnd\.example\.sheet, the app's own type, names no extension/);
     // So are a launch colour iOS cannot draw and the Apple icon's missing file.
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Types', app: { id: 'com.example.types', name: 'Types' }, background_color: 'white', icons: [{ src: 'icon.png', sizes: '1024x1024' }] }));
     assert.throws(() => readManifest(dir, 'types'), /background_color: "white" does not match/);

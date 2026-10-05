@@ -46,6 +46,34 @@ final class SurfaceControlTests: XCTestCase {
         return (s, canvas, button)
     }
     #if os(macOS)
+    /// A canvas that wants input still dispatches the node's own
+    /// `contextmenu` and `wheel` beside the module's input (review b5-b 2).
+    func testAnInputCanvasStillHearsItsContextmenuAndWheel() {
+        let (s, canvas, _) = fixture(); defer { s.destroy() }
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
+        window.contentView=s.presenter.viewport
+        // The tree fills the window, so a point on the canvas hits it.
+        var above: NSView? = canvas.superview
+        while let v = above, v !== s.presenter.viewport { v.frame = s.presenter.viewport.bounds; above = v.superview }
+        canvas.handlers = ["contextmenu", "wheel"]
+        let hit = s.presenter.viewport.hitTest(s.presenter.viewport.superview?.convert(canvas.convert(NSPoint(x:150,y:150), to:nil), from:nil) ?? .zero)
+        XCTAssertTrue(hit === canvas, "the point is the canvas's: \(String(describing: hit))")
+        var heard: [UInt32] = []
+        s.presenter.onClipboard = { _, kind, _ in heard.append(kind) }
+        controlEvents = []
+        let point = canvas.convert(NSPoint(x:150,y:150), to:nil)
+        let right = NSEvent.mouseEvent(with:.rightMouseDown,location:point,modifierFlags:[],timestamp:0,windowNumber:window.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:1)!
+        canvas.rightMouseDown(with: right)
+        let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -3, wheel2: 0, wheel3: 0)!
+        cg.location = CGPoint(x: point.x, y: (NSScreen.screens.first?.frame.height ?? 0) - point.y)
+        let scroll = NSEvent(cgEvent: cg)!
+        XCTAssertTrue(canvas.canvasInput?.wheel(scroll) == true, "the module takes this wheel")
+        canvas.scrollWheel(with: scroll)
+        let up = NSEvent.mouseEvent(with:.rightMouseUp,location:point,modifierFlags:[],timestamp:0,windowNumber:window.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:0)!
+        XCTAssertTrue(canvas.canvasInput?.pointer(up, phase: "up") == true, "the module held the secondary button")
+        XCTAssertEqual(heard, [10, 37], "and the node its contextmenu and wheel")
+        withExtendedLifetime(window) {}
+    }
     func testE11ActionAndSliderKeepPointerFocus() {
         let (s, _, button) = fixture(); defer { s.destroy() }
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)

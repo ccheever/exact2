@@ -1,5 +1,5 @@
-import { renderMarkup, reportPlace } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
-import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq, equal } from "./shape.js"; import { pointer } from "./pointer.js"; import { commands } from "./commands.js"; import { media, mediaProp, mediaOn, mediaPiece, MEDIA_EVENTS } from "./media.js";
+import { renderMarkup, reportPlace, onSelection } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
+import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq, equal } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { media, mediaProp, mediaOn, mediaPiece, MEDIA_EVENTS } from "./media.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
@@ -81,10 +81,13 @@ function flush() {
 }
 function untracked(f) { const l = Listener; Listener = null; try { return f(); } finally { Listener = l; } }
 
-/** A slot: a getter, `.n` its node; `t` its declared type (writes conform). */
-export function sig(v, t) { // an initial value outside `t`: the runner refuses the boot, or the row's creation poisons (SlotType)
+/** A slot: a getter, `.n` its node; `t` its declared type (writes conform); `name` a string slot's, which a write past MAX_STRING names. */
+export function sig(v, t, name) { // an initial value outside `t`: the runner refuses the boot, or the row's creation poisons (SlotType)
   if (t && !conforms(v, t)) throw new Error(`a slot's initial value does not conform to its type: ${v}`);
-  const n = node(null, v); n.t = t; const g = () => read(n); g.n = n; return g; }
+  const n = node(null, v); n.t = t; n.name = name; const g = () => read(n); g.n = n; return g; }
+/** A string past MAX_STRING's UTF-8 bytes (runner `too_long`): one test, TextEncoder's U+FFFD for a lone surrogate (LLP 1090 D6). */
+const long = s => typeof s === "string" && s.length > 22369621 && (s.length > 67108864 || new TextEncoder().encode(s).length > 67108864);
+const tooLong = name => new Refusal(`StringTooLong { name: ${JSON.stringify(name)} }`);
 const Settle = [];
 /** A derive: lazy, cached, equal results keep their object; settled at
  * every commit before the tree; its value conforms to its type. */
@@ -148,6 +151,7 @@ export function commit(f, what = "commit") {
     tick();
     for (const [n, v] of Writes) {
       if (n.t && !conforms(v, n.t)) throw new Refusal(`a write does not conform to its slot's type: ${JSON.stringify(v)}`);
+      if (n.name && long(v)) throw tooLong(n.name);
       undo.push([n, n.v]); write(n, v);
       if (n.m && !n.landing) n.m.forget(undo);
     }
@@ -176,10 +180,10 @@ export function commit(f, what = "commit") {
   const tail = () => { // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
     for (const f of Before) f();
     Pres?.before({ ops: [] }, Views); // presence measures what it tracks before the tree changes (LLP 1063)
-    try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.message}`); console.error(e); return false; }
+    try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
     settled(); if (!ok) return false;
     clock.epoch++; Store.persist();
-    for (const go of out) go(); for (const c of cmds) command(...c);
+    for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c);
     // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
     for (const m of landed) if (m.then) { m.due = clock.now; if (!clock.agent) drive(); }
     return true;
@@ -207,9 +211,24 @@ function drain() {
   Scrolls.clear(); for (const e of Selects) if (!e.isConnected) Selects.delete(e); else { const o = [...e.options], v = o.map(x => x.value); if (e.$set || o.length !== e.$options?.length || o.some((x, i) => x !== e.$options[i] || v[i] !== e.$values[i])) { e.$set = false; e.$options = o; e.$values = v; if (e.value !== e.$value) e.value = e.$value; } }
 }
 /** An action: each call is one commit. Its arguments conform to its parameters' types (`types`, after `skip` leading
- * arguments: a row action's row), or it is refused before its body runs, as the runner's ArgumentType. */
-export function act(fn, types, skip = 0) {
-  return (...a) => commit(() => { for (let i = 0; types && i < types.length; i++) if (!conforms(a[i + skip], types[i])) throw new Refusal(`argument ${i + 1} does not conform to its parameter's type`); fn(...a); }, "action");
+ * arguments: a row action's row), each then within MAX_STRING when `names` names it a string's, or it is refused before
+ * its body runs, as the runner's ArgumentType and StringTooLong. `.t(f)` is a handler whose arguments `f` makes inside
+ * the commit (a trap refuses it, LLP 1090 D1), then the event's; on a poisoned runner `f` still runs first, as the
+ * runner evaluates them before its poisoned check. */
+export function act(fn, types, skip = 0, names) {
+  const go = a => {
+    for (let i = 0; types && i < types.length; i++) {
+      if (!conforms(a[i + skip], types[i])) throw new Refusal(`argument ${i + 1} does not conform to its parameter's type`);
+      if (names?.[i] && long(a[i + skip])) throw tooLong(names[i]);
+    }
+    fn(...a);
+  };
+  const a = (...x) => commit(() => go(x), "action");
+  a.t = f => (...v) => {
+    if (Poisoned) try { f(); } catch (e) { return say(`refused action: ${e.message}`); }
+    return commit(() => go([...f(), ...v]), "action");
+  };
+  return a;
 }
 /** The host commands, by name; a loaded piece adds its own (list.js `scrollIntoView`). */
 export const Hosts = {
@@ -218,7 +237,7 @@ export const Hosts = {
   setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; },
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), /* LLP 1077 D14: vibration where the browser has it */ scrollIntoView: (id, block, inline, behavior) => { const e = document.getElementById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, // an element's, by id (minesweeper F3); list.js takes a row's
 };
-let KeyEvent = null; Hosts.preventDefault = () => KeyEvent?.preventDefault(); Hosts.stopPropagation = () => { if (KeyEvent) KeyEvent.$stopped = true; }; // the keydown whose `key` handler is running (`on`): commands run before its commit returns; a stopped one reaches no ancestor's `key` handler, its default still does (files diary F8)
+let KeyEvent = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { if (KeyEvent) KeyEvent.$stopped = true; }; // the keydown, wheel or beforeunload whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
 function command(name, args) {
   const f = Hosts[name];
   say(`command ${name}`);
@@ -341,15 +360,36 @@ const sameReq = (a, b) => a && b && a.storage === b.storage && a.method === b.me
 export const inflight = { n: 0 };
 function send(t, land) {
   Out.push(() => {
-    inflight.n++;
+    inflight.n++; t.waiting = true;
     const started = performance.now();
-    const done = o => {
-      inflight.n--; t.elapsed = Math.max(0, Math.round(performance.now() - started));
-      say(`reply ${t.id}; wall ${t.elapsed} ms`); land(o);
+    // A stream's message (`more`) keeps its ticket; anything else ends it.
+    const done = (o, more) => {
+      if (t.closed) return;
+      if (t.waiting) { t.waiting = false; inflight.n--; }
+      t.elapsed = Math.max(0, Math.round(performance.now() - started));
+      if (more) { t.messages++; t.coalesced += (o.streamed ?? o).coalesced ?? 0; o.more = true; } else Open.delete(t);
+      say(`${more ? "message" : "reply"} ${t.id}; wall ${t.elapsed} ms`); land(o);
     };
-    if (t.req) data.fetch(t.req).then(done, e => done({ failed: 1, message: String(e?.message ?? e) }));
+    const failed = e => done({ failed: 1, message: String(e?.message ?? e) });
+    // An answer that keeps coming (LLP 1016.000): a Rust source's streamed request, or a TypeScript
+    // source's `exactStream` (ts-data.js). It is in flight until its first message (D5), then open
+    // until its end or until its ticket is let go (`Open`, after each commit).
+    if (t.stream || t.req?.stream) {
+      t.ctl = new AbortController(); t.messages = t.coalesced = 0; Open.add(t);
+      (t.stream ? t.stream(o => done(o, true), t.ctl) : data.fetch(t.req, m => done({ streamed: m }, true), t.ctl)).then(done, failed);
+    } else if (t.req) data.fetch(t.req).then(done, failed);
     else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e) }));
   });
+}
+/** Open streams: one whose ticket its resource or mutation let go (new arguments, `refresh`, a failure,
+ * its region ended) is closed once the commit that let it go stands, as the runner's forget path (D2). */
+const Open = new Set();
+function closeLetGo() {
+  for (const t of Open) if (!t.held() || t.r?.gone) {
+    Open.delete(t); t.closed = true; t.ctl.abort();
+    if (t.waiting) { t.waiting = false; inflight.n--; }
+    say(`close stream ${t.id}: its ticket was let go`);
+  }
 }
 function ask(source, args, name) {
   const a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name);
@@ -359,14 +399,15 @@ function ask(source, args, name) {
  * promise's value, or the parse of the outcome). A data or shape refusal there (no answer, or one outside its shape) lets
  * the ticket go in a commit of its own, as the runner's `release_failed` (admission.rs): `gone` takes it out of pending. */
 function reply(t, name, source, held, f, next, gone) {
+  t.held = held;
   return o => {
     if (commit(() => {
       if (!held()) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
       let p;
       try { if (o.error !== undefined) throw new Failed(o.error); p = o.v !== undefined ? { v: o.v } : data.parse(source, t.args, o, Store); }
       catch (e) { throw e instanceof Failed ? e : new Failed(String(e?.message ?? e)); }
-      f(p);
-    }, `reply ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed) || !held()) return;
+      f(p, o);
+    }, `${o.more ? "message" : "reply"} ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed) || !held()) return;
     say(`request ${t.id} (${name}) failed and is no longer pending: ${next}`);
     gone(); commit(() => {}, "a failed request");
   };
@@ -392,9 +433,11 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     r.value = v; r.settled = a;
   };
   // A reply the source cannot take leaves the value, failed for its arguments (`r.failed`, the runner's `failed_args`).
-  const land = t => reply(t, name, source, () => r.ticket === t, p => {
-    if (p.req) { t.req = p.req; t.id = ++Ticket; send(t, land(t)); return; }
-    if (t.baked) say(revalidated(name, eq(p.v, r.value))); take(p.v, t.args); r.ticket = r.failed = null;
+  // A stream's message (`o.more`) is a settlement that keeps the ticket (LLP 1016.000 D1); a message
+  // that re-asks (a cursor across a gap) is a new ticket, the old one closed with the commit (`Open`).
+  const land = t => reply(t, name, source, () => r.ticket === t, (p, o) => {
+    if (p.req) { if (o.more) { const n = { id: ++Ticket, args: t.args, req: p.req, r }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
+    if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args); r.failed = null; if (!o.more) r.ticket = null;
     W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
   }, "it keeps its last value", () => { r.ticket = null; r.failed = t.args; write(pend.n, false); write(fail.n, t.args); });
   const m = memo(() => {
@@ -433,9 +476,9 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
       r.ticket.args = a;
       return r.value;
     }
-    if (ans && (ans.req || ans.promise)) {
+    if (ans && (ans.req || ans.promise || ans.stream)) {
       hold();
-      const t = { id: ++Ticket, args: a, req: ans.req, promise: ans.promise, baked }; if (baked) say(`${name} shows its build-time answer until its source answers`);
+      const t = { id: ++Ticket, args: a, req: ans.req, promise: ans.promise, stream: ans.stream, baked, r }; if (baked) say(`${name} shows its build-time answer until its source answers`);
       if (r.ticket) say(`forget ticket ${r.ticket.id} (${name})`);
       r.ticket = t; flag(pend, true); send(t, land(t));
       return r.value;
@@ -454,6 +497,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     reread_: undo => { r.reread = true; flag(ver, ver.n.v + 1, undo); },
     revise: undo => { r.rev = true; flag(ver, ver.n.v + 1, undo); },
   });
+  onEnd(() => { r.gone = true; }); // its region ended: an open stream closes (`Open`)
   Resources.push(r);
   m.p = () => (m(), pend());
   m.f = () => (m(), fail() != null);
@@ -469,11 +513,11 @@ export function mut(name, slot, refreshes, type) {
   slot.n.m = m;
   const landWrite = (v, undo) => { slot.n.landing = 1; try { undo.push([slot.n, slot.n.v]); write(slot.n, v); } finally { slot.n.landing = 0; } Landed.push(m); };
   // A reply the source cannot take ends it unsent: its slot as it was, its `then` unarmed (`reply`).
-  const land = t => reply(t, name, t.source, () => m.ticket === t, p => {
-    if (p.req) { t.req = p.req; send(t, land(t)); return; }
+  const land = t => reply(t, name, t.source, () => m.ticket === t, (p, o) => {
+    if (p.req) { if (o.more) { const n = { id: ++Ticket, source: t.source, args: t.args, req: p.req }; m.ticket = n; send(n, land(n)); } else { t.req = p.req; send(t, land(t)); } return; }
     if (type && !conforms(p.v, type, [0], m.checked)) throw new Failed(`${name}: the answer does not conform to its shape`);
     m.checked = p.v;
-    m.ticket = null; W(pend, false);
+    if (!o.more) m.ticket = null; W(pend, false);
     slot.n.landing = 1; W(slot, p.v); Landed.push(m);
     for (const r of refreshes) R(r.r);
     queueMicrotask(() => { slot.n.landing = 0; });
@@ -486,8 +530,8 @@ export function mut(name, slot, refreshes, type) {
         if (type && !conforms(a.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
         m.checked = a.v;
         landWrite(a.v, undo);
-      } else if (a && (a.req || a.promise)) {
-        const t = { id: ++Ticket, source, args, req: a.req, promise: a.promise };
+      } else if (a && (a.req || a.promise || a.stream)) {
+        const t = { id: ++Ticket, source, args, req: a.req, promise: a.promise, stream: a.stream };
         m.ticket = t; undo.push([pend.n, pend.n.v]); write(pend.n, true); send(t, land(t));
       } else throw new Refusal(`${name}: its source is not ready`);
       for (const r of refreshes) r.r.reread_(undo);
@@ -584,7 +628,7 @@ export function P(e, name, f) {
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
     else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } if (e.value !== (v ?? "")) e.value = v ?? ""; }
     else if (name === "scrollTop" || name === "scrollLeft") { if (v != null) (Scrolls.get(e) ?? Scrolls.set(e, {}).get(e))[name] = Number(v); }
-    else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e) e.blur(); /* HTML focus fixup, now (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; }
+    else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e && e.matches(":disabled")) e.blur(); /* HTML focus fixup, now, for a control only (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; }
     else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) Paint?.facts(e); } }
     else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) Paint?.facts(e); }
     if (e.localName === "a" && (name === "target" || name === "href" && (!e.hasAttribute("target") || e.rel === "external noopener"))) { const out = name === "href" && v != null && /^\s*(https?:)?\/\//i.test(v), t = name === "target" ? v : out ? "_blank" : null; if (t) e.setAttribute("target", t); else e.removeAttribute("target"); if (t === "_blank") e.rel = out ? "external noopener" : "noopener"; else e.removeAttribute("rel"); } // a link to an absolute URL leaves the app in a new browsing context unless its `target` is authored (element.rs `leaves_app`, `props_of`; chat F11)
@@ -792,6 +836,8 @@ export function on(e, kind, f) {
     case "change": case "input": return l(kind, ev => { if (ev instanceof CustomEvent) return f(ev.detail); if (e.type !== "checkbox") return f(e.type === "range" ? Number(e.value) : e.value); f(e.checked); if (e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked; });
     case "hover": l("pointerenter", () => f(true)); return l("pointerleave", () => f(false));
     case "key": return l("keydown", ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }); // it bubbles to every ancestor's handler; an action taking one more parameter hears the KeyboardEvent record too (contract/types selection.rs's order)
+    // The window's, heard by every connected element that declares it (studio diary R17).
+    case "beforeunload": return addEventListener("beforeunload", ev => { if (!e.isConnected) return; const outer = KeyEvent; KeyEvent = ev; try { f(); } finally { KeyEvent = outer; } });
     case "submit": return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing && !ev.$submit) { ev.$submit = true; addEventListener("keydown", w => { if (w === ev && !ev.defaultPrevented) setTimeout(f); }, { once: true }); } }); // Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it, and after the browser's own default, HTML's `change` on Enter (gallery F26)
     // Only from the origin of the src the app committed (glue.js
     // `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is
@@ -801,12 +847,21 @@ export function on(e, kind, f) {
     case "scroll": return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } f(e.scrollLeft, e.scrollTop, [e.scrollLeft, e.scrollTop, e.scrollWidth, e.scrollHeight, e.clientWidth, e.clientHeight]); });
     // Pull to refresh is a native port's; the web has none (`glue.js` attaches nothing).
     case "refresh": return;
-    case "contextmenu": case "dblclick": return l(kind, ev => { ev.preventDefault(); f(); }); case "pointerdown": case "pointerup": case "pointermove": return pointer(e, kind, f); // pointer.js (LLP 1005 §Events, 1056 §3)
+    case "dblclick": return l(kind, ev => { ev.preventDefault(); f(); }); case "pointerdown": case "pointerup": case "pointermove": return pointer(e, kind, f); // pointer.js (LLP 1005 §Events, 1056 §3)
+    // UI Events' `contextmenu` is a PointerEvent: where the secondary click was (studio diary R22).
+    // A field's own edit menu stays the browser's; the nearest handler alone hears it, as on the wasm host and macOS (review b5-b 3).
+    case "contextmenu": return l(kind, ev => { if (ev.target.closest("input,textarea,[contenteditable]")) return; ev.preventDefault(); ev.stopPropagation(); f(record(e, ev)); });
+    // DOM's own, bubbling to every ancestor's handler; one that calls `preventDefault()` keeps the scroll (a pinch is a Control-held wheel) from happening (studio diary R3).
+    case "wheel": return e.addEventListener("wheel", ev => { if (e.matches(":disabled") || e.closest("[inert]")) return; const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false });
+    // Files dropped from outside, each a `doc:` handle (files.js, documents-glue.js; studio diary R19).
+    case "drop": return OnHooks.drop?.(e, f);
     // Chrome blurs an element it is removing (still connected); a retired view's blur is dropped (glue.js).
     case "blur": return l(kind, () => queueMicrotask(() => e.isConnected && f())); case "copy": case "cut": case "paste": return l(kind, ev => { ev.stopPropagation(); f([ev.clipboardData?.getData("text/plain") ?? ""]); }); // the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds
+    case "selectionchange": return onSelection(e, (text, a, b) => f([text, a, b])); // its part of the page's selection, the `Selection` record (navigation.js)
     default: return l(kind, () => f());
   }
 }
+
 // ---------------------------------------------------------------- presence (LLP 1063)
 // `exit-animation` and `layout-transition`: the web host's own
 // presence-glue.js, fetched after the first painted frame by a plan with
@@ -1316,8 +1371,8 @@ function locale() {
 }
 const table = name => Texts.find(r => r[0] === name);
 /** `t(key, name=value…)`: MF2 simple messages, `{name}` or `{$name}`; an
- * unfilled name keeps its spelling; `\{ \} \\` escape. */
-export function x_t(name, key, pairs) {
+ * unfilled name keeps its spelling; `\{ \} \\` escape. budget.js's `x_t` bounds it. */
+export function text(name, key, pairs) {
   const text = table(name)?.[2][key] ?? Texts[0][2][key];
   if (text == null) throw new Refusal(`t: no text ${key}`);
   const at = n => { for (let i = 0; i < pairs.length; i += 2) if (pairs[i] === n) return pairs[i + 1]; };

@@ -49,7 +49,12 @@ a `keyframes` or `font` block, and a component need at least one entry.
   Template text is verbatim: a backslash is never an escape and stays in the
   text, and `\${` still interpolates. Use an ordinary string when you need an
   escape.
-- `//` starts a line comment outside a string/template. No block comments.
+- A hex color may be written bare, as CSS writes it: `#` and 3, 4, 6 or 8 hex
+  digits (`color=#1f9d62`, a keyframe's `background-color=#1f9d6244`) is the
+  string `"#1f9d62"`, and the formatter prints it quoted. Any other `#` is
+  refused, saying so.
+- `//` starts a line comment outside a string/template. No block comments;
+  `#` is not a comment.
 - Indentation uses spaces; a tab in indentation is refused. At bracket depth zero, indentation emits
   block tokens. Inside `()`, `[]`, and `{}`, newlines and indentation continue
   the logical expression instead.
@@ -179,8 +184,17 @@ body has exactly one schedule. The named timer action takes no parameters;
 a millisecond interval is a literal whole number of at least 1.
 
 Both option-match arms are required exactly once. Actions have no loops, returns,
-awaits, or ordinary action-to-action calls. A standalone call statement is a
-host command, not an arbitrary function invocation. `let` is recognized as the
+or awaits. A standalone call statement `name(args)` is a host command when `name`
+is one, even inside an action of that name (`action setScheme` may call the
+command `setScheme(s)`). Otherwise it calls an action of the same component, an
+`action` prop or an injected action (LLP 1089), never a function. A call is
+expanded in place: the callee's statements run where the call stands, in the
+caller's one commit, reading the state the action started with. Its arguments
+complete the callee's parameters after any curried where it was bound; no event
+payload is appended. A call gives no value (`type-call-value`), passes no action
+as an argument (`type-call-action-arg`), and never recurses, directly or through
+other actions (`syntax-call-cycle`). An action whose calls would expand past
+1,024 statements is `syntax-call-size`. `let` is recognized as the
 local-declaration statement when followed by a name; a writable slot named `let`
 can still appear in an ordinary assignment.
 
@@ -296,7 +310,8 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "epoch" ( STRING | NUMBER ) NL       (* "2026-09-21T12:00:00Z" or Unix ms *)
               | "time-zone" STRING NL                (* an IANA zone, "America/New_York" *)
               | "locale" STRING NL                   (* a BCP 47 tag, "fr-FR" *)
-              | "seed" NUMBER NL ;                   (* 0 through 2^53 - 1 *)
+              | "seed" NUMBER NL                     (* 0 through 2^53 - 1 *)
+              | "before" "data" NL ;                 (* the first step does not wait for data *)
 step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu" | "into" STRING
                   | "modifiers" STRING ] NL
               | "tap" STRING "drag" [ "-" ] NUMBER [ "-" ] NUMBER
@@ -305,7 +320,8 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu" | "into" STR
               | "type" STRING ( STRING [ "append" ] | "key" STRING
                   | "copy" | "cut" | "paste" STRING ) NL
               | "pick" STRING ( STRING { STRING } | "cancel" ) NL
-              | "clock" ( "settle" | [ "+" ] NUMBER [ "real" ] ) NL
+              | "clock" ( "settle" | "data" | [ "+" ] NUMBER [ "real" ] ) NL
+              | "resize" NUMBER "x" NUMBER NL        (* the window, mid-test: 800x600 *)
               | "reload" NL
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
@@ -320,7 +336,10 @@ launch lines: `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
 `--epoch`, `--time-zone`, `--locale` and `--seed`, so they lead the test's steps,
 each once. Written at the top of the file they apply to every test that does not
 name its own; either way they override the drive's flags. A file whose
-assertions depend on the date says so in the file. `tap "id" drag dx dy` is the driver's `tap … drag` (from the
+assertions depend on the date says so in the file. Before the first step, and
+after a `reload`, the driver waits for the app's data as `clock data` does (its
+module activated, every request in flight answered and each answer's `then`
+landed, the clock unmoved); `before data` skips the wait. `tap "id" drag dx dy` is the driver's `tap … drag` (from the
 node's middle, or `from x y` in its box, in points; `press`, `over`, `hold` in
 milliseconds; each once). It is a finger where the carrier has one (the web,
 iOS); `mouse` makes it the left button on the web, with the page's pointer
@@ -343,7 +362,8 @@ it takes `true` or `false`. A target out of view is scrolled into view first.
 An input step ends with what it settled (an answer given in the input's turn,
 and its mutation's `then`); otherwise the clock stands still between steps:
 what an input starts (a reply on real time, a transition) lands at a `clock`
-step, as `clock settle`; a timer fires when the clock reaches or passes its time
+step, as `clock settle` (or `clock data`, which lands replies and their `then`s
+without moving the clock); a timer fires when the clock reaches or passes its time
 (`clock +N`), and `clock settle` fires one only if it reaches it while advancing
 to a motion's end.
 `expect text` reads the node's text, else a control's value (a `select`'s chosen
@@ -379,6 +399,9 @@ Signatures are authored forms; localization's internal lowered signature differs
 | `startsWith(text, prefix)` | Boolean, case-sensitive |
 | `endsWith(text, suffix)` | Boolean, case-sensitive |
 | `trim(text)` | String, JavaScript whitespace/line-terminator trimming |
+| `slice(text, start, end?)` | String; JavaScript's `slice` over UTF-16 code units: fractions truncate, NaN is 0, a negative index counts from the end, an omitted `end` is the end; a cut surrogate half is U+FFFD |
+| `replaceAll(text, find, with)` | String; every match of the string `find`, left to right; `$$`, `$&`, `` $` ``, `$'` in `with` (`$1` is literal); an empty `find` inserts at every code-unit boundary; no regular expressions |
+| `toLowerCase(text)` | String; Unicode's default lowercase, final sigma kept, no locale (the web core links the case tables by use) |
 | `first(list<T>)` | `option<T>` |
 | `at(list<T>, index)` | `option<T>`; truncates index toward zero, negative from end |
 | `map(list<T>, callback)` | `list<U>`; callback returns one value |
@@ -403,6 +426,15 @@ Signatures are authored forms; localization's internal lowered signature differs
 
 The router functions (`open` through `searchParam`) and `encodeRouteSegment`
 exist only in an app with a `routes` declaration.
+
+`<`, `<=`, `>` and `>=` take two numbers or two strings. Two strings compare as
+JavaScript's do, by UTF-16 code units in order with a proper prefix first, no
+locale (`"09:30" < "10:00"`, `"Z" < "a"`). `slice` and `replaceAll` work on code
+units as JavaScript does and make the whole result well formed once: a lone
+surrogate half is U+FFFD, since the native runners hold Unicode scalar values.
+A result past the runner's string bound (64 MiB of UTF-8) traps on every
+executor. `toUpperCase`, `padStart`, `split`, `indexOf` and number parsing are
+not in Contract; the refusals say what to write instead.
 
 Compiler intrinsics and special forms additionally include:
 
@@ -457,7 +489,9 @@ contextual restrictions: `cargo run -q -p contract -- vocab padding` for one
 name, no name for all, `--json` for a document. From an app made by
 `exact new`, run `bun exact.mjs contract vocab`.
 `padding`, `margin`, `inset`, `border-width`, `border-style` and `border-color` take
-CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40).
+CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40), and
+`border-radius` its one to four corners (`border-radius="18px 18px 0 0"`: top-left,
+top-right, bottom-right, bottom-left; no `/` elliptical radii).
 CSS hyphens are part of the authored name. `testId` and admitted host-specific
 props retain their declared spelling.
 
@@ -493,7 +527,7 @@ expression grammar. Platform looks and stand-ins are documented in
 ## Events
 
 An event binding is an action reference or partially applied action. Captured
-arguments precede the event payload. The table contains all 46 handler names.
+arguments precede the event payload. The table contains all 50 handler names.
 Numeric multi-argument payload ordering should be copied from the feature's
 working fixture, not inferred from JavaScript's Event interface.
 
@@ -511,10 +545,13 @@ working fixture, not inferred from JavaScript's Event interface.
 | Four numbers | `transformgeometry` |
 | Six numbers | `transformrelease` |
 | Special: zero or one location string, no captured args | `navigate` |
-| Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove` |
+| Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove`, `contextmenu` (UI Events makes it one: where the secondary click or long press was; a keyboard's menu key gives the origin) |
+| Zero or one `WheelEvent` (the action takes it or leaves it) | `wheel` |
+| Zero or one `DragEvent` (the action takes it or leaves it) | `drop` |
 | Zero or one `ClipboardEvent` (the action takes it or leaves it) | `copy`, `cut`, `paste` ([clipboard](#clipboard)) |
+| Zero or one `Selection` (the action takes it or leaves it) | `selectionchange`, on a `text` ([text selection](#text-selection)) |
 | Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation) |
-| None | `cancel`, `focus`, `blur`, `submit`, `load`, `contextmenu`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
+| None | `beforeunload`, `cancel`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
 An `audio` is HTML's: `video`'s props and events without `poster`, `playsinline`
 or `playbackVisibilityThreshold`; no box unless `controls` (then Chrome's 300×54,
@@ -558,8 +595,8 @@ bindings are required as a pair. See
 ### Pointer
 
 `pointerdown`, `pointerup` and `pointermove` are DOM's, on every host. The
-innermost enabled node under a touch or the primary button that hears any of
-them holds the pointer: its `pointerdown` fires before any gesture decides,
+innermost enabled node under a touch or a button (any: `buttons` says which, 2
+for a right-click) that hears any of them holds the pointer: its `pointerdown` fires before any gesture decides,
 its `pointermove`s follow the pointer wherever it goes while held, and its
 `pointerup` comes when the pointer lifts or is cancelled (a cancel is an up),
 before the click's `press`. A free pointer (a mouse or a pen hovering, no
@@ -587,6 +624,50 @@ action stroke(e: PointerEvent)
 canvas surface=ink(points) pointerdown=begin pointermove=stroke touch-action="none"
 ```
 
+A `contextmenu` (a right-click, a long press) offers the same record: on a Mac
+and in a browser on one it comes on the button's down, after its `pointerdown`.
+
+`wheel` is DOM's: a wheel's turn or a trackpad's scroll over the node, heard by
+every node from it up that declares it, innermost first. Its `WheelEvent` is
+`offsetX`, `offsetY`, `deltaX`, `deltaY` (CSS px; positive scrolls down and
+right), `deltaMode` (0 pixels) and the four modifiers. A trackpad's pinch is a
+wheel with `ctrlKey` and `deltaY` of -100 × its magnification, as browsers
+deliver one. An action that calls `preventDefault()` keeps the scroll from
+happening (web, macOS, Linux; iOS has none):
+
+```text
+action wheeled(e: WheelEvent)
+  if e.ctrlKey or e.metaKey
+    zoom = zoom * (1 - e.deltaY / 100)
+    preventDefault()
+scroll wheel=wheeled …
+```
+
+`drop` is DOM's `drop` of files dragged in from outside the app (Finder, the
+desktop) onto the innermost node that declares it: its `DragEvent` is
+`offsetX`, `offsetY`, `files` (a `list<string>` of `doc:` handles minted as a
+picker's are, [LLP 1069.010](../llp/1069.010-the-mac-as-a-document-platform.rfc.md)
+D1, readable under `fs.read doc:/`) and the modifiers. Only files of the types
+the manifest's `file_handlers` declares are taken; another is refused into the
+journal. Web (a browser without `getAsFileSystemHandle` hands a read-only copy)
+and macOS; iOS and Linux have none. The driver's `tap <target> drop <path…>`
+drags files in.
+
+`beforeunload` is DOM's: the window is about to close or the app to quit
+(macOS: its close button, File ▸ Close Window, ⌘Q; the web: leaving the page).
+Every element that declares it hears it; an action that calls `preventDefault()`
+keeps the window open. The browser then asks "Leave site?" itself; a Mac app asks
+its own question, and calls the host command `close()` once it is answered,
+which closes the window without asking again (on the web, `window.close()`, which
+a browser honours only for a window a script opened). iOS and Linux close no
+window. `head edited=…` marks the document as unsaved: on macOS the dot in the
+window's close button, beside the proxy icon of the file the window opened;
+other hosts show nothing (a declared deviation: the web has no unsaved mark).
+
+HTML's global `title` attribute, on any element but `head` (whose `title` is the
+document's), is advisory text: the browser's tooltip on the web, `toolTip` on
+macOS; touch hosts show none.
+
 ### Clipboard
 
 `copy`, `cut` and `paste` are DOM's, on every host: ⌘C, ⌘X and ⌘V (Control on
@@ -609,6 +690,25 @@ action pasteAt(cell: string, e: ClipboardEvent)
 column key=move paste=pasteAt(selected) copy=copyCells cut=cutCells
 ```
 
+### Text selection
+
+`selectionchange` on a `text` is the web's `selectionchange`, per element:
+when the part of the reader's text selection inside that paragraph changes —
+a drag, a double or triple click, select-all, a click that clears it — an
+action that takes one more parameter gets a `Selection`: its `text` (the
+selected part, as `Range.toString()` gives it) and its `start` and `end`,
+UTF-16 offsets into the node's own text as written (white space before CSS
+collapses it, a `text`'s inline children joined in order). Nothing selected
+there is `text: ""` with `start == end == 0`; it fires while a drag moves,
+once per change. Web and macOS select text; iOS and Linux have no text
+selection on a `text`, so it never fires there.
+
+```text
+action mark(para: string, s: Selection)
+  selection = Excerpt(para=para, from=s.start, to=s.end, text=s.text)
+text para.body selectionchange=mark(para.id)
+```
+
 ### Keys
 
 `key` is the DOM's `keydown`, on every host (web, macOS, iOS and iPadOS with a
@@ -617,7 +717,7 @@ hardware keyboard, Linux):
 - **Where.** The key goes to the focused element: a field or textarea being
   edited, a `button`, or any element with a `press`, `focus`, `blur` or `key`
   handler (such an element takes the focus, as `tabindex="0"` gives it, and
-  is in the Tab order). It then bubbles: the
+  is in the Tab order), or with a `tabindex`. It then bubbles: the
   focused element's handler hears it first, then every ancestor's, innermost
   first. With nothing focused, only `aria-keyshortcuts` buttons hear keys.
 - **What.** The payload is `KeyboardEvent.key`: the character typed, Shift's
@@ -680,6 +780,33 @@ Mac and elsewhere. The driver presses chords in Playwright's spelling (`type
   inside it hear their chords, and Enter or Space with the focus on a
   control they activate (a button, a pressable, a checkbox) is that
   control's, whatever button declares it. Linux carries no shortcuts.
+- **The Mac's menu bar.** Every button whose chord holds ⌘ is also a menu
+  item, titled by its `aria-label` (or its text), placed by its chord as
+  Apple's HIG places one: ⌘, is Settings…; ⌘[ ⌘] and a `tablist`'s tabs are
+  Go; ⌘Z ⇧⌘Z ⌘X ⌘C ⌘V ⌘A ⌘D ⌘F ⌘G ⇧⌘G are Edit; ⌘= ⌘+ ⌘- ⌘0 and any ⌃⌘
+  chord are View; the rest are File. One whose chord is the host's own Edit
+  item's (Undo, Redo, Cut, Copy, Paste, Select All) takes that item's place,
+  so Edit ▸ Undo is the app's "Undo Move"; any other host item whose chord a
+  button declares keeps its place without the chord (File ▸ Close Window
+  beside the app's ⌘W). Drop the chord while a field is being edited and the
+  host's text Undo, Cut, Copy and Paste come back (studio diary R16).
+
+### Focus order: `tabindex`
+
+HTML's `tabindex` (no `tabIndex` alias; [LLP 1088](../llp/1088-what-the-app-diaries-ask-of-contract.rfc.md)
+D7.3), on any element and a module tag's box, a number or bound to state. Present, it
+makes the element focusable — a click, `focus(id)` and `autofocus` reach it, and the
+`key` handlers above it hear its keys; absent is never `0`, so a plain box is no stop.
+`tabindex >= 0` is a Tab stop: positive values first in ascending order, then `0` and
+the elements that are stops by kind (inputs, buttons, handlers) in tree order. A
+negative value is focusable but skipped by Tab, a handler's element included
+(`button tabindex=(revealed ? 0 : -1)` keeps a hidden swipe action out of the order).
+An inert or `display: none` element is never focusable, nor is a disabled `button`,
+`input`, `textarea` or control. `disabled` means nothing on a box, as on a `<div>` in
+Chrome: `box tabindex=0 disabled=true` is still a Tab stop, and so is a `link` with
+an `href` (the web's `<a>`, which `disabled` does not touch). Tab and Shift-Tab walk
+and wrap on the web, macOS, iPadOS's hardware keyboard and Linux; tvOS's remote skips a
+negative value and keeps UIKit's geometric order.
 
 ## Host commands
 
@@ -688,8 +815,9 @@ The current command name inventory is:
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `focus`, `format`,
 `openURL`, `selectText`, `setScheme`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`,
-`haptic`, `postMessage`, `reload`, `preventDefault` and `stopPropagation`
-([keys](#keys)).
+`showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `close`
+([pointer](#pointer): a window's `beforeunload`), `preventDefault` and
+`stopPropagation` ([keys](#keys)).
 
 These appear only as action statements. They are not ordinary value-returning
 functions. Some have dedicated compiler checks while others also rely on host
@@ -704,6 +832,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
 | `setScheme(...)` | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
 | `share(...)` | [share corpus](../contract/corpus/share.contract) |
+| `showNotification(title=, body=, tag=, showTrigger=)`, `closeNotification(tag)`: a local notification by the Notification API's names, now or at `showTrigger` (epoch milliseconds); a newer one with the same `tag` replaces it, and `closeNotification` takes it away, shown or waiting. Needs the grant `device.notifications <strings key>`; see [notifications](reference.md#notifications) | [notify corpus](../contract/corpus/notify.contract) |
 | `showPicker(id)`, export `saveFile(...)` | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract) |
 | `showOpenFilePicker(id[, multiple])` | [file-picker corpus](../contract/corpus/file-pickers.contract) |
 | `showDirectoryPicker(id)` | Same corpus |
@@ -713,8 +842,10 @@ argument validation. Use the working implementation when selecting arguments:
 
 The web (its JS target) and the Apple hosts carry every command. The
 headless Linux host has no browser, clipboard, text selection, editor or dev
-menu: its `openURL`, `copyText`, `selectText`, `format` and `reload` are
-journaled as unsupported there, and `haptic` does nothing. On the web,
+menu: its `openURL`, `copyText`, `selectText`, `format`, `reload` and `close`
+are journaled as unsupported there, `haptic` does nothing, and `showNotification`
+is refused (`showNotification: refused: unavailable`). iOS closes no window
+either: its `close` is journaled as unsupported. On the web,
 `reload()` is the page's own reload, and `deliveryCheck` and
 `deliveryActivate` find nothing (a web build has no update store; the page is
 the newest root).
@@ -747,7 +878,14 @@ Syntax is only the first layer. In particular:
   the first's reply (LLP 1016 D5), so it is `analyze-send-twice`. Exclusive
   `if`/`match` arms, and sequential `if`s testing one unchanged name against
   different literals, are separate paths (LLP 1088 D8). The walk reads the root's
-  actions after tail calls are inlined, where a caller and its callee are one commit.
+  actions with every call expanded, where a caller and its callees are one commit.
+- Behind a call, a read of a state, mutation or router slot that another frame
+  (the action's own body, or another call) assigned earlier on the same path is
+  `analyze-call-stale-read` (LLP 1089 D3): the reader would see the starting
+  value, and neither body shows it. Pass the value as an argument, from a `let`
+  bound before the write for the old value or the assigned expression for the
+  new one. A derive, a resource and `pending(m)` read settled values and are not
+  refused; the same walk's exclusive paths are separate.
   `pending`/`failed` operate on declarations, not arbitrary values.
 - View roots cannot be conditional/repeated regions. Tags, attributes, and
   children must fit their lowering rules. Class application is not a CSS cascade.

@@ -1,0 +1,10 @@
+# Typed text lowercases with its context (a final sigma), and the search follows it.
+type typed ΣΟΦΟΣ PARIS
+# A start after the end, by code units: "09:00" < "09:30".
+type end 09:00
+tap back
+tap back
+tap flip
+tap grow
+# Quadratic `$\``/`$'` growth traps at MAX_STRING: the action is refused and `grown` is kept.
+tap explode

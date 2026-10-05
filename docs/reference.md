@@ -197,10 +197,24 @@ An app says what it opens with `file_handlers` in `app.json` — the W3C Web App
 Manifest's own key — and the macOS bake derives `CFBundleDocumentTypes` from
 it. Each MIME type it accepts must be one the Apple hosts map to a system type
 (`DOCUMENT_UTIS` in `scripts/app.mjs`; `application/octet-stream` is
-`public.data`); every build refuses another when it reads the manifest, the
-web's included. A path from the command line, from Finder, from ⌘O, or from a link inside
+`public.data`), which the app views (`Viewer`, rank `Alternate`), or the app's
+own format: a vendor or unregistered type (`application/vnd.studio.board+json`,
+`application/x-studio-board+json`) with its extensions (`[".board"]`), which the
+bake exports as `<app id>.<subtype>` (`UTExportedTypeDeclarations`, conforming to
+JSON for `+json`, XML for `+xml`, else data) with the app as its `Editor` and
+`Owner` (studio diary R13). Every build refuses any other type when it reads the
+manifest, the web's included. An extension another app already owns on a Mac
+(Freeform has `.board`) can still resolve to that app's type there; the open
+panels and drops take a declared extension whichever type the Mac gives it.
+A file chosen in the app's own picker (`showOpenFilePicker`,
+`showSaveFilePicker`) joins File ▸ Open Recent — a save once it is written —
+and becomes the window's document, as a routed one does. A path from the command line, from Finder, from ⌘O, or from a link inside
 a document all arrive at the same place: the app's `open-file` node
-(LLP 1033 D3). `exact uninstall <app>` takes both halves away.
+(LLP 1033 D3). One handed over at launch arrives before first pixel, before
+app storage is ready: a send its `change` makes waits for storage and then runs,
+rather than being refused (studio diary R14). When nothing takes the path, the
+host says why — no `open-file` field, or the `change` the app refused, and the
+refusal — on stderr and in the journal. `exact uninstall <app>` takes both halves away.
 
 Apple products live under the resolved app's target directory, scoped by
 canonical source directory, manifest id, destination, composition and trust
@@ -364,8 +378,10 @@ the filesystem's POSIX name (`'ENOENT'`, `'EEXIST'`, `'ENOTDIR'`, `'EISDIR'`,
 `'ENOTEMPTY'`, `'EBUSY'`), else `'failed'`. Branch on the code, never the
 message: `catch (e) { if (e.code === 'ENOENT') return empty; throw e; }`.
 
-A drive's app storage is a scratch store it names (`--storage <name>`) or none;
-an authored test gets a fresh one of its own. The driver's `state.storage` says
+A drive's app storage is a scratch store it names (`--storage <name>`) or none,
+kept between drives (on the web, Chrome's profile for the name and its page's
+origin; a Firefox or WebKit drive's is its own); an authored test gets a fresh
+one of its own, removed after it. The driver's `state.storage` says
 which (`{available: false, code: 'agent', message}` or `{available: true,
 store}`), and the web's journal says `storage refused (agent): …` the first time
 a refusal lands. A Rust module's storage request in such a drive is answered
@@ -383,11 +399,55 @@ behind them, to their end before the next answer starts; only its answer is
 dropped, so serializing storage through one promise chain composes with
 `refreshes` and fast-changing arguments (ledger F12, minesweeper F10).
 
+An answer that keeps coming (LLP 1016.000) is a `fetch` with `exactStream`,
+returned as the answer: `return fetch(url, { exactStream: (event) => value })`.
+The promise never settles; each message, and the end, is mapped now (the
+mapper cannot await) and commits as the resource's answer. An `http:`/`https:`
+URL is read as server-sent events under `net.fetch`; a `ws:`/`wss:` URL is a
+receive-only WebSocket under `net.websocket` alone (no frame is ever sent, so a
+feed that waits for a subscribe frame cannot be read). An event is
+`{type, data, lastEventId, coalesced}`; messages that arrive faster than they
+commit coalesce to the newest, counted in `coalesced`. The end is
+`{type: 'error', kind, message, status}`: `kind` is `Network` (the far side
+closed: `the socket closed (1000)`), `Refused` (outside the grants), `Aborted`,
+or `Response` with the status and body of a reply that was not an event stream.
+New arguments, `refresh` or the resource leaving the view close the stream;
+`state.pending` lists it until its first message, `state.streams` while it is
+open. The same holds on Hermes, the web's wasm host and the web build (the JS
+target), with one difference: on the web build the stream's `fetch` must be
+made while the answer is asked, before its first `await` (a later one is
+refused, saying so); on Hermes it may follow an `await`.
+
 This first browser implementation targets modest app stores: filesystem
 operations read the app's file records, and each SQLite mutation atomically
 saves the whole database file. Database files share the filesystem namespace,
 so closed databases can be copied or exported through `storage.fs`. SQLite integer results
 are `bigint`: convert them to a Contract-compatible value before returning.
+
+### Notifications
+
+`showNotification(title=…, body=…, tag=…, showTrigger=…)` posts a local
+notification; `closeNotification(tag)` takes one away, shown or still
+waiting. The names are the Notification API's (`showTrigger` is the
+Notification Triggers draft's member, given as the time in epoch
+milliseconds: the date now is `exactTime().epochAtZero + now()`). A newer notification
+with the same `tag` replaces the older. The app's grants must name
+`device.notifications purpose.notifications` (a strings key, LLP 1069.008;
+iOS shows its own fixed prompt text), or the command is refused. Permission
+is asked the first time; the outcome is a journal line
+(`showNotification: shown`, `scheduled`, `refused: denied`, …).
+
+| host | now | at `showTrigger` |
+| --- | --- | --- |
+| web | `new Notification(title, {body, tag})` | while the page is open: the web has no trigger that outlives the page |
+| macOS, iOS | `UNUserNotificationCenter`, shown with the app in front too | the system's, delivered with the app closed |
+| Linux | refused: `unavailable` | the same |
+
+Under the agent nothing reaches the system on any host: `state.notifications`
+lists what the app posted (`{title, body, tag, showTrigger}`, a tag replacing
+its older one, `closeNotification` removing it), so a drive reads a reminder
+without a permission prompt. Scheduling is one time per call: a daily
+reminder posts the next one when the app runs.
 
 ### Documents the person chose (`doc:`)
 

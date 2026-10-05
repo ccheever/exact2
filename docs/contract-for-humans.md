@@ -300,10 +300,16 @@ be read before its declaration. Separate branches may each declare their own
 local of the same name. Locals do not become application state.
 
 Actions support assignments to their own states and mutations, `let`, `send`,
-`refresh`, host commands, `if`/`else`, and option `match` blocks. They have no
-loops, `return`, `await`, or general action-to-action calls. Share calculations
-through `fn`; bind an action to an event to invoke it. The compiler infers the
-state an action writes. Do not write a `writes` clause.
+`refresh`, host commands, calls of actions, `if`/`else`, and option `match`
+blocks. They have no loops, `return`, or `await`. An action calls another action
+of its component, an `action` prop or an injected action as a statement:
+`arrive(path)` runs `arrive`'s statements right there, in the same commit, and
+they too read the state the action started with. So a helper does not see what
+its caller assigned before the call; the compiler refuses such a read and asks
+for the value to be passed (`arrive(next)`). A name that is a host command, such
+as `focus`, stays the command. A call returns nothing: share calculations through
+`fn`. The compiler infers the state an action writes, through its calls. Do not
+write a `writes` clause.
 
 ## Expressions and functions
 
@@ -794,9 +800,10 @@ bun exact.mjs test web                    # each test starts with an empty store
 bun exact.mjs agent web --storage demo "type title Dune" "tap add" "clock settle" tree
 ```
 
-On the web, every agent drive starts a new browser profile, so a scratch store
-lasts one drive. To see the list survive a restart, add a book in the dev loop
-(`bun exact.mjs web`) and reload the page, or run the app on macOS.
+A scratch store is kept between drives on every host, so a second drive with the
+same `--storage demo` opens the list the first one saved: on the web, Chrome's
+profile for that name, served at one origin (Firefox and WebKit drives start
+fresh). A test's `reload` restarts the app on its store within one drive.
 
 **Rust instead.** A data module can be a Rust crate rather than `app.ts`:
 `bun exact.mjs contract rust app.contract -o shapes.rs` generates the shapes as
@@ -849,7 +856,13 @@ and wrapping; color and gradients; transforms, shadows, filters, and animation;
 and SVG presentation properties. The actual declaration inventory is
 [`kernel/tables/schema.json`](../kernel/tables/schema.json), with authored names
 and shorthands resolved by [`tags.rs`](../contract/lower/src/tags.rs). Use those
-instead of assuming every CSS property or unit exists.
+instead of assuming every CSS property or unit exists. A value is held to one
+grammar on every host, a computed one too: `background-image` takes
+`linear-`, `radial-` and `conic-gradient()` with percentage stops, so a
+template naming `repeating-linear-gradient(` or `url(` fails the build, and a
+computed value that is refused at run time is dropped and journaled on the web
+as on a Mac (`invalid background-image value …; unset`), never painted by the
+browser alone.
 
 Bound scroll containers. A typical full-height column gives its scroller
 `flex=1 min-height=0`; an isolated scroller can use a numeric height. A scrolling
@@ -861,7 +874,9 @@ does not name a control. Keep accessible labels separate from driver `testId`s.
 They mean on every host what they mean in a browser: `aria-hidden` takes a
 subtree off the tree and out of its ancestors' names; `role="checkbox"`,
 `"radio"` or `"switch"` with `aria-checked` is that control, `role="img"` with a
-label an image; `aria-describedby` (the ids of the elements whose text describes
+label an image; `aria-labelledby` (the ids of the elements whose text names this
+one, as a radiogroup names itself by its visible heading) wins over `aria-label`;
+`aria-describedby` (the ids of the elements whose text describes
 this one) and `aria-description` are its description. `aria-invalid`,
 `aria-required` and `aria-haspopup` take their ARIA words or a bool; UIKit has
 no property for those three, so iOS exposes none of them.
@@ -923,7 +938,10 @@ A file `input` needs a literal `accept`; types other than images and video must
 be listed in `app.json`'s `file_handlers`. `showPicker` delivers a `list<Picked>`
 to the addressed element's `change` handler, while `showOpenFilePicker`,
 `showDirectoryPicker` and `showSaveFilePicker` deliver `doc:` handle strings;
-cancellation uses `cancel`. File content, durable storage, and permissions belong
+cancellation uses `cancel`. Where a browser has no open pickers (Firefox,
+Safari) they refuse with `cancel` too: read `exactPage().canOpenFiles` to tell
+that from a person's dismissal and offer an import instead. A save there still
+works: what the app writes to its handle downloads under the suggested name. File content, durable storage, and permissions belong
 in the data module. See [file-picker syntax](../contract/corpus/file-pickers.contract).
 
 ### Choosing a native button

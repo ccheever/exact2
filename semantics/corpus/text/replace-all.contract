@@ -1,0 +1,36 @@
+// `replaceAll` is JavaScript's with a string pattern (LLP 1088 D2): every
+// match left to right, none overlapping; `GetSubstitution`'s `$$`, `$&`,
+// `` $` `` and `$'`, `$1` literal; an empty pattern at every code-unit
+// boundary, splitting a pair whose halves rejoin when nothing goes between.
+component App
+  state expr = "1+2+3"
+  derive dashes = replaceAll(expr, "+", "-")
+  derive overlap = replaceAll("aaa", "aa", "b")
+  derive around = replaceAll("abc", "", "-")
+  derive rejoined = replaceAll("😀😀", "", "")
+  derive split = replaceAll("😀", "", "-")
+  derive subst = replaceAll("abc", "b", "[$&|$`|$'|$$|$1|$]")
+  derive before = replaceAll("abc", "", "$`")
+  derive missing = replaceAll("abc", "d", "x")
+  derive empty = replaceAll("", "", " ")
+  action flip
+    expr = replaceAll(expr, "+", "*")
+  view
+    column
+      text expr testId="expr"
+      button "Flip" press=flip testId="flip"
+
+test "initial"
+  expect state dashes == "1-2-3"
+  expect state overlap == "ba"
+  expect state around == "-a-b-c-"
+  expect state rejoined == "😀😀"
+  expect state split == "-�-�-"
+  expect state subst == "a[b|a|c|$|$1|$]c"
+  expect state before == "aababcabc"
+  expect state missing == "abc"
+  expect state empty == " "
+
+test "flip"
+  tap "flip"
+  expect text "expr" == "1*2*3"

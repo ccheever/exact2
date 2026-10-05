@@ -474,16 +474,17 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// `{"op":"title","title":…}`: the active head's title, `null` when no
-    /// head sets one (LLP 1048.003 D1). The app owning the window or scene
-    /// shows it; an embedded view never claims that chrome.
-    pub fn title(&mut self, title: Option<&str>) {
+    /// `{"op":"title","title":…,"edited":…}`: the active head's title,
+    /// `null` when no head sets one (LLP 1048.003 D1), and whether it says
+    /// the document is `edited` (LLP 1069.010 D6). The app owning the window
+    /// or scene shows them; an embedded view never claims that chrome.
+    pub fn title(&mut self, title: Option<&str>, edited: bool) {
         let mut s = String::from("{\"op\":\"title\",\"title\":");
         match title {
             Some(title) => quote(title, &mut s),
             None => s.push_str("null"),
         }
-        s.push('}');
+        let _ = write!(s, ",\"edited\":{edited}}}");
         self.ops.push(s);
     }
 

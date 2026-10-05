@@ -117,6 +117,18 @@ fn format_is_a_call_of_format_date_or_format_number_anywhere() {
     assert!(wrapped.has(Capability::Format));
 }
 
+/// LLP 1088 D2: `toLowerCase` reaches the case tables `text-transform`
+/// links, so a call links them; `slice` and `replaceAll` need nothing.
+#[test]
+fn to_lower_case_links_the_case_tables_and_slice_links_nothing() {
+    let cut = used(
+        "component A\n  state s = \"Ab\"\n  view\n    text replaceAll(slice(s, 1), \"b\", \"c\")\n",
+    );
+    assert_eq!(cut, Uses::NONE);
+    let lower = used("component A\n  state s = \"Ab\"\n  view\n    text toLowerCase(s)\n");
+    assert_eq!(lower.to_string(), "text_transform");
+}
+
 #[test]
 fn materials_and_backdrop_filter_are_linked_by_use() {
     // @ref LLP 1053.000 §2 — the web core carries neither unless a plan names one.
@@ -249,6 +261,25 @@ fn share_is_a_plan_that_runs_the_command() {
         "component A\n  action send\n    share(text=\"hello\")\n  view\n    button \"Share\" press=send\n",
     );
     assert!(shares.has(Capability::Share));
+}
+
+#[test]
+fn notifications_are_a_plan_that_runs_show_or_close_notification() {
+    // Linked by use on the web (QUEUE.md's standing rule: the web cores' size).
+    assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Notifications));
+    for call in [
+        "showNotification(title=\"Stretch\")",
+        "closeNotification(\"stretch\")",
+    ] {
+        let notifies = used(&format!(
+            "component A\n  action go\n    {call}\n  view\n    button \"Go\" press=go\n"
+        ));
+        assert!(notifies.has(Capability::Notifications) && !notifies.has(Capability::Share));
+    }
+    assert_eq!(
+        Uses::NONE.with(Capability::Notifications).to_string(),
+        "notifications"
+    );
 }
 
 #[test]

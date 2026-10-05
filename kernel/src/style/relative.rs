@@ -96,6 +96,7 @@ impl Relative {
 pub fn admits_relative(id: StyleId) -> bool {
     matches!(id.codec(), StyleCodec::Dimension | StyleCodec::LineHeight)
         || id == StyleId::LetterSpacing
+        || id == StyleId::TextIndent
         || nonnegative(id)
 }
 

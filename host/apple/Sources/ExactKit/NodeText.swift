@@ -124,6 +124,11 @@ extension NodeView {
                         overflowWrap: style["overflow_wrap"]?.string == "anywhere" ? 2 : style["overflow_wrap"]?.string == "break-word" ? 1 : 0, direction: rtl ? 1 : 0, whiteSpace: whiteSpace, strut: textRun(""))
         spec.ellipsis = lineClamp == 0 && clips && style["text_overflow"]?.string == "ellipsis"
         spec.source = source
+        spec.textIndent = CGFloat(Float(number("text_indent")))
+        spec.hyphens = ["none": 1, "auto": 2][style["hyphens"]?.string ?? ""] ?? 0
+        // The kernel's measurer hyphenates by the same document language.
+        if spec.hyphens == 2 { spec.language = presenter?.documentLanguage ?? "" }
+        spec.hyphenateAuto()
         // One shadow over the paragraph when its runs agree (LLP 1077 D3).
         spec.gatherShadows()
         cachedTextSpec = spec

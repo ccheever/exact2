@@ -213,6 +213,8 @@ final class Runtime {
     func focus(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 4, 0, now)) } }
     func blur(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 5, 0, now)) } }
     func contextmenu(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 10, 0, now)) } }
+    /// DOM's `beforeunload` (36) at a node that hears it (studio diary R17).
+    func beforeunload(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 36, 0, now)) } }
     func holdBegin(_ view: UInt32, property: UInt32, now: Double) -> (NativeHold?, Batch) {
         return on(busy: (nil, Runtime.busy)) {
             let batch = read(exact_hold_begin(rt, view, property, now))
@@ -340,9 +342,16 @@ final class Runtime {
     func pointer(_ view: UInt32, _ kind: PointerKind, _ sample: PointerSample, now: Double) -> Batch {
         on { read(exact_dispatch(rt, view, kind.rawValue, write(sample.line), now)) }
     }
-    /// The clipboard's `copy` (32), `cut` (33) or `paste` (34) with its plain text.
+    /// The clipboard's `copy` (32), `cut` (33) or `paste` (34) with its
+    /// plain text; a `contextmenu` (10) with its pointer line, a `wheel`
+    /// (37) or a `drop` (38) with theirs (`Event::of_host_kind`).
     func clipboard(_ view: UInt32, _ kind: UInt32, _ text: String, now: Double) -> Batch {
         on { read(exact_dispatch(rt, view, kind, write(text), now)) }
+    }
+    /// `selectionchange` (35): a `text`'s part of the selection, its source
+    /// UTF-16 offsets and then its text.
+    func selectionChange(_ view: UInt32, _ text: String, start: Int, end: Int, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, 35, write("\(start),\(end),\(text)"), now)) }
     }
     func submit(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 7, 0, now)) } }
     func media(_ view: UInt32, event: String, payload: String, now: Double) -> Batch {

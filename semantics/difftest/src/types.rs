@@ -93,7 +93,8 @@ fn walk_stmts(ss: &mut [Stmt], f: &mut dyn FnMut(&mut Expr, Role) -> bool) -> bo
     for s in ss {
         let stop = match s {
             Stmt::Let { expr, .. } | Stmt::Assign { expr, .. } => walk_expr(expr, Role::Plain, f),
-            Stmt::Command { args, .. } | Stmt::Send { args, .. } => {
+            // A call is expansion's, never an authored tree's (LLP 1089).
+            Stmt::Command { args, .. } | Stmt::Send { args, .. } | Stmt::Call { args, .. } => {
                 args.iter_mut().any(|a| walk_expr(a, Role::Plain, f))
             }
             Stmt::Refresh { .. } => false,

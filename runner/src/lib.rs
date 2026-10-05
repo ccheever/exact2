@@ -12,6 +12,8 @@
 //! - [`vm`] — the expression VM: a stack machine over [`Value`]s, one
 //!   dispatch loop, typed traps, never UB.
 //! - [`stdlib`] — the roster's implementations, once.
+//! - [`strings`] — strings as JavaScript has them: order, `slice` and
+//!   `replaceAll` over UTF-16 code units.
 //! - [`compare`] — value identity, substitution and `==`, once.
 //! - [`held`] — a settled resource's value; a compiled one no one else
 //!   holds is released to the plan's bytes.
@@ -53,6 +55,7 @@ pub mod grants;
 pub mod head;
 pub mod held;
 pub mod instance;
+pub mod notify;
 pub mod page;
 pub mod perf;
 pub mod request;
@@ -65,6 +68,7 @@ pub mod machine;
 pub mod share;
 pub mod stdlib;
 pub mod store;
+pub mod strings;
 pub mod surface_record;
 pub mod time;
 pub mod uses;
@@ -91,11 +95,11 @@ pub use request::{
 pub use runner::{
     canvas_engine, routing, virtual_frame, Advanced, Announce, AuthLinks, CanvasEngine, CanvasLink,
     CanvasList, Carried, Checkpoint, Command, ControlValue, DataError, DataSource, DeviceLinks,
-    DrawReply, DrawRequest, Drawn, Event, FormatLink, Geometry, GeometryLink, Hold, HoldAnswer,
-    InFlight, Interrupt, KeyModifiers, Limits, ListTextPosition, Native, NativeCall, NativeHandler,
-    Picked, PickerLinks, PickerRequest, PointerEvent, RouterChange, RouterLink, Routing, Runner,
-    RunnerError, RunnerLinks, ScrollEvent, StreamCount, SurfaceAnswer, Target, Timed, JOURNAL_RING,
-    MAX_CLOCK_MS, PICKED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
+    DrawReply, DrawRequest, Drawn, DropEvent, Event, FormatLink, Geometry, GeometryLink, Hold,
+    HoldAnswer, InFlight, Interrupt, KeyModifiers, Limits, ListTextPosition, Native, NativeCall,
+    NativeHandler, Picked, PickerLinks, PickerRequest, PointerEvent, RouterChange, RouterLink,
+    Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, StreamCount, SurfaceAnswer, Target,
+    Timed, WheelEvent, JOURNAL_RING, MAX_CLOCK_MS, PICKED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};

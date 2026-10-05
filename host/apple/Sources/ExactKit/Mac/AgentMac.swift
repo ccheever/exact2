@@ -524,6 +524,12 @@ extension Agent {
             // it leaves behind.
             guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
             let gesture = req["gesture"] as? Bool == true
+            // The modifiers held (studio diary R3: ⌘-scroll; a pinch is Control's).
+            var flags: NSEvent.ModifierFlags = []
+            for name in (req["modifiers"] as? String ?? "").split(separator: "+") {
+                guard let flag = ["Shift": NSEvent.ModifierFlags.shift, "Control": .control, "Alt": .option, "Meta": .command][String(name)] else { return ["error": "tap: unknown modifier \(name)"] }
+                flags.insert(flag)
+            }
             let whole = { (d: Double) -> Int32 in Int32(min(max(d.rounded(), -1_000_000), 1_000_000)) }
             let screen = win.convertPoint(toScreen: p)
             let location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
@@ -540,6 +546,7 @@ extension Agent {
             for (phase, dx, dy) in steps {
                 guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -whole(dy), wheel2: -whole(dx), wheel3: 0) else { return ["error": "no wheel event"] }
                 cg.location = location
+                cg.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
                 if gesture {
                     // A trackpad's deltas are continuous; without this the
                     // event reads as a wheel's notches and the phase is moot.
@@ -578,6 +585,15 @@ extension Agent {
             return ["tapped": Int(v.id), "pinch": scale, "at": at, "delivery": "platform"]
         }
         if v.kind == "iframe" { return session.webviews.tap(v, request: req, at: at) }
+        // Files dragged in from Finder (studio diary R19): the drag session
+        // AppKit would run, without a drag — each path as a dropped file's URL
+        // at the point, through the same filter, minting and event.
+        if let paths = req["drop"] as? [String] {
+            guard let node = NodeView.dropTarget(win.contentView?.hitTest(p) ?? v) else { return ["error": "view \(v.id) takes no drop: nothing under it declares `drop`"] }
+            guard node.drop(paths.map { URL(fileURLWithPath: $0) }, at: p) else { return ["error": "drop: refused: no file of a type this app declares"] }
+            session.presenter.settlePump()
+            return ["tapped": Int(node.id), "at": at, "drop": paths.count, "delivery": "presenter"]
+        }
         // A right click (minesweeper F8): the right button down and up at the
         // point through the window, as a mouse's are routed; `rightMouseUp`
         // answers it on the node with a `contextmenu` handler.

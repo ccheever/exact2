@@ -1,0 +1,22 @@
+// A trap in a callee refuses the whole commit (LLP 1089 D2): the caller's
+// writes, before and after the call, do not land.
+component App
+  state a = 1
+  state z = 0
+  state log = ""
+  action divide
+    z = 1 / z
+  action go
+    a = 2
+    log = "before"
+    divide()
+    log = "after"
+  view
+    column
+      text `${a} ${z} ${log}` testId="r"
+      button "go" press=go testId="go"
+
+test "nothing lands"
+  tap "go"
+  expect state a == 1
+  expect text "r" == "1 0 "

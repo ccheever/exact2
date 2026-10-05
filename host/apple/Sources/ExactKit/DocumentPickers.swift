@@ -65,7 +65,7 @@ extension ExactSession {
             return
         }
         guard let doc = mintDocument(url) else { log("open-file: refused: \(url.lastPathComponent) is not a file"); return }
-        if !change(testId: "open-file", value: doc) { log("open-file: refused: this app has no `open-file` field") }
+        if !change(testId: "open-file", value: doc) { log("open-file: refused: \(changeRefusal ?? "nothing took it")") }
     }
 }
 #endif
@@ -105,6 +105,12 @@ extension Picker {
         let docs = urls.compactMap { session.mintDocument($0) }
         guard !docs.isEmpty else { session.log("\(name): refused: nothing to open"); documentCancelled(view, name); return }
         session.log("\(name): chosen")
+        #if os(macOS)
+        // A file chosen in the app is a document opened, as one Finder or
+        // ⌘O brings is (studio diary R18): it joins Open Recent, and the
+        // window that shows it is no longer an empty one.
+        ExactDocuments.chosen(urls, in: session)
+        #endif
         session.apply(session.runtime.change(view, docs.joined(separator: "\n"), now: session.now()))
     }
 
@@ -115,10 +121,17 @@ extension Picker {
 
     /// The manifest's `file_handlers`, as the bake wrote them into
     /// `CFBundleDocumentTypes`: the only types a picker offers (D2).
-    static var declaredTypes: [UTType] {
+    static var declaredTypes: [UTType] { documentTypes.filter { $0 != .folder } }
+
+    /// Every declared type, and the type this device gives each declared
+    /// extension: an app's own format whose extension another app's type
+    /// already has (studio diary R13: Freeform has `.board`) is still offered,
+    /// whichever type a file of it resolves to here.
+    static var documentTypes: [UTType] {
         let declarations = ExactEnv.appMetadata["CFBundleDocumentTypes"] as? [[String: Any]] ?? []
-        return declarations.flatMap { $0["LSItemContentTypes"] as? [String] ?? [] }
-            .compactMap { UTType($0) }.filter { $0 != .folder }
+        let declared = declarations.flatMap { $0["LSItemContentTypes"] as? [String] ?? [] }.compactMap { UTType($0) }
+        let byExtension = declarations.flatMap { $0["CFBundleTypeExtensions"] as? [String] ?? [] }.compactMap { UTType(filenameExtension: $0) }
+        return (declared + byExtension).reduce(into: []) { types, t in if !types.contains(t) { types.append(t) } }
     }
 }
 

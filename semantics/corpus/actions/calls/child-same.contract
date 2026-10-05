@@ -1,0 +1,28 @@
+// A child calls its own action (LLP 1089 D7): expanded in the child's scope
+// before lifting, so caller and callee read the same instance's state and
+// props.
+component App
+  view
+    column
+      Counter(label="x")
+      Counter(label="y")
+
+component Counter
+  props
+    label: string
+  state taps = 0
+  state last = ""
+  action count(by: number)
+    taps = taps + by
+  action tap
+    count(2)
+    last = label
+  view
+    column
+      button "tap" press=tap testId=`tap-${label}`
+      text `${label} ${taps} ${last}` testId=`out-${label}`
+
+test "own action"
+  tap "tap-y"
+  expect text "out-y" == "y 2 y"
+  expect text "out-x" == "x 0 "

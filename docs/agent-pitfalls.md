@@ -81,6 +81,13 @@ guide's rules don't make obvious.
   at its natural width (`flex-grow=1` on the part that should stretch), not
   `width="100%"`. (Signal Clone, build 15.)
 
+- **A data answer past 16 MiB fails only on the JS target.** A 64 MiB string from
+  a Rust source loaded on the wasm web host and on Linux, and on the JS target
+  the resource failed (`Rust module rejected the call`). Cause: the JS target's
+  Rust data seam carries at most `MAX_HOST_WORK_BYTES` (16 MiB) a message; the
+  runner's own data source has no such cap. Keep an answer under 16 MiB, or page
+  it. (LLP 1090 conformance plan, `host/web-js/conformance/budget.contract`.)
+
 ## Native presentation and navigation (iOS)
 
 - **Edge-swipe back does nothing.** Cause: the pop gesture presses the control named
@@ -106,13 +113,37 @@ guide's rules don't make obvious.
 - **VoiceOver reads the screen behind a full-screen overlay.** A call screen
   or menu drawn as a root child above the bars hides the chat list from sight,
   not from VoiceOver: it still reached the rows and the native tab bar behind.
-  Fix: `role="dialog" aria-modal=true` (or `role="alertdialog"`) on the
-  overlay's root (LLP 1080.003); on iOS its siblings, the tab container and its
-  bars among them, are then skipped while it shows. (Signal Clone, build 13.)
+  Fix: `role="dialog" aria-modal=true` on the overlay's root (LLP 1080.003); on
+  iOS its siblings, the tab container and its bars among them, are then skipped
+  while it shows. (Signal Clone, build 13.) Not `role="alertdialog"` on content
+  you lay out: see the next entry.
+- **`role="alertdialog"` refuses a dialog laid out in a `column`.**
+  `lower-alertdialog: … a `column` row is not text, an action or the cancel`.
+  Cause: an `alertdialog` popover or `dialog` is a native confirmation (LLP
+  1021: iOS's sheet, macOS's menu), whose rows can only be text, buttons that
+  close it, and one cancel. Fix: give a modal you lay out yourself `role="dialog"
+  aria-modal=true`; keep `alertdialog` for a flat list of text and buttons.
+  (x2apps onboarding's Delete account?, 2026-10-04.)
+- **`tabIndex` on a module tag is refused.** `` `paint-surface` has no attribute
+  `tabIndex`; `tabIndex` is spelled `tabindex` here ``. Cause: HTML's
+  `tabindex` is now an attribute on every element and module tag's box (LLP
+  1088 D7.3), with no DOM-property alias. Fix: write `tabindex` (x2apps paint,
+  2026-10-04).
 - **With `viewport-fit="cover"`, route content goes under the native bar.** Cause:
   the bar's cover is added to the route's padding, but a cover-fit root has no top
   safe area. Fix: put `env(safe-area-inset-top)` on the route column, not on each
   authored header. (Signal Clone, build 5.)
+
+## Actions
+
+- **A helper action does not see what its caller just assigned.** `sel = next`
+  then `follow()`, with `follow` reading `sel`, would read the old `sel`: a call
+  is its callee's statements in the caller's one commit, and every statement
+  reads the state the action started with (LLP 1089 D2). The compiler refuses the
+  read (`analyze-call-stale-read`), naming both lines. Fix: pass the value the
+  helper should see, `follow(next)`, or a `let` bound before the assignment for
+  the old one. (Spreadsheet F21 and Files F27 diaries, where a copied block was
+  the workaround.)
 
 ## Input
 
@@ -159,6 +190,16 @@ guide's rules don't make obvious.
   whose `code` is `'bake'` and answer a default: `catch (e) { if (e.code === 'bake')
   return []; throw e; }` ([the reference](reference.md#what-a-data-module-can-use)).
   (Authoring bench, LLP 1087, t2-todo on iOS, 2026-10-04.)
+
+- **There is no `swipeleft` for swipe-to-delete.** A row built from `pan`,
+  `panrelease` and `translate` reveals its Delete button, but by hand on every host.
+  Cause: `swiperight` is the reply gesture (a message bubble), not a direction pair;
+  the row whose leading or trailing actions a swipe reveals is a horizontal `scroll`
+  with `scroll-snap-type="x mandatory"`, its content and action buttons as snap
+  children, naming them with `swipeContent`, `swipeLeading` and `swipeTrailing` ids,
+  which the web scrolls and iOS turns into UIKit's own swipe actions. Fix: copy
+  `apps/messages/app.contract`'s inbox row (`thread-swipe-…`). (Ledger2 DIARY, "Needed:
+  swipe gesture", about 15 minutes, 2026-10-04.)
 
 ## Driving and testing
 

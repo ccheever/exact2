@@ -2,9 +2,9 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, commitGuestOrigin, guestMessageAuthorized, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold, animationClocks } from "./navigation.js";
+import { grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, commitGuestOrigin, guestMessageAuthorized, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
-let httpModule, pickerModule, documentsModule; // the file picker (LLP 1069.002) and documents (LLP 1069.010), loaded on first use
+let httpModule, pickerModule, documentsModule, notifyModule; // the file picker (LLP 1069.002), documents (LLP 1069.010) and notifications, loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
 // An `app:/` source (D7): the app's own file, as the picker glue's object URL once it resolves; the old picture stays meanwhile, as for any `src`. A `data:` source past its bound shows nothing, as on every host (LLP 1011 §2; exact_raster::MAX_DATA_URL_BYTES).
 const DATA_LIMIT = 1024 * 1024; function appSource(el, name, value) { const p = picker().then(m => m.appURL(value)).then(url => { if (el[`exactApp-${name}`] === value && el.getAttribute(name) !== url) url ? el.setAttribute(name, url) : el.removeAttribute(name); }); track(p.catch(() => {})); return el.getAttribute(name) ?? ""; }
@@ -438,7 +438,7 @@ function applyProps(el, set, clear) {
       el.authoredInert = value === "true"; el.inert = el.authoredInert;
     } else if (name === "autofocus") { el.exactAutofocus = value === "true"; if (!el.exactAutofocus) el.removeAttribute(name);
     } else if (name === "disabled" || name === "readonly" || name === "multiple" || (el instanceof HTMLMediaElement && ["autoplay","controls","loop","muted","playsinline","disablepictureinpicture","disableremoteplayback"].includes(name))) {
-      if (value === "true") { el.setAttribute(name, ""); if (name === "disabled" && el === document.activeElement) el.blur(); } else el.removeAttribute(name); // a focused node that is disabled loses the focus now, not at the browser's next frame (HTML focus fixup)
+      if (value === "true") { el.setAttribute(name, ""); if (name === "disabled" && el === document.activeElement && el.matches(":disabled")) el.blur(); } else el.removeAttribute(name); // a focused control that is disabled loses the focus now, not at the browser's next frame (HTML focus fixup); a box keeps it, as `disabled` means nothing on a div
     } else {
       const app = (name === "src" || name === "poster") && (el[`exactApp-${name}`] = value.startsWith("app:/") ? value : null), v = app ? appSource(el, name, value) : name === "src" && value.startsWith("data:") && value.length > DATA_LIMIT ? (log(`image refused: a data: source is over ${DATA_LIMIT} bytes`), "") : (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
       if (el instanceof HTMLIFrameElement && name === "src" && !same) iframeLoading.set(el, true);
@@ -535,15 +535,14 @@ function attach(el, id, handlers) {
       motion.attachHeightDrag(el, id, on);
     } else if (kind === "transformrelease") { motion.attachTransformDrag(el,id,on);
     } else if ((kind === "pointerdown" || kind === "pointerup" || kind === "pointermove") && !el.exactPointer) { let p; el.exactPointer = true; const own = () => p ??= inputHandlers?.pointer(el, on, (k, r) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, k, writeIn(r), now())); }); on("pointerdown", e => own()?.(e)); on("pointerover", () => own()); // @ref LLP 1005 §3, LLP 1056 §3: DOM's own pointer down/up/move (input-glue `pointer`)
+    } else if (kind === "selectionchange") { // its part of the page's selection (navigation.js `onSelection`): kind 35, "start,end,text"
+      onSelection(el, (text, a, b) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 35, writeIn(`${a},${b},${text}`), now())); });
     } else if (kind === "copy" || kind === "cut" || kind === "paste") { // the clipboard's events at the focused node, the nearest handler's (spreadsheet F4); a field's own paste proceeds
       on(kind, e => { e.stopPropagation(); send(wasm.exact_dispatch(id, 32 + ["copy", "cut", "paste"].indexOf(kind), writeIn(e.clipboardData?.getData("text/plain") ?? ""), now())); });
-    } else if (kind === "contextmenu" || kind === "dblclick") {
-      on(kind, (e) => {
-        if (el.matches(":disabled") || inertAncestor(el)) return;
-        if (e.target.closest("input,textarea,[contenteditable]")) return;
-        e.preventDefault(); e.stopPropagation();
-        send(wasm.exact_dispatch(id, kind === "contextmenu" ? 10 : 11, 0, now()));
-      });
+    } else if (["contextmenu", "dblclick", "wheel", "drop", "beforeunload"].includes(kind)) { // with their records (input-glue `mouse`; studio diary R22, R3, R19, R17); a running wheel or beforeunload is the event its `preventDefault()` prevents
+      const go = (k, e) => inputHandlers?.mouse(el, k, e, (n, line) => { if (views.get(id) !== el || retiredViews.has(el)) return; const outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, n, writeIn(line), now())); } finally { keyEvent = outer; } });
+      if (kind === "beforeunload") addEventListener(kind, e => go(kind, e)); else on(kind, e => go(kind, e));
+      if (kind === "drop") on("dragover", e => go("dragover", e));
     } else if ((kind === "change" || kind === "cancel") && el.type === "file") { // a picker's files, or its dismissal (LLP 1069.002 D2, D3)
       on(kind, () => { const p = picker().then(m => kind === "change" ? m.change(el, id) : m.cancel(id)); inflight.add(p); p.finally(() => inflight.delete(p)); });
     } else if ((kind === "input" || kind === "change") && el.type === "checkbox") {
@@ -764,7 +763,7 @@ function apply(batch) {
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; } else if (op.name === "haptic") navigator.vibrate?.(op.args?.[0] === "selection" ? 5 : 12); // LLP 1077 D14
         else if (op.name === "focus" || op.name === "selectText" || op.name === "blur" || op.name === "scrollIntoView") focusCommands.push({ name: op.name, args: op.args }); // an element's scrollIntoView (a list row's is the runner's)
-        else if (op.name === "preventDefault") keyEvent?.preventDefault();
+        else if (op.name === "preventDefault") { keyEvent?.preventDefault(); if (keyEvent?.type === "beforeunload") keyEvent.returnValue = ""; } else if (op.name === "close") window.close(); // studio diary R17
         else if (op.name === "stopPropagation") { if (keyEvent) keyEvent.exactStopped = true; } // no ancestor's `key` handler hears it; its default still happens
         else if (op.name === "postMessage") { // the inverse of `message=`: text into the named surface, every one in order
           const text = String(op.args?.[0] ?? ""), name = String(op.args?.[1] ?? ""), at = now();
@@ -807,7 +806,7 @@ function apply(batch) {
         else if (op.name === "saveFile") { const [id, from, suggestedName] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: "saveFile", id, from, suggestedName, agent: agentMode }))))), chosen = r.present && typeof showSaveFilePicker === "function" ? showSaveFilePicker({ suggestedName: r.suggestedName }) : null; // LLP 1069.010 D3: the runner rules; the save picker starts inside the press's activation, else a download
           if (r.present || r.view != null) { chosen?.catch(() => {}); const p = picker().then(m => m.save(r, chosen)); inflight.add(p); p.finally(() => inflight.delete(p)); } }
         else if (/^show(OpenFile|Directory|SaveFile)Picker$/.test(op.name)) { // LLP 1069.010 D2: the runner rules; a browser without the picker refuses
-          const [id, second] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: op.name, id, multiple: second === true, suggestedName: typeof second === "string" ? second : undefined, agent: agentMode, available: typeof globalThis[op.name] === "function" }))))); if (r.present || r.view != null) { const p = documentsGlue().then(m => m.show(r, op.name)); inflight.add(p); p.finally(() => inflight.delete(p)); } }
+          const [id, second] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: op.name, id, multiple: second === true, suggestedName: typeof second === "string" ? second : undefined, agent: agentMode, available: op.name === "showSaveFilePicker" || typeof globalThis[op.name] === "function" }))))); if (r.present || r.view != null) { const p = documentsGlue().then(m => m.show(r, op.name)); inflight.add(p); p.finally(() => inflight.delete(p)); } }
         else if (op.name === "share") {
           // LLP 1069.003: the runner rules (refused, or held for the agent, D6);
           // else the browser's sheet, started inside the input dispatch while
@@ -817,6 +816,9 @@ function apply(batch) {
           else if (ruling.present) navigator.share(Object.fromEntries(Object.entries({ title, text, url }).filter(([, v]) => v != null)))
             .then(() => "share: shared", e => e?.name === "AbortError" ? "share: dismissed" : `share: refused: ${e?.name ?? e}`).then(log);
         }
+        else if (op.name === "showNotification" || op.name === "closeNotification") { // the runner rules (refused, or listed for the agent: runner/src/notify.rs); notify-glue.js posts
+          const [title, body, tag, showTrigger] = op.args ?? [], close = op.name === "closeNotification", ruling = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify(close ? { command: op.name, tag: title, agent: agentMode } : { command: op.name, title, body, tag, showTrigger, agent: agentMode })))));
+          if (ruling.present) (notifyModule ??= loadAfterPaint('./notify-glue.js', 'notifications')).then(n => close ? n.close(title) : n.show({ title, body, tag, showTrigger }, log)); }
         else console.warn(`exact: unknown command ${op.name}`);
         break;
       }
@@ -1218,8 +1220,10 @@ function tagged(reply) {
 // awaits it.
 async function clock(request) {
   // The end of an input (LLP 1012 §2): the `then`s of the answers it settled
-  // land, the clock unmoved and no timer fired (Runner::land_then).
-  if (request.land) { const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(agentClock, 2)))); return batch.error ? { error: `clock: ${batch.error}`, clock: agentClock } : { clock: agentClock }; }
+  // land, the clock unmoved and no timer fired (Runner::land_then). `clock data` (web-js agent.js) first
+  // waits for activation and every request in flight, landing until a landing sends nothing (a test's first step).
+  if (request.land || request.data) { if (request.data) await moduleReady; const deadline = performance.now() + SETTLE_DEADLINE_MS, unsettled = { clock: agentClock, settled: false, reason: "requests" };
+    for (let round = 0; round < 16; round++) { if (request.data && !(await waitForInflight(deadline))) return unsettled; const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(agentClock, 2)))); if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock }; if (!request.data) return { clock: agentClock }; if (!waiting().length) return { clock: agentClock, settled: true }; } return unsettled; }
   const settle = !!request.settle; if (imageHold) await (await imageHold).ready(); // an animated image starts on the clock it lands at
   const deadline = performance.now() + SETTLE_DEADLINE_MS;
   let world = {};
@@ -1469,7 +1473,7 @@ async function main() {
     loadAfterPaint('./input-glue.js', 'createInputHandlers').then(create => {
       inputHandlers = create({ root, views, retiredViews, agentMode, ready: () => inputReady, inertAncestor,
         dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())),
-        release: (id, payload) => send(wasm.exact_dispatch(id, 28, writeIn(payload), now())), velocity: motion.pan, log });
+        release: (id, payload) => send(wasm.exact_dispatch(id, 28, writeIn(payload), now())), velocity: motion.pan, log, documents: () => documentsGlue() });
     }).catch(console.error);
     try {
       const module = await (prepared ?? realm());

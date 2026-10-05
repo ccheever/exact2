@@ -20,7 +20,7 @@ import { runInNewContext } from 'node:vm';
 import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, readDevGeneration, retainDevGeneration, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp, jsonLines } from './agent.mjs';
 import { verifyBakeFiles, pendingBuildInputs } from './app.mjs';
-import { newerThan, notBuildInput } from './agent-launch.mjs';
+import { driveStore, newerThan, notBuildInput, webStore } from './agent-launch.mjs';
 import { storeBase, sweepTestStores } from './agent-test.mjs';
 import { copyAppleStaticTrees } from '../host/apple/build.mjs';
 import { developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/devices.mjs';
@@ -640,6 +640,12 @@ for (const [name, html, files, expectCode, expect] of [
   result('authored-test stores: a dead run\'s are swept, a live run\'s and other names stay',
     JSON.stringify(left)===JSON.stringify(['mine.r999999-ab12.t0','test','test.r'+process.pid+'-cd34.t0','test.t0','tests.r999999-ab12.t0'].sort()),JSON.stringify(left));
   result('authored-test stores live where the hosts keep them',storeBase('com.x','mac',{},'/h')==='/h/Library/Caches/exact/com.x/agent'&&storeBase('com.x','linux',{XDG_CACHE_HOME:'/c'},'/h')==='/c/exact/com.x/agent'&&storeBase('com.x','linux',{XDG_CACHE_HOME:'rel'},'/h')==='/h/.cache/exact/com.x/agent'&&storeBase('com.x','ios')===null);
+  // dash, weather, kanban: a web store is a kept Chrome profile and one origin, the same port each drive.
+  const a=webStore('com.x','pulse',{},'/h','darwin'),b=webStore('com.x','pulse',{XDG_CACHE_HOME:'/c'},'/h','linux'),c=webStore('com.x','other',{},'/h','darwin');
+  result('a web drive\'s named store keeps its profile and port',a.profile==='/h/Library/Caches/exact/com.x/agent-web/pulse'&&b.base==='/c/exact/com.x/agent-web'&&a.port===b.port&&a.port>=20000&&a.port<48000&&c.port!==a.port,JSON.stringify([a,b,c]));
+  // review b5-c 3: the driver opens Chrome's store where runTests sweeps and removes it, under the drive's env.
+  const d=driveStore('com.x','pulse',{XDG_CACHE_HOME:'/iso',HOME:'/hh'},'linux'),e=driveStore('com.x','pulse',{HOME:'/hh'},'darwin');
+  result('a drive\'s env places its web store',d.base==='/iso/exact/com.x/agent-web'&&e.profile==='/hh/Library/Caches/exact/com.x/agent-web/pulse',JSON.stringify([d,e]));
 }
 // A matching hand-written exact.json is not build identity. The agent must
 // consume the complete private marker verifier before it drives a dist.

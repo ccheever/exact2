@@ -164,6 +164,10 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
         | v@(.str _) | v@(.num _) | v@(.bool _) => v.display
         | _ => .error (.type "join of an item that is not a string, number or bool")
       .ok (.str (sep.intercalate parts))
+  -- LLP 1088 D2: over UTF-16 code units, well formed. `toLowerCase` is
+  -- left out (its case tables are Unicode's).
+  | "slice", [.str s, .num a, .num b] => .ok (.str (Str.slice s a b))
+  | "replaceAll", [.str s, .str find, .str w] => .ok (.str (Str.replaceAll s find w))
   -- Formatting and localized text (`Contract.Format`).
   | "formatTime", vs => formatting "formatTime" vs
   | "formatDate", vs => formatting "formatDate" vs
@@ -171,7 +175,8 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   | "t", vs => text env.prog.strings vs
   | "length", _ | "isEmpty", _ | "floor", _ | "max", _ | "min", _ | "first", _ | "at", _
   | "includes", _ | "startsWith", _ | "endsWith", _ | "trim", _ | "join", _
-  | "encodeURIComponent", _ => .error (.type s!"`{f}` of arguments it does not take")
+  | "encodeURIComponent", _ | "slice", _ | "replaceAll", _ =>
+    .error (.type s!"`{f}` of arguments it does not take")
   | f, _ => .error (.unsupported s!"roster entry `{f}`")
 
 /-- A binary operator other than `and`/`or`, on evaluated operands. `+`
@@ -192,10 +197,11 @@ def binop (op : BinOp) (a b : Value) : Result Value :=
   | .mul => num2 fun x y => .num (x * y)
   | .div => num2 fun x y => .num (x / y)
   | .rem => num2 fun x y => .num (Number.fmod x y)
-  | .lt => num2 fun x y => .bool (x < y)
-  | .le => num2 fun x y => .bool (x ≤ y)
-  | .gt => num2 fun x y => .bool (x > y)
-  | .ge => num2 fun x y => .bool (x ≥ y)
+  -- Two strings compare by UTF-16 code units (LLP 1088 D1).
+  | .lt => match a, b with | .str x, .str y => .ok (.bool (Str.lt x y)) | _, _ => num2 fun x y => .bool (x < y)
+  | .le => match a, b with | .str x, .str y => .ok (.bool !(Str.lt y x)) | _, _ => num2 fun x y => .bool (x ≤ y)
+  | .gt => match a, b with | .str x, .str y => .ok (.bool (Str.lt y x)) | _, _ => num2 fun x y => .bool (x > y)
+  | .ge => match a, b with | .str x, .str y => .ok (.bool !(Str.lt x y)) | _, _ => num2 fun x y => .bool (x ≥ y)
   | .eq => (Value.equal a b).elim (.error (.type "`==` on values of two types")) (.ok ∘ .bool)
   | .ne => (Value.equal a b).elim (.error (.type "`!=` on values of two types")) (fun e => .ok (.bool !e))
   | .and | .or => .error (.type "short-circuit operator evaluated strictly")

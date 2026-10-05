@@ -49,6 +49,12 @@ struct Opcode {
 struct StdlibEntry {
     name: String,
     params: Vec<String>,
+    /// The trailing parameters a call may omit, as the constant each
+    /// defaults to (LLP 1088 D2), in JavaScript's spelling: only
+    /// `Number.MAX_VALUE`, an index past any end, since a plan's number
+    /// constants are finite.
+    #[serde(default)]
+    optional: Vec<String>,
     returns: String,
 }
 
@@ -241,6 +247,17 @@ fn validate(schema: &Schema) {
             );
         }
     }
+    for f in &schema.stdlib {
+        assert!(
+            f.optional.len() <= f.params.len()
+                && f.optional.iter().all(|d| d == "Number.MAX_VALUE")
+                && f.params[f.params.len() - f.optional.len()..]
+                    .iter()
+                    .all(|p| p == "number"),
+            "format: stdlib `{}` optional defaults must be trailing numbers, `Number.MAX_VALUE`",
+            f.name
+        );
+    }
     assert!(schema.stdlib.len() <= 255, "format: stdlib exceeds u8");
 }
 
@@ -354,6 +371,41 @@ fn main() {
                 );
             }
             let _ = writeln!(w, "    }} }}");
+            let _ = writeln!(
+                w,
+                "    /// The fewest arguments a call may write: the trailing optional\n    /// ones are filled with [`Stdlib::defaults`] (LLP 1088 D2)."
+            );
+            let _ = writeln!(
+                w,
+                "    pub fn min_arity(self) -> usize {{ self.arity() - self.defaults().len() }}"
+            );
+            let _ = writeln!(
+                w,
+                "    /// The values the trailing optional parameters take when a call omits them."
+            );
+            let _ = writeln!(
+                w,
+                "    pub fn defaults(self) -> &'static [f64] {{ match self {{"
+            );
+            for f in schema.stdlib.iter().filter(|f| !f.optional.is_empty()) {
+                let ds: Vec<&str> = f.optional.iter().map(|_| "f64::MAX").collect();
+                let _ = writeln!(
+                    w,
+                    "        Stdlib::{} => &[{}],",
+                    pascal(&f.name),
+                    ds.join(", ")
+                );
+            }
+            let _ = writeln!(w, "        _ => &[],");
+            let _ = writeln!(w, "    }} }}");
+            let _ = writeln!(
+                w,
+                "    /// The defaults a call of `given` arguments leaves for the parameters it omits."
+            );
+            let _ = writeln!(
+                w,
+                "    pub fn omitted(self, given: usize) -> &'static [f64] {{ let d = self.defaults(); &d[(given + d.len()).saturating_sub(self.arity()).min(d.len())..] }}"
+            );
             let _ = writeln!(w, "    /// Declared return type, as the table spells it.");
             let _ = writeln!(
                 w,

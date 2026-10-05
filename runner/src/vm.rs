@@ -27,6 +27,8 @@ pub const MAX_STRING: usize = 1 << 26;
 /// one counted once per place it appears: that expanded tree is what
 /// equality, shape checks and conversions walk. A list doubled through a
 /// local (`[x, x]`, then again) is otherwise exponential in instructions.
+/// A `some` is not counted (LLP 1090 D2): the checker refuses an option
+/// directly inside an option, so a walk meets at most one per counted value.
 pub const MAX_VALUE_NODES: u64 = 1 << 24;
 
 /// The most string bytes such a value may hold, counted the same way: a
@@ -210,7 +212,7 @@ impl Extents {
         Ok(total)
     }
 
-    /// The extent of a list or record of `items`, or an option around one.
+    /// The extent of a list or record of `items`.
     fn built(&mut self, items: &[Value], pc: usize) -> Result<Extent, Trap> {
         let mut e = Extent {
             nodes: 1,
@@ -236,14 +238,15 @@ impl Extents {
 fn measure(v: &Value, depth: u32, total: &mut Extent, pc: usize) -> Result<(), Trap> {
     #[cfg(test)]
     MEASURED.with(|m| m.set(m.get() + 1));
-    total.nodes += 1;
     total.depth = total.depth.max(depth);
+    // A `Some` is not a value of its own (LLP 1090 D2), only a level.
+    if let Value::Option(Some(inner)) = v {
+        total.check(pc)?;
+        return measure(inner, depth + 1, total, pc);
+    }
+    total.nodes += 1;
     match v {
         v if v.is_str() => total.bytes += v.as_str().unwrap_or_default().len() as u64,
-        Value::Option(Some(inner)) => {
-            total.check(pc)?;
-            measure(inner, depth + 1, total, pc)?;
-        }
         Value::List(items) | Value::Record(items) => {
             total.check(pc)?;
             for item in items.iter() {
@@ -437,6 +440,19 @@ impl Val for Value {
         Value::same_str(a, b) || a.as_str() == b.as_str()
     }
 
+    fn str_cmp(op: Num, a: &Value, b: &Value) -> bool {
+        let o = crate::strings::order(
+            a.as_str().unwrap_or_default(),
+            b.as_str().unwrap_or_default(),
+        );
+        match op {
+            Num::Lt => o.is_lt(),
+            Num::Le => o.is_le(),
+            Num::Gt => o.is_gt(),
+            _ => o.is_ge(),
+        }
+    }
+
     #[inline]
     fn concat(a: &Value, b: &Value) -> Option<Value> {
         let (a, b) = (a.as_str()?, b.as_str()?);
@@ -598,8 +614,16 @@ impl Host<Value> for Run<'_, '_> {
             .unwrap_or(false)
     }
 
+    // @ref LLP 1090 D2 — a `Some` adds depth and nothing else: the JS
+    // target erases it, and `type-option-option` keeps at most one above
+    // each counted value, so walks stay within twice the count.
     fn some(&mut self, v: Value, pc: usize) -> Result<Value, Trap> {
-        let e = self.extents.built(std::slice::from_ref(&v), pc)?;
+        let inner = self.extents.of(&v, pc)?;
+        let e = Extent {
+            depth: inner.depth + 1,
+            ..inner
+        }
+        .check(pc)?;
         let v = Value::some(v);
         self.extents.remember(&v, e);
         Ok(v)
@@ -891,6 +915,23 @@ mod tests {
             eval(plan.code(refused), &env, &[]),
             Err(Trap::ValueTooLarge { .. })
         ));
+    }
+
+    /// A `some` adds a level and no value (LLP 1090 D2): 23 doublings each
+    /// wrapped in one fit as the bare doublings do (they would hold
+    /// 3 · 2^23 values counted the old way), and the 24th still traps.
+    #[test]
+    fn a_some_measures_as_its_value() {
+        let wrapped = |times: usize| {
+            let mut body = Asm::new();
+            body.number(1.0);
+            for _ in 0..times {
+                doubled(&mut body, 1).simple(exact_plan::Opcode::Some);
+            }
+            run(body)
+        };
+        assert!(wrapped(23).is_ok());
+        assert!(matches!(wrapped(24), Err(Trap::ValueTooLarge { .. })));
     }
 
     /// The VM nests no deeper than `Value::decode` reads: 64 `some`s around a

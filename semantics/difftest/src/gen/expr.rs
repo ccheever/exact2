@@ -381,7 +381,7 @@ impl Gen<'_> {
 
     fn str_expr(&mut self, env: &Env, d: usize) -> String {
         let formats = if self.formats { 3 } else { 0 };
-        match self.rng.weighted(&[6, 3, 2, 2, 2, formats]) {
+        match self.rng.weighted(&[6, 3, 2, 2, 2, formats, 2]) {
             0 => {
                 let mut out = String::from("`");
                 for _ in 0..self.rng.range(1, 3) {
@@ -411,6 +411,24 @@ impl Gen<'_> {
                 format!("{f}({})", self.expr(env, &Ty::Str, d, false))
             }
             5 => self.format_expr(env, d),
+            // LLP 1088 D2: over UTF-16 code units, an astral string cut or
+            // split by an empty pattern; `toLowerCase` is left out, as the
+            // semantics leaves it out.
+            6 => {
+                let s = self.expr(env, &Ty::Str, d, false);
+                if self.rng.chance(1, 2) {
+                    let a = self.expr(env, &Ty::Num, d, false);
+                    if self.rng.chance(1, 3) {
+                        format!("slice({s}, {a})")
+                    } else {
+                        format!("slice({s}, {a}, {})", self.expr(env, &Ty::Num, d, false))
+                    }
+                } else {
+                    let find = self.expr(env, &Ty::Str, d, false);
+                    let with = self.str_lit();
+                    format!("replaceAll({s}, {find}, {with})")
+                }
+            }
             _ => {
                 if !self.has_list(env) {
                     return self.expr(env, &Ty::Str, d, false);
@@ -456,10 +474,16 @@ impl Gen<'_> {
 
     fn bool_expr(&mut self, env: &Env, d: usize) -> String {
         match self.rng.weighted(&[4, 5, 3, 1, 1, 2]) {
+            // Numbers, or two strings in code-unit order (LLP 1088 D1).
             0 => {
                 let op = *self.rng.pick(&["<", "<=", ">", ">="]);
-                let a = self.expr(env, &Ty::Num, d, false);
-                let b = self.expr(env, &Ty::Num, d, false);
+                let t = if self.rng.chance(1, 3) {
+                    Ty::Str
+                } else {
+                    Ty::Num
+                };
+                let a = self.expr(env, &t, d, false);
+                let b = self.expr(env, &t, d, false);
                 format!("({a} {op} {b})")
             }
             1 => {

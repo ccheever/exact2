@@ -8,17 +8,17 @@
 //   Web defaults to Chrome; EXACT_WEB_BROWSER selects the same option. Install
 //   the other engines with: bunx playwright@1.63.0 install firefox webkit
 //   tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save
-//   tap <target> [wheel <dx> <dy> [gesture] | into <key> [block <v>] [inline <v>] | hover | history <n> | {"history":n} | contextmenu | mouse | dblclick | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | drag <dx> <dy> [from <x> <y>] [mouse] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …]] | type <target> <text…> | type <target> key <Name> | type <target> copy|cut|paste <text…>
+//   tap <target> [wheel <dx> <dy> [gesture] [modifiers <Control…>] | drop <path…> | into <key> [block <v>] [inline <v>] | hover | history <n> | {"history":n} | contextmenu | mouse | dblclick | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | drag <dx> <dy> [from <x> <y>] [mouse] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …]] | type <target> <text…> | type <target> key <Name> | type <target> copy|cut|paste <text…>
 //   tap <target> down [at <x> <y>] · tap move [by] <x> <y> [over <ms>] · tap hold <ms> · tap up · tap cancel   (a held contact, LLP 1035.003 D1)
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
 //   tap @<id> <choice> | type @<id> <value>   (by the node it answers at, or its capability: files F11)
-//   clock <ms|+ms|+ms real|settle> | prefer <media feature or page fact> <value> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]
+//   clock <ms|+ms|+ms real|settle|data> | resize <w>x<h> | prefer <media feature or page fact> <value> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]
 //   bun scripts/agent.mjs trace <file>   (a development session's trace, LLP 1079 D5: no app runs)
 // A target is a testId or a view id; each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
+import { Cdp, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -93,7 +93,7 @@ export async function assertWebDistApp(dist, app) {
   if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run ${ownWebBuild(app, dist) ?? `EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`}`);
 }
 
-async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, facts }) {
+async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, fresh = false, facts, env }) {
   if (browser !== 'chrome') {
     const { openPlaywrightWeb } = await import('./agent-playwright.mjs');
     return openPlaywrightWeb({ browser, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts });
@@ -133,10 +133,16 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     if (js) return serveBuildTree(served, req, res);
     serveStatic(dist, req, res);
   });
-  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  // A named store's profile and origin are kept between drives, as a native scratch store is; `fresh` empties it first (a test's).
+  // Under the drive's env, as `runTests` places and removes it (review b5-c 3).
+  const kept = storage === undefined ? null : driveStore(selected.id, storage, env);
+  if (kept && fresh) await removeBrowserProfile(kept.profile);
+  await new Promise((ok, fail) => { server.once('error', fail); server.listen(kept && !pageURL ? kept.port : 0, '127.0.0.1', ok); }).catch((e) => {
+    throw e.code === 'EADDRINUSE' ? new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open, and a store is one drive's at a time`) : e;
+  });
   const port = server.address().port;
   const chrome = chromium().executable;
-  const profile = mkdtempSync(resolve(tmpdir(), 'exact-agent-'));
+  const profile = kept ? (mkdirSync(kept.profile, { recursive: true }), kept.profile) : mkdtempSync(resolve(tmpdir(), 'exact-agent-'));
   let child;
   try {
     child = spawn(chrome, [
@@ -156,7 +162,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     if (!child.pid) await new Promise((ok, fail) => { child.once('spawn', ok); child.once('error', fail); });
   } catch (error) {
     server.close();
-    rmSync(profile, {recursive:true, force:true});
+    if (!kept) rmSync(profile, {recursive:true, force:true});
     throw new Error(`web carrier unavailable: ${chrome}: ${error.code}; set CHROME to an installed browser`);
   }
   onProcess?.(child);
@@ -185,7 +191,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     } finally { server.close(); }
     if (child.exitCode === null && child.signalCode === null)
       throw new Error(`Chrome ${child.pid} did not exit; owned profile retained at ${profile}`);
-    await removeBrowserProfile(profile);
+    if (!kept) await removeBrowserProfile(profile);
     if (planBuild) rmSync(planBuild, { recursive: true, force: true });
   };
   try {
@@ -278,7 +284,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         return { resized: pair, viewport: await evaluate('[innerWidth, innerHeight]'), delivery: 'browser-viewport' };
       }
       // A settle runs up to the page's 20 s deadline twice (requests, then rounds).
-      const timeout = req.op === 'clock' && req.settle ? 60000 : undefined;
+      const timeout = req.op === 'clock' && (req.settle || req.data) ? 60000 : undefined;
       return JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`, timeout));
     };
     return {
@@ -334,7 +340,10 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         const r = id == null ? null : (await ask({ op: 'layout' })).nodes.find((n) => n.id === id);
         if (id != null && (!r || (r.w === 0 && r.h === 0))) throw new Error(`view ${id} has no box on screen`);
         const point = ['contextmenu', 'mouse'].includes(kind) ? opts.at : null;
-        const x = r ? r.x + (point?.[0] ?? r.w / 2) : contact?.x, y = r ? r.y + (point?.[1] ?? r.h / 2) : contact?.y;
+        // The middle of the box, unless the target is not there: then the middle of the first of its client rects that is —
+        // a wrapped inline run's line, where its box's middle falls between two lines, in the paragraph's half-leading (reader).
+        const line = r && !point && ['press', 'contextmenu', 'dblclick', 'hover'].includes(kind) ? await evaluate(`(() => { const el = exact.views.get(${id}), on = (x, y) => { const h = document.elementFromPoint(x, y); return !!h && (el === h || el.contains(h)); }, b = el?.getBoundingClientRect(); if (!el || on(b.x + b.width / 2, b.y + b.height / 2)) return null; for (const c of el.getClientRects()) if (c.width && c.height && on(c.x + c.width / 2, c.y + c.height / 2)) return [c.x + c.width / 2, c.y + c.height / 2]; return null; })()`) : null;
+        const x = line ? line[0] : r ? r.x + (point?.[0] ?? r.w / 2) : contact?.x, y = line ? line[1] : r ? r.y + (point?.[1] ?? r.h / 2) : contact?.y;
         if (kind === 'press' || kind === 'key' || kind === 'type') {
           const request = kind === 'press'
             ? { op: 'tap', id, selector: opts.selector, x: opts.x, y: opts.y }
@@ -347,7 +356,9 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
           }
         }
         if (id != null && ['press', 'contextmenu', 'dblclick', 'mouse'].includes(kind)) {
-          const why = await evaluate(`(() => { const el = exact.views.get(${id}), hit = document.elementFromPoint(${x}, ${y}); return !el ? null : !hit ? 'its middle is outside the viewport; scroll it into view first' : el === hit || el.contains(hit) || hit.contains(el) ? null : (hit.dataset?.view ? 'node #' + hit.dataset.view : hit.tagName.toLowerCase()) + ' covers its middle'; })()`);
+          // An ancestor under the point takes the press itself, never the target's handlers: a miss, unless the target passes its
+          // presses through (`pointer-events: none`), as a person's would be (reader: a tap between a run's lines reported success).
+          const why = await evaluate(`(() => { const el = exact.views.get(${id}), hit = document.elementFromPoint(${x}, ${y}), name = hit && (hit.dataset?.view ? 'node #' + hit.dataset.view : hit.tagName.toLowerCase()); return !el ? null : !hit ? 'its middle is outside the viewport; scroll it into view first' : el === hit || el.contains(hit) || hit.contains(el) && getComputedStyle(el).pointerEvents === 'none' ? null : hit.contains(el) ? name + ', which holds it, is under the point and would take the press: no box the target draws is there' : name + ' covers its middle'; })()`);
           if (why) throw new Error(`tap #${id} at (${x}, ${y}): ${why}`);
         }
         if (kind === 'mouse' && !await evaluate(`exact.views.get(${id})?.localName === 'canvas' || !!exact.views.get(${id})?.querySelector('canvas')`)) throw new Error('mouse requires a canvas target');
@@ -415,7 +426,13 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
           await frame();
           return { pinch: opts.pinch, at: [cx, cy], delivery: 'platform' };
         }
-        if (kind === 'wheel') await call('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: opts.wheel[0], deltaY: opts.wheel[1] });
+        // CDP's modifier bits: Alt 1, Control 2, Meta 4, Shift 8.
+        if (kind === 'wheel') await call('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: opts.wheel[0], deltaY: opts.wheel[1], modifiers: String(opts.modifiers ?? '').split('+').reduce((m, k) => m | ({ Alt: 1, Control: 2, Meta: 4, Shift: 8 }[k] ?? 0), 0) });
+        else if (kind === 'drop') { // the files' bytes as a drag's DataTransfer, its dragover then its drop at the point, as a browser delivers a drag from the desktop
+          const files = opts.drop.map(p => ({ name: basename(p), bytes: readFileSync(p).toString('base64') }));
+          const heard = await evaluate(`(() => { const el = exact.views.get(${id}), dt = new DataTransfer(); for (const f of ${JSON.stringify(files)}) dt.items.add(new File([Uint8Array.from(atob(f.bytes), c => c.charCodeAt(0))], f.name)); const at = { clientX: ${x}, clientY: ${y}, bubbles: true, cancelable: true, dataTransfer: dt }; const over = new DragEvent('dragover', at); el.dispatchEvent(over); const drop = new DragEvent('drop', at); el.dispatchEvent(drop); return { accepted: over.defaultPrevented, taken: drop.defaultPrevented }; })()`);
+          if (!heard.taken) throw new Error(`view ${id} took no drop (dragover ${heard.accepted ? 'accepted' : 'refused'})`);
+        }
         else if (kind === 'hover') await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
         else if (kind === 'contextmenu' || kind === 'dblclick' || kind === 'mouse') {
           await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
@@ -457,7 +474,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
           // agent's clock stands still): record what the press reached and refuse a tap that missed.
           // Judged at the press itself: the tap's own action may replace the node right after.
           // A fresh listener each tap, removed in `finally`, so a failed dispatch leaves none behind.
-          const arm = `(() => { if (window.__exactPress) removeEventListener('pointerdown', window.__exactPress, true); window.__exactPressed = null; window.__exactPress = (e) => { if (window.__exactPressed) return; const el = exact.views.get(${id}), hit = e.target; window.__exactPressed = !el ? 'nothing: the target was gone at the press' : el === hit || el.contains(hit) || hit.contains(el) ? 'ok' : hit.closest?.('[data-testid]') ? '\"' + hit.closest('[data-testid]').dataset.testid + '\"' : hit.closest?.('[data-view]') ? 'node #' + hit.closest('[data-view]').dataset.view : hit.localName; }; addEventListener('pointerdown', window.__exactPress, true); })()`;
+          const arm = `(() => { if (window.__exactPress) removeEventListener('pointerdown', window.__exactPress, true); window.__exactPressed = null; window.__exactPress = (e) => { if (window.__exactPressed) return; const el = exact.views.get(${id}), hit = e.target; window.__exactPressed = !el ? 'nothing: the target was gone at the press' : el === hit || el.contains(hit) || hit.contains(el) && getComputedStyle(el).pointerEvents === 'none' ? 'ok' : hit.closest?.('[data-testid]') ? '\"' + hit.closest('[data-testid]').dataset.testid + '\"' : hit.closest?.('[data-view]') ? 'node #' + hit.closest('[data-view]').dataset.view : hit.localName; }; addEventListener('pointerdown', window.__exactPress, true); })()`;
           const disarm = `(() => { removeEventListener('pointerdown', window.__exactPress, true); window.__exactPress = null; const r = window.__exactPressed; window.__exactPressed = null; return r; })()`;
           if (id != null) await evaluate(arm);
           let reached = 'ok';
@@ -650,7 +667,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
         const guest = { selector: opts.selector, x: opts.x, y: opts.y, entity: opts.entity, world: opts.world, under: opts.under, phase: opts.phase };
         const phase = ['down', 'move', 'hold', 'up', 'cancel'].includes(kind);
         // A contact that went down with `mouse` (a drag's) holds the left button through its phases (review A1).
-        const r = phase ? await heldButton.ask(kind, opts, (button) => ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms, ...button })) : ['contextmenu', 'dblclick', 'mouse'].includes(kind) ? await ask({ op: 'tap', id, [kind]: true, ...(['contextmenu', 'mouse'].includes(kind) && opts.at !== undefined ? {at: opts.at} : {}) }) : kind === 'pinch' ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest, ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : await ask({ op: 'type', id, text: opts.text, ...(opts.clipboard ? { clipboard: opts.clipboard } : {}), ...guest });
+        const r = phase ? await heldButton.ask(kind, opts, (button) => ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms, ...button })) : ['contextmenu', 'dblclick', 'mouse'].includes(kind) ? await ask({ op: 'tap', id, [kind]: true, ...(['contextmenu', 'mouse'].includes(kind) && opts.at !== undefined ? {at: opts.at} : {}) }) : kind === 'pinch' ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}), ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : kind === 'drop' ? await ask({ op: 'tap', id, drop: opts.drop }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest, ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : await ask({ op: 'type', id, text: opts.text, ...(opts.clipboard ? { clipboard: opts.clipboard } : {}), ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -782,7 +799,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
           if (Object.values(guest).some((v) => v != null)) throw new Error('unsupported under --touch platform: a press into an iframe guest or a world entity reaches no real touch yet (LLP 1080.000 stage 1)');
           return realTap({ ask, touches, id, abandon: (why) => lines.fail(why) });
         }
-        const r = kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'pinch' ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest, ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : await ask({ op: 'type', id, text: opts.text, ...(opts.clipboard ? { clipboard: opts.clipboard } : {}), ...guest });
+        const r = kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'pinch' ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}), ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : kind === 'drop' ? await ask({ op: 'tap', id, drop: opts.drop }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest, ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : await ask({ op: 'type', id, text: opts.text, ...(opts.clipboard ? { clipboard: opts.clipboard } : {}), ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -892,7 +909,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   if (timing === 'platform') env = { ...(env ?? {}), EXACT_AGENT_TIMING: 'platform' };
   // `touch: 'platform'` (LLP 1080.000, opt-in): a plain `tap` on an iOS simulator is a real touch from the XCTest runner, `delivery: platform`.
   if (!['agent', 'platform'].includes(touch) || (touch === 'platform' && (device || !['ios', 'host-ios'].includes(host)))) throw new Error(`touch: platform is an iOS simulator's (LLP 1080.000), not ${device ? 'a phone' : host}'s`);
-  // A drive has no app storage unless it names a scratch store apart from the app's real files (`--storage <name>`): a tree under the cache base on native, kept between drives; on the web, the drive's own fresh browser profile.
+  // A drive has no app storage unless it names a scratch store apart from the app's real files (`--storage <name>`), kept
+  // between drives: a tree under the cache base on native; on the web, Chrome's profile for it and its page's origin
+  // (agent-launch.mjs `webStore`; Firefox and WebKit open a fresh one each drive). EXACT_AGENT_STORAGE_FRESH empties it.
   if (storage !== undefined && (!/^[A-Za-z0-9._-]+$/.test(storage) || ['.', '..'].includes(storage))) throw new Error("--storage: one name of letters, digits, '.', '-' or '_'");
   if (storage !== undefined && host !== 'web') env = { ...(env ?? {}), EXACT_AGENT_STORAGE: storage };
   if (url !== undefined && ['macos', 'mac', 'ios', 'linux', 'windows', 'host', 'host-ios'].includes(host)) {
@@ -912,7 +931,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     : host === 'linux' ? await openStdio({ host: 'linux', plan, size: size ?? VIEWPORT, env, app, onProcess })
     : host === 'windows' ? await openStdio({ host: 'windows', plan, size: size ?? VIEWPORT, env, app, onProcess })
     : host === 'ios' ? await openIOS({ plan, env, app, size, touch, onProcess })
-    : await openWeb({ browser, plan, world, size, url, app, webDist, onProcess, reuse, storage, facts });
+    : await openWeb({ browser, plan, world, size, url, app, webDist, onProcess, reuse, storage, fresh: env?.EXACT_AGENT_STORAGE_FRESH === '1', facts, env });
   const mapLocator = plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
     // The dist the carrier serves — an app outside the repo's own (shop F2), never Caltrain's by default.
     ?? (carrier.host === 'web' ? resolve(webDist ?? defaultWebDist(), 'app.plan') : null);
@@ -1101,7 +1120,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       // @ref LLP 1080.000 §11 — one whole gesture: press, one straight drag, hold, lift.
       if (opts.drag) return dragTap({ s, carrier, node, target, host, timing, tapRefusal, scrolled }, opts.drag);
       if (opts.modifiers !== undefined && !String(opts.modifiers).split('+').filter(Boolean).every(k => ['Shift', 'Control', 'Alt', 'Meta'].includes(k))) throw new Error(`tap … modifiers: ${opts.modifiers} is not Shift, Control, Alt and Meta joined by +`);
-      const kind = opts.history !== undefined ? 'history' : opts.pinch !== undefined ? 'pinch' : opts.down ? 'down' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : opts.contextmenu ? 'contextmenu' : opts.mouse ? 'mouse' : opts.dblclick ? 'dblclick' : 'press';
+      const kind = opts.history !== undefined ? 'history' : opts.pinch !== undefined ? 'pinch' : opts.down ? 'down' : opts.drop ? 'drop' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : opts.contextmenu ? 'contextmenu' : opts.mouse ? 'mouse' : opts.dblclick ? 'dblclick' : 'press';
       if (kind === 'down' && s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
       let at;
       if (kind === 'down' && opts.at) { const b = (await s.layout()).nodes.find((n) => n.id === node.id); if (!b) throw new Error(`view ${node.id} has no box on screen`); at = { x: b.x + opts.at[0], y: b.y + opts.at[1] }; }
@@ -1208,7 +1227,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion). Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
     async clock(spec = 'settle') {
       // @ref LLP 1080.000 §12 — an Apple host takes its clock over at the wall under platform timing (and reports a clock it already has otherwise); a seek counts from where it stands. Settle needs no count.
-      if (spec !== 'settle' && ['ios', 'host-ios', 'macos', 'host'].includes(carrier.host)) s.now = (await s.op({ op: 'clock', take: true })).clock;
+      if (spec !== 'settle' && spec !== 'data' && ['ios', 'host-ios', 'macos', 'host'].includes(carrier.host)) s.now = (await s.op({ op: 'clock', take: true })).clock;
+      // `data`: the app's data lands (activation, every request in flight, each `then`), the clock unmoved and no timer fired.
+      if (spec === 'data') { const r = await s.op({ op: 'clock', data: true }); if (r.settled === false) r.diagnostic = r.reason === 'data' ? 'clock data gave up on the data module\'s activation at its bound (20 s); logs say why' : 'clock data gave up on requests still in flight at its bound (20 s); state shows them under pending'; return r; }
       // `+N real`: N ms of real time pass, the clock moving with them a step
       // at a time, so what runs on real time — a playing video (LLP 1042 §3),
       // a store, the network — goes on beside the app's timers (jukebox F14).
@@ -1226,7 +1247,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (spec === 'settle') req.settle = true;
       else if (typeof spec === 'string' && spec.startsWith('+')) req.to = s.now + Number(spec.slice(1));
       else req.to = Number(spec);
-      if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}; use clock +100, clock +100 real or clock settle; state shows the current clock`);
+      if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}; use clock +100, clock +100 real, clock settle or clock data; state shows the current clock`);
       // A long seek steps by wall clock (each operation ~CLOCK_BUDGET_MS of Chrome's 15 s window, from CLOCK_STEP_MS of world
       // time, at most 4x a step and CLOCK_SPAN_MS), so a cheap hour is a few presents, not 3,600; the final reply is the seek's.
       let span = CLOCK_STEP_MS;
@@ -1238,7 +1259,13 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (req.settle && r.settled === false) r.diagnostic = r.reason === 'device' ? `clock settle stops at held device requests (${(r.tickets ?? []).map(t => '@' + t).join(' ')}); state shows them under pending; answer with tap @N <choice> or type @N <value>` : r.reason === 'requests' ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`' : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
       return r;
     },
-    /** The device facts by their web names (LLP 1061 D5; LLP 1069.000 D6), grouped on the wire as LLP 1069.007 D2 groups them. `media`: `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-contrast": "more"|"less"|"custom"|"no-preference"`, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). `page`: `"visibility-state": "visible"|"hidden"`, `online` and `can-share` `"true"|"false"`, `"root-font-size"` in px (what `rem` follows). `fold` (LLP 1078 D7): `posture folded|continuous`, `segments <cols>x<rows>`, `gap <points>` — a host without a fold splits its viewport evenly with the gap centred on each divider; a host with a real fold refuses ("the device decides"). Unnamed facts stay. The reply is what the host now reports, by group. */
+    /** The window to `w`x`h` points (reader: repagination): the browser's viewport, a macOS window, the Linux presenter. The wire's
+     * `tap` with `resize` (LLP 1041 §8: an input, not an operation); an iOS app's viewport is the device's, and it says so. */
+    async resize(w, h) {
+      if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
+      return s.landed({ ...(await s.op({ op: 'tap', resize: [w, h] })), carrier: host });
+    },
+    /** The device facts by their web names (LLP 1061 D5; LLP 1069.000 D6), grouped on the wire as LLP 1069.007 D2 groups them. `media`: `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-contrast": "more"|"less"|"custom"|"no-preference"`, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). `page`: `"visibility-state": "visible"|"hidden"`, `online`, `can-share` and `can-open-files` `"true"|"false"`, `"root-font-size"` in px (what `rem` follows). `fold` (LLP 1078 D7): `posture folded|continuous`, `segments <cols>x<rows>`, `gap <points>` — a host without a fold splits its viewport evenly with the gap centred on each divider; a host with a real fold refuses ("the device decides"). Unnamed facts stay. The reply is what the host now reports, by group. */
     async prefer(facts) {
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       const { media, page, fold } = preferGroups(facts);
@@ -1348,7 +1375,7 @@ async function main(argv) {
   // A trace a person's session saved (LLP 1079 D5), read back with no app running.
   if (host === 'trace' && ops.length === 1) { const t = await readTrace(ops[0], traceLocators); console.log(flags.json ? JSON.stringify(t) : renderTrace(t)); return 0; }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--size <w>x<h>] [--json] <op> [<op> …]\n  desktop carriers open 420x900 unless --size names another viewport; tap and type scroll a target out of view into it first; web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | mouse | dblclick | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | drag <dx> <dy> [from <x> <y>] [mouse: the left button, desktop pointers] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …: after the move, the finger down]] | tap <target> down [at <x> <y>], then tap move [by] <x> <y> [over <ms>] | tap hold <ms> | tap up | tap cancel | type <target> <text…> (a select, date, time, range or checkbox: its value) | type <target> key <Name> [for <ms>] | type <target> copy | cut | paste <text…> (the clipboard event at the focus) | tap @N|@<id> <choice> | type @N|@<id> <value> | clock <ms|+ms|+ms real|settle> | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--size <w>x<h>] [--json] <op> [<op> …]\n  desktop carriers open 420x900 unless --size names another viewport; tap and type scroll a target out of view into it first; web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] [modifiers <Control…>] | drop <path…> | hover | history <n> | {"history":n} | contextmenu | mouse | dblclick | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | drag <dx> <dy> [from <x> <y>] [mouse: the left button, desktop pointers] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …: after the move, the finger down]] | tap <target> down [at <x> <y>], then tap move [by] <x> <y> [over <ms>] | tap hold <ms> | tap up | tap cancel | type <target> <text…> (a select, date, time, range or checkbox: its value) | type <target> key <Name> [for <ms>] | type <target> copy | cut | paste <text…> (the clipboard event at the focus) | tap @N|@<id> <choice> | type @N|@<id> <value> | clock <ms|+ms|+ms real|settle|data> | resize <w>x<h> (the window: web, macOS, Linux) | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, browser, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
@@ -1417,13 +1444,17 @@ async function main(argv) {
           }
           // A click with modifiers held (gallery F20): `tap <target> modifiers Shift+Meta`.
           else if (args[1] === 'modifiers' && args[2] && args.length === 3) r = await s.tap(args[0], { modifiers: args[2] });
-          else r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])], gesture: args[4] === 'gesture' }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : ['contextmenu', 'dblclick', 'mouse'].includes(args[1]) ? await s.tap(args[0], { [args[1]]: true }) : await s.tap(args[0]);
+          // Files dragged in from outside, each an absolute path (studio diary R19): `tap <target> drop <path…>`.
+          else if (args[1] === 'drop' && args.length > 2) r = await s.tap(args[0], { drop: args.slice(2).map(p => resolve(p)) });
+          // A wheel with the modifiers held (a pinch is a Control-held wheel; studio diary R3): `… wheel <dx> <dy> [gesture] [modifiers Control]`.
+          else r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])], gesture: args[4] === 'gesture', ...(args.indexOf('modifiers') > 3 ? { modifiers: args[args.indexOf('modifiers') + 1] } : {}) }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : ['contextmenu', 'dblclick', 'mouse'].includes(args[1]) ? await s.tap(args[0], { [args[1]]: true }) : await s.tap(args[0]);
           break;
         case 'type': r = await s.type(...typeArguments(args)); break;
         case 'clock': r = await s.clock(args.join(' ') || 'settle'); break;
+        case 'resize': { const m = /^(\d+)x(\d+)$/.exec(args.join('')); if (!m) throw new Error('resize <w>x<h>, as resize 800x600'); r = await s.resize(Number(m[1]), Number(m[2])); break; }
         case 'prefer': r = await s.prefer(Object.fromEntries(args.flatMap((a, i) => i % 2 ? [] : [[a, args[i + 1]]]))); break;
         case 'perf': r = await perfOp(s, args, line, step); break;
-        default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock, prefer, perf)`);
+        default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock, resize, prefer, perf)`);
       }
       return [op, r];
   };

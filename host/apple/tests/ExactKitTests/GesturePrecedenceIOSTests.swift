@@ -32,6 +32,16 @@ final class GesturePrecedenceIOSTests: XCTestCase {
     /// LLP 1005 §3: a node hearing `pointerdown`/`pointerup` carries an
     /// observer that never recognizes, so it takes nothing from a press or a
     /// scroll; its touch down and up are the two events.
+    /// An iPad pointer's buttons as DOM counts them (review b5-b 1): the
+    /// secondary is 2 and the middle 4, a touch's or an empty mask 1.
+    func testAnIndirectPointerReportsItsButtonsAsTheWebDoes() {
+        XCTAssertEqual(PointerRecognizer.domButtons(.primary), 1)
+        XCTAssertEqual(PointerRecognizer.domButtons(.secondary), 2)
+        XCTAssertEqual(PointerRecognizer.domButtons(.button(3)), 4)
+        XCTAssertEqual(PointerRecognizer.domButtons([.primary, .secondary]), 3)
+        XCTAssertEqual(PointerRecognizer.domButtons([]), 1)
+    }
+
     func testAPointerNodeObservesItsTouchWithoutPreventingAnything() throws {
         let p = host([
             ["op": "create", "id": 1, "kind": "button", "handlers": ["press", "pointerdown", "pointerup"]],

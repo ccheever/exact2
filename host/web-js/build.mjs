@@ -103,7 +103,7 @@ const compiler = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARG
 const [cmd, pre] = fresh(compiler, `${compiler}.d`) ? [compiler, []] : ['cargo', ['run', '-q', '-p', 'exact-web-js', '--']];
 const cargo = spawnSync(cmd, [...pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
-for (const f of ['rt.js', 'roster.js', 'router.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['rt.js', 'roster.js', 'router.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js']) cpSync(resolve(here, f), resolve(gen, f));
 // Canvas 2D surfaces (a loaded chunk: this runtime's engine over the web
 // host's own replayer) are drawn by the Rust data module, or by a
 // TypeScript source's `draw` in the page (ts-draw.js, in the same chunk).
@@ -125,6 +125,8 @@ const time = Object.hasOwn(sources, 'exactTime');
 const asks = Object.keys(sources).some(name => !/^exact[A-Z]/.test(name));
 // A file input, `saveFile` or `share` (files.js), registered before any press.
 const files = existsSync(resolve(gen, 'files.flag'));
+// `showNotification` or `closeNotification` (notify.js), linked by use.
+const notifies = existsSync(resolve(gen, 'notify.flag'));
 // App generation may create files imported by app.ts. Run it before reading
 // the declaration, as the wasm build does.
 const webScript = resolve(appDir, 'web/build.rs');
@@ -225,6 +227,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   "import app, { sources, wait } from './app.js';",
   ...(devReload ? ["import { prepareDev } from './checkpoint.js';", "const finishDev = prepareDev();"] : []),
   ...(files ? ["import './files.js';"] : []),
+  ...(notifies ? ["import './notify.js';"] : []),
   "import { data, journal, clock, advance, commit, inflight, Views, viewId, After, Clocked, R, resolvedLocale, Resources } from './rt.js';",
   ...(production ? [] : ["import { develop } from './perf.js';"]),
   // A data module's answers, watched from before the app asks (seam.js).
@@ -262,8 +265,8 @@ writeFileSync(resolve(gen, 'main.js'), [
   ...(containerHooks ? ["requestAnimationFrame(() => requestAnimationFrame(() => import('./hooks.js').then(m => m.containers())));"] : []),
 ].join('\n'));
 for (const f of ['agent.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hooks.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
-// The web host's own pieces, loaded after first paint (motion.js, a pan, `select`, text flow, rt.js `pr`, native.js, rt.js `geo`, media.js).
-for (const f of ['frames.js', 'motion-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js', 'presence-glue.js', 'native-glue.js', 'geometry-glue.js', 'media-glue.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
+// The web host's own pieces, loaded after first paint (motion.js, a pan, `select`, text flow, rt.js `pr`, native.js, rt.js `geo`, media.js, notify.js).
+for (const f of ['frames.js', 'motion-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js', 'presence-glue.js', 'native-glue.js', 'geometry-glue.js', 'media-glue.js', 'notify-glue.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
 // Virtualized lists' browser half, the web host's own, loaded after first paint.
 cpSync(resolve(root, 'host/web/collection-glue.js'), resolve(gen, 'collection-glue.js'));
 // Animated images on the agent's clock, the web host's own (agent.js only).
@@ -283,8 +286,10 @@ if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts
 for (const f of ['auth-glue.js', 'storage-environment.js', 'http-body.js', 'grant-admission.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
 writeFileSync(resolve(gen, 'admission.js'), readFileSync(resolve(here, 'admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
 cpSync(resolve(here, 'ts-fetch.js'), resolve(gen, 'ts-fetch.js'));
+cpSync(resolve(here, 'ts-stream.js'), resolve(gen, 'ts-stream.js'));
 cpSync(resolve(here, 'auth.js'), resolve(gen, 'auth.js'));
 cpSync(resolve(here, 'files.js'), resolve(gen, 'files.js'));
+cpSync(resolve(here, 'notify.js'), resolve(gen, 'notify.js'));
 // The server bundle a JavaScript render runs (render.mjs), one script per VM context.
 writeFileSync(resolve(gen, 'main-server.js'), [
   `import app${rust ? ', { sources }' : ''} from './app.js';`,

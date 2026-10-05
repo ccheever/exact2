@@ -284,6 +284,11 @@ struct Resolver<'a> {
 impl<'a> Resolver<'a> {
     fn declarations(&mut self) {
         let names = &self.file.names;
+        // An action writes what the actions it calls write (LLP 1089 D5):
+        // its effects are read with its component's calls expanded. A prop
+        // or inject call writes another component's slots, which no slot
+        // of this one is.
+        let (called, _) = contract_syntax::inline::calls::expand_file(self.file);
         for font in &self.file.fonts {
             self.graph
                 .define("font", &font.name, names.name(font.span), None, None);
@@ -353,11 +358,11 @@ impl<'a> Resolver<'a> {
                 .chain(c.states.iter().map(|s| s.name.as_str()))
                 .chain(c.mutations.iter().map(|m| m.name.as_str()))
                 .collect();
-            for action in &c.actions {
+            for (ai, action) in c.actions.iter().enumerate() {
                 let at =
                     self.graph
                         .define("action", &action.name, names.name(action.span), cn, None);
-                let effects = action.effects();
+                let effects = called.components[ci].actions[ai].effects();
                 let writes = slots
                     .iter()
                     .filter(|slot| effects.iter().any(|e| e.target == **slot))
@@ -616,12 +621,27 @@ impl<'a> Resolver<'a> {
                     self.target(&["state", "mutation"], target, *span);
                     self.expr(expr);
                 }
-                Stmt::Command { name, args, .. } => {
+                Stmt::Command { name, args, span } => {
                     if let ("focus" | "blur", [Expr::Str(id, span)]) =
                         (name.as_str(), args.as_slice())
                     {
                         self.graph.id(id, *span);
                     }
+                    // A call of an action, an action prop or an inject (LLP
+                    // 1089 D1) refers to it; a host command keeps its name.
+                    if !contract_syntax::HOST_COMMANDS.contains(&name.as_str()) {
+                        self.name(name, self.file.names.name(*span));
+                    }
+                    for arg in args {
+                        self.expr(arg);
+                    }
+                }
+                // Expansion's, never an authored tree's: the callee, and the
+                // caller's arguments. Its body is the callee's own.
+                Stmt::Call {
+                    action, args, span, ..
+                } => {
+                    self.name(action, self.file.names.name(*span));
                     for arg in args {
                         self.expr(arg);
                     }

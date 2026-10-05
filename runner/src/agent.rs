@@ -821,7 +821,7 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     );
     let _ = write!(
         s,
-        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{}",
+        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canOpenFiles\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{}",
         media.reduced_motion,
         media.reduced_transparency,
         media.contrast.keyword(),
@@ -829,6 +829,7 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         page.visibility_state(),
         page.on_line,
         page.can_share,
+        page.can_open_files,
         num(runner.root_font_size()),
         fold.posture.keyword(),
         fold.cols,
@@ -908,6 +909,14 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
             count.messages, count.coalesced
         );
     }
+    // Notifications posted under the agent, where none reaches the system.
+    s.push_str("],\"notifications\":[");
+    for (i, n) in runner.notifications().iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        n.summary(&mut s);
+    }
     // The store's names, never its values (LLP 1018 D5).
     s.push_str("],\"store\":[");
     for (i, name) in runner.store_names().iter().enumerate() {
@@ -917,7 +926,8 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         quote(name, &mut s);
     }
     s.push_str("],\"head\":{");
-    for (i, (name, value)) in runner.head().fields().into_iter().enumerate() {
+    let head = runner.head();
+    for (i, (name, value)) in head.fields().into_iter().enumerate() {
         if i > 0 {
             s.push(',');
         }
@@ -928,12 +938,13 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
             None => s.push_str("null"),
         }
     }
-    match runner.head().status {
+    match head.status {
         Some(code) => {
             let _ = write!(s, ",\"status\":{code}");
         }
         None => s.push_str(",\"status\":null"),
     }
+    let _ = write!(s, ",\"edited\":{}", head.edited);
     s.push_str("},\"delivery\":");
     delivery(runner, &mut s);
     s.push_str(",\"logic\":");

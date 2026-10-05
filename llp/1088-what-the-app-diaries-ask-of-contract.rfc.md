@@ -1,7 +1,7 @@
 # LLP 1088: What the app diaries ask of Contract
 
 **Type:** RFC
-**Status:** Accepted (stages 1–3 as descoped), r5, 2026-10-04. Accepted by the orchestrator for Charlie under the three-round rule (`rules/RULES.md`, "Fix loops get 3 rounds") after Astra's r3; D6 deferred. Stage 1 is built as of 2026-10-04, without D6's fixed point (§10, "As built"); stages 2 and 3 are not. All three review rounds were one family (Astra, `gpt-6-astra`, max; Grok was unavailable): r1 NOT READY (7 MATERIAL, 6 MINOR); r2 NOT READY (4 new MATERIAL, 3 new MINOR); r3 NOT READY on one MATERIAL (D6's convergence) and three MINORs. The reviewer stated that only D6 blocked stage 1. r4 is a final edit with no further review: D6 moves to §9 with the requirement a follow-up must meet, and r3's MINORs are folded in. A second family, Grok 4.7 (xhigh), then reviewed r4 (truncated); r5 folds its findings into the decisions with no new round. Renumbered from 1085, then from 1086 (origin/main took 1085, then 1086 and 1087). §8 lists each revision.
+**Status:** Accepted (stages 1–3 as descoped), r5, 2026-10-04. Accepted by the orchestrator for Charlie under the three-round rule (`rules/RULES.md`, "Fix loops get 3 rounds") after Astra's r3; D6 deferred. Stage 1 is built as of 2026-10-04, without D6's fixed point, and stages 2 and 3 as of 2026-10-04 (§10, "As built"). All three review rounds were one family (Astra, `gpt-6-astra`, max; Grok was unavailable): r1 NOT READY (7 MATERIAL, 6 MINOR); r2 NOT READY (4 new MATERIAL, 3 new MINOR); r3 NOT READY on one MATERIAL (D6's convergence) and three MINORs. The reviewer stated that only D6 blocked stage 1. r4 is a final edit with no further review: D6 moves to §9 with the requirement a follow-up must meet, and r3's MINORs are folded in. A second family, Grok 4.7 (xhigh), then reviewed r4 (truncated); r5 folds its findings into the decisions with no new round. Renumbered from 1085, then from 1086 (origin/main took 1085, then 1086 and 1087). §8 lists each revision.
 **Systems:** Contract compiler (`contract/{syntax,types,analyze,lower}`, `contract/cli/src/lean.rs`), Plan (`plan/tables/format.json` `stdlib`), Runner (`vm.rs`, `stdlib.rs`, `uses.rs`), JS target (`host/web-js`), web host (`host/web`), Apple hosts (`host/apple`), Linux host, Lean semantics and difftest (`semantics/`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
@@ -307,9 +307,17 @@ follow-up must meet.
    tag, bound to `PropId::TabIndex`, with no `tabIndex` alias. Its meaning is
    HTML's:
    - an explicit value makes a box a focusable area, subject to the filters
-     HTML also applies. A disabled, inert, hidden or `display: none` box is
-     never focusable, and the existing disabled/inert/hidden checks on every
-     host stay in force;
+     HTML also applies. An inert, hidden or `display: none` box is never
+     focusable, nor is a disabled form control, and the existing inert/hidden
+     checks on every host stay in force. **Amended
+     2026-10-04 (orchestrator, under Charlie's delegation):** `disabled`
+     filters only the elements where HTML defines it (a button, an input,
+     a select, a textarea: Contract's `button`, `input`, `textarea` and
+     controls). Chrome makes a `<div tabindex=0 disabled>` a Tab stop and
+     focuses it by click and script, since `disabled` means nothing on a
+     div, so a disabled box is focusable on every host; a disabled button or
+     input is not. Conformance (`synthetic-tabindex`) caught Linux skipping
+     it while Chrome stopped there.;
    - `≥ 0` puts it in sequential navigation, positive values first in
      ascending order, then `0` in tree order;
    - a negative value is focusable by pointer and script but skipped by Tab.
@@ -394,7 +402,8 @@ follow-up must meet.
    - `tabindex=-1` on a node with a `key` handler leaves the web's Tab order;
    - a plain box with no `tabindex` is not a Tab stop on any host (the
      absent-is-not-zero rule);
-   - a disabled, inert or hidden box with `tabindex=0` is skipped;
+   - an inert or hidden box and a disabled button with `tabindex=0` are
+     skipped, and a disabled box is not (amended 2026-10-04, above);
    - Linux: Tab, Shift-Tab, wrap, and the start from no focus;
    - tvOS: `canBecomeFocused` is false for `tabindex=-1` (async lane).
 
@@ -581,7 +590,8 @@ Implementer: Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, on
   - D7.3 adds tvOS (`canBecomeFocused` is false for `< 0`, and the order stays
     geometric) and a real Linux Tab walk. Linux headless joins the stage 2
     exit.
-  - D7.3 keeps HTML's disabled, inert and hidden filters.
+  - D7.3 keeps HTML's disabled, inert and hidden filters (disabled on form
+    controls only, as HTML has it; amended 2026-10-04).
   - D2's `lowercase_bounded` is reached only through `link()`'s pointer, and
     conformance fixtures use stable mappings only.
   - Two items are recorded for the stage-1 lane, which is already building
@@ -751,3 +761,122 @@ pass that cannot loop instead.
   draft saved on the way to a new message); its draft send now has its own
   mutation, `draftSaved`. Outside the repo, flashcards' `commitEdit` and
   spreadsheet's `down` and `openSheet` are refused.
+
+### Stage 2, 2026-10-04 (branch `fix/impl1088`)
+
+D7.3 as specified, on every host:
+
+- **Compiler.** `tabindex` binds `PropId::TabIndex` on every element and a
+  module tag's box (`BOX_PROPS`); `tabIndex` is a renamed spelling, refused
+  as "`tabIndex` is spelled `tabindex` here", on a module tag too. `tabindex`
+  leaves the host's `data-` words, since no host writes `data-tabindex` now.
+- **Web.** `props_of` names the prop `tabindex`, which the JS target's
+  prop-name discovery inherits, so `P()` sets the real attribute. Both
+  renderers skip the synthesized `tabindex="0"` when the attribute is
+  present (`document.rs`, `emit.rs`); `glue.js` already checked.
+- **macOS.** `explicitTabIndex` (absent is nil) is shared by the Apple hosts.
+  `acceptsFirstResponder` admits any explicit value; `tabbable`, and so
+  `canBecomeKeyView` and `Presenter.tabbable`, an explicit value ≥ 0 or
+  what is a stop by kind, never an explicit negative. Driving it found that
+  a click never kept the focus on a non-pressable focusable node (a `key`
+  handler's included): NSView forwarded the `mouseDown` up the chain, so an
+  ancestor took the focus and `PageScrollView` then blurred it. The
+  innermost node the web would focus now keeps it, and the page blurs only
+  when what was clicked is not inside the focus — HTML's "nearest focusable
+  ancestor".
+- **iOS.** `canBecomeFirstResponder` admits any explicit value; `moveFocus`
+  skips an explicit negative and orders by HTML's rule. **tvOS:**
+  `canBecomeFocused` is false for an explicit negative; there is no tvOS
+  test target in the tree, so that line is compiled (`build.mjs --tvos`), not tested.
+- **Linux.** `focusable` (tap, `autofocus`, `focus()`) admits any explicit
+  value; the new `tabbable` (in `presenter/typing.rs`) is an explicit value
+  ≥ 0 or what is focusable by kind, shown, not inert, with a box. Tab is the
+  key's default action after the `key` handlers (a `preventDefault()` keeps
+  it): HTML's order, wrapping, Shift-Tab back, from no focus the first or
+  the last. Nothing consumes Tab, as on the web, where neither a canvas nor
+  a textarea does. Tab's release does not refocus its target.
+- **Tests.** `aria.rs` (binding, state, the case refusal, a module tag);
+  `host/web/tests/it/document.rs` (the attribute wins, a negative one
+  included; absent writes none); `AccessibilityTests` and
+  `KeyboardFocusIOSTests` (order, `-1` by click or tap, absent, disabled,
+  inert, hidden, a change while mounted); `events_tests.rs` on Linux (the
+  whole list, the ancestor's `key` included). Driven on the web and macOS
+  with a scratch app: Tab from a `tabindex=0` box with no handler, `-1`
+  skipped and focused by tap, the bound value joining the order, Shift-Tab.
+  `host/web-js/conformance/tabindex.{contract,steps}` holds the two web
+  renderers to the same focus (10 steps equal in Chrome).
+
+### Stage 3, 2026-10-04 (branch `fix/impl1088`)
+
+D1 and D2 as specified, with these differences:
+
+- **The omitted `end` is `Number.MAX_VALUE`, not `Infinity`.** A plan's
+  number constants are finite (the code validator's `NonFinite`), and an
+  index past any end clamps exactly as `undefined` and `Infinity` do. The
+  roster row says `"optional": ["Number.MAX_VALUE"]`; `plan/build.rs`
+  generates `Stdlib::min_arity()` and `Stdlib::defaults()`.
+- **No `Types.roster_calls`.** `Stdlib::omitted(given)` names the defaults
+  a call leaves out. The checker admits `min_arity..=arity` only in
+  its roster arm, after scoped actions and props (so `action slice(by)`
+  keeps its arity), and lowering's roster arm, which every expression call
+  that is not a `fn` or a record reaches, fills the defaults. `lean.rs`
+  fills them for a roster-named call short of its arity: no `fn` takes a
+  roster name, and the semantics evaluates no action in an expression, so
+  the name decides. The arity refusal reads "`slice` takes 2 to 3
+  argument(s), given 1; expected `slice(string, number, number?)`", and
+  `slice` over a list is `type-refused-idiom` naming §9.
+- **`lowercase_bounded` is a preflight.** It counts each character's mapped
+  UTF-8 length first, allocating nothing and returning `None` the moment the
+  count passes the bound, and only then maps the whole string with
+  `to_lowercase`. Final sigma never changes a length (`ς` and `σ` are both 2
+  bytes), so the count is exact, no allocation passes the bound, and the
+  result is `to_lowercase`'s, context included, without reimplementing
+  `Final_Sigma`'s case-ignorable scan. `link()` installs it beside
+  `apply_after`; `linked_lowercase()` is that pointer on wasm (`None`
+  unlinked: the runner traps, after boot already refused the plan) and the
+  function natively.
+- **Runner.** `runner/src/strings.rs`: `order`, `slice`, and `replace_all`
+  through one counter that carries a pending high surrogate across pieces,
+  trapping `StringTooLong` before a byte past `MAX_STRING` is kept. A
+  non-empty pattern is matched in UTF-8 (a well-formed pattern's matches
+  begin and end on character boundaries); only an empty one walks code
+  units. `uses` adds `text_transform` for a `toLowerCase` call.
+- **JS target.** `x_slice`, `x_replaceAll` and `x_toLowerCase` live in
+  `roster.js`, which imports `Refusal` from `rt.js` as `router.js` does.
+- **Lean.** `Str.utf16Units`, `wellFormed`, `lt`, `slice`, `substitute`
+  (`GetSubstitution`) and `replaceAll` in `Value.lean`; the string arms of
+  `binop` (`Eval.lean`) and the VM model's `binary` (`Vm.lean`); `rosterTy`
+  and `binTy` (`Types.lean`), with `toLowerCase` typed and left out as the
+  formats are; the soundness proofs extended (`lake build` green). The
+  `MAX_STRING` bound is not modelled, as no string bound is.
+- **Difftest.** `semantics/corpus/text/{compare,slice,replace-all}`; the
+  generator writes string comparisons, `slice` (two and three arguments)
+  and `replaceAll`, and U+E000 joins its strings. The text corpus agrees on
+  the runner, Lean and (`--js`) the JS target, and the lowering corpus
+  matches `Contract.Lower` byte for byte. `--js` had failed to bundle on
+  origin/main (its runtime copy lacked `media-glue.js`); that list is fixed.
+  A random sweep (seed 1088, 300) agrees; its 20 compiler refusals are all
+  stage 1's `analyze-send-twice` on generated double sends.
+- **Conformance.** `host/web-js/conformance/text.{contract,steps}`: the three
+  functions, both comparisons, the trap (a refused action keeps its state),
+  `at`, `join`, `includes` and `formatDate`, 13 steps equal in Chrome. The
+  Firefox and WebKit runs are the async lane's.
+- **Metrics** (`host/web/build.mjs --wasm`, brotli-11 `app.wasm`, against
+  origin/main 423e4c4bc). Caltrain, which uses neither: 335.59 → 336.92 KiB,
+  the always-linked roster code (`exact_runner::strings`' `order`, `slice`,
+  `replace_all`, as `trim` is core) and stage 2's and the diary's rows; the
+  case tables are not newly linked (a names build of each shows the same
+  case-mapping symbols, and neither `lowercase_bounded` nor
+  `linked_lowercase`). A scratch app calling `toLowerCase`: 308.48 KiB,
+  against 302.15 KiB for the same app without the call (+6.33 KiB, the
+  tables `text_transform` links), and its wasm build lowercases. The JS
+  target never reaches the tables.
+- **Tests.** `strings.rs` (runner: indices, NaN, ±∞, cuts, `$` forms, the
+  split-pair byte boundary at 8/7, 400/399, 11/10, the quadratic trap,
+  order across U+E000); `case.rs` (kernel); `search.rs` and
+  `corpus/strings.contract` (calendar's end-after-start and calc's
+  Backspace in Contract); `uses.rs`; `js-runtime.test.mjs` (the JS entries
+  against the browser's methods and the trap). Driven with a scratch app on
+  the web (JS and wasm targets) and macOS: an end before the start refused,
+  Backspace, a sign flip, a search lowercased on both sides.
+

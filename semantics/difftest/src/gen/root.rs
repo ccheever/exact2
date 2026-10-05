@@ -194,8 +194,19 @@ impl Gen<'_> {
             } else {
                 out.push_str(&format!("  action {}({})\n", a.name, ps.join(", ")));
             }
-            out.push_str(&self.body(&env, &writes, &first[k], 4));
+            self.callable = k;
+            self.sent.clear();
+            // A body that only calls needs a callee: a mutation's `then`
+            // action may call only actions that send nothing.
+            if k > 0 && first[k].is_empty() && !self.callees().is_empty() && self.rng.chance(1, 3) {
+                out.push_str(&self.dispatch(&env, 4));
+            } else {
+                out.push_str(&self.body(&env, &writes, &first[k], 4));
+            }
+            let sending = std::mem::take(&mut self.sending);
+            self.sends.push(sending);
         }
+        self.callable = 0;
 
         let idle: Vec<String> = self
             .actions

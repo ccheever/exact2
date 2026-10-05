@@ -314,7 +314,7 @@ const WEB_HOST_GROUPS = {
   base: ['glue.js', 'navigation.js', 'textflow-glue.js', 'timer-glue.js', 'input-glue.js',
     'http-body.js', 'grant-admission.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'document-glue.js',
     'motion-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js', 'picker-glue.js',
-    'documents-glue.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js'],
+    'documents-glue.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'notify-glue.js'],
   module: ['module-glue.js', 'module-worker.js', 'module-prelude.js'],
   storage: ['storage-request.js', 'storage.js', 'storage-environment.js', 'storage-fs.js', 'storage-sqlite.js',
     'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
@@ -611,10 +611,29 @@ function appleIconProblems(manifest, dir) {
   return icon && !existsSync(resolve(dir, icon.src)) ? [`icons: ${icon.src}, the square icon the Apple bundles are drawn from, does not exist`] : [];
 }
 
+/** An app's own document format (studio diary R13): a MIME type in IANA's
+ * vendor or unregistered trees (`application/vnd.studio.board+json`,
+ * `application/x-studio-board`), which no system type names. The Apple
+ * bake exports it as the app's: `<app id>.<subtype>`, conforming to what
+ * its structured-syntax suffix says (`+json` is JSON) and to data; the app
+ * is its editor and owner. `null` for any other type. */
+export function ownDocumentType(appId, mime) {
+  const m = /^[a-z]+\/(?:x-|vnd\.|prs\.)([a-z0-9][a-z0-9.+-]*)$/i.exec(mime);
+  if (!m || Object.hasOwn(DOCUMENT_UTIS, mime)) return null;
+  const [subtype, suffix] = m[1].toLowerCase().split('+');
+  const base = { json: 'public.json', xml: 'public.xml', zip: 'public.zip-archive' }[suffix];
+  return {
+    identifier: `${appId}.${subtype.replace(/[^a-z0-9.-]/g, '-')}`,
+    conformsTo: [...(base ? [base] : mime.startsWith('text/') ? ['public.plain-text'] : ['public.data']), 'public.content'],
+  };
+}
+
 function documentTypeProblems(manifest) {
-  return (manifest.file_handlers ?? []).flatMap((handler, i) => Object.keys(handler.accept)
-    .filter((mime) => !Object.hasOwn(DOCUMENT_UTIS, mime))
-    .map((mime) => `file_handlers[${i}].accept: ${mime} names no type the Apple hosts map (they map ${Object.keys(DOCUMENT_UTIS).join(', ')})`));
+  return (manifest.file_handlers ?? []).flatMap((handler, i) => Object.entries(handler.accept)
+    .flatMap(([mime, extensions]) => Object.hasOwn(DOCUMENT_UTIS, mime) ? []
+      : !ownDocumentType('app', mime) ? [`file_handlers[${i}].accept: ${mime} names no type the Apple hosts map (they map ${Object.keys(DOCUMENT_UTIS).join(', ')}), nor an app's own (application/vnd.<app>.<format> or application/x-<format>, +json for JSON)`]
+      : ![extensions].flat().some((e) => /^\.[^./]+$/.test(e)) ? [`file_handlers[${i}].accept: ${mime}, the app's own type, names no extension (".board")`]
+      : []));
 }
 
 let cachedSchema = null;
@@ -623,7 +642,7 @@ function schema() {
   return cachedSchema;
 }
 
-/** The subset of JSON Schema the manifest's schema uses — type, required, properties, additionalProperties, items, enum, pattern, minLength, oneOf, $ref into $defs — checked by hand so the reader needs no dependency. Every problem in one pass. */
+/** The subset of JSON Schema the manifest's schema uses — type, required, properties, additionalProperties, items, minItems, enum, pattern, minLength, oneOf, $ref into $defs — checked by hand so the reader needs no dependency. Every problem in one pass. */
 export function validate(value, node, at, root) {
   const problems = [];
   const where = at || '(root)';
@@ -646,6 +665,7 @@ export function validate(value, node, at, root) {
     if (node.pattern && !new RegExp(node.pattern).test(value)) problems.push(`${where}: ${JSON.stringify(value)} does not match ${node.pattern}`);
   }
   if (actual === 'number' && (!Number.isFinite(value) || (node.minimum != null && value < node.minimum) || (node.maximum != null && value > node.maximum))) problems.push(`${where}: outside the allowed numeric range`);
+  if (actual === 'array' && node.minItems != null && value.length < node.minItems) problems.push(`${where}: fewer than ${node.minItems} items`);
   if (actual === 'array' && node.items) value.forEach((v, i) => problems.push(...validate(v, node.items, `${at}[${i}]`, root)));
   if (actual === 'object') {
     for (const key of node.required ?? []) if (!(key in value)) problems.push(`${where}: missing required ${JSON.stringify(key)}`);

@@ -278,7 +278,11 @@ spell a root name the child never saw, and it is renamed apart (`x@k`) when
 a substituted expression mentions it. Lowering binds it
 (`BindLocal`) and drops it (`DropLocal`) where its block ends
 (`contract/lower/src/stmts.rs`); the plan format, the VM and the
-JavaScript runtime are unchanged. A parameter's type is written or
+JavaScript runtime are unchanged. Since 2026-10-04 (LLP 1089), a `name(args)`
+statement that is not a host command calls an action of the same component,
+an `action` prop or an injected action, anywhere a statement stands: the
+compiler expands the callee's statements in place, in the one commit
+(`contract/syntax/src/inline/calls.rs`). A parameter's type is written or
 inferred from its handler call sites (the handler attributes are `press`,
 `change`, `hover`, `focus`, `blur`, `key`, `submit`, `contextmenu`, `dblclick`, `navigate`, LLP 1005 §3 — `submit`
 on an `input` is Enter, the web's implicit submission; a `key`'s or
@@ -333,7 +337,13 @@ attribute's.
 search (the empty substring matches), as the web's `String.prototype.includes`
 does; `startsWith(text, prefix)` and `endsWith(text, suffix)` are the web's
 too (renamed from `contains` on 2026-09-28: the words are the web's, LLP 1017
-§8.1). The Markdown toolbar uses `includes` with spaces around both the token
+§8.1). `< <= > >=` on two strings compare UTF-16 code units, as ECMA-262's
+`IsLessThan` does, and `slice(text, start, end?)`, `replaceAll(text, find, with)`
+and `toLowerCase(text)` are the web's (LLP 1088 D1, D2, 2026-10-04). **Declared
+deviation:** JavaScript's results may hold a lone surrogate half (`"😀".slice(0,
+1)`); every executor here makes the completed result well formed once instead,
+each lone half U+FFFD (`toWellFormed`), because the runner, Lean and the native
+hosts hold Unicode scalar values. The Markdown toolbar uses `includes` with spaces around both the token
 list and the requested token, so `code` never matches `codeblock`. The declared
 roster and the runner provide these operations to every host; they do not
 execute app JavaScript.

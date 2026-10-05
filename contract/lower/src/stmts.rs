@@ -3,7 +3,9 @@
 //! forward jump over the arm not taken, as the ternary and the inline
 //! `match` are in `expr.rs`; a `match` binds a local for its `some` block,
 //! and a `let` binds one for the rest of its block, dropped where the
-//! block ends. Still no loops; a body always terminates (LLP 1005 §2).
+//! block ends. A call is its callee's statements in a block of their own
+//! (LLP 1089 D8). Still no loops or recursion; a body always terminates
+//! (LLP 1005 §2).
 
 use crate::{expr, LowerError, Lowerer};
 use contract_syntax::Stmt;
@@ -92,9 +94,10 @@ impl Lowerer<'_> {
                     .unwrap()];
                 asm.refresh(r);
             }
-            // A tail call's type check (LLP 1017 §11): nothing to run.
-            Stmt::Command { name, .. }
-                if name.starts_with(contract_syntax::inline::tail::CHECK) => {}
+            // A call (LLP 1089 D8): its callee's statements, its parameters'
+            // `let`s first, as a block of their own, whose locals drop before
+            // the next statement. No call opcode: the plan never sees one.
+            Stmt::Call { body, .. } => self.block(asm, body, scope, locals)?,
             Stmt::Command { name, args, .. } => {
                 let args = expr::command_args(name, args);
                 for arg in &args {

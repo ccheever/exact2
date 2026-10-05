@@ -140,7 +140,9 @@ const SYSTEM = (model: string) => [
 function keyFor(store: Store): { key: string; source: string } {
   const kept = store.get('assistant.key');
   if (kept && kept.trim()) return { key: kept.trim(), source: 'settings' };
-  if (bakedKey && bakedKey.trim()) return { key: bakedKey.trim(), source: 'baked' };
+  // A string, whatever local.ts holds: an unset key's `""` would narrow to never.
+  const baked: string = bakedKey;
+  if (baked.trim()) return { key: baked.trim(), source: 'baked' };
   return { key: '', source: 'none' };
 }
 function modelFor(store: Store): string {

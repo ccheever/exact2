@@ -1,0 +1,9 @@
+# A disabled box hears its wheel; a disabled button does not (all three runners).
+wheel pad 40
+wheel off 40
+# The row's own handler, and only it, hears its contextmenu.
+menu row
+# A field keeps the browser's edit menu: nothing runs.
+menu area
+# The outer column's handler hears a contextmenu on itself.
+menu heard

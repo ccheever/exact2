@@ -26,6 +26,13 @@ const panelsOf = nav => {
   return [];
 };
 const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? panels.map(routesIn) : [nav ? routesIn(nav) : []]; };
+/** What a navigation root leaves unselected, by `project`'s rule read from attributes: every tabpanel but the one
+ * holding the selected route, and that stack's other routes (the runner's `unselected`; the agent's `inactive`). */
+export function unselected(nav) {
+  const key = nav.getAttribute("navigationKey"), panels = panelsOf(nav), stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
+  const at = stacks.findIndex(routes => routes.some(r => r.getAttribute("navigationKey") === key));
+  return at < 0 ? [] : [...panels.filter((_, i) => i !== at), ...stacks[at].filter(r => r.getAttribute("navigationKey") !== key)];
+}
 const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
@@ -717,23 +724,25 @@ export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventL
 
 // @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them:
 // bit 0 `document.visibilityState == "hidden"`, bit 1 `!navigator.onLine`,
-// bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5). Under the
-// agent the drive's values stand in (visible, online, a share sheet: LLP
-// 1069.000 D6), set by `prefer`'s `page` group; the machine is never read.
+// bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3
+// `typeof showOpenFilePicker === "function"` (LLP 1069.010 D2; studio diary
+// R31). Under the agent the drive's values stand in (visible, online, a
+// share sheet, the pickers: LLP 1069.000 D6), set by `prefer`'s `page`
+// group; the machine is never read.
 export function pageReporter(agent, platform = globalThis) {
-  const facts = { "visibility-state": "visible", online: true, "can-share": true, "root-font-size": 16 };
+  const facts = { "visibility-state": "visible", online: true, "can-share": true, "can-open-files": true, "root-font-size": 16 };
   // @ref LLP 1069.000 D3 — the root font size: the document element's
   // computed `font-size`, the browser's setting unless a page sets it; under
   // the agent the drive sets it on the element (`prefer root-font-size`).
   const rootFontSize = () => agent ? facts["root-font-size"] : parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16;
-  const read = () => agent ? { ...facts } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function" };
-  const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0); };
+  const read = () => agent ? { ...facts } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-open-files": typeof platform.showOpenFilePicker === "function" };
+  const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0); };
   const prefer = (page) => {
     const next = { ...facts };
     for (const [name, raw] of Object.entries(page ?? {})) {
       const value = String(raw);
       if (name === "visibility-state" && (value === "visible" || value === "hidden")) next[name] = value;
-      else if ((name === "online" || name === "can-share") && (value === "true" || value === "false")) next[name] = value === "true";
+      else if ((name === "online" || name === "can-share" || name === "can-open-files") && (value === "true" || value === "false")) next[name] = value === "true";
       else if (name === "root-font-size" && Number(value) > 0 && Number.isFinite(Number(value))) next[name] = Number(value);
       else throw new Error(`prefer: ${name}: ${value} is not a page fact this host sets`);
     }
@@ -1237,4 +1246,24 @@ export function coversPath(set, capability, path) {
   if (grantError(set)) return false;
   const target = grantPathParts(path), kind = ({ 'fs.read': 'fs-read', 'fs.write': 'fs-write', 'sqlite.open': 'sqlite-open' })[capability];
   return !!target && set.entries.some(([, , grant]) => grant?.[0] === kind && grant.slice(1).every((part, index) => target[index] === part));
+}
+
+// `selectionchange` on a `text` (the reader diary), on both web targets: its
+// part of the page's selection, reported as the text and its UTF-16 start and
+// end in the element's own text when that part changes; nothing selected
+// there is "" at 0, 0. One document listener serves every such element.
+const selectedTexts = new Map();
+export function onSelection(e, report) {
+  if (!selectedTexts.size) document.addEventListener("selectionchange", () => {
+    const s = getSelection(), r = s.rangeCount && !s.isCollapsed ? s.getRangeAt(0) : null;
+    for (const [e, h] of selectedTexts) {
+      if (!e.isConnected) { selectedTexts.delete(e); continue; }
+      const at = (n, o) => { const p = document.createRange(); p.selectNodeContents(e); const c = p.comparePoint(n, o); if (!c) p.setEnd(n, o); return c < 0 ? 0 : p.toString().length; };
+      let a = 0, b = 0;
+      if (r?.intersectsNode(e)) { a = at(r.startContainer, r.startOffset); b = at(r.endContainer, r.endOffset); }
+      if (a === b) a = b = 0;
+      if (h.a !== a || h.b !== b) { h.a = a; h.b = b; h.report(e.textContent.slice(a, b), a, b); }
+    }
+  });
+  selectedTexts.set(e, { report, a: 0, b: 0 });
 }

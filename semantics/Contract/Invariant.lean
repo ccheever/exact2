@@ -721,6 +721,9 @@ def Stmt.noAssign (x : String) : Stmt → Bool
   | .assign t _ => t != x
   | .ifS _ a b => Stmt.noAssigns x a && Stmt.noAssigns x b
   | .matchS _ _ a b => Stmt.noAssigns x a && Stmt.noAssigns x b
+  -- What a call assigns is its callee's (LLP 1089 D9), which this test
+  -- does not look up: a call may assign anything.
+  | .call _ _ => false
   | _ => true
 def Stmt.noAssigns (x : String) : List Stmt → Bool
   | [] => true
@@ -733,6 +736,7 @@ def Stmt.noSend (x : String) : Stmt → Bool
   | .send t _ _ => t != x
   | .ifS _ a b => Stmt.noSends x a && Stmt.noSends x b
   | .matchS _ _ a b => Stmt.noSends x a && Stmt.noSends x b
+  | .call _ _ => false
   | _ => true
 def Stmt.noSends (x : String) : List Stmt → Bool
   | [] => true
@@ -769,6 +773,7 @@ theorem ExecR.noAssign {x env ls ss fx fx'} (h : ExecR env ls ss fx fx') (hn : S
     first
       | exact fun v hv => ih₁ hn.1.1 v (ih₂ hn.2 v hv)
       | exact fun v hv => ih₁ hn.1.2 v (ih₂ hn.2 v hv)
+  | call => simp [Stmt.noAssigns, Stmt.noAssign] at hn
 
 /-- A block that never sends into `x` adds no send to it. -/
 theorem ExecR.noSend {x env ls ss fx fx'} (h : ExecR env ls ss fx fx') (hn : Stmt.noSends x ss = true) :
@@ -797,6 +802,7 @@ theorem ExecR.noSend {x env ls ss fx fx'} (h : ExecR env ls ss fx fx') (hn : Stm
     first
       | exact fun s hs hx => ih₁ hn.1.1 s (ih₂ hn.2 s hs hx) hx
       | exact fun s hs hx => ih₁ hn.1.2 s (ih₂ hn.2 s hs hx) hx
+  | call => simp [Stmt.noSends, Stmt.noSend] at hn
 
 /-- An action whose body never assigns or sends into `x` leaves it as it
 was. -/

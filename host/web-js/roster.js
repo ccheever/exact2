@@ -1,8 +1,5 @@
 // The roster's pure entries (runner/src/stdlib.rs) on the JS target, re-exported by rt.js, which keeps the ones that
-// read its state (`x_now`, the router's, `t`).
-/** A native module's props (LLP 1024 D1): key/value pairs to one JSON
- * object of strings, a none left out (`stdlib::native_props`). */
-export const NP = p => { const o = {}; for (let i = 0; i < p.length; i += 2) if (p[i + 1] != null) o[p[i]] = String(p[i + 1]); return JSON.stringify(o); };
+// read its state (`x_now`, the router's, `t`); budget.js holds the ones that build a string past MAX_STRING's reach.
 export const x_length = v => v.length;
 export const x_isEmpty = v => v.length === 0;
 export const x_floor = Math.floor;
@@ -15,6 +12,9 @@ export const x_trim = s => s.trim();
 export const x_first = l => l.length ? l[0] : null;
 /** `Array.prototype.at`, `none` where JavaScript answers undefined (`Stdlib::At`). */
 export const x_at = (l, i) => { const v = l.at(i); return v === undefined ? null : v; };
-export const x_join = (l, s) => l.map(String).join(s);
-export const x_encodeURIComponent = encodeURIComponent;
 export { x_formatTime, x_formatDate, x_formatNumber } from "./format.js";
+// Strings as JavaScript has them (LLP 1088 D2), each result made well formed once, as the runner's (runner/src/strings.rs);
+// `replaceAll` and `toLowerCase`, which can build past MAX_STRING, are budget.js's.
+/** `slice(s, start, end?)`: the compiler writes an omitted `end` as `Number.MAX_VALUE`, which clamps as `undefined` does. */
+export const x_slice = (s, a, b) => s.slice(a, b).toWellFormed();
+

@@ -210,7 +210,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     @objc func openContext(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began, !disabled else { return }
-        presenter?.contextmenu(id)
+        // Where the press is, as a touch's `PointerEvent` (studio diary R22).
+        let point = gesture.location(in: self), box = contentBox()
+        let sample = PointerSample(x: Double(point.x - box.minX), y: Double(point.y - box.minY), buttons: 1, pressure: 0.5, type: "touch", id: 2)
+        presenter?.contextmenu(id, line: sample.line)
     }
     @objc func doubleClicked(_ gesture: UITapGestureRecognizer) {
         guard gesture.state == .ended, !disabled else { return } // then after this touch's own press
@@ -283,9 +286,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// hears these. Keys come from a hardware keyboard (`pressesBegan`).
     /// UIKit's focus search finds what UIKit can focus (`FocusSearch`).
     override func didAddSubview(_ subview: UIView) { super.didAddSubview(subview); FocusSearch.joined(subview) }
-    override var canBecomeFirstResponder: Bool { !disabled && !inert && field == nil && textArea == nil && (kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents)) }
+    override var canBecomeFirstResponder: Bool { !formDisabled && !inert && field == nil && textArea == nil && (kind == "button" || isNativeButton || explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents)) }
     override func becomeFirstResponder() -> Bool {
-        guard !disabled, !inert else { return false }
+        guard !formDisabled, !inert else { return false }
         let ok = super.becomeFirstResponder()
         if ok { presenter?.collections.pinsChanged() }
         if ok, handlers.contains("focus") { presenter?.focus(id) }
@@ -347,7 +350,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // ancestor UIKit passes the presses up to dispatches none again.
         let name = presses.first?.key.map(NodeView.keyName)
         let held = presses.first?.key.map { KeyCodes.held($0.modifierFlags) } ?? ""
-        if !disabled, isFirstResponder, let name, presenter?.keyDown(at: self, name, held: held) == true { return }
+        if !formDisabled, isFirstResponder, let name, presenter?.keyDown(at: self, name, held: held) == true { return }
         if !disabled, handlers.contains("press"), let name, ["Enter", " "].contains(name) { presenter?.press(id); return }
         super.pressesBegan(presses, with: event)
     }

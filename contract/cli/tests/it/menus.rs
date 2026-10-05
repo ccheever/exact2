@@ -134,6 +134,8 @@ fn a_confirmation_or_chooser_shape_compiles() {
         "column id=\"c\" popover=\"auto\" role=\"alertdialog\"\n  button press=go popovertarget=\"c\" popovertargetaction=(busy ? \"hide\" : \"show\")\n    text \"Go\"".into(),
         // A modal `dialog` confirmation closes by `command`.
         "dialog id=\"c\" role=\"alertdialog\" closedby=\"any\"\n  button press=go commandfor=\"c\" command=\"close\"\n    text \"Delete\"\n  button commandfor=\"c\" command=\"close\"\n    text \"Cancel\"".into(),
+        // A modal laid out as written is a `dialog` role: any content.
+        "dialog id=\"c\" role=\"dialog\" aria-modal=true closedby=\"any\"\n  column gap=12\n    text \"Delete account?\"\n    row\n      button commandfor=\"c\" command=\"close\"\n        text \"Cancel\"\n      button press=go commandfor=\"c\" command=\"close\"\n        text \"Delete\"".into(),
         // Not an alertdialog: a menu takes any rows, `hr` among them.
         format!("column id=\"c\" popover=\"auto\" role=\"menu\"\n  button press=go popovertarget=\"c\" popovertargetaction=\"hide\"\n    text \"Go\"\n  hr\n{CANCEL}"),
     ] {
@@ -151,6 +153,8 @@ fn a_shape_the_native_sheet_cannot_present_is_refused_naming_the_row() {
     for (body, why) in [
         (format!("{open}\n{action}\n  hr\n{CANCEL}"), "a `hr` row"),
         (format!("{open}\n{action}\n  view\n    text \"Hi\""), "a `view` row"),
+        // A laid-out modal is told what takes any content (x2apps onboarding).
+        (format!("{open}\n  column\n{action}"), "give it `role=\"dialog\"`"),
         // The hosts present buttons only: a `link` action is any other row.
         (
             format!("{open}\n{action}\n  link press=go popovertarget=\"c\" popovertargetaction=\"hide\"\n    text \"Go\""),

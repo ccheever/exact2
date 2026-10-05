@@ -363,6 +363,10 @@ public final class ExactSession {
     /// Bumped by every reboot; a callback from an older generation is dropped.
     public private(set) var generation = 0
     private var activatedGeneration: Int?
+    /// The generation whose deferred data has activated (or failed to): the
+    /// agent's `clock data` waits for it before a test's first step.
+    private var dataGeneration: Int?
+    var dataActivated: Bool { dataGeneration == generation }
     private var updateToken: UInt64 = 0
 
     let runtime: Runtime
@@ -739,6 +743,11 @@ public final class ExactSession {
         presenter.onLoad = { [unowned self] id in apply(runtime.load(id, now: now())) }
         presenter.onMessage = { [unowned self] id, value in apply(runtime.message(id, value, now: now())) }
         presenter.onClipboard = { [unowned self] id, kind, text in apply(runtime.clipboard(id, kind, text, now: now())) }
+        #if os(macOS)
+        presenter.onSelectionChange = { [unowned self] id, text, start, end in
+            apply(runtime.selectionChange(id, text, start: start, end: end, now: now()))
+        }
+        #endif
         // Commands are queued here and delivered once the batch is applied
         // (D2): a delegate then runs against a settled tree.
         presenter.onCommand = { [unowned self] name, args, source in pendingCommands.append((name, args, source)) }
@@ -950,7 +959,12 @@ public final class ExactSession {
         if canvasOwed { askCanvasDraw() }
         for op in batch.ops where op.op == .router { routerOp = op.payload }
         // @ref LLP 1048.003 D1 — the head's title, for the app that owns the chrome.
-        for op in batch.ops where op.op == .title { presenter.headTitle(op.payload["title"] as? String) }
+        for op in batch.ops where op.op == .title {
+            presenter.headTitle(op.payload["title"] as? String)
+            #if os(macOS)
+            presenter.headEdited(op.payload["edited"] as? Bool ?? false)
+            #endif
+        }
         #if os(macOS)
         regions.prepare(batch)
         #endif
@@ -1028,6 +1042,10 @@ public final class ExactSession {
                 }
                 if name == "share" {
                     app.deliver { [weak self] in self?.share(args, source: source) }
+                    continue
+                }
+                if name == "showNotification" || name == "closeNotification" {
+                    app.deliver { [weak self] in self?.notify(name, args) }
                     continue
                 }
                 if name == "postMessage" {
@@ -1119,6 +1137,7 @@ public final class ExactSession {
             }
             AppFiles.learn(runtime) // the roots storage configured
             apply(batch)
+            dataGeneration = drawnGeneration
             if batch.error == nil {
                 presenter.collections.dataReady()
                 app.firstPixel(token)
@@ -1284,13 +1303,21 @@ public final class ExactSession {
     /// Deliver an embedder's value through a declared change handler. The
     /// selector must name exactly one live node; file contents stay data.
     @discardableResult public func change(testId: String, value: String) -> Bool {
-        guard state != .destroyed, booted else { return false }
+        changeRefusal = nil
+        guard state != .destroyed, booted else { changeRefusal = "it has not started"; return false }
         let matches = presenter.views.values.filter { $0.props["testId"] == testId && $0.handlers.contains("change") }
-        guard matches.count == 1, let node = matches.first else { return false }
+        guard matches.count == 1, let node = matches.first else {
+            changeRefusal = matches.isEmpty ? "it has no `\(testId)` field with a `change` handler" : "it has \(matches.count) `\(testId)` fields"
+            return false
+        }
         let batch = runtime.change(node.id, documentValue(node.id, value), now: now())
         apply(batch)
+        if let error = batch.error { changeRefusal = "its `change` was refused: \(error)" }
         return batch.error == nil
     }
+    /// Why the last `change(testId:value:)` delivered nothing: the app has
+    /// no such field, or its action refused the value (studio diary R14).
+    public private(set) var changeRefusal: String?
     /// Deliver toolbar facts only when the authored editor has a select handler.
     func selection(node: UInt32, json: String) {
         guard booted, state != .destroyed,
@@ -1386,101 +1413,5 @@ enum SessionClockTimer {
         let timer = Timer(timeInterval: seconds, repeats: false, block: fire)
         RunLoop.main.add(timer, forMode: .common)
         return timer
-    }
-}
-
-/// Frames come from the display link, only while motion runs or a canvas
-/// has something to render (LLP 1009 D4), per session.
-final class Frames: NSObject {
-    weak var session: ExactSession?
-    var link: CADisplayLink?
-    var motion = false, spatial = false
-    /// A 2D canvas asked for a frame (LLP 1056 D5): ticks run while it does.
-    var canvas2d = false
-    var timerSoon = false
-    /// A frame task (LLP 1073 D5): each tick is the runtime's frame at the tick's target time.
-    var tasks = false
-    private var canvasRequested = false
-
-    /// Input and reads ask for one frame; an agent-owned clock never self-reschedules.
-    func requestCanvas() {
-        guard let s = session else { return }
-        if s.clock == nil { run(true); return }
-        guard !canvasRequested else { return }
-        canvasRequested = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            canvasRequested = false
-            guard let s = session, s.state != .destroyed else { return }
-            s.canvases.settle(now: s.now())
-        }
-    }
-    @objc func tick(_ link: CADisplayLink) {
-        guard let s = session else { return }
-        s.canvases.lifecycle.frame()
-        // Motion keeps its existing sampling clock; canvas frames target presentation.
-        let frameNow = s.clock ?? (link.targetTimestamp - ExactEnv.t0) * 1000
-        // ProMotion changes callback cadence (e.g. 120 → 80 Hz) while duration
-        // can remain the nominal base interval. The target interval is actual;
-        // canvases quantizes it and republishes this session’s stable class before rendering.
-        s.canvases.period((link.targetTimestamp - link.timestamp) * 1000)
-        let previous = s.canvases.frameNow
-        s.canvases.frameNow = frameNow
-        defer { s.canvases.frameNow = previous }
-        // Frame-precise timers: the first frame at or past the deadline fires
-        // them. A frame before it would advance to no timer, and its commit
-        // and presenter pass cost a list in motion a report a frame.
-        // A slice building on the owner holds this frame's timers and tick:
-        // they run on the first frame after it lands (LLP 1072 §7.1).
-        if !s.fillInFlight {
-            if timerSoon, !ExactEnv.agentMode, s.clock == nil {
-                let now = s.now()
-                s.followOffset()
-                if tasks { s.apply(s.runtime.frame(now: frameNow)) }
-                else if s.timerDue.map({ now >= $0 }) ?? true { s.apply(s.runtime.advance(now: now)) }
-            }
-            if motion || canvas2d {
-                if ExactSession.asyncFills {
-                    if !s.tickInFlight { s.sendTick(now: s.now()) }
-                } else {
-                    s.apply(s.runtime.tick(now: s.now()))
-                }
-            }
-        }
-        let more = s.canvases.tick(now: frameNow)
-        run(motion || canvas2d || timerSoon || more || s.canvases.wantsFrames || s.canvases.lifecycle.needsRetry)
-    }
-
-    func run(_ wanted: Bool) {
-        if wanted, session?.clock != nil { requestCanvas() }
-        let on = wanted && session?.clock == nil
-        if on, link == nil {
-            #if canImport(UIKit)
-            let l = CADisplayLink(target: self, selector: #selector(tick(_:)))
-            #else
-            guard let viewport = session?.presenter.viewport else { return }
-            let l = viewport.displayLink(target: self, selector: #selector(tick(_:)))
-            #endif
-            l.add(to: .main, forMode: .common)
-            link = l
-        } else if !on, let l = link {
-            l.invalidate()
-            link = nil
-        }
-        #if canImport(UIKit)
-        if let link {
-            // Motion that changes place or size asks for the panel's full
-            // rate while it runs, as a canvas does: at `.default` a ProMotion
-            // iPhone presents a slide at 60 Hz. A fade or a colour change
-            // reads the same at 60, so paint-only motion — a breathing loop
-            // that runs for minutes — asks no more. The link exists only
-            // while something wants frames, so an idle app drops to no link
-            // at all (LLP 1061 D4).
-            let fullRate = (motion && spatial) || session?.canvases.wantsFrames == true
-            let rate = Float(min(120, session?.presenter.viewport.window?.screen.maximumFramesPerSecond ?? 60))
-            link.preferredFrameRateRange = fullRate ? CAFrameRateRange(minimum: min(80, rate), maximum: rate, preferred: rate)
-                : motion ? CAFrameRateRange(minimum: min(30, rate), maximum: min(60, rate), preferred: min(60, rate)) : .default
-        }
-        #endif
     }
 }

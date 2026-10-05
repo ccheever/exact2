@@ -218,6 +218,19 @@ pub enum Event {
     Message(String),
     /// The platform requested a context menu (secondary click or long press).
     Contextmenu,
+    /// A context menu asked for at a point: the secondary click's
+    /// `PointerEvent` (studio diary R22); dispatched as `Contextmenu`.
+    ContextmenuAt(super::PointerEvent),
+    /// The window is about to close or the app to quit (DOM's
+    /// `beforeunload`, studio diary R17): an action that calls
+    /// `preventDefault()` keeps it open.
+    Beforeunload,
+    /// A wheel's turn or a trackpad's scroll over the view (DOM's `wheel`);
+    /// a pinch arrives as one with Control held, as on the web.
+    Wheel(super::WheelEvent),
+    /// Files dropped on the view from outside the app (DOM's `drop`), each
+    /// a `doc:` handle the host minted (LLP 1069.010 D1).
+    Drop(super::DropEvent),
     /// A double click, or the platform’s double tap.
     Dblclick,
     /// A touch or primary button went down on the view (DOM's
@@ -252,6 +265,18 @@ pub enum Event {
     /// pasted; empty on copy and cut, whose action writes the clipboard
     /// (`copyText`), as a DOM listener's `setData` does.
     Clipboard(EventKind, String),
+    /// The part of the reader's text selection inside a `text` changed (the
+    /// web's `selectionchange`, the reader diary): the selected text and its
+    /// UTF-16 start and end in the node's own text; nothing selected there
+    /// is empty with equal offsets.
+    SelectionChange {
+        /// What is selected of the node's text (`Range.toString()`).
+        text: String,
+        /// Where it starts, in UTF-16 units of the node's text.
+        start: f64,
+        /// Where it ends.
+        end: f64,
+    },
     /// An incoming location at the navigation root. @ref LLP 1038 D8/D11
     Navigate(String),
     /// An authored sheet handle released: logical height and signed pixels/second.
@@ -401,9 +426,10 @@ impl Event {
     /// The DOM record this event offers its action as an optional last
     /// parameter, its fields in the compiler's order
     /// (`contract_types::event_record`, `contract/types/src/selection.rs`):
-    /// `key`'s `KeyboardEvent`, `press`'s `MouseEvent`, the pointer's
-    /// `PointerEvent`, `scroll`'s `ScrollEvent` and the clipboard's
-    /// `ClipboardEvent`.
+    /// `key`'s `KeyboardEvent`, `press`'s `MouseEvent`, the pointer's and
+    /// `contextmenu`'s `PointerEvent`, `scroll`'s `ScrollEvent`, the
+    /// clipboard's `ClipboardEvent`, `wheel`'s `WheelEvent` and `drop`'s
+    /// `DragEvent`.
     pub fn record(&self) -> Option<Value> {
         match self {
             Event::Key(key, held) => Some(Value::record(vec![
@@ -413,7 +439,26 @@ impl Event {
                 Value::Bool(held.alt),
                 Value::Bool(held.meta),
             ])),
-            Event::Pointerdown(p) | Event::Pointerup(p) | Event::Pointermove(p) => Some(p.value()),
+            Event::Pointerdown(p)
+            | Event::Pointerup(p)
+            | Event::Pointermove(p)
+            | Event::ContextmenuAt(p) => Some(p.value()),
+            // A menu asked for with no point (a keyboard's menu key): the
+            // record DOM gives one, at the node's origin, no button held.
+            Event::Contextmenu => Some(
+                super::PointerEvent {
+                    offset_x: 0.0,
+                    offset_y: 0.0,
+                    buttons: 0.0,
+                    pressure: 0.0,
+                    pointer_type: "mouse".into(),
+                    pointer_id: 1.0,
+                    held: KeyModifiers::default(),
+                }
+                .value(),
+            ),
+            Event::Wheel(w) => Some(w.value()),
+            Event::Drop(d) => Some(d.value()),
             Event::Scroll(s) => Some(Value::record(
                 [
                     s.left,
@@ -427,6 +472,11 @@ impl Event {
                 .to_vec(),
             )),
             Event::Clipboard(_, text) => Some(Value::record(vec![Value::str(text)])),
+            Event::SelectionChange { text, start, end } => Some(Value::record(vec![
+                Value::str(text),
+                Value::Number(*start),
+                Value::Number(*end),
+            ])),
             Event::Press => Some(KeyModifiers::default().mouse()),
             Event::PressWith(held) => Some(held.mouse()),
             _ => None,
@@ -471,6 +521,20 @@ impl Event {
             return None;
         }
         Some(Self::Media(kind, value.into()))
+    }
+
+    /// Decode ABI kind 35 (`selectionchange`): `start,end,` then the
+    /// selected text verbatim; offsets are whole, `0 <= start <= end`.
+    pub fn selection_change_payload(payload: &str) -> Option<Self> {
+        let mut parts = payload.splitn(3, ',');
+        let start: u32 = parts.next()?.parse().ok()?;
+        let end: u32 = parts.next()?.parse().ok()?;
+        let text = parts.next()?;
+        (start <= end).then(|| Self::SelectionChange {
+            text: text.into(),
+            start: f64::from(start),
+            end: f64::from(end),
+        })
     }
 
     /// Decode ABI kind 32 (`copy`), 33 (`cut`) or 34 (`paste`): the
@@ -949,7 +1013,10 @@ impl<D: DataSource> Runner<D> {
                 Event::Submit => "submit",
                 Event::Load => "load",
                 Event::Message(_) => "message",
-                Event::Contextmenu => "contextmenu",
+                Event::Contextmenu | Event::ContextmenuAt(_) => "contextmenu",
+                Event::Beforeunload => "beforeunload",
+                Event::Wheel(_) => "wheel",
+                Event::Drop(_) => "drop",
                 Event::Dblclick => "dblclick",
                 Event::Pointerdown(_) => "pointerdown",
                 Event::Pointerup(_) => "pointerup",
@@ -960,6 +1027,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Pan(_, _) => "pan",
                 Event::PanRelease(_, _) => "panrelease",
                 Event::Media(kind, _) | Event::Clipboard(kind, _) => kind.name(),
+                Event::SelectionChange { .. } => "selectionchange",
                 Event::Navigate(_) => "navigate",
                 Event::HeightRelease { .. } => "heightrelease",
                 Event::TransformGeometry { .. } => "transformgeometry",
@@ -1034,7 +1102,12 @@ impl<D: DataSource> Runner<D> {
             Event::Submit => (EventKind::Submit, None, "submit"),
             Event::Load => (EventKind::Load, None, "load"),
             Event::Message(message) => (EventKind::Message, Some(Value::str(message)), "message"),
-            Event::Contextmenu => (EventKind::Contextmenu, None, "contextmenu"),
+            Event::Contextmenu | Event::ContextmenuAt(_) => {
+                (EventKind::Contextmenu, None, "contextmenu")
+            }
+            Event::Beforeunload => (EventKind::Beforeunload, None, "beforeunload"),
+            Event::Wheel(_) => (EventKind::Wheel, None, "wheel"),
+            Event::Drop(_) => (EventKind::Drop, None, "drop"),
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
             Event::Pointerdown(_) => (EventKind::Pointerdown, None, "pointerdown"),
             Event::Pointerup(_) => (EventKind::Pointerup, None, "pointerup"),
@@ -1054,6 +1127,7 @@ impl<D: DataSource> Runner<D> {
                 kind.name(),
             ),
             Event::Clipboard(kind, _) => (*kind, None, kind.name()),
+            Event::SelectionChange { .. } => (EventKind::Selectionchange, None, "selectionchange"),
             Event::Pan(_, _) => (EventKind::Pan, None, "pan"),
             Event::PanRelease(_, _) => (EventKind::Panrelease, None, "panrelease"),
             Event::HeightRelease { .. } => (EventKind::Heightrelease, None, "heightrelease"),

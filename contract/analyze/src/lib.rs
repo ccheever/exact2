@@ -13,6 +13,7 @@
 #![deny(missing_docs)]
 
 mod arity;
+mod calls;
 mod payload;
 mod sends;
 
@@ -204,10 +205,14 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
         let scoped = if ci == 0 { &expanded.root } else { c };
         let scope = types.component_scope(scoped, ct);
         errors.extend(check_tasks(c).err());
-        errors.extend(check_mutation_then(c).err());
-        // The root's actions after tail calls are inlined: a caller's send and
-        // its callee's are one commit (LLP 1088 D8).
+        // The root's actions with every call expanded: a caller's sends and
+        // writes and its callees' are one commit (LLP 1088 D8, LLP 1089 D3,
+        // D5, D6).
+        errors.extend(check_mutation_then(scoped).err());
         errors.extend(sends::check(scoped));
+        if ci == 0 {
+            errors.extend(calls::check(scoped));
+        }
         let view = View {
             file,
             actions: scoped,
@@ -255,10 +260,19 @@ fn check_mutation_then(c: &Component) -> Result<(), AnalyzeError> {
             .into_iter()
             .find(|e| e.send && e.target == m.name)
         {
+            // Through a call, the call is named (LLP 1089 D5).
+            let through = match send.call {
+                Some((callee, call)) => format!(
+                    " (it calls `{}` at line {}, which sends it)",
+                    contract_syntax::inline::calls::shown(callee),
+                    call.line
+                ),
+                None => String::new(),
+            };
             return err(
                 "analyze-then-self-send",
                 format!(
-                    "`{}` cannot send `{}`: it runs when that mutation answers",
+                    "`{}` cannot send `{}`{through}: it runs when that mutation answers",
                     a.name, m.name
                 ),
                 send.span,
@@ -294,7 +308,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 46] = [
+pub const HANDLERS: [&str; 50] = [
     "press",
     "change",
     "input",
@@ -322,6 +336,18 @@ pub const HANDLERS: [&str; 46] = [
     "copy",
     "cut",
     "paste",
+    // The part of the reader's text selection inside a paragraph (the
+    // reader diary); its action may take a `Selection`.
+    "selectionchange",
+    // DOM's `beforeunload` (studio diary R17): the window closing or the app
+    // quitting; an action calling `preventDefault()` keeps it open.
+    "beforeunload",
+    // DOM's `wheel` (studio diary R3): a wheel's or a trackpad's scroll, and
+    // a pinch as a Control-held wheel; it may hand its action a `WheelEvent`.
+    "wheel",
+    // DOM's `drop` of files from outside (studio diary R19): each a `doc:`
+    // handle in the `DragEvent` its action may take.
+    "drop",
     "swiperight",
     "refresh",
     "scroll",

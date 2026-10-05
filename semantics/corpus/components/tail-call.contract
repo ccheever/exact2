@@ -1,5 +1,5 @@
-// A tail call (LLP 1017 §11): the child's action ends by calling its
-// action prop. The `@check:` statement inlining leaves runs nothing.
+// A tail call (LLP 1017 §11), one case of a call (LLP 1089): the child's
+// action ends by calling its action prop.
 component App
   state log = ""
   action record(x: string)

@@ -24,8 +24,19 @@ extension NodeView {
         let children = container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["accessibilityElementsHidden"] != "true" }
         return children.map(\.accessibleText).filter { !$0.isEmpty }.joined(separator: " ")
     }
-    /// Its `aria-label`, unless empty (accname: an empty label names nothing).
-    var authoredLabel: String? { props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } }
+    /// Its `aria-labelledby` text, else its `aria-label`, unless empty
+    /// (accname: an empty label names nothing).
+    var authoredLabel: String? { labelledBy ?? props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } }
+    /// accname's first step (ledger2 Rough 3): the text of the elements
+    /// `aria-labelledby` names, in order — each by its own label or content,
+    /// never its own `aria-labelledby`, as accname does not recurse.
+    var labelledBy: String? {
+        guard let refs = props["accessibilityLabelledBy"], let presenter else { return nil }
+        let text = refs.split(separator: " ").compactMap { presenter.chrome.named[String($0)]?.min().flatMap { presenter.views[$0] } }
+            .map { $0.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } ?? $0.accessibleText }
+            .filter { !$0.isEmpty }.joined(separator: " ")
+        return text.isEmpty ? nil : text
+    }
     var accessibleName: String { authoredLabel ?? accessibleText }
     /// A button to assistive technology: a `button`, or a box whose ARIA
     /// role is `button` or `link`, as the web's tree has a `div` with one
@@ -224,6 +235,14 @@ extension Presenter {
         // A description reads the text of the elements it names, wherever they changed.
         let described = changed == nil ? [] : chrome.ids("accessibilityDescribedBy").subtracting(nodes.map(\.id)).compactMap { views[$0] }
         for node in described { node.applyFormAccessibility() }
+        // A name read from other elements follows their text (ledger2 Rough 3).
+        for node in chrome.ids("accessibilityLabelledBy").compactMap({ views[$0] }) where !node.isNativeButton {
+            #if os(macOS)
+            if node.accessibilityLabel() != node.accessibleName { node.setAccessibilityLabel(node.accessibleName) }
+            #else
+            if node.accessibilityLabel != node.accessibleName { node.accessibilityLabel = node.accessibleName }
+            #endif
+        }
         for node in nodes {
             node.applyFormAccessibility()
             // A native button's control is its accessibility element (LLP 1069.011 D4).

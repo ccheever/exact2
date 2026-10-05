@@ -162,7 +162,9 @@ impl Lowerer<'_> {
                     }
                     _ => cancels.push(row),
                 },
-                other => return refuse(row, format!("a `{other}` row is not text, an action or the cancel")),
+                // An author laying a modal out (onboarding's Delete account?
+                // in a `column` of rows) wants `role="dialog"`: say so.
+                other => return refuse(row, format!("a `{other}` row is not text, an action or the cancel; to lay the dialog out yourself, give it `role=\"dialog\"` (with `aria-modal=true`), which takes any content and is drawn as written")),
             }
         }
         for (i, later) in cancels.iter().enumerate() {

@@ -19,6 +19,25 @@ pub(crate) fn unknown_tag(tag: &str, span: Span) -> LowerError {
     }
 }
 
+/// CSS properties exact2 knows and does not implement because they need
+/// fragmentation (CSS Fragmentation 3): a block's content continuing from
+/// one box into the next. The kernel's layout has none yet, so these are
+/// refused by what they would need, not as misspellings (the reader diary).
+/// LLP 1093 (admitted, not yet built) is the planned home of multi-column and
+/// the break rules inside it; each refusal stays until its stage lands, and
+/// says so. `column-span` and paged media stay out (LLP 1093 §5).
+pub(crate) fn fragmentation(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "widows" | "orphans" => "applies only where a paragraph's lines are split across pages, columns or regions (CSS Fragmentation 3); exact2 has no fragmentation context yet (no paged media, no `columns`), so a paragraph's lines are never split and it would change nothing. It arrives with CSS multi-column, planned in LLP 1093 (admitted, not yet built); until then an app that pages a column by translating it keeps its own rule",
+        "columns" | "column-count" | "column-width" | "column-fill" | "column-rule"
+        | "column-rule-width" | "column-rule-style" | "column-rule-color" => "is CSS Multi-column Layout, which exact2 does not implement yet: the kernel's layout has no fragmentation, so one flow cannot continue from one column box into the next on a native host. LLP 1093 (admitted, not yet built) is its planned home; until it lands, page a fixed-height column by translating it, and show two such windows for a spread",
+        "column-span" => "is CSS Multi-column Layout's spanning element, which exact2 does not implement and LLP 1093, the planned multi-column, leaves out (§5); end the column flow and put the spanning content after it",
+        "break-before" | "break-after" | "break-inside" => "controls where content fragments across pages or columns; exact2 has no fragmentation context yet (no paged media, no `columns`), so there is no break to control. Its column values arrive with CSS multi-column, planned in LLP 1093 (admitted, not yet built); page and region values stay out",
+        "page-break-before" | "page-break-after" | "page-break-inside" => "controls where content fragments across pages; exact2 has no fragmentation context (paged media stays out, LLP 1093 §5), so there is no break to control",
+        _ => return None,
+    })
+}
+
 pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
     let hint = match tags::renamed(&a.name) {
         Some(new @ ("press" | "change" | "input")) => format!(
@@ -29,6 +48,13 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
             "; `{}` is spelled `{new}` here, the web's name (LLP 1017 §8.1)",
             a.name
         ),
+        None if fragmentation(&a.name).is_some() => {
+            format!(
+                ": `{}` {}",
+                a.name,
+                fragmentation(&a.name).unwrap_or_default()
+            )
+        }
         None if a.name == "className" => {
             "; `class` names a `style` declared in this file, as in `class=Card`".into()
         }

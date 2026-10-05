@@ -21,6 +21,7 @@
 
 mod class;
 mod collection;
+mod contain;
 pub mod controls;
 pub mod dataset;
 pub mod expr;
@@ -798,7 +799,7 @@ impl<'a> Lowerer<'a> {
                 // @ref LLP 1074 T1 — a box that contains its absolutely positioned
                 // descendants on every host is lowered `position: relative`.
                 let in_svg = svg::in_svg(self.svg_depth > 0, parent_tag);
-                let relative = tags::positioned(
+                let relative = contain::positioned(
                     &t,
                     expanded,
                     in_svg,
@@ -1217,9 +1218,14 @@ impl<'a> Lowerer<'a> {
         surface: &mut Option<exact_plan::SurfacesId>,
         font: &[FontUse],
     ) -> Result<(), LowerError> {
-        let Some(target) = tags::attr(&a.name) else {
+        let Some(mut target) = tags::attr(&a.name) else {
             return Err(unknown_attr(tag, a));
         };
+        // HTML's global `title` on any element but `head`: advisory text, the
+        // platform's tooltip (studio diary R24); `head`'s is the document's.
+        if a.name == "title" && tag != "head" {
+            target = tags::AttrTarget::Prop(exact_kernel::PropId::Title);
+        }
         // @ref LLP 1024 D1 — `load` and `message` are a module's too.
         let module = native::is_module_tag(tag) && a.name != "sandbox";
         if (tag != "iframe"
@@ -1271,7 +1277,8 @@ impl<'a> Lowerer<'a> {
             );
         }
         // @ref LLP 1048.003 D1 — a document's metadata, and nothing else.
-        let head_field = tags::HEAD_FIELDS.contains(&a.name.as_str());
+        let head_field =
+            tags::HEAD_FIELDS.contains(&a.name.as_str()) && !(a.name == "title" && tag != "head");
         if head_field != (tag == "head") {
             return err(
                 "lower-attr-tag",
@@ -1311,6 +1318,13 @@ impl<'a> Lowerer<'a> {
             return err(
                 "lower-attr-tag",
                 format!("`text-transform` does not apply to `{tag}`: a field shows what was typed on every host (the web's form controls reset it too); transform the value instead"),
+                a.span,
+            );
+        }
+        if tag != "text" && a.name == "selectionchange" {
+            return err(
+                "lower-attr-tag",
+                format!("`selectionchange` belongs to `text`: it reports the part of the reader's text selection inside one paragraph, not `{tag}`"),
                 a.span,
             );
         }

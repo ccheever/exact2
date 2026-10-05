@@ -76,6 +76,9 @@ A proposal in a design document is not an implemented grammar production.
 ## The implementation loop
 
 In an app made by `exact new`, run its own `exact.mjs` from the app's directory.
+`bun exact.mjs update` regenerates that file, so the app's own verbs go in
+`app.json`'s `commands` (`"verify": ["bun", "verify.mjs"]` is `bun exact.mjs verify
+web`, run in the app's directory), which it reads and update leaves alone.
 Its `contract` verb is exact2's compiler, with paths relative to where you run it:
 
 ```sh
@@ -113,8 +116,12 @@ bun exact.mjs agent web --size 390x844 "screenshot phone.png"   # a phone-sized 
 
 The web carrier opens at 420×900; `--size <w>x<h>` (before the operations) opens
 another viewport, and a test's first step `size <w>x<h>` does the same for that test.
-On the web each drive is a fresh browser profile, so its storage ends with the drive;
-`--storage <name>` keeps a native host's scratch store between drives. To show what
+`resize <w>x<h>`, an operation and a test step, resizes it mid-drive as a person
+dragging the window's edge would: the browser's viewport, a macOS window, the
+Linux presenter. An iOS app's viewport is the device's screen, so iOS refuses it.
+`--storage <name>` keeps a named scratch store between drives on every host (on
+the web, a kept browser profile served on one port per name); without it a web
+drive is a fresh profile, so its storage ends with the drive. To show what
 survives a restart on any host, use an authored test's `reload` step (below).
 
 Inside the exact2 checkout, for Caltrain:
@@ -199,6 +206,18 @@ at CSS.
 - `none` and `[]` need an inferable element type. A state initialized by either
   usually gets that information from later assignments; a typed argument or
   the other conditional/match arm can also supply it.
+- An option directly inside an option is refused (`type-option-option`):
+  `option<option<T>>` written, `some(none)`, `first` or `at` of a
+  `list<option<T>>`, a mutation `as shape option<T>`. The web erases `some`,
+  so `some(none)` would be `none` there; hold the inner option in a record
+  field. A type nests at most 64 deep, through shapes, lists and options
+  (`type-too-deep`).
+- One evaluation (an action body, a derive, a binding, a key, an argument)
+  takes at most 65,536 list steps (each `map`/`filter` body run, each item
+  `join` prints), builds strings of at most 64 MiB of UTF-8, and values of at
+  most 2²⁴ values and 64 MiB of string bytes. Every target refuses the same
+  step with the same reason: an action is refused with nothing changed, a view
+  binding stops the runner (LLP 1090).
 - A state's initializer runs before any resource answers and before any derive:
   it reads props, injects and the states declared above it, nothing else
   (`type-initializer-scope`). Derive a value from a resource instead, or keep
@@ -214,6 +233,9 @@ at CSS.
 - `map(xs, (x, i) => expr)` and `filter(xs, x => bool)` return values, not nodes.
   `join(xs, separator)` accepts primitive items. `first(xs)` and `at(xs, i)`
   return options; `at` supports negative indices.
+- Two strings compare with `<`, `<=`, `>`, `>=` in UTF-16 code-unit order, as on
+  the web (`end > start` for `"HH:MM"` times). `slice(s, 0, -1)`,
+  `replaceAll(s, find, with)` and `toLowerCase(s)` are the web's string methods.
 - Standard calls are free functions, not methods: `trim(s)`, `includes(s, q)`.
   There are no nonempty list literals, object literals, general lambdas, array
   indexing, assignment expressions, or JavaScript built-ins by implication.
@@ -222,7 +244,7 @@ at CSS.
   capture or recursion. Pass an app value in; do not invent an ambient reference.
 - Named arguments belong to component uses, record constructors,
   `t("key", placeholder=value)`, `empty(field=value)`, canvas `surface=` bindings,
-  and the commands `share(…)` and `scrollIntoView(…)`. Every other function takes
+  and the commands `share(…)`, `showNotification(…)` and `scrollIntoView(…)`. Every other function takes
   positional arguments.
 
 For the full roster and special calls, see
@@ -259,9 +281,46 @@ derive, resource value, or arbitrary record field. Replace a record with a copie
 record. `send` targets a mutation owned by that component.
 
 Permitted statements: assignment, `let`, `send`, `refresh`, known host command,
-`if`/`else`, and option `match`. No loops or general action calls. The compiler
-infers effects from the body; `writes` is a refusal, not an optional annotation.
-Use `symbols` when you need the inferred write set.
+a call of an action, `if`/`else`, and option `match`. No loops. The compiler
+infers effects from the body, through its calls; `writes` is a refusal, not an
+optional annotation. Use `symbols` when you need the inferred write set.
+
+An action calls an action of its own component, an `action` prop or an injected
+action by name, as a statement, anywhere a statement goes (LLP 1089). The call is
+the callee's statements run where it stands, in the same commit: one rollback,
+and the callee reads the state the action started with, as every statement does.
+A name that is a host command stays the command. A call gives no value; compute
+values with `fn`. Write a repeated sequence once and call it:
+
+```contract
+component App
+  state location = "/"
+  state query = ""
+  state sel = 0
+  action arrive(path: string)
+    location = path
+    query = ""
+    sel = 0
+  action openItem(path: string)
+    arrive(path)
+  action goHome
+    arrive("/")
+  view
+    column
+      button press=openItem("/docs") testId="open"
+        text location testId="where"
+      button press=goHome testId="home"
+        text "home"
+```
+
+Because the callee sees the starting state, a slot its caller assigned first
+would be stale behind the call, and the compiler refuses that read
+(`analyze-call-stale-read`): `sel = next` then `follow()`, where `follow` reads
+`sel`. Pass the value it should see instead: `follow(next)` for the new one, or
+a `let` bound before the assignment for the old one. Two calls that each read and
+write one slot (`move(1, 0)` then `move(0, 1)`) are refused the same way: both
+read the starting cell, and the last write wins. Calls in exclusive branches
+(`if k == "ArrowUp" …` then `if k == "ArrowDown" …`) are separate paths.
 
 A derive is not mutable storage, an async effect, or a timer. Derive cycles are
 refused. Avoid unnecessary state that can be calculated from existing values.
@@ -272,6 +331,24 @@ The first component is the root. Each component use is `Name(prop=value, …)`.
 Supply every declared prop exactly once; props have no defaults (pass `none` for
 an option). An `action` prop can receive a reference with
 captured arguments; the eventual event payload is appended at invocation.
+
+A child's action may call its `action` props and injected actions, with the
+arguments after those captured where they were bound: the parent's action runs
+in the same commit, and the child never writes the parent's state itself. A
+swipe that decides, in the child, to tell its parent resets its own state, then
+calls the prop last in an `if` arm:
+
+```text
+component Row
+  props
+    id: string
+    archive: action
+  state dx = 0
+  action release(dy: number)
+    dx = 0
+    if dy > 120
+      archive(id)
+```
 
 Children may hold state, derives, and actions. They cannot declare resources,
 mutations, or tasks. Lift shared data requests to the root and pass values and
@@ -310,7 +387,7 @@ Choose the mechanism from its lifetime:
 | Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
 
 Resources read as their declared type. Mutations read as `option<T>` and start at
-`none`. Do not treat a resource as an optional wrapper unless its declared type
+`none`, so a mutation's `T` is not itself an option. Do not treat a resource as an optional wrapper unless its declared type
 itself is optional. A mutation reply is unwrapped with match.
 
 `with` takes one or more expressions, before `as shape`, and appends them to the
@@ -325,8 +402,9 @@ ask. The default web JS target keeps no persisted resource answers
 
 The current request owns its answer; older replies cannot overwrite a newer
 request. Assigning a mutation forgets its in-flight reply, so an action that
-sends one mutation twice on one path is refused (`analyze-send-twice`): send one
-combined request, or use a mutation per request. `refreshes` re-reads
+sends one mutation twice on one path is refused (`analyze-send-twice`), counting
+the sends of the actions it calls: send one combined request, or use a mutation
+per request. `refreshes` re-reads
 its resources when the mutation is sent (an answer the source gives at once shows
 immediately) and forces them again when the reply lands. `then` is parameterless,
 runs once at the host's next clock advance as a new commit (under the driver, an
@@ -528,7 +606,12 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   1038 D11), which calls the root's `navigate`.
 
 A `head` node supplies document metadata. The innermost active value wins for
-each field. `scroll document` declares page scrolling. Route `render`/`activate`
+each field. `head edited=dirty` marks a document with unsaved changes (the dot in
+a Mac window's close button; nothing elsewhere). Before a window closes or the app
+quits, every element with a `beforeunload` handler hears it, DOM's event: an action
+that calls `preventDefault()` keeps the window open — the browser asks "Leave
+site?", a Mac app asks its own question — and `close()` closes the window once
+it is answered (studio diary R17). Any other element's `title` is HTML's tooltip. `scroll document` declares page scrolling. Route `render`/`activate`
 policy belongs to the site's renderer/build pipeline; follow
 [the document fixture](../contract/corpus/document.contract) and
 [LLP 1048.003](../llp/1048.003-documents-in-contract.spec.md). Do not claim SEO,
@@ -563,7 +646,12 @@ they do not admit arbitrary frame callbacks or a second app-state graph.
 For drawing and pointer-tracking, `pointerdown`, `pointermove` and `pointerup`
 hand an action that takes it a `PointerEvent` (`offsetX`/`offsetY` from the
 node's content box, `buttons`, `pressure`, `pointerType`, `pointerId`), on any
-node, a canvas included; set `touch-action="none"` on a drawing surface. See
+node, a canvas included; set `touch-action="none"` on a drawing surface. Any
+button goes down (`buttons` 2 is a right-click's), and a `contextmenu` action may
+take the same record, where the click was. `wheel` hands a `WheelEvent` (deltas,
+modifiers; a trackpad pinch is a Control-held wheel) and `preventDefault()` keeps
+the scroll from happening; `drop` hands a `DragEvent` whose `files` are `doc:`
+handles of the types `file_handlers` declares. See
 [Pointer](contract-grammar.md#pointer).
 
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
@@ -633,12 +721,17 @@ primary mouse click on web, Windows, and Linux. `{contextmenu:true, at:[x,y]}`
 sends a right-click. Coordinates are relative to the target's top-left; omit
 `at` for its center. Both refuse invalid, covered, or offscreen points and held
 contacts. The CLI forms are `tap world mouse` and `tap world contextmenu`, or use
-a JSON options object for coordinates. Plain canvas taps and held contacts are
+a JSON options object for coordinates. `tap stage wheel 0 -20 modifiers Control`
+is a pinch's wheel; `tap world drop a.board` drags a file in (web, macOS). Plain canvas taps and held contacts are
 fingers, so their platform pointer identity and retained press history can differ
 from a mouse's; use the intended physical input when comparing game saves.
 
 `tap` and `type` scroll a target whose middle is out of view into it first (its
 nearest scroll containers, then the page) and say so in the reply's `scrolled`.
+A tap aims at the target's middle, or, where the target is not there (a wrapped
+inline run, whose middle can fall between its lines), at the middle of the first
+of its lines that is; a tap whose point lands on something else fails, an
+ancestor that would take the press itself included.
 `type` on a control sets it as a person choosing would, with `input` then
 `change`: a `select` takes an option's value or its label, a date, time or
 `datetime-local` input its HTML value (`2026-10-09`, `14:00`,
@@ -647,6 +740,8 @@ nearest scroll containers, then the page) and say so in the reply's `scrolled`.
 move, with the finger still down. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
 first); its reply says what is still in flight (`inflight`, on every host), and `clock settle` lands it.
+`clock data` lands it without moving the clock: the data module's activation and
+every request in flight, each answer's `then` with it, no timer fired.
 A playing `video` or `audio` is on real time too: the clock never seeks or holds it, so
 between operations it moves only as far as the drive took. `clock +N real` lets
 N ms of real time pass with the clock moving beside it, a step at a time: a
@@ -673,6 +768,12 @@ This test goes with the complete example above. A test opens with its launch
 lines — `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
 "America/New_York"`, `locale "fr-FR"`, `seed 7`, the driver's flags of those
 names — written first in the test or, for every test, at the top of the file.
+Before the first step (and after a `reload`) the driver waits for the app's data
+as `clock data` does: its data module activated and every request launch started
+(a store's open, a fetch) answered, the clock unmoved and no timer fired, so a
+test does not start with `clock settle`. `before data`, a launch line, skips the
+wait; what has landed then is the host's (a native app runs on real time before
+the driver connects).
 A test whose text depends on the date names its `epoch`; without one it runs at
 the driver's 2026-01-01 UTC. The steps are `tap "id" [hover|dblclick|contextmenu]`,
 `tap "id" modifiers "Shift+Meta"` (a press with keys held),
@@ -683,7 +784,9 @@ so the next step can tap a row outside the rendered window),
 the tree shows, as typing after a prefill), or `type "id" key "Name"`,
 `type "id" paste "text"`, `type "id" copy`, `type "id" cut`, `pick "id" "path"…` or
 `pick "id" cancel` (a held picker or export, by its node or capability as
-above; paths are the test file's), `clock settle|+ms|+ms real|ms`, `reload`
+above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
+what is in flight lands, with each answer's `then`, the clock unmoved), `resize
+800x600` (the window, mid-test), `reload`
 (the app restarts on the store it had, its state and clock starting over, so a
 test shows what persists),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
@@ -730,7 +833,8 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `if name` for a string | `if name != ""` |
 | `selected.title` when optional | Exhaustive `match selected` |
 | `press={() => save()}` | `press=save` or `press=save(captured)` |
-| Calling an action from another action | Put the statements there; factor calculations into `fn` |
+| Copying an action's statements into another | Call it: `arrive(path)`; the callee runs in the same commit |
+| A helper that reads a slot its caller just assigned | Pass the value: `follow(next)` (`analyze-call-stale-read`) |
 | Child `resource`, `mutation`, or `task` | Root-owned declaration and props/injections |
 | `fontSize`, `radius`, `resizeMode` | `font-size`, `border-radius`, `object-fit` |
 | `width=20px` | `width=20` or `width="20px"` |
@@ -798,10 +902,29 @@ where needed; iOS/tvOS/Linux ignore the hint (LLP 1001). URLs are refused.
 
 `font-family` accepts literal CSS fallback lists and choices of them, including
 `"Inter, system-ui, sans-serif"` and quoted names. A family declared with
-`font` uses its bundled faces; other names are local installed families. Web
-and Apple retain the ordered glyph fallback cascade. Linux selects the first
+`font` uses its bundled faces; other names are local installed families,
+whose own italic and bold faces `font-style` and `font-weight` select by CSS's
+matching (a family without the face draws its nearest one, never a synthesized
+slant or smear: LLP 1019 §5). Web and Apple retain the ordered glyph fallback cascade. Linux selects the first
 installed family, then uses cosmic-text's platform glyph fallback; it logs
 this declared limitation for a multi-member stack (LLP 1001).
+
+A `text` with `selectionchange=act` hears the reader's real text selection
+on the web and macOS: `action act(s: Selection)` gets `s.text`, `s.start` and
+`s.end` in the node's own text ("" at 0, 0 when nothing there is selected).
+Drive it with `tap <id> drag <dx> <dy> from <x> <y> mouse`.
+
+Book typography is CSS's on every host. `text-align="justify"` fills all but
+a paragraph's last line. `text-indent` is a length (`text-indent="1.5em"`,
+`text-indent=24`; negative with the same `padding-left` hangs the first line).
+`hyphens` is `manual` by default: a soft hyphen (U+00AD, written as the character itself or from data) breaks
+and shows a hyphen; `none` ignores it; `auto` also hyphenates by the document's
+language on the web and Apple (Linux has no dictionary and breaks only at soft
+hyphens). `widows`, `orphans`, `break-*` and multi-column (`columns`,
+`column-count`) are refused: nothing fragments a paragraph across boxes yet, so
+page a fixed-height column by translating it (LLP 1001 §6). Multi-column and its
+break rules are planned in LLP 1093 (admitted, not yet built); the refusals stay
+until it lands.
 
 `textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
 height and `field-sizing="content"` override it. `maxlength=80` on text inputs

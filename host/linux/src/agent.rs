@@ -444,6 +444,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             ("visibility-state", v @ ("visible" | "hidden")) => page.hidden = v == "hidden",
             ("online", v @ ("true" | "false")) => page.on_line = v == "true",
             ("can-share", v @ ("true" | "false")) => page.can_share = v == "true",
+            ("can-open-files", v @ ("true" | "false")) => page.can_open_files = v == "true",
             ("root-font-size", v) if v.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0) => {
                 root_font_size = v.parse::<f64>().ok()
             }
@@ -484,6 +485,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         "visibility-state": page.visibility_state(),
         "online": page.on_line,
         "can-share": page.can_share,
+        "can-open-files": page.can_open_files,
         "root-font-size": p.host().runner().root_font_size(),
     }, "fold": {
         "device-posture": fold.posture.keyword(),
@@ -667,9 +669,54 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             None => format!("{{\"clock\":{}}}", num(landed)),
         };
     }
+    if field_bool(line, "data") {
+        return land_data(p, SETTLE_BOUND);
+    }
     let reply = clock_within(p, line, SETTLE_BOUND);
     retell_offset(p);
     reply
+}
+
+/// `clock data`: the app's data lands — its deferred module activated (the
+/// turn after first pixel) and every request in flight answered, each
+/// answer's `then` landed — at the clock as it stands, no timer fired. A
+/// test's first step waits for it (habits, pomodoro, kanban: storage opened
+/// after the first step, which then read the placeholder).
+fn land_data<D: DataSource>(p: &mut Presenter<D>, bound: std::time::Duration) -> String {
+    let deadline = std::time::Instant::now() + bound;
+    let unsettled = |p: &Presenter<D>, reason: &str| {
+        format!(
+            "{{\"clock\":{},\"settled\":false,\"reason\":\"{reason}\"}}",
+            num(p.host().now())
+        )
+    };
+    for _ in 0..16 {
+        while p.data_activating() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            if p.dirty() {
+                let _ = p.frame();
+            }
+            p.first_pixel();
+        }
+        if p.data_activating() {
+            return unsettled(p, "data");
+        }
+        if !wait_for_replies(p, deadline) {
+            return unsettled(p, "requests");
+        }
+        let (landed, e) = p.land_then();
+        p.sync_surfaces();
+        if let Some(e) = e {
+            let mut s = String::from("{\"error\":");
+            exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
+            return format!("{s},\"clock\":{}}}", num(landed));
+        }
+        // A `then` that sent asks again; what it sends lands in the next round.
+        if !p.pending() {
+            return format!("{{\"clock\":{},\"settled\":true}}", num(landed));
+        }
+    }
+    unsettled(p, "requests")
 }
 
 /// The zone's offset at the virtual date the clock now reads: a move across

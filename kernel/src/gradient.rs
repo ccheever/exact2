@@ -237,6 +237,23 @@ impl BackgroundImage {
     }
 }
 
+/// Why a value naming one of the [`REFUSED`] functions anywhere is not
+/// painted: what the literal text of a computed value already says.
+pub fn refused_function(css: &str) -> Option<&'static str> {
+    let lower = css.to_ascii_lowercase();
+    REFUSED
+        .iter()
+        .find(|(prefix, _)| {
+            lower.match_indices(prefix).any(|(i, _)| {
+                !lower[..i]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || c == '-')
+            })
+        })
+        .map(|(_, why)| *why)
+}
+
 /// One `*-gradient()` call.
 fn one_gradient(css: &str) -> Result<Gradient, &'static str> {
     let css = css.trim();
@@ -453,7 +470,11 @@ pub fn premultiplied_ramp(stops: &[(f32, Color)]) -> Vec<(f32, Color)> {
 const EXPECTED: &str =
     "expected none, or linear-gradient(…), radial-gradient(…) or conic-gradient(…) with at least two colour stops";
 
-const REFUSED: [(&str, &str); 6] = [
+/// The CSS image functions no host paints, by the text a value opens one
+/// with, and why: a browser would paint each, so every build refuses them
+/// where it can see them and the web target drops them at run time, as the
+/// native hosts do (studio diary R15).
+pub const REFUSED: [(&str, &str); 6] = [
     (
         "repeating-linear-gradient(",
         "repeating-linear-gradient() is not implemented; a gradient paints once",

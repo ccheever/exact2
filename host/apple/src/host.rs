@@ -117,6 +117,8 @@ pub struct Host<D: DataSource> {
     /// last told (LLP 1048.003 D1): the window or scene title.
     has_heads: bool,
     head_title: Option<String>,
+    /// The active head's `edited` (LLP 1069.010 D6), sent with the title.
+    head_edited: bool,
     language: Option<String>,
     mirror: IdMap<ViewId, Mirror>,
     keys: IdMap<NodeKey, ViewId>,
@@ -390,6 +392,7 @@ impl<D: DataSource> Host<D> {
         let mut host = Host {
             has_heads,
             head_title: None,
+            head_edited: false,
             language: None,
             runner,
             mirror: IdMap::default(),
@@ -1108,16 +1111,18 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error)
     }
 
-    /// The active head's title, when a plan with a head may have moved it
-    /// (LLP 1048.003 D1). The app owning the window or scene shows it.
+    /// The active head's title and edited mark, when a plan with a head may
+    /// have moved them (LLP 1048.003 D1, LLP 1069.010 D6). The app owning
+    /// the window or scene shows them.
     fn emit_title(&mut self, batch: &mut Batch) {
         if !self.has_heads {
             return;
         }
-        let title = self.runner.head().title;
-        if title != self.head_title {
-            batch.title(title.as_deref());
-            self.head_title = title;
+        let head = self.runner.head();
+        if head.title != self.head_title || head.edited != self.head_edited {
+            batch.title(head.title.as_deref(), head.edited);
+            self.head_title = head.title;
+            self.head_edited = head.edited;
         }
     }
 

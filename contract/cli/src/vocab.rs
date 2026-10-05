@@ -81,6 +81,9 @@ fn one(name: &str, json: bool) -> ExitCode {
             if let Some(only) = only_on(name) {
                 println!("  only on {only}");
             }
+            if name == "title" {
+                println!("  on `head`, the document's title; elsewhere HTML's advisory text, the platform's tooltip (prop title, str)");
+            }
         }
         if let Some(open) = open {
             println!("{name}: {open}");
@@ -115,7 +118,8 @@ fn prop_type(p: PropId) -> String {
 
 /// Where an attribute is admitted, if not on every tag.
 fn only_on(name: &str) -> Option<&'static str> {
-    if tags::HEAD_FIELDS.contains(&name) {
+    // `title` is every element's, HTML's tooltip; `head`'s is the document's.
+    if tags::HEAD_FIELDS.contains(&name) && name != "title" {
         return Some("`head`");
     }
     vocab::CONTEXTUAL

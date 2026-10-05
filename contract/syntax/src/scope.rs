@@ -294,6 +294,12 @@ impl Rewriter<'_> {
                     self.locals.truncate(inner);
                     self.stmts(none)?;
                 }
+                // The parser never makes a call (LLP 1089); expansion does,
+                // after every file is in one scope.
+                Stmt::Call { args, body, .. } => {
+                    self.exprs(args)?;
+                    self.stmts(body)?;
+                }
             }
         }
         self.locals.truncate(mark);

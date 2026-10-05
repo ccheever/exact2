@@ -14,6 +14,8 @@ final class TextSelection {
     private var ordered: [NodeView]?
     private var indices: [UInt32: Int] = [:]
     private var painted: [UInt32: NSRange] = [:]
+    /// What each `selectionchange` text last heard, in source offsets.
+    private var reported: [UInt32: NSRange] = [:]
     private struct Position {
         var key: String
         var row: Int
@@ -79,6 +81,30 @@ final class TextSelection {
             if selected != painted[node.id] { node.needsDisplay = true }
         }
         painted = next
+        report(next)
+    }
+
+    /// The web's `selectionchange` on a `text` (the reader diary): its part
+    /// of the selection, in its source text's UTF-16 offsets, when that part
+    /// changes; nothing selected there is "" at 0, 0, as on the web.
+    private func report(_ next: [UInt32: NSRange]) {
+        guard let presenter else { return }
+        var seen = Set<UInt32>()
+        for node in paragraphs where node.handlers.contains("selectionchange") {
+            seen.insert(node.id)
+            var source = NSRange(location: 0, length: 0)
+            if let shaped = next[node.id] {
+                let text = node.paragraphText as NSString
+                let map = { (offset: Int) in min(node.readerParagraph == nil ? node.sourceOffset(offset) : offset, text.length) }
+                let lo = map(shaped.location), hi = map(NSMaxRange(shaped))
+                if hi > lo { source = NSRange(location: lo, length: hi - lo) }
+            }
+            guard reported[node.id] ?? NSRange(location: 0, length: 0) != source else { continue }
+            reported[node.id] = source
+            let text = source.length > 0 ? (node.paragraphText as NSString).substring(with: source) : ""
+            presenter.selectionChange(node.id, text, source.location, NSMaxRange(source))
+        }
+        reported = reported.filter { seen.contains($0.key) }
     }
 
     func clear() {

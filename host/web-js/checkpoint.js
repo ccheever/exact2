@@ -44,7 +44,7 @@ function dev() {
 export function devSignal(name, initial, type, declared, router = false) {
   const cp = dev(), kept = cp?.slots?.find(s => s[0] === name);
   const value = kept && (router || shape(kept[1], declared)) ? (router ? carryRouter(decode(kept[2]), launchLocation()) : decode(kept[2])) : initial;
-  const out = sig(value, type); out.n.devName = name; out.n.devType = declared; return out;
+  const out = sig(value, type, type === "s" ? name : undefined); out.n.devName = name; out.n.devType = declared; return out;
 }
 
 /** A settled resource carried only for the same source, arguments and type. */

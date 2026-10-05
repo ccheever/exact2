@@ -198,7 +198,7 @@ fn prefer_sets_the_display_preferences_by_their_media_names() {
 #[test]
 fn prefer_sets_contrast_scheme_and_the_page_facts() {
     let plan = contract::compile(
-        "shape M\n  prefersContrast: string\n  prefersColorScheme: string\nshape P\n  visibilityState: string\n  onLine: bool\n  canShare: bool\ncomponent App\n  resource m = exactViewport() as shape M\n  resource g = exactPage() as shape P\n  view\n    text `${m.prefersContrast} ${m.prefersColorScheme} ${g.visibilityState} ${g.onLine ? \"online\" : \"offline\"} ${g.canShare ? \"share\" : \"no-share\"}` testId=\"t\"\n",
+        "shape M\n  prefersContrast: string\n  prefersColorScheme: string\nshape P\n  visibilityState: string\n  onLine: bool\n  canShare: bool\n  canOpenFiles: bool\ncomponent App\n  resource m = exactViewport() as shape M\n  resource g = exactPage() as shape P\n  view\n    text `${m.prefersContrast} ${m.prefersColorScheme} ${g.visibilityState} ${g.onLine ? \"online\" : \"offline\"} ${g.canShare ? \"share\" : \"no-share\"} ${g.canOpenFiles ? \"pickers\" : \"no-pickers\"}` testId=\"t\"\n",
     )
     .unwrap();
     let bytes = contract::bake(plan, NoData).unwrap().encode();
@@ -213,20 +213,20 @@ fn prefer_sets_contrast_scheme_and_the_page_facts() {
     .unwrap();
     let text = |p: &mut Presenter<NoData>| handle(p, r#"{"op":"tree"}"#);
     assert!(
-        text(&mut p).contains("no-preference light visible online no-share"),
+        text(&mut p).contains("no-preference light visible online no-share no-pickers"),
         "{}",
         text(&mut p)
     );
     p.app_scheme(Some(false));
     let reply: serde_json::Value = serde_json::from_str(&handle(
         &mut p,
-        r#"{"op":"prefer","media":{"prefers-contrast":"more","prefers-color-scheme":"dark"},"page":{"visibility-state":"hidden","online":false,"can-share":"true"}}"#,
+        r#"{"op":"prefer","media":{"prefers-contrast":"more","prefers-color-scheme":"dark"},"page":{"visibility-state":"hidden","online":false,"can-share":"true","can-open-files":true}}"#,
     ))
     .unwrap();
     assert_eq!(reply["media"]["prefers-contrast"], "more");
     assert_eq!(reply["page"]["online"], false);
     assert!(
-        text(&mut p).contains("more dark hidden offline share"),
+        text(&mut p).contains("more dark hidden offline share pickers"),
         "{}",
         text(&mut p)
     );
@@ -235,6 +235,7 @@ fn prefer_sets_contrast_scheme_and_the_page_facts() {
         serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
     assert_eq!(state["device"]["prefersColorScheme"], "dark");
     assert_eq!(state["device"]["visibilityState"], "hidden");
+    assert_eq!(state["device"]["canOpenFiles"], true);
     let refused = handle(&mut p, r#"{"op":"prefer","page":{"online":"maybe"}}"#);
     assert!(refused.contains("\"error\""), "{refused}");
     // LLP 1069.000 D3: the root font size is layout, not a resource.
@@ -287,6 +288,36 @@ impl DataSource for Slow {
     ) -> Result<exact_runner::Answer, DataError> {
         Ok(exact_runner::Answer::Now(Value::Number(1.0)))
     }
+}
+
+/// habits, pomodoro, kanban: `clock data` lands what launch started (a
+/// store's open, a fetch) before a test's first step, the clock unmoved and
+/// no timer fired, where `clock settle` would have moved the clock.
+#[test]
+fn clock_data_lands_the_replies_without_moving_the_clock() {
+    let plan = contract::compile(
+        "component App\n  state count = 0\n  resource item = item() as shape number else fallback()\n  action tock\n    count = count + 1\n  task tocks mount\n    every(300, tock)\n  view\n    text `${count} ${item}` testId=\"log\" height=20\n",
+    )
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        Slow,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert_eq!(state["resources"]["item"], 0, "in flight: {state}");
+    let reply = json(handle(&mut p, r#"{"op":"clock","data":true}"#));
+    assert_eq!(reply["settled"], true, "{reply}");
+    assert_eq!(reply["clock"], 0.0, "{reply}");
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert_eq!(state["resources"]["item"], 1, "the reply landed: {state}");
+    assert_eq!(state["slots"]["count"], 0, "no timer fired: {state}");
 }
 
 /// LLP 1069.007 §5 item 4, with a synthetic capability standing in for

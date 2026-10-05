@@ -441,7 +441,7 @@ final class Presenter {
         }
         walk(window)
         let order = listed.enumerated().sorted { a, b in
-            let ia = Int(a.element.props["tabIndex"] ?? "0") ?? 0, ib = Int(b.element.props["tabIndex"] ?? "0") ?? 0
+            let ia = a.element.tabOrder, ib = b.element.tabOrder
             let pa = ia > 0 ? ia : Int.max, pb = ib > 0 ? ib : Int.max
             return pa != pb ? pa < pb : a.offset < b.offset
         }.map(\.element)
@@ -452,11 +452,12 @@ final class Presenter {
         let responder: UIView = target.textArea ?? target.field ?? target
         if responder.becomeFirstResponder(), responder === target { target.showFocusRing(true) }
     }
+    /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is one
+    /// by kind; an explicit negative never, though a tap still focuses it.
     private static func tabbable(_ v: NodeView) -> Bool {
-        if v.disabled || v.bounds.width == 0 || v.bounds.height == 0 { return false }
-        let index = Int(v.props["tabIndex"] ?? "0") ?? 0
-        if index < 0 { return false }
-        return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder || index > 0
+        if v.formDisabled || v.bounds.width == 0 || v.bounds.height == 0 { return false }
+        if let index = v.explicitTabIndex, index < 0 { return false }
+        return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder
     }
 
     /// The action's focus(html-id), delivered only after the batch is mounted.
@@ -499,7 +500,7 @@ final class Presenter {
             ancestor = view.superview
         }
         // The mounted window is a prerequisite, never another session's.
-        if let reason = NavigationRules.focusRefusal(mounted: target.window != nil, disabled: target.disabled,
+        if let reason = NavigationRules.focusRefusal(mounted: target.window != nil, disabled: target.formDisabled,
                                                      zeroSize: target.bounds.width == 0 || target.bounds.height == 0,
                                                      hiddenAncestor: hidden, inertAncestor: inert) {
             session?.log("focus \"\(name)\" refused: \(reason)")
@@ -638,6 +639,8 @@ final class Presenter {
     func key(_ id: UInt32, _ name: String) { send(id) { [self] in onKey?(id, name) } }
     func clipboard(_ id: UInt32, _ kind: UInt32, _ text: String) { send(id) { [self] in onClipboard?(id, kind, text) } }
     func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }
+    /// A `contextmenu` with its point (studio diary R22): kind 10 and its line.
+    func contextmenu(_ id: UInt32, line: String) { send(id) { [self] in onClipboard?(id, 10, line) } }
     func dblclick(_ id: UInt32) { send(id) { [self] in onDblclick?(id) } }
     func pointer(_ id: UInt32, _ kind: PointerKind, _ sample: PointerSample) { send(id) { [self] in onPointer?(id, kind, sample) } }
     func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }

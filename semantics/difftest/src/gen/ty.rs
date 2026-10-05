@@ -85,7 +85,8 @@ const NUMBERS: &[f64] = &[
 ];
 
 /// Strings that probe trimming (JS and Rust disagree on U+0085 and U+FEFF),
-/// UTF-16 lengths (astral characters count two), escaping and URI encoding.
+/// UTF-16 lengths (astral characters count two), code-unit order, `slice`
+/// cuts, `replaceAll`'s `$` substitutions, escaping and URI encoding.
 pub(crate) const STRINGS: &[&str] = &[
     "",
     "",
@@ -102,6 +103,8 @@ pub(crate) const STRINGS: &[&str] = &[
     "\u{2028}ls\u{3000}",
     "émoji 😀",
     "😀",
+    // After an astral character in code-unit order, before it in code-point order.
+    "\u{e000}",
     "𝄞x",
     "日本語",
     "a,b",

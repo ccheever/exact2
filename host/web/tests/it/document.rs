@@ -197,6 +197,9 @@ component App
       textarea value="\nfirst" testId="area" width=10
       view focus=bump testId="focusable" width=10 height=10
       button focus=bump testId="button" width=10 height=10
+      box tabindex=0 testId="plain-stop" width=10 height=10
+      view focus=bump tabindex=-1 testId="out-of-order" width=10 height=10
+      box testId="no-stop" width=10 height=10
       scroll scrollTop=40 testId="scroller" height=10
       canvas width=10 height=10 testId="canvas"
 "#;
@@ -218,6 +221,19 @@ component App
     assert!(doc[area..].contains(">\n\nfirst</textarea>"));
     assert!(tag("focusable").contains(" tabindex=\"0\""));
     assert!(!tag("button").contains("tabindex"));
+    // LLP 1088 D7.3: an authored `tabindex` is the attribute itself, it wins
+    // over the synthesized one, and absent is never `0`.
+    assert!(
+        tag("plain-stop").contains(" tabindex=\"0\""),
+        "{}",
+        tag("plain-stop")
+    );
+    let out = tag("out-of-order");
+    assert!(
+        out.contains(" tabindex=\"-1\"") && !out.contains("tabindex=\"0\""),
+        "{out}"
+    );
+    assert!(!tag("no-stop").contains("tabindex"), "{}", tag("no-stop"));
     // Scroll offsets are the browser's, never attributes.
     assert!(!tag("scroller").to_lowercase().contains("scrolltop"));
     let canvas = tag("canvas");

@@ -92,4 +92,38 @@ def CProgram.localeStates (p : CProgram) : List StateDecl :=
 def CProgram.component? (p : CProgram) (name : String) : Option CComponent :=
   p.components.find? (·.name == name)
 
+/-- The commands the host performs (`contract_syntax::HOST_COMMANDS`): a
+statement naming one is never a call. -/
+def hostCommands : List String :=
+  ["blur", "copyText", "deliveryActivate", "deliveryCheck", "focus", "format", "haptic", "openURL",
+   "reload", "selectText", "setScheme", "showPicker", "share", "showNotification",
+   "closeNotification", "saveFile", "showOpenFilePicker", "showDirectoryPicker",
+   "showSaveFilePicker", "scrollIntoView", "postMessage", "preventDefault", "stopPropagation",
+   "close"]
+
+/-- `c`'s statements with every same-component call made a `call` (calls.rs
+`expand_file`, the bodies apart). -/
+def ownCalls (c : CComponent) : List Stmt → List Stmt
+  | [] => []
+  | .command n args :: rest =>
+    (if !hostCommands.contains n && c.actions.any (·.name == n) then .call n args else .command n args) ::
+      ownCalls c rest
+  | .ifS cnd a b :: rest => .ifS cnd (ownCalls c a) (ownCalls c b) :: ownCalls c rest
+  | .matchS subj x a b :: rest => .matchS subj x (ownCalls c a) (ownCalls c b) :: ownCalls c rest
+  | st :: rest => st :: ownCalls c rest
+
+def ownCallsComponent (c : CComponent) : CComponent :=
+  { c with actions := c.actions.map fun a => { a with body := ownCalls c a.body } }
+
+/-- Every component's own calls made (calls.rs `expand_file`). -/
+def ownCallsProgram (p : CProgram) : CProgram :=
+  { p with root := ownCallsComponent p.root, components := p.components.map ownCallsComponent }
+
+/-- Whether a statement of `body` is `name(…)`. -/
+def commandsIn (name : String) : List Stmt → Bool
+  | [] => false
+  | .command n _ :: rest => n == name || commandsIn name rest
+  | .ifS _ a b :: rest | .matchS _ _ a b :: rest => commandsIn name a || commandsIn name b || commandsIn name rest
+  | _ :: rest => commandsIn name rest
+
 end Contract.Components

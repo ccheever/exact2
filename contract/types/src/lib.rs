@@ -18,6 +18,8 @@
 #![deny(missing_docs)]
 
 mod actions;
+mod bounds;
+mod calls;
 mod checks;
 mod component;
 mod geometry;
@@ -28,6 +30,7 @@ mod posts;
 pub mod records;
 pub mod routes;
 mod selection;
+pub use bounds::MAX_TYPE_DEPTH;
 pub use selection::event_record;
 /// The strings call and the tables it is checked against (LLP 1060).
 pub mod strings;
@@ -285,11 +288,24 @@ pub struct Shapes {
     pub style_attr: Option<fn(&str) -> bool>,
     /// The app's strings tables, when it has them (LLP 1060 D1).
     pub strings: Option<Arc<strings::Strings>>,
+    /// Action name → the first component that declares it: a statement
+    /// naming one out of its scope is told where it is (LLP 1089 D10).
+    pub actions: BTreeMap<String, String>,
+    /// Shape name → how deep its values can nest (LLP 1090 D2), once every
+    /// shape's fields are known.
+    pub depths: BTreeMap<String, u32>,
 }
 
 impl Shapes {
-    /// Resolve a written type.
+    /// Resolve a written type, refusing one no value of could cross every
+    /// target ([`Shapes::bounded`]).
     pub fn resolve(&self, t: &TypeExpr) -> Result<Ty, TypeError> {
+        let ty = self.resolve_unbounded(t)?;
+        self.bounded(&ty, t.span())?;
+        Ok(ty)
+    }
+
+    fn resolve_unbounded(&self, t: &TypeExpr) -> Result<Ty, TypeError> {
         Ok(match t {
             TypeExpr::Named(n, span) => match n.as_str() {
                 "number" => Ty::Number,
@@ -309,8 +325,8 @@ impl Shapes {
                     }
                 }
             },
-            TypeExpr::Option(inner, _) => Ty::Option(Box::new(self.resolve(inner)?)),
-            TypeExpr::List(inner, _) => Ty::List(Box::new(self.resolve(inner)?)),
+            TypeExpr::Option(inner, _) => Ty::Option(Box::new(self.resolve_unbounded(inner)?)),
+            TypeExpr::List(inner, _) => Ty::List(Box::new(self.resolve_unbounded(inner)?)),
         })
     }
 
@@ -653,8 +669,16 @@ pub fn ascribe(t: &Ty, declared: &TypeExpr, shapes: &Shapes, span: Span) -> Resu
     }
 }
 
-/// Infer an expression's type in `scope`.
+/// Infer an expression's type in `scope`, refusing one no value of could
+/// cross every target ([`Shapes::bounded`]): `some`, `map` and the roster's
+/// options and lists are where an inferred type grows.
 pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
+    let t = infer_unbounded(e, scope, shapes)?;
+    shapes.bounded(&t, e.span())?;
+    Ok(t)
+}
+
+fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
     Ok(match e {
         Expr::Number(..) => Ty::Number,
         Expr::Str(..) => Ty::String,
@@ -837,13 +861,19 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 routes::not_the_router(f, args, scope, shapes, *span)?;
                 routes::require_table(f, shapes, *span)?;
                 geometry::check_call(f, args, scope, *span)?;
-                if args.len() != f.arity() {
+                // Trailing optional parameters (`slice`'s `end`) may be
+                // omitted from a call the roster resolved; lowering fills
+                // their defaults (LLP 1088 D2).
+                if !(f.min_arity()..=f.arity()).contains(&args.len()) {
                     return err(
                         "type-arity",
                         checks::call_arity(
                             name,
                             args.len(),
-                            f.params().iter().map(|spec| roster_spelling(f, spec)),
+                            f.params().iter().enumerate().map(|(i, spec)| {
+                                let optional = if i >= f.min_arity() { "?" } else { "" };
+                                format!("{}{optional}", roster_spelling(f, spec))
+                            }),
                         ),
                         *span,
                     );
@@ -933,11 +963,15 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     }
                     Ty::Number
                 }
+                // Two strings compare as JavaScript's `IsLessThan` does: in
+                // UTF-16 code-unit order (LLP 1088 D1).
                 BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                    if ta != Ty::Number || tb != Ty::Number {
+                    if !matches!((&ta, &tb), (Ty::Number, Ty::Number) | (Ty::String, Ty::String)) {
                         return err(
                             "type-operand",
-                            format!("comparison needs numbers, given `{ta}` and `{tb}`"),
+                            format!(
+                                "comparison needs two numbers or two strings, given `{ta}` and `{tb}`"
+                            ),
                             *span,
                         );
                     }
@@ -1057,6 +1091,14 @@ pub(crate) fn disagree(e: &Expr, ta: &Ty, tb: &Ty) -> TypeError {
 /// Navigation uses the same declaration rules as executable compilation.
 pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
     let mut shapes = Shapes::default();
+    for c in &file.components {
+        for a in &c.actions {
+            shapes
+                .actions
+                .entry(a.name.clone())
+                .or_insert_with(|| c.name.clone());
+        }
+    }
     routes::declare(file, &mut shapes)?;
     selection::declare(&mut shapes);
     geometry::declare(&mut shapes);
@@ -1078,6 +1120,10 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
             fields.push((f.name.clone(), shapes.resolve(&f.ty)?));
         }
         shapes.map.insert(s.name.clone(), fields);
+    }
+    shapes.measure_shapes();
+    for s in &file.shapes {
+        shapes.bounded(&Ty::Record(s.name.clone()), s.span)?;
     }
     // `fn`s (LLP 1017 P5): signatures first, then each body in a scope of
     // its parameters only — pure by construction — against the declared
@@ -1206,7 +1252,17 @@ fn check_with_sites(
     });
     let mut sink = Sink::default();
     posts::check_targets(file, &mut sink);
-    check_children(file, &mut types, &mut sink);
+    // Each component's calls of its own actions, expanded in its own scope
+    // before any body is checked (LLP 1089 D7): a child's body holds them.
+    let (called, refused) = contract_syntax::inline::calls::expand_file(file);
+    for e in refused {
+        sink.push(TypeError {
+            id: e.id,
+            message: e.message,
+            span: e.span,
+        });
+    }
+    check_children(&called, &mut types, &mut sink);
     let children = sink.errors.len();
     // The root is checked against its inlined view, so a handler's real call
     // site (behind a child's prop) types the action's parameters.
@@ -1214,7 +1270,7 @@ fn check_with_sites(
     // child's own declarations, lifted in — what lowering will lower.
     // A use that cannot be expanded is refused and left out; the rest of the
     // root is still checked, what it lacked reading as `?`.
-    let (expanded, refused) = contract_syntax::expand_all(file, capture_sites);
+    let (mut expanded, refused) = contract_syntax::expand_checked(&called, capture_sites);
     for e in refused {
         sink.push(TypeError {
             id: e.id,
@@ -1223,6 +1279,9 @@ fn check_with_sites(
         });
     }
     check_root(file, &mut types, &expanded, &mut sink);
+    // What lowering lowers: each caller's names renamed apart from what its
+    // callees read, after the checks spoke in the author's (LLP 1089 D7).
+    contract_syntax::hygiene(&mut expanded, file);
     if sink.errors.is_empty() {
         Ok(Checked {
             file,

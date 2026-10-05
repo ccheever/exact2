@@ -2,6 +2,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -88,6 +89,22 @@ export async function closeWindowsBrowser(child, cdp, exited, profile, terminate
     if (helperLive) error.ownedHelper = helper;
     throw error;
   }
+}
+
+/** Where a web drive's named scratch store lives (`--storage <name>`), kept between drives as a native one is (dash,
+ * weather, kanban: a second drive opened an empty store): Chrome's profile for it, beside the native stores' cache
+ * (agent-test.mjs `storeBase`), and the port its page is served on — an origin's storage is its host and port's, so
+ * one name is one port, from its hash, below the ephemeral range. */
+/** The store a drive with `env` uses: the driver's environment under the drive's own, as `runTests` places and removes
+ * it and a native host sees it (review b5-c 3). */
+export const driveStore = (appId, storage, env, platform = process.platform) => {
+  const launched = { ...process.env, ...(env ?? {}) };
+  return webStore(appId, storage, launched, launched.HOME || homedir(), platform);
+};
+export function webStore(appId, storage, env = process.env, home = homedir(), platform = process.platform) {
+  const cache = platform === 'darwin' ? resolve(home, 'Library/Caches') : env.XDG_CACHE_HOME?.startsWith('/') ? env.XDG_CACHE_HOME : resolve(home, '.cache');
+  const base = resolve(cache, 'exact', appId, 'agent-web');
+  return { base, profile: resolve(base, storage), port: 20000 + createHash('sha256').update(`${appId}/${storage}`).digest().readUInt32BE(0) % 28000 };
 }
 
 // Ask the pinned dependency for its browser instead of copying its cache layout

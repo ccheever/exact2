@@ -1391,6 +1391,7 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
         overflow_wrap: s.overflow_wrap,
         white_space: s.white_space,
         direction: s.direction,
+        text_indent: s.text_indent,
     }
     .collapse_white_space()
 }

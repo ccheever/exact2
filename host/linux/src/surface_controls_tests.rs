@@ -35,6 +35,9 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
     let source = r#"component Controls
   state removed = false
   state text = ""
+  state spins = 0
+  action spun(e: WheelEvent)
+    spins = spins + 1
   action change(value: string)
     text = value
   action remove
@@ -48,7 +51,7 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
             box testId="label" width=100 height=100
       canvas testId="b" width=100 height=100
         button testId="b-jump" action="jump" width=100 height=100
-      canvas testId="raw" width=100 height=100
+      canvas testId="raw" wheel=spun width=100 height=100
         button testId="hud-remove" press=remove width=100 height=30
       button testId="remove" press=remove width=100 height=30
 "#;
@@ -378,7 +381,10 @@ fn r15_pointer_hud_button_releases_focus_but_keyboard_keeps_it() {
         .values()
         .any(|c| c.held.contains("Space")));
     p.hardware_key("Space", "Space", false, false);
-    p.type_key(button, "Tab", "Tab", true, false).unwrap();
+    // Tab from the stop before it (LLP 1088 D7.3: Tab moves the focus).
+    p.type_key(find(&p, "b-jump"), "Tab", "Tab", true, false)
+        .unwrap();
+    assert_eq!(p.focus(), Some(button));
     p.hardware_key("Space", "Space", true, false);
     p.hardware_key("Space", "Space", false, false);
     assert_eq!(p.focus(), Some(button));

@@ -88,6 +88,7 @@ def unsupportedTy (name : String) (ts : List Ty) : Option Ty :=
     | _ => .none
   else if name = "frame" ∨ name = "measure" then
     match ts with | [.string] => .some (.record "Geometry") | _ => .none
+  else if name = "toLowerCase" then match ts with | [.string] => .some .string | _ => .none
   else .none
 
 /-- The router's verbs and reads (LLP 1038, `Contract.Route`), at the
@@ -140,10 +141,14 @@ def rosterTy (name : String) (ts : List Ty) : Option Ty :=
     | [.list a, s] =>
       if (a.displayable || decide (a = .unknown)) && s.le .string then .some .string else .none
     | _ => .none
+  else if name = "slice" then
+    match ts with | [.string, .number, .number] => .some .string | _ => .none
+  else if name = "replaceAll" then
+    match ts with | [.string, .string, .string] => .some .string | _ => .none
   else routerTy name ts
 
 /-- A binary operator's result on operands of these types (`infer`'s
-`Binary`): `+` on numbers or strings, arithmetic and comparisons on
+`Binary`): `+` and comparisons on numbers or strings, arithmetic on
 numbers, `==`/`!=` on unifiable types, `and`/`or` on bools. -/
 def binTy (op : BinOp) (a b : Ty) : Option Ty :=
   let nums := a.le .number && b.le .number
@@ -152,7 +157,9 @@ def binTy (op : BinOp) (a b : Ty) : Option Ty :=
     if nums then .some .number
     else if a.le .string && b.le .string then .some .string else .none
   | .sub | .mul | .div | .rem => if nums then .some .number else .none
-  | .lt | .le | .gt | .ge => if nums then .some .bool else .none
+  | .lt | .le | .gt | .ge =>
+    if nums then .some .bool
+    else if a.le .string && b.le .string then .some .bool else .none
   | .eq | .ne => if a.compat b then .some .bool else .none
   | .and | .or => if a.le .bool && b.le .bool then .some .bool else .none
 
@@ -300,7 +307,8 @@ end
 /-- An action body is well typed. Assignments are to states and mutations
 at types at most theirs (`slotTy`); a `send` targets a mutation and a
 `refresh` a resource; `if` tests a bool and `match` an option. A `let`
-scopes over the rest of its block. -/
+scopes over the rest of its block. A call names an action and passes
+each of its parameters a value of its type. -/
 def StmtsTy (p : Program) (G : Scope) : Scope → List Stmt → Prop
   | _, [] => True
   | Γ, .letS x e :: rest => ∃ t, HasTy p G Γ e t ∧ StmtsTy p G ((x, t) :: Γ) rest
@@ -317,6 +325,11 @@ def StmtsTy (p : Program) (G : Scope) : Scope → List Stmt → Prop
   | Γ, .matchS s x sm nn :: rest =>
     (∃ a, HasTy p G Γ s (.option a) ∧ StmtsTy p G ((x, a) :: Γ) sm) ∧ StmtsTy p G Γ nn ∧
       StmtsTy p G Γ rest
+  /- A call (LLP 1089 D9) names an action, its arguments each at most its
+  parameter's type; the callee's body is typed as the action it is. -/
+  | Γ, .call a args :: rest =>
+    (∃ ad, p.actions.find? (·.name == a) = .some ad ∧
+      ∃ ts, ListTy p G Γ args ts ∧ Ty.leAll ts (ad.params.map (·.2)) = true) ∧ StmtsTy p G Γ rest
 
 /-! ## Views -/
 

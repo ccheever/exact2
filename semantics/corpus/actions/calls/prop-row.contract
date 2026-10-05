@@ -1,0 +1,34 @@
+// A prop call inside a row (LLP 1089 D7): the owner's action runs with the
+// row's curried argument, in the row's commit, before the row's own write.
+shape Item
+  id: string
+
+component App
+  state picked = ""
+  state picks = 0
+  resource items = items(2) as shape list<Item>
+  action pick(id: string, n: number)
+    picked = id
+    picks = picks + n
+  view
+    column
+      text `${picked} ${picks}` testId="out"
+      each it, i in items key=i
+        Row(index=i, label=it.id, choose=pick(it.id))
+
+component Row
+  props
+    index: number
+    label: string
+    choose: action
+  state n = 0
+  action tap
+    choose(n + 1)
+    n = n + 1
+  view
+    button "t" press=tap testId=`row-${index}`
+
+test "prop call in a row"
+  tap "row-0"
+  tap "row-0"
+  tap "row-1"
