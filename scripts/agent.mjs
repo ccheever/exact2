@@ -1322,8 +1322,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
      * A reply still on real time (a store's, the network's) stays for a `clock` step. The reply's tags are read after it. */
     async landed(r) {
       if (r == null || r.error != null || r.delivery === 'unsupported') return s.tagged(r);
+      // A refusal the landing reports (a late restore's) rejects the input, as every wire error does.
       const l = await carrier.ask({ op: 'clock', land: true });
-      if (l.error) return { ...r, error: l.error };
+      if (l.error) throw Object.assign(new Error(`clock: ${l.error}`), { reply: { ...r, error: l.error } });
       delete r.epoch; delete r.incarnation; delete r.clock;
       return s.tagged(r);
     },
