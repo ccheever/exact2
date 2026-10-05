@@ -158,8 +158,10 @@ pub fn update_trail(w: &mut World, refresh: bool) {
     w.resource_mut::<Trail>().target = target;
 }
 
-fn item_look(kind: Kind) -> (Mesh, Material, f32) {
+fn item_look(kind: Kind, pass: bool) -> (Mesh, Material, f32) {
     match kind {
+        // The baked log stands along Y, as the cylinder does; both lie down the same way.
+        Kind::Log if pass => (Mesh::asset("log.model"), Material::default(), 0.18),
         Kind::Log => (
             Mesh::cylinder(0.18, 1.1),
             Material::rgb(0.3, 0.18, 0.09),
@@ -175,7 +177,8 @@ fn item_look(kind: Kind) -> (Mesh, Material, f32) {
 }
 
 fn ground_item(kind: Kind, x: f32, z: f32) -> Transform {
-    let (_, _, lift) = item_look(kind);
+    // Both looks rest an item at the same height: the pose is simulation.
+    let (_, _, lift) = item_look(kind, false);
     let rotation = if kind == Kind::Log {
         Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)
     } else {
@@ -188,8 +191,8 @@ fn ground_item(kind: Kind, x: f32, z: f32) -> Transform {
     }
 }
 
-pub fn drop_item(w: &mut World, kind: Kind, x: f32, z: f32) -> Entity {
-    let (mesh, material, _) = item_look(kind);
+pub fn drop_item(w: &mut World, kind: Kind, x: f32, z: f32, pass: bool) -> Entity {
+    let (mesh, material, _) = item_look(kind, pass);
     w.spawn((
         ground_item(kind, x, z),
         mesh,
@@ -202,32 +205,39 @@ pub fn drop_item(w: &mut World, kind: Kind, x: f32, z: f32) -> Entity {
 }
 
 /// Scatter scrap and food through the forest, avoiding trunks.
-pub fn scatter(w: &mut World, kind: Kind, count: u32, near: f32, far: f32) {
+pub fn scatter(w: &mut World, kind: Kind, count: u32, near: f32, far: f32, pass: bool) {
     for _ in 0..count {
         let a = w.rand(0.0..std::f32::consts::TAU);
         let r = w.rand(near..far);
         let (s, c) = math::sin_cos(a);
         let (x, z) = w.resource::<Grove>().resolve(c * r, s * r, 0.8);
-        drop_item(w, kind, x, z);
+        drop_item(w, kind, x, z, pass);
     }
 }
 
-pub fn spawn(w: &mut World, colliders: bool, children: u32) {
-    let player = w.spawn_named(
-        "player",
-        (
-            Transform::at(0.0, 0.91, 3.0),
-            Mesh::capsule(0.35, 1.8),
-            Material::rgb(0.85, 0.45, 0.12),
-            Player {
-                facing: Vec3::NEG_Z,
-                health: 100.0,
-                hunger: 100.0,
-                battery: 100.0,
-                ..Default::default()
-            },
-        ),
-    );
+/// The player, flashlight, camera and lost children. The art pass draws the
+/// player and children as survivors (`art::finish`), not capsules.
+pub fn spawn(w: &mut World, colliders: bool, children: u32, pass: bool) {
+    let you = Player {
+        facing: Vec3::NEG_Z,
+        health: 100.0,
+        hunger: 100.0,
+        battery: 100.0,
+        ..Default::default()
+    };
+    let player = if pass {
+        w.spawn_named("player", (Transform::at(0.0, 0.91, 3.0), you))
+    } else {
+        w.spawn_named(
+            "player",
+            (
+                Transform::at(0.0, 0.91, 3.0),
+                Mesh::capsule(0.35, 1.8),
+                Material::rgb(0.85, 0.45, 0.12),
+                you,
+            ),
+        )
+    };
     if colliders {
         w.insert(
             player,
@@ -272,15 +282,21 @@ pub fn spawn(w: &mut World, colliders: bool, children: u32) {
         let r = (0.3 + 0.45 * (k as f32 / children.max(1) as f32)) * half;
         let (s, c) = math::sin_cos(a);
         let (x, z) = w.resource::<Grove>().resolve(c * r, s * r, 1.2);
-        w.spawn_named(
-            format!("child-{}", k + 1),
-            (
-                Transform::at(x, height(x, z) + 0.6, z),
-                Mesh::capsule(0.25, 1.2),
-                Material::rgb(0.25, 0.55, 0.95),
-                Child::default(),
-            ),
-        );
+        let pose = Transform::at(x, height(x, z) + 0.6, z);
+        let name = format!("child-{}", k + 1);
+        if pass {
+            w.spawn_named(name, (pose, Child::default()));
+        } else {
+            w.spawn_named(
+                name,
+                (
+                    pose,
+                    Mesh::capsule(0.25, 1.2),
+                    Material::rgb(0.25, 0.55, 0.95),
+                    Child::default(),
+                ),
+            );
+        }
     }
 }
 
@@ -451,7 +467,7 @@ pub fn build_windbreak(w: &mut World) {
     w.log("Built a windbreak: fire uses half the fuel");
 }
 
-pub fn interact(w: &mut World, act: Action, eat: bool) {
+pub fn interact(w: &mut World, act: Action, eat: bool, pass: bool) {
     let player = w.resolve("player").unwrap();
     match act {
         Action::Feed => {
@@ -506,7 +522,7 @@ pub fn interact(w: &mut World, act: Action, eat: bool) {
                     let (x, z) = w
                         .resource::<Grove>()
                         .resolve(stump.x + off, stump.z + 0.9, 0.3);
-                    drop_item(w, Kind::Log, x, z);
+                    drop_item(w, Kind::Log, x, z, pass);
                 }
                 w.require_mut::<Player>(player).chopped += 1;
             }
@@ -617,7 +633,7 @@ pub fn flashlight(w: &mut World, toggle: bool) {
 }
 
 /// Lost children wait; followers trail the player and are rescued in the light.
-pub fn children(w: &mut World, player: Vec3, safe: f32) -> u32 {
+pub fn children(w: &mut World, player: Vec3, safe: f32, pass: bool) -> u32 {
     let dt = w.dt();
     if w.require::<Player>("player").dead {
         return w.count::<Child>(|child| child.fate == Fate::Rescued);
@@ -655,7 +671,7 @@ pub fn children(w: &mut World, player: Vec3, safe: f32) -> u32 {
         fire.fuel = (fire.fuel + 20.0 * arrivals as f32).min(MAX_FUEL);
         drop(fire);
         for k in 0..arrivals * 2 {
-            drop_item(w, Kind::Food, -2.0 - k as f32 * 0.6, 2.0);
+            drop_item(w, Kind::Food, -2.0 - k as f32 * 0.6, 2.0, pass);
         }
         // A previously empty food search must notice the new rescue supplies.
         update_trail(w, true);

@@ -129,7 +129,57 @@ pub fn environment(dark: f32) -> Environment {
     }
 }
 
-pub fn build(w: &mut World) {
+/// The art pass's sky: noon, a warm dusk (strongest halfway into the dark) and a
+/// blue-black night; a low fog that hugs the ground and thickens at night.
+pub fn graded(dark: f32) -> Environment {
+    let glow = 4.0 * dark * (1.0 - dark);
+    let toward = |day: [f32; 3], dusk: [f32; 3], night: [f32; 3]| {
+        mix3(mix3(day, night, dark), dusk, glow * 0.55)
+    };
+    Environment {
+        zenith: toward(DAY_SKY.0, [0.16, 0.12, 0.3], NIGHT_SKY.0),
+        horizon: toward(DAY_SKY.1, [0.95, 0.42, 0.2], NIGHT_SKY.1),
+        ground: toward(DAY_SKY.2, [0.1, 0.05, 0.03], NIGHT_SKY.2),
+        ambient: math::lerp(0.55, 0.35, dark),
+        exposure: math::lerp(1.0, 1.4, dark),
+        fog: Some(Fog {
+            color: Some(toward(
+                [0.46, 0.55, 0.56],
+                [0.36, 0.26, 0.24],
+                [0.005, 0.008, 0.016],
+            )),
+            ..Fog::new(math::lerp(0.006, 0.04, dark), 0.12)
+        }),
+        bloom: Some(Bloom {
+            threshold: 1.0,
+            intensity: math::lerp(0.14, 0.32, dark),
+            radius: 1.6,
+        }),
+        ..Environment::default()
+    }
+}
+
+/// The art pass's image-based light: the day sky until the sun is mostly gone,
+/// then the starry night, at an intensity that steps (each step filters again).
+fn sky_map(dark: f32) -> EnvironmentMap {
+    let night = dark > 0.6;
+    let level = if night { dark } else { 1.0 - dark };
+    EnvironmentMap {
+        texture: if night {
+            "sky_night.tex"
+        } else {
+            "sky_day.tex"
+        }
+        .into(),
+        intensity: math::round(level.max(0.1) * 8.0) / 8.0 * if night { 1.6 } else { 0.9 },
+        rgbm: 8.0,
+        // Above the camera's view, it lights the forest; seen only if it looks up.
+        visible: true,
+        rotation: 0.0,
+    }
+}
+
+pub fn build(w: &mut World, pass: bool) {
     w.insert_resource(Cycle {
         day: 1,
         t: DAWN,
@@ -139,7 +189,17 @@ pub fn build(w: &mut World) {
         fuel: 60.0,
         ..Fire::default()
     });
-    w.insert_resource(environment(0.0));
+    if pass {
+        w.insert_resource(graded(0.0));
+        w.insert_resource(sky_map(0.0));
+        w.insert_resource(AmbientOcclusion {
+            radius: 0.7,
+            intensity: 0.9,
+            ..AmbientOcclusion::default()
+        });
+    } else {
+        w.insert_resource(environment(0.0));
+    }
     w.spawn_named(
         "sun",
         (
@@ -173,6 +233,10 @@ pub fn build(w: &mut World) {
             LightShadows,
         ),
     );
+    if pass {
+        crate::art::campfire(w);
+        return;
+    }
     w.spawn_named(
         "flame",
         (
@@ -274,8 +338,9 @@ pub fn torches(w: &mut World, count: u32) {
 }
 
 /// Advance the clock, burn fuel and present the sky and the fire.
-/// Returns true on the tick a night is survived.
-pub fn step(w: &mut World, player: Vec3) -> bool {
+/// Returns true on the tick a night is survived. The art pass (`pass`) lights
+/// and grades the same clock and fuel differently; nothing it writes is read back.
+pub fn step(w: &mut World, player: Vec3, pass: bool) -> bool {
     let dt = w.dt();
     let alive = !w.require::<crate::player::Player>("player").dead;
     let (dawned, dark, night) = {
@@ -299,9 +364,21 @@ pub fn step(w: &mut World, player: Vec3) -> bool {
         f.radius()
     };
     // The sky only changes at dusk and dawn; equal writes would still re-light it.
-    let env = environment(dark);
+    let env = if pass {
+        graded(dark)
+    } else {
+        environment(dark)
+    };
     if *w.resource::<Environment>() != env {
         *w.resource_mut::<Environment>() = env;
+    }
+    if pass {
+        let map = sky_map(dark);
+        if w.try_resource::<EnvironmentMap>()
+            .is_some_and(|m| *m != map)
+        {
+            *w.resource_mut::<EnvironmentMap>() = map;
+        }
     }
     let t = w.resource::<Cycle>().t;
     let sun_angle = (t / DAY).clamp(0.0, 1.0) * std::f32::consts::PI;
@@ -318,30 +395,54 @@ pub fn step(w: &mut World, player: Vec3) -> bool {
         let mut light = w.require_mut::<DirectionalLight>("sun");
         let next = 9000.0 * (0.35 + 0.65 * s.max(0.0)) * (1.0 - dark);
         let shadows = dark < 0.95;
-        if light.illuminance != next || light.shadows != shadows {
+        // The art pass warms late light toward amber as the sun sets.
+        let color = if pass {
+            mix3(
+                [1.0, 0.95, 0.88],
+                [1.0, 0.55, 0.3],
+                (4.0 * dark * (1.0 - dark)).min(1.0),
+            )
+        } else {
+            light.color
+        };
+        if light.illuminance != next || light.shadows != shadows || light.color != color {
             light.illuminance = next;
             light.shadows = shadows;
+            light.color = color;
         }
     }
     {
         let mut moon = w.require_mut::<DirectionalLight>("moon");
-        let next = 900.0 * dark;
+        let next = if pass { 1800.0 } else { 900.0 } * dark;
         if moon.illuminance != next {
             moon.illuminance = next;
         }
     }
     // The fire: light radius follows fuel; intensity keeps the edge equally lit.
     {
+        // The art pass flickers it on three incommensurate waves of world time.
+        let flicker = if pass {
+            let now = w.tick_end().seconds();
+            0.86 + 0.08 * math::sin(now * 11.3)
+                + 0.04 * math::sin(now * 23.7 + 1.3)
+                + 0.03 * math::sin(now * 4.1 + 0.4)
+        } else {
+            1.0
+        };
         let mut light = w.require_mut::<PointLight>("fire");
         light.range = radius * 1.7 + 0.01;
         light.intensity = if radius > 0.0 {
-            3000.0 * radius * radius
+            3000.0 * radius * radius * flicker
         } else {
             0.0
         };
     }
-    let flame = 0.25 + radius / 24.0 * 0.9;
-    w.require_mut::<Transform>("flame").scale = Vec3::splat(flame);
-    w.require_mut::<Emitter>("embers").rate = radius * 3.0;
+    if pass {
+        crate::art::fire(w, radius);
+    } else {
+        let flame = 0.25 + radius / 24.0 * 0.9;
+        w.require_mut::<Transform>("flame").scale = Vec3::splat(flame);
+        w.require_mut::<Emitter>("embers").rate = radius * 3.0;
+    }
     dawned
 }

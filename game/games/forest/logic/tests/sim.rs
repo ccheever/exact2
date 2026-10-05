@@ -718,13 +718,18 @@ fn preparation_requires_fuel_in_the_fire_and_keeps_the_chosen_compass() {
     );
     let log = target.unwrap();
     assert_eq!(sim.world().require::<Item>(log).kind, Kind::Log);
-    player::interact(sim.world_mut(), player::Action::Take(log, Kind::Log), false);
+    player::interact(
+        sim.world_mut(),
+        player::Action::Take(log, Kind::Log),
+        false,
+        false,
+    );
     assert_eq!(
         player::preparation(sim.world()).0,
         "Feed your carried fuel into the campfire"
     );
     assert!(player::preparation(sim.world()).1.contains("+9 fire fuel"));
-    player::interact(sim.world_mut(), player::Action::Feed, false);
+    player::interact(sim.world_mut(), player::Action::Feed, false, false);
     assert!(player::preparation(sim.world())
         .0
         .starts_with("Shelter by the fire"));
@@ -764,6 +769,7 @@ fn food_readiness_counts_carried_meals_and_prompts_eating_before_starvation() {
             sim.world_mut(),
             player::Action::Take(food, Kind::Food),
             false,
+            false,
         );
     }
     assert_eq!(
@@ -798,8 +804,8 @@ fn food_readiness_counts_carried_meals_and_prompts_eating_before_starvation() {
 }
 
 fn carry(sim: &mut Sim<Forest>, kind: Kind) -> exact_game::Entity {
-    let e = player::drop_item(sim.world_mut(), kind, 8.0, 0.0);
-    player::interact(sim.world_mut(), player::Action::Take(e, kind), false);
+    let e = player::drop_item(sim.world_mut(), kind, 8.0, 0.0, false);
+    player::interact(sim.world_mut(), player::Action::Take(e, kind), false, false);
     e
 }
 
@@ -846,7 +852,7 @@ fn feeding_preserves_whole_supplies_that_do_not_fit() {
                 .starts_with("No room for carried fuel"));
         }
         // The action itself guards capacity, including an obsolete Feed command.
-        player::interact(sim.world_mut(), player::Action::Feed, false);
+        player::interact(sim.world_mut(), player::Action::Feed, false, false);
         assert_eq!(sim.world().resource::<Fire>().fuel, expected);
         assert_eq!(sim.world().resource::<Fire>().fed, fed);
         let kept: Vec<_> = player(&sim)
@@ -924,7 +930,7 @@ fn empty_drop_does_nothing_and_full_fire_does_not_block_a_nearby_supply() {
     assert_eq!(sim.save().unwrap(), before);
     carry(&mut sim, Kind::Log);
     sim.world_mut().resource_mut::<Fire>().fuel = 100.0;
-    let food = player::drop_item(sim.world_mut(), Kind::Food, 0.0, 2.5);
+    let food = player::drop_item(sim.world_mut(), Kind::Food, 0.0, 2.5, false);
     sim.tap("KeyE");
     sim.run(TICK);
     assert!(player(&sim).pack.contains(&food));
@@ -1060,7 +1066,12 @@ fn material_compasses_choose_the_requested_kind_and_restore_the_landmark() {
         let mut restored = game(500, true);
         restored.restore(&saved).unwrap();
         assert_eq!(*restored.world().resource::<Trail>(), trail);
-        player::interact(sim.world_mut(), player::Action::Take(target, kind), false);
+        player::interact(
+            sim.world_mut(),
+            player::Action::Take(target, kind),
+            false,
+            false,
+        );
         player::update_trail(sim.world_mut(), true);
         let next = sim.world().resource::<Trail>().target.unwrap();
         assert_ne!(target, next);
@@ -1083,4 +1094,207 @@ fn material_compasses_choose_the_requested_kind_and_restore_the_landmark() {
         sim.world().has::<forest_logic::forest::Tree>(target),
         "logs fall back to a standing tree"
     );
+}
+
+/// The bake's outputs: `shells.mjs --test` bakes `art/` into `assets/` first.
+fn baked(name: &str) -> Result<Vec<u8>, String> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+    std::fs::read(dir.join(name)).map_err(|e| format!("{name}: {e}"))
+}
+
+fn looked(art: &str, trees: u32) -> Sim<Forest> {
+    Sim::<Forest>::with_assets(
+        Options {
+            trees,
+            art: art.into(),
+            ..Options::default()
+        },
+        baked,
+    )
+    .unwrap()
+}
+
+/// The game apart from how it is drawn: every gameplay component and resource,
+/// the HUD and the world's random stream. Entities are named, sorted or shown by
+/// what they are, never by index: the art pass's scenery shifts later spawns.
+fn gameplay(sim: &Sim<Forest>) -> String {
+    let w = sim.world();
+    let describe = |e: exact_game::Entity| match (w.get::<Item>(e), w.get::<Transform>(e)) {
+        (Some(i), Some(t)) => format!("{:?}@{:?}", i.kind, t.position),
+        _ => w
+            .get::<forest_logic::forest::Tree>(e)
+            .map_or("gone".into(), |t| format!("tree {}", t.cell)),
+    };
+    let mut you = player(sim);
+    let pack: Vec<String> = std::mem::take(&mut you.pack)
+        .into_iter()
+        .map(describe)
+        .collect();
+    let trail = *w.resource::<Trail>();
+    let mut items: Vec<String> = w
+        .query::<(&Transform, &Item)>()
+        .iter()
+        .filter(|(_, (_, i))| !i.carried)
+        .map(|(_, (t, i))| format!("{i:?}@{:?}", t.position))
+        .collect();
+    items.sort();
+    let wolves: Vec<String> = w
+        .query::<(&Transform, &Wolf)>()
+        .iter()
+        .map(|(_, (t, wolf))| format!("{:?} {wolf:?}", t.position))
+        .collect();
+    let children: Vec<String> = (1..=2)
+        .filter_map(|k| {
+            let name = format!("child-{k}");
+            Some(format!(
+                "{:?} {:?}",
+                *w.get::<Transform>(name.as_str())?,
+                *w.get::<Child>(name.as_str())?
+            ))
+        })
+        .collect();
+    let hud: Vec<String> = [
+        "day",
+        "phase",
+        "left",
+        "health",
+        "hunger",
+        "battery",
+        "fuel",
+        "radius",
+        "logs",
+        "food",
+        "prompt",
+        "objective",
+        "tracking",
+        "night_plan",
+        "deer",
+        "chasing",
+        "trees",
+    ]
+    .iter()
+    .map(|k| format!("{k}={:?}", w.published(k)))
+    .collect();
+    format!(
+        "tick {}\n{:?}\n{:?}\n{:?}\n{you:?} {:?} pack {pack:?}\ntrail {:?} {:?}\n\
+         deer {:?} {:?} {:?} head {:?}\nwolves {wolves:?}\nchildren {children:?}\n\
+         items {items:?}\nhud {hud:?}",
+        w.tick(),
+        *w.resource::<Cycle>(),
+        *w.resource::<Fire>(),
+        *w.resource::<Grove>(),
+        *w.require::<Transform>("player"),
+        trail.kind,
+        trail.target.map(describe),
+        *w.require::<Deer>("deer"),
+        *w.require::<Transform>("deer"),
+        w.require::<Visible>("deer").0,
+        *w.require::<Transform>("deer-head"),
+    )
+}
+
+/// A day and a night of real input: chop, carry, feed, walk out with the
+/// flashlight, meet the Deer and the wolves outside the light, reach dawn.
+fn day_and_night(art: &str) -> (Vec<String>, Sim<Forest>) {
+    let mut sim = looked(art, 800);
+    let mut seen = Vec::new();
+    sim.run(200.0);
+    let (_, tree) = nearest_tree(&sim);
+    place(
+        &mut sim,
+        "player",
+        Vec3::new(tree.x, tree.y + 0.95, tree.z + 1.0),
+    );
+    sim.run(100.0);
+    for _ in 0..3 {
+        sim.tap("KeyE");
+        sim.run(500.0);
+    }
+    seen.push(gameplay(&sim));
+    let logs: Vec<Vec3> = sim
+        .world()
+        .query::<(&Transform, &Item)>()
+        .iter()
+        .filter(|(_, (t, i))| i.kind == Kind::Log && (t.position - tree).length() < 3.0)
+        .map(|(_, (t, _))| t.position)
+        .collect();
+    for log in logs {
+        place(&mut sim, "player", log + Vec3::Y * 0.8);
+        sim.run(50.0);
+        sim.tap("KeyE");
+        sim.run(100.0);
+    }
+    seen.push(gameplay(&sim));
+    place(&mut sim, "player", Vec3::new(0.0, 0.95, 2.5));
+    sim.run(100.0);
+    sim.tap("KeyE");
+    sim.run(200.0);
+    sim.post("track food");
+    sim.run(100.0);
+    seen.push(gameplay(&sim));
+    sim.tap("KeyF");
+    sim.hold("KeyD", 3000.0);
+    sim.hold("KeyW", 1500.0);
+    let t = sim.world().resource::<Cycle>().t as f64;
+    sim.run((DAY as f64 - t + 4.0) * 1000.0);
+    seen.push(gameplay(&sim));
+    for key in ["KeyS", "KeyA", "KeyW", "KeyD"] {
+        sim.hold(key, 1200.0);
+        sim.run(6000.0);
+        seen.push(gameplay(&sim));
+    }
+    let t = sim.world().resource::<Cycle>().t as f64;
+    sim.run((PERIOD as f64 - t + 2.0) * 1000.0);
+    seen.push(gameplay(&sim));
+    seen.push(format!("next draw {}", sim.world().rand(0..1_000_000u32)));
+    (seen, sim)
+}
+
+#[test]
+fn the_art_pass_plays_the_same_game() {
+    let (greybox, _) = day_and_night("");
+    let (pass, sim) = day_and_night("pass");
+    assert_eq!(greybox.len(), pass.len());
+    for (k, (a, b)) in greybox.iter().zip(&pass).enumerate() {
+        assert_eq!(a, b, "checkpoint {k}: the looks played differently");
+    }
+    // The night really came, and the art pass really drew something else.
+    assert!(greybox[3].contains("Night"), "{}", greybox[3]);
+    let w = sim.world();
+    assert_eq!(
+        *w.require::<exact_game::Mesh>("deer"),
+        exact_game::Mesh::asset("deer_body.model")
+    );
+    assert!(w.named("avatar").is_some() && w.named("beam").is_some());
+}
+
+#[test]
+fn the_art_pass_presents_purely_and_saves_round_trip() {
+    // Paranoid Save rebuilds the world through restore at sampled ticks and
+    // compares `Game::present`: the art pass's motion is a pure function of the
+    // simulation, and its saves restore into an identical game.
+    let mut sim = looked("pass", 300).paranoid(exact_game::Paranoid::Save);
+    sim.run(500.0);
+    sim.tap("KeyF");
+    sim.hold("KeyD", 1500.0);
+    sim.hold("KeyW", 800.0);
+    sim.run(500.0);
+    let saved = sim.save().unwrap();
+    let mut restored = looked("pass", 300);
+    restored.restore(&saved).unwrap();
+    for s in [&mut sim, &mut restored] {
+        s.hold("KeyA", 700.0);
+        s.run(300.0);
+    }
+    assert_eq!(gameplay(&sim), gameplay(&restored));
+    assert_eq!(sim.world().hash(), restored.world().hash());
+}
+
+#[test]
+fn the_look_is_validated() {
+    let refused = Sim::<Forest>::new(Options {
+        art: "pastel".into(),
+        ..Options::default()
+    });
+    assert!(refused.is_err_and(|e| e.contains("pastel")));
 }
