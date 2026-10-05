@@ -5,7 +5,8 @@
 // (LLP 1075 D1) while a route can pop, else a shown button that declares
 // `aria-keyshortcuts="Escape"` (the key macOS presses it with). With neither,
 // its recognizer is removed, so Menu reaches tvOS and leaves the app, as
-// tvOS requires at an app's root.
+// tvOS requires at an app's root. A keyboard's Space presses no node here:
+// UIKit turns an unhandled Space into the remote's Play/Pause.
 #if os(tvOS)
 import UIKit
 
@@ -108,6 +109,16 @@ final class FocusGuides {
     }
 }
 
+extension Presenter {
+    /// While a video's full-screen player shows, AVKit handles the remote:
+    /// the session's own Menu and Play/Pause recognizers come off.
+    var remoteKeysSuspended: Bool { views.values.contains { $0.video?.isFullscreen == true } }
+    func remoteKeysChanged() {
+        menuKey.sync()
+        playPauseKey.sync()
+    }
+}
+
 /// The remote's Play/Pause: the first video on screen plays or pauses, as
 /// its own controls would. Present only while a video is mounted.
 final class PlayPauseKey: NSObject {
@@ -121,7 +132,7 @@ final class PlayPauseKey: NSObject {
     }
 
     func sync() {
-        let wanted = video != nil
+        let wanted = video != nil && !presenter.remoteKeysSuspended
         if wanted, tap == nil, let view = presenter.session?.view {
             let recognizer = UITapGestureRecognizer(target: self, action: #selector(playPause))
             recognizer.allowedPressTypes = [NSNumber(value: UIPress.PressType.playPause.rawValue)]
@@ -144,7 +155,7 @@ final class MenuKey: NSObject {
     init(presenter: Presenter) { self.presenter = presenter }
 
     func sync() {
-        let wanted = presenter.navigation.menuGoesBack || escapeControl != nil
+        let wanted = !presenter.remoteKeysSuspended && (presenter.navigation.menuGoesBack || escapeControl != nil)
         if wanted, tap == nil, let view = presenter.session?.view {
             let recognizer = UITapGestureRecognizer(target: self, action: #selector(menu))
             recognizer.allowedPressTypes = [NSNumber(value: UIPress.PressType.menu.rawValue)]

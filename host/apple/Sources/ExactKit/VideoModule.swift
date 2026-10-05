@@ -85,6 +85,8 @@ final class VideoView {
     private var visibilityBlocked = false
     private var autoplay = OffscreenAutoplay()
     private var autoplaySource: String?
+    /// Whether its full-screen player shows (the arm's `fullscreen` state).
+    private(set) var isFullscreen = false
     /// The rule applies: armed, muted, `paused` unbound, a `video` (an
     /// `audio` is never seen, so Chrome never holds it; LLP 1042 §8).
     private var autoplayRule: Bool {
@@ -287,6 +289,13 @@ final class VideoView {
         if let result = message["remoteResult"] as? [String: String] { remoteResult = (result["n"] ?? "", result["status"] ?? "") }
         guard let owner else { return }
         if message["remote"] as? String == "play" { latched = true; latchedFrom = owner.props["paused"] }
+        let fullscreen = observed["fullscreen"] as? Bool ?? false
+        if fullscreen != isFullscreen {
+            isFullscreen = fullscreen
+            #if os(tvOS)
+            DispatchQueue.main.async { [weak owner] in owner?.presenter?.remoteKeysChanged() }
+            #endif
+        }
         let w = observed["videoWidth"] as? Double ?? 0, h = observed["videoHeight"] as? Double ?? 0
         let size: CGSize? = w > 0 && h > 0 ? CGSize(width: w, height: h) : nil
         if size != intrinsicSize {

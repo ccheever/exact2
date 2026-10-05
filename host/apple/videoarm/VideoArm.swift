@@ -173,6 +173,13 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         return controller != nil ? "AVKit" : inline != nil ? "AVPlayerLayer" : "AVPlayer"
         #endif
     }
+    var isFullscreen: Bool {
+        #if os(macOS)
+        return false
+        #else
+        return fullscreen != nil
+        #endif
+    }
     var snapshot: [String: Any] {
         let duration = player.currentItem?.duration.seconds ?? .nan
         return ["currentTime": seconds, "duration": duration.isFinite ? duration as Any : NSNull(),
@@ -180,7 +187,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
                 "playbackRate": player.rate, "readyState": player.currentItem?.status == .readyToPlay ? 4 : 0,
                 "videoWidth": naturalSize.width, "videoHeight": naturalSize.height,
                 "error": (lastError ?? player.currentItem?.error?.localizedDescription).map { $0 as Any } ?? NSNull(),
-                "src": props["src"] ?? "", "renderer": renderer, "generation": generation,
+                "src": props["src"] ?? "", "renderer": renderer, "generation": generation, "fullscreen": isFullscreen,
                 // @ref LLP 1100 D11
                 "hdr": hdrItem, "eligibleForHDR": AVPlayer.eligibleForHDRPlayback,
                 "dynamicRange": props["dynamicRangeLimit"] ?? "no-limit"]
@@ -654,7 +661,8 @@ extension VideoArm {
         inline?.playerLayer.player = nil
         full.left = { [weak self] in self?.leftFullscreen() }
         fullscreen = full
-        host.present(full, animated: true) { [weak self] in self?.emit("fullscreenchange", payload: "true") }
+        // The snapshot tells the host too, whether or not the app listens.
+        host.present(full, animated: true) { [weak self] in self?.emit("fullscreenchange", payload: "true"); self?.emit() }
     }
 
     private func leftFullscreen() {
@@ -663,6 +671,7 @@ extension VideoArm {
         controller?.player = player
         inline?.playerLayer.player = player
         emit("fullscreenchange", payload: "false")
+        emit()
     }
 }
 #else
