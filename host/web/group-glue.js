@@ -188,7 +188,13 @@ export function groupController({ views, collections, request, applyBatch, now, 
     if (f?.batch) applyBatch(f.batch);
     // Focus follows the keys (D9): the moved row's grip where it landed,
     // else back to the grip it started from.
-    if (d.keys) (r.ending === 'landed' && gripOf(r.row) || (d.b.el.isConnected ? d.b.el : null))?.focus({ preventScroll: true });
+    if (!d.keys) return;
+    const row = r.ending === 'landed' && r.row != null ? views.get(r.row) : null;
+    // The landed row's grip may not be bound yet (its row is not measured):
+    // it is found in the row, and made focusable as `bind` will make it.
+    const grip = row && (gripOf(r.row) ?? row.querySelector('[data-reorderfor]')) || (d.b.el.isConnected ? d.b.el : null);
+    if (grip && !grip.hasAttribute('tabindex')) grip.tabIndex = 0;
+    grip?.focus({ preventScroll: true });
   }
 
   function swallowClick() {

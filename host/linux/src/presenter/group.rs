@@ -559,6 +559,19 @@ impl<D: DataSource> Presenter<D> {
     /// the arrows move the gap, Space or Enter drops, Escape cancels. A
     /// hold takes no keys. Whether the key was the session's.
     pub(super) fn group_key(&mut self, id: ViewId, name: &str, now: f64) -> bool {
+        // Escape cancels a drag with a ghost too, whatever has the focus (D8).
+        if name == "Escape"
+            && self
+                .group
+                .as_ref()
+                .is_some_and(|s| s.ghost && s.phase == Phase::Active)
+        {
+            if let Some(e) = self.end_group(false, now).err().or(self.after_commit()) {
+                self.host.log(e);
+            }
+            self.dirty = true;
+            return true;
+        }
         if let Some(s) = self.group.as_ref().filter(|s| !s.ghost) {
             if s.phase != Phase::Active {
                 return true;
