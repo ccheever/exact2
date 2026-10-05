@@ -198,7 +198,7 @@ class Scene: UIResponder, UIWindowSceneDelegate {
     let box = UIView(frame: root.bounds); root.addSubview(box)
     let w = UIView(frame: CGRect(x: 0, y: 0, width: 100, height: 100)); box.addSubview(w)
     func run(_ name: String, at t1: Double, _ first: () -> Void, _ second: () -> Void, read: (CALayer) -> Double) {
-      UIView.performWithoutAnimation { w.center = CGPoint(x: 50, y: 50); w.alpha = 1 }
+      UIView.performWithoutAnimation { w.center = CGPoint(x: 50, y: 50); w.alpha = 1; w.transform = .identity }
       w.layer.removeAllAnimations()
       box.layer.speed = 0; box.layer.timeOffset = 0; CATransaction.flush()
       first(); CATransaction.flush()
@@ -224,6 +224,22 @@ class Scene: UIResponder, UIWindowSceneDelegate {
                             { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 1, options: [.beginFromCurrentState], animations: { w.alpha = 1 }) }, read: op)
       run("alpha-bfcs", at: t1, { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [], animations: { w.alpha = 0.2 }) },
                             { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [.beginFromCurrentState], animations: { w.alpha = 1 }) }, read: op)
+    }
+    // R (transforms). Scale and rotation retargets, read back from the
+    // presentation transform: scale = |first column|, rotation = atan2 in degrees.
+    let sc: (CALayer) -> Double = { let m = $0.transform; return Double(sqrt(m.m11 * m.m11 + m.m12 * m.m12)) }
+    let rot: (CALayer) -> Double = { let m = $0.transform; return Double(atan2(m.m12, m.m11)) * 180 / .pi }
+    func S(_ x: CGFloat) -> CGAffineTransform { CGAffineTransform(scaleX: x, y: x) }
+    func Rz(_ deg: CGFloat) -> CGAffineTransform { CGAffineTransform(rotationAngle: deg * .pi / 180) }
+    for t1 in [0.1, 0.25] {
+      run("scale", at: t1, { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [], animations: { w.transform = S(0.5) }) },
+                           { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 1, options: [], animations: { w.transform = S(0.25) }) }, read: sc)
+      run("scale-up", at: t1, { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [], animations: { w.transform = S(2) }) },
+                           { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 1, options: [], animations: { w.transform = S(3) }) }, read: sc)
+      run("scale-to-zero", at: t1, { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [], animations: { w.transform = S(0.5) }) },
+                           { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [], animations: { w.transform = S(0) }) }, read: sc)
+      run("rotate", at: t1, { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [], animations: { w.transform = Rz(60) }) },
+                           { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 1, options: [], animations: { w.transform = Rz(150) }) }, read: rot)
     }
     try? out.write(toFile: NSTemporaryDirectory() + "out.txt", atomically: true, encoding: .utf8)
     exit(0)
