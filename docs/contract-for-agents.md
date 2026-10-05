@@ -629,11 +629,11 @@ streaming, or deployment correctness from a client-only screenshot.
 A root task has one `every(ms, action)`, `after(ms, action)`, or
 `every(frame, action)` entry, on the line under it:
 
-```contract
+```text
   task ticker mount
     every(1000, tick)
 ```
- The action is parameterless. Millisecond intervals
+The action is parameterless. Millisecond intervals
 are whole-number literals of at least 1. The frame form has no delta-time argument and does not
 catch up missed display frames. For deterministic tests, use the driver's clock.
 

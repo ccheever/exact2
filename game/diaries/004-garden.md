@@ -1540,3 +1540,26 @@ The remaining visible weaknesses are the static character, basic HUD and
 limited feedback when an action succeeds. Improving those is a better next
 gameplay presentation task than adding another resource mechanic. Fun remains
 unproven by these correctness and rendering measurements.
+
+## Playtest-loop checkpoint (2026-10-04)
+
+Charlie asked how to construct a loop that makes the games more fun. The next
+Garden experiment should compare the first two minutes before and after a
+focused action-feedback pass, with the same starting conditions and unchanged
+playtest policy. Jev can expose confusion and repeated ineffective choices;
+accelerated clock steps and scripted aiming cannot establish real-time feel
+or human enjoyment. Actual captures and occasional human A/B play are separate
+evidence. Keep, rework or revert based on the claimed experience, and record
+uncertainty instead of treating another mechanic or a green proof as fun.
+No new playtest framework or game change was implemented in this checkpoint.
+
+Merge `f95a568d9` integrates main through `173a73afe` (six scripts/docs commits).
+Both sides' Queue additions are retained. A few existing driver comments are
+shortened to keep the merged source under the 1,500-line cap. The root gate
+runs in 45.143 s: all checks pass except one documentation-example test
+(2,435 pass, one fails, nine ignored in 81 binaries). Main's task snippet is
+intentionally partial but fenced `contract`; changing its fence to `text`
+passes that exact existing test. Its isolated Cargo invocation recompiles a
+different feature selection in 27.63 s; the test itself takes 0.02 s. The web
+agent tests pass 63 cases and 2,512 assertions in 5.41 s. Logs:
+`/tmp/exact2-fun-loop-{main-*,docs-recheck,agent-tests}.log`.
