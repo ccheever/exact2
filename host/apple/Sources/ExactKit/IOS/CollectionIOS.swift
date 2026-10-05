@@ -373,12 +373,18 @@ final class OffsetDriver: NSObject {
     }
     @objc private func frame(_ link: CADisplayLink) {
         guard let scroll, scroll.window != nil else { cancel(); done(serial, false); return }
-        // Content that shrank under it: head for the edge it can reach now.
+        // Content that shrank under it: from where the port can be now,
+        // toward the edge it can reach; every frame stays inside the range.
         let reached = CollectionHost.reachable(to, in: scroll)
-        if reached != to { from = scroll.contentOffset; to = reached; began = link.timestamp; reclamp(reached) }
+        let here = CollectionHost.reachable(scroll.contentOffset, in: scroll)
+        if reached != to || here != scroll.contentOffset {
+            from = here; to = reached; began = link.targetTimestamp; reclamp(reached)
+            if here == reached { scroll.contentOffset = here; cancel(); done(serial, true); return }
+        }
         let x = min(1, (link.targetTimestamp - began) / duration)
         let e = CGFloat(Self.ease(max(0, x)))
-        scroll.contentOffset = CGPoint(x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e)
+        let point = CGPoint(x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e)
+        scroll.contentOffset = CollectionHost.reachable(point, in: scroll)
         if x >= 1 { cancel(); done(serial, true) }
     }
 }

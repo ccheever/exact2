@@ -90,9 +90,14 @@ final class SmoothCollectionIOSTests: XCTestCase {
         XCTAssertEqual(scroll.contentOffset.y, 1200, accuracy: 0.5)
         // A target past the content is driven only as far as it can go.
         p.apply(wireBatch([collections(revision: 4, correction: ["scrollSequence": seq, "offset": 1500, "smooth": true])]))
-        wait("on its way again") { scroll.contentOffset.y > 1250 }
+        wait("on its way again") { scroll.contentOffset.y > 1320 }
         scroll.contentSize.height = 1600 // the content shrank under it: the end is now 1300
-        wait("landed at the edge") { !p.collections.animating.contains(1) }
+        var past = false
+        wait("landed at the edge") {
+            if p.collections.animating.contains(1), scroll.contentOffset.y > 1300.5 { past = true }
+            return !p.collections.animating.contains(1)
+        }
+        XCTAssertFalse(past, "no frame past the new edge")
         XCTAssertEqual(scroll.contentOffset.y, 1300, accuracy: 0.5)
         scroll.contentSize.height = 2000
         // A drag stops a moving one where it is.
