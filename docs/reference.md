@@ -33,6 +33,52 @@ build without it says so in one message (`EXACT_HERMES_IOS_DIR` names archives
 built elsewhere). An app with a Rust data crate and no `app.ts` needs none of
 this.
 
+### Windows TypeScript
+
+Windows x64 uses Exact's pinned bytecode-only Hermes and static ICU 76.1, built
+with the dynamic MSVC CRT. From an x64 Visual Studio developer shell with
+PowerShell 7, Git, tar, CMake and Ninja available, run
+`pwsh -File js/build-windows.ps1 -Jobs 2`. The helper fetches pinned private build
+dependencies, retains its short work directory and verifies the actual compiler,
+archives, headers, locale data and VM probes before publishing an absent cache.
+It prints the resolved installation path and receipt digest. No ICU DLL or source
+compiler is needed by the packaged application. The x64 Microsoft Visual C++
+runtime is required by the dynamic CRT; this helper does not install its
+redistributable on a destination machine.
+
+The default cache is
+`%LOCALAPPDATA%/Exact/hermes/<pin>-lean-windows-x64-icu76-intl1`.
+`EXACT_HERMES_DIR` selects a complete matching install; an `EXACT_HERMESC` override
+must have the same identity as its compiler. The producer and linker validate one
+receipt and reject missing, extra or altered payloads. `EXACT_JS_ENGINE=stub` is
+an explicit opt-out whose executor refuses to load; it cannot bake a working
+TypeScript app. Rust-only apps do not link this VM.
+
+An ordinary TypeScript app needs an explicit Windows shell using `exact-windows`
+and the native `exact-js` data constructor; `exact new` does not generate that
+shell yet. Declare `host.windows: {}` and `deploy.store.windows: "0"` in its
+manifest. The Windows packager is `bun host/windows/build.mjs <app>` with the
+ordinary external-app `EXACT_APP_DIR` selection. Signed module delivery and
+generic cross-process persistence are not added by this support.
+
+Windows Intl uses a deliberately bounded, receipt-bound adapter. Date formatting
+supports Gregorian dates, styles, best-fit component formatting, actual parts,
+hour cycles and positional decimal numbering. A locale whose effective calendar
+is not Gregorian is refused unless explicitly overridden to Gregorian. Number
+formatting supports standard decimal, percent and currency with symbol/code
+display, boolean grouping, fraction/significant precision and half-expand
+rounding. Nonstandard notation, unit/accounting/name display, non-default rounding
+policies and algorithmic numbering are refused by name. Locale casing uses real
+ICU strings. This is not a claim of complete Intl or timezone-alias conformance;
+the supported behavior and actual probes are recorded in
+[LLP 1027.006](../llp/1027.006-windows-native-typescript.plan.md).
+
+Windows application storage uses the current user's LocalAppData known folder,
+under `exact/<app-id>/{data,cache,temporary}` (`app:/tmp` uses `temporary`). It does
+not require `HOME`. App and scratch
+identities and `app:/` path components must be safe Windows leaves; drive, UNC,
+backslash traversal, alternate-stream and reserved-device forms are refused.
+
 Snapback4 consumers use release **0.2.30**: the CLI and browser device are pinned
 in `bun.lock`; Cargo pins native devices and schema compilers to the matching
 release source commit `a397218e2332964ebe29aa1d30918c436713cc8a`.

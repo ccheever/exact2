@@ -93,7 +93,7 @@ fn identity_and_grants_are_the_bakes_and_the_modules_agree() {
     assert!(abi_supported("1") && abi_supported(&ABI.to_string()));
     let mut names = m.sources();
     names.sort_unstable();
-    // `exactDelivery` is the plan's too (LLP 1030 D7): the runner answers it
+    // `exactDelivery` and `exactViewport` are the plan's too: the runner answers them
     // before the data seam, so the module is never asked for it and need
     // not export it.
     assert_eq!(
@@ -102,6 +102,7 @@ fn identity_and_grants_are_the_bakes_and_the_modules_agree() {
             "board",
             "defaultLocation",
             "exactDelivery",
+            "exactViewport",
             "nearest",
             "search",
             "station",

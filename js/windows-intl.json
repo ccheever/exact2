@@ -1,0 +1,40 @@
+{
+  "policy": "exact-icu76-intl/1",
+  "patchSha256": "a1cf9628a3d59efa462ffd8d3f56585d9d1fbef5a37a0adba6bd3d870c108657",
+  "sources": [
+    {
+      "path": "lib/Platform/Intl/PlatformIntlICU.cpp",
+      "beforeSha256": "aef92692c87d50528604cc08f7ed3d4b3884211787e1521792c12cd468dae427",
+      "afterSha256": "0365998bca174399da26d0a9ac07b294e3174af64b04d2100335c3ea0e3dca01"
+    },
+    {
+      "path": "include/hermes/Platform/Intl/PlatformIntl.h",
+      "beforeSha256": "c9864867df47c171b3854c447267520ab4d6ea3ffaf30d0b76af5f399692185a",
+      "afterSha256": "9d98bbca97677ef87ec70403013a13a4cf7276305e5458013ef3bab7f07459e2"
+    },
+    {
+      "path": "lib/VM/JSLib/Intl.cpp",
+      "beforeSha256": "3225eb2d727928d7b61237c6062da5411e5176479371f006290bcf0c342bb94c",
+      "afterSha256": "bd2aab4f67a46f27849b64c85ea17e86a8c6766be16528c3dda942707135dd3f"
+    }
+  ],
+  "fragments": [
+    {
+      "path": "lib/Platform/Intl/windows-intl-case.inc",
+      "sha256": "104ea4e47a421607cddb29716adc5eccb019eea27db4039526c42af5bef5efef"
+    },
+    {
+      "path": "lib/Platform/Intl/windows-intl-date.inc",
+      "sha256": "2633d7cc8aa49a6e00aaff35bfb3d8598541b79953594c702f889acaa6830b99"
+    },
+    {
+      "path": "lib/Platform/Intl/windows-intl-number.inc",
+      "sha256": "2d34b4b1141e5755b1ddc7b2f9e3e47613e047c15cdcdd96742934740ad60812"
+    }
+  ],
+  "probe": {
+    "assertions": 424,
+    "sourceSha256": "1fb96e6bc231c04162f365a667fa0bad2c7097c8026d8cb1361ed9425ad0af29",
+    "runnerSha256": "4f7bd4dd8ffe143a14e0375d44a197c5181a2f02302fd87137433dfefdcff8cc"
+  }
+}

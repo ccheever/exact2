@@ -4,6 +4,9 @@
 
 #![deny(missing_docs)]
 
+#[path = "../../hermes.rs"]
+#[allow(dead_code)]
+mod hermes;
 mod resident;
 #[cfg(test)]
 mod sources_tests;
@@ -250,7 +253,7 @@ fn build_sources(
     rust: Option<&dyn DataSource>,
     composer: Option<Composer<'_>>,
 ) -> Result<(), String> {
-    if !matches!(platform, "web" | "macos" | "ios" | "linux") {
+    if !matches!(platform, "web" | "macos" | "ios" | "linux" | "windows") {
         return Err(format!(
             "module client executor is not yet implemented for {platform}"
         ));
@@ -380,11 +383,13 @@ impl Default for Tools {
             "x64"
         };
         Self {
-            tsc: tool("EXACT_TSC", root.join("node_modules/.bin/tsc")),
-            rolldown: tool("EXACT_ROLLDOWN", root.join("node_modules/.bin/rolldown")),
+            tsc: tool("EXACT_TSC", hermes::package_tool(&root, "tsc")),
+            rolldown: tool("EXACT_ROLLDOWN", hermes::package_tool(&root, "rolldown")),
             hermesc: tool(
                 "EXACT_HERMESC",
-                if cfg!(target_os = "linux") {
+                if cfg!(target_os = "windows") {
+                    hermes::compiler().unwrap_or_else(|e| panic!("{e}"))
+                } else if cfg!(target_os = "linux") {
                     root.join(format!("../ibex/tools/hermes-vanilla/hermesc-linux-{arch}"))
                 } else {
                     // js/build.rs's fallback: the machine's cache when there is no sibling ibex.
@@ -403,6 +408,22 @@ impl Default for Tools {
                 },
             ),
         }
+    }
+}
+
+impl Tools {
+    fn check_engine(&self) -> Result<(), String> {
+        #[cfg(windows)]
+        {
+            let install = hermes::resolve("x86_64-pc-windows-msvc", Some(&self.hermesc))?;
+            if exact_js::ENGINE_INPUTS != Some(install.receipt_sha256.as_str()) {
+                return Err(
+                    "Windows Hermes install differs from the linked executor; rebuild the producer"
+                        .into(),
+                );
+            }
+        }
+        Ok(())
     }
 }
 
@@ -717,7 +738,7 @@ fn digest(bytes: &[u8]) -> String {
 /// Build `app.contract` plus `app.ts`, including app-local imports. The app
 /// exports `appId`, `grants`, and `answer`; the generated entry checks their
 /// types and supplies the executor ABI. No source or source-adjacent generated
-/// declaration is overwritten. This producer currently requires macOS Hermes.
+/// declaration is overwritten. This producer requires its host's lean Hermes.
 pub fn bake(app: &Path, tools: &Tools) -> Result<Baked, String> {
     let stage = Scratch::new(&std::env::temp_dir())?;
     bake_in(
@@ -750,6 +771,7 @@ fn bake_in(
     if !exact_js::ENGINE_LINKED {
         return Err("TypeScript bake requires the lean Hermes executor on this producer".into());
     }
+    tools.check_engine()?;
     let app = app.canonicalize().map_err(|e| e.to_string())?;
     let mut captured = sources(&app)?;
     let (package_files, package_roots) = packages(&app)?;

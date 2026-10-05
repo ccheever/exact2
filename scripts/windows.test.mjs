@@ -1,21 +1,115 @@
-import {test, expect} from 'bun:test';
+import {test, expect, spyOn} from 'bun:test';
+import * as crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import {spawn, spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {EventEmitter} from 'node:events';
-import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {createServer, get} from 'node:http';
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {resolve} from 'node:path';
+import {parse, relative, resolve, toNamespacedPath} from 'node:path';
 import {PassThrough} from 'node:stream';
 import {closeFilesystemReader, filesystem, filesystemErrorCode} from './filesystem.mjs';
-import {Cdp, chromium, closeWindowsBrowser, retainCleanupError, packagedBuildChanges, removeBrowserProfile} from './agent-launch.mjs';
+import {Cdp, captureCdpRequest, cdpFailureContext, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, packagedBuildChanges, removeBrowserProfile} from './agent-launch.mjs';
 import {browserKey, open} from './agent.mjs';
 import {cdpKey, withHeldModifiers} from './agent-keys.mjs';
 import {runCaps} from './caps.mjs';
 import {binaryenArchive, binaryenVersion} from './exact.mjs';
-import {listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
+import {buildTreeFile, serveBuildTree, listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
 import {gameShells} from '../game/app/shells.mjs';
-import {artifactDigest, buildInputHash, formatProofError} from '../game/proof.mjs';
+import {artifactDigest, buildInputHash, formatProofError, proofFailureRow} from '../game/proof.mjs';
+import {hermesWindowsRoots, readManifest} from './app.mjs';
+
+test('JS build trees serve native paths without admitting private or escaping files', async () => {
+  const owned=realpathSync(mkdtempSync(resolve(tmpdir(),'exact JS tree café ')));
+  const root=resolve(owned,'dist'), outside=resolve(owned,'outside');
+  let server;
+  try {
+    mkdirSync(resolve(root,'nested café'),{recursive:true}); mkdirSync(outside);
+    for(const [name,body] of [['index.html','shell'],['app.js','entry'],['nested café/data.js','unicode'],['nested café/index.html','nested'],['.private.js','private']])
+      writeFileSync(resolve(root,name),body);
+    writeFileSync(resolve(outside,'secret.js'),'outside');
+    symlinkSync(outside,resolve(root,'outside'),process.platform==='win32'?'junction':'dir');
+    server=createServer((req,res)=>serveBuildTree(root,req,res));
+    await new Promise(done=>server.listen(0,'127.0.0.1',done));
+    // A raw HTTP path preserves traversal spellings a URL constructor normalizes.
+    const request=path=>new Promise((done,fail)=>{
+      get({host:'127.0.0.1',port:server.address().port,path},res=>{
+        const chunks=[];res.on('data',chunk=>chunks.push(chunk));res.on('error',fail);
+        res.on('end',()=>done({status:res.statusCode,body:Buffer.concat(chunks).toString()}));
+      }).on('error',fail);
+    });
+    for(const [path,body] of [['/','shell'],['/index.html','shell'],['/app.js','entry'],['/nested%20caf%C3%A9/data.js','unicode'],['/nested%20caf%C3%A9/','nested'],['/app-route','shell']])
+      expect(await request(path)).toEqual({status:200,body});
+    for(const path of ['/.private.js','/%2e%2e/outside/secret.js','/nested%20caf%C3%A9/../../outside/secret.js','/nested%5cdata.js','/%00','/outside/secret.js'])
+      expect(await request(path)).toEqual({status:404,body:''});
+    // An explicitly selected volume root already ends in its native separator.
+    const volume=parse(root).root, file=resolve(root,'app.js');
+    const route='/'+relative(volume,file).replaceAll('\\','/');
+    expect(buildTreeFile(volume,route)?.path).toBe(file);
+  } finally {
+    if(server)await new Promise(done=>server.close(done));
+    rmSync(owned,{recursive:true,force:true});
+  }
+});
+
+test('ordinary Windows host manifests admit only the empty host settings object', () => {
+  const root=mkdtempSync(resolve(tmpdir(),'exact-windows-manifest-'));
+  const manifest={name:'Windows fixture',app:{id:'test.exact.windows',name:'Windows fixture'},host:{windows:{}},deploy:{store:{windows:'0'}}};
+  const write=host=>writeFileSync(resolve(root,'app.json'),JSON.stringify({...manifest,host}));
+  try {
+    write({windows:{}});
+    const accepted=readManifest(root,'fixture');
+    expect(accepted.host.windows).toEqual({});
+    expect(accepted.deploy.store.windows).toBe('0');
+    write({windows:{title:'unexpected'}});
+    expect(()=>readManifest(root,'fixture')).toThrow('host.windows.title: not a known key');
+    for(const value of [null,[],true,'windows']) {
+      write({windows:value});
+      expect(()=>readManifest(root,'fixture')).toThrow('host.windows: expected object');
+    }
+    write({});
+    expect(readManifest(root,'fixture').host.windows).toBeUndefined();
+  } finally { rmSync(root,{recursive:true,force:true}); }
+});
+
+test('storage error numbers retain platform meaning and require an exact typed suffix', () => {
+  const source=readFileSync(new URL('../js/src/prelude.js',import.meta.url),'utf8');
+  const mapping=source.slice(source.indexOf('  var windowsStorage ='),source.indexOf('  function storageError('));
+  const make=marker=>{
+    const global={__exact_windows_storage:marker};
+    const code=new Function('global',`${mapping}\nreturn storageCode;`)(global);
+    expect(global).not.toHaveProperty('__exact_windows_storage');
+    return code;
+  };
+  const windows=make(true), unix=make(undefined);
+  for(const [number,code] of [[2,'ENOENT'],[3,'ENOENT'],[32,'EBUSY'],[33,'EBUSY'],[80,'EEXIST'],[145,'ENOTEMPTY'],[170,'EBUSY'],[183,'EEXIST'],[267,'ENOTDIR']])
+    expect(windows(`filesystem: unavailable (os error ${number})`)).toBe(code);
+  for(const number of [5,17,21,39]) expect(windows(`filesystem: unavailable (os error ${number})`)).toBe('failed');
+  expect(unix('unavailable (os error 17)')).toBe('EEXIST');
+  expect(unix('unavailable (os error 39)')).toBe('ENOTEMPTY');
+  expect(unix('unavailable (os error 267)')).toBe('failed');
+  expect(windows('fs.readFile doc:/1/folder: cannot read a directory (filesystem code EISDIR)')).toBe('EISDIR');
+  expect(windows('(filesystem code EISDIR) then access refused (os error 5)')).toBe('failed');
+  expect(windows('denied: fs.read (filesystem code EISDIR)')).toBe('denied');
+  expect(unix('(filesystem code EISDIR)')).toBe('failed');
+});
+
+test.skipIf(process.platform !== 'win32')('Windows Hermes receipt roots capture a real junction install alias', () => {
+  const parent=mkdtempSync(resolve(tmpdir(),'exact-hermes roots café-'));
+  try {
+    const install=resolve(parent,'actual install'), alias=resolve(parent,'selected alias');
+    mkdirSync(install); symlinkSync(install,alias,'junction');
+    const canonical=realpathSync.native(install);
+    expect(realpathSync.native(alias)).toBe(canonical);
+    const roots=hermesWindowsRoots({EXACT_HERMES_DIR:alias});
+    expect(roots).toContain(alias);
+    expect(roots).toContain(toNamespacedPath(alias));
+    expect(roots).toContain(canonical);
+    expect(roots).toContain(toNamespacedPath(canonical));
+    expect(new Set(roots).size).toBe(roots.length);
+  } finally { rmSync(parent,{recursive:true,force:true}); }
+});
 
 test('proof interruption preserves a real CDP timeout message when its stack omits it', async () => {
   const input=new PassThrough(), output=new PassThrough(), cdp=new Cdp(input,output);
@@ -30,10 +124,143 @@ test('proof interruption preserves a real CDP timeout message when its stack omi
     // Preserve the exact message-free shape seen in the failed frozen proof;
     // an isolated timer on this Bun version does not always omit its message.
     failure.stack='Error\n    at <anonymous> (agent-launch.mjs:361:76)';
-    expect(formatProofError(failure)).toBe(`${String(failure)}\n${failure.stack}`);
+    expect(formatProofError(failure)).toBe(`${String(failure)}\n${failure.stack}\nCDP ${JSON.stringify(cdpFailureContext(failure))}`);
     expect(failure.message).toBe('Runtime.evaluate did not answer within 10 ms');
     expect(formatProofError('plain refusal')).toBe('plain refusal');
   } finally { input.destroy(); output.destroy(); }
+});
+
+test('CDP failure context preserves timeout identity and actual proof serialization', async () => {
+  const input=new PassThrough(), output=new PassThrough(), cdp=new Cdp(input,output);
+  const expression='exact.agentSettled({op:"tap",target:"play-frontier"})';
+  try {
+    const failure=await cdp.send('Runtime.evaluate',{expression},'attached-7',5).catch(error=>error);
+    const context=cdpFailureContext(failure), originalStack=failure.stack;
+    expect(context).toMatchObject({schema:1,method:'Runtime.evaluate',requestId:1,cdpSessionId:'attached-7',timeoutMs:5,category:'timeout',source:'captured-primitive-params',
+      parameter:{field:'expression',characters:expression.length,utf8Bytes:Buffer.byteLength(expression),sha256:createHash('sha256').update(expression).digest('hex')}});
+    expect(Object.isFrozen(context)).toBe(true); expect(Object.isFrozen(context.parameter)).toBe(true);
+    const cause=new Error('cause'), helper={pid:123};
+    failure.cause=cause; failure.ownedHelper=helper; Object.freeze(failure);
+    const row=proofFailureRow(13,'tap',['play-frontier'],0,failure);
+    expect(row).toMatchObject({session:13,method:'tap',args:['play-frontier'],clock:0,error:failure.message,cdp:context});
+    const encoded=JSON.stringify(row);
+    for(const secret of [expression,'ownedHelper','cause']) expect(encoded).not.toContain(secret);
+    expect(formatProofError(failure)).toContain(originalStack);
+    expect(failure.cause).toBe(cause); expect(failure.ownedHelper).toBe(helper);
+    const wrapper=new Error('Chrome did not answer');
+    expect(copyCdpFailureContext(failure,wrapper)).toBe(wrapper);
+    expect(cdpFailureContext(wrapper)).toBe(context); expect(wrapper.cause).toBeUndefined();
+    expect(copyCdpFailureContext(wrapper,failure)).toBe(failure); expect(cdpFailureContext(failure)).toBe(context);
+    expect(proofFailureRow(1,'tap',[],0,new Error('plain'))).toEqual({session:1,method:'tap',args:[],clock:0,error:'plain',steps:undefined});
+  } finally { input.destroy(); output.destroy(); }
+});
+
+test('CDP failure context success keeps one Promise, value identity and retires raw metadata without hashing', async () => {
+  const input=new PassThrough(), output=new PassThrough(), cdp=new Cdp(input,output);
+  const hash=spyOn(crypto,'createHash'), NativePromise=globalThis.Promise, created=[];
+  let promise;
+  try {
+    globalThis.Promise=class extends NativePromise { constructor(executor) { super(executor); created.push(this); } };
+    try { promise=cdp.send('Runtime.evaluate',{expression:'successful secret'},'session',1000); }
+    finally { globalThis.Promise=NativePromise; }
+    expect(created).toEqual([promise]);
+    const pending=cdp.pending.get(1), value={same:true}; pending.resolve(value);
+    expect(await promise).toBe(value); expect(hash).not.toHaveBeenCalled();
+    // Invoke the real settled closure: its diagnostic string is already retired.
+    const late=new Error('late rejection'); pending.reject(late);
+    expect(cdpFailureContext(late).parameter).toEqual({field:'expression',characters:17});
+    expect(hash).not.toHaveBeenCalled();
+    // Ensure the spy observes the actual production failure hash too.
+    const failed=cdp.send('Runtime.evaluate',{expression:'failure'},'session',1000).catch(error=>error);
+    output.write(JSON.stringify({id:2,error:{message:'refused'}})+'\0'); await failed;
+    expect(hash).toHaveBeenCalledTimes(1);
+  } finally { globalThis.Promise=NativePromise; hash.mockRestore(); cdp.fail('test cleanup'); input.destroy(); output.destroy(); }
+});
+
+test('CDP failure context distinguishes concurrent errors and ignores late replies', async () => {
+  const input=new PassThrough(), output=new PassThrough(), cdp=new Cdp(input,output);
+  try {
+    const params={expression:'before'};
+    const one=cdp.send('Runtime.evaluate',params,'one',1000).catch(error=>error);
+    const two=cdp.send('Page.navigate',{url:'https://user:secret@example.test/private?token=secret'},'two',1000).catch(error=>error);
+    params.expression='after'; output.write(JSON.stringify({id:1,error:{message:'protocol refused'}})+'\0'); cdp.fail('pipe closed');
+    const a=await one,b=await two;
+    expect(a).not.toBe(b);
+    expect(cdpFailureContext(a)).toMatchObject({requestId:1,cdpSessionId:'one',category:'protocol',parameter:{sha256:createHash('sha256').update('before').digest('hex')}});
+    expect(cdpFailureContext(b)).toMatchObject({requestId:2,cdpSessionId:'two',category:'transport',parameter:{field:'url'}});
+    expect(JSON.stringify(cdpFailureContext(b))).not.toContain('secret');
+    output.write(JSON.stringify({id:1,result:{late:true}})+'\0'); expect(cdp.pending.size).toBe(0);
+    const closed=await cdp.send('Runtime.evaluate',{expression:'closed'},'three',1000).catch(error=>error);
+    expect(cdpFailureContext(closed)).toMatchObject({requestId:null,category:'closed',cdpSessionId:'three'}); expect(cdp.next).toBe(3);
+  } finally { input.destroy(); output.destroy(); }
+});
+
+test('CDP failure context preserves synchronous throws and their existing pending timers/late replies', async () => {
+  const input=new PassThrough(), output=new PassThrough(), cdp=new Cdp(input,output);
+  const cause=new Error('cause'), helper={pid:123}, thrown=Object.freeze(Object.assign(new Error('write refused',{cause}),{ownedHelper:helper}));
+  input.write=()=>{throw thrown;};
+  try {
+    const failure=await cdp.send('Runtime.evaluate',{expression:'retire me'},'one',10).catch(error=>error);
+    expect(failure).toBe(thrown); expect(failure.cause).toBe(cause); expect(failure.ownedHelper).toBe(helper);
+    expect(cdpFailureContext(failure)).toMatchObject({requestId:1,category:'send-refusal'}); expect(cdp.pending.has(1)).toBe(true);
+    const pending=cdp.pending.get(1); output.write(JSON.stringify({id:1,result:{late:true}})+'\0'); expect(cdp.pending.has(1)).toBe(false);
+    const late=new Error('late closure'); pending.reject(late);
+    expect(cdpFailureContext(late).parameter).toEqual({field:'expression',characters:9});
+    const serializeError=new Error('serialization refused');
+    const serialized=await cdp.send('Runtime.evaluate',{expression:'not serialized',toJSON(){throw serializeError;}},'two',5).catch(error=>error);
+    expect(serialized).toBe(serializeError); expect(cdpFailureContext(serialized).parameter.omitted).toBe('serialization-hook');
+    expect(cdp.pending.has(2)).toBe(true); await new Promise(resolve=>setTimeout(resolve,15)); expect(cdp.pending.has(2)).toBe(false);
+  } finally { cdp.fail('test cleanup'); input.destroy(); output.destroy(); }
+});
+
+test('CDP failure context marks a shared thrown Error ambiguous without unbounded history', async () => {
+  const input=new PassThrough(), output=new PassThrough(), cdp=new Cdp(input,output), shared=new Error('shared'); input.write=()=>{throw shared;};
+  try {
+    const one=await cdp.send('Runtime.evaluate',{expression:'first'},'one',1000).catch(error=>error); expect(cdpFailureContext(one).requestId).toBe(1);
+    const two=await cdp.send('Runtime.evaluate',{expression:'second'},'two',1000).catch(error=>error);
+    expect(one).toBe(shared); expect(two).toBe(shared); expect(cdpFailureContext(shared)).toEqual({schema:1,omitted:'shared-error',ambiguous:true});
+  } finally { cdp.fail('test cleanup'); input.destroy(); output.destroy(); }
+});
+
+test('CDP failure context capture refuses accessors, hooks and Proxies without extra evaluation', () => {
+  let touched=0;
+  const capture=params=>captureCdpRequest('Runtime.evaluate',params,'session',1,15).parameter;
+  expect(capture({get expression(){touched++;return 'secret';}}).omitted).toBe('not-string-data');
+  expect(capture({expression:{toString(){touched++;return 'secret';}}}).omitted).toBe('not-string-data');
+  expect(capture(new Proxy({expression:'secret'},{get(){touched++;throw Error('get');},getPrototypeOf(){touched++;throw Error('prototype');},getOwnPropertyDescriptor(){touched++;throw Error('descriptor');}})).omitted).toBe('not-plain-data');
+  expect(capture(Object.create(new Proxy({},{get(){touched++;throw Error('get');}}))).omitted).toBe('not-plain-data');
+  expect(capture({expression:'secret',get toJSON(){touched++;throw Error('hook');}}).omitted).toBe('serialization-hook');
+  try {
+    Object.defineProperty(Object.prototype,'toJSON',{configurable:true,get(){touched++;throw Error('prototype hook');}});
+    expect(capture({expression:'secret'}).omitted).toBe('serialization-hook');
+  } finally { delete Object.prototype.toJSON; }
+  expect(touched).toBe(0); expect(capture(Object.assign(Object.create(null),{expression:'ok'}))).toEqual({field:'expression',characters:2,value:'ok'});
+});
+
+test('CDP failure context caps retention before dispatch and hashes only the complete admitted string', async () => {
+  const input=new PassThrough(), output=new PassThrough(), cdp=new Cdp(input,output), limit=256*1024;
+  const exact='😀'.repeat(limit/2), excessive='x'.repeat(limit+1), hash=spyOn(crypto,'createHash');
+  try {
+    const snapshot=captureCdpRequest('Runtime.evaluate',{expression:excessive},'one',1,10);
+    expect(snapshot.parameter).toEqual({field:'expression',characters:limit+1,omitted:'length-limit'}); expect(JSON.stringify(snapshot)).not.toContain(excessive);
+    const over=cdp.send('Runtime.evaluate',{expression:excessive},'one',1000).catch(error=>error); output.write(JSON.stringify({id:1,error:{message:'refused'}})+'\0');
+    expect(cdpFailureContext(await over).parameter).toEqual(snapshot.parameter); expect(hash).not.toHaveBeenCalled();
+    const at=cdp.send('Runtime.evaluate',{expression:exact},'two',1000).catch(error=>error); expect(hash).not.toHaveBeenCalled();
+    output.write(JSON.stringify({id:2,error:{message:'refused'}})+'\0'); const context=cdpFailureContext(await at);
+    expect(hash).toHaveBeenCalledTimes(1); expect(context.parameter).toMatchObject({characters:limit,utf8Bytes:limit*2});
+    expect(JSON.stringify(context)).not.toContain('😀'); expect(Buffer.byteLength(JSON.stringify(context))).toBeLessThanOrEqual(8192);
+  } finally { hash.mockRestore(); cdp.fail('test cleanup'); input.destroy(); output.destroy(); }
+});
+
+test('CDP failure context metadata failure preserves the Error and adds no unhandled rejection', async () => {
+  const input=new PassThrough(), output=new PassThrough(), cdp=new Cdp(input,output), observed=[], original=Object.freeze(new Error('original'));
+  const hash=spyOn(crypto,'createHash').mockImplementation(()=>{throw new Error('metadata failed');});
+  const unhandled=error=>observed.push(error); process.on('unhandledRejection',unhandled); input.write=()=>{throw original;};
+  try {
+    const result=await cdp.send('Runtime.evaluate',{expression:'secret'},'session',5).catch(error=>error);
+    expect(result).toBe(original); expect(cdpFailureContext(result)).toEqual({schema:1,omitted:'metadata-unavailable'});
+    await new Promise(resolve=>setTimeout(resolve,15)); expect(observed).toEqual([]);
+  } finally { hash.mockRestore(); process.off('unhandledRejection',unhandled); cdp.fail('test cleanup'); input.destroy(); output.destroy(); }
 });
 
 test('startup failure retains the cleanup error and its owned helper handle', () => {

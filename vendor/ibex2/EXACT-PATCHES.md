@@ -72,6 +72,20 @@ trusted; filesystem grants govern capability calls rather than forming an OS
 sandbox. Native paths pin identities per operation, and hard links retain their
 ordinary shared contents. Browser builds carry native tuples inertly.
 
+## Windows chosen-document read errors — Exact patch
+
+LLP 1027.006 qualifies the native TypeScript executor on Windows. Its existing
+public storage contract requires EISDIR for reading a chosen directory. The
+Windows document ReadFile arm in `src/stdlib/fs.rs` now opens one read handle
+with BACKUP_SEMANTICS and uses metadata from that same handle to identify a
+directory. Only this proven case emits `(filesystem code EISDIR)`, consumed by
+Exact's trusted storage prelude. Actual access-denied5 remains unchanged; no
+global numeric remapping, precheck race, grant change or physical-path leak is
+introduced. The document namespace is an existing Exact-specific patch.
+Tests cover ordinary bytes, directory refusal, grant-before-resolution and a
+real owned-file ACL denial with original DACL restoration. This is not a broad
+Ibex refresh; any corresponding upstream operation fix is reviewed separately.
+
 ## Upstreamed (no longer patches)
 
 Patches 1 and 2 landed in ibex as `fbe2baee` (2026-10-04), byte for byte

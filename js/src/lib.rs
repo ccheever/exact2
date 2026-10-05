@@ -110,6 +110,11 @@ pub const BYTECODE_VERSION: u32 = if PRELUDE.len() >= 12 {
     0
 };
 
+/// Receipt identity of this Windows executor's pinned lean engine and compiler.
+/// The producer compares its accepted install before compiling app bytecode.
+/// Other platforms and the explicit refusing stub do not use this identity.
+pub const ENGINE_INPUTS: Option<&str> = option_env!("EXACT_JS_ENGINE_INPUTS");
+
 /// One source's signature, from the plan.
 struct Sig {
     params: Vec<Shape>,

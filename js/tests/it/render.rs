@@ -2,7 +2,7 @@
 //! server keeps serving (LLP 1048.000 D10): the render's watchdog interrupts
 //! the running call, which is refused, and the page shows its placeholder.
 
-#![cfg(exact_js_engine)]
+#![cfg(all(exact_js_engine, unix))]
 
 use exact_js::Module;
 use exact_plan::{Plan, Value};

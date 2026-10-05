@@ -15,7 +15,7 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
+import { Cdp, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -194,7 +194,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       await waitAtMost(stdioClosed, 1000);
       const said = [...launchTail, ...(partial ? [partial] : [])].slice(-6).map(l => '  chrome: ' + l).join('\n'); // and an unterminated last line
       const alive = child.exitCode === null && child.signalCode === null;
-      throw new Error(`Chrome ${alive ? 'did not answer' : 'did not start'} (${error.message}); CHROME=${chrome}\n${said || '  (it printed nothing)'}${alive ? '' : '\nSet CHROME to a browser that runs here.'}`);
+      throw copyCdpFailureContext(error, new Error(`Chrome ${alive ? 'did not answer' : 'did not start'} (${error.message}); CHROME=${chrome}\n${said || '  (it printed nothing)'}${alive ? '' : '\nSet CHROME to a browser that runs here.'}`));
     });
     const target = targetInfos.find((t) => t.type === 'page') ?? (await cdp.send('Target.createTarget', { url: 'about:blank' }));
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
@@ -1039,15 +1039,11 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const pending = (st?.pending ?? []).map((p) => p.name).filter(Boolean);
       return pending.length ? `; ${pending.length} request${pending.length === 1 ? ' is' : 's are'} still in flight (${[...new Set(pending)].join(', ')}): \`clock data\` waits for data, and \`state\` shows what is still pending` : '';
     },
-    /**
-     * What this carrier's input actually is (LLP 1035.003 D2/D3): whether it
-     * can hold a contact across requests, and how each form is delivered —
-     * `platform` (a real input event through the platform's own path),
-     * `recognized` (an already-recognized event injected), `activation` (a
-     * hit-test and a direct call), `presenter` (seekable native recognition
-     * without OS input injection), or `unsupported`. iOS activates and
-     * injects; it synthesizes no touch (LLP 1008 §9).
-     */
+    /** What this carrier's input actually is (LLP 1035.003 D2/D3): whether it can hold a contact across requests,
+     * and how each form is delivered — `platform` (a real input event through the platform's own path),
+     * `recognized` (an already-recognized event injected), `activation` (a hit-test and a direct call),
+     * `presenter` (seekable native recognition without OS input injection), or `unsupported`. iOS activates and
+     * injects; it synthesizes no touch (LLP 1008 §9). */
     input: host === 'ios' || host === 'host-ios'
       ? { contact: false, hold: false, delivery: (kind) => (['contextmenu', 'dblclick', 'hover', 'pinch'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : ['press', 'drag'].includes(kind) && carrier.touches ? 'platform' : kind === 'drag' ? 'unsupported' : 'activation') }
       : host === 'linux' || host === 'windows'
@@ -1142,14 +1138,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (r.error) throw new Error(r.error);
       return r.scrolled ? { from: r.from, to: r.to } : null;
     },
-    /**
-     * The held contact's next phase (LLP 1035.003 D1): `move` to `{x, y}` in
-     * the viewport or `by` `{dx, dy}`, over `ms` of real time on platform
-     * carriers or seekable time on Linux's presenter; `hold` for `ms`; `up`; `cancel`.
-     * The platform owns hit-testing, recognition, scrolling and animation:
-     * the app receives whatever it delivers, and a carrier that cannot hold
-     * a contact answers `delivery: "unsupported"` rather than faking one.
-     */
+    /** The held contact's next phase (LLP 1035.003 D1): `move` to `{x, y}` in the viewport or `by` `{dx, dy}`,
+     * over `ms` of real time on platform carriers or seekable time on Linux's presenter; `hold` for `ms`; `up`; `cancel`.
+     * The platform owns hit-testing, recognition, scrolling and animation: the app receives whatever it delivers,
+     * and a carrier that cannot hold a contact answers `delivery: "unsupported"` rather than faking one. */
     async pointer(phase, opts = {}) {
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       if (!['move', 'hold', 'up', 'cancel'].includes(phase)) throw new Error(`pointer: not a phase: ${phase} (move, hold, up, cancel)`);
@@ -1322,13 +1314,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const { screenshot, ...tags } = last;
       return { ...tags, screenshot: out, frames, every, over, at, dir, form: animated ? 'animated' : 'sheet' };
     },
-    /**
-     * An input's end (LLP 1012 §2): the `then` of each answer the input
-     * settled lands before the reply, as a click handler's state is there for
-     * a test's next line — the clock unmoved and no timer fired (trivia F3,
-     * kanban F19). A reply still on real time (a store's, the network's)
-     * stays for a `clock` step. The reply's tags are read after it.
-     */
+    /** An input's end (LLP 1012 §2): the `then` of each answer the input settled lands before the reply, as a click
+     * handler's state is there for a test's next line — the clock unmoved and no timer fired (trivia F3, kanban F19).
+     * A reply still on real time (a store's, the network's) stays for a `clock` step. The reply's tags are read after it. */
     async landed(r) {
       if (r == null || r.error != null || r.delivery === 'unsupported') return s.tagged(r);
       const l = await carrier.ask({ op: 'clock', land: true });
@@ -1336,13 +1324,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       delete r.epoch; delete r.incarnation; delete r.clock;
       return s.tagged(r);
     },
-    /**
-     * Every reply carries the runner's `epoch`, `incarnation` and `clock`
-     * (LLP 1035.002 D3). A host that answered the operation itself stamps
-     * them; the web carrier's input and capture are the driver's own (CDP),
-     * so the driver reads the tags after the operation and adds what the
-     * reply lacks. An error is left alone.
-     */
+    /** Every reply carries the runner's `epoch`, `incarnation` and `clock` (LLP 1035.002 D3). A host that answered
+     * the operation itself stamps them; the web carrier's input and capture are the driver's own (CDP), so the driver
+     * reads the tags after the operation and adds what the reply lacks. An error is left alone. */
     async tagged(r) {
       if (r == null || r.error != null || r.epoch != null) return r;
       const tags = await s.op({ op: 'tags' });

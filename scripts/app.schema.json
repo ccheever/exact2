@@ -377,6 +377,11 @@
           "type": "object",
           "additionalProperties": false
         },
+        "windows": {
+          "description": "The Windows host has no settings yet; an empty object.",
+          "type": "object",
+          "additionalProperties": false
+        },
         "web": {
           "description": "The web host has no settings yet; an empty object.",
           "type": "object",
