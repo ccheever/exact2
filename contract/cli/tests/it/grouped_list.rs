@@ -436,7 +436,10 @@ fn a_transparent_section_has_no_card() {
     let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section background-color=\"transparent\" testId=\"head\"\n    row testId=\"profile\"\n      image \"avatar.png\" width=80 height=80\n      text \"Maya Chen\"\n  section\n    button press=go testId=\"mute\"\n      text \"Mute\"");
     let k = r.kernel();
     let list = k.grouped_list(id(&r, "list")).unwrap();
-    assert!(!list.sections[0].card, "background-color=\"transparent\" drops the card");
+    assert!(
+        !list.sections[0].card,
+        "background-color=\"transparent\" drops the card"
+    );
     assert!(list.sections[1].card, "a section is on a card by default");
     // The sheet's group (the rows' column) takes the colour; the section
     // itself keeps none, so the web and the sheet's hosts draw no card either.
@@ -448,7 +451,9 @@ fn a_transparent_section_has_no_card() {
         .is_some_and(|c| c.resolve(false).a() == 0 && c.resolve(true).a() == 0);
     assert!(transparent, "the group's background is the section's");
     assert!(
-        head.style.background_color.is_none_or(|c| c.resolve(false).a() == 0),
+        head.style
+            .background_color
+            .is_none_or(|c| c.resolve(false).a() == 0),
         "and the section paints none of its own"
     );
 }
@@ -458,7 +463,13 @@ fn a_cardless_section_draws_no_separators_and_takes_only_transparent() {
     let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section background-color=\"transparent\"\n    button press=go testId=\"a\"\n      text \"A\"\n    button press=go testId=\"b\"\n      text \"B\"");
     let k = r.kernel();
     let a = k.node(id(&r, "a")).unwrap();
-    assert_eq!(a.style.border_widths()[2], 0.0, "no separator under a card-less row");
-    let m = refused("list appearance=\"auto\" flex=1\n  section background-color=\"#ff0000\"\n    text \"A\"");
+    assert_eq!(
+        a.style.border_widths()[2],
+        0.0,
+        "no separator under a card-less row"
+    );
+    let m = refused(
+        "list appearance=\"auto\" flex=1\n  section background-color=\"#ff0000\"\n    text \"A\"",
+    );
     assert!(m.contains("transparent"), "{m}");
 }
