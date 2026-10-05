@@ -406,6 +406,29 @@ impl Gate {
             }
         }
     }
+    /// [`Gate::wait_decode`] that also returns at a wake that brought no
+    /// decode (`None`): a worker that also reads sources' headers, work that
+    /// arrives as [`RasterSession::wake`], looks for it at once rather than at
+    /// the timeout.
+    pub fn wait_work(&self, timeout: Duration) -> Option<DecodePermit> {
+        let observed = *self.inner.wake.sequence.lock().unwrap();
+        if let Some(permit) = self.next_decode() {
+            return Some(permit);
+        }
+        let sequence = self.inner.wake.sequence.lock().unwrap();
+        if *sequence != observed {
+            drop(sequence);
+            return self.next_decode();
+        }
+        let (sequence, _) = self
+            .inner
+            .wake
+            .changed
+            .wait_timeout(sequence, timeout)
+            .unwrap();
+        drop(sequence);
+        self.next_decode()
+    }
     pub fn stats(&self) -> GateStats {
         let state = self.inner.state.lock().unwrap();
         GateStats {

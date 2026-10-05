@@ -418,9 +418,12 @@ impl Workers {
         }
         drop(backends);
         before_wait();
-        // Requests, cancels and freed budget all wake a worker; the timeout is
-        // only a backstop, so it is long enough not to be a poll.
-        if let Some(permit) = self.gate.wait_decode(Duration::from_millis(200)) {
+        // Requests, cancels, freed budget and sources to read all wake a
+        // worker, which takes the next turn at once (a header to read is no
+        // decode: waiting on for one held every first picture to the
+        // timeout); the timeout is only a backstop, so it is long enough not
+        // to be a poll.
+        if let Some(permit) = self.gate.wait_work(Duration::from_millis(200)) {
             *metadata_turn = true;
             self.complete(permit);
         }
