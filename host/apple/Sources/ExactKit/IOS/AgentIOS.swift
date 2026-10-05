@@ -667,7 +667,6 @@ extension Agent {
                     // A wheel interrupts a smooth correction as a drag does: a
                     // plain write sends no animation end (LLP 1070.000 §11).
                     if let list = sv.superview as? NodeView, let p = list.presenter, p.collections.animating.contains(list.id) {
-                        p.collections.haltOffsetAnimation(sv)
                         p.collections.animationEnded(list.id, dragging: true)
                     }
                     sv.setContentOffset(target, animated: false)

@@ -245,8 +245,13 @@ final class CollectionHost {
     /// while it ran).
     var animationTargets: [UInt32: CGPoint] = [:]
     var owedTargets: [UInt32: CGPoint] = [:]
-    /// iOS: lists whose smooth correction begins on the next turn.
+    /// iOS: lists whose smooth correction begins on the next turn, the
+    /// animation each was scheduled for, and the drivers running.
     var startOwed = Set<UInt32>()
+    var pendingSerial: [UInt32: Int] = [:]
+    #if os(iOS) || os(tvOS)
+    var offsetDrivers: [UInt32: OffsetDriver] = [:]
+    #endif
     /// The running animation's number, for each animating list only: a
     /// callback for one that has since been stopped, or replaced, is not
     /// this one's.
@@ -264,6 +269,10 @@ final class CollectionHost {
     /// An animation stops: by a drag, an ordinary correction, or the list's
     /// retirement. What it owed goes with it.
     func stopAnimation(_ view: UInt32) {
+        startOwed.remove(view); pendingSerial[view] = nil
+        #if os(iOS) || os(tvOS)
+        offsetDrivers.removeValue(forKey: view)?.cancel()
+        #endif
         animating.remove(view)
         animationTargets[view] = nil; owedTargets[view] = nil; animationSerial[view] = nil
         animationMoved.remove(view)

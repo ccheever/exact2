@@ -940,15 +940,19 @@ rest, so the target was held and landed with no animation when it was near.
 Measured on Signal Clone: the new bubble rose for 0.15 s, then jumped its
 last 12 pt 0.2 s later.
 
-Now it is one Core Animation motion of the port, 0.3 s ease-in-out (UIKit's
-batch-update timing, which a chat's insertion rides), begun from what shows,
-on the turn after the first target, with the last target that turn gave (a
-list following its end hears the estimated row and the measured one in one
-turn; two motions begun milliseconds apart showed a step back first).
-A later target, smooth or a shift of the rows under it, retargets it at once
-from the current presentation. A drag, a wheel or an ordinary correction
-stops it where it shows. While it runs the list reports where it is headed,
-as before. `CollectionIOS.swift` `animateOffset`, `haltOffsetAnimation`;
+Now it is one 0.3 s ease-in-out motion (UIKit's batch-update timing, which
+a chat's insertion rides) that sets the scroll view's `contentOffset` each
+display frame, as UIKit's own scroll animation does, so every reader
+(hit-testing, a drag's start, stickies, the scroll event) sees the offset on
+screen. It begins on the turn after the first target, with the last target
+that turn gave (a list following its end hears the estimated row and the
+measured one in one turn; two motions begun milliseconds apart showed a step
+back first). A later target, smooth or a shift of the rows under it,
+retargets it from where it is. A drag, a wheel, an ordinary correction or
+the list's retirement stops it where it is (`stopAnimation`). While it runs
+the list reports where it is headed, as before. (r1 animated the offset with
+Core Animation; both reviews found the model and the screen apart for the
+whole flight.) `CollectionIOS.swift` `animateOffset`, `OffsetDriver`;
 `SmoothCollectionIOSTests`; measured with `scripts/motion-trace.mjs` on
 Signal Clone's send: one motion, max deviation 0.014 from a 0.3 s
 ease-in-out (before: 0.27, and a 12-pt jump).

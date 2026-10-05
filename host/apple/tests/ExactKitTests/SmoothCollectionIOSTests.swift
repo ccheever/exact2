@@ -28,9 +28,7 @@ final class SmoothCollectionIOSTests: XCTestCase {
             "rows": [["view": 10, "root": 10, "epoch": 1]], "correction": correction]]]
     }
     private func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
-    private func moving(_ scroll: UIScrollView) -> Bool {
-        (scroll.layer.animationKeys() ?? []).contains { ((scroll.layer.animation(forKey: $0) as? CAPropertyAnimation)?.keyPath ?? "").hasPrefix("bounds") }
-    }
+    private func moving(_ p: Presenter) -> Bool { p.collections.offsetDrivers[1] != nil }
     private func list(_ p: Presenter, correction: Any) {
         p.apply(wireBatch([collections(revision: 1, correction: correction),
             ["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll"]],
@@ -51,7 +49,7 @@ final class SmoothCollectionIOSTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(p.collections.geometry(1)).offset, 1700, accuracy: 0.5, "the runner plans from where it is headed")
         XCTAssertNil(p.collections.motion?(1), "no travel reported while it runs")
         spin(0.03)
-        XCTAssertTrue(moving(scroll), "the port animates to it, from the next turn")
+        XCTAssertTrue(moving(p), "the port animates to it, from the next turn")
         spin(0.6)
         XCTAssertFalse(p.collections.animating.contains(1), "the animation ended")
         XCTAssertEqual(scroll.contentOffset.y, 1700, accuracy: 0.5)
@@ -64,10 +62,37 @@ final class SmoothCollectionIOSTests: XCTestCase {
         XCTAssertNil(p.collections.owedTargets[1], "retargeted, not held")
         XCTAssertEqual(p.collections.animationTargets[1]?.y, 1200)
         spin(0.03)
-        XCTAssertTrue(moving(scroll))
+        XCTAssertTrue(moving(p))
         spin(0.6)
         XCTAssertFalse(p.collections.animating.contains(1))
         XCTAssertEqual(scroll.contentOffset.y, 1200, accuracy: 0.5)
+    }
+
+    /// Mid-flight, a new target retargets from where the port is (no jump),
+    /// and a drag stops it where it is. The offset each frame is the one on
+    /// screen, so a reader of `contentOffset` never sees the destination early.
+    func testAMovingCorrectionRetargetsFromWhereItIsAndADragStopsIt() throws {
+        let p = presenter()
+        list(p, correction: NSNull())
+        let scroll = try XCTUnwrap(p.views[1]?.scroll)
+        let seq = String(try XCTUnwrap(p.collections.entries[1]?.cursor.sequence))
+        p.apply(wireBatch([collections(revision: 2, correction: ["scrollSequence": seq, "offset": 1700, "smooth": true])]))
+        spin(0.12)
+        let mid = scroll.contentOffset.y
+        XCTAssertGreaterThan(mid, 0); XCTAssertLessThan(mid, 1700, "on its way, the offset is what shows")
+        p.apply(wireBatch([collections(revision: 3, correction: ["scrollSequence": seq, "offset": 1200, "smooth": true])]))
+        XCTAssertEqual(scroll.contentOffset.y, mid, accuracy: 0.5, "retargeted where it is, no jump")
+        spin(0.6)
+        XCTAssertEqual(scroll.contentOffset.y, 1200, accuracy: 0.5)
+        XCTAssertFalse(p.collections.animating.contains(1))
+        // A drag stops a moving one where it is.
+        p.apply(wireBatch([collections(revision: 4, correction: ["scrollSequence": seq, "offset": 300, "smooth": true])]))
+        spin(0.12)
+        let stopped = scroll.contentOffset.y
+        p.views[1]?.scrollViewWillBeginDragging(scroll)
+        XCTAssertFalse(moving(p)); XCTAssertFalse(p.collections.animating.contains(1))
+        spin(0.3)
+        XCTAssertEqual(scroll.contentOffset.y, stopped, accuracy: 0.5, "left where the drag found it")
     }
 
     /// A sent message's end-follow arrives in the batch whose composer
@@ -107,7 +132,7 @@ final class SmoothCollectionIOSTests: XCTestCase {
         let seq = String(try XCTUnwrap(p.collections.entries[1]?.cursor.sequence))
         p.apply(wireBatch([collections(revision: 2, correction: ["scrollSequence": seq, "offset": 1700, "smooth": true])]))
         p.apply(wireBatch([collections(revision: 3, correction: ["scrollSequence": seq, "offset": 0])]))
-        XCTAssertFalse(moving(scroll), "an ordinary correction stops it where it is")
+        XCTAssertFalse(moving(p), "an ordinary correction stops it where it is")
         XCTAssertEqual(scroll.contentOffset.y, 0, accuracy: 0.5)
         p.apply(wireBatch([collections(revision: 4, correction: ["scrollSequence": seq, "offset": 900, "smooth": true])]))
         XCTAssertTrue(p.collections.animating.contains(1))
