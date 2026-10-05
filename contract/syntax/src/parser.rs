@@ -716,6 +716,21 @@ impl Parser {
                         "state" | "derive" => {
                             let t = self.next();
                             let name = self.named_ident(t.span)?;
+                            // A TypeScript-style annotation (authoring bench).
+                            if self.at_punct(":") {
+                                let from = if w == "state" {
+                                    "; an empty start is `none` or `[]`, and the writes give it its type"
+                                } else {
+                                    ", which is its expression's"
+                                };
+                                return self.err(
+                                    "syntax-expected",
+                                    format!(
+                                        "a {w}'s type is inferred, so `{w} {name}` takes no \
+                                         `: type`: write `{w} {name} = …`{from}"
+                                    ),
+                                );
+                            }
                             self.expect_punct("=")?;
                             let expr = self.expr()?;
                             self.newline()?;

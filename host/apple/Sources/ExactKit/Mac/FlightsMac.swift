@@ -164,6 +164,8 @@ extension Presenter {
             l.wantsLayer = true
             l.autoresizingMask = [.width, .height]
             content.addSubview(l)
+            // Above every ranked sibling (LLP 1083.000 D4), as on iOS.
+            l.setPaintForeground()
             return l
         }()
         f.saved = (view.layer?.cornerRadius ?? 0, view.layer?.masksToBounds ?? false)
@@ -192,10 +194,7 @@ extension Presenter {
             let natural = view.raster?.image.naturalSize ?? f.source.natural ?? .zero
             let end = Self.fitFraction(natural: natural, box: to.size, fit: view.style["object_fit"]?.string ?? "fill")
             let start = f.source.fit ?? end
-            let unit = CGRect(x: mix(start.minX, end.minX), y: mix(start.minY, end.minY),
-                              width: mix(start.width, end.width), height: mix(start.height, end.height))
-            view.flightLook = FlightLook(image: CGRect(x: unit.minX * shown.width, y: unit.minY * shown.height,
-                                                       width: unit.width * shown.width, height: unit.height * shown.height))
+            view.flightLook = FlightLook(image: Self.flightImage(from: from.size, fit: start, to: to.size, fit: end, progress: p))
             view.applyImageLayer()
         } else {
             view.flightLook = FlightLook(image: CGRect(origin: .zero, size: shown.size))
@@ -215,6 +214,15 @@ extension Presenter {
 
     private static func dropEmptyLayer(_ layer: NSView) {
         if layer.subviews.isEmpty { layer.removeFromSuperview() }
+    }
+
+    /// Where a flying image is drawn in its shown box, at `progress`: the
+    /// image moves in points from A's drawn rectangle to B's, as on iOS
+    /// (`FlightsIOS.swift`).
+    static func flightImage(from: CGSize, fit start: CGRect, to: CGSize, fit end: CGRect, progress p: CGFloat) -> CGRect {
+        func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * p }
+        return CGRect(x: mix(start.minX * from.width, end.minX * to.width), y: mix(start.minY * from.height, end.minY * to.height),
+                      width: mix(start.width * from.width, end.width * to.width), height: mix(start.height * from.height, end.height * to.height))
     }
 
     static func fitFraction(natural: CGSize, box: CGSize, fit: String) -> CGRect {
