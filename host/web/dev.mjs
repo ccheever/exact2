@@ -329,7 +329,9 @@ function captureGeneration(reuseCurrentAssets = false) {
   envelope.plan.url = prefix + 'app.plan';
   if (rust) envelope.rust = Object.fromEntries(Object.entries(rust).map(([kind, variant]) => [kind, { ...variant, receipt:{...variant.receipt,url:prefix+variant.receipt.url},module:{...variant.module,url:prefix+variant.module.url} }]));
   if (module) envelope.module = Object.fromEntries(Object.entries(module).map(([key, card]) => [key, { ...card, url: prefix + MODULE_FILES[key] }]));
-  for (const asset of envelope.assets) asset.url = prefix + asset.name.split('/').map(encodeURIComponent).join('/');
+  // Relative to this envelope (served at prefix + exact.json), as a delivered
+  // envelope's are: the 64 KiB envelope then lists hundreds of assets (a game's).
+  for (const asset of envelope.assets) asset.url = './' + asset.name.split('/').map(encodeURIComponent).join('/');
   const envelopeBytes = Buffer.from(JSON.stringify(envelope) + '\n');
   if (envelopeBytes.length > 64 * 1024) throw new Error('generation envelope exceeds 64 KiB');
   files.set('exact.json', envelopeBytes);
