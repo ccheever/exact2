@@ -854,7 +854,13 @@ async function main(args) {
     // names this product's digest) run on every build. Sign a copy beside it,
     // again only when Cargo's bytes or the identity change.
     const signed = resolve(dirname(product), 'signed', basename(product)), record = `${signed}.source`;
-    const source = `${createHash('sha256').update(readFileSync(product)).digest('hex')} ${sha1 ?? '-'}\n`;
+    // A macOS distribution build signs it as it will ship — Developer ID
+    // (`exact release` passes EXACT_IDENTITY), hardened runtime, a secure
+    // timestamp — because the bake names these bytes and the host refuses a
+    // module whose digest differs: a re-signature after the bake is a refusal.
+    const shipping = distribution && !ios;
+    const signing = shipping ? ['--options', 'runtime', '--timestamp'] : ['--timestamp=none'];
+    const source = `${createHash('sha256').update(readFileSync(product)).digest('hex')} ${sha1 ?? '-'}${shipping ? ' runtime' : ''}\n`;
     // An ad-hoc signature (`-`: every simulator build) names no certificate
     // to require; asked for one, the verification failed, and the copy was
     // signed again by every build, which reran the app's bake and compile.
@@ -863,7 +869,7 @@ async function main(args) {
     if (!current) {
       mkdirSync(dirname(signed), { recursive: true });
       copyFileSync(product, signed);
-      run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', signed], {stdio:'ignore'});
+      run('codesign', ['--force', '--sign', sha1 ?? '-', ...signing, signed], {stdio:'ignore'});
       writeFileSync(record, source);
     }
     return signed;

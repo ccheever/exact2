@@ -33,7 +33,7 @@ import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, r
 import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { BINARYEN } from '../host/web/stages.mjs';
-import { delimiter, resolve } from 'node:path';
+import { basename, delimiter, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { createApp } from '../game/new.mjs';
@@ -71,11 +71,11 @@ function refuseForeignBundle(app, bundle) {
 }
 
 /** Build the app's macOS bundle. Cargo and SwiftPM decide what is stale; this always asks them. */
-function build(app, { quiet = false, distribution = false } = {}) {
+function build(app, { quiet = false, distribution = false, identity = null } = {}) {
   const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--bundle', ...(distribution ? ['--distribution'] : [])], {
     cwd: ROOT,
     stdio: quiet ? ['inherit', 'ignore', 'inherit'] : 'inherit',
-    env: { EXACT_UPDATE_TRUST: 'development', ...process.env },
+    env: { EXACT_UPDATE_TRUST: 'development', ...process.env, ...(identity ? { EXACT_IDENTITY: identity } : {}) },
   });
   if (r.status !== 0) process.exit(r.status ?? 1);
   const bundle = bundleOf(app);
@@ -241,7 +241,9 @@ function release(app) {
   }
   const profile = process.env.EXACT_NOTARY_PROFILE ?? 'exact-notary';
   // The whole-module Swift host and the receipt a shipped bundle carries (host/apple/build.mjs).
-  const bundle = build(app, { distribution: true });
+  // GPU modules are signed for shipping by the build itself, before the bake
+  // records their digests (host/apple/build.mjs, prepareGpu).
+  const bundle = build(app, { distribution: true, identity });
   const out = resolve(app.target, 'dist', app.name);
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
@@ -261,6 +263,16 @@ function release(app) {
   const entitlements = resolve(out, 'entitlements.plist');
   if (entitled) writeFileSync(entitlements, entitled);
   for (const path of signingOrder(staged)) {
+    // The host checks a GPU module's bytes against the digest baked into the
+    // app, so re-signing one here would make the app refuse it (a HUD over
+    // an empty world). The build signed them with this identity already.
+    if (/^libexact_gpu(_.+)?\.dylib$/.test(basename(path))) {
+      const shipped = spawnSync('codesign', ['-dvv', path], { encoding: 'utf8' }).stderr ?? '';
+      if (!/flags=.*runtime/.test(shipped) || !shipped.includes('Developer ID Application') || !/Timestamp=/.test(shipped)) {
+        throw new Error(`${path} is not signed for shipping (Developer ID, hardened runtime, timestamp); the build should have signed it`);
+      }
+      continue;
+    }
     sh('codesign', ['--force', '--sign', identity, '--options', 'runtime', '--timestamp',
       ...(path === staged ? ['--identifier', app.id, ...(entitled ? ['--entitlements', entitlements] : [])] : []), path]);
   }
