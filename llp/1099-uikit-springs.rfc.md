@@ -1,24 +1,26 @@
 # LLP 1099: UIKit's springs, everywhere
 
 **Type:** RFC
-**Status:** Draft (r3), for Charlie's decision. Design only; nothing is built.
+**Status:** Draft (r5), for Charlie's decision. Design only; nothing is built.
 - r1 (`9b974e323`) was reviewed blind by Astra (`gpt-6-astra`, reasoning effort max): NEEDS REWORK, `llp/reviews/llp-1099-uikit-springs.astra.md`. It was also reviewed by Grok 4.7 (xhigh): SOUND WITH CHANGES, `llp/reviews/llp-1099-uikit-springs.grok.md`.
 - r2 (`0926e91f8`) took every round-1 finding, one of them in part. It added measured retargets (rows R) and edge cases (rows X).
 - Round 2 reviewed r2. Astra: NEEDS REWORK, `llp/reviews/llp-1099-uikit-springs-r2.astra.md`. Grok: NEEDS REWORK, `llp/reviews/llp-1099-uikit-springs-r2.grok.md`.
 - r3 (`16f12c461`) took every round-2 finding. It added opacity with a retarget velocity (rows R), and it restored the round-1 Grok review's body, which r2's commit had lost.
 - Round 3 reviewed r3. Astra: NEEDS REWORK, `llp/reviews/llp-1099-uikit-springs-r3.astra.md`. Grok: NEEDS REWORK, `llp/reviews/llp-1099-uikit-springs-r3.grok.md`. Their findings are narrower implementation gaps.
-- r4 folds every round-3 finding (§11). That is the third and last round, so r4's changes are unreviewed; stage 1's code review checks them.
+- r4 (`e240893f4`) folded every round-3 finding.
+- Charlie approved up to six more rounds (4–9). Round 4 reviewed r4: Astra NEEDS REWORK (`-r4.astra.md`), Grok NEEDS REWORK (`-r4.grok.md`).
+- r5 takes every round-4 finding (§11) and measures transform retargets (rows R `scale`, `scale-up`, `scale-to-zero`, `rotate`), which settles how `scale` and `rotate` compose.
 **Systems:** `exact-motion` (`motion/src/spring.rs`, `parse.rs`, `transition.rs`, `engine.rs`, `easing.rs`), the wire (`kernel/src/wire/codec.rs`: a new easing tag 9), the kernel's transition check (`kernel/build.rs`), the Contract compiler's literal check (`contract/lower/src/values.rs`), the web host (`host/web/src/motion.rs`, `batch.rs`, `css.rs`, `motion-glue.js`, `presence-glue.js`), the JS target (`host/web-js/motion`, `shared.js`), Apple and Linux hosts (the per-frame seek, unchanged), parity fixtures (`host/web/src/parity.rs`, `host/web/tests/fixtures/browser-motion.txt`), new measurement fixtures (`motion/tests/fixtures/uikit-springs/`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
-**Revised:** 2026-10-04 (r2, r3); 2026-10-05 (r4)
+**Revised:** 2026-10-04 (r2, r3); 2026-10-05 (r4, r5)
 **Amends:**
 - LLP 1002 D2: `spring()` gains three spellings and a labelled velocity.
 - LLP 1003 §1: `transition-duration` on a spring becomes an end time, and generated `linear()` keeps the stop limit.
 - LLP 1003 §4: a spring may end at a time.
 - LLP 1003 §5: springs in the UIKit spellings retarget additively.
 - LLP 1003 §7: `ln` joins the pinned libm functions.
-- LLP 1007 §3: the frames carry explicit offsets and a step at the end.
+- LLP 1007 §3: the frames carry explicit offsets and steps. A property animated by a UIKit spelling plays the engine's presented value. The "an interruption carries velocity" sentence applies to the restart forms.
 **Related:**
 - Motion: LLP 1002 D2–D4 and LLP 1003 §4–§7 (the spring, interruption, determinism); LLP 1007 §3 (springs on the web); LLP 1062 D3 (paint springs as `linear()`); LLP 1063 D6 (additive layout motion on the web); LLP 1057.002 and 1057.003 (velocity handoff, holds).
 - Naming: LLP 1081 (`-exact-` names; its recommendations are taken, so `spring` becomes `-exact-spring`).
@@ -79,9 +81,12 @@ UIKit calls (§4):
 - **Core Animation's curve.** Hand-built `CASpringAnimation`s match the
   closed form to 6.4·10⁻⁸. That includes a measured quirk in the overdamped
   branch (§4.5). The springs UIKit itself creates match to 4·10⁻⁵.
-- **Retargets.** A mid-flight retarget is the sum of independent additive
-  springs, to 0.007 pt over a 300 pt move. Opacity is replaced instead
-  (rows R).
+- **Retargets.** A mid-flight retarget runs independent springs that
+  combine (rows R):
+  - position and rotation add (0.007 pt over a 300 pt move; 0.003° over
+    150°);
+  - scale multiplies (3.3·10⁻⁵);
+  - opacity is replaced instead.
 
 The forms are resolved and evaluated in `exact-motion`, so iOS, macOS and
 Linux are bit-identical. The browser plays the engine's frames, held to a
@@ -300,8 +305,13 @@ spring is not settled at d, and why the cut-off can snap (§3.1).
 - **The 60 s bound.** The forms that end at a time may end at most 60 s
   after they start. A longer end is refused, not clamped. The web frame
   bound (D6) is sized so that every accepted spring fits.
-  - The bounce form reaches 60 s at b ≈ 0.95 with d = 3 s.
-  - b 0.9 with d 1 s ends at 11.2 s, which is allowed.
+  - At d = 3 s and v 0, the bounce form crosses 60 s at b ≈ 0.9446 (b 0.95 ends at 66.43 s and is refused).
+  - b 0.9 with d 1 s ends at 11.146 s, which is allowed.
+- **Completion and the 10 s cap.** Once a component has an end time, the
+  10 s `MAX_DURATION` snap (`transition.rs:354`) does not apply to it.
+  A property's completion, and `clock settle`, come at the latest end among
+  its live components. Each new component waits the transition's delay
+  before it starts, as a new transition does today.
 
 ### D4. The curve between start and end
 
@@ -356,15 +366,28 @@ per property. Paint properties keep no list: a paint spring in any spelling
 interrupts as CSS does, replaced from the presented colour with no carried
 velocity (LLP 1062 D3).
 
-- **How components combine.** They combine by addition for `translate`,
-  `rotate`, `opacity`, `height` and layout.
-- **`scale` is provisional.** Core Animation composes additive transforms
-  by matrix concatenation, so UIKit's scale retarget is probably
-  multiplicative. Rows R measured position and opacity, not transforms.
-  Until stage 0 measures a rendered scale and rotation retarget, `scale`
-  components compose by multiplication. Each component's factor goes from
-  old/new to 1 along its curve, and the presented scale is the target
-  times the product of the factors. Stage 0 confirms this or replaces it.
+- **How components combine** (all measured, rows R):
+  - *By addition* for `translate`, `height`, layout and `rotate`. A
+    rotation is additive because rotations about one axis concatenate by
+    adding angles. The measured `rotate` retarget (60° then 150°) matches
+    the sum to 0.003°.
+  - *By multiplication* for `scale`. UIKit's additive transform animations
+    run from old·new⁻¹ to the identity (rows R: `from` is 2.0 for 1 → 0.5,
+    and 0.667 for 2 → 3). Each component's factor therefore runs from
+    old/new to 1 along its curve, linearly in the factor. Its velocity is
+    v times the factor distance (1 − old/new). The presented scale is the
+    target times the product of the live factors. It matches the measured
+    retargets to 3.3·10⁻⁵.
+  - *Not at all* for `opacity`. It is replaced, not combined (below).
+- **Scale through zero.**
+  - *A target of 0.* UIKit's presented scale is 0 from the retarget on,
+    because the target multiplies every factor (rows R `scale-to-zero`).
+    Contract does the same and collapses the live scale components.
+    UIKit's would reappear on a later retarget within their lifetimes;
+    that is a declared deviation.
+  - *Leaving 0.* A retarget away from 0 has old/new = 0, so its factor runs
+    from 0 to 1, which is defined.
+  - *Negative scales.* They need no special case: factors keep their sign.
 
 The components work like this:
 
@@ -372,16 +395,26 @@ The components work like this:
   the new target minus the old one, with velocity v·Δ_new.
 - **Old components keep running.** Each runs on its own curve and is
   dropped, with its snap, at its own end.
-- **The value is the sum.** The presented value is the target plus the sum
-  of the components' residuals.
+- **The presented value.** For the additive properties it is the target
+  plus the sum of the components' residuals. For `scale` it is the target
+  times the product of the factors.
 - **Collapsing.** A component is collapsed into the target once it has
   ended. One without an end is collapsed once both its offset and its
   velocity are below 10⁻⁶ of its own Δ (a relative test).
 - **A bound on the list.** At most 64 components live per property. A
-  65th folds the oldest two into one component. That component restarts
-  from their summed offset and summed actual derivative, so the presented
-  value and velocity are exact at the fold. This is a declared deviation that only a 65-deep pile of
-  retargets can reach.
+  65th folds the oldest two into one component:
+  - *Which two.* The oldest are the ones with the earliest begin time, ties
+    broken by insertion order.
+  - *Where it starts.* The replacement starts from their combined offset
+    and combined actual derivative. Offsets add and derivatives add for the
+    additive properties. For `scale`, the factor is f₁·f₂ and its
+    derivative follows the product rule, f₁′f₂ + f₁f₂′. The presented value
+    and velocity are exact at the fold.
+  - *How it runs.* It runs on the textbook branch with the newer
+    component's k, c, m and end time.
+  - *Cost.* After the fold, the trajectory can differ from UIKit's. That
+    is a declared deviation that only a 65-deep pile of retargets reaches,
+    and §8.4 pins the sample at the fold and one frame after.
 
 **Why not today's restart.** LLP 1003 §5 restarts from the presented value
 and velocity, and that is exact for two components only under strict
@@ -423,7 +456,9 @@ sum reproduces UIKit, which is why the UIKit spellings use it.
      velocity divided by Δ into the solve, which changes k as well. That
      difference is declared (Q7).
 2. **Authored velocity.** v·Δ_new for a new component; v·Δ for a restart.
-3. **None.**
+3. **Nothing authored.** An omitted velocity is 0 on a new UIKit-spelling
+   component. The restart forms still carry the presented velocity, per
+   LLP 1003 §5.
 
 **Zero distance and unchanged targets.**
 
@@ -465,7 +500,7 @@ There is one implementation, in `exact-motion`:
 | Web (wasm host), compositor properties (`translate`, `scale`, `rotate`, `opacity`) | one WAAPI animation per property with replace compositing, as today (`motion-glue.js:581`, LLP 1007 §3). Its frames are the engine's presented absolute value, components summed, re-lowered at every retarget as an interruption is today. There is no `composite: 'add'` here: CSS adds `scale` by multiplying | the band below |
 | Web, layout (`layout-transition`) | residual translate frames, offset from the resting box with rest value 0, played with `composite: 'add'`, as LLP 1063 D6 already does for translation. The engine supplies the frames: `presence-glue.js`'s JS integrator, which uses unpinned `Math.exp`, is replaced | the band below |
 | Web, `height` | absolute frames with replace compositing, like the compositor properties. A residual cannot work here: a negative height is invalid, and `motion-glue.js:98` clamps it to 0 | the band below |
-| Web, paint properties | `linear()` from the curve (LLP 1062 D3). The end is two stops at 100 %: `linear(…, x(d⁻) 100%, 1 100%)`. CSS takes the later stop when two share an input, and so does `easing.rs:340`. Stops are placed by error, not evenly: each new stop goes where the piecewise-linear curve is furthest from the spring, until every point is within 10⁻² of the move. A paint spring that needs more than 64 stops (`easing.rs:61`) to get there is refused, at parse, on every host. Fast oscillating springs are refused on paint for this reason: 0.1 s at ζ 0.01 has 73 extrema | 10⁻² of the move |
+| Web, paint properties | `linear()` from the curve (LLP 1062 D3). The end is two stops at 100 %: `linear(…, x(d⁻) 100%, 1 100%)`. CSS takes the later stop when the final two share input 1, and so does `easing.rs:334` (an input at or past the last stop returns the last output). Interior duplicate stops would still interpolate, so only this terminal pair is used. Stops are placed by error, not evenly: each new stop goes where the piecewise-linear curve is furthest from the spring, until every point is within 10⁻² of the move. A paint spring that needs more than 64 stops (`easing.rs:61`) to get there is refused, at parse, on every host. Fast oscillating springs are refused on paint for this reason: 0.1 s at ζ 0.01 has 73 extrema | 10⁻² of the move |
 | JS target | static springs lowered at build (LLP 1071) through the engine. Dynamic springs, including paint springs, are lowered at runtime by the same `exact-motion` code into the same frames and `linear()` text. Today `host/web-js/src/style.rs:534` strips a dynamic spring from CSS and the JS motion module observes only the compositor properties, so this is new work. Stage 4 deletes `shared.js`'s `springCurve` | as the web |
 
 **Frames.**
@@ -479,38 +514,59 @@ There is one implementation, in `exact-motion`:
   snap is therefore a step at every offset where UIKit has one. At 240 Hz
   without the step, Signal's icon would be off by 0.387 of the move in the
   last interval.
-- *Error-controlled spacing.* Frames are spaced so that linear
-  interpolation stays within 5·10⁻⁴ of the move.
-  - *The step size.* From each frame at t, the next step is
-    h = min(0.25 s, √(8 · 5·10⁻⁴ · S / M)), where M bounds |x''| over the
-    step.
-  - *The scale S.* S = max(|Δ|, |v₀|/ω, 10⁻³ property units), per axis,
-    where v₀ is the component's actual initial derivative. A release at
-    zero distance therefore has a positive scale set by its velocity. The
-    10⁻³ floor is exact2's rest threshold.
-  - *The bound per branch.* It comes from closed-form envelopes:
+- *Error-controlled spacing.* There is one frame grid per track, spaced
+  so that linear interpolation of the presented value stays within
+  5·10⁻⁴·S of the engine.
+  - *The scale S.* It is fixed when the track is lowered, per axis:
+    - S = Σ|Δᵢ| over the live components when that sum is at least
+      10⁻³ property units (the move);
+    - otherwise max(Σ|v₀ᵢ|/ωᵢ, 10⁻³ units), where v₀ᵢ is a component's
+      actual initial derivative. This covers a release at zero distance.
+
+    For `scale`, Δᵢ is the component's factor distance times the target.
+  - *The step size.* From each frame at t, the next step is the largest
+    h ≤ 0.25 s with h ≤ √(8 · 5·10⁻⁴ · S / M(t, h)). M(t, h) = Σᵢ Mᵢ bounds
+    |x''| of the summed track over [t, t + h]. Where M depends on h (the
+    critical branch), the largest such h is found by bisection. An axis
+    with M = 0 everywhere (no displacement, no velocity) is skipped. The
+    step is the smallest over the other axes.
+  - *The bound per branch.* Each Mᵢ comes from a closed-form envelope, with
+    A and B the component's property-unit coefficients as in
+    `spring.rs:110-111` and `:120-121`:
     - ω²·√(A² + B²)·e^(−ζωt) when underdamped;
     - (ω²(|A| + |B|(t + h)) + 2ω|B|)·e^(−ωt) when critical;
-    - Σ|Cᵢ|sᵢ²e^(sᵢt) on both overdamped branches, the quirk included.
+    - Σ|Cⱼ|sⱼ²e^(sⱼt) on both overdamped branches, the quirk included.
+
+    For `scale`, Mᵢ is computed for the product by the product rule on the
+    factors' envelopes.
   - *Why not a fixed rate.* A fixed rate fails fast springs: 16 frames per
     oscillation leaves 0.019 of the move. It also over-samples slow ones:
     60 s at 240 Hz is 14,400 frames.
 - *A frame bound on every host.* Lowering is bounded at 16,384 frames.
-  - *At parse.* The count for a single spring with its authored velocity
-    comes from the same deterministic function. It is checked when the
-    spring is parsed, on every host. A spring that would exceed it is
-    refused everywhere, not only on the web.
+  - *At parse.* The count is computed from the normalised curve: Δ = 1,
+    the authored velocity, and no floor. It is checked when the spring is
+    parsed, on every host. A spring that would exceed it is refused
+    everywhere, not only on the web. A move small enough for the 10⁻³
+    floor to dominate takes fewer frames, so the parse check still bounds
+    it.
   - *At run time.* Run-time states are not known at parse: a release
     velocity, or a pile of components. When one of those needs more than
-    16,384 frames, the web lowers it at the bound by widening every step
-    in proportion, and that track is not held to the browser band. A user's
-    gesture is never refused. Native hosts sample the engine directly and
-    are unaffected.
+    16,384 frames, the web lowers it at the bound.
+    - *What stays exact.* Every component-end offset, with its pair of
+      frames, and the final snap stay exactly where they are.
+    - *What moves.* Only the open gaps between them grow, in proportion.
+    - *The cost.* That track is not held to the 5·10⁻⁴·S band.
+    - A user's gesture is never refused. Native hosts sample the engine
+      directly and are unaffected.
   - *How far measured calls are from it.* The fastest measured call (0.1 s,
     ζ 0.01) needs about 2,200 frames, Signal's calls about 50, and a
     60 s critical spring about 240.
-- *The parity test.* It is held to 10⁻³ of the move at sample times taken
-  *between* frames, as the existing `spring` parity case does.
+- *The parity test.* The new cases get their own comparator: at sample
+  times taken *between* frames, |browser − engine| ≤ 10⁻³·S. Each case
+  stores its S in the fixture. The existing `spring` case keeps
+  `parity.rs`'s absolute 10⁻³ (`parity.rs:38`), which is in property units
+  and suits its 0.5 scale move. The between-frames allowance, 5·10⁻⁴·S, is
+  half the band, which leaves room for the browser's own timing.
 
 **The wire.** A new easing tag, 9, carries:
 
@@ -588,7 +644,7 @@ prints its report.
 | E, E2 | bounce: 4 durations × 7 bounces × 2 velocities, plus the timing-parameter initialiser |
 | F, G, G2 | SwiftUI `Spring` fields |
 | H | the animations a second same-turn call adds |
-| R | retargets over time (`center`, opacity; with and without `.beginFromCurrentState`) |
+| R | retargets over time: `center` and opacity (with and without `.beginFromCurrentState`), `scale` down and up, `scale` to 0, `rotate` |
 | X | edge cases: overdamped physical timing parameters, E2 below b 0, ζ 0, an unchanged value, a vector velocity |
 | W | dense sweep at d 1 s: 14 ratios × u ∈ [−5, 20] in steps of 0.05 (7,014 calls) |
 | U, S | curves of springs UIKit made, and of springs built by hand |
@@ -686,8 +742,9 @@ It does mean one was not found from behaviour alone.
 - **Literals.** A literal is refused if validation fails (D2). Otherwise
   it is accepted with a warning, `lower-spring-uikit-band`.
   - *How it survives run time.* Literal transitions compile to strings that
-    reach the kernel through `set_dynamic` (`contract/lower/src/expr.rs:89`,
-    `runner/src/bridge.rs:108`). The kernel cannot tell them from dynamic
+    reach the kernel through `StyleProps::set_dynamic`: the compiler interns
+    the string (`contract/lower/src/expr.rs:89`) and the runner converts it
+    to a style value (`runner/src/bridge.rs:108`). The kernel cannot tell them from dynamic
     ones, so it would refuse them too. The compiler therefore rewrites an
     accepted in-band literal to its resolved physical spelling with the end
     time and velocity, for example `200ms spring(171.054…, 1.569…, 1,
@@ -698,7 +755,10 @@ It does mean one was not found from behaviour alone.
     Stage 2 adds a warning channel: `contract build` prints warnings on
     success, and the agent's report carries them. If that channel is not
     wanted, the alternative is to refuse in-band literals (Q1).
-  - *The refusal* names the physical spelling from the probe.
+  - *The refusal* says the procedure found no root and suggests the
+    physical spelling with an end time. It quotes the probe's numbers only
+    for a measured call (Signal's icon below). For any other input it says
+    to measure with `probe.sh`.
   - *The warning* says UIKit's own solver is ill-conditioned there and
     that the result may not be UIKit's: it can be another root, an O(1)
     difference in the curve. It suggests pinning the spring with the
@@ -855,13 +915,24 @@ springs keep LLP 1062 D3: they start from rest and interrupt as CSS does.
      and the wire path alike.
 4. **Retargeting.**
    - Engine tests replay rows R to 10⁻⁴ of the move: the two-call `center`
-     retarget at 100 ms and 250 ms, and the opacity replacements with
-     authored velocity 0 and 1.
+     retarget at 100 ms and 250 ms, the opacity replacements with authored
+     velocity 0 and 1, the `scale` and `scale-up` products, `scale-to-zero`
+     and the `rotate` sum.
    - An in-band retarget whose first component snaps by more than half the
      move mid-animation checks that interior steps reach every host,
      `timelineEasing` included.
    - Web frames for an exact zero-distance release, and for a small-Δ,
-     high-velocity release that trips the run-time frame bound.
+     high-velocity release that trips the run-time frame bound. For the
+     latter the assertions are: the track plays, it has at most 16,384
+     frames, and its step offsets equal the engine's component ends. The
+     5·10⁻⁴·S band may be exceeded.
+   - The 65th retarget, with unequal coefficients and different ends,
+     pins the sample at the fold and one frame after, for an additive
+     property and for `scale`.
+   - A `uikit-bounce-overdamped` midpoint regression at b −0.5, held to
+     10⁻³·S.
+   - A delayed retarget: the second component waits the delay.
+   - A `scale` retarget through 0 and away from it, and a negative scale.
    - `height` growing and shrinking on the absolute track.
    - A delayed cut, tested exactly at delay + end on the text and wire
      paths.
@@ -899,9 +970,6 @@ springs keep LLP 1062 D3: they start from rest and interrupt as CSS does.
      in the probe.
    - Mixed-form retargets.
    - A dense duration-form sweep below u = 0.05 at ζ ≤ 0.1.
-   - Rendered `scale` and rotation retargets (additive `transform`
-     animations), to confirm or replace D5's provisional multiplicative
-     `scale`.
 
    Fold the findings in before code.
 1. **`exact-motion`.**
@@ -940,8 +1008,12 @@ springs keep LLP 1062 D3: they start from rest and interrupt as CSS does.
     channel.
   - Or authorise reverse-engineering UIKit's solver to make the band
     exact. That is a legal and licence call.
-  - Or refuse every duration-form literal inside the predicate (16 % of
-    the sweep, but few real calls: zero velocity is never inside it).
+  - Or refuse every duration-form literal inside the predicate. That
+    refuses 1,916 of the 9,474 measured inputs (20 %), never one at zero
+    velocity, but it does refuse one of Signal's two spelled calls: the
+    reply icon (u/ζ' = 2.7). That call would then have to be written in the
+    physical spelling, `200ms spring(184.95, 1.632, 1, velocity 0.8)`. The
+    menu call (u/ζ' = 0.5) stays accepted.
 - **Q2. The overdamped branch.** Should the bounce form below b 0 copy Core
   Animation's overdamped branch (recommended: it is what
   `animate(springDuration:bounce:)` renders on iOS 27.0)? The alternative
@@ -1048,3 +1120,22 @@ had no review.
 | G4 Paint retargets were specified twice | Taken. Paint keeps no component list and interrupts as CSS does (D5); §8 adds the case. |
 | G6 `ln` is not pinned | Taken. LLP 1003 §7 is amended to add `ln` from libm 0.2.16; `sqrt` stays the IEEE intrinsic (D2). |
 | G7 Twelve steps miss the closed form as ζ → 1 | Taken. The 10⁻⁵ claim is limited to ζ' ≤ 0.999999, and the closed form is the definition (D2). |
+
+### Round 4 (r4 → r5)
+
+Astra (A) and Grok (G), round 4; both NEEDS REWORK. Taken, unless a finding
+says otherwise.
+
+| Finding | Disposition |
+|---|---|
+| A1, G4 The sampler's tolerance and the parity band used different normalisations; the quirk's scale exceeded the move; per-component spacing does not bound the sum | Taken. One grid per track on the envelope of the summed track. S is the move Σ\|Δᵢ\| (velocity only at zero distance). The new parity cases use \|browser − engine\| ≤ 10⁻³·S with S in the fixture, and the existing case keeps its absolute check. A negative-bounce midpoint regression is added (D6, §8.4). |
+| A2, G2 The 65-component fold had no defined trajectory | Taken. Oldest by begin time, then insertion. Combined offset and derivative, with the product rule for `scale`; the newer component's k, c, m and end; textbook branch. A §8.4 fixture pins the fold (D5). |
+| A3, G1 `scale` at 0 is undefined; the composition list mixed rules | Taken, and measured. Rows R show `scale` multiplies (to 3.3·10⁻⁵) and `rotate` adds (to 0.003°); a target of 0 presents 0 from the retarget on. D5 now lists addition (translate, height, layout, rotate), multiplication (scale) and replacement (opacity), with the zero and negative cases defined. Stage 0's transform task is done and removed. |
+| G3 Q1's figures | Taken. 1,916 of 9,474 (20 %), and the refuse-literals alternative refuses Signal's reply-icon spelling (Q1). |
+| G5 The run-time over-bound path; M = 0; the critical step | Taken. Component ends and the final snap stay exact and only open gaps grow; M = 0 axes are skipped; the critical step is the largest h found by bisection; §8.4 states the assertions (D6). |
+| G6 Precedence item 3; LLP 1007 §3's velocity sentence | Taken. Item 3 distinguishes UIKit components (0) from restart forms (carried); the 1007 amendment limits its sentence to restart forms (D5, header). |
+| G7 Undefined A and B; the `easing.rs` citation; the refusal's probe spelling; the literal path | Taken. A and B are `spring.rs`'s property-unit coefficients. `easing.rs:334` is cited, and only the terminal pair is used. The refusal quotes probe numbers only for a measured call. The literal path is `StyleProps::set_dynamic` (D6, §4.3). |
+| G8 Completion, the 10 s snap, delays on retarget | Taken. Timed components are exempt from the 10 s snap; completion and `clock settle` come at the latest end; each new component waits the delay (D3, §8.4). |
+| G9 The parse-time frame count | Taken. It is computed on the normalised curve: Δ = 1, the authored v, no floor (D6). |
+| G10 Status line | Taken. |
+| G11 The 60 s crossing | Taken. b ≈ 0.9446 at d 3 s; 11.146 s at b 0.9 and d 1 s (D3). |
