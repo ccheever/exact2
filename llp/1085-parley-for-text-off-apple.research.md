@@ -5,6 +5,7 @@
 **Systems:** Linux host text (`host/linux/src/text*`: cosmic-text shaping, the width-specific `Paragraph`, the font catalog, swash ink), the `TextMeasurer` seam (LLP 1001 §6), `exact-textflow` (LLP 1043.000), `vendor/cosmic-text` (three local patches)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
+**Revised:** 2026-10-05 (F8: cosmic-text's share of a scroll's main-thread CPU on the Linux host, measured on Linux with both painters; the Summary, Recommendation and Confidence updated for it)
 **Related:** LLP 1015 §3 (the Linux host's one text engine), LLP 1001 §1, §6 (declared deviations; the injected measurer), LLP 1043 and 1043.000 (Pretext; the text-flow walker and its Chrome corpus), LLP 1053 (CSS `direction`; cosmic patch 3), LLP 1033 (the Markdown reader), `vendor/cosmic-text/EXACT-PATCHES.md`, `rules/DEFERRED.md` (Linux skips Thai word breaking, 2026-09-28; Linux editing is v2), `QUEUE.md` ("Parley for text off Apple"). External, each read 2026-10-04: crates.io `parley` 0.11.1 and `fontique` 0.11.1 sources (Apache-2.0/MIT); `~/bench/dioxus/blitz-bugs-for-nico.md`.
 
 ## Summary
@@ -46,6 +47,15 @@ belong in `exact-textflow`, which already clamps flowed text. Two findings
 stand without a switch: cosmic-text's ordinary layout breaks URLs after `/`
 where Chrome doesn't (3–5% of real paragraphs), and its shaped paragraphs
 are about four times the size of Parley's. §Recommendation gives the order.
+
+**Where it matters (F8).** cosmic-text is the text engine of every non-Apple
+native surface: `exact-linux` also builds for Android (its `cfg(target_os =
+"android")` dependencies present into the window's swapchain), and the game
+engine uses it directly. Apple uses CoreText and the web the browser. On
+the GPU painter, the path Android uses, shaping and line breaking are
+**5.2–5.5%** of the main thread's CPU while scrolling the heavy list, so
+Parley's speed would buy about 2.5–3% there. The case for a switch is
+Chrome's breaks, memory and re-layout, not scroll speed.
 
 ## Method
 
@@ -302,6 +312,47 @@ cargo feature on a core crate) it would have to load as data on demand.
   preedit, cursor geometry) and AccessKit nodes, behind the `accesskit` feature. Linux editing is
   v2 (DEFERRED, 2026-09-21), and those two pieces are what it would need.
 
+### F8. cosmic-text's share of a scroll (2026-10-05)
+
+F1 times the engines alone. This measures what share of the Linux host's
+work they are while a reader scrolls, which bounds what a faster engine
+can buy.
+
+**Method.**
+- **Machine:** Ryzen AI 9 HX 370 (24 threads, Linux, idle: load average under 1), Radeon 890M over Vulkan (RADV).
+- **Build:** the heavy list (`~/bench/dioxus/textprof-app`: the 10,000-message whole feed with a `linux/` crate) on exact2 at `6e649fb51`, profile `host-dev`, 2× scale (840 × 1720 px), assets loaded.
+- **Drive:** `scripts/agent.mjs linux`, 200 steps of `tap messages wheel 0 600` then `clock settle`, about 120,000 pt of feed. Three runs per painter.
+- **Timers:** `perf` is unavailable on every Linux machine here (`perf_event_paranoid` 4, no root). So a temporary patch, reverted and never committed, timed four `TextEngine` functions with cumulative `Instant` timers against `getrusage` of the thread that runs them:
+  - `build_source`: cosmic-text shaping;
+  - `layout_source`: breaking at a width;
+  - `glyph_runs`: glyph positions for the GPU painter's stream;
+  - `paint_clipped`: the CPU painter's glyph raster and blending.
+
+  `TextEngine` is single-threaded (`Rc`/`RefCell`), so its time is a share of that one thread. Boot is excluded (the first sample's totals are subtracted).
+
+| Painter | Main-thread CPU | Shaping + breaking | Glyph runs (GPU stream) | Text raster (CPU painter) |
+|---|---:|---:|---:|---:|
+| GPU (the path Android uses) | 1,442–1,623 ms | 76–90 ms, **5.2–5.5%** | 26–32 ms, 1.8–2.0% | — |
+| CPU (tiny-skia) | 6,231–6,749 ms | 92–93 ms, 1.4–1.5% | — | 1,074–1,083 ms, **16.0–17.3%** |
+
+Shaping was 55–64 ms of the 76–93 ms in every run, breaking 22–29 ms.
+Process CPU was 6–8% above main-thread CPU (image decoding and the painter's
+threads).
+
+**What it bounds.**
+- **Parley's gain while scrolling.** At F1's ratios (shaping ~1.7×, breaking 2.5–3×) it would save about 45% of 5.2–5.5% plus part of the glyph runs: about **2.5–3%** of main-thread CPU on the GPU painter, and under 1% on the CPU painter.
+- **The CPU painter's text cost is raster.** Its 16–17% is glyph rasterizing and blending through swash and tiny-skia, which a switch to Parley keeps.
+- **This is close to an upper bound for scrolling.** The heavy list is mostly rich paragraphs, and each is shaped once and cached; most screens hold less text.
+- **Re-layout is not measured here.** A width change (rotation, a window resize, a foldable's posture) re-breaks every visible paragraph, where Parley's 2.5–3× applies to all the work.
+
+**Caveats.** This is a desktop x86 core, not a phone. The shares should
+carry better than the times, but no Android device was measured. The
+agent's settled steps are a sequence of scrolls, not a fling at a display's
+cadence.
+
+Data: `~/bench/dioxus/textprof/tp-{gpu,cpu}-2-{1,2,3}.jsonl` (cumulative
+nanoseconds per 250 ms).
+
 ## Confidence
 
 - **High:** F3's agreement rates and their causes, F5.1 and F5.3, F4's
@@ -318,9 +369,12 @@ cargo feature on a core crate) it would have to load as data on demand.
   52–99% of rows, depending on width, and both fall short where fallback
   faces are taller. The host's real heights are LLP 1035.000.000's and were
   not measured here.
-- Not measured: the GPU painter, and raster through Parley's types; an
-  actual Linux machine (fonts were pinned instead); CJK beyond the JP face
-  standing in for SC/TC/KR.
+- **Medium:** F8's shares: three runs per painter agreed within 0.3
+  points, on an idle Linux machine. They are one app's scroll on a
+  desktop core, not a phone's, and not a re-layout.
+- Not measured: raster through Parley's types; an Android device; a
+  re-layout's share (F8); CJK beyond the JP face standing in for SC/TC/KR.
+  F1–F7 ran with pinned fonts on a Mac; F8 ran on Linux.
 
 ## Recommendation
 
@@ -330,8 +384,10 @@ cargo feature on a core crate) it would have to load as data on demand.
 2. **Ask Nico** (the questions below). Base direction and font admission
    decide whether Parley needs a vendored patch, as cosmic-text does, or
    none.
-3. **When someone is assigned to Linux text** (an implementer and a date,
-   `rules/RULES.md` §Scope), switch behind the seam, in this order:
+3. **When someone is assigned to non-Apple text** (Linux, and Android
+   through the same host), with an implementer and a date (`rules/RULES.md`
+   §Scope), switch behind the seam. Android or Exposé work is the likely
+   occasion. In this order:
    - Parley shapes, with `CHROMIUM_LINE_BREAK_OVERRIDE` on and
      `complex-scripts` off.
    - Clusters feed `exact-textflow` for flow, clamp and ellipsis.
@@ -343,7 +399,9 @@ cargo feature on a core crate) it would have to load as data on demand.
 
    Gains: about 1.7× faster shaping, 2.5–3× faster re-breaking, about a
    quarter of the memory per shaped paragraph, Chrome's breaks in ordinary
-   text, and CSS font matching. Costs: rewriting the host's text module
+   text, and CSS font matching. While scrolling, the speed is worth about
+   2.5–3% of the main thread on the GPU painter (F8); the larger gains are
+   re-layout, memory and Chrome parity. Costs: rewriting the host's text module
    and its tests, and two patches paid again.
 4. **If Linux text is not rebuilt**, two smaller changes take part of the
    gain without Parley:
