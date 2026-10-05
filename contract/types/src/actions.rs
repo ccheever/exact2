@@ -136,7 +136,7 @@ impl Cx<'_, '_> {
                     return err(
                         "type-let-reassign",
                         format!(
-                            "`{target}` is the `let` on line {}, and a local is never reassigned: give the new value its own `let`, or make `{target}` a `state`",
+                            "`{target}` is the `let` on line {}, and a local is never reassigned: choose its value where it is bound, `let {target} = cond ? this : that`; or give the new value its own `let`, or make `{target}` a `state`",
                             at.line
                         ),
                         *span,

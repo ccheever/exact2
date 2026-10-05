@@ -7,8 +7,9 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-/// Safari iOS's checkbox: a 16×16 rounded square, filled and checked when on.
-final class ExactCheckbox: UIControl {
+/// Safari iOS's checkbox: a 16×16 rounded square, filled and checked when
+/// on. A radio is drawn on it (`ExactRadio`, RadioIOS.swift).
+class ExactCheckbox: UIControl {
     var isOn = false { didSet { if isOn != oldValue { setNeedsDisplay(); updateAccessibility() } } }
     var accent: UIColor? { didSet { setNeedsDisplay() } }
     override var isEnabled: Bool { didSet { setNeedsDisplay(); updateAccessibility() } }
@@ -18,17 +19,17 @@ final class ExactCheckbox: UIControl {
         backgroundColor = .clear
         contentMode = .redraw
         isAccessibilityElement = true
-        addTarget(self, action: #selector(toggle), for: .touchUpInside)
+        addTarget(self, action: #selector(activated), for: .touchUpInside)
         updateAccessibility()
     }
     required init?(coder: NSCoder) { nil }
     override var intrinsicContentSize: CGSize { CGSize(width: 16, height: 16) }
-    @objc private func toggle() {
+    @objc func activated() {
         isOn.toggle()
         sendActions(for: .valueChanged)
     }
     /// VoiceOver reads it as Safari's: a button with a checked state.
-    private func updateAccessibility() {
+    func updateAccessibility() {
         accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
         accessibilityValue = isOn ? "checked" : "unchecked"
     }
@@ -79,6 +80,8 @@ final class ControlHost: NSObject {
     /// A range's bound value last written into it: written again only when
     /// it changes (LLP 1069.001 D4, amended 2026-10-04).
     var appliedRange: [UInt32: String] = [:]
+    /// A radio's group from the kernel (`exact_radio_group`; x2apps survey #2).
+    var radioGroup: ((UInt32) -> RadioGroup)?
     /// A select's choice the bound value has not caught up with yet.
     var picked: [UInt32: String] = [:]
     /// Each native button's face as the runner last gave it. A face is the
@@ -112,6 +115,7 @@ final class ControlHost: NSObject {
         case "switch": made = UISwitch()
         #endif
         case "checkbox": made = ExactCheckbox(frame: .zero)
+        case "radio": made = ExactRadio(frame: .zero) // x2apps survey #2
         case "button": made = makeNativeButton(node) // LLP 1069.011
         default: made = makeValueControl(kind, node.id)
         }
@@ -123,6 +127,7 @@ final class ControlHost: NSObject {
             }
         }
         if kind == "switch" || kind == "checkbox" { made.addTarget(self, action: #selector(changed(_:)), for: .valueChanged) }
+        if kind == "radio" { made.addTarget(self, action: #selector(radioTapped(_:)), for: .touchUpInside) }
         controls[node.id] = made
         kinds[node.id] = kind
         return made
@@ -245,6 +250,8 @@ final class ControlHost: NSObject {
         // A native button takes the ordinary tap path (LLP 1069.011 D10).
         guard let control = controls[node.id], !(control is NativeButtonIOS) else { return nil }
         guard control.window != nil, control.isEnabled, !node.inert else { return false }
+        // A radio's tap, the host's own (x2apps survey #2).
+        if control is ExactRadio { radioTapped(control); return true }
         #if os(tvOS)
         if control is ExactCheckbox { control.sendActions(for: .touchUpInside) }
         else { return openValue(control) }
@@ -268,7 +275,7 @@ final class ControlHost: NSObject {
                 "size": [Agent.r2(control.bounds.width), Agent.r2(control.bounds.height)]]
         #else
         let on = (control as? UISwitch)?.isOn ?? (control as? ExactCheckbox)?.isOn ?? false
-        return ["view": control is UISwitch ? "UISwitch" : "checkbox", "on": on,
+        return ["view": control is UISwitch ? "UISwitch" : control is ExactRadio ? "radio" : "checkbox", "on": on,
                 "size": [Agent.r2(control.bounds.width), Agent.r2(control.bounds.height)]]
         #endif
     }

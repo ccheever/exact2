@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, commitGuestOrigin, guestMessageAuthorized, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection } from "./navigation.js";
+import { grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, commitGuestOrigin, guestMessageAuthorized, guestType, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule, notifyModule; // the file picker (LLP 1069.002), documents (LLP 1069.010) and notifications, loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
@@ -545,28 +545,8 @@ function attach(el, id, handlers) {
       if (kind === "drop") on("dragover", e => go("dragover", e));
     } else if ((kind === "change" || kind === "cancel") && el.type === "file") { // a picker's files, or its dismissal (LLP 1069.002 D2, D3)
       on(kind, () => { const p = picker().then(m => kind === "change" ? m.change(el, id) : m.cancel(id)); inflight.add(p); p.finally(() => inflight.delete(p)); });
-    } else if ((kind === "input" || kind === "change") && el.type === "checkbox") {
-      // @ref LLP 1069.001 D4 — the platform flips the box at once; the
-      // action decides, and a refusal snaps it back to the committed state.
-      on(kind, () => {
-        const n = writeIn(String(el.checked)); send(wasm.exact_dispatch(id, kind === "change" ? 24 : 25, n, now()));
-        if (el.exactChecked !== undefined && el.checked !== el.exactChecked) el.checked = el.exactChecked;
-      });
-    } else if (kind === "change") {
-      // HTML's `change`: a text field's value committed, on blur or Enter.
-      on("change", () => { const n = writeIn(el.value); send(wasm.exact_dispatch(id, 1, n, now())); settleValue(el, true); });
-    } else if (kind === "input") {
-      on("input", (e) => {
-        const value = el.value;
-        if (el.getAttribute("emojiPicker") === "true") {
-          if (e.isComposing) return;
-          el.value = "";
-          const clusters = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)];
-          if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value)
-            || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
-        }
-        const n = writeIn(value); send(wasm.exact_dispatch(id, 23, n, now())); settleValue(el, true);
-      });
+    } else if (kind === "input" || kind === "change" || (kind === "select" && !el.exactMarkup)) { // navigation.js `controlEvent`: a control's value, a text field's selection
+      controlEvent(el, kind, on, (k, text) => send(wasm.exact_dispatch(id, k, writeIn(text), now())));
     } else if (kind === "hover") {
       // pointerenter/pointerleave: the element's own, not a bubbling mouseover.
       on("pointerenter", () => send(wasm.exact_dispatch(id, 2, 0, now())));
@@ -761,7 +741,7 @@ function apply(batch) {
         // user's preference decides, which is what "follow the system" is on
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; } else if (op.name === "haptic") navigator.vibrate?.(op.args?.[0] === "selection" ? 5 : 12); // LLP 1077 D14
-        else if (op.name === "focus" || op.name === "selectText" || op.name === "blur" || op.name === "scrollIntoView") focusCommands.push({ name: op.name, args: op.args }); // an element's scrollIntoView (a list row's is the runner's)
+        else if (op.name === "focus" || op.name === "selectText" || op.name === "setSelectionRange" || op.name === "blur" || op.name === "scrollIntoView") focusCommands.push({ name: op.name, args: op.args }); // an element's scrollIntoView (a list row's is the runner's)
         else if (op.name === "preventDefault") { keyEvent?.preventDefault(); if (keyEvent?.type === "beforeunload") keyEvent.returnValue = ""; } else if (op.name === "close") window.close(); // studio diary R17
         else if (op.name === "stopPropagation") { if (keyEvent) keyEvent.exactStopped = true; } // no ancestor's `key` handler hears it; its default still happens
         else if (op.name === "postMessage") { // the inverse of `message=`: text into the named surface, every one in order

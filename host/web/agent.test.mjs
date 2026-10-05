@@ -1153,6 +1153,10 @@ test('tree --ax: parity joins by unique testId, normalizes the fixture controls,
   expect(findings.map(f => f.detail)).toEqual(['name "Add" (web) vs "Plus" (uikit)']);
   expect(unjoined).toEqual([]);
   expect(() => axParity({ ...web, spanned: true }, ios)).toThrow(/spanned/);
+  // A drawn radio is a radio, its checked state the UIKit reply's own (x2apps survey #2).
+  const radioWeb = axReply([el(0, 'radio', 'Red', { testId: 'red', states: { checked: true } })]);
+  const radioIos = axReply([el(0, 'button', 'Red', { testId: 'red', states: { checked: true, selected: true }, native: { role: ['button', 'selected'], class: 'ExactRadio' } })], { source: 'uikit' });
+  expect(axParity(radioWeb, radioIos).findings).toEqual([]);
 });
 
 test('tree --ax: no findings means clean only with complete coverage and the expected views joined', () => {
@@ -1165,11 +1169,13 @@ test('tree --ax: no findings means clean only with complete coverage and the exp
 });
 
 test('tree --ax renders each element with its join and frame, then its findings', () => {
-  const r = axFinish(axReply([el(0, 'button', '', { frame: { x: 1, y: 2, w: 3, h: 4, source: 'layout' } }), el(2, 'button', 'Hidden', { via: 'owner' })]), axPlain, null);
+  const r = axFinish(axReply([el(0, 'button', '', { frame: { x: 1, y: 2, w: 3, h: 4, source: 'layout' } }), el(2, 'button', 'Hidden', { via: 'owner' }), el(5, 'textbox', 'Your name', { description: 'Required', states: { required: true } })]), axPlain, null);
   const text = renderAx(r);
-  expect(text).toMatch(/^ax {7}chrome-cdp · Chrome 1 · order tree · epoch 3 · incarnation 1 · clock 0 ms · 2 elements/);
+  expect(text).toMatch(/^ax {7}chrome-cdp · Chrome 1 · order tree · epoch 3 · incarnation 1 · clock 0 ms · 3 elements/);
   expect(text).toContain('button "" #10 [play] 1,2 3×4');
   expect(text).toContain('button "Hidden" #12^ [inside]');
+  // The accessible description (aria-describedby) is printed: the survey diary could not see it.
+  expect(text).toContain('textbox "Your name" description="Required" [required] #15 [behind]');
   expect(text).toContain('! unnamed button #10 [play]');
   expect(text).toContain('! exposed while hidden: button "Hidden" under #11 (inert) #12 [inside]');
   expect(renderAx({ ax: { unavailable: true, reason: 'no AT-SPI tree (LLP 1015 §7)' } })).toBe('ax       unavailable: no AT-SPI tree (LLP 1015 §7)');

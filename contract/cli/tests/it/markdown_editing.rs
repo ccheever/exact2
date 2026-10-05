@@ -111,7 +111,22 @@ fn select_rejects_a_wrong_payload_type_or_arity() {
 /// another word or another tag did nothing, silently (notes #1).
 #[test]
 fn markup_is_markdown_or_none_on_a_text_or_a_textarea() {
-    contract::compile(&SOURCE.replace("markup=\"markdown\"", "markup=\"none\"")).unwrap();
+    // A plain textarea's `select` is HTML's, carrying its `InputEvent`
+    // (x2apps codeedit #2); the editor's carries its formats.
+    contract::compile(
+        "component App\n  state at = 0\n  action moved(e: InputEvent)\n    at = e.selectionStart\n  view\n    textarea value=\"hello\" markup=\"none\" select=moved\n",
+    )
+    .unwrap();
+    let error = contract::compile(
+        &SOURCE
+            .replace(
+                "action selected(s)",
+                "action selected(s: MarkdownSelection)",
+            )
+            .replace("markup=\"markdown\"", "markup=\"none\""),
+    )
+    .unwrap_err();
+    assert_eq!(error.id, "type-handler-payload", "{error}");
     let error =
         contract::compile(&SOURCE.replace("markup=\"markdown\"", "markup=\"html\"")).unwrap_err();
     assert_eq!(error.id, "lower-attr-value", "{error}");

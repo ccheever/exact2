@@ -342,6 +342,9 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  *      offsetX,offsetY,buttons,pressure,pointerType,pointerId,clientX,clientY:
  *      content-box CSS px, DOM's buttons bits, 0 to 1, mouse|pen|touch, then
  *      the viewport point; LLP 1056 §3 stage 3, LLP 1094 D11);
+ * 40 = a text field's input, 41 its change, 42 its select (UTF-8
+ *      start,end,direction,text: UTF-16 offsets, forward|backward|none, then
+ *      the whole value verbatim; x2apps codeedit #2);
  * any other kind is refused with an error batch.
  * Format lists are space-separated command tokens. Link keeps the remaining bytes.
  * A change's text, key's name, or guest message is the payload in the input
@@ -506,6 +509,10 @@ uint32_t exact_host_covers(ExactRuntime rt, size_t len);
 /* A select's options (LLP 1069.001 D5), JSON in the output buffer, not a
  * batch: {"options":[{"value","label","disabled"}],"chosen":index|null}. */
 uint32_t exact_select_options(ExactRuntime rt, uint32_t view);
+/* A radio's group (x2apps survey #2), JSON in the output buffer, not a batch:
+ * {"group":[view...],"next":view|null,"previous":view|null} — the radios of its
+ * name in tree order, and the enabled radio ArrowDown/ArrowUp moves the check to. */
+uint32_t exact_radio_group(ExactRuntime rt, uint32_t view);
 /* A button's face, custom or native (LLP 1069.011.000 D1), JSON in the output
  * buffer, not a batch: {"button":bool,"title":string|null,"symbol":apple-name|null,
  * "raster","leading","fits":bool,"label":string|null,"style",...the native style}. */

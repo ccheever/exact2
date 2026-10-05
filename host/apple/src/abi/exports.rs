@@ -393,7 +393,10 @@ macro_rules! host {
         /// A threshold exact2 defines itself, by index (`exact_motion::gesture::CONSTANTS`); NaN past the end.
         #[no_mangle]
         pub extern "C" fn exact_gesture_constant(which: u32) -> f64 {
-            $crate::abi::gesture_constant(which)
+            exact_motion::gesture::CONSTANTS
+                .get(which as usize)
+                .copied()
+                .unwrap_or(f64::NAN)
         }
 
         /// Move the clock; `mode` as `Bridge::advance` (0 the wall clock, 1
@@ -619,6 +622,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_select_options(rt: u32, view: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.select_options(view), |n| n)
+        }
+
+        /// A radio's group and the radios its arrows move to (x2apps
+        /// survey #2), JSON; returns its length.
+        #[no_mangle]
+        pub extern "C" fn exact_radio_group(rt: u32, view: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.radio_group(view), |n| n)
         }
 
         /// A command's data (`share`, LLP 1069.003; `saveFile`, LLP

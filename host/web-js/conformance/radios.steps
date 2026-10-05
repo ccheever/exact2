@@ -1,0 +1,14 @@
+# A radio checks itself and unchecks its group; tapped again, nothing; the
+# arrows move the check past the disabled radio and wrap.
+tap green
+tap green
+key green ArrowDown
+key blue ArrowRight
+# A group whose action refuses snaps back; a checkbox's InputEvent.
+tap locked-b
+tap mint
+# A field's selection: typed, set by setSelectionRange, replaced by a key.
+type editor hello
+tap jump
+key editor x
+tap collapse

@@ -303,6 +303,18 @@ fn state_initializers_refuse_later_names_and_leaked_locals() {
         assert_eq!(error.id, id, "{source}");
         assert_eq!(error.span.line, line, "{source}");
     }
+    // The survey diary: a mutation and an action of one name. The message
+    // says the kinds share their names.
+    let source = "shape Ok\n  ok: bool\ncomponent App\n  mutation exported as shape Ok\n  action exported\n    exported = none\n  view\n    text \"value\"\n";
+    let error = contract::compile(source).unwrap_err();
+    assert_eq!(error.id, "type-duplicate-name", "{error}");
+    assert!(error.message.contains("first on line 4"), "{error}");
+    assert!(
+        error
+            .message
+            .contains("mutations and actions share one set of names"),
+        "{error}"
+    );
 }
 
 #[test]

@@ -233,7 +233,10 @@ whose arguments are plain values, not state; it is answered once at build.
 A mutation's `then` names a parameterless action and follows `refreshes` when
 both are present. `queue`, right after the shape, makes every send of the
 mutation wait its turn (LLP 1092): one request in flight, later sends asked in
-order, each after the reply before it and its `then`. Action effects are inferred: `writes` clauses are refused.
+order, each after the reply before it and its `then`. The clauses after the shape
+may continue onto deeper-indented lines, each starting with its keyword, in the
+same order (`mutation edited as shape Jump refreshes page`, then `then followEdit`
+indented under it). Action effects are inferred: `writes` clauses are refused.
 Component `contract` sections are also refused.
 
 ## Views
@@ -408,9 +411,10 @@ answers with `close()`, takes the session with it, and a step after it fails
 naming the line. macOS and the web; iOS and Linux close no window and refuse it.
 `type` on a `select` chooses an enabled option by value, else by its one label;
 on a date, time or range input it sets the value in HTML's format; on a checkbox
-it takes `true` or `false`. A target out of view is scrolled into view first.
+it takes `true` or `false`, on a radio `true`. A target out of view is scrolled into view first.
 An input step ends with what it settled (an answer given in the input's turn,
-and its mutation's `then`); otherwise the clock stands still between steps:
+and its mutation's `then`; on a native host, not one given while another
+answer's storage is in flight, [LLP 1097](../llp/1097-storage-that-finishes-after-the-answer.rfc.md)); otherwise the clock stands still between steps:
 what an input starts (a reply on real time, a transition) lands at a `clock`
 step, as `clock settle` (or `clock data`, which lands replies and their `then`s
 without moving the clock); a timer fires when the clock reaches or passes its time
@@ -637,14 +641,18 @@ working fixture, not inferred from JavaScript's Event interface.
 
 | Payload appended to captured arguments | Handler names |
 | --- | --- |
-| One string | `change`, `input` (text field, textarea, `select`), `message`, `error` |
+| A string, then optionally an `InputEvent` | `change`, `input` on a text field, textarea, `select`, date or time input, and `type="radio"` (the radio's `value`); an action taking one more parameter also hears the [target](#form-controls-radio-inputevent-setselectionrange) |
+| One string | `message`, `error` |
 | A string, then optionally a `KeyboardEvent` | `key`: the key's name; an action taking one more parameter also hears the [modifiers](#keys) |
 | Two numbers, then optionally a `ScrollEvent` | `scroll`: left and top; an action taking one more parameter also hears the scroller's extents (below) |
 | Two numbers, then optionally a `DOMRectReadOnly` | `resize` given an action: the content box's width and height; an action taking one more parameter also hears its `contentRect` (below). A string `resize` is CSS's property |
-| One boolean | `hover`; `change`, `input` on a checkbox or `switch` |
-| One number | `timeupdate`, `durationchange`; `change`, `input` on `type="range"` |
-| One `list<Picked>` | `change`, `input` on `type="file"` |
-| One `MarkdownSelection` | `select` |
+| One boolean | `hover` |
+| One boolean, then optionally an `InputEvent` | `change`, `input` on a checkbox or `switch` |
+| One number | `timeupdate`, `durationchange` |
+| One number, then optionally an `InputEvent` | `change`, `input` on `type="range"` |
+| One `list<Picked>`, then optionally an `InputEvent` | `change`, `input` on `type="file"` |
+| One `MarkdownSelection` | `select` on the Markdown editor (`textarea markup="markdown"`) |
+| One `InputEvent` | `select` on a text field or any other `textarea` ([form controls](#form-controls-radio-inputevent-setselectionrange)) |
 | Two numbers | `pan`, `panrelease`, `heightrelease` |
 | A string, an `option<string>`, then optionally a `ReorderEvent` | `reorderdrop`, on a vertical `list virtualized=true` only: the dragged row's key, then the key it lands before (`none` at the end); an action taking one more parameter also hears `ReorderEvent { from, to }`, the two lists' `id`s (equal within one list; [LLP 1094](../llp/1094-dropping-across-lists.rfc.md) D2) |
 | Four numbers | `transformgeometry` |
@@ -841,6 +849,57 @@ action mark(para: string, s: Selection)
 text para.body selectionchange=mark(para.id)
 ```
 
+### Form controls: radio, `InputEvent`, `setSelectionRange`
+
+`input type="radio"` is HTML's (x2apps survey #2). Its `name` is its group:
+the radios of one non-empty `name` in the window are exclusive, and a radio
+with no `name` is a group of its own. Choosing an unchecked radio checks it and
+unchecks the rest at once, then fires `input` and `change` on it, carrying its
+`value` (`on` when it has none); choosing the checked one fires nothing. With
+a radio focused, ArrowDown and ArrowRight move the focus and the check to the
+next enabled radio of its group, ArrowUp and ArrowLeft to the previous,
+wrapping, each move an `input` and a `change`; Space checks the focused one.
+`checked` is controlled as a checkbox's: after the action, every radio shows
+its bound `checked` again, so an action that writes nothing snaps the group
+back. The driver's `type <radio> true` checks it as a click does; `false` is
+refused, a radio being unchecked only by checking another.
+
+```text
+action pick(value: string)
+  color = value
+each c in colors key=c
+  input type="radio" name="color" value=c checked=color == c change=pick aria-label=c
+```
+
+`input` and `change` hand an action that takes one more parameter an
+`InputEvent`: the target's own fields as the event leaves it, by the DOM's
+names — `value` (a checkbox's or a radio's own `value`, `on` when it has
+none; a range's number as text), `checked`, and a text field's
+`selectionStart`, `selectionEnd` (UTF-16 offsets into its value) and
+`selectionDirection` (`forward`, `backward` or `none`); a control without a
+text selection reports 0, 0 and `none`. After typing, the caret sits after
+the typed text; the direction then is the platform's (Chrome's varies with
+the input), so test the offsets. A text field's `select` (an `input` that is
+no control, a `textarea` that is not the Markdown editor) is HTML's: it fires
+when the person selects text (a non-empty selection, each time it is
+extended), and when `setSelectionRange` changes the selection, collapsed
+included; typing and a plain caret move do not fire it. Its payload is the
+`InputEvent`.
+
+`setSelectionRange(id, start, end)` and `setSelectionRange(id, start, end,
+direction)` are the field's own method, by its `id`, after the commit's tree
+is in place (so a `value` written beside it is there first). It does not
+focus the field; the field keeps the selection, and the next key typed there
+replaces it. The offsets are clamped as the DOM's are (`-1` is past the end).
+
+```text
+action edited(text: string, e: InputEvent)
+  send doc = edit(text, e.selectionStart, e.selectionEnd)
+action jump(line: number)
+  setSelectionRange("editor", line, line)
+textarea id="editor" value=source input=edited select=selected
+```
+
 ### Keys
 
 `key` is the DOM's `keydown`, on every host (web, macOS, iOS and iPadOS with a
@@ -956,7 +1015,7 @@ negative value and keeps UIKit's geometric order.
 The current command name inventory is:
 
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `fastSeek`, `focus`, `format`,
-`load`, `openURL`, `selectText`, `setScheme`, `showPicker`, `share`, `saveFile`,
+`load`, `openURL`, `selectText`, `setSelectionRange`, `setScheme`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`,
 `showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `close`
 ([pointer](#pointer): a window's `beforeunload`), `preventDefault` and
@@ -972,6 +1031,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `format(id, command[, argument])`: a Markdown editor's toolbar command ([Markdown](#markdown-markup-format-select)) | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
 | `selectText(...)` | [Messages Legacy](../apps/messages-legacy/app.contract) |
+| `setSelectionRange(id, start, end[, direction])`: a text field's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
 | `setScheme(...)` | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |

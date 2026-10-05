@@ -502,8 +502,18 @@ impl<D: DataSource> Presenter<D> {
                     || n.props.str(PropId::Action).is_some()
                     || n.node_type == NodeType::TextInput
                     // A native button is a button under any role (LLP 1069.011.000 D1).
-                    || exact_kernel::ControlKind::of(n.node_type, n.props)
-                        == Some(exact_kernel::ControlKind::Button)
+                    // A checkbox and a radio are HTML's focusable controls: a
+                    // press focuses one, as Chrome's does, and a radio's arrows
+                    // move the focus (x2apps survey #2).
+                    || matches!(
+                        exact_kernel::ControlKind::of(n.node_type, n.props),
+                        Some(
+                            exact_kernel::ControlKind::Button
+                                | exact_kernel::ControlKind::Radio
+                                | exact_kernel::ControlKind::Checkbox
+                                | exact_kernel::ControlKind::Switch
+                        )
+                    )
                     || matches!(
                         n.props.str(PropId::AccessibilityRole),
                         Some("button" | "link")
@@ -593,6 +603,10 @@ impl<D: DataSource> Presenter<D> {
                 eprintln!("exact: {e}");
             }
             self.queue_collections();
+        }
+        // A press in a text field puts its caret there (x2apps codeedit #2).
+        if let Some(id) = focus.filter(|id| self.focus == Some(*id)) {
+            self.press_field(id);
         }
     }
 

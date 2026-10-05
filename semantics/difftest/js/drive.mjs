@@ -209,9 +209,9 @@ async function drive(code, c, hostSources) {
       const e = find(id);
       // What a browser can deliver, as the runner holds a host to it
       // (runner/src/runner/control.rs): a select reports one of its enabled
-      // options, a checkbox no text.
+      // options, a checkbox or a radio no text.
       const options = e?.localName === 'select' ? e.getElementsByTagName('option') : null;
-      const deliverable = e && e.type !== 'checkbox' && datetime(e, text)
+      const deliverable = e && e.type !== 'checkbox' && e.type !== 'radio' && datetime(e, text)
         && (!options || options.some(o => !o.hasAttribute('disabled') && (o.getAttribute('value') ?? o.textContent) === text));
       if (!deliverable || !e.$listeners?.change?.length) refused = true; else { e.value = text; fire(e, 'change'); }
     } else {

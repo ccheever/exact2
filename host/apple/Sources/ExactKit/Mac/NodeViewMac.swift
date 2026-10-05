@@ -209,14 +209,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override var acceptsFirstResponder: Bool {
         if formDisabled || inert || isHiddenOrHasHiddenAncestor { return false }
         if field != nil || textArea != nil { return false }
-        return props["semanticTag"] == "dialog" || isParagraph || explicitTabIndex != nil || tabbable
+        return props["semanticTag"] == "dialog" || isParagraph || explicitTabIndex != nil || tabbable || isRadio
     }
     /// A native button's command is its own too (a confirmation's close row, LLP 1069.011.000 D9).
     var pressable: Bool { handlers.contains("press") || defaultLink != nil || (isButton && (props["commandfor"] != nil || props["popovertarget"] != nil)) }
     var tabbable: Bool {
         if let index = explicitTabIndex { return index >= 0 }
         return kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: Self.focusEvents)
-            || reorderKeys // a grouped grip takes the keys (LLP 1094 D9)
+            || reorderKeys || radioTabStop // a grouped grip takes the keys (LLP 1094 D9); a radio group one stop (x2apps survey #2)
     }
     /// Sequential focus follows the web: a button is in the loop even when
     /// macOS "Keyboard navigation" is off (that setting would otherwise
@@ -265,7 +265,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             if event.modifierFlags.contains(.shift) { window.selectPreviousKeyView(self) } else { window.selectNextKeyView(self) }
             return
         }
-        if reorderKey(name) { return }
+        if reorderKey(name) || presenter?.controls.radioKey(self, name, held: KeyCodes.held(event.modifierFlags)) == true { return }
         if pressable, name == "Enter" || (name == " " && props["href"] == nil) {
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)

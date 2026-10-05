@@ -384,18 +384,26 @@ final class Runtime {
             return read(exact_dispatch(rt, view, 6, n, now))
         }
     }
-    func change(_ view: UInt32, _ value: String, now: Double) -> Batch {
+    /// A `change`; a text field's carries its selection as the edit left
+    /// it (kind 41, x2apps codeedit #2), else the value alone (kind 1).
+    func change(_ view: UInt32, _ value: String, selection: FieldSelection? = nil, now: Double) -> Batch {
         return on {
-            let n = write(value)
-            return read(exact_dispatch(rt, view, 1, n, now))
+            let n = write(selection?.payload(value) ?? value)
+            return read(exact_dispatch(rt, view, selection == nil ? 1 : 41, n, now))
         }
     }
-    /// A text field's value as it moves: HTML's `input` (LLP 1069.001 D4).
-    func input(_ view: UInt32, _ value: String, now: Double) -> Batch {
+    /// A text field's value as it moves: HTML's `input` (LLP 1069.001 D4),
+    /// with its selection when the host has one (kind 40, else 23).
+    func input(_ view: UInt32, _ value: String, selection: FieldSelection? = nil, now: Double) -> Batch {
         return on {
-            let n = write(value)
-            return read(exact_dispatch(rt, view, 23, n, now))
+            let n = write(selection?.payload(value) ?? value)
+            return read(exact_dispatch(rt, view, selection == nil ? 23 : 40, n, now))
         }
+    }
+    /// A text field's `select` (kind 42, x2apps codeedit #2): its value and
+    /// the selection it now has.
+    func fieldSelect(_ view: UInt32, _ value: String, _ selection: FieldSelection, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, 42, write(selection.payload(value)), now)) }
     }
     /// A checkbox's state: `change` when `commit`, else `input`.
     func checked(_ view: UInt32, _ checked: Bool, commit: Bool, now: Double) -> Batch {
@@ -537,6 +545,13 @@ final class Runtime {
         return on(busy: SelectMenu(json: Data())) {
             let len = exact_select_options(rt, view)
             return SelectMenu(json: Data(bytes: exact_out(rt), count: Int(len)))
+        }
+    }
+    /// A radio's group and the radios its arrows move to (x2apps survey #2).
+    func radioGroup(_ view: UInt32) -> RadioGroup {
+        return on(busy: RadioGroup(json: Data())) {
+            let len = exact_radio_group(rt, view)
+            return RadioGroup(json: Data(bytes: exact_out(rt), count: Int(len)))
         }
     }
     /// Host intrinsic sizes (nil clears one), under one layout.

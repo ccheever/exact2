@@ -1379,3 +1379,11 @@ component A
         row
           box reorderFor="cities" width=24 height=24
           text city
+---
+== type-set-selection-range
+component A
+  state at = 0
+  action jump(k: string)
+    setSelectionRange("editor", "4")
+  view
+    textarea id="editor" value="text" key=jump

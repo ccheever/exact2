@@ -2,7 +2,11 @@
 // wasm web host runs it (host/web/glue.js, navigation.js), so a command the
 // compiler admits (contract/types/src/checks.rs `HOST_COMMANDS`) is one this
 // runtime carries (files diary F5: `selectText` was refused here).
+import { setFieldSelection } from "./navigation.js";
 export const commands = say => ({
+  // The field's own method, by its id (x2apps codeedit #2); commands run
+  // once the commit's tree is in place, so a value set beside it is there.
+  setSelectionRange: (...args) => setFieldSelection(document.getElementById(args[0]), args, say),
   // Focus, then the field's whole text selected, as `select()` does
   // (navigation.js `runFocusCommands`).
   selectText: id => {

@@ -43,7 +43,9 @@ impl<D: DataSource> Presenter<D> {
                     self.focus_command(&c.args);
                 }
                 // The whole text, which the next key replaces (focus_command).
-                "selectText" => self.selected = self.focus_command(&c.args),
+                "selectText" => self.select_text(&c.args),
+                // A text field's selection, the focus unmoved (x2apps codeedit #2).
+                "setSelectionRange" => self.set_selection_range(&c.args),
                 // An element's, by its id (minesweeper F3); a row's is the runner's.
                 "scrollIntoView" => self.scroll_element_into_view(&c.args),
                 // The inverse of `message=`: text into the named surface's

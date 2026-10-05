@@ -99,6 +99,18 @@ they run any continuation:
   from `then` was no better, because the next edit's answer was deferred
   behind the write in flight. fix/data6's `6c290ee89` documents the lag as a
   pitfall.
+- **Survey #3** (x2apps survey, reproduced on `ff9bcbc1d`, after fix/data6).
+  The answer that is late need not save at all. `extendSurvey` returns a plain
+  object, with no storage and no promise. The tap that sends it blurs the
+  title field, whose `change` first sends `saveSurvey`, which awaits a SQLite
+  `UPDATE`. On macOS `extendSurvey` is then parked as `DEFERRED` behind that
+  open turn (`lib.rs:831–853`), so `tap "add-short"` then `type "prompt" …`
+  finds no `prompt` (`test macos`: 2 of 4 failed); on the web it passes.
+  Isolated with three one-test drives: the add passes with no save in flight,
+  fails while the title's save is in flight, and passes once
+  `type "survey-title" key "Enter"` and `clock settle` landed the save first.
+  The data6 checkpoint did not change this; D4.5's deletion of the deferral
+  does.
 - **Issued is not chained** (a simulation of D3's queue, run for r2 with Bun:
   one operation in flight, two edits, then a read):
   - With `saving = saving.then(() => write(v))`, the queue saw
@@ -775,7 +787,8 @@ storage.
   - `reload`;
   - the value read back.
 - **Driven.** Drums' suite on web and macOS, its R11 tests without settles;
-  the five checks after each stage.
+  survey's suite on macOS without the `clock settle` after each add (survey
+  #3); the five checks after each stage.
 
 ## 6. Implementation plan
 

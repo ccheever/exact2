@@ -31,6 +31,7 @@ use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 mod backend;
 pub mod border;
+mod caret;
 pub(crate) mod control;
 pub(crate) mod damage;
 pub mod gradient;
@@ -448,6 +449,8 @@ pub struct Scene<'a> {
     pub images: &'a BTreeMap<ViewId, Arc<Bitmap>>,
     /// The focused input, if any (its caret is painted).
     pub focus: Option<ViewId>,
+    /// The focused text field's selection (x2apps codeedit #2).
+    pub selection: Option<exact_runner::FieldSelection>,
     /// Unbound checkboxes' own states, which the host keeps (LLP 1069.001 D4).
     pub controls: &'a BTreeMap<ViewId, bool>,
     /// Values chosen in a date, range or select since its bound value last
@@ -1053,6 +1056,18 @@ impl Painter {
                     presented_color(walk, node)
                         .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)))
                 };
+                // The focused field's selection (x2apps codeedit #2).
+                let field = caret::FieldText {
+                    style: &computed,
+                    value,
+                    masked: node.props.str(PropId::Type) == Some("password"),
+                    origin: (content.0, oy),
+                };
+                let focused = walk.scene.focus == Some(node.id);
+                let selection = walk.scene.selection.filter(|_| focused);
+                if let Some(s) = selection {
+                    self.field_highlight(&field, s, ts);
+                }
                 {
                     let mut engine = self.text.borrow_mut();
                     self.backend.text(
@@ -1066,23 +1081,15 @@ impl Painter {
                         ts,
                     );
                 }
-                if walk.scene.focus == Some(node.id) {
-                    let caret_x = content.0 + if placeholder { 0.0 } else { paragraph.width };
-                    let caret_h = if paragraph.height > 0.0 {
-                        paragraph.height
-                    } else {
-                        computed.font_size * 1.2
-                    };
-                    self.backend.fill(
-                        &Shape::rect((caret_x, oy, 1.0, caret_h)),
-                        rgba(
-                            computed
-                                .caret_color
-                                .unwrap_or(node.text_color())
-                                .resolve(self.dark),
-                        ),
-                        ts,
+                if focused {
+                    let caret = rgba(
+                        computed
+                            .caret_color
+                            .unwrap_or(node.text_color())
+                            .resolve(self.dark),
                     );
+                    let at_end = || exact_runner::FieldSelection::at_end(value);
+                    self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
                 }
             }
             NodeType::Svg => self.svg(walk, node, rect, content, ts),

@@ -94,6 +94,7 @@ final class Presenter {
     lazy var segments = SegmentHost(self)
     lazy var groupedLists = GroupedListHost(self)
     lazy var controls = ControlHost(self)
+    lazy var fieldSelections = FieldSelections(self)
     /// Nodes marked `hook="word"` (LLP 1075.003.000).
     lazy var elements = ElementHooks(self)
     lazy var navigation = NavigationHost(presenter: self)
@@ -357,6 +358,7 @@ final class Presenter {
         segments.reset()
         groupedLists.reset()
         controls.reset()
+        fieldSelections.reset()
         edited = nil
         menus.reset()
         swipeActions.reset()
@@ -464,7 +466,8 @@ final class Presenter {
     private static func tabbable(_ v: NodeView) -> Bool {
         if v.formDisabled || v.bounds.width == 0 || v.bounds.height == 0 { return false }
         if let index = v.explicitTabIndex, index < 0 { return false }
-        return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder
+        // A radio group is one stop (x2apps survey #2).
+        return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder && (!v.isRadio || v.radioTabStop)
     }
 
     /// The action's focus(html-id), delivered only after the batch is mounted.
@@ -519,10 +522,7 @@ final class Presenter {
             return
         }
         if responder.canBecomeFirstResponder { _ = responder.becomeFirstResponder() }
-        if selectText, responder.isFirstResponder {
-            if let editor = target.textArea { editor.selectAll(editor) }
-            else if let editor = target.field { editor.selectAll(editor) }
-        }
+        if selectText, responder.isFirstResponder { fieldSelections.selectAll(target) }
     }
 
     /// The action's blur(): drop focus and the keyboard, and any focus still

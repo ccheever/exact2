@@ -303,7 +303,7 @@ structure VNode where
   /-- The names bound where the element stands. -/
   locals : Locals
   /-- The form control it is, when not a text field (`select`, or an
-  `input` whose literal `type` is `checkbox`, `range`, `date`, …): its
+  `input` whose literal `type` is `checkbox`, `radio`, `range`, `date`, …): its
   payloads follow HTML's rules, which the semantics leaves out. -/
   control : Option String := .none
   /-- A `list` whose `virtualized` is literally `true`: the runner shows
@@ -354,7 +354,7 @@ def elementControl (tag : String) (props : List (String × Expr)) : Option Strin
   else if tag == "input" then
     match lookupField "type" props with
     | .some (.str t) =>
-      if ["checkbox", "file", "range", "date", "time", "datetime-local"].contains t.toLower
+      if ["checkbox", "radio", "file", "range", "date", "time", "datetime-local"].contains t.toLower
       then Option.some t else Option.none
     | _ => Option.none
   else Option.none

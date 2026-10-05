@@ -89,6 +89,7 @@ final class Presenter {
     let canvas2d = Canvas2DHost()
     lazy var segments = SegmentHost(self)
     lazy var controls = ControlHost(self)
+    lazy var fieldSelections = FieldSelections(self)
     /// Nodes marked `hook="word"` (LLP 1075.003.000).
     lazy var elements = ElementHooks(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
@@ -580,6 +581,7 @@ final class Presenter {
         navigation.reset()
         segments.reset()
         controls.reset()
+        fieldSelections.reset()
         edited = nil
         session?.canvases.reset()
         for id in Array(leaving.keys) { _ = endExit(id) }
@@ -647,15 +649,12 @@ final class Presenter {
         if target.kind == "native", !selectText { _ = session?.natives.focus(target); return }
         if selectText, target.textArea == nil, target.field == nil { return }
         if let field = target.field, window.firstResponder === field.currentEditor() {
-            if selectText { field.currentEditor()?.selectAll(nil) }
+            if selectText { fieldSelections.selectAll(target) }
             return
         }
         let responder: NSView = target.textArea ?? target.field ?? target
         if responder.acceptsFirstResponder { window.makeFirstResponder(responder) }
-        if selectText {
-            if let editor = target.textArea, window.firstResponder === editor { editor.selectAll(nil) }
-            else { target.field?.currentEditor()?.selectAll(nil) }
-        }
+        if selectText, window.firstResponder === target.textArea || target.field?.currentEditor() != nil { fieldSelections.selectAll(target) }
     }
 
     /// The action's blur(): drop the first responder; blur(html-id) only when

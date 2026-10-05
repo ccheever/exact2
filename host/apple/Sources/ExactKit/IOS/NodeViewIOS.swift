@@ -293,7 +293,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// hears these. Keys come from a hardware keyboard (`pressesBegan`).
     /// UIKit's focus search finds what UIKit can focus (`FocusSearch`).
     override func didAddSubview(_ subview: UIView) { super.didAddSubview(subview); FocusSearch.joined(subview) }
-    override var canBecomeFirstResponder: Bool { !formDisabled && !inert && field == nil && textArea == nil && (kind == "button" || isNativeButton || explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents)) }
+    override var canBecomeFirstResponder: Bool { !formDisabled && !inert && field == nil && textArea == nil && (kind == "button" || isNativeButton || isRadio || explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents)) }
     override func becomeFirstResponder() -> Bool {
         guard !formDisabled, !inert else { return false }
         let ok = super.becomeFirstResponder()
@@ -359,7 +359,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // (the platformer's diary, R8).
         let name = presses.first?.key.map(NodeView.keyName)
         let held = presses.first?.key.map { KeyCodes.held($0.modifierFlags) } ?? ""
-        if !formDisabled, isFirstResponder, let name, presenter?.keyDown(at: self, name, held: held) == true { return }
+        if !formDisabled, isFirstResponder, let name, presenter?.keyDown(at: self, name, held: held) == true || presenter?.controls.radioKey(self, name, held: held) == true { return }
         if inputCanvas?.canvasInput?.presses(presses, down: true, source: self) == true { return }
         if !disabled, handlers.contains("press") || defaultLink != nil, let name, name == "Enter" || (name == " " && props["href"] == nil) { presenter?.press(id); return }
         super.pressesBegan(presses, with: event)

@@ -86,6 +86,7 @@ extension ControlHost {
             guard picker.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
             return typeDate(picker, node, value)
         }
+        if kinds[node.id] == "radio" { return typeRadio(node, value) } // x2apps survey #2
         // A checkbox (or `switch`) takes `true` or `false`, and is clicked when that differs, as on the web.
         if kinds[node.id] == "checkbox" || kinds[node.id] == "switch", let control = controls[node.id] {
             guard value == "true" || value == "false" else { return ["error": "checkbox \(node.id) takes true or false, not \"\(value)\""] }

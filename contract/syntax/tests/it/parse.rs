@@ -529,3 +529,28 @@ fn template_text_decodes_the_escapes_a_string_does_and_escaped_interpolation_is_
     assert_eq!(e.id, "syntax-bad-escape", "{e:?}");
     assert_eq!((e.span.line, e.span.col), (3, 14), "{e:?}");
 }
+
+#[test]
+fn a_mutations_clauses_may_continue_on_indented_lines() {
+    // The codeedit diary: `then` on the next line was `syntax-expected-section`.
+    let src = "component A\n  mutation edited as shape Jump refreshes page\n    then followEdit\n  mutation saved as shape Ok\n    queue\n    refreshes files, page\n    then reload\n  state n = 0\n  view\n    text \"a\"\n";
+    let file = parse(src).unwrap();
+    let a = &file.components[0];
+    let [edited, saved] = &a.mutations[..] else {
+        panic!("two mutations: {:?}", a.mutations.len())
+    };
+    assert_eq!(
+        edited.refreshes.iter().map(|r| &*r.0).collect::<Vec<_>>(),
+        ["page"]
+    );
+    assert_eq!(edited.then.as_ref().map(|t| &*t.0), Some("followEdit"));
+    assert!(saved.queue);
+    assert_eq!(saved.refreshes.len(), 2);
+    assert_eq!(saved.then.as_ref().map(|t| &*t.0), Some("reload"));
+    assert_eq!(a.states[0].name, "n");
+    // Out of order, the continued line is named.
+    let src = "component A\n  mutation m as shape Ok\n    then x\n    refreshes page\n  view\n    text \"a\"\n";
+    let err = parse(src).unwrap_err();
+    assert_eq!(err.id, "syntax-expected", "{}", err.message);
+    assert!(err.message.contains("in that order"), "{}", err.message);
+}

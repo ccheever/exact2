@@ -1027,7 +1027,8 @@ ancestor that would take the press itself included.
 `type` on a control sets it as a person choosing would, with `input` then
 `change`: a `select` takes an option's value or its label, a date, time or
 `datetime-local` input its HTML value (`2026-10-09`, `14:00`,
-`2026-10-09T14:30`), a range a number, a checkbox `true` or `false`. A
+`2026-10-09T14:30`), a range a number, a checkbox `true` or `false`, a radio
+`true` (it is unchecked only by checking another of its group). A
 `select`, a range and a date, time or `datetime-local` input keep the person's
 choice until their bound `value` changes, as a text field does (LLP 1069.001 D4,
 amended): an action that writes nothing, or only sends a mutation, shows the
@@ -1176,6 +1177,9 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | Unbounded `scroll` | Real height/max-height or flex in a bounded layout |
 | `state item = none` with no usable type | Supply a typed use/write or rethink whether it is mutable state |
 | Read a slot after writing it to get the new value | Compute `let next` before the assignments |
+| `let next = …` where `next` is already an action, state or other name (`type-let-shadow`) | A name of its own: `let revised = …` |
+| `let op = ""`, then `op = "tab"` in a branch (`type-let-reassign`) | Choose the value where it is bound: `let op = key == "Tab" ? "tab" : "insert"`; or a `state` |
+| `mutation exported` and `action exported` (`type-duplicate-name`) | One name per declaration: a component's props, states, derives, resources, mutations and actions share names (`action fileSaved`) |
 | Dynamic navigation template | `path("route", args…)` |
 | Unconditional per-frame app work | CSS/presentation motion where possible; a frame task gated on the state that needs it (`task fly when flying`) |
 | An always-on `every` that checks whether a toast expired | `task hide when toast != "" key=toastUntil` with `after(ms, clear)` |

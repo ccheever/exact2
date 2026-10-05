@@ -626,7 +626,7 @@ export function focusController({ready, elements, inert}) {
 }
 
 
-// The focus, blur and selectText commands a batch carried, run once every
+// The focus, blur, selectText and setSelectionRange commands a batch carried, run once every
 // node and value in it is committed (a focus handler may dispatch an action).
 export function runFocusCommands(commands, { root, ready, inertAncestor, log }) {
   for (const { name, args } of commands) {
@@ -640,6 +640,7 @@ export function runFocusCommands(commands, { root, ready, inertAncestor, log }) 
       if (ready && active && active !== document.body && (!args?.length || active.id === args[0])) active.blur();
       continue;
     }
+    if (name === "setSelectionRange") { setFieldSelection([...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]), args, log); continue; }
     const selectText = name === "selectText";
     if (args?.length !== 1 || typeof args[0] !== "string" || !ready) continue;
     const el = [...root.querySelectorAll("[id]")].find(node => node.id === args[0]);
@@ -960,8 +961,59 @@ export function settleValue(el, acted = false) {
   if (c && valuedControl(c) && c.exactValue !== undefined && c.value !== c.exactValue) c.value = c.exactValue;
 }
 // What `type <id> <value>` sets rather than types into (D9): the valued
-// controls, and a checkbox (or `switch`), which a value turns on or off.
-export const typedControl = (el) => valuedControl(el) || (el instanceof HTMLInputElement && el.type === "checkbox");
+// controls, a checkbox (or `switch`), which a value turns on or off, and a
+// radio, which `true` checks (x2apps survey #2).
+export const typedControl = (el) => valuedControl(el) || (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio"));
+// A text field (x2apps codeedit #2): an input that is no control, or a
+// textarea that is not the Markdown editor; its `input` and `change` carry
+// its selection, and its `select` is HTML's.
+export const textField = (el) => el instanceof HTMLTextAreaElement ? el.getAttribute("markup") !== "markdown" : el instanceof HTMLInputElement && !typedControl(el) && el.type !== "file";
+// Its selection as host kinds 40 to 42 carry it, before its text:
+// `start,end,direction,` in UTF-16 units, the DOM's; a type with none
+// (email, number) has its caret after its text, as the runner assumes.
+export const fieldSelection = (el) => { const end = el.value.length; return `${el.selectionStart ?? end},${el.selectionEnd ?? end},${el.selectionDirection ?? "none"},`; };
+// A radio's group as committed again (x2apps survey #2): the browser checked
+// the radio and unchecked its group at once; the action decides, and one
+// that refuses snaps the group back. `bound` reads a radio's committed
+// `checked` (undefined when it has none); the unchecks go first, so the
+// radio left checked is the committed one.
+export function settleRadios(el, bound) {
+  const group = el.name ? [...document.querySelectorAll('input[type="radio"]')].filter((r) => r.name === el.name) : [el];
+  for (const r of group) if (bound(r) === false && r.checked) r.checked = false;
+  for (const r of group) if (bound(r) === true && !r.checked) r.checked = true;
+}
+// `setSelectionRange("id", start, end[, direction])` (x2apps codeedit #2):
+// the field's own method, by its id, after the batch; it does not focus.
+export function setFieldSelection(el, args, log) {
+  const [id, start, end, direction] = args ?? [];
+  if (!el) return log(`setSelectionRange "${id}" refused: no live node with that id`);
+  if (typeof el.setSelectionRange !== "function") return log(`setSelectionRange "${id}" refused: not a text field`);
+  try { el.setSelectionRange(start, end, direction); } catch { log(`setSelectionRange "${id}" refused: an input type=${el.type} has no text selection`); }
+}
+// The wasm host's `input`, `change` and a text field's `select` (LLP
+// 1069.001 D4; x2apps survey #2, codeedit #2), `dispatch(kind, payload)`:
+// a checkbox's checked state (25, 24), a radio's value (23, 1), a text
+// field's selection then its text (40, 41, 42), another control's value
+// (23, 1). The platform moves a control at once; the action decides, and
+// one that refuses snaps a checkbox or a radio group back.
+export function controlEvent(el, kind, on, dispatch) {
+  if (kind === "select") return void (textField(el) && on("select", () => dispatch(42, fieldSelection(el) + el.value)));
+  if (el.type === "checkbox") return on(kind, () => { dispatch(kind === "change" ? 24 : 25, String(el.checked)); if (el.exactChecked !== undefined && el.checked !== el.exactChecked) el.checked = el.exactChecked; });
+  if (el.type === "radio") return on(kind, () => { dispatch(kind === "change" ? 1 : 23, el.value); settleRadios(el, (r) => r.exactChecked); });
+  // HTML's `change`: a text field's value committed, on blur or Enter.
+  if (kind === "change") return on("change", () => { dispatch(textField(el) ? 41 : 1, (textField(el) ? fieldSelection(el) : "") + el.value); settleValue(el, true); });
+  on("input", (e) => {
+    const value = el.value;
+    if (el.getAttribute("emojiPicker") === "true") {
+      if (e.isComposing) return;
+      el.value = "";
+      const clusters = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)];
+      if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value) || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
+      return void dispatch(23, value);
+    }
+    dispatch(textField(el) ? 40 : 23, (textField(el) ? fieldSelection(el) : "") + value); settleValue(el, true);
+  });
+}
 // D9: `type <id> <value>` sets a control's value as the platform would on a
 // choice or a release: HTML's `input`, then `change`. A select takes one of
 // its enabled options by value, else by its one label (Playwright's
@@ -977,6 +1029,12 @@ export function typeControl(el, request) {
   if (el.type === "checkbox") {
     if (text !== "true" && text !== "false") return { handled: true, error: `checkbox ${id} takes true or false, not ${JSON.stringify(text)}` };
     if (el.checked !== (text === "true")) el.click();
+    return { typed: id, checked: el.checked, delivery: "recognized", handled: true };
+  }
+  // A radio is checked by choosing it, and unchecked only by checking another (x2apps survey #2).
+  if (el.type === "radio") {
+    if (text !== "true") return { handled: true, error: text === "false" ? `radio ${id} is unchecked by checking another of its group` : `radio ${id} takes true, not ${JSON.stringify(text)}` };
+    if (!el.checked) el.click();
     return { typed: id, checked: el.checked, delivery: "recognized", handled: true };
   }
   if (el instanceof HTMLSelectElement) {

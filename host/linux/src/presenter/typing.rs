@@ -1,5 +1,6 @@
 //! Text and keyboard input, sharing the presenter's focus owner.
 use super::*;
+use exact_runner::ControlValue;
 use std::collections::BTreeSet;
 
 impl<D: DataSource> Presenter<D> {
@@ -51,17 +52,20 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = self.set_focus(Some(id), now) {
             return Err(e);
         }
-        // The whole value replaces any selection. `change` waits for Enter
-        // or blur (`commit_text`), as hardware typing does.
+        // The whole value replaces any selection and leaves the caret at its
+        // end, which `input` reports (x2apps codeedit #2). `change` waits for
+        // Enter or blur (`commit_text`), as hardware typing does.
+        let caret = exact_runner::FieldSelection::at_end(&text);
+        self.mark_field(id, &text, caret, false);
         self.edited = Some(id);
-        self.selected = None;
         let error = if self
             .host
             .runner()
             .handlers_of(id)
             .contains(&EventKind::Input)
         {
-            self.host.dispatch_at(id, Event::Input(text.into()), now)
+            self.host
+                .dispatch_at(id, Event::Input(ControlValue::Field(text, caret)), now)
         } else {
             None
         };
@@ -95,15 +99,25 @@ impl<D: DataSource> Presenter<D> {
         if self.host.route_visibility(id).1 {
             return Err(format!("view {id} is hidden or inert"));
         }
+        // A field's own paste inserts with no handler to hear it.
+        let field = kind == EventKind::Paste
+            && self
+                .host
+                .kernel()
+                .node(id)
+                .is_some_and(|n| n.node_type == NodeType::TextInput);
         let mut at = Some(id);
         let target = loop {
             let Some(node) = at.and_then(|n| self.host.kernel().node(n)) else {
+                if field {
+                    break None;
+                }
                 return Err(format!("no {edit} handler at view {id} or above it"));
             };
             if self.host.runner().handlers_of(node.id).contains(&kind)
                 && node.props.bool(PropId::Disabled) != Some(true)
             {
-                break node.id;
+                break Some(node.id);
             }
             at = node.parent;
         };
@@ -137,11 +151,18 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         let text = if kind == EventKind::Paste { text } else { "" };
-        let error = self
-            .host
-            .dispatch_at(target, Event::Clipboard(kind, text.to_owned()), now);
-        if let Some(e) = error.or(self.after_commit()) {
-            return Err(e);
+        if let Some(target) = target {
+            let error = self
+                .host
+                .dispatch_at(target, Event::Clipboard(kind, text.to_owned()), now);
+            if let Some(e) = error.or(self.after_commit()) {
+                return Err(e);
+            }
+        }
+        // The paste's default action: the text in at the field's selection
+        // (x2apps codeedit #2), after its listeners, as the web's.
+        if field {
+            self.paste_field(id, text, now);
         }
         Ok(format!(
             "{{\"typed\":{id},\"clipboard\":\"{edit}\",\"delivery\":\"recognized\"}}"
@@ -261,7 +282,9 @@ impl<D: DataSource> Presenter<D> {
         if !self.focusable(id) && self.input_surface(id).is_some() {
             return Err(format!("view {id} cannot take focus"));
         }
-        if self.focusable(id) {
+        // A release goes where its press left the focus: a radio's arrow
+        // moves it (x2apps survey #2), as Tab's does.
+        if down && self.focusable(id) {
             if let Some(e) = self.set_focus(Some(id), self.host.now()) {
                 return Err(e);
             }
@@ -319,6 +342,7 @@ impl<D: DataSource> Presenter<D> {
             .and_then(|n| n.props.get(PropId::TabIndex).and_then(|v| v.as_int()));
         explicit.is_none_or(|i| i >= 0)
             && self.focusable(id)
+            && self.radio_tab_stop(id)
             && self.host.route_visibility(id) == (false, false)
             && boxed.contains(&id)
     }
@@ -446,70 +470,11 @@ impl<D: DataSource> Presenter<D> {
             self.dispatch_press(id, now_ms, false);
             return;
         }
-        if node.node_type != NodeType::TextInput || node.props.bool(PropId::Editable) == Some(false)
-        {
+        // A radio's arrows and Space (x2apps survey #2).
+        if self.radio_key(id, name, now_ms) {
             return;
         }
-        let textarea = node.props.str(PropId::SemanticTag) == Some("textarea");
-        let mut value = node.props.str(PropId::Value).unwrap_or("").to_string();
-        // A selected text is what an edit replaces: Backspace deletes it.
-        let selected = self.selected == Some(id)
-            && (name == "Backspace"
-                || name == "Enter" && textarea
-                || name.chars().count() == 1 && self.held & 0b1100_1100 == 0);
-        if selected {
-            self.selected = None;
-            value.clear();
-        }
-        match name {
-            "Enter" if !textarea => {
-                if let Some(Some(e)) = self.commit_text(id, now_ms) {
-                    eprintln!("exact: {e}");
-                }
-                if let Some(e) = self.submit_event(id, now_ms) {
-                    eprintln!("exact: {e}");
-                }
-                return;
-            }
-            "Enter" => value.push('\n'),
-            "Backspace" => {
-                if value.pop().is_none() && !selected {
-                    return;
-                }
-            }
-            // A Control or Meta chord types nothing, as in a browser.
-            s if s.chars().count() == 1 && self.held & 0b1100_1100 == 0 => value.push_str(s),
-            _ => return,
-        }
-        if exact_kernel::control::text_maxlength(node.props).is_some_and(|limit| {
-            value.encode_utf16().count() > limit
-                && value.encode_utf16().count()
-                    > node
-                        .props
-                        .str(PropId::Value)
-                        .unwrap_or("")
-                        .encode_utf16()
-                        .count()
-        }) {
-            return;
-        }
-        self.edited = Some(id);
-        if self
-            .host
-            .runner()
-            .handlers_of(id)
-            .contains(&EventKind::Input)
-        {
-            if let Some(e) = self
-                .host
-                .dispatch_at(id, Event::Input(value.into()), now_ms)
-            {
-                eprintln!("exact: {e}");
-            }
-            if let Some(e) = self.after_commit() {
-                eprintln!("exact: {e}");
-            }
-        }
+        self.field_key(id, name, now_ms);
     }
 
     /// Commit a field typed into since it took the focus: HTML's `change`,
@@ -534,9 +499,11 @@ impl<D: DataSource> Presenter<D> {
             .node(id)
             .and_then(|n| n.props.str(PropId::Value).map(str::to_string))
             .unwrap_or_default();
-        Some(
-            self.host
-                .dispatch_at(id, Event::Change(value.into()), now_ms),
-        )
+        let selection = self.field_selection(id);
+        Some(self.host.dispatch_at(
+            id,
+            Event::Change(ControlValue::Field(value, selection)),
+            now_ms,
+        ))
     }
 }

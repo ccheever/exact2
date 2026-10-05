@@ -162,11 +162,8 @@ fn the_compiler_names_what_a_control_takes() {
     ))
     .is_ok());
     // Known non-text HTML controls never silently become TextInput nodes.
-    // The button element is Exact's supported action spelling; radio-group
-    // semantics have not been admitted.
-    for kind in [
-        "radio", "RADIO", "button", "Button", "submit", "reset", "image",
-    ] {
+    // The button element is Exact's supported action spelling.
+    for kind in ["button", "Button", "submit", "reset", "image"] {
         for spelling in [format!("\"{kind}\""), format!("on ? \"text\" : \"{kind}\"")] {
             let e = refused(&format!(
                 "component App\n  state on = false\n  view\n    input type={spelling}\n"
@@ -180,6 +177,100 @@ fn the_compiler_names_what_a_control_takes() {
         }
     }
     assert!(contract::compile(&app("input type=\"CHECKBOX\" checked=on change=set")).is_ok());
+}
+
+const RADIOS: &str = r#"component App
+  state color = "red"
+  state tries = 0
+  action pick(value: string)
+    color = value
+  action refuse(value: string)
+    tries = tries + 1
+  view
+    column
+      input type="radio" name="color" value="red" checked=color == "red" change=pick testId="red" aria-label="Red"
+      input type="RADIO" name="color" value="green" checked=color == "green" change=pick testId="green" aria-label="Green"
+      input type="radio" name="size" checked=false change=refuse testId="size" aria-label="Large"
+      text `${color} ${tries}` testId="color"
+"#;
+
+#[test]
+fn a_radio_is_a_control_of_its_name_whose_change_carries_its_value() {
+    // x2apps survey #2: HTML's radio, grouped by `name`, its `change` the
+    // radio's `value`.
+    let mut r = boot(RADIOS);
+    let red = view_of(&r, "red");
+    let node = r.kernel().node(red).unwrap();
+    assert_eq!(node.node_type, NodeType::Control);
+    assert_eq!(node.props.str(PropId::AccessibilityRole), Some("radio"));
+    assert_eq!(node.props.str(PropId::Name), Some("color"));
+    assert_eq!(node.style.margin_left, exact_kernel::Dimension::Points(5.0));
+    assert_eq!(
+        node.style.margin_bottom,
+        exact_kernel::Dimension::Points(0.0)
+    );
+    let green = view_of(&r, "green");
+    assert_eq!(
+        r.kernel().node(green).unwrap().props.str(PropId::Type),
+        Some("radio")
+    );
+    assert_eq!(r.kernel().radio_group(red), vec![red, green]);
+    assert_eq!(checked(&r, "red"), (Some(true), Some(true)));
+    r.dispatch(green, Event::Change("green".into())).unwrap();
+    assert_eq!(checked(&r, "red"), (Some(false), Some(false)));
+    assert_eq!(checked(&r, "green"), (Some(true), Some(true)));
+    // A radio reports its own value, and a string: never another's, never a bool.
+    match r.dispatch(green, Event::Change("red".into())).unwrap_err() {
+        RunnerError::InvalidValue { event, reason } => {
+            assert_eq!(event, "change");
+            assert!(reason.contains("\"green\""), "{reason}");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(matches!(
+        r.dispatch(green, Event::Change(true.into())).unwrap_err(),
+        RunnerError::InvalidEvent { event: "change" }
+    ));
+    // No `value`: HTML's `on`. An action that writes nothing leaves it unchecked.
+    let size = view_of(&r, "size");
+    r.dispatch(size, Event::Change("on".into())).unwrap();
+    assert_eq!(checked(&r, "size"), (Some(false), Some(false)));
+    let text = r.kernel().node(view_of(&r, "color")).unwrap();
+    assert_eq!(text.props.str(PropId::Text), Some("green 1"));
+}
+
+#[test]
+fn the_compiler_names_what_a_radio_takes() {
+    let refused = |src: &str| contract::compile(src).unwrap_err().to_string();
+    let app = |line: &str| {
+        format!(
+            "component App\n  state on = false\n  state pick = \"a\"\n  action set(v: bool)\n    on = v\n  action choose(v: string)\n    pick = v\n  view\n    column\n      {line}\n"
+        )
+    };
+    let e = refused(&app(
+        "input type=\"radio\" name=\"g\" value=\"a\" change=set",
+    ));
+    assert!(
+        e.contains("type-handler-payload") && e.contains("string"),
+        "{e}"
+    );
+    let e = refused(&app("input type=\"radio\" change=choose(\"x\")"));
+    assert!(e.contains("the radio's `value` (string)"), "{e}");
+    for line in [
+        "input value=pick name=\"g\"",
+        "input type=\"checkbox\" name=\"g\" checked=on",
+        "text \"a\" name=\"g\"",
+    ] {
+        let e = refused(&app(line));
+        assert!(
+            e.contains("lower-attr-tag") && e.contains("`name`"),
+            "{line}: {e}"
+        );
+    }
+    assert!(contract::compile(&app(
+        "input type=\"radio\" name=\"g\" value=\"a\" checked=pick == \"a\" change=choose disabled=on"
+    ))
+    .is_ok());
 }
 
 #[test]
@@ -498,4 +589,85 @@ fn spellcheck_and_autocorrect_take_a_bool_as_their_words() {
         .unwrap_err()
         .to_string();
     assert!(e.contains("`spellcheck` takes a string"), "{e}");
+}
+
+const EDITOR: &str = r#"component App
+  state seen = ""
+  state picked = ""
+  action edited(text: string, e: InputEvent)
+    seen = `${text} ${e.selectionStart} ${e.selectionEnd} ${e.selectionDirection} ${e.checked}`
+  action moved(e: InputEvent)
+    picked = `${e.value} ${e.selectionStart}-${e.selectionEnd} ${e.selectionDirection}`
+  action toggled(on: bool, e: InputEvent)
+    seen = `${e.value} ${e.checked} ${on} ${e.selectionStart} ${e.selectionDirection}`
+  action chose(value: string, e: InputEvent)
+    seen = `${value} ${e.value} ${e.checked}`
+  action jump(k: string)
+    setSelectionRange("editor", 2, 4, "backward")
+  view
+    column
+      textarea id="editor" value=seen input=edited select=moved key=jump testId="editor"
+      input type="checkbox" value="mint" checked=false change=toggled testId="mint"
+      input type="checkbox" checked=false change=toggled testId="plain"
+      input type="radio" name="g" value="b" checked=false change=chose testId="b"
+      text `${seen}|${picked}` testId="out"
+"#;
+
+fn out<D: DataSource>(r: &Runner<D>) -> String {
+    let node = r.kernel().node(view_in(r, "out")).unwrap();
+    node.props.str(PropId::Text).unwrap_or("").to_owned()
+}
+
+#[test]
+fn input_change_and_select_hand_on_the_targets_input_event() {
+    // x2apps codeedit #2: a text field's selection reaches its action; survey
+    // #2: a checkbox's and a radio's `value`.
+    use exact_runner::{FieldSelection, SelectionDirection};
+    let mut r = boot(EDITOR);
+    let editor = view_of(&r, "editor");
+    let selection = FieldSelection {
+        start: 2,
+        end: 4,
+        direction: SelectionDirection::Backward,
+    };
+    r.dispatch(
+        editor,
+        Event::Input(ControlValue::Field("hello".into(), selection)),
+    )
+    .unwrap();
+    assert_eq!(out(&r), "hello 2 4 backward false|");
+    // A host that reports no selection leaves the caret after the text, in
+    // UTF-16 units.
+    r.dispatch(editor, Event::Input("a😀".into())).unwrap();
+    assert_eq!(out(&r), "a😀 3 3 none false|");
+    r.dispatch(editor, Event::FieldSelect("abcdef".into(), selection))
+        .unwrap();
+    assert_eq!(out(&r), "a😀 3 3 none false|abcdef 2-4 backward");
+    // A checkbox's own `value`, `on` without one; a control has no text selection.
+    r.dispatch(view_of(&r, "mint"), Event::Change(true.into()))
+        .unwrap();
+    assert!(out(&r).starts_with("mint true true 0 none|"), "{}", out(&r));
+    r.dispatch(view_of(&r, "plain"), Event::Change(false.into()))
+        .unwrap();
+    assert!(out(&r).starts_with("on false false 0 none|"), "{}", out(&r));
+    r.dispatch(view_of(&r, "b"), Event::Change("b".into()))
+        .unwrap();
+    assert!(out(&r).starts_with("b b true|"), "{}", out(&r));
+    // `setSelectionRange` is the host's, by the field's `id`.
+    r.take_commands();
+    r.dispatch(editor, Event::key("x")).unwrap();
+    let commands = r.take_commands();
+    let command = commands
+        .iter()
+        .find(|c| c.name == "setSelectionRange")
+        .expect("the command");
+    assert_eq!(
+        command.args,
+        vec![
+            Value::str("editor"),
+            Value::Number(2.0),
+            Value::Number(4.0),
+            Value::str("backward")
+        ]
+    );
 }

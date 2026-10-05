@@ -77,7 +77,6 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         self.focus = next;
-        self.selected = None;
         self.dirty = true;
         // A typed field commits as it loses the focus, before its `blur`.
         let (mut error, mut dispatched) = match previous {

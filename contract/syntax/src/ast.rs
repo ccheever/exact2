@@ -1000,7 +1000,8 @@ pub fn is_input_multiple(tag: &str, positional: &Expr) -> bool {
 
 /// The form control an `input` is, by its literal `type` (LLP 1069.001 D1):
 /// `Some("checkbox")` for a checkbox (a switch is one too), whose `change`
-/// and `input` carry a bool; `Some("file")` for a file input (LLP 1069.002
+/// and `input` carry a bool; `Some("radio")` for a radio, whose carry its
+/// `value`; `Some("file")` for a file input (LLP 1069.002
 /// D1), whose `change` carries a `list<Picked>`; `Some("select")` for a
 /// `select`, whose `change` and `input` carry the chosen option's value;
 /// `None` for a text field or any other element.
@@ -1020,11 +1021,33 @@ pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
         })
 }
 
+/// [`input_control`], or `Some("field")` for a text field whose `select`
+/// is HTML's (x2apps codeedit #2): an `input` that is no control, or a
+/// `textarea` that is not the Markdown editor (no `markup`, or literally
+/// `none`), whose `select` carries the field's `InputEvent`; the editor's
+/// carries its `MarkdownSelection`. What a handler's payload is typed by.
+pub fn payload_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
+    let field = match tag {
+        "input" => input_control(tag, attrs).is_none(),
+        "textarea" => attrs
+            .iter()
+            .find(|a| a.name == "markup")
+            .is_none_or(|a| matches!(&a.value, Expr::Str(m, _) if m == "none")),
+        _ => false,
+    };
+    if field {
+        Some("field")
+    } else {
+        input_control(tag, attrs)
+    }
+}
+
 /// The control an `input`'s literal `type` names; `None` for a text field's
 /// (`text`, `password`, `email`, …).
 fn control_type(t: &str) -> Option<&'static str> {
     [
         "checkbox",
+        "radio",
         "file",
         "range",
         "date",
@@ -1041,7 +1064,7 @@ fn control_type(t: &str) -> Option<&'static str> {
 pub fn unsupported_input_type(value: &Expr) -> Option<&str> {
     match value {
         Expr::Str(kind, _)
-            if ["radio", "button", "submit", "reset", "image"]
+            if ["button", "submit", "reset", "image"]
                 .into_iter()
                 .any(|candidate| kind.eq_ignore_ascii_case(candidate)) =>
         {

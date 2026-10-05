@@ -20,6 +20,8 @@ final class ControlHost: NSObject {
     /// A range's bound value last written into it: written again only when
     /// it changes (LLP 1069.001 D4, amended 2026-10-04).
     var appliedRange: [UInt32: String] = [:]
+    /// A radio's group from the kernel (`exact_radio_group`; x2apps survey #2).
+    var radioGroup: ((UInt32) -> RadioGroup)?
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
@@ -27,7 +29,7 @@ final class ControlHost: NSObject {
         ((control as? NSSwitch)?.state ?? (control as? NSButton)?.state) == .on
     }
 
-    private func setOn(_ control: NSControl, _ on: Bool) {
+    func setOn(_ control: NSControl, _ on: Bool) {
         let state: NSControl.StateValue = on ? .on : .off
         if let s = control as? NSSwitch, s.state != state { s.state = state }
         if let b = control as? NSButton, b.state != state { b.state = state }
@@ -48,11 +50,12 @@ final class ControlHost: NSObject {
             let box = NSButton(checkboxWithTitle: "", target: nil, action: nil)
             box.imagePosition = .imageOnly
             made = box
+        case "radio": made = RadioButtonMac() // x2apps survey #2
         default: made = makeValueControl(kind)
         }
         made.tag = Int(node.id)
         made.target = self
-        made.action = kind == "button" ? #selector(nativePressed(_:))
+        made.action = kind == "button" ? #selector(nativePressed(_:)) : kind == "radio" ? #selector(radioClicked(_:))
             : kind == "switch" || kind == "checkbox" ? #selector(changed(_:)) : #selector(valueChanged(_:))
         controls[node.id] = made
         kinds[node.id] = kind
@@ -85,7 +88,7 @@ final class ControlHost: NSObject {
             let accent = owner.channels("accent_color").map { TextEngine.color($0) }
             if let b = control as? NativeButtonMac {
                 configureNative(b, owner, accent: accent)
-            } else if control is NSSwitch || kinds[owner.id] == "checkbox" {
+            } else if control is NSSwitch || kinds[owner.id] == "checkbox" || kinds[owner.id] == "radio" {
                 if let on = owner.props["checked"].map({ $0 == "true" }) { setOn(control, on) }
                 // NSSwitch takes the system accent; AppKit gives it no tint.
                 (control as? NSButton)?.contentTintColor = accent
@@ -151,7 +154,7 @@ final class ControlHost: NSObject {
             _ = typeRange(slider, node, String((slider.minValue + slider.maxValue) / 2))
             return true
         }
-        if kinds[node.id] != "checkbox" && kinds[node.id] != "switch" { return openValue(control) }
+        if !["checkbox", "switch", "radio"].contains(kinds[node.id]) { return openValue(control) }
         if let b = control as? NSButton { b.performClick(nil) } else {
             setOn(control, !isOn(control))
             changed(control)
@@ -165,7 +168,7 @@ final class ControlHost: NSObject {
         if let value = valueObservation(control) {
             return value.merging(["size": [Agent.r2(control.frame.width), Agent.r2(control.frame.height)]]) { a, _ in a }
         }
-        return ["view": control is NSSwitch ? "NSSwitch" : "NSButton(checkbox)", "on": isOn(control),
+        return ["view": control is NSSwitch ? "NSSwitch" : control is RadioButtonMac ? "NSButton(radio)" : "NSButton(checkbox)", "on": isOn(control),
                 "size": [Agent.r2(control.frame.width), Agent.r2(control.frame.height)]]
     }
 

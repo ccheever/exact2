@@ -1,4 +1,4 @@
-import { renderMarkup, reportPlace, onSelection } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
+import { renderMarkup, reportPlace, onSelection, textField, settleRadios } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq, equal } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { media, mediaProp, mediaOn, mediaPiece, MEDIA_EVENTS } from "./media.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
@@ -875,11 +875,20 @@ export function on(e, kind, f) {
   switch (kind) {
     // A link with a press is the app's navigation: the browser's is prevented. A modified or other-button click, a `target` or `download`, is the browser's alone and the press does not run, with a router or without (`router`, input-glue.js).
     case "press": if (!e.matches("button, a[href], input, select, textarea, summary")) input(); /* the input piece presses it by key (input-glue.js `pressesByKey`) */ return l("click", ev => { const a = ev.target.closest?.("a[href]"); if (a && a !== e && e.contains(a)) return; if (e.localName === "a" && (ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || (e.target && e.target !== "_self") || e.hasAttribute("download"))) return; ev.stopPropagation(); if (e.localName === "a") ev.preventDefault(); f([ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); }); // a press action taking one more parameter hears the MouseEvent's modifiers (gallery F20)
-    // A checkbox's value is whether it is checked; the platform flips the
-    // box at once, and an action that refuses snaps it back (glue.js). A
-    // host's change carries its own text (files.js: a picker's lines, which
-    // an input's value would flatten). A range's is a number (the events table).
-    case "change": case "input": return l(kind, ev => { if (ev instanceof CustomEvent) return f(ev.detail); if (e.type !== "checkbox") return f(e.type === "range" ? Number(e.value) : e.value); f(e.checked); if (e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked; });
+    // A checkbox's value is whether it is checked, a radio's its `value`; the
+    // platform moves the control at once, and an action that refuses snaps
+    // the box or the radio group back (glue.js, navigation.js). A host's
+    // change carries its own text (files.js: a picker's lines, which an
+    // input's value would flatten). A range's is a number (the events table).
+    // An action taking one more parameter hears the `InputEvent` (x2apps
+    // codeedit #2, survey #2).
+    case "change": case "input": return l(kind, ev => {
+      if (ev instanceof CustomEvent) return f(ev.detail);
+      const box = e.type === "checkbox", radio = e.type === "radio", v = box ? e.checked : e.type === "range" ? Number(e.value) : e.value;
+      f(v, inputRecord(e, box || radio ? e.value : String(v), box ? e.checked : radio));
+      if (box && e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked;
+      if (radio) settleRadios(e, r => r.$checked);
+    });
     case "hover": l("pointerenter", () => f(true)); return l("pointerleave", () => f(false));
     case "key": return l("keydown", ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }); // it bubbles to every ancestor's handler; an action taking one more parameter hears the KeyboardEvent record too (contract/types selection.rs's order)
     // The window's, heard by every connected element that declares it (studio diary R17).
@@ -1091,8 +1100,16 @@ export function mde(e) {
     });
   }).catch(err => say(`markup editor: ${err.message}`)).finally(() => inflight.n--);
 }
-/** `select`: the editor's facts at each selection change (runner Event::Select). */
-export function onSelect(e, f) { e.$select = f; }
+/** `select`: the editor's facts at each selection change (runner Event::Select);
+ * a text field's own, HTML's, its `InputEvent` (x2apps codeedit #2). */
+export function onSelect(e, f) { e.$select = f; e.addEventListener("select", () => { if (textField(e)) f(inputRecord(e, e.value, false)); }); }
+/** The `InputEvent` record (contract/types selection.rs's order): the value,
+ * whether checked, and a text field's selection (UTF-16, the DOM's); a type
+ * with none has its caret after its text, a control 0, 0, `none`. */
+function inputRecord(e, value, checked) {
+  const n = e.value?.length ?? 0, field = textField(e);
+  return [value, checked, field ? e.selectionStart ?? n : 0, field ? e.selectionEnd ?? n : 0, field ? e.selectionDirection ?? "none" : "none"];
+}
 /** Press feedback (LLP 1061): the web host's input piece shows it, from
  * the node's own `--exact-press` (css.rs). */
 export const pressFeedback = () => input();
