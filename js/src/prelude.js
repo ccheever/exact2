@@ -900,7 +900,7 @@
       var p = pending.get(call.tickets[i]);
       if (p && p.call === call) settled(call.tickets[i]);
     }
-    if (!call.lost && (call.storage > 0 || (call.status === "pending" && storing.size))) { call.letGo = true; return "storage"; }
+    if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage"; }
     call.replied = true;
     calls.delete(call.id);
     return "";
@@ -910,7 +910,7 @@
     calls.forEach(function (c) {
       if (!c.letGo) return;
       if (failed) { c.lost = true; storing.delete(c); }
-      if (!c.lost && (c.storage > 0 || (c.status === "pending" && storing.size))) owed = true;
+      if (c.storage > 0 && !c.lost) owed = true;
       else { c.replied = true; calls.delete(c.id); }
     });
     return owed ? "storage" : "";

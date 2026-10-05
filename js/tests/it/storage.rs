@@ -1238,3 +1238,62 @@ fn retired_writes_keep_submission_order_beside_live_targets_and_do_not_cross_unl
         }
     }
 }
+
+/// A forgotten answer waiting on another call does not own that call's
+/// storage turn. Its cleanup must leave the live answer's Store installed.
+#[test]
+fn forgetting_a_shared_waiter_keeps_the_live_answers_store_write() {
+    use exact_runner::{InFlight, Target};
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut store = Store::new(GRANTS, [("session".into(), "original".into())]);
+    let target = Target::Resource(0);
+    let a = args("shared-live", "live-value");
+    assert!(matches!(
+        m.answer_for(target, &mut store, "work", &a).unwrap(),
+        Answer::Later(_)
+    ));
+    assert!(matches!(
+        m.answer_for(
+            Target::Resource(1),
+            &mut store,
+            "work",
+            &args("shared-wait", "")
+        )
+        .unwrap(),
+        Answer::Later(_)
+    ));
+    let mut answer = m
+        .parse_for(target, &mut store, "work", &a, response(""))
+        .unwrap();
+    let Answer::Later(request) = &answer else {
+        panic!("the live answer owns a storage continuation")
+    };
+    m.forgotten(
+        &store,
+        &[InFlight {
+            target,
+            source: "work",
+            args: &a,
+            continuation: request.continuation,
+        }],
+    );
+    for _ in 0..100 {
+        match answer {
+            Answer::Now(value) => {
+                assert_eq!(text(value), "live-value");
+                assert_eq!(store.get("session"), Some("live-value"));
+                assert_eq!(std::fs::read(root.0.join("data/shared")).unwrap(), [1]);
+                return;
+            }
+            Answer::Later(request) => {
+                let outcome = m.continuation(request.continuation.unwrap()).unwrap()();
+                answer = m
+                    .parse_for(target, &mut store, "work", &a, outcome)
+                    .unwrap();
+            }
+        }
+    }
+    panic!("live answer did not finish");
+}

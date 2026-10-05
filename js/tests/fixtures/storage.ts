@@ -6,11 +6,21 @@ const grants = "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write d
 // Work queued behind whatever the module started last, the way an app serializes its
 // database operations. The second answer's storage calls run in a later microtask.
 let tail: Promise<unknown> = Promise.resolve();
+let shared: Promise<{text:string}>;
 
 // Writes an answer starts and does not await (kanban F22): the answer is
 // given before they land, and they must land all the same.
 function answer(source:string, args:unknown[], store:Store, storage:Storage, native:any) {
   const op = String(args[0]), value = String(args[1]);
+  if (op === "shared-live") {
+    shared = fetch("https://example.test/shared").then(async () => {
+      await storage.fs.atomicWriteFile(storage.fs.directories.data + "/shared", new Uint8Array([1]));
+      store.set("session", value);
+      return {text: value};
+    });
+    return shared;
+  }
+  if (op === "shared-wait") return shared.then(() => ({text: "waited"}));
   if (op === "unawaited") {
     storage.fs.atomicWriteFile(storage.fs.directories.data + "/unawaited", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
     return {text:"answered"};
