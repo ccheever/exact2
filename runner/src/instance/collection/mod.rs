@@ -156,6 +156,11 @@ pub(crate) struct Collection {
     spacers: Vec<(ViewId, f64)>,
     children: Vec<ViewId>,
     revision: u64,
+    /// Moves only when the list's keys changed (an item put in, taken out or
+    /// moved), never for its window, a measurement or a scroll: a host tells
+    /// authored row moves from the list's own by it, with a row's own resize
+    /// ([`Tree::collection_data`]).
+    data_generation: u64,
     next_epoch: u64,
     zero_heights: std::collections::BTreeSet<String>,
     geometry: Option<CollectionFeedback>,
@@ -430,6 +435,7 @@ impl Collection {
             spacers: Vec::new(),
             children: Vec::new(),
             revision: 0,
+            data_generation: 0,
             next_epoch: 0,
             zero_heights: Default::default(),
             geometry: None,
@@ -533,6 +539,11 @@ impl Collection {
             // it here made the revision differ between modes when a re-ask
             // answered the same rows (exact-live, a build-time answer asked
             // again at data_ready, 2026-10-04).
+            // A key put in, taken out or moved: the rows that move are the
+            // data's (`data_generation`).
+            if fresh || shared || rekeyed {
+                self.data_generation += 1;
+            }
             if compare_previous && !rekeyed && !rows_changed {
                 in_place = Some(
                     (0..items.len())

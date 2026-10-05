@@ -403,3 +403,90 @@ fn shared_layout_observation_seeds_snaps_hides_and_retires() {
     assert_eq!(layout.seed(&k, &receipt, &mut engine), vec![key]);
     assert_eq!(engine.target(node, Property::Layout), None);
 }
+
+/// A box a list moved for no author (rows built or measured before it, LLP
+/// 1010) takes its place with no transition when idle; one already moving
+/// goes on moving toward the new place.
+#[test]
+fn an_unauthored_move_snaps_an_idle_box_and_retargets_a_moving_one() {
+    use exact_kernel::motion::{layout_presented, LayoutMotion};
+    use exact_kernel::{Offer, StyleValue};
+
+    let rows = |id, rows: &[(StyleId, &str)]| {
+        let mut s = StyleProps::default();
+        for (row, value) in rows {
+            s.set_dynamic(*row, &StyleValue::Text((*value).into()))
+                .unwrap();
+        }
+        Op::SetStyle {
+            id,
+            patch: Box::new(s),
+        }
+    };
+    let mut k = kernel();
+    let receipt = k
+        .apply(
+            0,
+            2,
+            &[
+                rows(2, &[(StyleId::Height, "10px")]),
+                rows(
+                    4,
+                    &[
+                        (StyleId::Height, "10px"),
+                        (StyleId::LayoutTransition, "1s linear"),
+                    ],
+                ),
+            ],
+        )
+        .unwrap();
+    k.compute_layout(1, Offer::definite(400.0, 600.0)).unwrap();
+    let key = k.node(4).unwrap().key;
+    let node = motion_node(key);
+    let mut engine = Engine::new();
+    let mut layout = LayoutMotion::default();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    layout.adopt(&k, [key]);
+    layout.observe_all(&k, &mut engine, false);
+    // The box before it grows (a row measured): idle, it takes the place.
+    let receipt = k
+        .apply(0, 3, &[rows(2, &[(StyleId::Height, "60px")])])
+        .unwrap();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    layout.seed(&k, &receipt, &mut engine);
+    k.compute_layout(1, Offer::definite(400.0, 600.0)).unwrap();
+    assert!(layout.observe_unauthored(&k, key, &mut engine).is_empty());
+    assert!(
+        !engine.is_active(node, Property::Layout),
+        "no transition plays"
+    );
+    assert_eq!(engine.value(node, Property::Layout), k.layout_box(key));
+    assert_eq!(
+        layout_presented(&engine, node, engine.value(node, Property::Layout).unwrap()),
+        [0.0, 0.0, 1.0, 1.0],
+        "nothing moves on screen"
+    );
+    // An authored move starts its transition; an unauthored one during it
+    // retargets the running curve rather than cutting it.
+    let receipt = k
+        .apply(0, 4, &[rows(2, &[(StyleId::Height, "20px")])])
+        .unwrap();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    layout.seed(&k, &receipt, &mut engine);
+    k.compute_layout(1, Offer::definite(400.0, 600.0)).unwrap();
+    layout.observe_all(&k, &mut engine, false);
+    assert!(
+        engine.is_active(node, Property::Layout),
+        "an authored move plays"
+    );
+    engine.advance(0.25).unwrap();
+    let receipt = k
+        .apply(0, 5, &[rows(2, &[(StyleId::Height, "30px")])])
+        .unwrap();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    layout.seed(&k, &receipt, &mut engine);
+    k.compute_layout(1, Offer::definite(400.0, 600.0)).unwrap();
+    layout.observe_unauthored(&k, key, &mut engine);
+    assert!(engine.is_active(node, Property::Layout), "still moving");
+    assert_eq!(engine.target(node, Property::Layout), k.layout_box(key));
+}

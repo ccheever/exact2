@@ -51,6 +51,12 @@ pub(crate) struct Presence {
     layout: LayoutMotion,
     /// A resize lays out next: positions are taken, not animated.
     pub(super) snap: bool,
+    /// Each virtualized list's data generation, and whether it runs along
+    /// x, at the last layout.
+    generations: Vec<(ViewId, u64, bool)>,
+    /// The lists whose data this layout's commit did not change: their rows'
+    /// moves are the list's own (`LayoutMotion::observe_unauthored`).
+    settled: IdSet<ViewId>,
 }
 
 impl<D: DataSource> Host<D> {
@@ -166,13 +172,107 @@ impl<D: DataSource> Host<D> {
         self.retire_layout(retired, batch);
     }
 
+    /// Before a layout's observations: the lists whose keys are what they
+    /// were at the last layout and none of whose rows changed size. Their
+    /// rows moved for their window, a measurement or a scroll, whichever
+    /// commit carried it (a report, a scroll event, a fill, a timer).
+    pub(super) fn judge_list_moves(&mut self) {
+        self.presence.settled.clear();
+        let now = self.runner.collection_data();
+        if self.presence.layout.is_empty() {
+            self.presence.generations = now;
+            return;
+        }
+        let before: IdMap<ViewId, u64> = self
+            .presence
+            .generations
+            .iter()
+            .map(|(v, g, _)| (*v, *g))
+            .collect();
+        let mut across: IdMap<ViewId, bool> = IdMap::default();
+        for (view, generation, horizontal) in &now {
+            across.insert(*view, *horizontal);
+            if before.get(view) == Some(generation) {
+                self.presence.settled.insert(*view);
+            }
+        }
+        self.presence.generations = now;
+        // What only an author moves: a row's wrapper changing size (its
+        // content or margins) or moving across the list (its padding), or a
+        // row's box moving or resizing in its wrapper. Either takes its list
+        // out of the settled ones; a wrapper that only moved along the list
+        // is the list's own doing. Places are compared to a hundredth of a
+        // point: they are rebuilt from absolute coordinates.
+        let kernel = self.runner.kernel();
+        let wraps =
+            |n: exact_kernel::NodeRef| n.props.str(exact_kernel::PropId::ListItemKey).is_some();
+        let near = |a: f32, b: f32| (a - b).abs() < 0.01;
+        for key in &self.pending_layout {
+            let Some(node) = kernel.node_by_key(*key) else {
+                continue;
+            };
+            let Some(parent) = node.parent.and_then(|p| kernel.node(p)) else {
+                continue;
+            };
+            let Some(was) = self.mirror.get(&node.id).and_then(|m| m.frame) else {
+                continue;
+            };
+            let is = relative(node.frame, Some(parent.frame));
+            let (list, authored) = if wraps(node) {
+                let horizontal = node
+                    .parent
+                    .and_then(|l| across.get(&l).copied())
+                    .unwrap_or(false);
+                let cross = if horizontal {
+                    (was.1, is.1)
+                } else {
+                    (was.0, is.0)
+                };
+                (
+                    node.parent,
+                    !near(was.2, is.2) || !near(was.3, is.3) || !near(cross.0, cross.1),
+                )
+            } else if wraps(parent) {
+                let moved = !near(was.0, is.0)
+                    || !near(was.1, is.1)
+                    || !near(was.2, is.2)
+                    || !near(was.3, is.3);
+                (parent.parent, moved)
+            } else {
+                continue;
+            };
+            if authored {
+                if let Some(list) = list {
+                    self.presence.settled.remove(&list);
+                }
+            }
+        }
+    }
+
     /// Observe changed boxes after layout; shared policy also observes the
     /// row placed through a moving virtualized row wrapper.
     pub(super) fn observe_layout(&mut self, key: NodeKey, batch: &mut Batch) {
-        let retired =
+        let kernel = self.runner.kernel();
+        // A settled list's row: its wrapper, or the row's box in it.
+        let settled = |id: Option<ViewId>| id.is_some_and(|id| self.presence.settled.contains(&id));
+        let wraps =
+            |n: exact_kernel::NodeRef| n.props.str(exact_kernel::PropId::ListItemKey).is_some();
+        let unauthored = !self.presence.settled.is_empty()
+            && kernel.node_by_key(key).is_some_and(|n| {
+                (wraps(n) && settled(n.parent))
+                    || n.parent
+                        .and_then(|p| kernel.node(p))
+                        .is_some_and(|p| wraps(p) && settled(p.parent))
+            });
+        let retired = if unauthored {
             self.presence
                 .layout
-                .observe(self.runner.kernel(), key, &mut self.engine, false);
+                .observe_unauthored(kernel, key, &mut self.engine)
+        } else {
+            self.presence
+                .layout
+                .observe(kernel, key, &mut self.engine, false)
+        };
         self.retire_layout(retired, batch);
     }
 

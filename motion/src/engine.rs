@@ -499,6 +499,25 @@ impl Engine {
         Ok(())
     }
 
+    /// A change no author made — a list's rows moved because rows above them
+    /// were built or measured — taken with no transition: an idle property's
+    /// target and presentation both become the value, so nothing moves on
+    /// screen and nothing is left to present. A property that is running or
+    /// held is observed as an ordinary change.
+    pub fn observe_settled(&mut self, change: Change) -> Result<(), EngineError> {
+        validate_value(change.property, change.value)?;
+        let key = (change.node, change.property);
+        match self.slots.get_mut(&key) {
+            Some(slot) if slot.running().is_none() && slot.owner().is_none() => {
+                slot.set_target(change.value);
+                slot.set_presented(change.value);
+                self.played.remove(&key);
+                Ok(())
+            }
+            _ => self.observe(change),
+        }
+    }
+
     /// Move the clock to `now` and sample every running transition there.
     /// Seeking is the only operation: the result depends on `now`, never on
     /// how many calls it took to get there.

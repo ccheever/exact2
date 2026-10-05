@@ -113,6 +113,7 @@ impl<D: DataSource> Host<D> {
     /// The parent-relative frames and scroll content sizes that changed since
     /// the presenter last heard them.
     fn emit_layout(&mut self, batch: &mut Batch) -> Result<(), String> {
+        self.judge_list_moves();
         // Preserve publication order without a tree insertion for each touch.
         let mut pending: Vec<_> = std::mem::take(&mut self.pending_layout)
             .into_iter()
