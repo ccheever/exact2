@@ -80,14 +80,15 @@ guide's rules don't make obvious.
   it has not built (84 pt with `estimated-item-height=52`). Fix:
   `scroll-start="end"` on the `list` (LLP 1010 §6.5), not a `scrollTop` write or a
   `scrollIntoView` after the first command. (Signal Clone, build 4.)
-- **The app works hard at rest.** Cause: it commits state on a timer (a clock
-  written every 250 ms), so every tick is a batch and the host runs its whole
-  post-apply pass (navigation, controls, menus, every scroller's position) four
-  times a second; before `32805146` this also cut the reader's scrolling. Fix:
-  write state only when it changes (a minute-resolution clock; poll fast only while
-  something is in flight), and remove `scroll=` handlers left over from
-  experiments: each commits per scroll frame. (Signal Clone, build 2; QUEUE has
-  the host side.)
+- **The app works hard at rest.** Cause: it commits state that shows on a timer
+  (a clock's text written every 250 ms), so every tick changes a view and the host
+  runs its whole post-apply pass (navigation, controls, menus, every scroller's
+  position) four times a second; before `32805146` this also cut the reader's
+  scrolling. A timer's or a scroll handler's commit whose writes show nowhere
+  skips that pass; any other still runs it. Fix: write state
+  only when it changes (a minute-resolution clock; poll fast only while something
+  is in flight), and remove `scroll=` handlers left over from experiments: each
+  runs an action per scroll frame. (Signal Clone, build 2.)
 
 - **A custom row in a grouped list overflows its card on the right.** Cause:
   the sheet already gives each row its margin (16 pt, or 56 pt after an icon)

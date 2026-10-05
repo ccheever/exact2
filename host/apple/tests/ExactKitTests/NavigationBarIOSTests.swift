@@ -168,6 +168,18 @@ final class NavigationBarIOSTests: XCTestCase {
         _ = press.perform(NSSelectorFromString(action), with: control)
         until("the tab pressed") { state(session, "segment") as? String == "missed" }
         until("the selection follows aria-selected") { control.selectedSegmentIndex == 1 }
+        // Sized for the text size and weight it shows, when they change and
+        // no batch follows (every batch leaves it alone otherwise).
+        let segments = try XCTUnwrap((top as? RouteController)?.titleSegments)
+        for (category, weight) in [(UIContentSizeCategory.accessibilityExtraLarge, UILegibilityWeight.regular), (.accessibilityExtraLarge, .bold)] {
+            control.frame.size = CGSize(width: 1, height: 1)
+            control.traitOverrides.preferredContentSizeCategory = category
+            control.traitOverrides.legibilityWeight = weight
+            control.updateTraitsIfNeeded()
+            XCTAssertEqual(segments.sized?.traits, [category, weight.rawValue] as [AnyHashable])
+            XCTAssertGreaterThanOrEqual(control.frame.width, 180, "sized again: two segments, 90 pt each at least")
+            XCTAssertGreaterThan(control.frame.height, 1)
+        }
     }
 
     func testAPushedRouteShowsBackAsTheAuthoredControlAndAPopPressesItOnce() throws {

@@ -53,10 +53,7 @@ extension ControlHost {
             return CGSize(width: ceil(s.width), height: ceil(s.height))
         }
         #endif
-        if control is NativeButtonIOS {
-            let s = control.intrinsicContentSize
-            return CGSize(width: ceil(s.width), height: ceil(s.height))
-        }
+        if let button = control as? NativeButtonIOS { return button.naturalSize }
         guard let button = control as? UIButton, let config = button.configuration else { return control.intrinsicContentSize }
         let probe = UIButton(configuration: config)
         var size = CGSize.zero

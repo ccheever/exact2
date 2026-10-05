@@ -9,6 +9,14 @@ import UIKit
 /// scroller's bookkeeping — held apart and made on the first write that is
 /// not a default (`NodeView.more`). A list's rows set none of it, so each
 /// row's view is about 500 bytes smaller.
+/// A fixed gradient as last aimed: its layer, style, appearance and boxes,
+/// and the gradient and stops made from them.
+struct AimedGradient {
+    weak var layer: CAGradientLayer?
+    let source: BatchValue, dark: Bool, bounds: CGRect, box: CGRect
+    let gradient: Gradient, stops: ([CGFloat], [CGColor])
+}
+
 final class NodeExtras {
     var inlinePressed: UInt32?
     var svgPressed: UInt32?
@@ -16,6 +24,8 @@ final class NodeExtras {
     var clipRule: CGPathFillRule = .winding
     /// A `background-image` gradient Core Animation paints (LLP 1066).
     var boxGradient: CAGradientLayer?
+    /// What a fixed gradient was last aimed with (`reaimFixedGradient`).
+    var aimedGradient: AimedGradient?
     /// `box-shadow` and the clip it casts outside (`BoxShadow.swift`).
     var shadowCaster: ShadowCaster?
     /// Inset `box-shadow`s (LLP 1077 D4).
@@ -115,6 +125,7 @@ extension NodeView {
     var clipPath: CGPath? { get { extras?.clipPath } set { if newValue != nil || extras != nil { more.clipPath = newValue } } }
     var clipRule: CGPathFillRule { get { extras?.clipRule ?? .winding } set { if newValue != .winding || extras != nil { more.clipRule = newValue } } }
     var boxGradient: CAGradientLayer? { get { extras?.boxGradient } set { if newValue != nil || extras != nil { more.boxGradient = newValue } } }
+    var aimedGradient: AimedGradient? { get { extras?.aimedGradient } set { if newValue != nil || extras != nil { more.aimedGradient = newValue } } }
     var shadowCaster: ShadowCaster? { get { extras?.shadowCaster } set { if newValue != nil || extras != nil { more.shadowCaster = newValue } } }
     var insetCaster: InsetShadowCaster? { get { extras?.insetCaster } set { if newValue != nil || extras != nil { more.insetCaster = newValue } } }
     var clipBox: PlainView? { get { extras?.clipBox } set { if newValue != nil || extras != nil { more.clipBox = newValue } } }

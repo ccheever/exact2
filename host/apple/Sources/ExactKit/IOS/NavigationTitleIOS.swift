@@ -104,7 +104,7 @@ struct HeaderTitle: Equatable {
     }
 
     /// Everything the title is drawn from.
-    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(spoken):\(rtl):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }):\(tap ?? 0)" }
+    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(spoken):\(rtl):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }.joined(separator: "\u{1F}")):\(tap ?? 0)" }
     static func == (a: HeaderTitle, b: HeaderTitle) -> Bool { a.source == b.source }
 
     static func holdsHeading(_ node: NodeView) -> Bool {
@@ -165,6 +165,7 @@ final class HeaderTitleView: UIControl {
         // the text size changes (their colour is the run's, already dynamic).
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: HeaderTitleView, _: UITraitCollection) in
             guard let (group, text) = view.shown else { return }
+            view.shown = nil
             view.subtitle.font = .preferredFont(forTextStyle: .footnote, compatibleWith: view.traitCollection)
             view.update(group, title: text)
         }
@@ -207,6 +208,10 @@ final class HeaderTitleView: UIControl {
     private var shown: (HeaderTitle, String)?
 
     func update(_ group: HeaderTitle, title text: String) {
+        // Every batch projects the routes again: an unchanged title is left
+        // alone, since invalidating its size relaid the whole navigation
+        // bar out each time (~1 ms a batch, a fling's every frame).
+        if let shown, shown.0 == group, shown.0.testId == group.testId, shown.1 == text { return }
         shown = (group, text)
         tap = group.tap
         avatar.image = group.avatar?.image

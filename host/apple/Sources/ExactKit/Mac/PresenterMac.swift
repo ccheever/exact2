@@ -1121,6 +1121,10 @@ final class Presenter {
 
     /// Align an enclosing context panel's preview with its source, while
     /// keeping the panel inside the visible viewport.
+    /// A scroll whose batch skipped the pass (`ExactSession.applyUnlessEmpty`):
+    /// a context preview follows its source out of the scrolled box.
+    func scrolledWithoutPass() { positionContexts() }
+
     private func positionContexts() {
         for preview in carrying("contextTarget") {
             guard let target = preview.props["contextTarget"],

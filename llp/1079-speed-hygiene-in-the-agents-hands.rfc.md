@@ -650,8 +650,13 @@ four times a second, a 7 ms main-thread stall under any gesture.
   `ExactSession.changesNothing` now names that predicate once: no ops, no
   error, no `controls`, no canvas images, and motion, spatial, frame tasks,
   the canvas and the owed draw unchanged.
-- The timer path (`scheduleClock` → `applyTick`) uses it too. An idle tick
-  only records its deadline and arms the next timer.
+- The timer path (`scheduleClock` → `applyUnlessEmpty`) uses it too. An idle
+  tick only records its deadline and arms the next timer. So does a scroll
+  event (2026-10-05): a `scroll=` handler whose writes show nowhere committed
+  an empty batch every frame of a fling, each a ~4.5 ms pass. Other events
+  still apply an empty batch, which reconciles a native control that changed
+  itself before its handler ran, and seeks native animations to the agent's
+  clock (`code-2026-10-05-ios-fling-pass.astra.md`).
 - `controls` (LLP 1069.011 §9) is a batch flag the Apple projection sets when
   it suppresses a control's viewless contents: a native button's face, a
   select's options. Such a change puts no op on any view, so without the flag

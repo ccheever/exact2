@@ -1,0 +1,23 @@
+# Code review: iOS, a fling no longer pays the presenter's whole pass per batch (5b33306bc..eee07e463), 2026-10-05 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via `codex exec`, reasoning effort xhigh, sandbox read-only, `-C` a detached worktree at `eee07e463`.
+- **Method:** one brief (sha256 `ae2143c4e5406da1dc5df7367b5905a89422374df265ef75f713329a52e9bc22`), shared with grok. Round 1, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** DO NOT LAND.
+- **Disposition (r2):** 1, 2 and 3 taken by narrowing the skip: only a timer's batch and a scroll event's skip when they change nothing (`applyUnlessEmpty`, the old `applyTick` widened by one caller); every other event, the agent's clock and a scheme change apply an empty batch as before. 4 taken: the title's `testId` joins the comparison. 5 taken: the natural size is pinned for a new face and a larger text size; the fixed gradient for a new gradient at the same box, a layer made again, and the appearance flipping at the same box. The title's subtitle-only change was already pinned (`NavigationBasicsIOSTests`, toggle-subtitle); a `testId`-only change is not (the fixture has none).
+
+---
+
+DO NOT LAND
+
+1. **MATERIAL — Empty clock advances freeze native animations.** [Session.swift:942](host/apple/Sources/ExactKit/Session.swift:942) now skips the tick applied after the agent changes its clock ([Agent.swift:462](host/apple/Sources/ExactKit/Agent.swift:462)). A Core Animation–lowered opacity animation can produce no ops, so neither presenter reaches `svg.seek`; screenshots retain the previous animation time. Both Apple platforms are affected. **Fix:** seek native animations explicitly when the agent clock changes, independently of batch application. Test an otherwise idle animation through `clock` and screenshot.
+
+2. **MATERIAL — Rejected tab selections remain visually selected.** UIKit changes selection before [SegmentsIOS.swift:338](host/apple/Sources/ExactKit/IOS/SegmentsIOS.swift:338) dispatches the press. If its action leaves `aria-selected` unchanged and emits no ops, the new skip bypasses the reconciliation at line 332. The content stays on tab A while the control shows B. `UITabBar` and [AppKit segments](host/apple/Sources/ExactKit/Mac/SegmentsMac.swift:121) have the same dependency. **Fix:** reconcile committed selection after native activation, including empty results. Test actual native selection followed by a no-op handler; an agent tap alone does not mutate native selection.
+
+3. **MATERIAL — macOS appearance changes can leave control accents stale.** A checkbox with only `accent-color: light-dark(red, blue)` can receive an empty scheme batch: accent is outside the motion engine’s [paint properties](motion/src/property.rs:128). Previously, `session.scheme` still ran `controls.sync`, which resolves and assigns the tint ([ControlsMac.swift:80](host/apple/Sources/ExactKit/Mac/ControlsMac.swift:80)). Now it skips; the node’s [appearance callback](host/apple/Sources/ExactKit/Mac/NodeViewMac.swift:777) only reapplies node styling. This breaks the earlier idle-review assumption that scheme reports still fully apply. **Fix:** explicitly refresh AppKit controls on appearance changes. Test a scheme change with no unrelated ops.
+
+4. **MINOR — The title cache omits `testId`.** [HeaderTitle equality](host/apple/Sources/ExactKit/IOS/NavigationTitleIOS.swift:107) excludes `testId`, but `update` writes it to `accessibilityIdentifier`. Changing only that prop now returns at line 214 and preserves the old identifier. **Fix:** include it in equality or update the identifier before returning; add a prop-only regression.
+
+5. **MINOR — Cache invalidation coverage is incomplete.** The [new face test](host/apple/tests/ExactKitTests/NativeButtonsIOSTests.swift:172) meaningfully checks lookup reuse and invalidation. It does not pin [natural-size invalidation](host/apple/Sources/ExactKit/IOS/NativeButtonsIOS.swift:31), and the existing gradient test checks scrolling without exercising cached appearance, source, or layer replacement. **Fix:** add those cases and compare against fresh measurements/layers.
+
+Earlier GPU-drain and iOS projection fixes remain intact; nested/in-flight guards remain. No earlier fling review files were present. Changed sources satisfy the 1,500-line cap; `git diff --check` passes. Static review only; tests were not run in this read-only checkout.

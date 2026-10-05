@@ -165,5 +165,38 @@ final class NativeButtonsIOSTests: XCTestCase {
         p.apply(wireBatch([]))
         XCTAssertNil(p.controls.controls[2])
     }
+
+    /// A face is asked for once, then again only when a batch says the
+    /// control's contents changed (`controls`) or touches the node: the
+    /// batches of a fling ask nothing.
+    func testAFaceIsAskedForOnlyWhenItCanHaveChanged() throws {
+        var faces: [UInt32: ButtonFace] = [2: face("Send")]
+        var asked = 0
+        let p = presenter(box(1) + native(2) + box(3) + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]])
+        p.buttonFace = { asked += 1; return faces[$0] ?? ButtonFace() }
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["testId": "send"]]]))
+        XCTAssertEqual(asked, 1, "a touched button is asked again")
+        XCTAssertEqual(try button(p, 2).configuration?.title, "Send")
+        for _ in 0..<5 { p.apply(wireBatch([["op": "frame", "id": 3, "x": 0.0, "y": 40.0, "w": 300.0, "h": 40.0]])) }
+        XCTAssertEqual(asked, 1, "batches that leave it alone ask nothing")
+        faces[2] = face("Sent")
+        var contents = wireBatch([["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 300.0, "h": 40.0]])
+        contents.controls = true
+        p.apply(contents)
+        XCTAssertEqual(asked, 2)
+        XCTAssertEqual(try button(p, 2).configuration?.title, "Sent", "a batch that changed its contents shows the new face")
+        // Its natural size is measured again for a new face, not kept.
+        let short = try button(p, 2).naturalSize
+        faces[2] = face("Sent to everyone in the group")
+        p.apply(contents)
+        XCTAssertGreaterThan(try button(p, 2).naturalSize.width, short.width)
+        let measured = try button(p, 2).intrinsicContentSize
+        XCTAssertEqual(try button(p, 2).naturalSize, CGSize(width: ceil(measured.width), height: ceil(measured.height)), "what UIKit measures, rounded up")
+        // And for a larger text size.
+        let regular = try button(p, 2).naturalSize
+        try button(p, 2).traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraLarge
+        try button(p, 2).layoutIfNeeded()
+        XCTAssertGreaterThan(try button(p, 2).naturalSize.height, regular.height)
+    }
 }
 #endif

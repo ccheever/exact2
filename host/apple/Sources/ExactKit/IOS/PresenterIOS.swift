@@ -948,7 +948,7 @@ final class Presenter {
         focusGuides.sync()
         #endif
         segments.sync()
-        controls.sync()
+        controls.sync(contents: batch.controls, touched: touchedIDs)
         menus.sync()
         glassGroups.reconcile()
         let changed = touchedAndAbove(touchedIDs)
@@ -1128,6 +1128,15 @@ final class Presenter {
     /// Magnify the preview without reflowing its text, keeping the source's
     /// outside edge and vertical center. Later content keeps its source-relative
     /// position; clamp the complete projection above the keyboard/safe area.
+    /// A scroll whose batch skipped the pass (`ExactSession.applyUnlessEmpty`):
+    /// what the pass does that the scroll moved. A context preview follows its
+    /// source out of the scrolled box, and the fixed gradients its
+    /// compensation moved are aimed again after it, as the pass aims them.
+    func scrolledWithoutPass() {
+        positionContexts()
+        reaimFixedGradients()
+    }
+
     private func positionContexts() {
         for id in contextNodes {
             guard let node = views[id] else { continue }

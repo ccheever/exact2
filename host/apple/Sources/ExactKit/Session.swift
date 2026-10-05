@@ -731,7 +731,7 @@ public final class ExactSession {
         presenter.onPanRelease = { [unowned self] id, vx, vy in apply(runtime.panRelease(id, vx: vx, vy: vy, now: now())) }
         presenter.onPanSample = { [unowned self] first, x, y, t in runtime.panSample(first: first, x: x, y: y, t: t) }
         presenter.panVelocity = { [unowned self] t in runtime.panVelocity(at: t) }
-        presenter.onScroll = { [unowned self] id, metrics in apply(runtime.scroll(id, metrics: metrics, now: now())) }
+        presenter.onScroll = { [unowned self] id, metrics in applyUnlessEmpty(runtime.scroll(id, metrics: metrics, now: now()), scrolled: true) }
         presenter.onScrolled = { [unowned self] id, left, top in runtime.scrolled(id, left: left, top: top) }
         #if canImport(AppKit)
         presenter.onListIndex = { [unowned self] id, key in runtime.listIndex(id, key: key) }
@@ -928,19 +928,26 @@ public final class ExactSession {
             && batch.canvas == frames.canvas2d && batch.frames == frames.tasks
     }
 
-    /// A timer's batch. An app's timer that writes nothing (a poll that finds
-    /// no news) still commits a batch, with only its next deadline: that one
-    /// only moves the clock, as fills and list feedback already skip theirs,
-    /// instead of running the presenter's whole pass four times a second.
-    func applyTick(_ batch: Batch) {
+    /// A batch from a timer or a scroll event: one that changes nothing only
+    /// moves the clock. An app's timer that writes nothing (a poll that
+    /// finds no news) and a `scroll=` handler whose writes show nowhere
+    /// (every frame of a fling) still commit, and the presenter's whole pass
+    /// cost ~4.5 ms a batch on the simulator, which a fling paid every
+    /// frame. Fills and list feedback already skip theirs. Other events
+    /// still apply an empty batch: a native control that changed itself
+    /// before its handler ran is reconciled by the pass (a refused tab), and
+    /// the agent's clock seeks native animations through it.
+    func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false) {
         guard !applying, !(fillInFlight || tickInFlight || canvasInFlight), changesNothing(batch) else { apply(batch); return }
         // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
         sampler?.batch(batch.seq, ms: 0)
         timerDue = batch.timerDueMs
         scheduleClock(due: batch.timerDueMs)
+        // What the pass did that a scroll moves (`scrolledWithoutPass`).
+        if scrolled { presenter.scrolledWithoutPass() }
     }
 
-    /// Batches that reached `apply` (`applyTick`'s tests read it).
+    /// Batches that reached `apply` (`IdleTickTests` read it).
     private(set) var appliedBatches = 0
 
     func apply(_ batch: Batch) {
@@ -1172,7 +1179,7 @@ public final class ExactSession {
             clockTimer = SessionClockTimer.schedule(after: delay / 1000) { [weak self] _ in
                 guard let self, state != .destroyed else { return }
                 clockTimer = nil
-                whenIdle { [weak self] in guard let self, state != .destroyed else { return }; followOffset(); applyTick(runtime.advance(now: now())) }
+                whenIdle { [weak self] in guard let self, state != .destroyed else { return }; followOffset(); applyUnlessEmpty(runtime.advance(now: now())) }
             }
         }
         frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
