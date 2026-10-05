@@ -3,6 +3,7 @@
 
 use crate::crops::{balance, Balance};
 use crate::garden::{self, now_ms, Census, Fruit, GardenClock, Item, Plant, TILE};
+use crate::hud::{secs, Away, Barrel, Bearing, Described, Note, Planting, Prompt};
 use crate::{feedback, shop};
 use exact_game::character::Character;
 use exact_game::*;
@@ -29,8 +30,10 @@ pub struct Farm {
     pub earned: u64,
     /// The next market request; also the saved receipt for each paid bonus.
     pub orders: u32,
-    pub last: String,
-    pub away: String,
+    /// What the last action did, for the HUD to word.
+    pub last: Note,
+    /// What the garden did while the player was away.
+    pub away: Away,
     pub overview: bool,
     pub shop_dirty: bool,
     pub bag_dirty: bool,
@@ -130,18 +133,18 @@ pub fn show_plot(w: &World, tile: Option<[u16; 2]>) {
 }
 
 /// Plants the held seed on a tile. Refuses an occupied tile or an empty hand.
-pub fn plant_held(w: &mut World, tile: [u16; 2]) -> Result<Entity, String> {
+pub fn plant_held(w: &mut World, tile: [u16; 2]) -> Result<Entity, Note> {
     let (kind, occupied) = {
         let farm = w.resource::<Farm>();
         (farm.held, farm.at(tile).is_some())
     };
-    let kind = kind.ok_or("No seed in hand")?;
+    let kind = kind.ok_or_else(|| Note::new("no_seed_in_hand"))?;
     if occupied {
-        return Err("Something grows here".into());
+        return Err(Note::new("occupied"));
     }
     let b = balance(w);
     if w.resource::<Farm>().seeds[kind as usize] == 0 {
-        return Err(format!("No {} seeds", b.crop(kind).name));
+        return Err(Note::new("no_seeds").crop(&b.crop(kind).name));
     }
     let now = now_ms(w);
     let e = garden::plant(w, kind, tile, now);
@@ -152,7 +155,7 @@ pub fn plant_held(w: &mut World, tile: [u16; 2]) -> Result<Entity, String> {
     if farm.seeds[kind as usize] == 0 {
         farm.held = (0..b.crops.len() as u8).find(|&k| farm.seeds[k as usize] > 0);
     }
-    farm.last = format!("Planted {}", b.crop(kind).name);
+    farm.last = Note::new("planted").crop(&b.crop(kind).name);
     farm.shop_dirty = true;
     drop(farm);
     feedback::cue(w, feedback::Cue::Plant, garden::plant_center(tile));
@@ -189,7 +192,9 @@ fn stow(w: &World, mut item: Item) {
     item.id = farm.next_item;
     farm.next_item += 1;
     farm.harvested += 1;
-    farm.last = format!("Harvested {} ({}¢)", item.label(&b), item.value(&b));
+    farm.last = Note::new("harvested")
+        .fruit(Described::of(&b, &item))
+        .coins(item.value(&b));
     farm.bag.push(item);
     farm.bag_dirty = true;
 }
@@ -213,9 +218,6 @@ pub fn harvest_all(w: &mut World) -> u32 {
             n += 1;
         }
     }
-    if n > 0 {
-        w.resource_mut::<Farm>().last = format!("Harvested {n} fruit");
-    }
     if let Some((at, item)) = picked {
         feedback::harvest(w, at, &item);
     }
@@ -236,7 +238,6 @@ pub fn sell(w: &World, id: Option<u32>) -> u64 {
     farm.sheckles += total;
     farm.earned += total;
     if !sold.is_empty() {
-        farm.last = format!("Sold {} for {}¢", sold.len(), total);
         farm.bag_dirty = true;
         farm.shop_dirty = true;
     }
@@ -244,35 +245,36 @@ pub fn sell(w: &World, id: Option<u32>) -> u64 {
 }
 
 /// Compost exactly the chosen fruit; a stale ID or full pouch spends nothing.
-pub fn compost(w: &World, id: u32) -> Result<String, String> {
+pub fn compost(w: &World, id: u32) -> Result<Note, Note> {
     let b = balance(w);
     let mut farm = w.resource_mut::<Farm>();
     if farm.plant_food >= b.farm.food {
-        return Err("Plant-food pouch full · feed a growing plot first".into());
+        return Err(Note::new("pouch_full"));
     }
     let i = farm
         .bag
         .iter()
         .position(|item| item.id == id)
-        .ok_or("Fruit is no longer in the backpack")?;
+        .ok_or_else(|| Note::new("fruit_gone"))?;
     let item = farm.bag.remove(i);
     farm.plant_food += 1;
     farm.bag_dirty = true;
-    Ok(format!(
-        "Composted {} · +1 plant food instead of {}¢",
-        item.label(&b),
-        item.value(&b)
-    ))
+    Ok(Note::new("composted")
+        .fruit(Described::of(&b, &item))
+        .coins(item.value(&b)))
 }
 
 /// Deliver one whole request, retaining unrelated fruit. Every fruit still
 /// earns its full weight/mutation value; the request adds its one-time bonus.
-pub fn deliver(w: &World) -> Result<String, String> {
+pub fn deliver(w: &World) -> Result<Note, Note> {
     let b = balance(w);
     let mut farm = w.resource_mut::<Farm>();
-    let (kind, count, bonus) = b.order(farm.orders).ok_or("All market orders filled")?;
+    let (kind, count, bonus) = b
+        .order(farm.orders)
+        .ok_or_else(|| Note::new("orders_done"))?;
+    let name = &b.crop(kind).name;
     if farm.bag.iter().filter(|i| i.kind == kind).count() < count as usize {
-        return Err(format!("Bring {count} {} to the market", b.crop(kind).name));
+        return Err(Note::new("bring").crop(name).count(count as u64));
     }
     let mut remaining = count;
     let mut paid = bonus;
@@ -295,10 +297,11 @@ pub fn deliver(w: &World) -> Result<String, String> {
     farm.earned += paid;
     farm.shop_dirty = true;
     farm.bag_dirty = true;
-    Ok(format!(
-        "Delivered {count} {} · {paid}¢ including {bonus}¢ bonus",
-        b.crop(kind).name
-    ))
+    Ok(Note::new("delivered")
+        .crop(name)
+        .count(count as u64)
+        .coins(paid)
+        .bonus(bonus))
 }
 
 /// Grows the garden to `size` tiles per side, keeping every plant's tile.
@@ -376,7 +379,6 @@ pub fn fill(w: &mut World, n: u32) -> u32 {
             planted += 1;
         }
     }
-    w.resource_mut::<Farm>().last = format!("Filled {planted} tiles");
     planted
 }
 
@@ -386,13 +388,12 @@ pub fn away(w: &mut World, ms: u64) -> garden::Ran {
     w.resource_mut::<GardenClock>().offline_ms += ms;
     let ran = garden::run_due(w, now_ms(w));
     let ripe = w.resource::<Census>().ripe;
-    w.resource_mut::<Farm>().away = format!(
-        "While you were away ({}): {} events, {} fruit ripened ({} ripe now)",
-        crate::hud::clock(ms),
-        ran.events,
-        ripe.saturating_sub(before),
-        ripe
-    );
+    w.resource_mut::<Farm>().away = Away {
+        s: secs(ms),
+        events: ran.events,
+        ripened: ripe.saturating_sub(before),
+        ripe,
+    };
     w.log(format!("away {ms} ms: {} events", ran.events));
     ran
 }
@@ -431,32 +432,32 @@ pub fn command(w: &mut World, cmd: &str) {
     let verb = words.next().unwrap_or("");
     let arg = words.next().unwrap_or("");
     let b = balance(w);
-    let result: Result<String, String> = match verb {
+    let result: Result<Note, Note> = match verb {
         "" => return,
         "buy" => match b.kind_of(arg) {
-            Some(k) => shop::buy(w, k).map(|_| format!("Bought {} seed", b.crop(k).name)),
-            None => Err(format!("No seed named {arg}")),
+            Some(k) => shop::buy(w, k).map(|_| Note::new("bought").crop(&b.crop(k).name)),
+            None => Err(Note::new("no_seed_named").word(arg)),
         },
         "equip" => match b.kind_of(arg) {
             Some(k) if w.resource::<Farm>().seeds[k as usize] > 0 => {
                 w.resource_mut::<Farm>().held = Some(k);
-                Ok(format!("Holding {}", b.crop(k).name))
+                Ok(Note::new("holding").crop(&b.crop(k).name))
             }
-            _ => Err(format!("No {arg} seeds")),
+            _ => Err(Note::new("no_seeds").word(arg)),
         },
         "sell" => match arg {
-            "all" => Ok(format!("Sold for {}¢", sell(w, None))),
+            "all" => Ok(Note::new("sold").coins(sell(w, None))),
             id => id
                 .parse()
-                .map_err(|_| "Sell needs a fruit id or all".into())
-                .map(|id| format!("Sold for {}¢", sell(w, Some(id)))),
+                .map_err(|_| Note::new("sell_needs_id"))
+                .map(|id| Note::new("sold").coins(sell(w, Some(id)))),
         },
         "deliver" => deliver(w),
         "compost" => arg
             .parse::<u32>()
-            .map_err(|_| "Choose a fruit to compost".into())
+            .map_err(|_| Note::new("choose_compost"))
             .and_then(|id| compost(w, id)),
-        "harvest" => Ok(format!("Harvested {}", harvest_all(w))),
+        "harvest" => Ok(Note::new("harvested_all").count(harvest_all(w) as u64)),
         "page" => {
             let mut farm = w.resource_mut::<Farm>();
             let pages = farm.bag.len().div_ceil(crate::hud::BAG_PAGE).max(1) as u32;
@@ -465,80 +466,82 @@ pub fn command(w: &mut World, cmd: &str) {
                 _ => farm.bag_page.saturating_sub(1),
             };
             farm.bag_dirty = true;
-            Ok(format!("Backpack page {}", farm.bag_page + 1))
+            Ok(Note::new("page").count(farm.bag_page as u64 + 1))
         }
         "expand" => {
             let cost = w.resource::<Farm>().expand_cost(&b);
             let size = w.resource::<Farm>().size;
             if size >= b.farm.max_size {
-                Err("The garden is as big as it gets".into())
+                Err(Note::new("max_size"))
             } else if w.resource::<Farm>().sheckles < cost {
-                Err(format!("Expanding costs {cost}¢"))
+                Err(Note::new("expand_costs").coins(cost))
             } else {
                 w.resource_mut::<Farm>().sheckles -= cost;
                 resize(w, size + 2);
-                Ok(format!("The garden is {0}×{0}", size + 2))
+                Ok(Note::new("expanded").count(size as u64 + 2))
             }
         }
         "zoom" => {
             let o = !w.resource::<Farm>().overview;
             w.resource_mut::<Farm>().overview = o;
             lay_ground(w);
-            Ok((if o { "Overview" } else { "Close" }).into())
+            Ok(Note::new(if o { "overview" } else { "close" }))
         }
         // The art pass's camera; the other looks keep theirs.
         "closeup" => Ok(crate::pass::toggle_closeup(w)),
-        "fill" => Ok(format!("Planted {}", fill(w, arg.parse().unwrap_or(100)))),
+        "fill" => Ok(Note::new("filled").count(fill(w, arg.parse().unwrap_or(100)) as u64)),
         "away" => {
             let ran = away(w, arg.parse::<u64>().unwrap_or(0) * 1000);
-            Ok(format!("{} events while away", ran.events))
+            Ok(Note::new("away").count(ran.events))
         }
-        _ => Err(format!("Unknown command {cmd}")),
+        _ => Err(Note::new("unknown").word(cmd)),
     };
     match result {
-        Ok(line) => {
-            w.log(format!("{cmd}: {line}"));
+        Ok(note) => {
+            w.log(format!("{cmd}: {}", note.what));
             let mut farm = w.resource_mut::<Farm>();
-            farm.last = line;
+            farm.last = note;
             farm.shop_dirty = true;
         }
         Err(why) => {
-            w.log(format!("{cmd}: refused: {why}"));
+            w.log(format!("{cmd}: refused: {}", why.what));
             w.resource_mut::<Farm>().last = why;
         }
     }
 }
 
-fn bearing(delta: Vec3) -> String {
-    let direction = if delta.x.abs() >= delta.z.abs() {
+fn bearing(delta: Vec3) -> Bearing {
+    let dir = if delta.x.abs() >= delta.z.abs() {
         if delta.x > 0.0 {
-            "east (D)"
+            "east"
         } else {
-            "west (A)"
+            "west"
         }
     } else if delta.z > 0.0 {
-        "south (S)"
+        "south"
     } else {
-        "north (W)"
+        "north"
     };
-    let metres = delta.length().round().max(1.0) as u32;
-    format!("{direction} · about {metres} m")
+    Bearing {
+        dir: dir.into(),
+        metres: delta.length().round().max(1.0) as u32,
+    }
 }
 
 /// A held seed needs somewhere to go without hiding this tile's harvest prompt.
 /// Called only when publishing the HUD, never for every simulation tick. The
 /// bounded tile table is already authoritative; no saved navigation cache.
-pub fn planting_guidance(w: &World) -> String {
+pub fn planting_guidance(w: &World) -> Planting {
     let Some(player) = w.global_position("player") else {
-        return String::new();
+        return Planting::default();
     };
     let Some(tile) = tile_at(w, player) else {
-        return String::new();
+        return Planting::default();
     };
     let max = balance(w).farm.max_size;
     let farm = w.resource::<Farm>();
     if farm.held.is_none() || farm.at(tile).is_none() {
-        return String::new();
+        return Planting::default();
     }
     let mut nearest = None;
     let mut distance = f32::INFINITY;
@@ -558,17 +561,26 @@ pub fn planting_guidance(w: &World) -> String {
             nearest = Some((tile, Vec3::new(delta.x, 0.0, delta.z)));
         }
     }
+    let what = |what: &str| Planting {
+        what: what.into(),
+        ..Planting::default()
+    };
     match nearest {
-        Some(([x, z], delta)) => format!("Empty plot {}, {}: {}", x + 1, z + 1, bearing(delta)),
-        None if farm.size < max => "Garden full · expand to add empty plots".into(),
-        None => "Garden full · no empty plots".into(),
+        Some(([x, z], delta)) => Planting {
+            x: x as u32,
+            z: z as u32,
+            way: bearing(delta),
+            ..what("empty")
+        },
+        None if farm.size < max => what("full"),
+        None => what("maxed"),
     }
 }
 
 /// The player's tile and what E would do there, or a direction back to it.
-pub fn prompt(w: &World) -> (Option<[u16; 2]>, String) {
+pub fn prompt(w: &World) -> (Option<[u16; 2]>, Prompt) {
     let Some(player) = w.global_position("player") else {
-        return (None, String::new());
+        return (None, Prompt::default());
     };
     let Some(tile) = tile_at(w, player) else {
         // Aim at the nearest plot's centre, beyond its boundary. The larger
@@ -578,19 +590,31 @@ pub fn prompt(w: &World) -> (Option<[u16; 2]>, String) {
         let x = (player.x / TILE).round().clamp(0.0, last) * TILE;
         let z = -(-player.z / TILE).round().clamp(0.0, last) * TILE;
         let delta = Vec3::new(x - player.x, 0.0, z - player.z);
-        return (None, format!("Return to garden: {}", bearing(delta)));
+        let way = bearing(delta);
+        return (
+            None,
+            Prompt {
+                what: "return".into(),
+                way,
+                ..Prompt::default()
+            },
+        );
     };
     let now = now_ms(w);
     let b = balance(w);
     let farm = w.resource::<Farm>();
+    let prompt = |what: &str, crop: &str| Prompt {
+        what: what.into(),
+        crop: crop.into(),
+        ..Prompt::default()
+    };
     let text = match farm.at(tile) {
         None => match farm.held {
-            Some(k) => format!(
-                "E: plant {} ({} left)",
-                b.crop(k).name,
-                farm.seeds[k as usize]
-            ),
-            None => "Buy seeds in the shop".into(),
+            Some(k) => Prompt {
+                count: farm.seeds[k as usize],
+                ..prompt("plant", &b.crop(k).name)
+            },
+            None => prompt("buy", ""),
         },
         Some(p) => {
             let (kind, stage, planted, span) = w
@@ -600,19 +624,24 @@ pub fn prompt(w: &World) -> (Option<[u16; 2]>, String) {
             let c = b.crop(kind);
             if stage < 4 {
                 let left = (planted + span).saturating_sub(now);
-                format!("{} growing · {}", c.name, crate::hud::clock(left))
+                Prompt {
+                    s: secs(left),
+                    ..prompt("growing", &c.name)
+                }
             } else {
                 let fruits = garden::fruits_of(w, p);
                 let ripe = fruits.iter().filter(|f| f.1).count();
                 if ripe > 0 {
-                    format!("E: harvest {ripe} {}", c.name)
+                    Prompt {
+                        count: ripe as u32,
+                        ..prompt("harvest", &c.name)
+                    }
                 } else {
                     let next = fruits.iter().map(|f| f.2).min().unwrap_or(now);
-                    format!(
-                        "{} fruiting · {}",
-                        c.name,
-                        crate::hud::clock(next.saturating_sub(now))
-                    )
+                    Prompt {
+                        s: secs(next.saturating_sub(now)),
+                        ..prompt("fruiting", &c.name)
+                    }
                 }
             }
         }
@@ -627,27 +656,27 @@ pub fn at_barrel(w: &World) -> bool {
     })
 }
 
-pub fn refill_guidance(w: &World) -> String {
-    if at_barrel(w) {
-        "At the blue barrel · R refills the can".into()
-    } else {
-        let p = w.global_position("player").unwrap_or_default();
-        let d = BARREL - p;
-        format!("Blue barrel: {}", bearing(Vec3::new(d.x, 0.0, d.z)))
+/// The blue barrel: whether the player stands at it, and the way there.
+pub fn barrel(w: &World) -> Barrel {
+    let p = w.global_position("player").unwrap_or_default();
+    let d = BARREL - p;
+    Barrel {
+        at: at_barrel(w),
+        way: bearing(Vec3::new(d.x, 0.0, d.z)),
     }
 }
 
-pub fn water_here(w: &World) -> Result<String, String> {
+pub fn water_here(w: &World) -> Result<Note, Note> {
     if w.resource::<Farm>().water == 0 {
-        return Err("Can empty · refill at the blue barrel with R".into());
+        return Err(Note::new("can_empty"));
     }
     let plant = w
         .global_position("player")
         .and_then(|p| tile_at(w, p))
         .and_then(|tile| w.resource::<Farm>().at(tile))
-        .ok_or("Stand on a growing plot to water")?;
+        .ok_or_else(|| Note::new("stand_to_water"))?;
     if !garden::needs_water(w, plant) {
-        return Err("Already watered or ripe · wait for the next growth".into());
+        return Err(Note::new("already_watered"));
     }
     garden::water(w, plant, now_ms(w));
     w.resource_mut::<Farm>().water -= 1;
@@ -656,38 +685,35 @@ pub fn water_here(w: &World) -> Result<String, String> {
         feedback::Cue::Water,
         garden::plant_center(w.require::<Plant>(plant).tile),
     );
-    Ok(format!(
-        "Watered {} · remaining wait cut by 25%",
-        balance(w).crop(w.require::<Plant>(plant).kind).name
-    ))
+    Ok(Note::new("watered").crop(&balance(w).crop(w.require::<Plant>(plant).kind).name))
 }
 
-pub fn refill(w: &World) -> Result<String, String> {
+pub fn refill(w: &World) -> Result<Note, Note> {
     if !at_barrel(w) {
-        return Err(refill_guidance(w));
+        return Err(Note::new("barrel").way(barrel(w).way));
     }
     let full = balance(w).farm.water;
     let mut farm = w.resource_mut::<Farm>();
     if farm.water == full {
-        return Err("The watering can is full".into());
+        return Err(Note::new("can_full"));
     }
     farm.water = full;
     drop(farm);
     feedback::cue(w, feedback::Cue::Refill, BARREL);
-    Ok("Watering can refilled · 3 doses".into())
+    Ok(Note::new("refilled").count(full as u64))
 }
 
-pub fn feed_here(w: &World) -> Result<String, String> {
+pub fn feed_here(w: &World) -> Result<Note, Note> {
     if w.resource::<Farm>().plant_food == 0 {
-        return Err("Compost a backpack fruit for plant food".into());
+        return Err(Note::new("no_food"));
     }
     let plant = w
         .global_position("player")
         .and_then(|p| tile_at(w, p))
         .and_then(|tile| w.resource::<Farm>().at(tile))
-        .ok_or("Stand on a growing plot to feed")?;
+        .ok_or_else(|| Note::new("stand_to_feed"))?;
     if !garden::needs_feed(w, plant) {
-        return Err("Already fed or ripe · wait for new growth".into());
+        return Err(Note::new("already_fed"));
     }
     garden::feed(w, plant);
     w.resource_mut::<Farm>().plant_food -= 1;
@@ -696,10 +722,7 @@ pub fn feed_here(w: &World) -> Result<String, String> {
         feedback::Cue::Feed,
         garden::plant_center(w.require::<Plant>(plant).tile),
     );
-    Ok(format!(
-        "Fed {} · next fruit weighs 25% more",
-        balance(w).crop(w.require::<Plant>(plant).kind).name
-    ))
+    Ok(Note::new("fed").crop(&balance(w).crop(w.require::<Plant>(plant).kind).name))
 }
 
 /// E on a tile: harvest what is ripe there, or plant the held seed.
@@ -708,7 +731,7 @@ pub fn act(w: &mut World, tile: [u16; 2]) {
     match here {
         Some(p) => {
             if harvest_plant(w, p) == 0 {
-                w.resource_mut::<Farm>().last = "Nothing ripe yet".into();
+                w.resource_mut::<Farm>().last = Note::new("nothing_ripe");
             }
         }
         None => {

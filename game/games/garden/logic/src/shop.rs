@@ -43,16 +43,17 @@ pub fn restock(w: &mut World, at: u64) {
 }
 
 /// Buys one seed of `kind`; refuses with the reason.
-pub fn buy(w: &World, kind: u8) -> Result<(), String> {
+pub fn buy(w: &World, kind: u8) -> Result<(), crate::hud::Note> {
+    use crate::hud::Note;
     let b = balance(w);
     let c = b.crop(kind);
     let mut shop = w.resource_mut::<Shop>();
     let mut farm = w.resource_mut::<crate::farm::Farm>();
     if shop.stock[kind as usize] == 0 {
-        return Err(format!("{} is out of stock", c.name));
+        return Err(Note::new("out_of_stock").crop(&c.name));
     }
     if farm.sheckles < c.price {
-        return Err(format!("{} costs {}¢", c.name, c.price));
+        return Err(Note::new("costs").crop(&c.name).coins(c.price));
     }
     shop.stock[kind as usize] -= 1;
     farm.sheckles -= c.price;

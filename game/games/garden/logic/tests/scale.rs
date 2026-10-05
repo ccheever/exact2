@@ -98,12 +98,12 @@ fn empty_plot_guidance_at_maximum_size() {
     // One real plant and 65,535 empty tiles: the lookup examines the entire
     // bounded tile table, without charging a forest of meshes to the hint.
     let t = Instant::now();
-    let mut hint = String::new();
+    let mut hint = Default::default();
     for _ in 0..1_000 {
         hint = std::hint::black_box(garden_logic::farm::planting_guidance(game.world()));
     }
     let lookup = ms(t) / 1_000.0;
-    assert!(hint.starts_with("Empty plot"));
+    assert_eq!(hint.what, "empty");
     game.world_mut().resource_mut::<Farm>().held = None;
     let idle = frames(&mut game, 600);
     game.world_mut().resource_mut::<Farm>().held = Some(0);

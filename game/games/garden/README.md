@@ -139,8 +139,14 @@ keyboard controls. It does not change the earlier market playtest policies.
 - **The HUD** is three published records — status, shop, backpack — each
   republished only when it changes (status timers once a garden second;
     actions, events and crossing a plot boundary publish immediately).
-  The backpack is published 200 rows a page: a 164,000-fruit backpack would be
-  a 13.6 MB field rebuilt on every harvest.
+  They hold values, never sentences: counts, crop names and ids, seconds, a
+  direction and distance, and what the last action did (`Note`'s `what`, such
+  as `planted` or `can_empty`). `app.contract` words them (`noteText`,
+  `promptText`, `hintText`, `compact`, `clock`…), so the HUD's wording changes
+  with no Rust rebuild. The backpack is published 200 rows a page: a
+  164,000-fruit backpack would be a 13.6 MB field rebuilt on every harvest.
+  The panels sit below the top bar however it wraps, the market beside them,
+  and on a phone's width they span it and the care panel steps aside.
 - **Watering** shifts the effective start and deadline together, preserving
   smooth-growth progress. It queues an earlier event; the old deadline is ignored
   when it comes due. Only this plant and its bounded fruit slots are visited.
@@ -154,11 +160,11 @@ keyboard controls. It does not change the earlier market playtest policies.
 | `art.mjs`, `looks.mjs`, `kit.mjs` | every look's baked models, written to `art/`; the glTF writer and mesh shapes they share |
 | `logic/src/garden.rs` | the clock, the schedule, plants, fruit, weather |
 | `logic/src/farm.rs` | tiles, purse, backpack, commands, offline catch-up |
-| `logic/src/shop.rs`, `crops.rs`, `hud.rs` | stock, the balance's types and values, publication |
+| `logic/src/shop.rs`, `crops.rs`, `hud.rs` | stock, the balance's types and values, the HUD's records |
 | `assets/garden.level.json`, `assets/looks.level.json` | the balance; every look's lighting, palette and camera |
 | `logic/tests/sim.rs` | the hostless game tests |
 | `logic/tests/scale.rs` | ignored measurements (`--ignored --nocapture`, release) |
-| `app.contract` | title, top bar, shop, backpack, tools, prompts, touch controls |
+| `app.contract` | title, top bar, shop, backpack, tools, prompts, touch controls, and every word the HUD shows |
 | `proof.mjs` | the real-host proof, `--scale` and Jev's `--playtest` |
 
 ![The garden in play](artifacts/art-final-view-web/grown.png)

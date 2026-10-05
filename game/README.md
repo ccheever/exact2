@@ -319,6 +319,9 @@ the limit, or one the shape refuses, leaves the last accepted one standing and i
 named, with its size and the limit, in the app's log and the agent's
 `state.surfaceRefusals`.
 Only the first live canvas owns a given surface's public record.
+Publish values, not sentences: counts, names, seconds, and a key for what
+happened (`"planted"`, `"can_empty"`); the Contract words them in `fn`s, so the
+HUD's wording changes without a Rust rebuild ([Grow a Garden](games/garden/app.contract)).
 
 Give a read-only HUD overlay `pointer-events="none"` on its Contract container.
 The transparent parts of a wide positioned column still participate in hit-testing;

@@ -368,7 +368,9 @@ const STALL_YAW: f32 = 0.95;
 pub fn setup(w: &mut World) {
     w.insert_resource(Props::default());
     // The clock moves every few seconds; it does not hold the garden awake.
-    w.derived_publication("clock").derived_publication("night");
+    w.derived_publication("day")
+        .derived_publication("minutes")
+        .derived_publication("night");
     let player = w.named("player").unwrap();
     // Turf over the meadow near the garden, where the plane would read as flat paint.
     w.spawn_named("turf", (Transform::at(0.0, -0.08, 0.0), Ambient));
@@ -591,10 +593,10 @@ const TUFTS: [&str; 4] = [
     "tuft-3.model",
 ];
 
-pub fn toggle_closeup(w: &World) -> String {
+pub fn toggle_closeup(w: &World) -> crate::hud::Note {
     let c = !w.resource::<Props>().closeup;
     w.resource_mut::<Props>().closeup = c;
-    (if c { "Close-up" } else { "Garden view" }).into()
+    crate::hud::Note::new(if c { "closeup" } else { "garden_view" })
 }
 
 // ------------------------------------------------------------- day, night
@@ -608,11 +610,15 @@ pub fn day_phase(now: u64) -> f32 {
     ((now + DAY_MS / 12) % DAY_MS) as f32 / DAY_MS as f32
 }
 
-/// "Day 2 · 14:30", to ten garden minutes.
-pub fn clock_label(now: u64) -> String {
+/// The day (from 1) and its minute, to ten garden minutes: Day 2 · 14:30.
+pub fn clock(now: u64) -> Clock {
     let day = (now + DAY_MS / 12) / DAY_MS + 1;
     let minutes = ((day_phase(now) * 144.0) as u32 * 10 + 6 * 60) % (24 * 60);
-    format!("Day {day} · {:02}:{:02}", minutes / 60, minutes % 60)
+    Clock {
+        day,
+        minutes,
+        night: daylight(now) < 0.35,
+    }
 }
 
 /// Daylight in [0, 1] from the sun's elevation.
@@ -687,20 +693,19 @@ pub fn step(w: &mut World) {
         w.require_mut::<ParticleLook>("weather").stretch =
             if sky == Sky::Snow { 0.0 } else { 0.05 };
     }
-    let label = clock_label(now);
-    if w.published("clock").map(|v| v.text().to_owned()) != Some(label.clone()) {
-        w.publish_record(&Clock {
-            clock: label,
-            night: daylight(now) < 0.35,
-        });
+    let clock = clock(now);
+    let shown = |key: &str| w.published(key).and_then(|v| v.as_number());
+    if shown("day") != Some(clock.day as f64) || shown("minutes") != Some(clock.minutes as f64) {
+        w.publish_record(&clock);
     }
 }
 
 /// The HUD's clock pill.
 #[derive(Clone, Default, Data)]
-struct Clock {
-    clock: String,
-    night: bool,
+pub struct Clock {
+    pub day: u64,
+    pub minutes: u32,
+    pub night: bool,
 }
 
 /// The sun and moon, sky, fog and exposure for the time and weather, and

@@ -47,7 +47,7 @@ const STATUS_MS: u64 = 1000;
 #[derive(Default, Resource)]
 pub struct Shown {
     pub second: u64,
-    pub prompt: String,
+    pub prompt: hud::Prompt,
     pub tile: Option<[u16; 2]>,
     pub events: u64,
     pub at_barrel: bool,
@@ -163,7 +163,7 @@ impl Game for Garden {
         shop::restock(w, 0);
         w.resource_mut::<Schedule>()
             .push(garden::change_after(w), Due::Weather);
-        hud::publish(w, String::new(), true);
+        hud::publish(w, true);
     }
     fn paused(args: &Options) -> bool {
         args.paused
@@ -198,7 +198,7 @@ impl Game for Garden {
         for (action, f) in [
             (
                 "water",
-                farm::water_here as fn(&World) -> Result<String, String>,
+                farm::water_here as fn(&World) -> Result<hud::Note, hud::Note>,
             ),
             ("refill", farm::refill),
             ("feed", farm::feed_here),
@@ -230,12 +230,12 @@ impl Game for Garden {
             {
                 let mut shown = w.resource_mut::<Shown>();
                 shown.second = now / STATUS_MS;
-                shown.prompt = prompt.clone();
+                shown.prompt = prompt;
                 shown.tile = tile;
                 shown.events = processed;
                 shown.at_barrel = at_barrel;
             }
-            hud::publish(w, prompt, false);
+            hud::publish(w, false);
         }
     }
 }

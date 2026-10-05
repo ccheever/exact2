@@ -550,19 +550,6 @@ impl Item {
     pub fn value(&self, b: &Balance) -> u64 {
         b.fruit_value(self.kind, self.weight, self.muts)
     }
-    pub fn label(&self, b: &Balance) -> String {
-        let m = b.mutation_names(self.muts).join(" ");
-        let label = if m.is_empty() {
-            b.crop(self.kind).name.to_string()
-        } else {
-            format!("{m} {}", b.crop(self.kind).name)
-        };
-        if self.fed {
-            format!("Fed {label}")
-        } else {
-            label
-        }
-    }
 }
 
 /// Picks a ripe fruit: despawns it, regrows its slot or removes a
