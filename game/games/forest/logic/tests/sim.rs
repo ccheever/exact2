@@ -393,6 +393,77 @@ fn wolves_wander_and_dawn_counts_a_night() {
     assert_eq!(sim.world().require::<Deer>("deer").mind, Mind::Hidden);
 }
 
+fn charging_deer() -> Sim<Forest> {
+    let mut sim = Sim::<Forest>::new(Options {
+        trees: 0,
+        wolves: 0,
+        children: 0,
+        lite: true,
+        ..Options::default()
+    })
+    .unwrap();
+    place(&mut sim, "player", Vec3::new(20., 0.95, 0.));
+    place(&mut sim, "deer", Vec3::new(20., 1.6, 9.));
+    {
+        let w = sim.world_mut();
+        w.resource_mut::<Cycle>().t = DAY + 2.;
+        w.require_mut::<Player>("player").facing = Vec3::Z;
+        *w.require_mut::<Deer>("deer") = Deer {
+            mind: Mind::Stalk,
+            timer: -4.,
+            ..Deer::default()
+        };
+        w.require_mut::<Visible>("deer").0 = true;
+    }
+    sim.run(TICK);
+    assert_eq!(sim.world().require::<Deer>("deer").mind, Mind::Windup);
+    sim
+}
+
+#[test]
+fn the_warning_holds_position_then_commits_and_restores_mid_windup() {
+    let mut sim = charging_deer();
+    let start = sim.local_position("deer").unwrap();
+    sim.run(300.);
+    assert_eq!(sim.local_position("deer").unwrap(), start);
+    assert_eq!(player(&sim).health, 100.);
+    let save = sim.save().unwrap();
+    let mut restored = charging_deer();
+    restored.restore(&save).unwrap();
+    for game in [&mut sim, &mut restored] {
+        game.run(400.);
+        assert_eq!(game.world().require::<Deer>("deer").mind, Mind::Windup);
+        assert_eq!(game.local_position("deer").unwrap(), start);
+        game.run(400.);
+        assert_eq!(game.world().require::<Deer>("deer").mind, Mind::Chase);
+        game.run(1600.);
+        assert_eq!(game.world().require::<Deer>("deer").strikes, 1);
+        assert_eq!(player(game).health, 65.);
+    }
+    assert_eq!(sim.world().hash(), restored.world().hash());
+    assert_eq!(sim.save().unwrap(), restored.save().unwrap());
+}
+
+#[test]
+fn the_warning_can_be_interrupted_by_the_beam_or_safety() {
+    let mut beam = charging_deer();
+    beam.run(100.);
+    beam.tap("KeyF");
+    beam.run(650.);
+    assert_eq!(beam.world().require::<Deer>("deer").mind, Mind::Stunned);
+    assert_eq!(beam.world().require::<Deer>("deer").stuns, 1);
+    assert_eq!(beam.world().require::<Deer>("deer").strikes, 0);
+    assert_eq!(player(&beam).health, 100.);
+
+    let mut safe = charging_deer();
+    safe.run(300.);
+    place(&mut safe, "player", Vec3::new(0., 0.95, 2.));
+    safe.run(TICK);
+    assert_eq!(safe.world().require::<Deer>("deer").mind, Mind::Stalk);
+    assert_eq!(safe.world().require::<Deer>("deer").strikes, 0);
+    assert_eq!(player(&safe).health, 100.);
+}
+
 #[test]
 fn a_mid_night_save_restores_and_continues_identically() {
     for lite in [true, false] {

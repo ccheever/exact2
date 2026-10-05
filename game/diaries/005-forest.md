@@ -1622,3 +1622,91 @@ seconds of standing still costs 35 health, with no preceding charge pose.
 The baseline is `artifacts/encounter-before-web/` (54.783 s, zero failures,
 no recorded child remaining). This is a curated encounter, not evidence of
 player discovery or enjoyment. Earlier camp/survival Jev batches stay closed.
+
+
+## Read the Deer and answer its charge (2026-10-04)
+
+The candidate gives the Deer a hunched body, long limbs, a pale muzzle and
+branching antlers, using two generated meshes. A head child lowers the antlers
+for a 0.9-second stationary windup before the existing rush. Yellow warning
+eyes and a positional growl accompany a HUD bearing in the same compass used
+for camp. The beam can interrupt a windup while the Deer is in flashlight
+range; returning to safety cancels it. The old rush speed, 35-damage strike,
+0.6-second stun exposure, food/fuel economy and day/night lengths remain.
+Blue eyes and a short sound acknowledge a stun. Rendering writes head pose
+only when it changes and eye material only on state transitions, avoiding
+per-tick batch invalidation across the forest. The model replaces the two
+stick-antler children with one head; it does not add entities per tree.
+
+The first visual round is too dark to read the skull well, so a faint constant
+fill on the body/head improves its silhouette. The second browser capture is
+accepted as the visual candidate: `artifacts/encounter-final-web/`, 39.318 s,
+no failures and no remaining children. The warning/charging frames were
+inspected. The earlier first round remains in `encounter-first-web/`.
+The ignored-warning capture starts at the same tick (4,680) before and after.
+Three seconds later the old Deer has hit for 35; the new one is still charging,
+and its subsequent hit still deals 35. This establishes a reaction window,
+not a measured improvement in fun. Night remains deliberately dark and the
+player remains a capsule; this is an enemy encounter pass, not a full art pass.
+
+All 28 simulation tests pass, as do strict Clippy and formatting. New tests
+cover staying still during windup, committing to the same damaging rush,
+interrupting it with light/safety, and exact saved continuation mid-warning.
+The first compile needed explicit f32 types in the procedural model's local
+coordinate closure; the corrected build passes. The first two full candidate
+proofs pass on web/Mac in 121.473/209.506 s, including builds where needed.
+Their source inputs, candidate pins, sixteen final world observations and
+published values, and all 26 saved files agree. Both process audits are
+available and empty. The new real-host scenario approaches the Deer from an
+existing night save, checks its warning and spatial voice, then saves and
+replays the rush. The Mac warning capture was inspected; in that scene the
+Deer is offscreen east, which makes the directional cue useful. Artifacts:
+`artifacts/encounter-checked-{web,macos}/`; comparison:
+`/tmp/exact2-forest-encounter-proof-comparison.json`. The strict baseline is
+not accepted yet at this writing.
+
+One bounded before/after Jev pair is now closed. Both start at tick 4,680 after
+the same ordinary-key staging and have identical model, goal, described choices
+and 32-decision limit. Jev sees public HUD text and recent choices, with quarter-
+second WASD or flashlight steps. It sees no inspected positions, creature
+components or images. Its task is to stun the Deer once and return to the fire.
+Before: 32 decisions, no stun, still 24 m from camp, Health 100. After: 16
+decisions, one stun, within the 9 m safe radius at 6 m from camp, Health 100.
+The new run first follows the warning's NW bearing, then switches on the beam;
+the old run turns west while the creature is northwest. These two stochastic
+observations are promising usability evidence, not a success-rate estimate,
+proof of enjoyment, or attribution to the artwork (which Jev never saw).
+No policy was retuned after either completed run. Earlier camp trials remain
+closed. Artifacts: `artifacts/jev-encounter-{before,after}-web/`, taking
+20.238/10.292 s with no failures or remaining children. The exact policy and
+outcomes are summarized in `/tmp/exact2-forest-encounter-jev-comparison.json`.
+
+A setup attempt before that pair used uppercase action IDs and was refused
+before any model request. Its artifacts remain in
+`jev-encounter-driver-refusal-web/`. The generic refusal did not identify the
+bad ID; the shared `decide` helper now reports every invalid action name or
+empty description, plus a missing/blank goal, before network I/O. Its guide
+states the lowercase-name grammar. Five decision-helper tests pass, including
+aggregate diagnostics and zero requests for invalid setup. The broader web
+agent tests from main also pass 63 cases and 2,512 assertions in 4.90 s.
+
+
+The native APNG initially exceeds the driver's 64-million-pixel budget at
+31 retina frames. Sampling every 200 ms instead of 100 ms keeps the same
+three-second input sequence within the cap; it passes in 6.167 s, with no
+remaining children. Its windup frame was inspected, and the named encounter
+readings match web exactly. Artifacts: `artifacts/encounter-final-macos/`;
+the budget refusal is preserved in `encounter-capture-budget-macos/`.
+
+The live-clock browser probe waits for actual night, uses trusted keyboard
+input, turns toward the visible warning bearing and switches on the beam.
+Its first observation window ended while the Deer was still just outside
+the 14 m beam range; the warning audio had nonzero output but no stun cue
+had begun. Keeping the same input and observing for 2.5 s instead of 1.125 s
+captures the completed response: Health 100, Deer stunned, both 48 kHz mono
+sources (39,360 and 17,280 frames) with nonzero PCM, and peak output RMS
+0.0155. The context is running and the owned Chrome process is closed.
+Both attempts remain in `artifacts/encounter-live-web/`. This proves the
+live input/audio path; neither audio quality nor human enjoyment was judged.
+The optional GPU module grows from 2,273/922 KiB raw/gzip to 2,387/963;
+application wasm stays 811/361 KiB. No frame-rate gain is claimed.

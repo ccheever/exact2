@@ -1,6 +1,7 @@
 //! 99 Nights in the Forest, greybox: keep the campfire burning, survive the Deer.
 pub mod camp;
 pub mod creatures;
+mod deer_art;
 pub mod forest;
 pub mod player;
 
@@ -106,6 +107,7 @@ impl Game for Forest {
         player::spawn(w, !args.lite, args.children);
         w.insert_resource(player::Trail::default());
         creatures::spawn_deer(w, half);
+        deer_art::sounds(w);
         creatures::spawn_wolves(w, args.wolves, half);
         player::scatter(w, Kind::Scrap, args.trees / 60 + 6, 18.0, half * 0.9);
         player::scatter(w, Kind::Food, args.trees / 50 + 10, 18.0, half * 0.7);
@@ -170,7 +172,9 @@ impl Game for Forest {
                 dead: p.dead,
             }
         };
+        let previous = w.require::<Deer>("deer").mind;
         let outcome = creatures::step(w, &scene);
+        deer_art::present(w, previous);
         if outcome.damage > 0.0 {
             let mut p = w.require_mut::<Player>("player");
             if !p.dead {
@@ -190,6 +194,7 @@ impl Game for Forest {
             dawned || build || input.pressed("use") || input.pressed("eat"),
         );
         emitter::step(w);
+        audio::step(w);
         let act = player::action(w, w.require::<Transform>("player").position);
         hud(w, act, rescued, outcome.chasing);
     }
@@ -205,7 +210,6 @@ fn hud(w: &World, act: Action, rescued: u32, chasing: u32) {
             .filter(|&&e| w.get::<Item>(e).is_some_and(|i| i.kind == kind))
             .count() as u32
     };
-    let deer = w.require::<Deer>("deer").mind;
     let children = w.count::<Child>(|_| true);
     let (night_plan, night_supplies) = player::preparation(w);
     w.publish_record(&Hud {
@@ -238,7 +242,7 @@ fn hud(w: &World, act: Action, rescued: u32, chasing: u32) {
         windbreak: f.windbreak,
         build_ready: player::can_build(w),
         build_hint: player::build_hint(w).into(),
-        deer: format!("{deer:?}"),
+        deer: creatures::warning(w),
         chasing,
         trees: w.resource::<Grove>().standing,
         wolves: w.count::<creatures::Wolf>(|_| true),

@@ -12,6 +12,8 @@ pub enum Mind {
     Hidden,
     /// Night: closing in, or circling the light when the player is inside it.
     Stalk,
+    /// A stationary warning; the flashlight can interrupt it before the rush.
+    Windup,
     /// Running the player down.
     Chase,
     /// Frozen by the flashlight.
@@ -69,40 +71,52 @@ pub struct Outcome {
 }
 
 pub const DEER_REACH: f32 = 1.4;
+pub const WINDUP: f32 = 0.9;
 const FLASH_RANGE: f32 = 14.0;
 const FLASH_COS: f32 = 0.766; // 40°, wide enough for eight-way keyboard aim
 
 pub fn spawn_deer(w: &mut World, half: f32) {
+    let body = w
+        .generated("deer-body.model", crate::deer_art::body())
+        .expect("deer body");
+    let head = w
+        .generated("deer-head.model", crate::deer_art::head())
+        .expect("deer head");
     w.spawn_named(
         "deer",
         (
             Transform::at(0.0, -50.0, half * 0.8),
-            Mesh::capsule(0.45, 3.2),
-            Material::rgb(0.08, 0.06, 0.05).rough(0.9),
+            body,
+            // A faint warm fill keeps the silhouette readable against the night sky.
+            Material {
+                emissive: [0.006, 0.004, 0.002],
+                ..Material::default().rough(0.9)
+            },
             Visible(false),
             Deer::default(),
         ),
     );
     let deer = w.resolve("deer").unwrap();
-    for (name, x) in [("deer-eye-l", -0.17), ("deer-eye-r", 0.17)] {
+    let head = w.spawn_named(
+        "deer-head",
+        (
+            Parent(deer),
+            Transform::at(0., 0.70, 0.10),
+            head,
+            Material {
+                emissive: [0.028, 0.022, 0.014],
+                ..Material::default().rough(0.9)
+            },
+        ),
+    );
+    for (name, x) in [("deer-eye-l", -0.24), ("deer-eye-r", 0.24)] {
         w.spawn_named(
             name,
             (
-                Parent(deer),
-                Transform::at(x, 1.25, 0.42),
-                Mesh::sphere(0.07),
+                Parent(head),
+                Transform::at(x, 0.47, 0.70),
+                Mesh::sphere(0.085),
                 Material::glow([4.0, 0.25, 0.1]),
-            ),
-        );
-    }
-    for (name, x) in [("antler-l", -0.35), ("antler-r", 0.35)] {
-        w.spawn_named(
-            name,
-            (
-                Parent(deer),
-                Transform::at(x, 1.85, 0.0).with_scale(Vec3::new(0.08, 0.9, 0.08)),
-                Mesh::cube(1.0),
-                Material::rgb(0.75, 0.7, 0.6),
             ),
         );
     }
@@ -136,6 +150,31 @@ pub fn spawn_wolves(w: &mut World, count: u32, half: f32) {
 
 fn planar(v: Vec3) -> Vec3 {
     Vec3::new(v.x, 0.0, v.z)
+}
+
+/// The immediate threat and its bearing, expressed in the same compass as camp.
+pub fn warning(w: &World) -> String {
+    let deer = w.require::<Deer>("deer");
+    match deer.mind {
+        Mind::Hidden => "Deer: hidden by daylight".into(),
+        Mind::Flee => "Deer retreating".into(),
+        Mind::Stunned => format!(
+            "Deer stunned · {} s",
+            math::ceil(deer.timer.max(0.0)) as u32
+        ),
+        Mind::Stalk => "Deer stalking outside the firelight".into(),
+        Mind::Windup | Mind::Chase => {
+            let direction = crate::player::bearing(
+                w.require::<Transform>("deer").position - w.require::<Transform>("player").position,
+            );
+            let action = if deer.mind == Mind::Windup {
+                "Charge warning"
+            } else {
+                "Deer charging"
+            };
+            format!("{action} · {direction} · F flashlight")
+        }
+    }
 }
 
 /// Move a creature: steer around trunks, resolve overlaps, stay out of the light,
@@ -203,7 +242,7 @@ pub fn step(w: &World, s: &Scene) -> Outcome {
         // The flashlight: a cone along the player's facing.
         let lit =
             s.flashlight && d < FLASH_RANGE && (-to).normalize_or_zero().dot(s.facing) > FLASH_COS;
-        if lit && matches!(deer.mind, Mind::Stalk | Mind::Chase) {
+        if lit && matches!(deer.mind, Mind::Stalk | Mind::Windup | Mind::Chase) {
             deer.glare += dt;
             if deer.glare >= 0.6 {
                 deer.mind = Mind::Stunned;
@@ -228,10 +267,30 @@ pub fn step(w: &World, s: &Scene) -> Outcome {
                     tangent * 2.0 + p / r * inward
                 } else {
                     if d < 16.0 && deer.timer < -3.0 {
+                        deer.mind = Mind::Windup;
+                        deer.timer = WINDUP;
+                        deer.heading = math::atan2(dir.x, dir.z);
+                        Vec3::ZERO
+                    } else {
+                        dir * 3.2
+                    }
+                }
+            }
+            Mind::Windup => {
+                if !outside || s.dead {
+                    deer.mind = Mind::Stalk;
+                    deer.timer = 0.0;
+                    Vec3::ZERO
+                } else {
+                    out.chasing += 1;
+                    deer.heading = math::atan2(dir.x, dir.z);
+                    if deer.timer <= 0.0 {
                         deer.mind = Mind::Chase;
                         deer.timer = 7.0;
+                        dir * 6.6
+                    } else {
+                        Vec3::ZERO
                     }
-                    dir * 3.2
                 }
             }
             Mind::Chase => {

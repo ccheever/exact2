@@ -39,6 +39,19 @@ test('missing credentials and oversized observations fail before network I/O', a
   expect(calls).toBe(0);
 });
 
+test('invalid playtest setup names every offending action before making a request', async () => {
+  let calls = 0;
+  const fetch = async () => { calls++; return Response.json({}); };
+  const fail = await decide({...question, goal:' ', choices:{NW:'Walk northwest', wait:''}, fetch})
+    .then(()=>null, error=>error.message);
+  expect(fail).toContain('goal must be a nonempty string');
+  expect(fail).toContain('choice "NW" has an invalid id');
+  expect(fail).toContain('lowercase letter');
+  expect(fail).toContain('choice "wait" needs a nonempty description');
+  await expect(decide({...question, choices:{}, fetch})).rejects.toThrow('at least one action');
+  expect(calls).toBe(0);
+});
+
 test('transport and HTTP errors never expose headers or provider bodies', async () => {
   await expect(decide({...question, fetch:async () => {throw new Error('Bearer test-secret');}}))
     .rejects.toThrow('Jev request failed or timed out');

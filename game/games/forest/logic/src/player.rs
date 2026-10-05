@@ -789,7 +789,7 @@ fn rescue_guidance(w: &World) -> String {
     }
 }
 
-fn bearing(to: Vec3) -> String {
+pub(crate) fn bearing(to: Vec3) -> String {
     bearing_with_reach(to, 2.0)
 }
 

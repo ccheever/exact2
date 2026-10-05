@@ -543,6 +543,44 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await cacheBack.world('world').save(resolve(out,'cached-supply-restored.world'));
   check('cached-supply continuation saves are byte-identical', readFileSync(resolve(out,'cached-supply-continued.world')).equals(readFileSync(resolve(out,'cached-supply-restored.world'))));
   await cacheBack.close();
+
+  // Approach the Deer without the beam, save its warning, and replay the rush.
+  const warning = await open({fresh:true,world:resolve(out,'night.world')});
+  await warning.tap('play');
+  const wg = warning.world('world');
+  const [wp, wd] = [await wg.local_position('player'), await wg.local_position('deer')];
+  const angle = Math.atan2(wd[2]-wp[2],wd[0]-wp[0]);
+  const toward = [...(Math.abs(Math.cos(angle))>0.38 ? [Math.cos(angle)>0?'KeyD':'KeyA'] : []),
+    ...(Math.abs(Math.sin(angle))>0.38 ? [Math.sin(angle)>0?'KeyS':'KeyW'] : [])];
+  for (const key of toward) await wg.key_down(key);
+  for (let step=0;step<100;step++) {
+    if (JSON.stringify((await wg.get('deer','Deer')).mind).includes('Windup')) break;
+    await wg.run(100);
+  }
+  for (const key of toward) await wg.key_up(key);
+  await wg.run(34);
+  check('the first rush gives a directional warning', node(await warning.tree(),'deer')?.props?.text.startsWith('Charge warning · '));
+  check('the warning plays its spatial sound', (await warning.state()).world?.find(w=>w.name==='world')?.audio?.voices?.some(v=>v.sound==='deer-warning' && v.at==='deer'));
+  if (host !== 'linux') await warning.screenshot(resolve(out,'deer-warning.png'));
+  await wg.run(34); // Settle host focus deliveries before taking the shared save.
+  await wg.save(resolve(out,'deer-warning.world'));
+  const continueWarning = async session => {
+    const g = session.world('world');
+    await g.run(1200);
+    check('the warning resolves into a committed rush', /Chase|Flee/.test(JSON.stringify((await g.get('deer','Deer')).mind)));
+    await g.run(2400);
+    return g.snapshot();
+  };
+  const warned = await continueWarning(warning);
+  await wg.save(resolve(out,'deer-warning-continued.world'));
+  pinSave('deer-warning',resolve(out,'deer-warning-continued.world'));
+  await warning.close();
+  const warningBack = await open({fresh:true,world:resolve(out,'deer-warning.world')});
+  await warningBack.tap('play');
+  check('a saved warning continues identically', JSON.stringify(await continueWarning(warningBack))===JSON.stringify(warned));
+  await warningBack.world('world').save(resolve(out,'deer-warning-restored.world'));
+  check('warning continuation saves are byte-identical', readFileSync(resolve(out,'deer-warning-continued.world')).equals(readFileSync(resolve(out,'deer-warning-restored.world'))));
+  await warningBack.close();
 });
 
 async function followCompass(session, objective) {

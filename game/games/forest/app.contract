@@ -141,7 +141,7 @@ component Forest
               text hud.drop_hint testId="drop-hint"
             text `Children ${hud.rescued} of ${hud.children} rescued` testId="children"
           column position="absolute" right=16 bottom=16 gap=4 padding=12 border-radius=12 background-color="#070b0acc" align-items="flex-end"
-            text `Deer: ${hud.deer}` testId="deer" color=(hud.deer == "Chase" ? "#ff7a59" : "#a7b0a3")
+            text hud.deer testId="deer" color=(hud.chasing > 0 ? "#ff7a59" : "#a7b0a3")
             text `${hud.chasing} hunting you` testId="chasing" font-size=13 color="#a7b0a3"
             text `${hud.trees} trees · ${hud.wolves} wolves` testId="census" font-size=13 color="#a7b0a3"
           when hud.prompt != ""

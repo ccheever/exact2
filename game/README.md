@@ -453,7 +453,10 @@ focus and consumes its activation keys. Native hover/focus-visible parity remain
 
 For model-directed exploratory play, import `decide` from `game/proof.mjs`.
 Pass a small `state` observation, a `goal`, a `choices` record mapping allowed
-action names to descriptions, and a `transcript` JSONL path. Jev returns a
+action names to descriptions, and a `transcript` JSONL path. Action names start
+with a lowercase letter and contain lowercase letters, digits, `_` or `-`;
+descriptions and the goal must be nonempty strings. Setup errors name every
+invalid action before making a request. Jev returns a
 `choice`, its probabilities, usage and request duration. The game script executes
 that named action through the ordinary session driver. The key comes from
 `AI_GATEWAY_API_KEY` in the driver's environment and never enters the app. Only

@@ -19,9 +19,14 @@ export async function decide({state, choices, goal, transcript,
   key = process.env.AI_GATEWAY_API_KEY, fetch: request = globalThis.fetch}) {
   if (!key?.trim()) throw new Error('Jev playtest needs AI_GATEWAY_API_KEY in the driver environment');
   const entries = Object.entries(choices ?? {});
-  if (!goal || !entries.length || entries.some(([id, description]) =>
-    !/^[a-z][a-z0-9_-]*$/.test(id) || typeof description !== 'string' || !description.trim()))
-    throw new Error('Jev playtest needs a goal and named, described choices');
+  const problems = [];
+  if (typeof goal !== 'string' || !goal.trim()) problems.push('goal must be a nonempty string');
+  if (!entries.length) problems.push('choices must contain at least one action');
+  for (const [id, description] of entries) {
+    if (!/^[a-z][a-z0-9_-]*$/.test(id)) problems.push(`choice ${JSON.stringify(id)} has an invalid id; use a lowercase letter followed by lowercase letters, digits, _ or -`);
+    if (typeof description !== 'string' || !description.trim()) problems.push(`choice ${JSON.stringify(id)} needs a nonempty description`);
+  }
+  if (problems.length) throw new Error(`Jev playtest: ${problems.join('; ')}`);
   const body = {model:'typesafe-ai/jev', state, questions:{action:{
     type:'choice', instructions:goal, criteria:choices}}};
   const encoded = JSON.stringify(body);

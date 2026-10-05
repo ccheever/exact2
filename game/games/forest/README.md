@@ -24,7 +24,11 @@ the flashlight. Days are 80 s and nights 50 s.
 The fire burns its fuel; its light and the safe radius shrink with it (4 m plus
 0.2 m per fuel point). At night the Deer comes out at the edge of the light. It
 will not enter the light; outside it, it closes in and charges. Hold the flashlight
-on it for 0.6 s to stun it. Wolves roam in packs and bite outside the light, and
+on it for 0.6 s to stun it. Before rushing, it stands still for 0.9 s, lowers
+its branching antlers and growls. The charge warning names its compass bearing;
+turn that way and hold the beam on it, or retreat into the firelight. Its eyes
+turn blue when stunned. A hunched body and pale head replace the old capsule.
+Wolves roam in packs and bite outside the light, and
 they scatter from the flashlight. Hunger drains; starving costs health, and the
 fire heals you and recharges the flashlight. Bring both children into the light.
 The HUD counts the nights you survive. Follow the rescue compass (W north, D east,
@@ -101,6 +105,9 @@ choice rebuilds the world.
   a shadow-casting `SpotLight` from the player's chest.
   The Deer's `Visible` is written only when it changes: a mutable borrow alone
   makes the renderer rebuild every batch (it cost 100+ ms a frame at 100k trees).
+- `deer_art.rs`: two shared generated models, the saved head pose and positional
+  warning/stun sounds. `game.audio` selects the optional sound output; sounds and
+  presentation follow the simulation clock and survive a mid-warning save.
 - `player.rs`: Rapier's `CapsuleController` against trunk colliders, or the same
   grid push-out the creatures use (`lite`), plus needs, carrying and children.
 
