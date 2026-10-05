@@ -101,21 +101,12 @@ impl Images {
         let pixels = f64::from(viewport.0 * scale) * f64::from(viewport.1 * scale);
         let floor = exact_raster::SESSION_BYTES as f64;
         // EXACT_IMAGE_VIEWPORTS: how many viewports of pictures to keep
-        // decoded (8, Apple's RasterLoader rule, unless a host says). On
-        // Android 12: pictures there are resampled to the size they show at
-        // (`png_decode::DecodePlan`), so 12 hold what 8 did not, and a fling
-        // through heavy's photos decoded each about three times (Pixel 10
-        // Pro XL, 24k px/s: CPU -9%, end PSS 530 MB against 8's 485 and the
-        // power-of-two decodes' ~720).
+        // decoded (8, Apple's RasterLoader rule, unless a host says).
         let viewports = std::env::var("EXACT_IMAGE_VIEWPORTS")
             .ok()
             .and_then(|v| v.parse::<f64>().ok())
             .filter(|v| *v > 0.0)
-            .unwrap_or(if cfg!(target_os = "android") {
-                12.0
-            } else {
-                8.0
-            });
+            .unwrap_or(8.0);
         let cap = (192.0f64 * 1024.0 * 1024.0).max(pixels * 4.0 * viewports);
         let budget = if pixels.is_finite() && pixels > 0.0 {
             (pixels * 4.0 * viewports).clamp(floor, cap)
