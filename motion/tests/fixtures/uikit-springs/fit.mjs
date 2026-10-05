@@ -61,16 +61,24 @@ export function caSettle(k, c, v0) {
   return Math.log((1 + Math.abs(B)) / EPS) / (z * w);
 }
 // The bounce form's end time at or above critical damping: the critically
-// damped settle time, the last T with |−1 + (v0 − ω)·T|·e^(−ωT) = ε. Scan
-// back from 100/ω in steps of 0.01/ω to the last sign change, then bisect.
+// damped settle time, the last T with f(T) = |P(T)|·e^(−ωT) = ε, where
+// P(T) = −1 + (v0 − ω)·T. P is linear, so f has at most two lobes: one from
+// 0, and, when v0 > ω, a second after P's zero T0 = 1/(v0 − ω), peaking at
+// T0 + 1/ω. The last crossing is on the falling side of the last lobe whose
+// peak exceeds ε; bisect there (each falling side is monotone).
 export function criticalSettle(w, v0) {
   const f = (T) => Math.abs(-1 + (v0 - w) * T) * Math.exp(-w * T) - EPS;
-  let hi = 100 / w, lo = hi;
-  while (lo > 0 && f(lo) <= 0) lo -= 0.01 / w;
-  if (lo <= 0) return 0;
-  hi = lo + 0.01 / w;
-  for (let i = 0; i < 200; i++) { const m = (lo + hi) / 2; if (f(m) > 0) lo = m; else hi = m; }
-  return lo;
+  const bisect = (lo, hi) => { for (let i = 0; i < 200; i++) { const m = (lo + hi) / 2; if (f(m) > 0) lo = m; else hi = m; } return lo; };
+  const far = (T) => { let hi = Math.max(T, 1 / w); while (f(hi) > 0) hi *= 2; return hi; };
+  if (v0 > w) {
+    const T0 = 1 / (v0 - w), peak = T0 + 1 / w;
+    if (f(peak) > 0) return bisect(peak, far(peak));
+    // First lobe: P = −1 + (v0 − ω)T falls in magnitude from 1 at 0 to 0 at T0.
+    return f(0) > 0 ? bisect(0, T0) : 0;
+  }
+  // v0 ≤ ω: |P| = 1 + (ω − v0)T; f peaks at T = max(0, 1/ω − 1/(ω − v0)) then falls.
+  const peak = v0 < w ? Math.max(0, 1 / w - 1 / (w - v0)) : 0;
+  return f(peak) > 0 ? bisect(peak, far(peak)) : 0;
 }
 export const bounceSpring = (d, b) => ({ k: (2 * Math.PI / d) ** 2, c: b >= 0 ? (4 * Math.PI * (1 - b)) / d : (4 * Math.PI) / (d * (1 + b)) });
 
@@ -166,6 +174,11 @@ for (const l of lines.filter((l) => /^[US] /.test(l))) {
 
 // 6. Where the duration form's model misses: per ζ, the velocity·duration
 // range that holds every miss in the sweep (the solver's chaotic band).
+{
+  const W = rows('W');
+  const at = (N) => W.filter((r) => { const z = Math.min(r.z, 1); let x = 5; for (let i = 0; i < N; i++) { const e = Math.exp(-z * x); let g, dg; if (z < 1) { const s = Math.sqrt(1 - z * z), B = (r.u / x - z) / s; g = Math.abs(B) * e - EPS; dg = ((B < 0 ? -1 : 1) * (-r.u / (x * x)) / s - z * Math.abs(B)) * e; } else { const P = r.u - x - 1; g = Math.abs(P) * e - EPS; dg = (-(P < 0 ? -1 : 1) - Math.abs(P)) * e; } if (dg === 0) break; let n = x - g / dg; if (n <= 0) n = x / 2; x = n; } return Math.abs(Math.log(x / Math.sqrt(r.k))) < 1e-5; }).length;
+  console.log(`\nNewton steps vs the W sweep: 11 → ${at(11)}, 12 → ${at(12)}, 13 → ${at(13)} of ${W.length}`);
+}
 console.log('\nDuration form, sweep misses by ζ (u = velocity × duration):');
 {
   const by = new Map();
@@ -210,15 +223,15 @@ console.log('\nRetargets (R lines):');
       }
       console.log(`  ${name.padEnd(12)} t1 ${t1}: two additive components, worst error ${worst.toFixed(4)} pt of a 300 pt move`);
     } else {
-      const from = Number(l.match(/from=Optional\(([\d.]+)\)/)[1]);
-      console.log(`  ${name.padEnd(12)} t1 ${t1}: one animation, from ${from} (${Math.abs(from - 0.2) < 1e-6 ? 'the model value: the presented value jumps' : 'the presented value'}), velocity 0`);
+      const from = Number(l.match(/from=Optional\(([\d.]+)\)/)[1]), k = Number(l.match(/ k=([\d.]+)/)[1]), v0 = Number(l.match(/ v0=([\d.]+)/)[1]);
+      console.log(`  ${name.padEnd(13)} t1 ${t1}: one animation, from ${from} (${Math.abs(from - 0.2) < 1e-6 ? 'the model value: the presented value jumps' : 'the presented value'}), k ${k.toFixed(4)}, initialVelocity ${v0} (inherited velocity dropped; the authored one kept)`);
     }
   }
 }
 
 // 8. The proposed validation and band predicate (LLP 1099 D2): a result is a
 // root when |g(W)| ≤ 0.1·ε and 0 < W ≤ 1e4; the band is u > 0 with
-// 1 ≤ u/min(ζ,1) ≤ 7.
+// 0.6 ≤ u/min(ζ,1) ≤ 8.
 console.log('\nValidation and band predicate over A, W and the Signal U rows:');
 {
   const g = (W, zeta, u) => { const z = Math.min(zeta, 1), e = Math.exp(-z * W); return z < 1 ? Math.abs((u / W - z) / Math.sqrt(1 - z * z)) * e - EPS : Math.abs(u - W - 1) * e - EPS; };
@@ -226,7 +239,7 @@ console.log('\nValidation and band predicate over A, W and the Signal U rows:');
   for (const l of lines.filter((l) => l.startsWith('U A '))) { const [d, z, v] = l.match(/d=([\d.]+) z=([\d.]+) v=([\d.]+)/).slice(1).map(Number); pts.push([z, v * d, Math.sqrt(fields(l.replace(/ [\d.e-]+:-?[\d.e+-]+/g, '')).k) * d]); }
   let miss = 0, inBand = 0, flagged = 0, refused = 0, refusedMatch = 0, worstMatch = 0;
   for (const [z, u, Wm] of pts) {
-    const W = durationW(z, u), match = Math.abs(Math.log(W / Wm)) < 1e-5, band = u > 0 && u / Math.min(z, 1) >= 1 && u / Math.min(z, 1) <= 7;
+    const W = durationW(z, u), match = Math.abs(Math.log(W / Wm)) < 1e-5, band = u > 0 && u / Math.min(z, 1) >= 0.6 && u / Math.min(z, 1) <= 8;
     const root = Number.isFinite(W) && W > 0 && W <= 1e4 && Math.abs(g(W, z, u)) <= 0.1 * EPS;
     if (band) flagged++;
     if (!match) { miss++; if (band) inBand++; }

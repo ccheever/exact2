@@ -205,7 +205,7 @@ class Scene: UIResponder, UIWindowSceneDelegate {
       box.layer.timeOffset = t1; CATransaction.flush()
       second(); CATransaction.flush()
       var row = "R \(name) t1=\(t1)"
-      for k in w.layer.animationKeys() ?? [] { if let a = w.layer.animation(forKey: k) as? CABasicAnimation { row += " [\(k) bt=\(a.beginTime) from=\(String(describing: a.fromValue)) to=\(String(describing: a.toValue)) add=\(a.isAdditive) dur=\(a.duration)]" } }
+      for k in w.layer.animationKeys() ?? [] { if let a = w.layer.animation(forKey: k) as? CABasicAnimation { row += " [\(k) bt=\(a.beginTime) from=\(String(describing: a.fromValue)) to=\(String(describing: a.toValue)) add=\(a.isAdditive) dur=\(a.duration)\((a as? CASpringAnimation).map { " k=\($0.stiffness) v0=\($0.initialVelocity)" } ?? "")]" } }
       var t = 0.0
       while t <= 1.2 { box.layer.timeOffset = t; CATransaction.flush(); row += " \(t):\(read(w.layer.presentation() ?? w.layer))"; t += 0.01 }
       out += row + "\n"
@@ -220,6 +220,8 @@ class Scene: UIResponder, UIWindowSceneDelegate {
                             { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 1, options: [.beginFromCurrentState], animations: { w.center = CGPoint(x: 350, y: 50) }) }, read: px)
       run("alpha", at: t1, { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [], animations: { w.alpha = 0.2 }) },
                             { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [], animations: { w.alpha = 1 }) }, read: op)
+      run("alpha-v1-bfcs", at: t1, { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [], animations: { w.alpha = 0.2 }) },
+                            { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 1, options: [.beginFromCurrentState], animations: { w.alpha = 1 }) }, read: op)
       run("alpha-bfcs", at: t1, { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [], animations: { w.alpha = 0.2 }) },
                             { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [.beginFromCurrentState], animations: { w.alpha = 1 }) }, read: op)
     }
