@@ -118,7 +118,7 @@ component Garden
                 text (hud.weather_left == "" ? hud.weather : `${hud.weather} · ${hud.weather_left}`) testId="weather" aria-live="polite" color=(hud.weather == "Clear" ? "#f1f5f9" : "#93c5fd") font-family="Lilita One"
                 text `Restock ${hud.restock_in}` testId="restock" color="#cbd5e1"
                 text `${hud.plants} plants · ${hud.ripe}/${hud.fruit} ripe · ${hud.mutated} mutated` testId="census" color="#cbd5e1"
-                when hud.clock == ""
+                when hud.clock == "" or art != "pass"
                   text `Day ${hud.garden_time}` testId="garden-time" color="#cbd5e1"
                 else
                   text (hud.night ? `☾ ${hud.clock}` : `☀ ${hud.clock}`) testId="garden-time" color=(hud.night ? "#c7d2fe" : "#fde68a") font-family="Lilita One"
@@ -183,7 +183,7 @@ component Garden
                   button press=toggleSmooth testId="smooth" aria-label=(smooth ? "Stepped growth" : "Smooth growth") padding=8 border-radius=8 background-color=(smooth ? "#7c3aed" : "#334155")
                     text (smooth ? "Smooth" : "Stepped")
                 text `${hud.events} events run · ${hud.queued} queued` font-size=12 color="#94a3b8" testId="events"
-                text "Look (starts a new garden)" font-size=14 color="#cbd5e1" padding-top=6
+                text "Look (keeps your garden)" font-size=14 color="#cbd5e1" padding-top=6
                 row gap=8 flex-wrap="wrap"
                   button press=look("") testId="look-classic" padding=8 border-radius=8 background-color=(art == "" ? "#65a30d" : "#334155")
                     text "Classic"

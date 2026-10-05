@@ -352,8 +352,6 @@ pub fn lay_ground(w: &World) {
         Follow::new(w.named("ground").unwrap())
             .offset(0.0, r * 0.9, r * 0.75)
             .lag(0.3)
-    } else if crate::pass::on(w) {
-        crate::pass::camera(w)
     } else {
         Follow::new(w.named("player").unwrap())
             .offset(0.0, 9.0, 11.0)
@@ -495,11 +493,8 @@ pub fn command(w: &mut World, cmd: &str) {
             lay_ground(w);
             Ok((if o { "Overview" } else { "Close" }).into())
         }
-        "closeup" if crate::pass::on(w) => {
-            let line = crate::pass::toggle_closeup(w);
-            lay_ground(w);
-            Ok(line)
-        }
+        // The art pass's camera; the other looks keep theirs.
+        "closeup" => Ok(crate::pass::toggle_closeup(w)),
         "fill" => Ok(format!("Planted {}", fill(w, arg.parse().unwrap_or(100)))),
         "away" => {
             let ran = away(w, arg.parse::<u64>().unwrap_or(0) * 1000);

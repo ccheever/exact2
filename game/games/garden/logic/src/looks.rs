@@ -1,10 +1,11 @@
-//! Alternative looks for the garden, chosen by the `art` argument at setup:
+//! Alternative looks for the garden, chosen live by the `art` argument:
 //! **golden** (late-afternoon light, long shadows, a warm haze and drifting
-//! pollen) and **storybook** (bright, soft and toy-like). Both keep the
-//! classic look's entity names, asset names and counts, so the game, its
-//! gestures and its scale are unchanged; only meshes, materials, lights and
-//! a fixed handful of scenery entities differ.
+//! pollen) and **storybook** (bright, soft and toy-like). Both draw on the
+//! classic look's entities from `present` (their own generated models, a sun
+//! and fill, a sky, and a handful of props placed in every look), so the
+//! game, its gestures, its saves and its scale are the same in every look.
 use crate::{
+    art::{dress, hide, place},
     crops::{Crop, CROPS},
     garden::paint,
     models::*,
@@ -185,8 +186,26 @@ pub(crate) fn dir(angle: f32) -> Vec3 {
 
 // ------------------------------------------------------------- the world
 
-fn environment(w: &mut World, style: Style, l: &Look) {
-    let (env, ao, sun, fill) = match style {
+const STYLES: [Style; 2] = [Style::Golden, Style::Storybook];
+
+fn tag(style: Style) -> &'static str {
+    match style {
+        Style::Golden => "golden",
+        Style::Storybook => "storybook",
+    }
+}
+
+/// A look's generated model: `golden-orchard.model`.
+fn model(style: Style, base: &str) -> String {
+    format!("{}-{base}.model", tag(style))
+}
+
+/// A light's linear colour and lux.
+type Lux = ([f32; 3], f32);
+
+/// The sky, occlusion, sun and fill of a look.
+fn lighting(style: Style) -> (Environment, AmbientOcclusion, Lux, Lux) {
+    match style {
         Style::Golden => (
             Environment {
                 zenith: [0.16, 0.30, 0.58],
@@ -241,183 +260,197 @@ fn environment(w: &mut World, style: Style, l: &Look) {
             ([1.0, 0.95, 0.86], 11000.),
             ([1.0, 0.78, 0.80], 2400.),
         ),
-    };
-    w.insert_resource(env);
-    w.insert_resource(ao);
-    *w.require_mut::<Transform>("sun") =
-        Transform::at(l.sun.x, l.sun.y, l.sun.z).looking_at(Vec3::ZERO, Vec3::Y);
-    *w.require_mut::<DirectionalLight>("sun") = DirectionalLight {
-        color: sun.0,
-        illuminance: sun.1,
-        shadows: true,
-    };
-    let opposite = Vec3::new(-l.sun.x, l.sun.y * 0.6, -l.sun.z);
-    w.spawn_named(
-        "fill-light",
-        (
-            Transform::at(opposite.x, opposite.y, opposite.z).looking_at(Vec3::ZERO, Vec3::Y),
-            DirectionalLight {
-                color: fill.0,
-                illuminance: fill.1,
-                shadows: false,
-            },
-        ),
-    );
-    *w.require_mut::<Material>("ground") = Material::grid(l.soil, crate::garden::TILE);
+    }
 }
 
-pub fn setup(w: &mut World, style: Style) {
-    let l = look(style);
-    environment(w, style, l);
-    let body = w
-        .generated("gardener.model", gardener(l))
-        .expect("gardener mesh");
-    let player = w.named("player").unwrap();
-    w.remove::<Mesh>(player);
-    w.remove::<Material>(player);
-    let body = w.spawn_named(
-        "gardener",
-        (
-            Transform::default(),
-            body,
-            Material::default(),
-            Parent(player),
-        ),
-    );
-    let arm = w.generated("gardener-arm.model", arm(l)).expect("arm mesh");
-    let leg = w.generated("gardener-leg.model", leg(l)).expect("leg mesh");
-    for (name, x, y, mesh) in [
-        ("arm-left", -0.38, 0.18, arm.clone()),
-        ("arm-right", 0.38, 0.18, arm),
-        ("leg-left", -0.18, -0.28, leg.clone()),
-        ("leg-right", 0.18, -0.28, leg),
-    ] {
+/// Both looks' generated models, their ambience emitters, and their props as
+/// bare poses (they share a layout).
+pub fn setup(w: &mut World) {
+    for style in STYLES {
+        let l = look(style);
+        let generated = [
+            ("gardener", gardener(l)),
+            ("gardener-arm", arm(l)),
+            ("gardener-leg", leg(l)),
+            ("watering-can", watering_can(l)),
+            ("orchard", orchard(l)),
+            ("flowers", flower_bank(l)),
+            ("meadow-grass", meadow(l)),
+            ("backdrop", backdrop(l)),
+            ("rail", rail(l)),
+            ("rain-barrel", barrel(l)),
+        ];
+        for (base, mesh) in generated {
+            w.generated(&model(style, base), mesh).expect("look mesh");
+        }
+        for kind in 0..CROPS.len() {
+            w.generated(&model(style, &format!("plant-{kind}")), plant(kind, l))
+                .expect("plant mesh");
+            w.generated_model(&model(style, &format!("fruit-{kind}")), fruit(kind, l))
+                .expect("fruit mesh");
+        }
+        let (mote, additive, rise) = if l.toy {
+            ([1.0, 1.0, 1.0, 0.85], false, 0.05)
+        } else {
+            ([2.2, 1.6, 0.8, 0.9], true, 0.03)
+        };
         w.spawn_named(
-            name,
+            format!("ambience-{}", tag(style)),
             (
-                Transform::at(x, y, 0.),
-                mesh,
-                Material::default(),
-                Parent(body),
+                Transform::default(),
+                Emitter {
+                    shape: emitter::Shape::Sphere(10.),
+                    rate: 24.,
+                    lifetime: 7.,
+                    speed: 0.12,
+                    spread: PI,
+                    gravity: Vec3::Y * rise,
+                    drag: 0.3,
+                    size: [0.045, 0.03],
+                    color: [mote, [mote[0], mote[1], mote[2], 0.]],
+                    ease: emitter::Ease::Smooth,
+                    seed: 91,
+                    bound: [-12., -12., -12., 12., 12., 12.],
+                    additive,
+                    running: true,
+                    ..Emitter::default()
+                },
+                Ambient,
             ),
         );
     }
-    let can = w
-        .generated("watering-can.model", watering_can(l))
-        .expect("can mesh");
-    w.spawn_named(
-        "watering-can",
-        (
-            Transform::at(0., -0.47, 0.16).with_scale(1.25),
-            can,
-            Material::default(),
-            Parent(w.named("arm-left").unwrap()),
-            Visible(false),
-        ),
-    );
-    for kind in 0..CROPS.len() {
-        w.generated(&format!("plant-{kind}.model"), plant(kind, l))
-            .expect("plant mesh");
-        w.generated_model(&format!("fruit-{kind}.model"), fruit(kind, l))
-            .expect("fruit mesh");
-    }
-    let trees = w
-        .generated("orchard.model", orchard(l))
-        .expect("orchard mesh");
-    let flowers = w
-        .generated("flowers.model", flower_bank(l))
-        .expect("flower mesh");
-    let grass = w
-        .generated("meadow-grass.model", meadow(l))
-        .expect("meadow mesh");
-    let hills = w
-        .generated("backdrop.model", backdrop(l))
-        .expect("backdrop mesh");
-    let rail = w.generated("rail.model", rail(l)).expect("rail mesh");
-    let tub = w
-        .generated("rain-barrel.model", barrel(l))
-        .expect("barrel mesh");
-    let bed = scale(l.mound.0, 0.8);
-    for (name, position, mesh, material) in [
-        (
-            "meadow",
-            Vec3::new(0., -0.10, 0.),
-            Mesh::plane(1600., 1600.),
-            paint(l.meadow),
-        ),
-        ("orchard", Vec3::ZERO, trees, Material::default()),
-        (
-            "flowers-west",
-            Vec3::new(-5.0, 0., 3.6),
-            flowers.clone(),
-            Material::default(),
-        ),
-        (
-            "flowers-east",
-            Vec3::new(6.0, 0., 3.6),
-            flowers,
-            Material::default(),
-        ),
-        ("bed-edge", Vec3::ZERO, Mesh::cube(1.), paint(bed)),
-        ("meadow-grass", Vec3::ZERO, grass, Material::default()),
-        ("backdrop", Vec3::ZERO, hills, Material::default()),
+    for (name, position) in [
+        ("styled-flowers-west", Vec3::new(-5.0, 0., 3.6)),
+        ("styled-flowers-east", Vec3::new(6.0, 0., 3.6)),
+        ("meadow-grass", Vec3::ZERO),
+        ("backdrop", Vec3::ZERO),
     ] {
         w.spawn_named(
             name,
-            (
-                Transform::at(position.x, position.y, position.z),
-                mesh,
-                material,
-            ),
+            (Transform::at(position.x, position.y, position.z), Ambient),
         );
     }
     for edge in RAILS {
-        w.spawn_named(
-            edge,
-            (Transform::default(), rail.clone(), Material::default()),
+        w.spawn_named(edge, (Transform::default(), Ambient));
+    }
+}
+
+/// A look as drawn: its sky, sun and fill, its models on what every look
+/// shares and on its props, and its ambience; the others' emitters hidden.
+pub fn present(p: &mut Present, style: Style) {
+    let l = look(style);
+    let (environment, occlusion, sun, fill) = lighting(style);
+    if let Some(camera) = p.named("camera") {
+        p.insert(
+            camera,
+            DrawnEnvironment {
+                environment,
+                ambient_occlusion: Some(occlusion),
+            },
         );
     }
-    *w.require_mut::<Mesh>("water-barrel") = tub;
-    *w.require_mut::<Material>("water-barrel") = Material::default();
-    *w.require_mut::<Mesh>("barrel-water") = Mesh::cylinder(0.54, 0.04);
-    w.require_mut::<Transform>("barrel-water").position.y = 0.92;
-    *w.require_mut::<Material>("barrel-water") = Material {
-        color: if l.toy {
-            [0.20, 0.55, 0.85, 1.]
-        } else {
-            [0.05, 0.16, 0.20, 1.]
-        },
-        roughness: 0.06,
-        ..Material::default()
-    };
-    let (mote, additive, rise) = if l.toy {
-        ([1.0, 1.0, 1.0, 0.85], false, 0.05)
-    } else {
-        ([2.2, 1.6, 0.8, 0.9], true, 0.03)
-    };
-    w.spawn_named(
-        "ambience",
-        (
-            Transform::default(),
-            Emitter {
-                shape: emitter::Shape::Sphere(10.),
-                rate: 24.,
-                lifetime: 7.,
-                speed: 0.12,
-                spread: PI,
-                gravity: Vec3::Y * rise,
-                drag: 0.3,
-                size: [0.045, 0.03],
-                color: [mote, [mote[0], mote[1], mote[2], 0.]],
-                ease: emitter::Ease::Smooth,
-                seed: 91,
-                bound: [-12., -12., -12., 12., 12., 12.],
-                additive,
-                running: true,
-                ..Emitter::default()
-            },
-        ),
+    let aim = |at: Vec3| Transform::at(at.x, at.y, at.z).looking_at(Vec3::ZERO, Vec3::Y);
+    let opposite = Vec3::new(-l.sun.x, l.sun.y * 0.6, -l.sun.z);
+    for (name, at, (color, illuminance), shadows) in
+        [("sun", l.sun, sun, true), ("moon", opposite, fill, false)]
+    {
+        if let Some(e) = p.named(name) {
+            place(p, e, aim(at));
+            p.insert(
+                e,
+                DrawnLight::Directional(DirectionalLight {
+                    color,
+                    illuminance,
+                    shadows,
+                }),
+            );
+        }
+    }
+    if let Some(ground) = p.named("ground") {
+        let plane = p.get::<Mesh>(ground).map(|m| m.clone()).unwrap_or_default();
+        let soil = Material::grid(l.soil, crate::garden::TILE);
+        p.insert(ground, DrawnMesh::new(plane).material(soil));
+    }
+    let named = |base: &str| DrawnMesh::model(model(style, base));
+    for (name, base) in [
+        ("gardener", "gardener"),
+        ("arm-left", "gardener-arm"),
+        ("arm-right", "gardener-arm"),
+        ("leg-left", "gardener-leg"),
+        ("leg-right", "gardener-leg"),
+        ("watering-can", "watering-can"),
+        ("orchard", "orchard"),
+        ("styled-flowers-west", "flowers"),
+        ("styled-flowers-east", "flowers"),
+        ("meadow-grass", "meadow-grass"),
+        ("backdrop", "backdrop"),
+        ("bed-rail-north", "rail"),
+        ("bed-rail-south", "rail"),
+        ("bed-rail-west", "rail"),
+        ("bed-rail-east", "rail"),
+    ] {
+        dress(p, name, named(base));
+    }
+    dress(
+        p,
+        "meadow",
+        DrawnMesh::new(Mesh::plane(1600., 1600.)).material(paint(l.meadow)),
     );
+    if let Some(bed) = crate::art::bed(p) {
+        dress(p, "bed-edge", bed.material(paint(scale(l.mound.0, 0.8))));
+    }
+    dress(
+        p,
+        "water-barrel",
+        named("rain-barrel").material(Material::default()),
+    );
+    if let Some(water) = p.named("barrel-water") {
+        let still = Material {
+            color: if l.toy {
+                [0.20, 0.55, 0.85, 1.]
+            } else {
+                [0.05, 0.16, 0.20, 1.]
+            },
+            roughness: 0.06,
+            ..Material::default()
+        };
+        p.insert(
+            water,
+            DrawnMesh::new(Mesh::cylinder(0.54, 0.04)).material(still),
+        );
+        let b = crate::farm::BARREL;
+        place(p, water, Transform::at(b.x, 0.92, b.z));
+    }
+    // The crops: this look's model of each, in the simulation's colours and poses.
+    let models: Vec<[DrawnMesh; 2]> = (0..CROPS.len())
+        .map(|kind| {
+            [
+                named(&format!("plant-{kind}")),
+                named(&format!("fruit-{kind}")),
+            ]
+        })
+        .collect();
+    let mut crops = Vec::new();
+    p.for_each::<crate::garden::Plant>(|e, pl| crops.push((e, pl.kind, 0)));
+    p.for_each::<crate::garden::Fruit>(|e, f| crops.push((e, f.kind, 1)));
+    for (e, kind, part) in crops {
+        p.insert(e, models[kind as usize][part].clone());
+    }
+    let picked = p
+        .resource::<crate::feedback::Feedback>()
+        .is_some_and(|f| f.cue == crate::feedback::Cue::Harvest);
+    if picked {
+        let last = p
+            .resource::<crate::farm::Farm>()
+            .and_then(|farm| farm.bag.last().map(|i| i.kind));
+        if let Some(kind) = last {
+            dress(p, "picked-fruit", named(&format!("fruit-{kind}")));
+        }
+    }
+    hide(p, "weather");
+    for other in STYLES.into_iter().filter(|&s| s != style) {
+        hide(p, &format!("ambience-{}", tag(other)));
+    }
 }
 
 const RAILS: [&str; 4] = [
@@ -427,12 +460,8 @@ const RAILS: [&str; 4] = [
     "bed-rail-east",
 ];
 
-/// Moves this look's border, backdrop and ambience with the garden. The
-/// classic look has none of them.
+/// Moves these looks' border, backdrop and ambience with the garden.
 pub fn resize(w: &World, span: f32, mid: f32) {
-    if w.named(RAILS[0]).is_none() {
-        return;
-    }
     let half = (span + 4.) / 2.;
     let length = span + 4.3;
     for (name, x, z, turn) in [
@@ -448,17 +477,20 @@ pub fn resize(w: &World, span: f32, mid: f32) {
         *w.require_mut::<Transform>(name) = t;
     }
     w.require_mut::<Transform>("backdrop").position = Vec3::new(0., 0., -span - 2.0);
-    w.require_mut::<Transform>("ambience").position = Vec3::new(mid, 1.6, -mid);
     let radius = (span * 0.6 + 4.).min(40.);
-    let mut e = w.require_mut::<Emitter>("ambience");
-    e.shape = emitter::Shape::Sphere(radius);
-    e.rate = (radius * radius * 0.25).clamp(24., 300.);
-    e.bound = [
-        -radius - 2.,
-        -radius - 2.,
-        -radius - 2.,
-        radius + 2.,
-        radius + 2.,
-        radius + 2.,
-    ];
+    for style in STYLES {
+        let name = format!("ambience-{}", tag(style));
+        w.require_mut::<Transform>(name.as_str()).position = Vec3::new(mid, 1.6, -mid);
+        let mut e = w.require_mut::<Emitter>(name.as_str());
+        e.shape = emitter::Shape::Sphere(radius);
+        e.rate = (radius * radius * 0.25).clamp(24., 300.);
+        e.bound = [
+            -radius - 2.,
+            -radius - 2.,
+            -radius - 2.,
+            radius + 2.,
+            radius + 2.,
+            radius + 2.,
+        ];
+    }
 }

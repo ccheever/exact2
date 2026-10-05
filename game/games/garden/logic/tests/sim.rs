@@ -1,4 +1,4 @@
-use exact_game::{Material, Sim, Transform, Visible};
+use exact_game::{DrawnMesh, Material, Sim, Transform, Visible};
 use garden_logic::crops::{kind_of, CROPS};
 use garden_logic::farm::Farm;
 use garden_logic::garden::{now_ms, Census, Fruit, GardenClock, Plant, Schedule, Weather};
@@ -1088,51 +1088,69 @@ fn feeding_improves_one_harvest_without_rerolling_it_and_survives_restore() {
     }
 }
 
-/// The looks change only presentation: the same inputs grow the same garden,
-/// each look restores its own saves, and a save refuses another look's models.
+/// A game in a look, bound the way the canvas binds its arguments.
+fn in_look(seed: u64, art: &str) -> Sim<Garden> {
+    Sim::<Garden>::new(Options {
+        seed,
+        art: art.into(),
+        ..Options::default()
+    })
+    .unwrap()
+}
+
+/// Switch a running game's look, as the Garden panel's Look row does.
+fn switch(game: &mut Sim<Garden>, seed: u64, art: &str) {
+    use exact_game::Args;
+    let options = Options {
+        seed,
+        art: art.into(),
+        ..Options::default()
+    };
+    game.bind(&options.values(), None).unwrap();
+}
+
+/// The looks are presentation only: the same inputs grow the same garden to
+/// the same hash in every look, a save restores in any look, and switching
+/// the look live keeps the garden and plays on as if it had never changed.
 #[test]
 fn every_look_plays_the_same_garden() {
     let play = |art: &str| {
-        let mut game = Sim::<Garden>::new(Options {
-            seed: 3,
-            art: art.into(),
-            ..Options::default()
-        })
-        .unwrap();
+        let mut game = in_look(3, art);
         send(&mut game, "fill 100");
         send(&mut game, "expand");
         game.run(3.0 * 60_000.0);
         game
     };
-    // Scenery entities come first, so compare everything but entity indices.
-    let garden = |game: &Sim<Garden>| -> Vec<String> {
-        census_of(game.world())
-            .iter()
-            .map(|row| {
-                let mut words: Vec<&str> = row.split(' ').collect();
-                words.remove(1);
-                words.join(" ")
-            })
-            .collect()
-    };
     let classic = play("");
+    let hash = classic.world().hash();
+    let saved = classic.save().unwrap();
     for art in ["golden", "storybook", "pass"] {
-        let mut game = play(art);
-        assert_eq!(garden(&game), garden(&classic), "{art}");
-        load_art(&mut game, art);
-        let saved = game.save().unwrap();
-        let mut back = Sim::<Garden>::new(Options {
-            seed: 3,
-            art: art.into(),
-            ..Options::default()
-        })
-        .unwrap();
-        load_art(&mut back, art);
+        let game = play(art);
+        assert_eq!(census_of(game.world()), census_of(classic.world()), "{art}");
+        assert_eq!(game.world().hash(), hash, "{art}: the look moved the world");
+        // A classic save restores into this look and draws in it.
+        let mut back = in_look(3, art);
         back.restore(&saved).unwrap();
-        assert_eq!(back.world().hash(), game.world().hash(), "{art}");
-        let mut other = new(3);
-        assert!(other.restore(&saved).is_err(), "{art} restored as classic");
+        assert_eq!(back.world().hash(), hash, "{art}");
     }
+    // Live: grow in the art pass, switch through every look; the garden stays.
+    let mut live = in_look(3, "pass");
+    send(&mut live, "fill 100");
+    send(&mut live, "expand");
+    live.run(60_000.0);
+    for art in ["", "golden", "storybook", "pass", ""] {
+        let before = (census_of(live.world()), live.world().hash());
+        switch(&mut live, 3, art);
+        assert_eq!(
+            (census_of(live.world()), live.world().hash()),
+            before,
+            "switching to {art:?} rebuilt the garden"
+        );
+        let drawn = live.world().query::<&DrawnMesh>().iter().count();
+        assert!(drawn > 0, "{art:?} draws its props from present");
+    }
+    live.run(2.0 * 60_000.0);
+    assert_eq!(live.world().hash(), hash, "the switches changed nothing");
     assert!(Sim::<Garden>::new(Options {
         art: "neon".into(),
         ..Options::default()
@@ -1140,50 +1158,41 @@ fn every_look_plays_the_same_garden() {
     .is_err());
 }
 
-/// The art pass draws baked models, which a headless test reads from the
-/// bake's output (`shells.mjs --test` bakes `art/` first). The other looks
-/// generate theirs at setup.
-fn load_art(game: &mut Sim<Garden>, art: &str) {
-    if art == "pass" {
-        let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
-        game.load_assets(|name| std::fs::read(assets.join(name)))
-            .unwrap();
-    }
-}
-
-/// The art pass's fruit hang on its models: every slot of every crop sits
-/// beside its plant, never in another tile, and regrows where it was.
+/// The art pass draws each plant's stage model standing on its tile and each
+/// fruit on its branch, beside its plant, with its mutation's look; none of it
+/// is simulation, and a restored garden draws the same.
 #[test]
 fn the_art_pass_hangs_fruit_on_its_plants_and_presents_mutations() {
-    use exact_game::{MaterialOverrides, Mesh, ModelLod};
-    let mut game = Sim::<Garden>::new(Options {
-        seed: 5,
-        art: "pass".into(),
-        ..Options::default()
-    })
-    .unwrap();
+    use exact_game::{MaterialOverrides, Mesh};
+    let mut game = in_look(5, "pass");
     send(&mut game, "fill 28");
     game.run(900_000.0);
     let w = game.world();
+    let drawn = |e| w.drawn(e).unwrap().pose.translation;
     let mut plants = 0;
     for (e, p) in w.query::<&Plant>().iter() {
         plants += 1;
-        let pose = w.require::<Transform>(e);
-        assert_eq!(pose.position.y, 0.0, "pass plants stand on the ground");
-        let Mesh::Asset(name) = &*w.require::<Mesh>(e) else {
-            panic!("a pass plant is a baked model")
-        };
+        assert!(drawn(e).y.abs() < 1e-4, "pass plants stand on the ground");
+        let swap = w.require::<DrawnMesh>(e);
         assert_eq!(
-            name,
-            &format!("plant-{}-{}.model", CROPS[p.kind as usize].id, p.stage)
+            swap.mesh,
+            Mesh::asset(format!(
+                "plant-{}-{}.model",
+                CROPS[p.kind as usize].id, p.stage
+            ))
         );
-        assert!(w.get::<ModelLod>(e).is_some());
+        assert!(swap.lod.is_some());
+        // The simulation keeps the classic model.
+        assert_eq!(
+            *w.require::<Mesh>(e),
+            Mesh::asset(format!("plant-{}.model", p.kind))
+        );
     }
     assert!(plants > 0);
     let mut mutated = 0;
     for (e, f) in w.query::<&Fruit>().iter() {
         let plant = w.require::<Plant>(f.plant.unwrap());
-        let at = w.require::<Transform>(e).position;
+        let at = drawn(e);
         let center = garden_logic::garden::tile_center(plant.tile);
         assert!(
             (at.x - center.x).abs() < 1.6 && (at.z - center.z).abs() < 1.6,
@@ -1191,11 +1200,10 @@ fn the_art_pass_hangs_fruit_on_its_plants_and_presents_mutations() {
             CROPS[f.kind as usize].id,
             f.slot
         );
-        let Mesh::Asset(name) = &*w.require::<Mesh>(e) else {
+        let Mesh::Asset(name) = &w.require::<DrawnMesh>(e).mesh else {
             panic!("a pass fruit is a baked model")
         };
         assert_eq!(name.ends_with("-unripe.model"), !f.ripe, "{name}");
-        // Mutation looks are presentation only: present writes them, a save never holds them.
         assert_eq!(
             w.get::<MaterialOverrides>(e).is_some(),
             f.ripe && f.muts != 0,
@@ -1206,63 +1214,77 @@ fn the_art_pass_hangs_fruit_on_its_plants_and_presents_mutations() {
     }
     assert!(mutated > 0, "the weather mutated some fruit");
     // A restored garden presents the same looks, rebuilt from the save.
-    load_art(&mut game, "pass");
     let saved = game.save().unwrap();
-    let mut back = Sim::<Garden>::new(Options {
-        seed: 5,
-        art: "pass".into(),
-        ..Options::default()
-    })
-    .unwrap();
-    load_art(&mut back, "pass");
+    let mut back = in_look(5, "pass");
     back.restore(&saved).unwrap();
     let looks = |game: &Sim<Garden>| -> Vec<String> {
         let w = game.world();
         w.query::<&Fruit>()
             .iter()
-            .map(|(e, _)| format!("{:?}", w.get::<MaterialOverrides>(e).map(|m| m.clone())))
+            .map(|(e, _)| {
+                format!(
+                    "{:?} {:?} {:?}",
+                    w.get::<DrawnMesh>(e).map(|m| m.clone()),
+                    w.get::<MaterialOverrides>(e).map(|m| m.clone()),
+                    w.drawn(e).map(|d| d.pose)
+                )
+            })
             .collect()
     };
     assert_eq!(looks(&back), looks(&game));
 }
 
-/// The art pass under the paranoid Save mode: every sampled tick rebuilds the
-/// world through restore and presents again; play and looks stay the same.
+/// The art pass's sky is presentation: a day and night, and each weather's
+/// fog, move the drawn sun, moon and sky but never the simulation's.
 #[test]
-fn the_art_pass_survives_paranoid_restores() {
-    let run = |mode| {
-        let mut game = Sim::<Garden>::new(Options {
-            seed: 9,
-            art: "pass".into(),
-            ..Options::default()
-        })
-        .unwrap()
-        .paranoid(mode);
-        load_art(&mut game, "pass");
-        send(&mut game, "fill 20");
-        load_art(&mut game, "pass");
-        game.run(240_000.0);
-        (census_of(game.world()), game.world().hash())
+fn the_art_pass_draws_day_and_night_without_simulating_them() {
+    use exact_game::{DirectionalLight, DrawnEnvironment, DrawnLight};
+    let mut game = in_look(5, "pass");
+    let lux = |game: &Sim<Garden>, name: &str| match *game.world().require::<DrawnLight>(name) {
+        DrawnLight::Directional(l) => l.illuminance,
+        _ => panic!("{name} is a directional light"),
     };
+    let sun = *game.world().require::<DirectionalLight>("sun");
+    let noon = lux(&game, "sun");
+    let sky = game
+        .world()
+        .require::<DrawnEnvironment>("camera")
+        .environment;
+    // Half a garden day on: night.
+    game.run(300_000.0);
+    assert!(lux(&game, "sun") < noon * 0.1, "the sun sets");
+    assert!(lux(&game, "moon") > 0.0, "the moon rises");
+    let night = game
+        .world()
+        .require::<DrawnEnvironment>("camera")
+        .environment;
+    assert_ne!(night.zenith, sky.zenith);
     assert_eq!(
-        run(exact_game::Paranoid::Save),
-        run(exact_game::Paranoid::Off)
+        *game.world().require::<DirectionalLight>("sun"),
+        sun,
+        "the simulated sun never moves"
     );
+    assert!(game.world().get::<DirectionalLight>("moon").is_none());
 }
 
-/// The art pass's models stream into every look, so a model another look
-/// generates must never take one of their names: a generated name that a
-/// streamed model already holds refuses the look's setup.
+/// Every look's generated models register at setup, and none takes a name
+/// the art pass streams: the classic and generated looks never draw one.
 #[test]
 fn no_look_generates_a_streamed_model_name() {
     use exact_game::{Game, Mesh};
+    let mut game = in_look(1, "");
+    send(&mut game, "fill 30");
+    game.run(900_000.0);
     for art in ["", "golden", "storybook"] {
-        let game = Sim::<Garden>::new(Options {
-            art: art.into(),
-            ..Options::default()
-        })
-        .unwrap();
-        for (_, mesh) in game.world().query::<&Mesh>().iter() {
+        switch(&mut game, 1, art);
+        let w = game.world();
+        let names = w
+            .query::<&Mesh>()
+            .iter()
+            .map(|(_, m)| m.clone())
+            .chain(w.query::<&DrawnMesh>().iter().map(|(_, d)| d.mesh.clone()))
+            .collect::<Vec<_>>();
+        for mesh in names {
             if let Mesh::Asset(name) = mesh {
                 assert!(
                     !Garden::STREAMED.contains(&name.as_str()),
@@ -1271,4 +1293,25 @@ fn no_look_generates_a_streamed_model_name() {
             }
         }
     }
+}
+
+/// The art pass under the paranoid modes: every sampled tick rebuilds the
+/// world through restore and presents again; play, hash and looks agree.
+#[test]
+fn the_art_pass_survives_paranoid_restores() {
+    let run = |mode| {
+        let mut game = in_look(9, "pass").paranoid(mode);
+        send(&mut game, "fill 20");
+        game.run(240_000.0);
+        let w = game.world();
+        let looks: Vec<String> = w
+            .query::<&DrawnMesh>()
+            .iter()
+            .map(|(e, d)| format!("{e:?} {d:?} {:?}", w.drawn(e).map(|d| d.pose)))
+            .collect();
+        (census_of(w), w.hash(), looks)
+    };
+    let plain = run(exact_game::Paranoid::Off);
+    assert_eq!(run(exact_game::Paranoid::Save), plain);
+    assert_eq!(run(exact_game::Paranoid::FreshGame), plain);
 }

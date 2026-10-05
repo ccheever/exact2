@@ -3,37 +3,57 @@
 //! keeper and a Contract sign, a jointed farmer), a ten-minute day and night
 //! with a moon, a sky and fog for each weather, and rain and snow.
 //!
-//! Saved causes, derived looks: a fruit's mutation, a lantern's glow and the
-//! keeper's wave are presentation (`present`), rebuilt from the saved
-//! mutation, garden time and tick, never saved or hashed. What the API keeps
-//! in the simulation stays there: a plant's model per stage (a `Mesh`), the
-//! sun, moon, sky and fog (lights and the `Environment` resource), and the
-//! weather emitter. The farmer is the shared gesture rig (`feedback.rs`) under
-//! the classic names, so watering, planting and harvest gestures are the same.
+//! Saved causes, derived looks. The simulation keeps what every look shares:
+//! the crops' classic models and poses, and this look's props as bare poses
+//! (the fence, stall, keeper, trees), placed in every look so the look
+//! switches live. `present` draws the rest: each plant's stage model where it
+//! stands, each fruit on its branch, the sun, moon, sky and fog for the hour
+//! and the weather, a lantern's light, a fruit's mutation and the keeper's
+//! wave, rebuilt from the saved garden time and tick, never saved or hashed.
+//! The rain and snow emitter is simulation in every look, drawn only in this
+//! one. The farmer is the shared gesture rig (`feedback.rs`) under the classic
+//! names, so watering, planting and harvest gestures are the same.
+use crate::art::{dress, hide, place};
 use crate::crops::{self, crop};
-use crate::farm::Farm;
+use crate::farm::{Farm, BARREL};
 use crate::feedback::{Cue, Feedback};
-use crate::garden::{self, Fruit, Sky, Weather, TILE};
+use crate::garden::{self, paint, Fruit, Plant, Sky, Weather, TILE};
 use exact_game::emitter::{Shape, WorldSpace};
 use exact_game::*;
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
-/// Only this look has it; garden.rs asks for it to choose models and poses.
+/// The camera mode and this look's props, placed in every look so a switch to
+/// the art pass finds them where the garden has grown to.
 #[derive(Default, Resource)]
-pub struct Pass {
-    /// The camera at the farmer's shoulder.
+pub struct Props {
+    /// The art pass's camera at the farmer's shoulder.
     pub closeup: bool,
     /// The weather the rain and snow emitter was last set for.
     pub sky: u8,
     /// Fence posts, rails, lanterns, their lights and the grass outside,
     /// rebuilt when the garden grows.
-    pub fencing: Vec<Entity>,
-    /// The lantern bodies, whose glass `present` lights at night.
-    pub lanterns: Vec<Entity>,
+    pub fencing: Vec<Fencing>,
 }
 
-pub fn on(w: &World) -> bool {
-    w.try_resource::<Pass>().is_some()
+/// One fence prop: what it is, never how it looks.
+#[derive(Clone, Copy, Default, PartialEq, Data)]
+pub struct Fencing {
+    pub entity: Entity,
+    pub prop: Prop,
+    /// Which tuft or grass patch.
+    pub variant: u8,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Data)]
+pub enum Prop {
+    #[default]
+    Post,
+    Rail,
+    Lantern,
+    /// A lantern's light.
+    Lamp,
+    Tuft,
+    Grass,
 }
 
 macro_rules! crop_models {
@@ -95,18 +115,22 @@ fn lod(near: &str) -> ModelLod {
     }
 }
 
-pub fn plant_model(kind: u8, stage: u8) -> (Mesh, ModelLod) {
+/// A plant's model at a growth stage, with its far level.
+pub fn plant_model(kind: u8, stage: u8) -> DrawnMesh {
     let name = format!("plant-{}-{stage}.model", crop(kind).id);
-    (Mesh::asset(name.clone()), lod(&name))
+    DrawnMesh::model(name.clone()).lod(lod(&name))
 }
 
-pub fn fruit_model(kind: u8, ripe: bool) -> (Mesh, ModelLod) {
+/// A fruit's model, ripe or not, with its far level, in its own colours.
+pub fn fruit_model(kind: u8, ripe: bool) -> DrawnMesh {
     let name = format!(
         "fruit-{}{}.model",
         crop(kind).id,
         if ripe { "" } else { "-unripe" }
     );
-    (Mesh::asset(name.clone()), lod(&name))
+    DrawnMesh::model(name.clone())
+        .lod(lod(&name))
+        .material(Material::default())
 }
 
 /// A plant's turn about its stem, from its tile: neighbours differ, and a
@@ -183,10 +207,6 @@ pub fn fruit_position(tile: [u16; 2], kind: u8, slot: u8) -> Vec3 {
 
 // ------------------------------------------------------------------ setup
 
-fn model(name: &str) -> Mesh {
-    Mesh::asset(name)
-}
-
 /// The keeper's and farmer's limbs, on the shared rig's pivots.
 const LIMBS: [(&str, f32, f32, bool); 4] = [
     ("arm-left", -0.38, 0.18, true),
@@ -199,92 +219,18 @@ const LIMBS: [(&str, f32, f32, bool); 4] = [
 const STALL: Vec3 = Vec3::new(-9.0, 0.0, -1.5);
 const STALL_YAW: f32 = 0.95;
 
+/// This look's props as bare poses (every look has them; only this one draws
+/// them), the weather's emitter, and the clock.
 pub fn setup(w: &mut World) {
-    w.insert_resource(Pass::default());
-    w.insert_resource(AmbientOcclusion {
-        radius: 0.5,
-        intensity: 0.9,
-        ..AmbientOcclusion::default()
-    });
-    // Day and night move these every tick; they do not hold the clock awake.
-    w.ambient_resource::<Environment>();
+    w.insert_resource(Props::default());
+    // The clock moves every few seconds; it does not hold the garden awake.
     w.derived_publication("clock").derived_publication("night");
-    let sun = w.named("sun").unwrap();
-    w.insert(sun, Ambient);
-    w.spawn_named(
-        "moon",
-        (
-            Transform::at(-10.0, 20.0, -8.0).looking_at(Vec3::ZERO, Vec3::Y),
-            DirectionalLight {
-                color: [0.55, 0.66, 1.0],
-                illuminance: 0.0,
-                shadows: false,
-            },
-            Ambient,
-        ),
-    );
-    *w.require_mut::<Material>("ground") = Material::grid([0.085, 0.05, 0.022], TILE);
-    // The farmer: the classic names on the shared gesture rig.
     let player = w.named("player").unwrap();
-    w.remove::<Mesh>(player);
-    w.remove::<Material>(player);
-    let body = w.spawn_named(
-        "gardener",
-        (
-            Transform::default(),
-            model("farmer-body.model"),
-            Parent(player),
-        ),
-    );
-    for (name, x, y, arm) in LIMBS {
-        let part = if arm {
-            "farmer-arm.model"
-        } else {
-            "farmer-leg.model"
-        };
-        w.spawn_named(name, (Transform::at(x, y, 0.0), model(part), Parent(body)));
-    }
-    w.spawn_named(
-        "watering-can",
-        (
-            Transform::at(0., -0.47, 0.16).with_scale(1.25),
-            model("can.model"),
-            Parent(w.named("arm-left").unwrap()),
-            Visible(false),
-        ),
-    );
-    *w.require_mut::<Mesh>("water-barrel") = model("barrel.model");
-    w.remove::<Material>(w.named("water-barrel").unwrap());
-    *w.require_mut::<Mesh>("barrel-water") = Mesh::cylinder(0.55, 0.04);
-    w.require_mut::<Transform>("barrel-water").position.y = 0.9;
-    *w.require_mut::<Material>("barrel-water") = Material {
-        color: [0.05, 0.18, 0.24, 1.0],
-        roughness: 0.05,
-        ..Material::default()
-    };
-    w.spawn_named(
-        "meadow",
-        (
-            Transform::at(0.0, -0.14, 0.0),
-            Mesh::plane(1600.0, 1600.0),
-            garden::paint([0.3, 0.52, 0.17]),
-        ),
-    );
-    // Turf over it near the garden, where the plane would read as flat paint.
-    w.spawn_named(
-        "turf",
-        (
-            Transform::at(0.0, -0.08, 0.0),
-            model("meadow.model"),
-            Ambient,
-        ),
-    );
+    // Turf over the meadow near the garden, where the plane would read as flat paint.
+    w.spawn_named("turf", (Transform::at(0.0, -0.08, 0.0), Ambient));
     stall(w);
-    for (i, tree) in TREES.iter().enumerate() {
-        w.spawn_named(
-            format!("tree-{i}"),
-            (Transform::default(), model(tree.0), lod(tree.0), Ambient),
-        );
+    for i in 0..TREES.len() {
+        w.spawn_named(format!("tree-{i}"), (Transform::default(), Ambient));
     }
     w.spawn_named(
         "weather",
@@ -310,61 +256,28 @@ pub fn setup(w: &mut World) {
 fn stall(w: &mut World) {
     let turn = Quat::from_rotation_y(STALL_YAW);
     let at = |local: Vec3| STALL + turn * local;
-    w.spawn_named(
-        "stall",
-        (
-            Transform {
-                position: STALL,
-                rotation: turn,
-                scale: Vec3::ONE,
-            },
-            model("stall.model"),
-            Ambient,
-        ),
-    );
-    // The sign is Contract text on a plane over the awning.
-    let sign = at(Vec3::new(0.0, 2.91, 0.4));
+    let posed = |position: Vec3| Transform {
+        position,
+        rotation: turn,
+        scale: Vec3::ONE,
+    };
+    w.spawn_named("stall", (posed(STALL), Ambient));
+    // The sign is Contract text on a plane over the awning, shown in this look.
     w.spawn_named(
         "stall-sign",
         (
-            Transform {
-                position: sign,
-                rotation: turn,
-                scale: Vec3::ONE,
-            },
+            posed(at(Vec3::new(0.0, 2.91, 0.4))),
             Placed::child("stall-sign")
                 .width(1.85)
                 .facing(Facing::Fixed),
             Ambient,
         ),
     );
-    let keeper = at(Vec3::new(-0.4, 0.9, -0.62));
-    let keeper = w.spawn_named(
-        "keeper",
-        (
-            Transform {
-                position: keeper,
-                rotation: turn,
-                scale: Vec3::ONE,
-            },
-            model("keeper-body.model"),
-            Ambient,
-        ),
-    );
-    for (name, x, y, arm) in LIMBS {
-        let part = if arm {
-            "keeper-arm.model"
-        } else {
-            "keeper-leg.model"
-        };
+    let keeper = w.spawn_named("keeper", (posed(at(Vec3::new(-0.4, 0.9, -0.62))), Ambient));
+    for (name, x, y, _) in LIMBS {
         w.spawn_named(
             format!("keeper-{name}"),
-            (
-                Transform::at(x, y, 0.0),
-                model(part),
-                Parent(keeper),
-                Ambient,
-            ),
+            (Transform::at(x, y, 0.0), Parent(keeper), Ambient),
         );
     }
     // Stepping stones from the stall to the garden's gate.
@@ -372,11 +285,10 @@ fn stall(w: &mut World) {
     let front = at(Vec3::new(0.0, 0.0, 1.6));
     for i in 0..4 {
         let p = front.lerp(gate, i as f32 / 3.0);
-        w.spawn((
-            Transform::at(p.x, 0.01, p.z),
-            model(["path-0.model", "path-1.model", "path-2.model"][i % 3]),
-            Ambient,
-        ));
+        w.spawn_named(
+            format!("path-{i}"),
+            (Transform::at(p.x, 0.01, p.z), Ambient),
+        );
     }
 }
 
@@ -399,7 +311,7 @@ const TREES: [(&str, u8, f32, f32, f32); 12] = [
 ];
 
 /// Moves the trees with the garden; the fence is rebuilt by `build_fence`.
-pub fn resize(w: &World, span: f32, _mid: f32) {
+pub fn resize(w: &World, span: f32) {
     let (x0, x1, z0, z1) = (-3.0, span + 1.0, -(span + 1.0), 3.0);
     for (i, &(_, side, t, out, s)) in TREES.iter().enumerate() {
         let position = match side {
@@ -417,9 +329,9 @@ pub fn resize(w: &World, span: f32, _mid: f32) {
 /// Posts on the pad's edge every two metres, rails between them with a gate
 /// facing the stall, a lantern every few posts and grass in a band outside.
 pub fn build_fence(w: &mut World) {
-    let old = std::mem::take(&mut w.resource_mut::<Pass>().fencing);
-    for e in old {
-        w.despawn(e);
+    let old = std::mem::take(&mut w.resource_mut::<Props>().fencing);
+    for f in old {
+        w.despawn(f.entity);
     }
     let size = w.resource::<Farm>().size as usize;
     let span = size as f32 * TILE;
@@ -433,7 +345,14 @@ pub fn build_fence(w: &mut World) {
         Vec3::new(x0, 0.0, z0),
     ];
     let mut fencing = Vec::new();
-    let mut lanterns = Vec::new();
+    let mut prop = |w: &mut World, pose: Transform, prop: Prop, variant: u8| {
+        let entity = w.spawn((pose, Ambient));
+        fencing.push(Fencing {
+            entity,
+            prop,
+            variant,
+        });
+    };
     let mut post = 0;
     for side in 0..4 {
         let (a, b) = (corners[side], corners[(side + 1) % 4]);
@@ -444,50 +363,30 @@ pub fn build_fence(w: &mut World) {
         for i in 0..segments {
             let p = a + along * i as f32;
             post += 1;
-            fencing.push(w.spawn((
-                Transform::at(p.x, 0.0, p.z),
-                model("fence-post.model"),
-                Ambient,
-            )));
+            prop(w, Transform::at(p.x, 0.0, p.z), Prop::Post, 0);
             // The gate, on the west side by the barrel, faces the stall.
             let gate = side == 3 && i == size;
             if !gate {
                 let mid = p + along * 0.5;
-                fencing.push(w.spawn((
-                    Transform {
-                        position: mid,
-                        rotation: turn,
-                        scale: Vec3::ONE,
-                    },
-                    model("fence-rail.model"),
-                    Ambient,
-                )));
+                let rail = Transform {
+                    position: mid,
+                    rotation: turn,
+                    scale: Vec3::ONE,
+                };
+                prop(w, rail, Prop::Rail, 0);
             }
             if post % every == 0 || gate || (side == 3 && i == size + 1) {
                 // Hung over the garden, so their light falls on the plots.
                 let base = p - out * 0.2;
                 let hang = Quat::from_rotation_y(math::atan2(out.z, -out.x));
                 let lamp = base + hang * Vec3::new(0.36, 1.45, 0.0);
-                let body = w.spawn((
-                    Transform {
-                        position: base,
-                        rotation: hang,
-                        scale: Vec3::ONE,
-                    },
-                    model("lantern.model"),
-                    Ambient,
-                ));
-                lanterns.push(body);
-                fencing.push(body);
-                fencing.push(w.spawn((
-                    Transform::at(lamp.x, lamp.y, lamp.z),
-                    PointLight {
-                        color: [1.0, 0.7, 0.38],
-                        intensity: LANTERN,
-                        range: 10.0,
-                    },
-                    Ambient,
-                )));
+                let body = Transform {
+                    position: base,
+                    rotation: hang,
+                    scale: Vec3::ONE,
+                };
+                prop(w, body, Prop::Lantern, 0);
+                prop(w, Transform::at(lamp.x, lamp.y, lamp.z), Prop::Lamp, 0);
             }
         }
     }
@@ -514,7 +413,7 @@ pub fn build_fence(w: &mut World) {
         }
         let mut t = Transform::at(p.x, 0.0, p.z).with_scale(0.8 + h(3) * 0.7);
         t.rotation = Quat::from_rotation_y(h(4) * TAU);
-        fencing.push(w.spawn((t, model(TUFTS[i % 4]), Ambient)));
+        prop(w, t, Prop::Tuft, (i % 4) as u8);
     }
     // Patches of long grass and flowers in a band outside the fence; they
     // disappear past 80 m, where they would be a few pixels each.
@@ -535,20 +434,10 @@ pub fn build_fence(w: &mut World) {
             let n = (gx * 7 + gz * 13) as usize;
             let mut t = Transform::at(c.x, -0.02, c.z);
             t.rotation = Quat::from_rotation_y((n % 4) as f32 * FRAC_PI_2);
-            fencing.push(w.spawn((
-                t,
-                model(["grass-0.model", "grass-1.model"][n % 2]),
-                ModelLod {
-                    levels: Vec::new(),
-                    hide: Some(80.0),
-                },
-                Ambient,
-            )));
+            prop(w, t, Prop::Grass, (n % 2) as u8);
         }
     }
-    let mut pass = w.resource_mut::<Pass>();
-    pass.fencing = fencing;
-    pass.lanterns = lanterns;
+    w.resource_mut::<Props>().fencing = fencing;
 }
 
 const TUFTS: [&str; 4] = [
@@ -561,26 +450,9 @@ const TUFTS: [&str; 4] = [
 /// A lantern's candela. Lit all day, where the sun drowns it.
 const LANTERN: f32 = 2600.0;
 
-/// The pass's camera: lower and closer than the classic one, or at the
-/// farmer's shoulder. The overview stays the classic one.
-pub fn camera(w: &World) -> Follow {
-    let player = w.named("player").unwrap();
-    if w.resource::<Pass>().closeup {
-        Follow::new(player)
-            .offset(2.3, 2.0, 3.1)
-            .look_at_offset(1.3, -0.45, -1.8)
-            .lag(0.15)
-    } else {
-        Follow::new(player)
-            .offset(0.0, 6.5, 8.5)
-            .look_at_offset(0.0, 0.6, 0.0)
-            .lag(0.15)
-    }
-}
-
 pub fn toggle_closeup(w: &World) -> String {
-    let c = !w.resource::<Pass>().closeup;
-    w.resource_mut::<Pass>().closeup = c;
+    let c = !w.resource::<Props>().closeup;
+    w.resource_mut::<Props>().closeup = c;
     (if c { "Close-up" } else { "Garden view" }).into()
 }
 
@@ -648,72 +520,16 @@ fn mix3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     ]
 }
 
-/// One tick of sky: the sun and moon, sky, fog and exposure for the time and
-/// weather, lightning in a storm, the weather's particles and the clock.
+/// One tick of what the weather and the hour change in the simulation, in
+/// every look: the rain and snow emitter (its particles are the weather's
+/// timeline; this look draws them) and the HUD's clock. The sky itself is
+/// `present`'s.
 pub fn step(w: &mut World) {
     let now = garden::now_ms(w);
-    let angle = day_phase(now) * TAU;
-    let elevation = math::sin(angle);
-    let sun_dir = Vec3::new(math::cos(angle), elevation.max(-0.3), -0.45).normalize();
-    let day = daylight(now);
-    let dusk = (1.0 - (elevation.abs() * 3.0).min(1.0)) * if elevation > -0.25 { 1.0 } else { 0.0 };
     let sky = w.resource::<Weather>().sky;
-    let overcast = match sky {
-        Sky::Clear => 0.0,
-        Sky::Snow => 0.45,
-        Sky::Rain => 0.6,
-        Sky::Storm => 0.85,
-    };
-    // Lightning: a storm flashes for a few ticks every seven seconds.
-    let flash = sky == Sky::Storm && (now / 100) % 70 < 2;
-    let target = sun_dir * 30.0;
-    *w.require_mut::<Transform>("sun") =
-        Transform::at(target.x, target.y, target.z).looking_at(Vec3::ZERO, Vec3::Y);
-    {
-        let mut sun = w.require_mut::<DirectionalLight>("sun");
-        sun.illuminance = 11000.0 * day * (1.0 - 0.9 * overcast);
-        sun.color = mix3([1.0, 0.95, 0.86], [1.0, 0.56, 0.3], dusk);
-        sun.shadows = true;
-    }
-    let moon_dir = Vec3::new(-sun_dir.x, (-elevation).max(0.25), -0.5).normalize() * 30.0;
-    *w.require_mut::<Transform>("moon") =
-        Transform::at(moon_dir.x, moon_dir.y, moon_dir.z).looking_at(Vec3::ZERO, Vec3::Y);
-    w.require_mut::<DirectionalLight>("moon").illuminance =
-        1200.0 * (1.0 - day) * (1.0 - 0.6 * overcast) + if flash { 30000.0 } else { 0.0 };
-    let overview = w.resource::<Farm>().overview;
-    {
-        let day_zenith = mix3([0.16, 0.38, 0.82], [0.34, 0.37, 0.42], overcast);
-        let day_horizon = mix3([0.62, 0.78, 0.92], [0.56, 0.58, 0.6], overcast);
-        let mut zenith = mix3([0.01, 0.016, 0.055], day_zenith, day);
-        let mut horizon = mix3([0.04, 0.05, 0.12], day_horizon, day);
-        horizon = mix3(horizon, [0.98, 0.52, 0.3], dusk * 0.6 * (1.0 - overcast));
-        if flash {
-            zenith = [0.7, 0.75, 0.9];
-            horizon = [0.8, 0.85, 1.0];
-        }
-        let mut env = w.resource_mut::<Environment>();
-        env.zenith = zenith;
-        env.horizon = horizon;
-        env.ground = mix3([0.01, 0.012, 0.02], [0.14, 0.13, 0.08], day);
-        env.background = None;
-        env.ambient = 0.45 + 0.3 * day;
-        env.exposure = 0.92 + 0.5 * (1.0 - day);
-        env.sun_disc = if overcast > 0.0 { 0.0 } else { 0.006 };
-        // From the overview the fog would hide the garden; thin it.
-        let thin = if overview { 0.15 } else { 1.0 };
-        env.fog = Some(Fog {
-            color: Some(horizon),
-            ..Fog::new((0.0022 + 0.014 * overcast) * thin, 0.05)
-        });
-        env.bloom = Some(Bloom {
-            threshold: 0.9,
-            intensity: 0.22,
-            radius: 1.8,
-        });
-    }
     let code = sky as u8 + 1;
-    if w.resource::<Pass>().sky != code {
-        w.resource_mut::<Pass>().sky = code;
+    if w.resource::<Props>().sky != code {
+        w.resource_mut::<Props>().sky = code;
         let mut e = w.require_mut::<Emitter>("weather");
         let state = e.state.clone();
         *e = match sky {
@@ -734,7 +550,7 @@ pub fn step(w: &mut World) {
     if w.published("clock").map(|v| v.text().to_owned()) != Some(label.clone()) {
         w.publish_record(&Clock {
             clock: label,
-            night: day < 0.35,
+            night: daylight(now) < 0.35,
         });
     }
 }
@@ -744,6 +560,116 @@ pub fn step(w: &mut World) {
 struct Clock {
     clock: String,
     night: bool,
+}
+
+/// The sun and moon, sky, fog and exposure for the time and weather, and
+/// lightning in a storm: drawn on the simulation's sun, its spare light and
+/// the camera.
+fn sky(p: &mut Present, now: u64) {
+    let angle = day_phase(now) * TAU;
+    let elevation = math::sin(angle);
+    let sun_dir = Vec3::new(math::cos(angle), elevation.max(-0.3), -0.45).normalize();
+    let day = daylight(now);
+    let dusk = (1.0 - (elevation.abs() * 3.0).min(1.0)) * if elevation > -0.25 { 1.0 } else { 0.0 };
+    let sky = p.resource::<Weather>().map_or(Sky::Clear, |w| w.sky);
+    let overcast = match sky {
+        Sky::Clear => 0.0,
+        Sky::Snow => 0.45,
+        Sky::Rain => 0.6,
+        Sky::Storm => 0.85,
+    };
+    // Lightning: a storm flashes for a few ticks every seven seconds.
+    let flash = sky == Sky::Storm && (now / 100) % 70 < 2;
+    let aim = |at: Vec3| Transform::at(at.x, at.y, at.z).looking_at(Vec3::ZERO, Vec3::Y);
+    if let Some(sun) = p.named("sun") {
+        place(p, sun, aim(sun_dir * 30.0));
+        p.insert(
+            sun,
+            DrawnLight::Directional(DirectionalLight {
+                color: mix3([1.0, 0.95, 0.86], [1.0, 0.56, 0.3], dusk),
+                illuminance: 11000.0 * day * (1.0 - 0.9 * overcast),
+                shadows: true,
+            }),
+        );
+    }
+    if let Some(moon) = p.named("moon") {
+        let moon_dir = Vec3::new(-sun_dir.x, (-elevation).max(0.25), -0.5).normalize();
+        place(p, moon, aim(moon_dir * 30.0));
+        p.insert(
+            moon,
+            DrawnLight::Directional(DirectionalLight {
+                color: [0.55, 0.66, 1.0],
+                illuminance: 1200.0 * (1.0 - day) * (1.0 - 0.6 * overcast)
+                    + if flash { 30000.0 } else { 0.0 },
+                shadows: false,
+            }),
+        );
+    }
+    let overview = p.resource::<Farm>().is_some_and(|f| f.overview);
+    let day_zenith = mix3([0.16, 0.38, 0.82], [0.34, 0.37, 0.42], overcast);
+    let day_horizon = mix3([0.62, 0.78, 0.92], [0.56, 0.58, 0.6], overcast);
+    let mut zenith = mix3([0.01, 0.016, 0.055], day_zenith, day);
+    let mut horizon = mix3([0.04, 0.05, 0.12], day_horizon, day);
+    horizon = mix3(horizon, [0.98, 0.52, 0.3], dusk * 0.6 * (1.0 - overcast));
+    if flash {
+        zenith = [0.7, 0.75, 0.9];
+        horizon = [0.8, 0.85, 1.0];
+    }
+    // From the overview the fog would hide the garden; thin it.
+    let thin = if overview { 0.15 } else { 1.0 };
+    let environment = Environment {
+        background: None,
+        zenith,
+        horizon,
+        ground: mix3([0.01, 0.012, 0.02], [0.14, 0.13, 0.08], day),
+        ambient: 0.45 + 0.3 * day,
+        sun_disc: if overcast > 0.0 { 0.0 } else { 0.006 },
+        exposure: 0.92 + 0.5 * (1.0 - day),
+        fog: Some(Fog {
+            color: Some(horizon),
+            ..Fog::new((0.0022 + 0.014 * overcast) * thin, 0.05)
+        }),
+        bloom: Some(Bloom {
+            threshold: 0.9,
+            intensity: 0.22,
+            radius: 1.8,
+        }),
+    };
+    if let Some(camera) = p.named("camera") {
+        p.insert(
+            camera,
+            DrawnEnvironment {
+                environment,
+                ambient_occlusion: Some(AmbientOcclusion {
+                    radius: 0.5,
+                    intensity: 0.9,
+                    ..AmbientOcclusion::default()
+                }),
+            },
+        );
+    }
+}
+
+/// This look's camera: lower and closer than the classic one, or at the
+/// farmer's shoulder, drawn from the classic camera's eased follow (the point
+/// it follows is its pose less its offset). The overview stays the classic one.
+fn view(p: &mut Present) -> Option<Vec3> {
+    let camera = p.named("camera")?;
+    if p.resource::<Farm>().is_none_or(|f| f.overview) {
+        return None;
+    }
+    let at = p.get::<Transform>(camera).map(|t| t.position)?;
+    let followed = at - Vec3::new(0.0, 9.0, 11.0);
+    let closeup = p.resource::<Props>().is_some_and(|s| s.closeup);
+    let (offset, look) = if closeup {
+        (Vec3::new(2.3, 2.0, 3.1), Vec3::new(1.3, -0.45, -1.8))
+    } else {
+        (Vec3::new(0.0, 6.5, 8.5), Vec3::new(0.0, 0.6, 0.0))
+    };
+    let eye = followed + offset;
+    let pose = Transform::at(eye.x, eye.y, eye.z).looking_at(followed + look, Vec3::Y);
+    place(p, camera, pose);
+    Some(eye)
 }
 
 // ----------------------------------------------------------- presentation
@@ -793,50 +719,123 @@ fn mutation(
     })
 }
 
-/// Everything in this look that only shows: mutation looks, lantern glow,
-/// the keeper's sway and wave, and the harvested fruit's look in flight.
-pub fn present(p: &mut Present) {
-    let Some((lanterns, offline)) = p
-        .resource::<Pass>()
-        .zip(p.resource::<garden::GardenClock>())
-        .map(|(pass, clock)| (pass.lanterns.clone(), clock.offline_ms))
-    else {
+/// Everything this look draws: the sky and camera, its models on what every
+/// look shares (ground, meadow, farmer, barrel), its props, each plant's
+/// stage model where it stands and each fruit on its branch with its
+/// mutation's look, lantern light and glow, the keeper's sway and wave, and
+/// the harvested fruit in flight. `smooth` grows plants between stages.
+pub fn present(p: &mut Present, smooth: bool) {
+    let Some(offline) = p.resource::<garden::GardenClock>().map(|c| c.offline_ms) else {
         return;
     };
     let now = p.tick() * 1000 / p.hz() as u64 + offline;
     let seconds = (p.tick() % (p.hz() as u64 * 3600)) as f32 / p.hz() as f32;
-    let mut looks = Vec::new();
-    p.for_each::<Fruit>(|e, f| {
-        if f.ripe && f.muts != 0 {
-            looks.push((e, f.kind, f.muts));
-        }
-    });
-    for (e, kind, muts) in looks {
-        let phase = (e.index() % 97) as f32 / 97.0;
-        let flicker = if muts & crops::SHOCKED != 0 {
-            let mut r = p.rng(e.index() as u64);
-            0.4 + 1.2 * r.next_f32()
-        } else {
-            0.0
+    sky(p, now);
+    let eye = view(p);
+    if let Some(ground) = p.named("ground") {
+        let plane = p.get::<Mesh>(ground).map(|m| m.clone()).unwrap_or_default();
+        let soil = Material::grid([0.085, 0.05, 0.022], TILE);
+        p.insert(ground, DrawnMesh::new(plane).material(soil));
+    }
+    if let Some(meadow) = p.named("meadow") {
+        let grass = paint([0.3, 0.52, 0.17]);
+        p.insert(
+            meadow,
+            DrawnMesh::new(Mesh::plane(1600.0, 1600.0)).material(grass),
+        );
+        place(p, meadow, Transform::at(0.0, -0.14, 0.0));
+    }
+    for (name, model) in [
+        ("gardener", "farmer-body.model"),
+        ("arm-left", "farmer-arm.model"),
+        ("arm-right", "farmer-arm.model"),
+        ("leg-left", "farmer-leg.model"),
+        ("leg-right", "farmer-leg.model"),
+        ("watering-can", "can.model"),
+        ("turf", "meadow.model"),
+        ("stall", "stall.model"),
+        ("keeper", "keeper-body.model"),
+        ("keeper-arm-left", "keeper-arm.model"),
+        ("keeper-arm-right", "keeper-arm.model"),
+        ("keeper-leg-left", "keeper-leg.model"),
+        ("keeper-leg-right", "keeper-leg.model"),
+        ("path-0", "path-0.model"),
+        ("path-1", "path-1.model"),
+        ("path-2", "path-2.model"),
+        ("path-3", "path-0.model"),
+    ] {
+        dress(p, name, DrawnMesh::model(model));
+    }
+    dress(
+        p,
+        "water-barrel",
+        DrawnMesh::model("barrel.model").material(Material::default()),
+    );
+    if let Some(water) = p.named("barrel-water") {
+        let still = Material {
+            color: [0.05, 0.18, 0.24, 1.0],
+            roughness: 0.05,
+            ..Material::default()
         };
-        if let Some(look) = mutation(kind, muts, seconds, phase, flicker) {
-            p.insert(e, MaterialOverrides(vec![look]));
-        }
+        p.insert(
+            water,
+            DrawnMesh::new(Mesh::cylinder(0.55, 0.04)).material(still),
+        );
+        place(p, water, Transform::at(BARREL.x, 0.9, BARREL.z));
+    }
+    for (i, tree) in TREES.iter().enumerate() {
+        dress(
+            p,
+            &format!("tree-{i}"),
+            DrawnMesh::model(tree.0).lod(lod(tree.0)),
+        );
     }
     // Lanterns glow from dusk to dawn.
     let glow = (1.0 - daylight(now) * 1.6).clamp(0.0, 1.0);
-    if glow > 0.0 {
-        for e in lanterns {
-            p.insert(
-                e,
-                MaterialOverrides(vec![MaterialOverride {
-                    material: 0,
-                    color: None,
-                    emissive: [3.2 * glow, 2.0 * glow, 0.8 * glow],
-                }]),
-            );
-        }
+    let fencing = p
+        .resource::<Props>()
+        .map(|s| s.fencing.clone())
+        .unwrap_or_default();
+    for f in fencing {
+        let drawn = match f.prop {
+            Prop::Post => DrawnMesh::model("fence-post.model"),
+            Prop::Rail => DrawnMesh::model("fence-rail.model"),
+            Prop::Lantern => {
+                if glow > 0.0 {
+                    p.insert(
+                        f.entity,
+                        MaterialOverrides(vec![MaterialOverride {
+                            material: 0,
+                            color: None,
+                            emissive: [3.2 * glow, 2.0 * glow, 0.8 * glow],
+                        }]),
+                    );
+                }
+                DrawnMesh::model("lantern.model")
+            }
+            Prop::Lamp => {
+                p.insert(
+                    f.entity,
+                    DrawnLight::Point(PointLight {
+                        color: [1.0, 0.7, 0.38],
+                        intensity: LANTERN,
+                        range: 10.0,
+                    }),
+                );
+                continue;
+            }
+            Prop::Tuft => DrawnMesh::model(TUFTS[f.variant as usize % 4]),
+            Prop::Grass => DrawnMesh::model(
+                ["grass-0.model", "grass-1.model"][f.variant as usize % 2],
+            )
+            .lod(ModelLod {
+                levels: Vec::new(),
+                hide: Some(80.0),
+            }),
+        };
+        p.insert(f.entity, drawn);
     }
+    crops(p, now, seconds, smooth);
     // The keeper sways, nods and waves every nine seconds.
     let idle = math::sin(seconds * 1.4);
     if let Some(keeper) = p.named("keeper") {
@@ -874,8 +873,8 @@ pub fn present(p: &mut Present) {
             }),
         );
     }
-    fade_occluders(p);
-    // The fruit flying into the satchel keeps its mutation look.
+    fade_occluders(p, eye);
+    // The fruit flying into the satchel keeps its model and mutation look.
     let picked = p
         .resource::<Feedback>()
         .is_some_and(|f| f.cue == Cue::Harvest);
@@ -884,7 +883,71 @@ pub fn present(p: &mut Present) {
             .resource::<Farm>()
             .and_then(|farm| farm.bag.last().map(|i| (i.kind, i.muts)));
         if let (Some((kind, muts)), Some(e)) = (last, p.named("picked-fruit")) {
+            p.insert(e, fruit_model(kind, true));
             if let Some(look) = mutation(kind, muts, seconds, 0.0, 1.0) {
+                p.insert(e, MaterialOverrides(vec![look]));
+            }
+        }
+    }
+    hide(p, "ambience-golden");
+    hide(p, "ambience-storybook");
+}
+
+/// Each plant's stage model standing on its tile, turned about its stem;
+/// each fruit's model on its branch, with its mutation's look when ripe.
+fn crops(p: &mut Present, now: u64, seconds: f32, smooth: bool) {
+    // One model per crop and stage, cloned onto every plant of it; each
+    // plant's tile, by entity index, for its fruit.
+    let mut models = std::collections::BTreeMap::new();
+    let mut tiles = Vec::new();
+    let mut plants = Vec::new();
+    p.for_each::<Plant>(|e, pl| {
+        plants.push((e, pl.kind, pl.stage, pl.tile, pl.planted, pl.grow_ms))
+    });
+    for (e, kind, stage, tile, planted, grow_ms) in plants {
+        let model = models
+            .entry((kind, stage, false))
+            .or_insert_with(|| plant_model(kind, stage));
+        p.insert(e, model.clone());
+        let mut pose = plant_pose(tile);
+        if smooth && stage < 4 {
+            let f = ((now - planted.min(now)) as f32 / grow_ms.max(1) as f32).min(1.0);
+            pose.scale = Vec3::splat(0.75 + 0.25 * f);
+        }
+        place(p, e, pose);
+        let at = e.index() as usize;
+        if tiles.len() <= at {
+            tiles.resize(at + 1, None);
+        }
+        tiles[at] = Some((e, tile));
+    }
+    let mut fruits = Vec::new();
+    p.for_each::<Fruit>(|e, f| fruits.push((e, f.kind, f.slot, f.ripe, f.muts, f.plant)));
+    for (e, kind, slot, ripe, muts, plant) in fruits {
+        let model = models
+            .entry((kind, ripe as u8, true))
+            .or_insert_with(|| fruit_model(kind, ripe));
+        p.insert(e, model.clone());
+        let tile = plant.and_then(|plant| {
+            let (at, tile) = tiles.get(plant.index() as usize).copied().flatten()?;
+            (at == plant).then_some(tile)
+        });
+        if let (Some(tile), Some(pose)) = (tile, p.get::<Transform>(e).map(|t| *t)) {
+            let hung = Transform {
+                position: fruit_position(tile, kind, slot),
+                ..pose
+            };
+            place(p, e, hung);
+        }
+        if ripe && muts != 0 {
+            let phase = (e.index() % 97) as f32 / 97.0;
+            let flicker = if muts & crops::SHOCKED != 0 {
+                let mut r = p.rng(e.index() as u64);
+                0.4 + 1.2 * r.next_f32()
+            } else {
+                0.0
+            };
+            if let Some(look) = mutation(kind, muts, seconds, phase, flicker) {
                 p.insert(e, MaterialOverrides(vec![look]));
             }
         }
@@ -894,14 +957,15 @@ pub fn present(p: &mut Present) {
 /// Plants standing between a near camera and the farmer fade to a dither, with
 /// their fruit, so the close-up never loses the player behind a tree. Visits
 /// only the tiles under the sight line, never the garden.
-fn fade_occluders(p: &mut Present) {
-    let (Some(camera), Some(player)) = (p.named("camera"), p.named("player")) else {
+/// `eye` is the drawn camera's position (none in the overview).
+fn fade_occluders(p: &mut Present, eye: Option<Vec3>) {
+    let (Some(eye), Some(player)) = (eye, p.named("player")) else {
         return;
     };
-    let (Some(eye), Some(target)) = (p.global(camera), p.global(player)) else {
+    let Some(target) = p.global(player) else {
         return;
     };
-    let (eye, target) = (Vec3::from(eye.translation), Vec3::from(target.translation));
+    let target = Vec3::from(target.translation);
     let line = Vec3::new(eye.x - target.x, 0.0, eye.z - target.z);
     let length = line.length();
     if !(0.5..15.0).contains(&length) {

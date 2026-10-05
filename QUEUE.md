@@ -2,9 +2,7 @@
 
 - **Custom materials are opaque-only, see no model textures and are never culled** (2026-10-05, Forest art pass). A wind-sway vertex shader on leaves would lose alpha cutouts, textures and `ModelLod`, so sway stayed per-tree `Offset` in `present`.
 
-- **`Game::present` cannot swap a mesh, move a light or change the sky** (2026-10-05, garden art pass). `Mesh`, lights and the `Environment` resource are simulation, and presentation resources are unsupported, so plant stage models, day/night sun and moon, and weather fog are saved and move pins although gameplay never reads them.
-
-- **Changing a look restarts the game** (2026-10-05, garden `art`). Generated models register only at tick 0, so a look is a setup argument and switching it rebuilds the world; a presentation-only look should switch live.
+- **A look that swaps every crop costs O(entities) per present** (2026-10-05, garden's live `art`). Present rebuilds every presentation row at each boundary, so the art pass's `DrawnMesh` and `Offset` per plant and fruit cost about 4 ms a 60 Hz live frame at 12,100 plants (one present every other frame; 0.04 ms before, when the stage model was simulation; native release, a loaded machine), and golden/storybook about 3.5 ms; setup also generates all three generated looks' models (~55 ms native, against 2.5–28 ms for one). Rows that persist while their inputs are unchanged, or a view-wide model substitution, would make a look cost what changed.
 
 - **`Game::ASSETS`/`STREAMED` are fixed per game** (2026-10-05, garden art pass). The classic look downloads and prepares the art pass's 200+ streamed models; its first drawn frame went from ~170–410 ms to ~500 ms with 671 mesh uploads. Prepare streamed models after the first frame, or let declarations depend on arguments.
 

@@ -863,8 +863,10 @@ impl World {
 }
 
 mod hierarchy;
+mod swaps;
 mod visibility;
 pub(crate) use hierarchy::Hierarchy;
+pub use swaps::{DrawnEnvironment, DrawnLight, DrawnMesh};
 pub use visibility::{opacity, Drawn};
 
 #[cfg(test)]

@@ -42,13 +42,15 @@ impl Assets {
         for group in self.groups.values_mut() {
             group.clear();
         }
-        for (entity, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
-            let Mesh::Asset(name) = mesh else { continue };
+        super::each_shown(w, |entity, mesh| {
+            let Mesh::Asset(name) = mesh else {
+                return Ok(());
+            };
             if !w.is_visible(entity) {
-                continue;
+                return Ok(());
             }
-            self.entity(w, r, entity, name)?;
-        }
+            self.entity(w, r, entity, name)
+        })?;
         self.digests = look_digests(w);
         r.part_looks(&self.part_bases, &self.part_looks);
         r.levels(&self.levels, &self.lods);
@@ -83,7 +85,7 @@ impl Assets {
             };
             let (entity, first, count) = (range.entity, range.first, range.count);
             let (part_first, part_count) = (range.part_first, range.part_count);
-            let Some(Mesh::Asset(name)) = w.get::<Mesh>(entity).as_deref().cloned() else {
+            let Some(Mesh::Asset(name)) = super::shown(w, entity, Mesh::clone) else {
                 return Ok(false);
             };
             let mut fresh = Assets::default();
@@ -143,8 +145,14 @@ impl Assets {
         let viewmodel = w.has::<exact_game::ViewModel>(entity);
         // The entity's own model, then each coarser level; the renderer
         // draws one of them per frame.
-        let lod = w.get::<exact_game::ModelLod>(entity);
-        if let Some(lod) = &lod {
+        // A presentation mesh brings its own levels (or none).
+        let swap = w.get::<exact_game::DrawnMesh>(entity);
+        let own = swap
+            .is_none()
+            .then(|| w.get::<exact_game::ModelLod>(entity))
+            .flatten();
+        let lod = swap.as_ref().map_or(own.as_deref(), |d| d.lod.as_ref());
+        if let Some(lod) = lod {
             crate::lod::validate(lod)
                 .map_err(|e| RenderError::scene(format!("entity {}: {e}", entity.index())))?;
         }
@@ -153,7 +161,7 @@ impl Assets {
         let mut present = 0u8;
         let mut drawn = false;
         for level in 0..count {
-            let model = match (&lod, level) {
+            let model = match (lod, level) {
                 (Some(lod), 1..) => lod.levels[level - 1].model.as_str(),
                 _ => name,
             };
@@ -255,7 +263,7 @@ impl Assets {
                     .push(slot);
             }
         }
-        if let (Some(lod), true) = (&lod, drawn) {
+        if let (Some(lod), true) = (lod, drawn) {
             let mut starts = [0.; crate::lod::MAX_LEVELS];
             for (start, l) in starts[1..].iter_mut().zip(&lod.levels) {
                 *start = l.distance;

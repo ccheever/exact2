@@ -455,3 +455,96 @@ fn presenting_is_not_a_simulation_mutation() {
     assert_eq!(s.world().require::<Bob>("crate").height, 0.5);
     assert_eq!(s.world().mutation_epoch(), epoch);
 }
+
+/// A look that swaps a mesh, a light and the sky from `present`, switched by
+/// a live argument: the simulation, its hash and its save are the plain
+/// game's in either look, and the swapped model is requested like a `Mesh`'s.
+#[test]
+fn a_live_look_swaps_meshes_lights_and_the_sky_without_moving_the_save() {
+    #[derive(Default, Args)]
+    struct Look {
+        #[live]
+        night: bool,
+    }
+    struct Lit;
+    impl Game for Lit {
+        const ID: &'static str = "presentation";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            Plain::setup(w, &());
+            w.spawn_named("lamp", Transform::at(0., 2., 0.));
+            w.spawn_named("camera", (Transform::default(), Camera::default()));
+        }
+        fn tick(w: &mut World, i: &Input, _: &()) {
+            Plain::tick(w, i, &());
+        }
+    }
+    struct Night;
+    impl Game for Night {
+        const ID: &'static str = "presentation";
+        type Args = Look;
+        fn setup(w: &mut World, _: &Look) {
+            Lit::setup(w, &());
+        }
+        fn tick(w: &mut World, i: &Input, _: &Look) {
+            Lit::tick(w, i, &());
+        }
+        fn present(p: &mut Present<'_>, look: &Look) {
+            if !look.night {
+                return;
+            }
+            let crate_ = p.named("crate").unwrap();
+            let stage = p.require::<Crate>(crate_).hp;
+            p.insert(
+                crate_,
+                DrawnMesh::model(format!("crate-{stage}.model"))
+                    .material(Material::rgb(0.2, 0.2, 0.3)),
+            );
+            let lamp = p.named("lamp").unwrap();
+            p.insert(
+                lamp,
+                DrawnLight::Point(PointLight {
+                    intensity: 300.,
+                    ..PointLight::default()
+                }),
+            );
+            let camera = p.named("camera").unwrap();
+            p.insert(
+                camera,
+                DrawnEnvironment {
+                    environment: Environment {
+                        exposure: 1.6,
+                        ..Environment::default()
+                    },
+                    ambient_occlusion: None,
+                },
+            );
+        }
+    }
+    let mut plain = Sim::<Lit>::new(()).unwrap();
+    let mut night = Sim::<Night>::new(Look::default()).unwrap();
+    night.bind(&[Value::Bool(true)], None).unwrap();
+    plain.run(1000.);
+    night.run(1000.);
+    let w = night.world();
+    assert_eq!(
+        w.require::<DrawnMesh>("crate").mesh,
+        Mesh::asset("crate-2.model"),
+        "present reads the simulation it draws"
+    );
+    assert!(w.get::<DrawnLight>("lamp").is_some());
+    assert_eq!(
+        w.require::<DrawnEnvironment>("camera").environment.exposure,
+        1.6
+    );
+    assert!(night.take_assets().contains(&"crate-2.model".to_owned()));
+    // Unloaded, a drawn model never holds a save back: saves check simulated
+    // meshes. The saves differ only in the arguments they carry.
+    assert_eq!(plain.world().hash(), night.world().hash());
+    night.save().unwrap();
+    // Switching the look back is live: the same world, nothing drawn in its place.
+    night.bind(&[Value::Bool(false)], None).unwrap();
+    assert!(night.world().get::<DrawnMesh>("crate").is_none());
+    assert!(night.world().get::<DrawnLight>("lamp").is_none());
+    assert_eq!(plain.world().hash(), night.world().hash());
+}

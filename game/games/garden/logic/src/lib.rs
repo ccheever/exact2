@@ -37,8 +37,9 @@ pub struct Options {
     #[live]
     pub smooth: bool,
     /// The look: "" (classic), "golden", "storybook" or "pass" (the art
-    /// pass's baked models). Changing it rebuilds the garden, since models
-    /// are chosen at setup.
+    /// pass's baked models). Live: every look's world is set up at once and
+    /// drawn by `present`, so switching keeps the garden.
+    #[live]
     pub art: String,
 }
 
@@ -167,7 +168,7 @@ impl Game for Garden {
                 garden::paint([0.2, 0.7, 1.0]),
             ),
         );
-        art::setup(w, &args.art);
+        art::setup(w);
         feedback::setup(w);
         farm::lay_ground(w);
         shop::restock(w, 0);
@@ -179,9 +180,7 @@ impl Game for Garden {
         args.paused
     }
     fn present(p: &mut Present, args: &Options) {
-        if args.art == "pass" {
-            pass::present(p);
-        }
+        art::present(p, args);
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
         farm::observe_epoch(w, args.epoch);
@@ -221,9 +220,7 @@ impl Game for Garden {
                 acted = true;
             }
         }
-        if pass::on(w) {
-            pass::step(w);
-        }
+        pass::step(w);
         feedback::step(w, contact);
         audio::step(w);
         let now = garden::now_ms(w);

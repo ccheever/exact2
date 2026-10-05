@@ -303,7 +303,8 @@ The hash is a stream over page digests in type-name and page order; it is the
 same on every host and for a world freshly loaded from the same save.
 
 Visual-only state belongs in `#[derive(Presentation)]` components (presentation
-resources are not supported): they are excluded from saves, hashes and the
+resources are not supported; a world-wide look, such as the sky, goes on the camera
+as `DrawnEnvironment`): they are excluded from saves, hashes and the
 simulation, so a bob, a flash or a sway phase cannot move a pin; agents can still read
 them (diagnostics). `Game::present(p, args)` rebuilds them from nothing after setup,
 after a restore (once its journal and publications are back), after a live-argument
@@ -326,7 +327,21 @@ moves its displayed hierarchy, and socketed props follow the drawn rig), `Opacit
 of a hidden ancestor), `Tint` (a primitive's colour multiply and added emission) and,
 for models, `NodeMaterials`/`MaterialOverrides`. `World::drawn(e)` is the displayed
 pose and opacity, in the same walk as `World::is_visible`. Picking, layout, physics
-and gameplay use the simulated pose.
+and gameplay use the simulated pose. `Opacity` also fades an entity's particles and
+blended sprites; at 0 they are not drawn, which hides an emitter in a look that has none.
+
+Three more replace what the simulation draws, so a look can change models, lights
+and the sky without a saved write: `DrawnMesh { mesh, lod, material }` draws in
+place of the entity's `Mesh` and `ModelLod` (and, when set, its `Material`), or on a
+bare pose with no `Mesh` (a prop only one look draws); `DrawnLight` is the entity's
+light as drawn (directional, point or spot), in place of any simulated one or on a
+bare pose, posed with its `Offset`; `DrawnEnvironment { environment,
+ambient_occlusion }` on the camera replaces the `Environment` and `AmbientOcclusion`
+resources for its frames. A model a `DrawnMesh` names is requested like a `Mesh`'s;
+saves, picking, physics and animation keep the simulated mesh. A look that is
+presentation only is a `#[live]` argument `present` reads: switching it keeps the
+world (Grow a Garden's `art`). Every row is rebuilt at each present, so a look that
+swaps every crop of a 12,000-plant garden costs milliseconds per present.
 
 **The authoring rule: save the cause, derive the appearance.** Anything later
 gameplay reads stays simulation state; only its look is presentation. Examples:
@@ -343,6 +358,9 @@ gameplay reads stays simulation state; only its look is presentation. Examples:
   simulation, because `present` cannot spawn and keeps no state of its own.
 - A purely cosmetic blink belongs in `Opacity` written by `present`, not in a
   `Visible` toggled each tick (which moves pins).
+- Garden's art pass: a plant's growth stage is simulation; its model per stage is a
+  `DrawnMesh`, and the ten-minute day's sun, moon and sky are a `DrawnLight` per
+  light and the camera's `DrawnEnvironment`, derived from the saved garden time.
 
 `present` holds no state between calls: a flash or a decay derives from a simulated
 timestamp, never from its previous output.

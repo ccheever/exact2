@@ -1,6 +1,6 @@
 //! Tick uploads and retained scene selection. Frames never walk entity storage.
 use crate::{shapes, Batch, MeshId, RenderError, Vertex};
-use exact_game::{Material, Mesh, Parent, Transform, ViewModel, Visible, World, PAGE};
+use exact_game::{DrawnMesh, Material, Mesh, Parent, Transform, ViewModel, Visible, World, PAGE};
 use std::collections::BTreeMap;
 
 pub(crate) mod assets;
@@ -278,6 +278,8 @@ struct Versions {
     pose: u64,
     // Presentation tints (exact_game::Tint), by content for the same reason.
     tint: u64,
+    // Presentation meshes (exact_game::DrawnMesh), by content.
+    drawn: u64,
     live: u64,
     membership: u64,
 }
@@ -332,6 +334,48 @@ fn tints(w: &World) -> u64 {
     }
     h
 }
+/// Content of every presentation `DrawnMesh`.
+fn drawn_meshes(w: &World) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for (e, d) in w.query::<&DrawnMesh>().iter() {
+        let words = [
+            u64::from(e.index()),
+            u64::from(e.generation()),
+            exact_game::hash::of(d),
+        ];
+        for word in words {
+            h = (h ^ word).wrapping_mul(0x100_0000_01b3);
+        }
+    }
+    h
+}
+/// What an entity draws, for `with`: its presentation `DrawnMesh`, else its `Mesh`.
+pub(crate) fn shown<R>(
+    w: &World,
+    e: exact_game::Entity,
+    with: impl FnOnce(&Mesh) -> R,
+) -> Option<R> {
+    if let Some(d) = w.get::<DrawnMesh>(e) {
+        return Some(with(&d.mesh));
+    }
+    w.get::<Mesh>(e).map(|m| with(&m))
+}
+/// Every drawn mesh with a pose, simulated ones first (each without a
+/// `DrawnMesh`), then the presentation ones, each in entity order.
+pub(crate) fn each_shown<E>(
+    w: &World,
+    mut visit: impl FnMut(exact_game::Entity, &Mesh) -> Result<(), E>,
+) -> Result<(), E> {
+    for (e, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
+        if !w.has::<DrawnMesh>(e) {
+            visit(e, mesh)?;
+        }
+    }
+    for (e, (d, _)) in w.query::<(&DrawnMesh, &Transform)>().iter() {
+        visit(e, &d.mesh)?;
+    }
+    Ok(())
+}
 /// A primitive's material floats under its `Tint`: base colour (not a grid's
 /// spacing) multiplied, emission added.
 fn tinted(out: &mut [f32], t: &exact_game::Tint) {
@@ -360,6 +404,7 @@ impl Versions {
             lod: w.revision::<exact_game::ModelLod>(),
             pose: w.revision::<exact_game::Pose>(),
             tint: tints(w),
+            drawn: drawn_meshes(w),
             live: w.entities_revision(),
             membership: w.membership::<Transform>(),
         }
@@ -408,6 +453,8 @@ pub struct Feed {
     tints: BTreeMap<u32, exact_game::Tint>,
     // Presentation offsets by content, and the drawn subtrees they moved.
     offsets: offsets::Offsets,
+    // Each slot's presentation material (`DrawnMesh::material`), likewise.
+    swapped: BTreeMap<u32, Material>,
     scene: Scene,
     glows: Vec<crate::GlowInput>,
 }
@@ -442,6 +489,7 @@ impl Default for Feed {
             fades_next: Vec::new(),
             tints: BTreeMap::new(),
             offsets: Default::default(),
+            swapped: BTreeMap::new(),
             scene: Scene::default(),
             glows: Vec::new(),
         }
@@ -548,7 +596,8 @@ impl Feed {
             || next.tint != old.tint
             || next.glow != old.glow
             || next.membership != old.membership
-            || next.mesh != old.mesh;
+            || next.mesh != old.mesh
+            || next.drawn != old.drawn;
         let looks_changed = next.node_materials != old.node_materials
             || next.material_overrides != old.material_overrides;
         let mut batches = initial
@@ -558,6 +607,7 @@ impl Feed {
             || next.visible != old.visible
             || next.viewmodel != old.viewmodel
             || next.lod != old.lod
+            || next.drawn != old.drawn
             || next.live != old.live
             || next.membership != old.membership;
         // Present rewrites looks every tick: patch changed content in place.
@@ -781,10 +831,10 @@ impl Feed {
             for group in &mut self.groups {
                 group.slots.clear();
             }
-            for (e, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
+            each_shown(w, |e, mesh| {
                 mesh.validate().map_err(RenderError::scene)?;
                 if matches!(mesh, Mesh::Asset(_)) {
-                    continue;
+                    return Ok(());
                 }
                 let shape = Shape::of(mesh)?;
                 let slot = e.index() as usize;
@@ -793,7 +843,7 @@ impl Feed {
                 }
                 self.dimensions[slot] = dimensions(mesh);
                 if !w.is_visible(e) {
-                    continue;
+                    return Ok(());
                 }
                 let viewmodel = w.has::<ViewModel>(e);
                 let group = *self.shapes.entry((shape, viewmodel)).or_insert_with(|| {
@@ -807,7 +857,8 @@ impl Feed {
                     index
                 });
                 self.groups[group].slots.push(e.index());
-            }
+                Ok::<(), RenderError>(())
+            })?;
             self.batches.clear();
             self.slots.clear();
             for group in &self.groups {
@@ -830,6 +881,13 @@ impl Feed {
                     .iter()
                     .filter(|(e, _)| w.is_visible(*e))
                     .map(|(e, t)| (e.index(), *t))
+                    .collect();
+            }
+            if initial || next.drawn != old.drawn {
+                self.swapped = w
+                    .query::<&DrawnMesh>()
+                    .iter()
+                    .filter_map(|(e, d)| d.material.map(|m| (e.index(), m)))
                     .collect();
             }
             // Frame-time Glow writes bypass page fingerprints. Restore authored
@@ -872,6 +930,7 @@ impl Feed {
                     && next.mesh == old.mesh
                     && next.glow == old.glow
                     && next.tint == old.tint
+                    && next.drawn == old.drawn
                     && next.membership == old.membership
                     && !self.materials.needs_check(index, generation)
                 {
@@ -883,7 +942,9 @@ impl Feed {
                     .chunks_exact_mut(12)
                     .enumerate()
                 {
-                    if let Some(p) = page
+                    if let Some(m) = self.swapped.get(&(first + i as u32)) {
+                        out.copy_from_slice(&material_floats(*m));
+                    } else if let Some(p) = page
                         .as_ref()
                         .filter(|p| p.mask()[i / 64] & (1 << (i % 64)) != 0)
                     {
@@ -967,8 +1028,12 @@ impl Feed {
         if material {
             self.glows.clear();
             for (entity, glow) in w.query::<&exact_game::Glow>().iter() {
-                let mut values =
-                    material_floats(w.get::<Material>(entity).map(|m| *m).unwrap_or_default());
+                let material = self.swapped.get(&entity.index()).copied();
+                let mut values = material_floats(
+                    material
+                        .or_else(|| w.get::<Material>(entity).map(|m| *m))
+                        .unwrap_or_default(),
+                );
                 if let Some(t) = w.get::<exact_game::Tint>(entity) {
                     tinted(&mut values, &t);
                 }
@@ -982,9 +1047,7 @@ impl Feed {
                     material: values,
                     tween: glow.0.clone(),
                     hz: w.hz(),
-                    model: w
-                        .get::<Mesh>(entity)
-                        .is_some_and(|m| matches!(*m, Mesh::Asset(_))),
+                    model: shown(w, entity, |m| matches!(m, Mesh::Asset(_))).unwrap_or(false),
                 });
             }
         }
