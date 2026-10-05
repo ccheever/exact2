@@ -1,6 +1,7 @@
 use crate::{FrameInput, LightInput, Shadows, Sun, MAX_LIGHTS};
 use exact_game::{
-    Camera, DirectionalLight, Entity, LightShadows, Parent, PointLight, SpotLight, Transform, World,
+    Camera, DirectionalLight, DrawnLight, Entity, LightShadows, Parent, PointLight, SpotLight,
+    Transform, World,
 };
 use glam::{Mat4, Vec3};
 
@@ -9,6 +10,35 @@ use glam::{Mat4, Vec3};
 /// radiance of 3. Exposure applies after.
 pub const PHOTOMETRIC_SCALE: f32 = 0.0003;
 
+/// The lights drawn, in entity order: each entity's presentation `DrawnLight`,
+/// else its simulated `DirectionalLight`, `PointLight` or `SpotLight`.
+fn drawn_lights(w: &World) -> Vec<(Entity, DrawnLight)> {
+    let mut out: Vec<(Entity, DrawnLight)> = w
+        .query::<&DrawnLight>()
+        .iter()
+        .map(|(e, l)| (e, *l))
+        .collect();
+    let swapped = out.len();
+    let own = |e: Entity| swapped == 0 || !w.has::<DrawnLight>(e);
+    out.extend(
+        (w.query::<&DirectionalLight>().iter())
+            .filter(|(e, _)| own(*e))
+            .map(|(e, l)| (e, DrawnLight::Directional(*l))),
+    );
+    out.extend(
+        (w.query::<&PointLight>().iter())
+            .filter(|(e, _)| own(*e))
+            .map(|(e, l)| (e, DrawnLight::Point(*l))),
+    );
+    out.extend(
+        (w.query::<&SpotLight>().iter())
+            .filter(|(e, _)| own(*e))
+            .map(|(e, l)| (e, DrawnLight::Spot(*l))),
+    );
+    // Stable: an entity carrying two simulated kinds keeps their query order.
+    out.sort_by_key(|(e, _)| e.index());
+    out
+}
 /// The displayed global: drawn(parent) · local · offset. Presentation offsets
 /// (exact_game::Offset) move an entity and everything under it; without one on
 /// the chain this is the simulated global, exactly.
@@ -157,7 +187,7 @@ struct Light {
 }
 #[derive(Default)]
 pub(super) struct Scene {
-    versions: Option<[u64; 7]>,
+    versions: Option<[u64; 8]>,
     pub(super) attachments: Attachments,
     camera: Option<(History, Camera)>,
     // The camera's MouseLook, its revision and camera, and its descendants.
@@ -222,6 +252,7 @@ impl Scene {
             w.revision::<SpotLight>(),
             w.revision::<LightShadows>(),
             w.revision::<exact_game::Visible>(),
+            w.revision::<DrawnLight>(),
         ];
         let old = self.versions;
         if old.is_none_or(|v| v[0] != versions[0]) || structure {
@@ -243,7 +274,14 @@ impl Scene {
         }
         self.feed_look(w, next_tick, structure || parent_changed, parent_changed);
         let visibility_changed = old.is_none_or(|v| v[6] != versions[6]) || parent_changed;
-        if old.is_none_or(|v| v[1] != versions[1]) || structure || visibility_changed {
+        let swapped = old.is_none_or(|v| v[7] != versions[7]);
+        let lights =
+            if old.is_none_or(|v| v[1..] != versions[1..]) || structure || visibility_changed {
+                drawn_lights(w)
+            } else {
+                Vec::new()
+            };
+        if old.is_none_or(|v| v[1] != versions[1]) || swapped || structure || visibility_changed {
             // The first two posed directional lights: the sun, then a fill.
             let (sun, fill) = (self.sun, self.fill);
             let keep = |e: Entity, t: Transform| {
@@ -253,11 +291,13 @@ impl Scene {
                     .find(|(h, _)| h.entity == e)
                     .map_or(History::new(e, t), |(h, _)| h)
             };
-            let mut query = w.query::<&DirectionalLight>();
-            let mut posed = query
-                .iter()
+            let mut posed = (lights.iter())
+                .filter_map(|&(e, l)| match l {
+                    DrawnLight::Directional(s) => Some((e, s)),
+                    _ => None,
+                })
                 .filter(|(e, _)| w.is_visible(*e))
-                .filter_map(|(e, s)| pose(w, e).map(|t| (keep(e, t), *s)));
+                .filter_map(|(e, s)| pose(w, e).map(|t| (keep(e, t), s)));
             self.sun = posed.next();
             self.fill = posed.next();
         }
@@ -265,6 +305,21 @@ impl Scene {
             history.update(w, next_tick, parent_changed);
         }
         if old.is_none_or(|v| v[2..] != versions[2..]) || structure || visibility_changed {
+            // Whether the entity still casts a point (or spot) light.
+            let casts = |e: Entity, spot: bool| {
+                let at = lights.partition_point(|(l, _)| l.index() < e.index());
+                lights[at..]
+                    .iter()
+                    .take_while(|(l, _)| l.index() == e.index())
+                    .any(|(l, k)| {
+                        *l == e
+                            && match k {
+                                DrawnLight::Spot(_) => spot,
+                                DrawnLight::Point(_) => !spot,
+                                DrawnLight::Directional(_) => false,
+                            }
+                    })
+            };
             // Compact departures once; keep each kind's histories in entity order
             // and append arrivals. Value-only edits reuse the buffer without sorting.
             let mut kept = 0;
@@ -275,13 +330,7 @@ impl Scene {
                 let spot = index >= spot_at;
                 index += 1;
                 let e = l.history.entity;
-                let live = w.is_visible(e)
-                    && w.global(e).is_some()
-                    && if spot {
-                        w.has::<SpotLight>(e)
-                    } else {
-                        w.has::<PointLight>(e)
-                    };
+                let live = w.is_visible(e) && w.global(e).is_some() && casts(e, spot);
                 if live {
                     kept += 1;
                     spots += usize::from(spot);
@@ -291,7 +340,12 @@ impl Scene {
             let points = kept - spots;
             let mut fresh = Vec::new();
             let mut at = 0;
-            for (e, light) in w.query::<&PointLight>().iter() {
+            let points_of = lights.iter().filter_map(|&(e, l)| match l {
+                DrawnLight::Point(p) => Some((e, p)),
+                _ => None,
+            });
+            for (e, light) in points_of {
+                let light = &light;
                 if !w.is_visible(e) {
                     continue;
                 }
@@ -312,7 +366,12 @@ impl Scene {
                 }
             }
             let mut at = points;
-            for (e, light) in w.query::<&SpotLight>().iter() {
+            let spots_of = lights.iter().filter_map(|&(e, l)| match l {
+                DrawnLight::Spot(s) => Some((e, s)),
+                _ => None,
+            });
+            for (e, light) in spots_of {
+                let light = &light;
                 if !w.is_visible(e) {
                     continue;
                 }
@@ -528,11 +587,18 @@ impl Scene {
         };
         let sun = self.sun.map(|s| directional(s, true));
         let fill = self.fill.map(|s| directional(s, false));
-        let e = w
-            .try_resource::<exact_game::Environment>()
-            .as_deref()
-            .copied()
-            .unwrap_or_default();
+        // The drawn camera's own sky, else the world's.
+        let view = (self.camera)
+            .and_then(|(h, _)| w.get::<exact_game::DrawnEnvironment>(h.entity).map(|v| *v));
+        let e = view.map_or_else(
+            || {
+                w.try_resource::<exact_game::Environment>()
+                    .as_deref()
+                    .copied()
+                    .unwrap_or_default()
+            },
+            |v| v.environment,
+        );
         FrameInput {
             glows: &[],
             seconds: if w.tick() == 0 {
@@ -561,10 +627,14 @@ impl Scene {
                 visible: m.visible,
                 rotation: m.rotation,
             }),
-            ambient_occlusion: w
-                .try_resource::<exact_game::AmbientOcclusion>()
-                .as_deref()
-                .copied(),
+            ambient_occlusion: view.map_or_else(
+                || {
+                    w.try_resource::<exact_game::AmbientOcclusion>()
+                        .as_deref()
+                        .copied()
+                },
+                |v| v.ambient_occlusion,
+            ),
             timestamps: None,
             attachments: &self.attachments.output,
         }

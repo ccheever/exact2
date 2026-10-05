@@ -259,6 +259,7 @@ The dev compiler retains its last good plan on an error.
 | Team colours, mutation looks | A `Material` on a model entity tints every node and adds emission; `NodeMaterials` per named node or `MaterialOverrides` per material (one model in every team's colours), written from `Game::present` |
 | Cheaper far trees and crowds | `ModelLod { levels: vec![LodLevel { distance: 30., model: "tree_low.model".into() }], hide: Some(120.) }` on the entity |
 | Fade a tree between camera and player | `Opacity(0.3)` on the entity from `Game::present`: a dithered fade, no sorting, never in a save or pin |
+| A model per growth stage, a day and night, a switchable look | From `Game::present`: `DrawnMesh::model(name).lod(..)` in place of the simulated `Mesh`, `DrawnLight::Directional(..)` (with an `Offset` to aim it) for a sun, and `DrawnEnvironment` on the camera for the sky; read the look from a `#[live]` argument and switching keeps the world |
 | A first-person weapon | Add `ViewModel` to each part; it draws in front of the world and casts no shadow |
 | Contact shadows in creases | `w.insert_resource(AmbientOcclusion::default())` turns on SSAO (off by default) |
 | Lighting from a photographed sky | `w.insert_resource(EnvironmentMap::new("sky.tex"))` with the equirect in `Game::ASSETS` |

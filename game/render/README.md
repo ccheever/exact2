@@ -327,6 +327,12 @@ unchanged looks cost nothing and changed ones (a pulsing glow) patch that entity
 records and part looks in place in the instance buffer, without a rebatch. Only a
 look appearing on a merged part that had none (the part-look table changes shape)
 rebatches.
+`DrawnMesh` (presentation) is what an entity draws in place of its `Mesh`, `ModelLod`
+and, when set, `Material`, or on a bare pose without a `Mesh`: primitive batches,
+model records and levels, shadows, primitive dimensions and material floats all
+read the drawn mesh. The feed digests the rows' content, so a present that rewrites
+the same swaps rebatches nothing; a changed swap rebatches like a `Mesh` write. A
+swapped model also resets that instance's pose interpolation.
 At load, a model's rigid, non-blended parts that share a material merge into one
 draw: static parts into one mesh pre-transformed into model space (mirrored parts
 rewound), parts a clip animates into one mesh skinned with weight one to each
@@ -396,6 +402,13 @@ Engine lights are photometric and share one scale, `PHOTOMETRIC_SCALE` (0.0003):
 light delivers `intensity / d²` lux at `d` metres. 10,000 lux of sun, or a 10,000 cd
 lamp seen from 1 m, maps to renderer radiance 3; the 100 cd default lights a surface
 1 m away at 1% of the default sun. `FrameInput` carries renderer radiance.
+A `DrawnLight` (presentation) is an entity's light as drawn, in place of any
+simulated `DirectionalLight`, `PointLight` or `SpotLight` it has: the sun and fill
+are the first two drawn directional lights in entity order, and point and spot
+selection sees drawn lights as it sees simulated ones. A `DrawnEnvironment` on the
+drawn camera replaces the `Environment` and `AmbientOcclusion` resources in
+`FrameInput`. `Opacity` multiplies particle and sprite alpha; at 0 an emitter's
+particles and a sprite are not drawn.
 Missing materials/environment use defaults.
 
 Performance samples appear only in `state.world.perf`: live frame stamps, tick,

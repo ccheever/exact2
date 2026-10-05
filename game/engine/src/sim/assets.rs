@@ -14,7 +14,10 @@ impl<G: Game> Sim<G> {
         let revision = self.world.revision::<crate::Mesh>();
         let sprites_changed =
             crate::sprite::texture_names_changed(&self.world, &mut self.asset_sprite_names);
-        if revision != self.asset_mesh_revision || sprites_changed {
+        // Present rewrites DrawnMesh rows at every boundary: only a changed
+        // set of drawn model names reaches the requests below.
+        let drawn_changed = drawn_names_changed(&self.world, &mut self.asset_drawn_names);
+        if revision != self.asset_mesh_revision || sprites_changed || drawn_changed {
             let names: Vec<_> = self
                 .world
                 .query::<&crate::Mesh>()
@@ -26,6 +29,11 @@ impl<G: Game> Sim<G> {
                         None
                     }
                 })
+                .chain(
+                    self.asset_drawn_names
+                        .iter()
+                        .map(|name| (name.clone(), ".model")),
+                )
                 .chain(
                     self.world
                         .query::<&crate::Sprite>()
@@ -78,4 +86,21 @@ impl<G: Game> Sim<G> {
         assets.requested.extend(names.iter().cloned());
         names
     }
+}
+
+/// The distinct model names `DrawnMesh` rows draw, sorted; true when they
+/// differ from `names` (which then takes them).
+fn drawn_names_changed(w: &World, names: &mut Vec<String>) -> bool {
+    let mut drawn = std::collections::BTreeSet::new();
+    let mut rows = w.query::<&crate::DrawnMesh>();
+    for (_, d) in rows.iter() {
+        if let crate::Mesh::Asset(name) = &d.mesh {
+            drawn.insert(name.as_str());
+        }
+    }
+    if drawn.iter().copied().eq(names.iter().map(String::as_str)) {
+        return false;
+    }
+    *names = drawn.into_iter().map(str::to_owned).collect();
+    true
 }

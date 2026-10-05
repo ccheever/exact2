@@ -71,7 +71,7 @@ pub struct WorldSurface<G: Game, P: Executor = (), const ASSETS: bool = false, H
     error: Option<SurfaceError>,
     dirty: bool,
     assets_dirty: bool,
-    asset_check: Option<(exact_game::WorldId, u64, u64)>,
+    asset_check: Option<(exact_game::WorldId, u64, u64, u64)>,
     reported: bool,
     generation: u64,
     seekable: bool,
@@ -127,6 +127,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             world.id(),
             world.revision::<exact_game::Mesh>(),
             world.revision::<exact_game::Sprite>(),
+            world.revision::<exact_game::DrawnMesh>(),
         );
         if self.asset_check.as_ref() == Some(&revision) {
             return Ok(());
@@ -149,6 +150,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         }
         for (_, mesh) in world.query::<&exact_game::Mesh>().iter() {
             if let exact_game::Mesh::Asset(name) = mesh {
+                return Err(missing(name));
+            }
+        }
+        for (_, drawn) in world.query::<&exact_game::DrawnMesh>().iter() {
+            if let exact_game::Mesh::Asset(name) = &drawn.mesh {
                 return Err(missing(name));
             }
         }

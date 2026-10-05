@@ -57,6 +57,8 @@ pub(crate) struct Item<T> {
     pub entity: Entity,
     pub poses: [Transform; 2],
     pub value: T,
+    // The entity's effective `Opacity` (1 when unfiltered by visibility).
+    pub opacity: f32,
     revision: u64,
 }
 struct Quad {
@@ -643,8 +645,10 @@ impl Quads {
                     (Some(_), Some(l)) => (l.uv(l.frame(p.age, p.lifetime)), 2.),
                     _ => ([0., 0., 1., 1.], 3.),
                 };
+                let mut color = p.color;
+                color[3] *= item.opacity;
                 self.particle_data
-                    .push(quad(position, x, y, p.color, uv, mode, soft));
+                    .push(quad(position, x, y, color, uv, mode, soft));
                 self.order.push(Order {
                     kind: Kind::Particle(
                         e.additive,
@@ -702,8 +706,10 @@ impl Quads {
                     AlphaMode::Blend => 2.,
                 };
                 let at = self.sprite_data.len();
+                let mut color = s.color;
+                color[3] *= item.opacity;
                 self.sprite_data
-                    .push(quad(center, x, y, s.color, uv, mode, s.cutoff));
+                    .push(quad(center, x, y, color, uv, mode, s.cutoff));
                 if s.alpha == AlphaMode::Blend {
                     self.order.push(Order {
                         kind: Kind::Sprite(index),
@@ -917,6 +923,13 @@ pub(crate) fn feed_poses<T: exact_game::Component + Clone>(
         if visible_only && !w.is_visible(i.entity) {
             return false;
         }
+        if visible_only {
+            // Opacity fades quads; at zero they are not drawn at all.
+            i.opacity = opacity(w, i.entity);
+            if i.opacity <= 0. {
+                return false;
+            }
+        }
         let Some(pose) = crate::world::scene::pose(w, i.entity) else {
             return false;
         };
@@ -944,11 +957,16 @@ pub(crate) fn feed_poses<T: exact_game::Component + Clone>(
         if visible_only && !w.is_visible(entity) {
             continue;
         }
+        let opacity = if visible_only { opacity(w, entity) } else { 1. };
+        if opacity <= 0. {
+            continue;
+        }
         if let Some(pose) = crate::world::scene::pose(w, entity) {
             items.push(Item {
                 entity,
                 poses: [pose; 2],
                 value: value.clone(),
+                opacity,
                 revision,
             });
         }
@@ -956,6 +974,22 @@ pub(crate) fn feed_poses<T: exact_game::Component + Clone>(
     if items.len() != existing {
         items.sort_unstable_by_key(|i| i.entity.index());
     }
+}
+
+/// The effective `Opacity` down the Parent chain; 1 without any.
+fn opacity(w: &World, mut e: Entity) -> f32 {
+    let mut product = 1.;
+    // Bounded even if tools edit a cycle before propagation.
+    for _ in 0..=w.len() {
+        if let Some(o) = w.get::<exact_game::Opacity>(e) {
+            product *= exact_game::opacity(o.0);
+        }
+        match w.get::<exact_game::Parent>(e) {
+            Some(p) => e = p.0,
+            None => break,
+        }
+    }
+    product
 }
 
 // Every particle centre lies within shape + speed·T + |g|·T²/2 of the emitter's

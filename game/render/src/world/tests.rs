@@ -138,6 +138,8 @@ impl Writes for Recording {
         Ok(())
     }
 }
+#[path = "swap_tests.rs"]
+mod swap_tests;
 #[path = "visibility_tests.rs"]
 mod visibility_tests;
 struct Moving;

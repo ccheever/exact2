@@ -753,14 +753,14 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             _ => {
                 models.moving.clear();
                 for i in 0..models.pose_history.len() {
-                    let digest = world
-                        .get::<exact_game::Mesh>(models.pose_history[i].entity)
-                        .and_then(|m| match &*m {
+                    let digest =
+                        crate::world::shown(world, models.pose_history[i].entity, |m| match m {
                             exact_game::Mesh::Asset(name) => {
                                 models.loaded.get(name).map(|m| m.digest)
                             }
                             _ => None,
                         })
+                        .flatten()
                         .unwrap_or(0);
                     models.update_pose(world, i, Some((digest, initial)));
                 }
