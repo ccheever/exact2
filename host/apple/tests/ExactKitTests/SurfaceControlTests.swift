@@ -10,10 +10,10 @@ private let recoveryReply = UnsafeMutablePointer<UInt8>.allocate(capacity: 128)
 private var recoveryLength: UInt32 = 0
 private var replacementLost = true
 private var replacements = 0
-private var controlEvents: [[String: Any]] = []
+var controlEvents: [[String: Any]] = []
 private var boundObjects: [NSDictionary] = []
 final class SurfaceControlTests: XCTestCase {
-    private func fixture() -> (ExactSession, NodeView, NodeView) {
+    func fixture() -> (ExactSession, NodeView, NodeView) {
         #if os(macOS)
         _ = NSApplication.shared
         #endif

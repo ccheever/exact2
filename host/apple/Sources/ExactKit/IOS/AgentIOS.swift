@@ -693,10 +693,13 @@ extension Agent {
     /// world has it (`canvasType`).
     func canvasRouted(_ v: NodeView, _ req: [String: Any]) -> [String: Any]? {
         let phase = req["phase"] as? String
-        guard phase == nil || phase == "down", let key = req["key"] as? String, let device = KeyCodes.device(key),
-              !KeyCodes.modifier(device.code), v.inputCanvas != nil else { return nil }
+        // A chord is its modifiers and its key (b6 review B6): `Shift+F24`
+        // or `Control+v` meets the shortcuts with what it holds.
+        guard phase == nil || phase == "down", let chord = req["key"] as? String else { return nil }
+        let (held, key) = KeyCodes.split(chord)
+        guard let device = KeyCodes.device(key), !KeyCodes.modifier(device.code), v.inputCanvas != nil else { return nil }
         if !v.isFirstResponder { _ = v.becomeFirstResponder() }
-        var reply: [String: Any] = ["typed": Int(v.id), "key": key, "delivery": "recognized"]
+        var reply: [String: Any] = ["typed": Int(v.id), "key": chord, "delivery": "recognized"]
         if let phase { reply["phase"] = phase }
         // The down was taken; its up belongs to no world.
         let taken = { [self] () -> [String: Any] in
@@ -704,13 +707,13 @@ extension Agent {
             return reply
         }
         #if os(iOS)
-        if let node = presenter.shortcut(key: device.key, held: "", focus: v) {
+        if let node = presenter.shortcut(key: device.key, held: held, focus: v) {
             presenter.press(node.id)
             reply["shortcut"] = Int(node.id)
             return taken()
         }
         #endif
-        return presenter.keyDown(at: v.isFirstResponder ? v : nil, device.key) ? taken() : nil
+        return presenter.keyDown(at: v.isFirstResponder ? v : nil, device.key, held: held) ? taken() : nil
     }
 
     /// Set an input's text as typing does: the field focused, all selected,
@@ -719,7 +722,13 @@ extension Agent {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
-        if session.canvases.wantsInput(v.id) { return canvasRouted(v, req) ?? canvasType(v, req) }
+        if session.canvases.wantsInput(v.id) {
+            if let routed = canvasRouted(v, req) { return routed }
+            // The world hears the key a chord names, not the chord's string.
+            var bare = req
+            if let chord = req["key"] as? String { bare["key"] = KeyCodes.split(chord).key }
+            return canvasType(v, bare)
+        }
         if v.isSurfaceControl, let key = req["key"] as? String, let code = KeyCodes.device(key)?.code, ["Space", "Enter", "NumpadEnter"].contains(code) {
             let phase = req["phase"] as? String
             guard phase == nil || phase == "down" || phase == "up" else { return ["error":"key: not a phase: \(phase!)"] }
