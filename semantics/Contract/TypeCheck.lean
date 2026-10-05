@@ -74,7 +74,10 @@ def infer (p : Program) (G : Scope) : Scope → Expr → Option Ty
   | _, .str _ => .some .string
   | _, .bool _ => .some .bool
   | _, .none => .some (.option .unknown)
-  | _, .emptyList => .some (.list .unknown)
+  | Γ, .list items =>
+    match inferList p G Γ items with
+    | .some ts => boundedTy p ((Ty.unifyAll ts).map .list)
+    | .none => .none
   | Γ, .some e => boundedTy p ((infer p G Γ e).map .option)
   | Γ, .template parts =>
     match inferList p G Γ parts with
@@ -463,7 +466,15 @@ theorem infer_sound {p : Program} {G : Scope} : ∀ {Γ : Scope} (e : Expr) {t :
   | Γ, .str _, t, h => by simp [infer] at h; subst h; exact .str
   | Γ, .bool _, t, h => by simp [infer] at h; subst h; exact .bool
   | Γ, .none, t, h => by simp [infer] at h; subst h; exact .none
-  | Γ, .emptyList, t, h => by simp [infer] at h; subst h; exact .emptyList
+  | Γ, .list items, t, h => by
+    simp only [infer] at h
+    split at h
+    · next ts hts =>
+      have h := boundedTy_some h
+      simp only [Option.map_eq_some_iff] at h
+      obtain ⟨u, hu, rfl⟩ := h
+      exact .list (inferList_sound items hts) hu
+    · simp at h
   | Γ, .some e, t, h => by
     simp only [infer] at h
     have h := boundedTy_some h

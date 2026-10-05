@@ -106,9 +106,15 @@ pub(crate) fn compile(
             asm.simple(Opcode::None);
             Ty::Option(Box::new(Ty::Unknown))
         }
-        Expr::EmptyList(_) => {
-            asm.list(0);
-            Ty::List(Box::new(Ty::Unknown))
+        // `[a, b]` (LLP 1088 §9.1): the items, then `List n`.
+        Expr::List(items, _) => {
+            let mut item = Ty::Unknown;
+            for x in items {
+                let t = compile(l, asm, x, scope, locals)?;
+                item = item.unify(&t).unwrap_or(Ty::Unknown);
+            }
+            asm.list(items.len() as u32);
+            Ty::List(Box::new(item))
         }
         Expr::Some(inner, _) => {
             let t = compile(l, asm, inner, scope, locals)?;
@@ -347,9 +353,13 @@ pub(crate) fn compile(
                 asm.number(d);
             }
             asm.call(f);
-            match (f, given.first()) {
+            match (f, given.first(), given.get(1)) {
                 // `first(list<T>)` is `option<T>` (LLP 1054.000 C4).
-                (Stdlib::First | Stdlib::At, Some(Ty::List(item))) => Ty::Option(item.clone()),
+                (Stdlib::First | Stdlib::At, Some(Ty::List(item)), _) => Ty::Option(item.clone()),
+                // A list's own type, or text's (LLP 1088 §9.1).
+                (Stdlib::Concat, Some(a), Some(b)) => a.unify(b).unwrap_or(Ty::Unknown),
+                (Stdlib::Slice, Some(t @ (Ty::String | Ty::List(_))), _) => t.clone(),
+                (Stdlib::Concat | Stdlib::Slice, ..) => Ty::Unknown,
                 _ => Ty::from_roster(f.returns()),
             }
         }

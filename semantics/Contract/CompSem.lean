@@ -114,7 +114,7 @@ def ceval : Nat → CEnv → Frame → Locals → Expr → Result Value
   | .str s => .ok (.str s)
   | .bool b => .ok (.bool b)
   | .none => .ok .none
-  | .emptyList => .ok (.list [])
+  | .list items => do .ok (.list (← cevalList fuel ce f ls items))
   | .some e => do .ok (.some (← ceval fuel ce f ls e))
   | .template parts => do
     let ss ← cevalDisplays fuel ce f ls parts

@@ -159,9 +159,11 @@ pub enum Step {
         span: Span,
     },
     /// `tap "testId" drag dx dy [from x y] [mouse] [press ms] [over ms]
-    /// [hold ms]`: one whole drag from the node's middle, or from `from` in
-    /// its box, a finger's or the left button's; the driver's `tap … drag`
-    /// (kanban F18, files diary F10).
+    /// [hold ms] [during "op" …]`: one whole drag from the node's middle, or
+    /// from `from` in its box, a finger's or the left button's; the driver's
+    /// `tap … drag` (kanban F18, files diary F10). `during` is last: quoted
+    /// reads or `clock` while the finger is down, after the move and before
+    /// the hold (drums R8).
     Drag {
         /// The node, by `testId`.
         target: String,
@@ -180,6 +182,9 @@ pub enum Step {
         over: Option<f64>,
         /// Milliseconds held after the move.
         hold: Option<f64>,
+        /// Quoted ops run while the finger is down, after the move, before
+        /// the hold. Empty when the step names none.
+        during: Vec<String>,
         /// Where.
         span: Span,
     },
@@ -242,12 +247,16 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `type "testId" key "Enter"`.
+    /// `type "testId" key "Enter"`, or `down`, `up`, or `for <ms>` (platformer R7).
     Key {
         /// The field, by `testId`.
         target: String,
         /// The key's web name.
         key: String,
+        /// `down` or `up`; `None` is a press (down and up).
+        phase: Option<String>,
+        /// Milliseconds the key stays down, on the virtual clock. Not with `phase`.
+        duration: Option<f64>,
         /// Where.
         span: Span,
     },
@@ -325,11 +334,19 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `close`: the window's close button, as ⌘W or the red button press
+    /// it, asking its `beforeunload` first (the driver's `close`, studio
+    /// diary R17); a window a handler keeps stays, and the test goes on.
+    Close {
+        /// Where.
+        span: Span,
+    },
     /// `expect state name == literal`: a slot, derive, or resource from the
-    /// `state` reply, or a field of one (`name.field.field`, feed F10),
-    /// compared to a number, string, bool, or `none`.
+    /// `state` reply, or a field of one (`name.field.field`, feed F10), or a
+    /// list index (`rows.0`, drums R7), compared to a number (negative
+    /// included), string, bool, or `none`.
     ExpectState {
-        /// The declaration's name, then any fields, joined by `.`.
+        /// The declaration's name, then fields and list indexes, joined by `.`.
         name: String,
         /// The literal.
         value: Expr,
@@ -352,6 +369,14 @@ pub enum TapForm {
     /// `into "key"`: a virtualized list's row brought into view by its key
     /// (LLP 1070.000 §5), so a row outside the rendered window can be tapped.
     Into(String),
+    /// `pinch <scale> [at x y]`: two fingers about the node's middle, or
+    /// about `at` in its box (stocks: the agent's pinch, in a test file).
+    Pinch {
+        /// How far the fingers spread, greater than 0. `1` is no change.
+        scale: f64,
+        /// Where the pinch is centred, in the node's box; its middle when `None`.
+        at: Option<(f64, f64)>,
+    },
 }
 
 /// `fn name(param: type, …): type = expr` — a pure function written in
@@ -1098,11 +1123,11 @@ pub enum Expr {
     Bool(bool, Span),
     /// `none`.
     None(Span),
-    /// `[]`: the empty list. Its element type comes from where it is
+    /// `[a, b, c]`: a list of its items, which unify as the arms of `?:`
+    /// do (LLP 1088 §9.1). `[]`'s element type comes from where it is
     /// written (the other arm of a `match` or `?:`, a declared `list<T>`,
-    /// a write into the state it initializes); Contract has no list literal
-    /// with items (LLP 1017.003 D4).
-    EmptyList(Span),
+    /// a write into the state it initializes).
+    List(Vec<Expr>, Span),
     /// `some(expr)`.
     Some(Box<Expr>, Span),
     /// A name.
@@ -1191,6 +1216,7 @@ impl Step {
             | Step::Clipboard { span, .. }
             | Step::Clock { span, .. }
             | Step::Reload { span, .. }
+            | Step::Close { span }
             | Step::Resize { span, .. }
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }
@@ -1209,7 +1235,7 @@ impl Expr {
             | Expr::Template(_, s)
             | Expr::Bool(_, s)
             | Expr::None(s)
-            | Expr::EmptyList(s)
+            | Expr::List(_, s)
             | Expr::Some(_, s)
             | Expr::Ident(_, s)
             | Expr::Member(_, _, s)

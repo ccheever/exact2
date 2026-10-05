@@ -7,6 +7,7 @@ import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { open } from './agent.mjs';
+import { duringOp } from './agent-drag.mjs';
 import { driveStore, launchFacts } from './agent-launch.mjs';
 import { resolveApp } from './app.mjs';
 
@@ -104,8 +105,12 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // a mutation's `then`, a timer, a transition) lands at a clock step. A
     // failed expect after an input with none says so (kanban F19).
     let input = null;
+    // The line whose `close` closed the window, if one did.
+    let closedAt = null;
     // An input the host could not perform fails its step: an unsupported drag or a refused tap did nothing to assert on.
-    const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); };
+    // An input that closed the window (`close`, or a press the app answered with `close()`) ends what can run.
+    let current = null;
+    const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); if (r?.closed) closedAt = current; };
     // With no input since the clock last moved, a request still in flight (the boot's own, or one a jump
     // left on real time) is named: the expect read the value before its reply (workout F1).
     const fail = async (message) => {
@@ -117,12 +122,24 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       try { await data(); } catch (e) { failures.push(`${t.name}: waiting for the app's data before the first step: ${e.message}`); }
       for (const st of failures.length ? [] : t.steps) {
         const at = `${t.name}: line ${st.line}`;
+        if (closedAt != null) { failures.push(`${at}: the window closed at line ${closedAt}, so nothing after it runs`); break; }
+        current = st.line;
         try {
           switch (st.op) {
             case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': break; // the session opened with it
             // The driver's `tap` forms (feed F10): `into` brings a virtualized list's row into view by its key.
-            case 'tap': delivered(await s.tap(st.target, st.form === 'into' ? { into: { key: st.key } } : st.form !== 'press' ? { [st.form]: true } : st.modifiers ? { modifiers: st.modifiers } : undefined)); input = st.line; break;
-            case 'drag': delivered(await s.tap(st.target, { drag: { dx: st.dx, dy: st.dy, ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) } })); input = st.line; break;
+            case 'tap': {
+              const opts = st.form === 'into' ? { into: { key: st.key } }
+                : st.form === 'pinch' ? { pinch: st.scale, ...(st.at ? { at: st.at } : {}) }
+                : st.form !== 'press' ? { [st.form]: true }
+                : st.modifiers ? { modifiers: st.modifiers } : undefined;
+              delivered(await s.tap(st.target, opts)); input = st.line; break;
+            }
+            case 'drag': {
+              const drag = { dx: st.dx, dy: st.dy, ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) };
+              if (st.during?.length) drag.during = st.during.map((op) => () => duringOp(s, op));
+              delivered(await s.tap(st.target, { drag })); input = st.line; break;
+            }
             case 'type': {
               // `append`: after the field's value as the tree shows it, the text a keyboard would add (feed F8).
               let text = st.text;
@@ -134,12 +151,15 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               delivered(await s.type(st.target, text)); input = st.line; break;
             }
             case 'reload': await reload(); await data(); input = null; break;
-            case 'key': delivered(await s.type(st.target, { key: st.key })); input = st.line; break;
+            case 'key': delivered(await s.type(st.target, { key: st.key, ...(st.phase ? { phase: st.phase } : {}), ...(st.for != null ? { for: st.for } : {}) })); input = st.line; break;
             // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
             case 'pick': delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); input = st.line; break;
             case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
             case 'clock': await s.clock(st.arg); input = null; break;
             case 'resize': delivered(await s.resize(st.width, st.height)); input = st.line; break;
+            // The window's close button (studio diary R17): a window a `beforeunload` keeps stays and the test goes on;
+            // one that closed takes the session, so a step after it fails naming it.
+            case 'close': delivered(await s.closeWindow()); input = st.line; break;
             case 'screenshot': await s.screenshot(st.path); break;
             case 'expect-tree': {
               const tree = await s.tree();
@@ -158,7 +178,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             case 'expect-state': {
               const state = await s.state();
               const bag = { ...(state.resources ?? {}), ...(state.derives ?? {}), ...(state.slots ?? {}) };
-              // A field of a record at any depth, `name.field` (feed F10).
+              // A field or a list index at any depth, `name.field` or `rows.0` (feed F10, drums R7).
               const [name, ...fields] = st.name.split('.');
               if (!(name in bag)) { failures.push(`${at}: no state named "${name}"`); break; }
               let got = bag[name], path = name, missing = null;
@@ -178,7 +198,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         }
       }
     } finally {
-      await s.close();
+      // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
+      await s.close().catch((e) => { if (closedAt == null) throw e; });
     }
     results.push({ name: t.name, failures });
     if (base) rmSync(resolve(base, store), { recursive: true, force: true });

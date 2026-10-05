@@ -607,22 +607,12 @@ impl<D: DataSource> Host<D> {
     }
 
     fn configure_storage(source: &mut D) -> Result<(), exact_runner::DataError> {
-        let Some(([data, cache, temporary], fresh)) = crate::picker::app_dirs(source.app_id())?
-        else {
+        let Some(([data, cache, temporary], _)) = crate::picker::app_dirs(source.app_id())? else {
             return Ok(());
         };
-        // An authored test's store starts empty every run (`agent --test`).
-        if let Some(tree) = fresh {
-            match std::fs::remove_dir_all(&tree) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(exact_runner::DataError::Unavailable(format!(
-                        "EXACT_AGENT_STORAGE_FRESH: could not empty {}: {e}",
-                        tree.display()
-                    )));
-                }
-                _ => {}
-            }
-        }
+        // An authored test's store starts empty every run (`agent --test`):
+        // emptied at the boot that read it, so this is a no-op unless that failed.
+        crate::picker::empty_fresh_tree(source.app_id())?;
         // What `app:/` names for the picker and an image's source (LLP
         // 1069.002 D4, D7); the last launch's picks go.
         crate::picker::set_roots(data.clone(), cache.clone(), temporary.clone());

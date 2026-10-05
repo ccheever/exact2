@@ -1,0 +1,36 @@
+// `[a, b, c]` is a list of its items, left to right; the items' types meet
+// as a ternary's arms do, so `none` and `some(1)` make a list of options,
+// and `[]` beside a list makes a list of lists (LLP 1088 §9.1).
+shape Pair
+  key: string
+  n: number
+
+fn pair(k: string, n: number): list<Pair> = [Pair(key=k, n=n), Pair(key=k + k, n=n * 2)]
+
+component App
+  state picked = ["a", "b",]
+  state counts = [1, 2, 3]
+  state maybe = [none, some(1)]
+  derive nested = [[], counts, [4]]
+  derive pairs = pair("x", length(picked))
+  derive spread = [length(counts), length(nested), -1]
+  derive same = [1, 2] == [1, 2]
+  derive shown = join(map(nested, l => toString(length(l))), "-")
+  action pick(s: string)
+    picked = [s, s + "!"]
+  action reset
+    picked = []
+  view
+    column
+      text join(picked, ",") testId="picked"
+      text shown testId="shown"
+      button "pick" press=pick("q") testId="pick"
+      button "reset" press=reset testId="reset"
+
+test "literals"
+  expect state same == true
+  expect text "shown" == "0-3-1"
+  tap "pick"
+  expect text "picked" == "q,q!"
+  tap "reset"
+  expect state picked == []

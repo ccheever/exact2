@@ -127,15 +127,26 @@ def roster : List String :=
    "replace", "back", "select", "go", "stack", "top", "depth", "params", "searchParam",
    "encodeURIComponent", "encodeRouteSegment", "includes", "trim", "first", "t", "map",
    "filter", "join", "formatDate", "formatNumber", "frame", "measure", "at", "startsWith",
-   "endsWith", "slice", "replaceAll", "toLowerCase"]
+   "endsWith", "slice", "replaceAll", "toLowerCase", "concat", "indexOf", "split"]
 
 /-- A roster entry's result type. -/
 def rosterTy (f : String) (args : List STy) : STy :=
-  if f = "now" ∨ f = "length" ∨ f = "floor" ∨ f = "max" ∨ f = "min" then .number
+  if f = "now" ∨ f = "length" ∨ f = "floor" ∨ f = "max" ∨ f = "min" ∨ f = "indexOf" then .number
   else if f = "isEmpty" ∨ f = "includes" ∨ f = "startsWith" ∨ f = "endsWith" then .bool
-  else if f = "toString" ∨ f = "trim" ∨ f = "encodeURIComponent" ∨ f = "join" ∨ f = "slice"
+  else if f = "toString" ∨ f = "trim" ∨ f = "encodeURIComponent" ∨ f = "join"
     ∨ f = "replaceAll" ∨ f = "toLowerCase" ∨ f = "formatTime" ∨ f = "formatDate" ∨ f = "formatNumber"
     ∨ f = "t" then .string
+  -- Text's, or a list's own type (LLP 1088 §9.1).
+  else if f = "slice" then
+    match args with
+    | .string :: _ => .string
+    | .list t :: _ => .list t
+    | _ => .top
+  else if f = "split" then .list .string
+  else if f = "concat" then
+    match args with
+    | .list a :: .list b :: _ => .list (STy.join a b)
+    | _ => .top
   else if f = "first" ∨ f = "at" then
     match args with
     | .list t :: _ => .option t
@@ -203,7 +214,9 @@ def compile : Nat → Program → Nat → Scope → Nat → Expr → Except Stri
   | .str s => .ok ([.str s], .string)
   | .bool b => .ok ([.bool b], .bool)
   | .none => .ok ([.none], .option .bot)
-  | .emptyList => .ok ([.list 0], .list .bot)
+  | .list items => do
+    let (c, ts) ← compileArgs fuel p depth sc n items
+    .ok (c ++ [.list items.length], .list (ts.foldr STy.join .bot))
   | .some e => do
     let (c, t) ← compile fuel p depth sc n e
     .ok (c ++ [.some], .option t)

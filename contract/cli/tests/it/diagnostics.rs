@@ -1415,24 +1415,11 @@ fn refusals_from_the_app_diaries_name_the_fix() {
         refused(&format!("component App\n  state s = \"a\"\n  state xs = []\n  action go\n    xs = {call}\n  view\n    text s\n"))
     };
     for (call, says) in [
-        (
-            "push(xs, s)",
-            "building a list in a view waits on LLP 1088 §9",
-        ),
-        (
-            "concat(xs, xs)",
-            "building a list in a view waits on LLP 1088 §9",
-        ),
-        (
-            "slice(xs, 1)",
-            "building a list in a view waits on LLP 1088 §9",
-        ),
-        ("split(s, \",\")", "split the text there"),
+        ("push(xs, s)", "as in `xs = concat(xs, [x])`"),
         (
             "replace(s, \"a\", \"b\")",
             "write `replaceAll(s, find, with)`",
         ),
-        ("indexOf(s, \"a\")", "`includes(s, t)`"),
         ("substring(s, 1)", "write `slice(s, start, end)`"),
         ("padStart(s, 2, \"0\")", "LLP 1088 D2 defers it"),
         ("toUpperCase(s)", "`text-transform=\"uppercase\"`"),
@@ -1443,7 +1430,4 @@ fn refusals_from_the_app_diaries_name_the_fix() {
         assert_eq!(id, "type-refused-idiom", "{call}: {message}");
         assert!(message.contains(says), "{call}: {message}");
     }
-    let e = contract::compile("component App\n  view\n    text toString(length([1, 2]))\n")
-        .unwrap_err();
-    assert!(e.message.contains("LLP 1088 §9's follow-up"), "{e}");
 }

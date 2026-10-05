@@ -420,11 +420,8 @@ fn builds_platform_color(e: &Expr) -> bool {
         Expr::Let { value, body, .. } => {
             builds_platform_color(value) || builds_platform_color(body)
         }
-        Expr::Number(..)
-        | Expr::Bool(..)
-        | Expr::None(_)
-        | Expr::EmptyList(_)
-        | Expr::Ident(..) => false,
+        Expr::List(items, _) => items.iter().any(builds_platform_color),
+        Expr::Number(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => false,
     }
 }
 

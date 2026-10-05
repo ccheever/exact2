@@ -288,9 +288,10 @@ pub(super) fn subst_expr<T: SubstitutionValue>(e: &Expr, s: &mut Subst<'_, T>) -
                 .collect(),
             *span,
         ),
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::EmptyList(_) => {
-            e.clone()
+        Expr::List(items, span) => {
+            Expr::List(items.iter().map(|x| subst_expr(x, s)).collect(), *span)
         }
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => e.clone(),
     }
 }
 
@@ -444,6 +445,11 @@ fn free_names(e: &Expr, bound: &mut Vec<String>, out: &mut BTreeSet<String>) {
                 free_names(a, bound, out);
             }
         }
+        Expr::List(items, _) => {
+            for x in items {
+                free_names(x, bound, out);
+            }
+        }
         Expr::Member(o, _, _)
         | Expr::NamedArg(_, o, _)
         | Expr::Typed(o, _, _)
@@ -494,7 +500,7 @@ fn free_names(e: &Expr, bound: &mut Vec<String>, out: &mut BTreeSet<String>) {
                 }
             }
         }
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::EmptyList(_) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
     }
 }
 
@@ -503,6 +509,7 @@ fn occurs(e: &Expr, name: &str) -> bool {
     match e {
         Expr::Ident(n, _) => n == name,
         Expr::Call(n, args, _) => n == name || args.iter().any(|a| occurs(a, name)),
+        Expr::List(items, _) => items.iter().any(|a| occurs(a, name)),
         Expr::Member(o, _, _)
         | Expr::NamedArg(_, o, _)
         | Expr::Typed(o, _, _)
@@ -527,9 +534,7 @@ fn occurs(e: &Expr, name: &str) -> bool {
         Expr::Template(parts, _) => parts
             .iter()
             .any(|p| matches!(p, TemplatePart::Expr(x) if occurs(x, name))),
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::EmptyList(_) => {
-            false
-        }
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => false,
     }
 }
 

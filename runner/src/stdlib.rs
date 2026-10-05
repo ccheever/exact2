@@ -156,6 +156,11 @@ fn call_value(
             Value::Bool(args.first()?.as_str()?.starts_with(args.get(1)?.as_str()?))
         }
         Stdlib::EndsWith => Value::Bool(args.first()?.as_str()?.ends_with(args.get(1)?.as_str()?)),
+        // `String.prototype.indexOf` (LLP 1088 §9.1); a list's is the VM's.
+        Stdlib::IndexOf => Value::Number(crate::strings::index_of(
+            args.first()?.as_str()?,
+            args.get(1)?.as_str()?,
+        )),
         Stdlib::Trim => {
             let v = args.first()?;
             let s = v.as_str()?;
@@ -212,8 +217,11 @@ fn call_value(
             _ => return None,
         },
         // @ref LLP 1017.003 D5 — opcodes with a callback body, never a
-        // call; `join` is the VM's, which bounds the string it makes.
-        Stdlib::Map | Stdlib::Filter | Stdlib::Join => return None,
+        // call; `join` is the VM's, which bounds the string it makes, and so
+        // are `concat` and `split` (LLP 1088 §9.1), which build a list.
+        Stdlib::Map | Stdlib::Filter | Stdlib::Join | Stdlib::Concat | Stdlib::Split => {
+            return None
+        }
         Stdlib::Floor => Value::Number(num(0)?.floor()),
         Stdlib::Max => Value::Number(num(0)?.max(num(1)?)),
         Stdlib::Min => Value::Number(num(0)?.min(num(1)?)),

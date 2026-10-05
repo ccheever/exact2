@@ -345,6 +345,60 @@ pub fn source_graph(path: &Path) -> SourceGraph {
     }
 }
 
+/// A file [`fix_uses`] wrote, and the `use` lines it wrote there.
+pub type WrittenUses = (PathBuf, Vec<String>);
+
+/// Write the `use` lines each file of the program rooted at `path` lacks
+/// (LLP 1091 D1), as `contract-use-missing` names them: each file written,
+/// with its lines, and the refusals no line answers (a name two files
+/// declare, a generated name), which stay the author's.
+pub fn fix_uses(path: &Path) -> Result<(Vec<WrittenUses>, Vec<CompileError>), Vec<CompileError>> {
+    let source_root = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let unreadable = |p: &Path, e: std::io::Error| CompileError {
+        pass: "use",
+        id: "contract-use-unreadable".into(),
+        message: format!("{}: {e}", p.display()),
+        span: Span::default(),
+        file: Some(p.into()),
+        related: Box::new([]),
+    };
+    let app_root = source_root
+        .canonicalize()
+        .map_err(|e| vec![unreadable(source_root, e)])?;
+    let mut written: Vec<WrittenUses> = Vec::new();
+    // A written line can only bring names, never hide one, so a second
+    // pass finds nothing new; the third is a bound, not a loop.
+    for _ in 0..3 {
+        let src = read_source(path).map_err(|e| vec![e])?;
+        let fixes = sources::use_fixes(path, &src, &app_root)?;
+        let mut wrote = false;
+        let mut refused = Vec::new();
+        for fix in fixes {
+            if !fix.unresolved.is_empty() || fix.lines.is_empty() {
+                refused.push(fix.error.clone());
+            }
+            if fix.lines.is_empty() {
+                continue;
+            }
+            let before =
+                std::fs::read_to_string(&fix.path).map_err(|e| vec![unreadable(&fix.path, e)])?;
+            let after = sources::apply_uses(&before, &fix.lines);
+            if after != before {
+                std::fs::write(&fix.path, &after).map_err(|e| vec![unreadable(&fix.path, e)])?;
+                written.push((fix.path, fix.lines.into_iter().map(|l| l.text).collect()));
+                wrote = true;
+            }
+        }
+        if !wrote {
+            return Ok((written, refused));
+        }
+    }
+    Ok((written, Vec::new()))
+}
+
 /// For a build script: `cargo:rerun-if-changed` for every source compiling
 /// `path` reads, and each package's `package.json` (LLP 1091 D10), so an
 /// edit to a used file or a library rebuilds the plan, not only an edit to
@@ -498,6 +552,12 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                             s.push_str("\"into\",\"key\":");
                             q(key, &mut s);
                         }
+                        TapForm::Pinch { scale, at } => {
+                            s.push_str(&format!("\"pinch\",\"scale\":{scale}"));
+                            if let Some((x, y)) = at {
+                                s.push_str(&format!(",\"at\":[{x},{y}]"));
+                            }
+                        }
                     }
                     if !modifiers.is_empty() {
                         s.push_str(",\"modifiers\":");
@@ -513,6 +573,7 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     press,
                     over,
                     hold,
+                    during,
                     ..
                 } => {
                     s.push_str("{\"op\":\"drag\",\"target\":");
@@ -528,6 +589,16 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                         if let Some(ms) = ms {
                             s.push_str(&format!(",\"{name}\":{ms}"));
                         }
+                    }
+                    if !during.is_empty() {
+                        s.push_str(",\"during\":[");
+                        for (i, op) in during.iter().enumerate() {
+                            if i > 0 {
+                                s.push(',');
+                            }
+                            q(op, &mut s);
+                        }
+                        s.push(']');
                     }
                 }
                 Step::Size { width, height, .. } => {
@@ -563,17 +634,31 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     s.push_str(&format!(",\"append\":{append}"));
                 }
                 Step::Reload { .. } => s.push_str("{\"op\":\"reload\""),
+                Step::Close { .. } => s.push_str("{\"op\":\"close\""),
                 Step::BeforeData { .. } => s.push_str("{\"op\":\"before-data\""),
                 Step::Resize { width, height, .. } => {
                     s.push_str(&format!(
                         "{{\"op\":\"resize\",\"width\":{width},\"height\":{height}"
                     ));
                 }
-                Step::Key { target, key, .. } => {
+                Step::Key {
+                    target,
+                    key,
+                    phase,
+                    duration,
+                    ..
+                } => {
                     s.push_str("{\"op\":\"key\",\"target\":");
                     q(target, &mut s);
                     s.push_str(",\"key\":");
                     q(key, &mut s);
+                    if let Some(phase) = phase {
+                        s.push_str(",\"phase\":");
+                        q(phase, &mut s);
+                    }
+                    if let Some(ms) = duration {
+                        s.push_str(&format!(",\"for\":{ms}"));
+                    }
                 }
                 Step::Pick { target, paths, .. } => {
                     s.push_str("{\"op\":\"pick\",\"target\":");
@@ -626,7 +711,7 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                         Expr::Number(n, _) => s.push_str(&format!("{n}")),
                         Expr::Str(t, _) => q(t, &mut s),
                         Expr::Bool(b, _) => s.push_str(&format!("{b}")),
-                        Expr::EmptyList(_) => s.push_str("[]"),
+                        Expr::List(items, _) if items.is_empty() => s.push_str("[]"),
                         _ => s.push_str("null"),
                     }
                 }

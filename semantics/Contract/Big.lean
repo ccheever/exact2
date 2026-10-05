@@ -55,7 +55,8 @@ inductive EvalR (env : Env) : Bool → Locals → Expr → Value → Prop
   | str : EvalR env inFn ls (.str s) (.str s)
   | bool : EvalR env inFn ls (.bool b) (.bool b)
   | none : EvalR env inFn ls .none .none
-  | emptyList : EvalR env inFn ls .emptyList (.list [])
+  /-- Each item, left to right. -/
+  | list : ListR env inFn ls items vs → EvalR env inFn ls (.list items) (.list vs)
   | some : EvalR env inFn ls e v → EvalR env inFn ls (.some e) (.some v)
   /-- Each part displayed, then concatenated. -/
   | template : DisplaysR env inFn ls parts ss → EvalR env inFn ls (.template parts) (.str (String.join ss))
@@ -247,7 +248,9 @@ theorem sound_aux : ∀ n,
       | str => simp [eval] at h; subst h; exact .str
       | bool => simp [eval] at h; subst h; exact .bool
       | none => simp [eval] at h; subst h; exact .none
-      | emptyList => simp [eval] at h; subst h; exact .emptyList
+      | list items =>
+        simp only [eval, Except.bind_ok_iff] at h
+        obtain ⟨a, h1, h2⟩ := h; simp at h2; subst h2; exact .list (ihL h1)
       | some e =>
         simp only [eval, Except.bind_ok_iff] at h
         obtain ⟨a, h1, h2⟩ := h; simp at h2; subst h2; exact .some (ihE h1)
@@ -448,11 +451,11 @@ theorem mono_aux : ∀ n,
       obtain ⟨m, rfl⟩ : ∃ m', m = m' + 1 := ⟨m - 1, by omega⟩
       have hm : n ≤ m := by omega
       cases e with
-      | num | str | bool | none | emptyList | var | arrow | named => exact h
-      | some e | template e =>
+      | num | str | bool | none | var | arrow | named => exact h
+      | some e | template e | list e =>
         simp only [eval, Except.bind_ok_iff] at h ⊢
         obtain ⟨a, h1, h2⟩ := h
-        first | exact ⟨a, ihE hm h1, h2⟩ | exact ⟨a, ihD hm h1, h2⟩
+        first | exact ⟨a, ihE hm h1, h2⟩ | exact ⟨a, ihD hm h1, h2⟩ | exact ⟨a, ihL hm h1, h2⟩
       | member e f =>
         simp only [eval, Except.bind_ok_iff] at h ⊢
         obtain ⟨a, h1, h2⟩ := h
@@ -638,7 +641,10 @@ mutual
 
 theorem EvalR.complete {env inFn ls e v} :
     EvalR env inFn ls e v → ∃ n, eval n env inFn ls e = .ok v
-  | .num | .str | .bool | .none | .emptyList => ⟨1, rfl⟩
+  | .num | .str | .bool | .none => ⟨1, rfl⟩
+  | .list h => by
+    obtain ⟨n, h⟩ := h.complete
+    exact ⟨n + 1, by simp only [eval, Except.bind_ok_iff]; exact ⟨_, h, rfl⟩⟩
   | .some h => by
     obtain ⟨n, h⟩ := h.complete
     exact ⟨n + 1, by simp only [eval, Except.bind_ok_iff]; exact ⟨_, h, rfl⟩⟩

@@ -20,6 +20,7 @@ const USAGE: &str = "usage:
   contract symbols <file.contract> [--name <exact-name>]
   contract sources <file.contract>
   contract fmt [--check | --stdout] <file.contract>
+  contract fmt --uses <file.contract>
   contract types <file.contract> [-o <app.d.ts>]
   contract rust <file.contract> [-o <shapes.rs>]
   contract test <file.test.contract>
@@ -248,12 +249,19 @@ fn tests(args: &[String]) -> ExitCode {
     }
 }
 
-/// Explicit formatting, with read-only preview and check modes.
+/// Explicit formatting, with read-only preview and check modes; `--uses`
+/// writes the `use` lines each file of the program lacks (LLP 1091 D1).
 fn fmt(args: &[String]) -> ExitCode {
-    const USAGE: &str = "usage: contract fmt [--check | --stdout] <file.contract>";
+    const USAGE: &str = "usage: contract fmt [--check | --stdout] <file.contract>\n       contract fmt --uses <file.contract>";
     if matches!(args, [flag] if flag == "--help" || flag == "-h") {
         println!("{USAGE}");
         return ExitCode::SUCCESS;
+    }
+    match args {
+        [flag, input] | [input, flag] if flag == "--uses" && !input.starts_with('-') => {
+            return fix_uses(input)
+        }
+        _ => {}
     }
     let (input, mode) = match args {
         [input] if !input.starts_with('-') => (input, ""),
@@ -300,6 +308,38 @@ fn fmt(args: &[String]) -> ExitCode {
         },
         Err(error) => {
             eprintln!("{input}:{error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `contract fmt --uses <root.contract>`: each file written and its lines,
+/// then whatever no line answers, refused as the build refuses it.
+fn fix_uses(input: &str) -> ExitCode {
+    match contract::fix_uses(std::path::Path::new(input)) {
+        Ok((written, refused)) => {
+            for (path, lines) in &written {
+                println!("{}:", path.display());
+                for line in lines {
+                    println!("  {line}");
+                }
+            }
+            if written.is_empty() && refused.is_empty() {
+                println!("{input}: every file names what it uses");
+            }
+            for e in &refused {
+                eprintln!("{e}");
+            }
+            if refused.is_empty() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            }
+        }
+        Err(all) => {
+            for e in &all {
+                eprintln!("{e}");
+            }
             ExitCode::from(1)
         }
     }

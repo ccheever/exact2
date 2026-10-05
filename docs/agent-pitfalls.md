@@ -173,6 +173,14 @@ guide's rules don't make obvious.
   changes the bound value and redraws the field. (Authoring bench, LLP 1087, t2-todo:
   two builders, about 10 minutes each, 2026-10-04.)
 
+- **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
+  is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats
+  a touch as the finger leaving clears the hover the next assertion still wants.
+  Fix: on touch-up, end the drag and leave the hover, or write `mouse` for the
+  left button. iOS refuses `mouse`; macOS and Linux drag with the mouse anyway
+  ([authored tests](contract-grammar.md#authored-tests)). (Stocks diary: the chart
+  readout unmounted, about 10 minutes, 2026-10-04.)
+
 - **A `pan` hears nothing from a finger on the web.** A drag with
   `tap <id> drag dx dy` (or a real touch) moves nothing and logs nothing. Cause:
   without `touch-action="none"` on the pan's box the browser takes the touch for
@@ -254,17 +262,10 @@ guide's rules don't make obvious.
   Defer follows to the end of the drag or deceleration, and apply anchoring and
   estimate corrections as relative adjustments in the same layout pass (Signal
   Clone evening of 2026-10-02; `32805146`, `c03685dc`).
-- **A fixture's nonempty list literal does not compile.** Contract admits `[]`
-  only; a nonempty list comes from a source, a shape field, or `map`/`filter`.
-  `split` is not a standard function here either. (Paint-order mutation fixture, 2026-10-04.)
 - **A copied Core Animation tree renders blank.** Calling `CALayer(layer:)`
   directly gives an empty layer: a measured copy had zero bounds and no fill
   or sublayers. For a capture, copy values into fresh layers and recursively
   copy children and masks. Keep the live hierarchy intact. (LLP 1083.000, Apple A2.)
-- **A nonempty list literal does not compile.** Contract admits `[]` only; a
-  nonempty list comes from a source, a shape field, or `map`/`filter`, and
-  `split` is not a standard function. For a fixture or a static mount
-  measurement, generate the repeated markup. (LLP 1083.000, web W2 and Apple A2.)
 - **An sRGB capture test changes the pixel it reads.** AppKit's
   `NSBitmapImageRep.colorAt` returns calibrated RGB even when the bitmap is
   sRGB. Converting that `NSColor` to sRGB again turned measured bytes

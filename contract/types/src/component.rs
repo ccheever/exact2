@@ -703,11 +703,8 @@ fn derive_order(c: &Component) -> Vec<usize> {
                     names(x, out)
                 }
             }),
-            Expr::Number(..)
-            | Expr::Str(..)
-            | Expr::Bool(..)
-            | Expr::None(_)
-            | Expr::EmptyList(_) => {}
+            Expr::List(items, _) => items.iter().for_each(|x| names(x, out)),
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
         }
     }
     fn visit(i: usize, reads: &[Vec<usize>], seen: &mut [bool], order: &mut Vec<usize>) {
@@ -745,7 +742,8 @@ fn derive_order(c: &Component) -> Vec<usize> {
 /// as a `list<?>`.
 fn empty_list_in(e: &Expr) -> Option<Span> {
     match e {
-        Expr::EmptyList(span) => Some(*span),
+        Expr::List(items, span) if items.is_empty() => Some(*span),
+        Expr::List(items, _) => items.iter().find_map(empty_list_in),
         Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) | Expr::Ident(..) => {
             None
         }
@@ -875,17 +873,13 @@ fn member_path(e: &Expr, name: &str) -> Option<String> {
 fn walk_exprs(e: &Expr, f: &mut dyn FnMut(&Expr)) {
     f(e);
     match e {
-        Expr::Number(..)
-        | Expr::Str(..)
-        | Expr::Bool(..)
-        | Expr::None(..)
-        | Expr::EmptyList(..)
-        | Expr::Ident(..) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) | Expr::Ident(..) => {}
         Expr::Template(parts, _) => parts.iter().for_each(|p| {
             if let TemplatePart::Expr(x) = p {
                 walk_exprs(x, f)
             }
         }),
+        Expr::List(items, _) => items.iter().for_each(|a| walk_exprs(a, f)),
         Expr::Some(x, _)
         | Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
@@ -943,11 +937,8 @@ fn first_free(
             Expr::Ident(name, span) => {
                 (!bound.contains(name) && hit(name)).then(|| (name.clone(), *span))
             }
-            Expr::Number(..)
-            | Expr::Str(..)
-            | Expr::Bool(..)
-            | Expr::None(..)
-            | Expr::EmptyList(..) => None,
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) => None,
+            Expr::List(items, _) => items.iter().find_map(|a| walk(a, calls, hit, bound)),
             Expr::Template(parts, _) => parts.iter().find_map(|p| match p {
                 TemplatePart::Expr(x) => walk(x, calls, hit, bound),
                 _ => None,

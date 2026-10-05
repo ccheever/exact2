@@ -131,7 +131,9 @@ Each file has its own names (LLP 1091): its own declarations, and the names its
 `use` lines list. Nothing comes along unnamed: if `parts.contract` uses `Icon`,
 `Card` still works, but this file writes `Icon()` only after naming it too,
 from `./icons.contract` or from `./parts.contract`, which passes on what it
-names. `as` renames one name in this file. Any component, shape, `fn`, style,
+names. The refusal names the lines a file lacks, and `contract fmt --uses
+app.contract` writes them in every file of the app. `as` renames one name in
+this file. Any component, shape, `fn`, style,
 keyframes or timeline can be named; there is no `export` keyword.
 
 Two files may declare the same name: each file's references mean its own
@@ -245,8 +247,10 @@ The `some` branch's binding exists only in that branch. Both arms are required.
 A state initialized to `none` needs enough information elsewhere, usually an
 action's assignment of `some(...)`, to infer the element type. Actions and the
 view see that type, but derives are typed first: match such a state in the view,
-not in a derive. Similarly, `[]` needs an inferable list element type. A nonempty list literal such as `[1, 2]` is not
-supported; obtain lists from sources, record fields, or list operations.
+not in a derive. Similarly, `[]` needs an inferable list element type. A list
+literal such as `[1, 2]` holds its items, which share one type; a list the screen
+keeps for the session (a selection, open ids) is built in Contract, and a list the
+app keeps across launches comes from the data module.
 
 ## State, derives, and actions
 
@@ -803,7 +807,8 @@ bun exact.mjs agent web --storage demo "type title Dune" "tap add" "clock settle
 A scratch store is kept between drives on every host, so a second drive with the
 same `--storage demo` opens the list the first one saved: on the web, Chrome's
 profile for that name, served at one origin (Firefox and WebKit drives start
-fresh). A test's `reload` restarts the app on its store within one drive.
+fresh). A test's `reload` restarts the app on its store within one drive,
+including a data module's `secret.keep`.
 
 **Rust instead.** A data module can be a Rust crate rather than `app.ts`:
 `bun exact.mjs contract rust app.contract -o shapes.rs` generates the shapes as

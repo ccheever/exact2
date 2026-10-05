@@ -110,6 +110,29 @@ impl<D: DataSource> Presenter<D> {
                 return Err(e);
             }
         }
+        // A paste is Ctrl+V first. A `key` handler that preventDefault()s
+        // that chord keeps the clipboard event from landing (drums: the
+        // driver's paste skipped the key and hid that bug). Copy and cut
+        // stay the clipboard event alone.
+        if kind == EventKind::Paste {
+            self.hold_modifier("ControlLeft", true);
+            // The page's shortcuts hear the chord first, as the web's capture
+            // listener does: a button declaring Control+V takes it.
+            let (error, prevented) = if self.shortcut("v", false, now) {
+                (None, true)
+            } else {
+                self.key_event("v", now)
+            };
+            self.hold_modifier("ControlLeft", false);
+            if let Some(e) = error {
+                return Err(e);
+            }
+            if prevented {
+                return Ok(format!(
+                    "{{\"typed\":{id},\"clipboard\":\"{edit}\",\"delivery\":\"recognized\"}}"
+                ));
+            }
+        }
         let text = if kind == EventKind::Paste { text } else { "" };
         let error = self
             .host
@@ -198,19 +221,32 @@ impl<D: DataSource> Presenter<D> {
             && self.surface_input(id, serde_json::json!({"t":"key","code":code,"key":key,"down":down,"repeat":repeat,"at":self.host.now()})) {
             return Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"));
         }
-        if !self.focusable(id) || self.host.route_visibility(id).1 {
+        // A target that takes no focus leaves it where it is, as the web's
+        // `focus()` on one does: the key goes to whatever holds the focus,
+        // or to the page's shortcuts when nothing does (pomodoro F5). A
+        // surface that refused the key above keeps it refused.
+        if !self.focusable(id) && self.input_surface(id).is_some() {
             return Err(format!("view {id} cannot take focus"));
         }
-        if let Some(e) = self.set_focus(Some(id), self.host.now()) {
-            return Err(e);
+        if self.focusable(id) {
+            if let Some(e) = self.set_focus(Some(id), self.host.now()) {
+                return Err(e);
+            }
         }
-        if down && !(activation && repeat) {
+        if down {
             let name = match key {
                 "Space" => " ",
                 "NumpadEnter" => "Enter",
                 name => name,
             };
-            self.key_down(name, self.host.now());
+            if self.shortcut(name, repeat, self.host.now()) {
+                return Ok(format!(
+                    "{{\"typed\":{id},\"delivery\":\"recognized\",\"shortcut\":true}}"
+                ));
+            }
+            if !(activation && repeat) {
+                self.key_down(name, self.host.now());
+            }
         }
         Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"))
     }
@@ -287,6 +323,10 @@ impl<D: DataSource> Presenter<D> {
     /// breaks a textarea's line; Backspace deletes; a character is typed —
     /// each an edit the runner hears as one `change`.
     pub(crate) fn key_down(&mut self, name: &str, now_ms: f64) {
+        // The page's shortcuts first, focus or none (`shortcuts.rs`).
+        if self.shortcut(name, false, now_ms) {
+            return;
+        }
         let Some(id) = self.focus else {
             // From no focus, Tab takes the first stop (LLP 1088 D7.3).
             if name == "Tab" {

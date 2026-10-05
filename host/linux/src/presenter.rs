@@ -61,6 +61,7 @@ mod images;
 mod preferences;
 mod retained_action;
 mod reveal;
+mod shortcuts;
 mod swipe;
 mod transform;
 mod transform_geometry;

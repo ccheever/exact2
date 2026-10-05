@@ -119,10 +119,20 @@ another viewport, and a test's first step `size <w>x<h>` does the same for that 
 `resize <w>x<h>`, an operation and a test step, resizes it mid-drive as a person
 dragging the window's edge would: the browser's viewport, a macOS window, the
 Linux presenter. An iOS app's viewport is the device's screen, so iOS refuses it.
+`close`, an operation and a test step, presses the window's close button as ⌘W
+or the red button would (the agent's window is never key, so a typed ⌘W reaches
+nothing): the window asks its `beforeunload` first, and the reply says
+`closed: true`, or `closed: false` for a window a handler kept (the web's
+"Leave site?" is answered "Stay"). macOS and the web; iOS and Linux refuse it.
 `--storage <name>` keeps a named scratch store between drives on every host (on
 the web, a kept browser profile served on one port per name); without it a web
-drive is a fresh profile, so its storage ends with the drive. To show what
-survives a restart on any host, use an authored test's `reload` step (below).
+drive is a fresh profile, so its storage ends with the drive. That store includes
+a data module's `secret.keep`: files in the named scratch tree on Apple and Linux,
+and the page's `localStorage` on the web (the JS host always; the wasm page when
+the drive names a store). A nameless drive keeps those secrets in memory only.
+Firefox and WebKit open a fresh browser each drive, so a name there lasts for
+the drive, including its `reload`. To show what survives a restart on any host,
+use an authored test's `reload` step (below).
 
 Inside the exact2 checkout, for Caltrain:
 
@@ -155,7 +165,7 @@ compile complete examples, parse authored tests, and check local links.
 
 | Form | Placement | Meaning |
 | --- | --- | --- |
-| `use A, B as C from "./file.contract"` | File | Names from another file; nothing unnamed comes along (LLP 1091) |
+| `use A, B as C from "./file.contract"` | File | Names from another file; nothing unnamed comes along (LLP 1091); `contract fmt --uses app.contract` writes the lines `contract-use-missing` names |
 | `use Card from "@acme/ui"` / `use Activity from "exact:motion"` | File | A package's names (from `node_modules`), or a built-in's |
 | `shape Name` | File | Finite record with typed fields |
 | `fn name(arg: T): U = expr` | File | Effect-free, nonrecursive expression function |
@@ -200,6 +210,26 @@ at CSS.
 
 - Types are `number`, `string`, `bool`, declared shapes, `option<T>`, `list<T>`,
   and `action` for behavior interfaces. Do not emit authored `any` or object types.
+- `[a, b, c]` is a list of its items, which may span lines and keep a trailing
+  comma; the items have one type, met as a ternary's arms are (`[none,
+  some(1)]` is a `list<option<number>>`; `[1, "a"]` is `type-list-item`).
+  `concat(xs, ys)`, `slice(xs, start, end?)`, `includes(xs, x)` and
+  `indexOf(xs, x)` are the web's array methods: `[...xs, x]` is
+  `concat(xs, [x])`, `includes` finds a string, number or bool (by
+  SameValueZero, as the web does) and `indexOf` says where (by `===`: `NaN` is
+  never found, `-1` for none). Over text, `indexOf(s, t)` is a position in
+  UTF-16 code units, and `split(s, ", ")` cuts text into a `list<string>`
+  (recipient chips). A list the
+  screen keeps for the session — a selection, open or collapsed ids, per-row
+  offsets — is `state` built this way; a list the app keeps across launches, or
+  a server owns, belongs to the data module, and so do sorting, grouping and
+  aggregates:
+
+  ```contract
+  state collapsed = []
+  action toggle(id: string)
+    collapsed = includes(collapsed, id) ? filter(collapsed, c => c != id) : concat(collapsed, [id])
+  ```
 - `none` and `[]` need an inferable element type. A state initialized by either
   usually gets that information from later assignments; a typed argument or
   the other conditional/match arm can also supply it.
@@ -211,7 +241,8 @@ at CSS.
   (`type-too-deep`).
 - One evaluation (an action body, a derive, a binding, a key, an argument)
   takes at most 65,536 list steps (each `map`/`filter` body run, each item
-  `join` prints), builds strings of at most 64 MiB of UTF-8, and values of at
+  `join` prints or `concat`/`slice`/`split` keep, each item `includes` or
+  `indexOf` scans), builds strings of at most 64 MiB of UTF-8, and values of at
   most 2²⁴ values and 64 MiB of string bytes. Every target refuses the same
   step with the same reason: an action is refused with nothing changed, a view
   binding stops the runner (LLP 1090).
@@ -234,8 +265,8 @@ at CSS.
   the web (`end > start` for `"HH:MM"` times). `slice(s, 0, -1)`,
   `replaceAll(s, find, with)` and `toLowerCase(s)` are the web's string methods.
 - Standard calls are free functions, not methods: `trim(s)`, `includes(s, q)`.
-  There are no nonempty list literals, object literals, general lambdas, array
-  indexing, assignment expressions, or JavaScript built-ins by implication.
+  There are no object literals, spreads, general lambdas, array indexing,
+  assignment expressions, or JavaScript built-ins by implication.
 - `fn` parameters and return types are explicit. Its body is one expression over
   its parameters and standard calls (including `now()`), without component-state
   capture or recursion. Pass an app value in; do not invent an ambient reference.
@@ -714,7 +745,8 @@ geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: p
 plan site, evaluations, unchanged results, instances created and retired), and
 screenshots for rendered output. Logs name refused operations and data errors.
 For a game canvas, JavaScript `s.tap("world", {mouse:true, at:[x,y]})` sends one
-primary mouse click on web, Windows, and Linux. `{contextmenu:true, at:[x,y]}`
+primary mouse click on web, macOS, Windows, and Linux (on macOS any node takes
+it, so a click can land on a link inside a paragraph). `{contextmenu:true, at:[x,y]}`
 sends a right-click. Coordinates are relative to the target's top-left; omit
 `at` for its center. Both refuse invalid, covered, or offscreen points and held
 contacts. The CLI forms are `tap world mouse` and `tap world contextmenu`, or use
@@ -776,21 +808,30 @@ the driver's 2026-01-01 UTC. The steps are `tap "id" [hover|dblclick|contextmenu
 `tap "id" modifiers "Shift+Meta"` (a press with keys held),
 `tap "list" into "key"` (a virtualized list's row brought into view by its key,
 so the next step can tap a row outside the rendered window),
-`tap "id" drag dx dy [from x y] [mouse] [press ms] [over ms] [hold ms]`,
+`tap "id" pinch <scale> [at x y]` (two fingers; `scale` greater than 0),
+`tap "id" drag dx dy [from x y] [mouse] [press ms] [over ms] [hold ms] [during "op" …]`
+(a finger, `pointerType` touch, where the carrier has one, unless `mouse` names the left button; `during`
+is last: quoted reads or `clock` while that contact is down, after the move and
+before the hold; `press` and `hold` advance the virtual clock, except under
+`--timing platform`),
 `type "id" "text"` (sets the value), `type "id" "text" append` (after the value
-the tree shows, as typing after a prefill), or `type "id" key "Name"`,
-`type "id" paste "text"`, `type "id" copy`, `type "id" cut`, `pick "id" "path"…` or
+the tree shows, as typing after a prefill), or `type "id" key "Name"`
+(`down`, `up`, or `for <ms>` on the virtual clock),
+`type "id" paste "text"` (⌘V on macOS, Ctrl+V elsewhere, then the paste; a `key` handler that `preventDefault()`s that chord keeps it from landing), `type "id" copy`, `type "id" cut`, `pick "id" "path"…` or
 `pick "id" cancel` (a held picker or export, by its node or capability as
 above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
 what is in flight lands, with each answer's `then`, the clock unmoved), `resize
 800x600` (the window, mid-test), `reload`
-(the app restarts on the store it had, its state and clock starting over, so a
-test shows what persists),
+(the app restarts on the store it had, including a `secret.keep`, its state and
+clock starting over, so a test shows what persists), `close` (the window's close
+button, as ⌘W: a `beforeunload` that calls `preventDefault()` keeps it open and
+the test goes on to the app's "Save changes?"; macOS and the web),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text; a control's value, so a `select` reads its chosen value, not its
 options; else its descendants' — a button's label — else a field's value), and
 `expect state name == <number|string|bool|none|[]>`, where `name` may go on into
-a record's fields (`board.active.present`). A failed expect with no input before
+a record's fields (`board.active.present`) or a list index (`rows.0`), and the
+number may be negative (`== -3`). A failed expect with no input before
 it names the requests still in flight (the boot's own, or what a `clock +N` left
 on real time). An input step ends with what it settled: an answer the data
 module gave in the input's turn, and its mutation's `then`, are there for the
@@ -825,7 +866,8 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `provide theme = value` around view children | Component `provide` section, wrapper component if needed |
 | `items.map(...)` / `items[0]` | `map(items, …)` / `first(items)` or `at(items, 0)` |
 | `map(items, x => Row(...))` | Keyed `each` with `Row(...)` in its body |
-| `[a, b]` / `{ title: value }` | Source/list transform / declared record constructor |
+| `{ title: value }` | Declared record constructor |
+| `[...xs, x]` / `xs.push(x)` / `xs.indexOf(x)` / `s.split(",")` | `concat(xs, [x])` / the same, assigned: `xs = concat(xs, [x])` / `indexOf(xs, x)` (or `includes(xs, x)` to test) / `split(s, ",")` |
 | `{...old, title: value}` | `Shape(old, title=value)`, with the record's declared shape |
 | `if name` for a string | `if name != ""` |
 | `selected.title` when optional | Exhaustive `match selected` |

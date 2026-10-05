@@ -84,8 +84,8 @@ test('a key handler stops and prevents its event while a view transition holds t
 // LLP 1088 D2: the roster's string entries are JavaScript's, made well formed, and `replaceAll` is bounded by the
 // runner's MAX_STRING as it builds (a quadratic `$\`` stops there), throwing the runner's trap at the call's pc (budget.js).
 test('slice, replaceAll and toLowerCase are the web methods, well formed and bounded', async () => {
-  const { x_slice } = await import(resolve(dir, 'rt.js'));
-  const { x_replaceAll: replaceAll, x_toLowerCase: toLowerCase } = await import(resolve(dir, 'budget.js'));
+  const { x_slice: slice, x_replaceAll: replaceAll, x_toLowerCase: toLowerCase } = await import(resolve(dir, 'budget.js'));
+  const x_slice = (s, a, b) => slice(s, a, b, 0, 4);
   const x_replaceAll = (s, f, w) => replaceAll(s, f, w, 4), x_toLowerCase = s => toLowerCase(s, 4);
   expect([x_slice('calc', 0, -1), x_slice('hello', -3, Infinity), x_slice('a😀b', 1, 2), x_slice('hello', NaN, 2.9)]).toEqual(['cal', 'llo', '�', 'he']);
   for (const [s, f, w] of [['aXbXc', 'X', '-'], ['aaa', 'aa', 'b'], ['abc', '', '-'], ['😀', '', ''], ['😀😀', '', ''], ['abc', 'b', "[$&|$`|$'|$$|$1|$<n>|$]"], ['abc', '', '$`'], ['x.y', '.', '$$'], ['', '', ' ']])
@@ -99,6 +99,41 @@ test('slice, replaceAll and toLowerCase are the web methods, well formed and bou
   expect(replaceAll('xx', 'x', '😀', 9, 8)).toBe('😀😀');
   expect(() => replaceAll('😀😀', '', '', 9, 7)).toThrow('Trap(StringTooLong { pc: 9 })');
   expect(replaceAll('😀😀', '', '', 9, 8)).toBe('😀😀');
+});
+
+// LLP 1088 §9.1: `concat`, and `slice` and `includes` over a list, are the web's array methods (`includes` by
+// SameValueZero), on the caller's budget: each takes its `$s`, traps where the runner's `list_call` does — before it
+// builds — and leaves its own steps in `ST` (one an item kept, or scanned up to the match); text takes none.
+test('concat, slice and includes over a list are the web methods, on the caller\'s list steps', async () => {
+  const B = await import(resolve(dir, 'budget.js'));
+  const xs = [1, NaN, -0, 'a', true];
+  expect([B.x_concat([1], [2, 3], 0, 1), B.ST]).toEqual([[1, 2, 3], 3]);
+  expect([B.x_slice(xs, 1, -1, 0, 1), B.ST]).toEqual([[NaN, -0, 'a'], 3]);
+  expect([B.x_slice(xs, -2, Number.MAX_VALUE, 0, 1), B.x_slice(xs, NaN, 1.9, 0, 1), B.x_slice(xs, 3, 1, 0, 1)]).toEqual([['a', true], [1], []]);
+  expect([B.x_includes(xs, NaN, 0, 1), B.ST, B.x_includes(xs, 0, 0, 1), B.ST, B.x_includes(xs, 'b', 0, 1), B.ST]).toEqual([true, 2, true, 3, false, 5]);
+  expect([B.x_includes('abc', 'b', 9, 1), B.ST, B.x_slice('abc', 1, Number.MAX_VALUE, 9, 1), B.ST]).toEqual([true, 0, 'bc', 0]);
+  expect(() => B.x_concat([1, 2], [3], 65534, 7)).toThrow('Trap(IterationLimit { pc: 7 })');
+  expect(B.x_concat([1], [2], 65534, 7)).toEqual([1, 2]);
+  expect(() => B.x_includes([1, 2, 3], 3, 65534, 8)).toThrow('Trap(IterationLimit { pc: 8 })');
+  expect(B.x_includes([1, 2, 3], 2, 65534, 8)).toBe(true);
+  const big = 'a'.repeat(2 ** 25);
+  expect(() => B.x_concat([big], [big, 'a'], 0, 9)).toThrow('Trap(ValueTooLarge { pc: 9 })');
+});
+
+// `indexOf` over a list is the web's IsStrictlyEqual (NaN is never found), a step an item scanned; over text, UTF-16
+// positions and no step. `split` takes a step a piece; an empty separator splits into code units, each well formed.
+test('indexOf and split are the web methods, on the caller\'s list steps', async () => {
+  const B = await import(resolve(dir, 'budget.js'));
+  const xs = [1, NaN, -0, 'a', true];
+  expect([B.x_indexOf(xs, NaN, 0, 1), B.ST, B.x_indexOf(xs, 0, 0, 1), B.ST, B.x_indexOf(xs, 'a', 0, 1), B.ST]).toEqual([-1, 5, 2, 3, 3, 4]);
+  expect([B.x_indexOf('a😀b', 'b', 9, 1), B.ST, B.x_indexOf('abc', '', 9, 1), B.x_indexOf('abc', 'z', 9, 1)]).toEqual([3, 0, 0, -1]);
+  expect([B.x_split('a,b,,c', ',', 0, 1), B.ST]).toEqual([['a', 'b', '', 'c'], 4]);
+  expect([B.x_split('a😀', '', 0, 1), B.ST, B.x_split('', '', 0, 1), B.x_split('', ',', 0, 1)]).toEqual([['a', '\uFFFD', '\uFFFD'], 3, [], ['']]);
+  expect(() => B.x_indexOf([1, 2, 3], 3, 65534, 8)).toThrow('Trap(IterationLimit { pc: 8 })');
+  expect(B.x_indexOf([1, 2, 3], 2, 65534, 8)).toBe(1);
+  expect(() => B.x_split('a,b,c', ',', 65534, 6)).toThrow('Trap(IterationLimit { pc: 6 })');
+  expect(() => B.x_split('abc', '', 65534, 6)).toThrow('Trap(IterationLimit { pc: 6 })');
+  expect(B.x_split('a,b', ',', 65534, 6)).toEqual(['a', 'b']);
 });
 
 // Local notifications on the JS target (notify.js, linked by use, over the

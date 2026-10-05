@@ -44,7 +44,9 @@ inductive Expr where
   | str (s : String)
   | bool (b : Bool)
   | none
-  | emptyList
+  /-- `[a, b, c]`, its items left to right; `[]` is `list []` (LLP 1088
+  §9.1). -/
+  | list (items : List Expr)
   | some (e : Expr)
   /-- A template string: each part is printed with `toString` and the
   results concatenated. A literal part is a `str`. -/

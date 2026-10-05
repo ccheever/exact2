@@ -292,3 +292,103 @@ fn a_name_reached_only_through_another_file_is_refused_with_its_use() {
     contract::compile_path(&dir.join("app.contract")).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// LLP 1091 D1 for an app written before module scope (19 x2apps apps):
+/// every file's references to names it does not see are refused in one
+/// compile, one refusal a file naming each `use` line it lacks — the one
+/// it has for that file, extended, or a new one — and `fix_uses` writes
+/// exactly those, after which the program compiles to the bytes the lines
+/// written by hand give. What no rule decides is said, never written.
+#[test]
+fn the_missing_use_lines_are_named_and_written() {
+    let dir = temp_dir("missing");
+    let write = |name: &str, text: &str| std::fs::write(dir.join(name), text).unwrap();
+    write("icons.contract", "component Icon\n  view\n    text \"i\"\n");
+    write(
+        "shapes.contract",
+        "shape Row\n  id: string\nfn twice(n: number): number = n * 2\nstyle Muted\n  opacity=0.5\nkeyframes rise\n  from opacity=0\n  to opacity=1\n",
+    );
+    write(
+        "ui.contract",
+        "// The card.\nuse Icon from \"./icons.contract\"\nuse Row from \"./shapes.contract\" // its rows\ncomponent Card\n  props\n    row: Row\n  view\n    text `${twice(1)}` class=Muted animation=\"rise 1s\"\n",
+    );
+    let app = "// The app.\nuse Card from \"./ui.contract\"\ncomponent App\n  view\n    column\n      Card(row=Row(id=\"a\"))\n      Icon()\n";
+    write("app.contract", app);
+    let root = dir.join("app.contract");
+    let Err(all) = contract::compile_path_all(&root, false) else {
+        panic!("compiled")
+    };
+    assert_eq!(all.len(), 2, "one refusal a file: {all:?}");
+    assert!(all.iter().all(|e| e.id == "contract-use-missing"));
+    let message = |file: &str| {
+        all.iter()
+            .find(|e| {
+                e.file.as_deref() == Some(dir.join(file).as_path())
+                    || e.file.as_deref().is_some_and(|f| f.ends_with(file))
+            })
+            .unwrap_or_else(|| panic!("no refusal in {file}: {all:?}"))
+            .message
+            .clone()
+    };
+    let at_app = message("app.contract");
+    assert!(
+        at_app.contains("`Row` is a shape or function declared in `shapes.contract`"),
+        "{at_app}"
+    );
+    assert!(
+        at_app.contains("a new line: use Row from \"./shapes.contract\""),
+        "{at_app}"
+    );
+    assert!(
+        at_app.contains("a new line: use Icon from \"./icons.contract\""),
+        "{at_app}"
+    );
+    assert!(
+        at_app.contains("`contract fmt --uses app.contract`"),
+        "{at_app}"
+    );
+    let at_ui = message("ui.contract");
+    assert!(
+        at_ui.contains("change line 3 to `use Row, twice, Muted, rise from \"./shapes.contract\"`"),
+        "{at_ui}"
+    );
+    let (written, refused) = contract::fix_uses(&root).unwrap();
+    assert!(refused.is_empty(), "{refused:?}");
+    assert_eq!(written.len(), 2, "{written:?}");
+    let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap();
+    assert_eq!(
+        read("ui.contract"),
+        "// The card.\nuse Icon from \"./icons.contract\"\nuse Row, twice, Muted, rise from \"./shapes.contract\" // its rows\ncomponent Card\n  props\n    row: Row\n  view\n    text `${twice(1)}` class=Muted animation=\"rise 1s\"\n"
+    );
+    assert!(read("app.contract").starts_with("// The app.\nuse Card from \"./ui.contract\"\nuse Row from \"./shapes.contract\"\nuse Icon from \"./icons.contract\"\ncomponent App\n"));
+    let fixed = contract::compile_path(&root).unwrap().encode();
+    // Nothing more to write, and the bytes are the hand-written lines'.
+    assert_eq!(contract::fix_uses(&root).unwrap().0.len(), 0);
+    write(
+        "app.contract",
+        "// The app.\nuse Card from \"./ui.contract\"\nuse Icon from \"./icons.contract\"\nuse Row from \"./shapes.contract\"\ncomponent App\n  view\n    column\n      Card(row=Row(id=\"a\"))\n      Icon()\n",
+    );
+    assert_eq!(contract::compile_path(&root).unwrap().encode(), fixed);
+    // A name two other files declare is the author's to choose; a
+    // generated name is written as the declaration's own.
+    write("more.contract", "component Icon\n  view\n    text \"j\"\n");
+    write(
+        "app.contract",
+        "use Spare from \"./spare.contract\"\nuse Card from \"./ui.contract\"\ncomponent App\n  view\n    column\n      Card(row=Row(id=\"a\"))\n      Icon()\n      text `${twice__shapes(1)}`\n",
+    );
+    write("spare.contract", "use Icon from \"./more.contract\"\nfn twice(n: number): number = n\ncomponent Spare\n  view\n    Icon()\n");
+    let (written, refused) = contract::fix_uses(&root).unwrap();
+    assert_eq!(written.len(), 1, "Row still is: {written:?}");
+    let left = &refused[0].message;
+    assert!(
+        left.contains("by hand: `Icon` is declared in `more.contract` and `icons.contract`"),
+        "{left}"
+    );
+    assert!(
+        left.contains(
+            "by hand: `twice__shapes` is a name the compiler gave `twice` of `shapes.contract`"
+        ),
+        "{left}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -460,7 +460,14 @@ export function contract(args, env = process.env) {
 /** `exact new`: check the machine first, since a missing Cargo fails the
  * scaffold itself; then write the app and say what its builds will still need. */
 function newApp(path, update) {
-  if (update) return console.log(createApp(path, {update}));
+  if (update) {
+    console.log(createApp(path, {update}));
+    // A file names what it uses (LLP 1091 D1): an app written before module
+    // scope gets the `use` lines its files lack, as `contract fmt --uses` writes them.
+    if (contract(['fmt', '--uses', resolve(path, 'app.contract')]) !== 0)
+      console.log('The `use` lines above that no rule writes are the author\'s; `bun exact.mjs contract build app.contract` names them.');
+    return;
+  }
   const report = sdkReport();
   if (report.some(row => row.name === 'rustup' && !row.ok)) {
     printReport(report, {onlyMissing: true});

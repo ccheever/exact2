@@ -595,3 +595,33 @@ The advisory `cargo run -p contract-difftest -- quick` exits successfully with
 "nothing changed" for this deploy-only commit; it therefore adds no claim of
 executed Lean corpus coverage.
 
+
+## 12. The lines a file lacks (2026-10-04, branch `fix/polish7`)
+
+D1 refused the first name a file reached without a `use`, with `use X
+from "…"`: the 19 multi-file apps in the x2apps set each took a compile
+per name to migrate. As built, with no change to D1's rule:
+
+- **Every file at once.** `rescope` records each reference to a name only
+  another file declares (`Scope::missing`) and goes on; the loader refuses
+  them together, one `contract-use-missing` a file, at its first such
+  reference, every other one a related location.
+- **The exact lines.** Each refusal names the lines the file lacks: the
+  `use` it already has for the declaring file, extended with the names
+  (`change line 4 to use Snapshot, noEdit from "./shapes.contract"`), or a
+  new line whose specifier is the one another file uses for a package or
+  `exact:` module, else the relative path inside the same root (D9).
+- **What is not mechanical is said, not written.** A name two other files
+  declare (which one is meant), a generated name (`Card__ui`: write `Card`
+  and name it), a file no specifier reaches from here.
+- **`contract fmt --uses <root.contract>`** writes those lines in every file
+  of the program (an existing line keeps its indentation and trailing
+  comment; a new one follows the last `use`, else the opening comments),
+  and prints what it wrote and what is left. `bun exact.mjs update` runs it
+  for an app outside the repository.
+
+Measured on scratch copies of the x2apps apps that stopped compiling: 17
+of 20 compile after it; the other three stop at refusals that are not
+scope (a `fn indexOf` that now shadows the roster's, LLP 1088 §9.1's note;
+an `alertdialog` and a surface attribute LLP 1021 and its siblings
+refuse). Mail, recipes, flashcards and feed pass their web tests after it.

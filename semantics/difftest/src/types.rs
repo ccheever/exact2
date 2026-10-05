@@ -194,12 +194,9 @@ fn walk_expr(e: &mut Expr, role: Role, f: &mut dyn FnMut(&mut Expr, Role) -> boo
         return true;
     }
     match e {
-        Expr::Number(..)
-        | Expr::Str(..)
-        | Expr::Bool(..)
-        | Expr::None(_)
-        | Expr::EmptyList(_)
-        | Expr::Ident(..) => false,
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {
+            false
+        }
         Expr::Template(parts, _) => parts.iter_mut().any(|p| match p {
             TemplatePart::Expr(x) => walk_expr(x, Role::Plain, f),
             TemplatePart::Text(_) => false,
@@ -209,7 +206,9 @@ fn walk_expr(e: &mut Expr, role: Role, f: &mut dyn FnMut(&mut Expr, Role) -> boo
         | Expr::NamedArg(_, x, _)
         | Expr::Unary(_, x, _)
         | Expr::Typed(x, _, _) => walk_expr(x, Role::Plain, f),
-        Expr::Call(_, args, _) => args.iter_mut().any(|a| walk_expr(a, Role::Plain, f)),
+        Expr::Call(_, args, _) | Expr::List(args, _) => {
+            args.iter_mut().any(|a| walk_expr(a, Role::Plain, f))
+        }
         Expr::Binary(_, a, b, _) => walk_expr(a, Role::Plain, f) || walk_expr(b, Role::Plain, f),
         Expr::Ternary(c, a, b, _) => {
             walk_expr(c, Role::Cond, f)

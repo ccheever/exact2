@@ -12,7 +12,11 @@ import UIKit
 private struct ChordIOS {
     /// The web's key name, and the modifiers as `KeyCodes.held` writes them.
     let key: String, held: String
-    let input: String, flags: UIKeyModifierFlags
+    /// UIKit's input for the chord's key command; `nil` for F13–F24, which
+    /// UIKit names no input for (it has F1–F12): their buttons take the
+    /// driver's keys (AgentIOS), and a hardware keyboard's reach `key`
+    /// handlers only (a declared deviation, docs/contract-grammar.md).
+    let input: String?, flags: UIKeyModifierFlags
 
     private static let named: [String: String] = [
         "Enter": "\r", "Tab": "\t", "Escape": UIKeyCommand.inputEscape, "Space": " ", "Backspace": "\u{8}",
@@ -30,7 +34,8 @@ private struct ChordIOS {
         if text == "+" { last = "Plus"; parts.removeAll() }
         else if parts.count >= 3, parts.suffix(2).allSatisfy(\.isEmpty) { last = "Plus"; parts.removeLast(2) }
         else if let part = parts.popLast() { last = part } else { return nil }
-        guard last.count == 1 || Self.named[String(last)] != nil else { return nil }
+        let function = Int(last.dropFirst()).map { (13...24).contains($0) && last == "F\($0)" } == true
+        guard last.count == 1 || Self.named[String(last)] != nil || function else { return nil }
         var flags: UIKeyModifierFlags = []
         for part in parts {
             switch part {
@@ -42,7 +47,7 @@ private struct ChordIOS {
             }
         }
         key = last == "Plus" ? "+" : last == "Space" ? " " : last.count == 1 ? last.lowercased() : String(last)
-        input = last.count == 1 ? last.lowercased() : Self.named[String(last)]!
+        input = last.count == 1 ? last.lowercased() : Self.named[String(last)]
         self.flags = flags
         held = KeyCodes.held(flags)
     }
@@ -78,9 +83,10 @@ extension Presenter {
     func shortcutCommands(_ action: Selector) -> [UIKeyCommand] {
         var seen = Set<String>(), commands: [UIKeyCommand] = []
         for node in shortcutButtons {
-            for chord in chords(node) where seen.insert(chord.held + chord.input).inserted {
+            for chord in chords(node) {
+                guard let input = chord.input, seen.insert(chord.held + input).inserted else { continue }
                 if editingText && chord.key != "Escape" && chord.flags.isDisjoint(with: [.command, .control]) { continue }
-                let command = UIKeyCommand(input: chord.input, modifierFlags: chord.flags, action: action)
+                let command = UIKeyCommand(input: input, modifierFlags: chord.flags, action: action)
                 // A shortcut on an arrow or Escape is the app's, not the system's scrolling or dismissal.
                 command.wantsPriorityOverSystemBehavior = true
                 commands.append(command)

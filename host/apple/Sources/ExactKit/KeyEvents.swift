@@ -138,6 +138,10 @@ extension NodeView {
     /// control character), as the web's does.
     static func keyName(_ event: NSEvent) -> String {
         if let code = KeyCodes.mac[Int(event.keyCode)], KeyCodes.named(code) { return KeyCodes.key(code) }
+        // A function key by its AppKit character (NSF1FunctionKey is U+F704,
+        // through F35), whatever its virtual key: F21–F24 have none.
+        if let s = event.charactersIgnoringModifiers?.unicodeScalars, s.count == 1, let f = s.first,
+           (0xF704...0xF726).contains(f.value) { return "F\(f.value - 0xF703)" }
         return KeyCodes.typed(option: event.modifierFlags.contains(.option), characters: event.characters,
                               ignoringModifiers: event.charactersIgnoringModifiers ?? "")
     }
