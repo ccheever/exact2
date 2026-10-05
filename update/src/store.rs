@@ -282,8 +282,8 @@ pub struct Status {
 /// The store: bundles on disk, the record that selects one, and the check.
 #[derive(Debug)]
 pub struct Store {
-    // Held for the owner's lifetime; dropping or process exit releases the OS lock.
-    _owner: std::sync::Arc<std::fs::File>,
+    // The store and its live downloads retain the same exclusive owner.
+    _owner: Arc<disk::Owner>,
     dir: PathBuf,
     embedded: Embedded,
     record: Record,
@@ -474,25 +474,13 @@ impl Store {
         std::fs::create_dir_all(dir).map_err(|e| format!("cannot make {}: {e}", dir.display()))?;
         // Lock before reading, recovering or sweeping anything. An atomic rename
         // alone cannot protect the signed floor from a second stale owner.
-        let owner = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(dir.join("owner.lock"))
-            .map_err(|e| format!("cannot open update store lock {}: {e}", dir.display()))?;
-        owner.try_lock().map_err(|e| {
-            format!(
-                "update store {} is unavailable (exclusive owner): {e}",
-                dir.display()
-            )
-        })?;
+        let owner = disk::Owner::lock(dir)?;
         let entries = dir.join("entries");
         std::fs::create_dir_all(&entries)
             .map_err(|e| format!("cannot make {}: {e}", entries.display()))?;
         let record = Record::fresh(&embedded);
         let mut store = Store {
-            _owner: std::sync::Arc::new(owner),
+            _owner: owner,
             dir: dir.to_path_buf(),
             running_seq: embedded.seq,
             embedded,

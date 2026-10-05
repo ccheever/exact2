@@ -8,6 +8,39 @@ use crate::envelope::{sha256_hex, FileCard};
 use std::collections::BTreeSet;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+/// Store and in-flight downloads share ownership, not an inherited OS handle.
+#[derive(Debug)]
+pub(super) struct Owner(std::fs::File);
+
+impl Owner {
+    pub(super) fn lock(dir: &Path) -> Result<Arc<Self>, String> {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(dir.join("owner.lock"))
+            .map_err(|e| format!("cannot open update store lock {}: {e}", dir.display()))?;
+        file.try_lock().map_err(|e| {
+            format!(
+                "update store {} is unavailable (exclusive owner): {e}",
+                dir.display()
+            )
+        })?;
+        Ok(Arc::new(Self(file)))
+    }
+}
+
+impl Drop for Owner {
+    fn drop(&mut self) {
+        // Closing alone waits for every duplicated/inherited descriptor. A
+        // concurrent spawn can retain one until exec, after our last owner
+        // has gone. Release explicitly at that owner's lifetime boundary.
+        let _ = self.0.unlock();
+    }
+}
 
 /// Refuse an unqualified durable-store platform before touching its directory.
 pub(super) fn require_durable_store() -> Result<(), String> {
@@ -189,5 +222,49 @@ impl Blobs {
                 let _ = std::fs::remove_file(item.path());
             }
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use crate::{Embedded, Store, Trust};
+
+    #[test]
+    fn an_inherited_descriptor_cannot_outlive_the_last_store_owner() {
+        let dir = std::env::temp_dir().join(format!("exact-owner-{}", temporary_name()));
+        let embedded = Embedded {
+            app_id: "owner-test".into(),
+            compatibility_id: "cohort".into(),
+            seq: 0,
+            channel: "release".into(),
+            verification_keys: vec![],
+            trust: Trust::Development,
+            embedded_plan_sha256: None,
+            embedded_assets: None,
+            entry_digest: None,
+        };
+        let open = || Store::open(&dir, embedded.clone());
+        let store = open().unwrap();
+        let download = store.check_snapshot();
+        // dup and fork keep the same open file description on Unix. Keep one
+        // alive deterministically instead of racing another test's spawn.
+        let inherited = store._owner.0.try_clone().unwrap();
+        drop(store);
+        assert!(open().unwrap_err().contains("exclusive owner"));
+        drop(download);
+        let reopened = open().expect("the final store owner releases its lock");
+        assert!(
+            inherited.metadata().is_ok(),
+            "the inherited descriptor is still open"
+        );
+        drop(inherited);
+        assert!(
+            open().unwrap_err().contains("exclusive owner"),
+            "closing the old descriptor cannot unlock the new owner"
+        );
+        drop(reopened);
+        drop(open().unwrap());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

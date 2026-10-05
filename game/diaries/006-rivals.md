@@ -1393,3 +1393,37 @@ passes. This declaration reorder is the only Rust edit after the game sweep.
 Tests compile in 0.11 s, and their binaries report 39.43 s of execution;
 the unexplained launch/runner time and the budget miss stay in QUEUE.
 Logs: `/tmp/exact2-browser-root-*.log`.
+
+## Separating test startup from execution finds an ownership bug (2026-10-04)
+
+A temporary stream-timing probe runs the unchanged root test command after
+the formatter-triggered rebuild. It timestamps Cargo's launch announcement,
+each binary's first test header, and its last result. The 120.731 s run spends
+80.666 s before those first headers, 39.852 s between headers and results,
+and 0.056 s between results and the next launch. The harnesses themselves
+report 39.830 s. Cargo's 43 rebuilt executables have median startup
+1,838.5 ms; 38 reused executables have median 1.83 ms. Three of the slow,
+empty-test binaries then run `--list` three times each in 1.73–2.25 ms.
+This identifies first launch of rebuilt executables, not test bodies, as the
+missing time. It does not identify the responsible OS service or fix that
+delay. No persistent harness or machine policy change is introduced.
+Raw evidence: `/tmp/exact2-launch-{timed-1,timed-1-rows,warm}.json` and
+`/tmp/exact2-launch-artifacts.jsonl`.
+
+That diagnostic run has one failure: update-store asset reuse meets the
+already-recorded exclusive-owner error after dropping its preceding store.
+The store shared an `Arc<File>` with download snapshots and relied on closing
+that file to release its lock. A duplicated descriptor can keep the lock
+alive after the last store owner has gone—the behavior documented for
+[Rust file locks](https://doc.rust-lang.org/std/fs/struct.File.html#method.lock).
+A deterministic regression keeps such a descriptor alive; it fails before
+the fix with the same exclusive-owner refusal. This reproduces the missing
+lifetime guarantee without racing the publisher tests' subprocesses; the
+sporadic failure's particular inherited descriptor was not observed.
+
+The shared owner now explicitly unlocks on its last drop. The regression
+also proves a live download snapshot still excludes a second store, and
+closing the old descriptor cannot unlock a newly opened store. There are
+no retries or changes to signed-floor checks, saved records or admission.
+All 63 update tests and strict all-target Clippy pass after the change.
+Logs: `/tmp/exact2-owner-{regression-before,tests,clippy}.log`.
