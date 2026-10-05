@@ -137,7 +137,7 @@ fn equal_depth_uses_layer_then_slot_and_mask_respects_cutoff_with_signed_scale()
         filter: [Filter::Nearest; 3],
         ..TextureData::default()
     });
-    let mut s = WorldSurface::<Layers, crate::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Layers, crate::ModelExecutor, true>::default();
     s.device_ready(exact_gpu::wgpu::Features::empty());
     s.bind(&[], None).unwrap();
     for _ in 0..4 {
@@ -213,7 +213,7 @@ fn retired_sprite_waits_for_redelivery_and_reuses_identical_texture() {
         mips: vec![vec![255; 4]],
         ..TextureData::default()
     });
-    let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Cosmetic, crate::ModelExecutor, true>::default();
     s.device_ready(exact_gpu::wgpu::Features::empty());
     s.bind(&[], None).unwrap();
     assert_eq!(s.assets().requests, ["white.tex"]);
@@ -483,7 +483,7 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
     let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
         return;
     };
-    let mut s = WorldSurface::<Mixed, crate::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Mixed, crate::ModelExecutor, true>::default();
     s.device_ready(exact_gpu::wgpu::Features::empty());
     s.bind(&[], None).unwrap();
     s.assets();

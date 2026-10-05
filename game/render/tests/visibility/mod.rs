@@ -6,7 +6,7 @@ struct Options {
     objects: bool,
 }
 struct VisibilityScene;
-type VisibilitySurface = WorldSurface<VisibilityScene, exact_game_render::ModelPresentation, true>;
+type VisibilitySurface = WorldSurface<VisibilityScene, exact_game_render::ModelExecutor, true>;
 
 fn render(gpu: &Gpu, surface: &mut VisibilitySurface, now: f64, name: &str) -> Pixels {
     let (pixels, _) = fixture::render(gpu, surface, &frame(now)).unwrap();

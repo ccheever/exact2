@@ -318,7 +318,7 @@ Carry definition reconciliation and FreshGame reconstruction no longer appear in
 the ordinary primitive link map. Plain Pose/rig geometry remains in the smaller
 data core because spatial bounds can consume it. This is an executor/module split,
 not a new crate or Cargo feature: the existing model-capable artifact selects
-`ModelPresentation`, and gameplay explicitly links animation by calling it.
+`ModelExecutor`, and gameplay explicitly links animation by calling it.
 
 A temporary build without particle presentation measured 759,870 raw / 325,992 gzip,
 against its paired 775,655 / 332,683 control: only 15,785 raw bytes. The patch was

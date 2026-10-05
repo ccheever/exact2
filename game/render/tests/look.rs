@@ -4,7 +4,7 @@
 #[path = "fixture/device.rs"]
 mod test_device;
 use exact_game::*;
-use exact_game_render::{ModelPresentation, WorldSurface};
+use exact_game_render::{ModelExecutor, WorldSurface};
 use exact_gpu::{fixture, Frame, Gpu, Surface, Value};
 
 fn gpu() -> Option<Gpu> {
@@ -75,7 +75,7 @@ impl Game for Fade {
     }
 }
 fn fade(gpu: &Gpu, opacity: f32, tint: bool, primitive: bool) -> fixture::Pixels {
-    let mut s = WorldSurface::<Fade, ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Fade, ModelExecutor, true>::default();
     let args = [
         Value::Number(f64::from(opacity)),
         Value::Bool(tint),
@@ -291,7 +291,7 @@ fn halves() -> asset::TextureData {
 #[test]
 fn a_generated_model_samples_a_shared_texture_through_its_uvs() {
     let Some(gpu) = gpu() else { return };
-    let mut s = WorldSurface::<Terrain, ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Terrain, ModelExecutor, true>::default();
     s.bind(&[], None).unwrap();
     s.device_ready(exact_gpu::wgpu::Features::empty());
     assert_eq!(s.assets().requests, vec!["halves.tex".to_owned()]);
@@ -375,7 +375,7 @@ fn flip() -> asset::TextureData {
     }
 }
 fn sparks(gpu: &Gpu, stretch: f32, textured: bool, now_ms: f64) -> fixture::Pixels {
-    let mut s = WorldSurface::<Sparks, ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Sparks, ModelExecutor, true>::default();
     s.bind(
         &[Value::Number(f64::from(stretch)), Value::Bool(textured)],
         None,
@@ -662,7 +662,7 @@ fn a_model_lod_swaps_by_camera_distance_and_hides_beyond_its_limit() {
     assert!(gone[0] < 10 && gone[1] < 10, "beyond hide: {gone:?}");
 }
 fn lod_frame(gpu: &Gpu, distance: f64, blend: bool, split: bool) -> fixture::Pixels {
-    let mut s = WorldSurface::<Lod, ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Lod, ModelExecutor, true>::default();
     let args = [
         Value::Number(distance),
         Value::Bool(blend),
@@ -765,7 +765,7 @@ impl Game for Soft {
 fn soft_particles_fade_where_they_meet_the_scene() {
     let Some(gpu) = gpu() else { return };
     let centre = |soft: f64, gap: f64| {
-        let mut s = WorldSurface::<Soft, ModelPresentation, true>::default();
+        let mut s = WorldSurface::<Soft, ModelExecutor, true>::default();
         s.bind(&[Value::Number(soft), Value::Number(gap)], None)
             .unwrap();
         s.device_ready(exact_gpu::wgpu::Features::empty());

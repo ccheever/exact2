@@ -437,7 +437,7 @@ fn asset_refusal_is_named_without_poisoning_the_surface() {
     let Some(gpu) = gpu() else {
         return;
     };
-    let mut s = WorldSurface::<Move, crate::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Move, crate::ModelExecutor, true>::default();
     s.bind(&[Value::Bool(true), Value::Number(0.)], None)
         .unwrap();
     let w = s.sim.as_mut().unwrap().world_mut();
@@ -586,7 +586,7 @@ fn presentation_hook_follows_frames_transport_and_gestures() {
         frames: Vec<(u64, u64, bool, bool)>,
         gestures: usize,
     }
-    impl Presentation for Probe {
+    impl Executor for Probe {
         fn sync(&mut self, w: &World, generation: u64, playing: bool, seekable: bool) {
             self.frames.push((w.tick(), generation, playing, seekable));
         }
@@ -732,12 +732,12 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
     model.nodes.push(mirrored);
     let bytes = exact_game::bin::to_vec(&model);
     let fresh = || {
-        let mut s = WorldSurface::<Art, crate::ModelPresentation, true>::default();
+        let mut s = WorldSurface::<Art, crate::ModelExecutor, true>::default();
         s.device_ready(exact_gpu::wgpu::Features::empty());
         s.bind(&[], None).unwrap();
         s
     };
-    let deliver = |s: &mut WorldSurface<Art, crate::ModelPresentation, true>| {
+    let deliver = |s: &mut WorldSurface<Art, crate::ModelExecutor, true>| {
         assert_eq!(s.assets().requests, ["crate.model"]);
         s.asset("crate.model", Ok(&bytes));
         assert!(s.sim().unwrap().is_loading());
@@ -1011,7 +1011,7 @@ fn placement_and_renderer_share_warnings_across_restore_and_prune_dead_followers
     let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
         return;
     };
-    let mut s = WorldSurface::<Missing, crate::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Missing, crate::ModelExecutor, true>::default();
     s.bind(&[], None).unwrap();
     fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
     let registry = s.placed.attachments.diagnostics.clone();
@@ -1071,7 +1071,7 @@ fn a_level_declares_its_asset_requirement_without_a_model_list() {
         }
         fn tick(_: &mut World, _: &Input, _: &()) {}
     }
-    fn loaded<P: Presentation, const A: bool>() -> WorldSurface<LevelOnly, P, A> {
+    fn loaded<P: Executor, const A: bool>() -> WorldSurface<LevelOnly, P, A> {
         let mut surface = WorldSurface::<LevelOnly, P, A>::default();
         surface.bind(&[], None).unwrap();
         assert_eq!(surface.assets().requests, ["seed.level.json"]);
@@ -1106,7 +1106,7 @@ fn a_level_declares_its_asset_requirement_without_a_model_list() {
         surface
     }
     let mut primitive = loaded::<(), false>();
-    let mut models = loaded::<crate::ModelPresentation, true>();
+    let mut models = loaded::<crate::ModelExecutor, true>();
     assert_eq!(primitive.carry().unwrap(), models.carry().unwrap());
     let Some(gpu) = gpu() else { return };
     let before = fixture::render(&gpu, &mut models, &frame(0.)).unwrap();
@@ -1183,7 +1183,7 @@ fn offsets_move_socketed_props_with_their_owner_and_alone() {
     let Some(gpu) = gpu() else { return };
     // The blue prop's pixel centre, (x, y).
     let drawn = |owner_x: f64, prop_y: f64| {
-        let mut surface = WorldSurface::<Socketed, crate::ModelPresentation, true>::default();
+        let mut surface = WorldSurface::<Socketed, crate::ModelExecutor, true>::default();
         surface.device_ready(exact_gpu::wgpu::Features::empty());
         surface
             .bind(&[Value::Number(owner_x), Value::Number(prop_y)], None)

@@ -1,7 +1,7 @@
 #[path = "../../../../render/tests/fixture/device.rs"]
 mod gpu_test;
 use exact_game_render::exact_gpu::{self, fixture, Frame, Surface};
-use exact_game_render::{Hooks, ModelPresentation, WorldSurface};
+use exact_game_render::{Hooks, ModelExecutor, WorldSurface};
 use wind_fixture_logic::WindGame;
 use wind_fixture_presentation::{shader_dir, shaders, Wind};
 
@@ -20,7 +20,7 @@ fn frame(now_ms: f64) -> Frame {
 
 /// Two frames half a second apart, and the world hash after them.
 fn film<H: Hooks>(gpu: &exact_gpu::Gpu) -> (fixture::Pixels, fixture::Pixels, u64) {
-    let mut surface = WorldSurface::<WindGame, ModelPresentation, true, H>::default();
+    let mut surface = WorldSurface::<WindGame, ModelExecutor, true, H>::default();
     surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.bind(&[], None).unwrap();
     // The first frames build and validate the hook pipelines.

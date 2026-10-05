@@ -1460,11 +1460,11 @@ mod retirement_regressions {
 
 /// Model-capable presentation executor. Primitive modules never instantiate it.
 #[derive(Default)]
-pub struct ModelPresentation<P: crate::Presentation = ()> {
+pub struct ModelExecutor<P: crate::Executor = ()> {
     inner: P,
     definitions: Option<exact_game::animation::Definitions>,
 }
-impl<P: crate::Presentation> crate::Presentation for ModelPresentation<P> {
+impl<P: crate::Executor> crate::Executor for ModelExecutor<P> {
     fn wants_audio(&self) -> bool {
         self.inner.wants_audio()
     }

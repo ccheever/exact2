@@ -188,7 +188,7 @@ fn a_hidden_ancestor_overrides_opacity_and_levels_of_detail() {
         return;
     };
     let lit = |hidden: bool| {
-        let mut s = WorldSurface::<Hidden, exact_game_render::ModelPresentation, true>::default();
+        let mut s = WorldSurface::<Hidden, exact_game_render::ModelExecutor, true>::default();
         s.bind(&[Value::Bool(hidden)], None).unwrap();
         s.device_ready(exact_gpu::wgpu::Features::empty());
         s.prepare_assets(

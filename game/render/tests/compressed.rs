@@ -68,7 +68,7 @@ fn draw(
     data: &BTreeMap<String, Vec<u8>>,
     features: wgpu::Features,
 ) -> (fixture::Pixels, String, Vec<String>) {
-    let mut s = WorldSurface::<Crate, exact_game_render::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Crate, exact_game_render::ModelExecutor, true>::default();
     s.device_ready(features);
     s.bind(&[], None).unwrap();
     let mut fetched = Vec::new();

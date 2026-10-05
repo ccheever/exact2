@@ -5,7 +5,7 @@
 #[path = "fixture/device.rs"]
 mod test_device;
 use exact_game::*;
-use exact_game_render::{ModelPresentation, WorldSurface};
+use exact_game_render::{ModelExecutor, WorldSurface};
 use exact_gpu::{fixture, wgpu, Frame, Surface, Value};
 
 // A closed-ish trunk: `segments` around, `rings` up, 1 m radius, 8 m tall.
@@ -81,7 +81,7 @@ fn model_lod_cost_on_twenty_thousand_trees() {
         return;
     };
     let run = |lod: bool| {
-        let mut s = WorldSurface::<Forest, ModelPresentation, true>::default();
+        let mut s = WorldSurface::<Forest, ModelExecutor, true>::default();
         s.device_ready(gpu.device.features());
         s.bind(&[Value::Bool(lod)], None).unwrap();
         s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);

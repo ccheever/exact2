@@ -250,7 +250,7 @@ fn gpu() -> Option<exact_gpu::Gpu> {
 // Draw each time culled, then with every item kept; pixels must be identical.
 // Returns the camera and cascade instance totals of each culled frame, and how
 // many quads (sprites, particles) the culled frames skipped in all.
-fn identical<G: Game, P: crate::Presentation, const ASSETS: bool>(
+fn identical<G: Game, P: crate::Executor, const ASSETS: bool>(
     gpu: &exact_gpu::Gpu,
     surface: &mut WorldSurface<G, P, ASSETS>,
     times: &[f64],
@@ -334,7 +334,7 @@ fn culling_changes_no_pixels_in_a_moving_primitive_field() {
 #[test]
 fn culling_changes_no_pixels_with_animated_skins_models_and_sockets() {
     let Some(gpu) = gpu() else { return };
-    let mut surface = WorldSurface::<Herd, crate::ModelPresentation, true>::default();
+    let mut surface = WorldSurface::<Herd, crate::ModelExecutor, true>::default();
     surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.bind(&[], None).unwrap();
     let fox = samples::sample("Fox");

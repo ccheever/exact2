@@ -48,8 +48,8 @@ pub use exact_gpu;
 pub use hooks::{
     FrameView, HookGpu, HookTime, HookWork, Hooks, Needs, PostInputs, RenderWorld, SceneCopy,
 };
-pub use models::ModelPresentation;
-pub use surface::{Presentation, WorldSurface};
+pub use models::ModelExecutor;
+pub use surface::{Executor, WorldSurface};
 pub use world::scene::{DisplayedAttachment, PHOTOMETRIC_SCALE};
 pub use world::Feed;
 
@@ -399,10 +399,10 @@ mod tests {
 macro_rules! module {
     ($game:ty, hooks = $hooks:ty) => { $crate::module!($game, render_hooks (), false, $hooks, &[]); };
     ($game:ty, hooks = $hooks:ty, shaders = $shaders:expr) => { $crate::module!($game, render_hooks (), false, $hooks, $shaders); };
-    ($game:ty, assets, hooks = $hooks:ty, shaders = $shaders:expr) => { $crate::module!($game, render_hooks $crate::ModelPresentation, true, $hooks, $shaders); };
-    ($game:ty, assets, hooks = $hooks:ty) => { $crate::module!($game, render_hooks $crate::ModelPresentation, true, $hooks, &[]); };
+    ($game:ty, assets, hooks = $hooks:ty, shaders = $shaders:expr) => { $crate::module!($game, render_hooks $crate::ModelExecutor, true, $hooks, $shaders); };
+    ($game:ty, assets, hooks = $hooks:ty) => { $crate::module!($game, render_hooks $crate::ModelExecutor, true, $hooks, &[]); };
     ($game:ty) => { $crate::module!($game, hook (), false); };
-    ($game:ty, assets) => { $crate::module!($game, hook $crate::ModelPresentation, true); };
+    ($game:ty, assets) => { $crate::module!($game, hook $crate::ModelExecutor, true); };
     ($game:ty, audio) => { $crate::module!($game, audio_mode false); };
     ($game:ty, audio, assets) => { $crate::module!($game, audio_mode true); };
     ($game:ty, audio, hooks = $hooks:ty, shaders = $shaders:expr) => { $crate::module!($game, audio_mode false, $hooks, $shaders); };
@@ -413,7 +413,7 @@ macro_rules! module {
     ($game:ty, audio_mode $assets:tt, $hooks:ty, $shaders:expr) => {
         #[derive(Default)]
         struct GameAudio(exact_game_audio::SurfacePlayer, Option<$crate::exact_game::audio::Sounds>);
-        impl $crate::Presentation for GameAudio {
+        impl $crate::Executor for GameAudio {
             fn wants_audio(&self) -> bool { true }
             fn clock(&mut self, seekable: bool) { self.0.clock(seekable); }
             fn suspend(&mut self, suspended: bool) {
@@ -437,7 +437,7 @@ macro_rules! module {
         $crate::module!($game, audio_hook GameAudio, $assets, $hooks, $shaders);
     };
     ($game:ty, audio_hook $hook:ty, false, $hooks:ty, $shaders:expr) => { $crate::module!($game, render_hooks $hook, false, $hooks, $shaders); };
-    ($game:ty, audio_hook $hook:ty, true, $hooks:ty, $shaders:expr) => { $crate::module!($game, render_hooks $crate::ModelPresentation<$hook>, true, $hooks, $shaders); };
+    ($game:ty, audio_hook $hook:ty, true, $hooks:ty, $shaders:expr) => { $crate::module!($game, render_hooks $crate::ModelExecutor<$hook>, true, $hooks, $shaders); };
     ($game:ty, hook $hook:ty, $assets:literal) => {
         $crate::module!($game, render_hooks $hook, $assets, (), &[]);
     };

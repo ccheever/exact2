@@ -1,7 +1,7 @@
 //! World advancement and GPU frame ownership.
 use super::*;
 
-impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
+impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
     pub(super) fn render_frame(
         &mut self,
         frame: &Frame,
