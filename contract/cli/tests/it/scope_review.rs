@@ -189,3 +189,139 @@ fn a_refused_manifest_is_still_watched() {
         [dir.0.join("app/node_modules/ui/package.json")]
     );
 }
+
+// Round 2 (Grok, 2026-10-05).
+
+#[test]
+fn a_fn_in_scope_is_called_before_a_binding_of_its_name() {
+    let dir = Dir::new("fn-before-binding");
+    dir.write(
+        "ui.contract",
+        "fn length(s: string): number = 7\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use length, Card from \"./ui.contract\"\ncomponent App\n  state length = 0\n  view\n    column\n      Card()\n      text `${length(\"hi\")}` testId=\"n\"\n",
+    );
+    let text = plan(&root);
+    assert!(
+        text.contains("length__ui") || !text.contains("Length"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_binding_never_reaches_another_files_fn() {
+    let dir = Dir::new("binding-leak");
+    dir.write(
+        "ui.contract",
+        "fn pick(x: number): number = 5\ncomponent Card\n  view\n    text `${pick(1)}`\n",
+    );
+    // `pick` here is the action: the library's `fn pick` is renamed, so the
+    // type checker cannot read `${pick(1)}` as a call of it.
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\ncomponent App\n  state n = 0\n  action pick(x: number)\n    n = x\n  view\n    column\n      Card()\n      button press=pick(1) testId=\"b\"\n        text `${n}`\n",
+    );
+    contract::compile_path(&root).unwrap();
+    // A state of the name, called: the library's `fn` is not this file's, so
+    // the call is the state's, refused by the type checker, never the `fn`.
+    dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\ncomponent App\n  state pick = 0\n  view\n    column\n      Card()\n      text `${pick(1)}`\n",
+    );
+    assert!(contract::compile_path(&root).is_err());
+}
+
+#[test]
+fn a_computed_token_does_not_hide_the_literal_name_and_keywords_are_case_sensitive() {
+    let dir = Dir::new("computed-token");
+    dir.write(
+        "ui.contract",
+        "keyframes pulse\n  to opacity=0\nkeyframes Linear\n  to opacity=0\ncomponent Card\n  props\n    ease: string\n  view\n    column\n      view animation=`1s ${ease} pulse`\n      view animation=\"Linear 1s\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes pulse\n  to opacity=1\nkeyframes Linear\n  to opacity=1\ncomponent App\n  view\n    Card(ease=\"linear\")\n",
+    );
+    let text = plan(&root);
+    assert!(text.contains("pulse__ui"), "{text}");
+    assert!(text.contains("\"Linear__ui 1s\""), "{text}");
+    assert!(!text.contains(" pulse\""), "{text}");
+}
+
+#[test]
+fn alike_fonts_merge_whatever_the_order_of_their_faces() {
+    let dir = Dir::new("font-order");
+    dir.write("assets/A.ttf", "");
+    dir.write("assets/B.ttf", "");
+    dir.write(
+        "ui.contract",
+        "font \"Inter\"\n  700 = \"assets/B.ttf\"\n  400 = \"assets/A.ttf\"\ncomponent Title\n  view\n    text \"t\" font-family=\"Inter\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Title from \"./ui.contract\"\nfont \"Inter\"\n  400 = \"assets/A.ttf\"\n  700 = \"assets/B.ttf\"\ncomponent App\n  view\n    Title()\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(
+        e.as_ref().is_none_or(|e| e.id != "lower-font-duplicate"),
+        "{e:?}"
+    );
+}
+
+// Round 2 (Astra, 2026-10-05).
+
+#[test]
+fn a_keyword_whose_slot_is_filled_is_the_name_and_quotes_name_too() {
+    let dir = Dir::new("slots");
+    dir.write(
+        "ui.contract",
+        "keyframes linear\n  to opacity=0\nkeyframes pulse\n  to opacity=0\ncomponent Card\n  props\n    n: number\n  view\n    column\n      view animation=\"linear 1s linear\"\n      view animation=`steps(${n}, jump-end) pulse 1s`\n      view animation-timeline=`clock(Shared)` animation=\"pulse 1s\"\n",
+    );
+    dir.write(
+        "ui.contract",
+        &std::fs::read_to_string(dir.0.join("ui.contract"))
+            .unwrap()
+            .replace(
+                "view animation-timeline=`clock(Shared)` animation=\"pulse 1s\"\n",
+                "view animation=\"pulse 1s\"\n",
+            ),
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes linear\n  to opacity=1\nkeyframes pulse\n  to opacity=1\ncomponent App\n  view\n    Card(n=3)\n",
+    );
+    let text = plan(&root);
+    assert!(text.contains("\"linear 1s linear__ui\""), "{text}");
+    assert!(text.contains("jump-end) pulse__ui 1s"), "{text}");
+}
+
+#[test]
+fn a_template_clock_literal_is_rewritten() {
+    let dir = Dir::new("template-clock");
+    let root = dir.write(
+        "app.contract",
+        "use Activity as Shared from \"exact:motion\"\ntimeline Activity\nkeyframes p\n  to opacity=0\ncomponent App\n  view\n    column\n      view animation=\"p 1s\" animation-timeline=\"clock(Shared)\"\n      view animation=\"p 1s\" animation-timeline=`clock(Shared)`\n",
+    );
+    let text = plan(&root);
+    assert!(!text.contains("clock(Shared)"), "{text}");
+}
+
+#[test]
+fn compiler_intrinsics_are_never_another_files_names() {
+    let dir = Dir::new("intrinsics");
+    dir.write(
+        "ui.contract",
+        "fn pending(x: number): number = x\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nshape X\n  n: number\ncomponent App\n  resource r = data() as shape X\n  view\n    column\n      Card()\n      text (pending(r) ? \"waiting\" : \"ready\")\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(
+        e.as_ref().is_none_or(|e| e.id != "contract-use-missing"),
+        "{e:?}"
+    );
+}

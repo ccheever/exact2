@@ -96,9 +96,38 @@ impl Scope {
 /// [`resolve_clock_timelines_in`](crate::clock::resolve_clock_timelines_in),
 /// which knows the bindings that shadow it.
 pub fn rescope(file: &mut File, scope: &Scope) -> Result<(), SyntaxError> {
+    walk(file, scope, None)
+}
+
+/// Every name `file` binds locally: component members, parameters, and
+/// `each`, `match`, arrow and `let` binders. The loader renames another
+/// file's `fn` or shape of one of these names, so the type checker, which
+/// calls a `fn` before a binding, never reaches past the binding to it.
+pub fn bindings(file: &mut File) -> std::collections::HashSet<String> {
+    let mut seen = Seen::default();
+    walk(file, &Scope::default(), Some(&mut seen)).expect("an empty scope refuses nothing");
+    seen.bound
+}
+
+/// Every name `file` calls as `name(…)`.
+pub fn calls(file: &mut File) -> std::collections::HashSet<String> {
+    let mut seen = Seen::default();
+    walk(file, &Scope::default(), Some(&mut seen)).expect("an empty scope refuses nothing");
+    seen.called
+}
+
+/// What a collecting walk records.
+#[derive(Default)]
+struct Seen {
+    bound: std::collections::HashSet<String>,
+    called: std::collections::HashSet<String>,
+}
+
+fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), SyntaxError> {
     let mut r = Rewriter {
         scope,
         locals: Vec::new(),
+        seen,
     };
     let File {
         names: _,
@@ -165,6 +194,8 @@ struct Rewriter<'a> {
     /// members, an action's or `fn`'s parameters, `each`, `match`, arrow and
     /// `let` binders. A call of one is the binding's, never a top-level name.
     locals: Vec<String>,
+    /// Every binding seen, when collecting them.
+    seen: Option<&'a mut Seen>,
 }
 
 /// The written types no declaration can be (`types` reads them first).
@@ -237,6 +268,9 @@ impl Rewriter<'_> {
     fn bind(&mut self, names: impl IntoIterator<Item = String>) -> usize {
         let mark = self.locals.len();
         self.locals.extend(names);
+        if let Some(seen) = self.seen.as_deref_mut() {
+            seen.bound.extend(self.locals[mark..].iter().cloned());
+        }
         mark
     }
 
@@ -267,7 +301,7 @@ impl Rewriter<'_> {
             match stmt {
                 Stmt::Let { name, expr, .. } => {
                     self.expr(expr)?;
-                    self.locals.push(name.clone());
+                    self.bind([name.clone()]);
                 }
                 Stmt::Assign { expr, .. } => self.expr(expr)?,
                 Stmt::Command { args, .. } | Stmt::Send { args, .. } => self.exprs(args)?,
@@ -382,6 +416,14 @@ impl Rewriter<'_> {
                 "animation-timeline" | "animationTimeline" => self.timeline(&mut a.value)?,
                 _ => {}
             }
+            // A handler, `press=pick` or `press=pick(1)`, names an action or
+            // action prop when one is bound: the binding's, never a `fn`.
+            if let Expr::Call(name, args, _) = &mut a.value {
+                if self.local(name) {
+                    self.exprs(args)?;
+                    continue;
+                }
+            }
             self.expr(&mut a.value)?;
         }
         Ok(())
@@ -439,33 +481,35 @@ impl Rewriter<'_> {
     /// computed part is a word no file wrote: when it stands where the name
     /// would, the animation's name is not literal and is left alone.
     fn keyframes_in(&self, parts: &mut [Part<'_>], shorthand: bool, span: Span) -> R {
-        // Whether the current animation's name has been seen (or is computed),
-        // and whether the next text begins glued to a computed part.
-        let (mut named, mut glued) = (false, false);
+        // Per animation (comma-separated): whether its name has been read,
+        // and which of the shorthand's keyword slots are filled — a keyword
+        // whose slot is already filled is the name (`linear 1s linear`), as
+        // CSS reads it. Parentheses and quotes carry across a computed part.
+        let mut state = Shorthand::default();
+        let (mut depth, mut quote) = (0usize, None::<char>);
+        let mut glued = false;
         for part in parts.iter_mut() {
             let Part::Text(text) = part else {
+                // A computed value's role is unknown until it runs; a literal
+                // name beside it is still the name CSS will read. One glued
+                // to a unit (`${d}ms`) is a time.
                 glued = true;
                 continue;
             };
-            // A computed value glued to a unit (`${d}ms`) is a time; one that
-            // stands alone may be the name, which is then not literal.
-            if glued
-                && !text.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-            {
-                named = true;
-            }
             let mut out = String::with_capacity(text.len());
-            let mut depth = 0usize;
             let mut changed = false;
             let runs: Vec<(&str, bool)> = words(text).collect();
             for (i, &(run, is_word)) in runs.iter().enumerate() {
                 let first = i == 0 && glued;
                 if !is_word {
                     for c in run.chars() {
-                        match c {
-                            '(' => depth += 1,
-                            ')' => depth = depth.saturating_sub(1),
-                            ',' if depth == 0 => named = false,
+                        match (c, quote) {
+                            ('\'' | '"', None) => quote = Some(c),
+                            (c, Some(q)) if c == q => quote = None,
+                            (_, Some(_)) => {}
+                            ('(', None) => depth += 1,
+                            (')', None) => depth = depth.saturating_sub(1),
+                            (',', None) if depth == 0 => state = Shorthand::default(),
                             _ => {}
                         }
                     }
@@ -475,17 +519,26 @@ impl Rewriter<'_> {
                 let function = runs
                     .get(i + 1)
                     .is_some_and(|(next, word)| !word && next.starts_with('('));
-                let candidate = !named
-                    && !first
-                    && depth == 0
-                    && !function
-                    && !(shorthand && is_animation_keyword(run))
-                    && !run.starts_with(|c: char| c.is_ascii_digit() || c == '.')
-                    && !(run.starts_with('-')
+                let candidate = if first || depth > 0 || state.named {
+                    false
+                } else if quote.is_some() {
+                    true
+                } else if function {
+                    // `cubic-bezier(…)`, `steps(…)`, `linear(…)`: the easing.
+                    state.easing = true;
+                    false
+                } else if run.starts_with(|c: char| c.is_ascii_digit() || c == '.')
+                    || (run.starts_with('-')
                         && run[1..].starts_with(|c: char| c.is_ascii_digit() || c == '.'))
-                    && run != "none";
+                {
+                    false
+                } else if !shorthand {
+                    run != "none"
+                } else {
+                    !state.keyword(run)
+                };
                 if candidate {
-                    named = true;
+                    state.named = true;
                     if let Some(to) = self.scope.resolve(Kind::Keyframes, run, span)? {
                         if to != run {
                             out.push_str(to);
@@ -493,8 +546,6 @@ impl Rewriter<'_> {
                             continue;
                         }
                     }
-                } else if !shorthand && depth == 0 && !first {
-                    named = true;
                 }
                 out.push_str(run);
             }
@@ -534,6 +585,17 @@ impl Rewriter<'_> {
                 self.timeline(some)?;
                 self.timeline(none)
             }
+            // A template with no interpolation is a literal too.
+            Expr::Template(parts, span) => {
+                if let [TemplatePart::Text(text)] = parts.as_slice() {
+                    let mut literal = Expr::Str(text.clone(), *span);
+                    self.timeline(&mut literal)?;
+                    if let Expr::Str(to, _) = literal {
+                        parts[0] = TemplatePart::Text(to);
+                    }
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -566,9 +628,14 @@ impl Rewriter<'_> {
             | Expr::NamedArg(_, inner, _)
             | Expr::Unary(_, inner, _) => self.expr(inner),
             Expr::Call(name, args, span) => {
-                let roster = self.scope.roster.is_some_and(|f| f(name))
-                    && !self.scope.names.contains_key(&(Kind::Call, name.clone()));
-                if !self.local(name) && !roster {
+                if let Some(seen) = self.seen.as_deref_mut() {
+                    seen.called.insert(name.clone());
+                }
+                // As the type checker reads a call: this file's `fn` or
+                // shape first, then a binding, then the roster.
+                let declared = self.scope.names.contains_key(&(Kind::Call, name.clone()));
+                let roster = self.scope.roster.is_some_and(|f| f(name));
+                if declared || !(self.local(name) || roster) {
                     self.scope.rename(Kind::Call, name, *span)?;
                 }
                 self.exprs(args)
@@ -624,36 +691,35 @@ enum Part<'a> {
     Computed,
 }
 
-/// The words CSS's `animation` shorthand reads as something other than a
-/// name: timing functions, iteration count, direction, fill mode, play
-/// state, and the CSS-wide keywords.
-fn is_animation_keyword(word: &str) -> bool {
-    matches!(
-        word.to_ascii_lowercase().as_str(),
-        "linear"
-            | "ease"
-            | "ease-in"
-            | "ease-out"
-            | "ease-in-out"
-            | "step-start"
-            | "step-end"
-            | "infinite"
-            | "normal"
-            | "reverse"
-            | "alternate"
-            | "alternate-reverse"
-            | "none"
-            | "forwards"
-            | "backwards"
-            | "both"
-            | "running"
-            | "paused"
-            | "initial"
-            | "inherit"
-            | "unset"
-            | "revert"
-            | "revert-layer"
-    )
+/// The keyword slots of one animation in CSS's `animation` shorthand, as
+/// the motion grammar fills them, case-sensitively: each slot takes one
+/// keyword, and a keyword whose slot is full is read as the name.
+#[derive(Default)]
+struct Shorthand {
+    named: bool,
+    easing: bool,
+    count: bool,
+    direction: bool,
+    fill: bool,
+    play: bool,
+}
+
+impl Shorthand {
+    /// Whether `word` fills a free keyword slot (or is a CSS-wide keyword,
+    /// or `none`), and so is not the name.
+    fn keyword(&mut self, word: &str) -> bool {
+        let slot = match word {
+            "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out" | "step-start"
+            | "step-end" => &mut self.easing,
+            "infinite" => &mut self.count,
+            "normal" | "reverse" | "alternate" | "alternate-reverse" => &mut self.direction,
+            "forwards" | "backwards" | "both" => &mut self.fill,
+            "running" | "paused" => &mut self.play,
+            "none" | "initial" | "inherit" | "unset" | "revert" | "revert-layer" => return true,
+            _ => return false,
+        };
+        !std::mem::replace(slot, true)
+    }
 }
 
 /// `text` split into runs of name characters (a keyframes name's: letters,

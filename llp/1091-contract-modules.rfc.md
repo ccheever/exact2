@@ -437,6 +437,7 @@ stage 1 lands, and stage 2 waits on them.
 - r2 (2026-10-04): the round-1 reviews (`llp/reviews/rfc-2026-10-04-1091.{astra,grok}.md`,
   both SOUND WITH CHANGES), disposed below; stage 1 built against this text.
 - r3 (2026-10-04): stage 2 as built (§5) and the code review (§10).
+- r4 (2026-10-05): the code review's second round (§11).
 
 ## 9. Review dispositions (round 1)
 
@@ -594,4 +595,23 @@ source-graph comparison, not general Lean semantic equivalence.
 The advisory `cargo run -p contract-difftest -- quick` exits successfully with
 "nothing changed" for this deploy-only commit; it therefore adds no claim of
 executed Lean corpus coverage.
+
+## 11. Code review round 2 dispositions
+
+A delta review of the fixes (`llp/reviews/code-2026-10-05-1091-r2.{astra,grok}.md`), both UNSOUND,
+both read at `a51d6ecab`. Every finding is taken, with cases in `scope_review.rs`; every plan in the
+repository stays byte-identical. Separately, `bun scripts/smoke.mjs deploy` passed on caltrain
+(the whole delivery path through the snapshot, the materialized install and its closure check).
+
+| Finding | Fix |
+|---|---|
+| Grok 1 / Astra 1: a local binding hid an imported `fn` of its name, and an unimported library `fn` reached a binding's calls | A call resolves as the type checker reads it: this file's `fn` or shape, then a binding, then the roster. Another file's `fn` or shape named like one of a file's bindings is renamed, so the type checker cannot reach it past the binding; a handler `press=pick(1)` with a bound `pick` keeps it |
+| Grok 2 / Astra 4: a computed token claimed the name, hiding a literal one; parentheses reset between template parts | A computed token never claims the name; parentheses and quotes carry across parts |
+| Grok 3: keywords matched case-insensitively | Case-sensitive, as the motion grammar reads them |
+| Astra 3: a keyword whose slot is full (`linear 1s linear`) is the name; a quoted name | The shorthand's keyword slots are tracked per animation; a quoted word is a name |
+| Astra 5: a backtick `clock(Name)` template was not rewritten | A template with no interpolation is a literal |
+| Astra 7: `pending`, `failed`, `t`, `path` were refused as another file's names | Compiler intrinsics are never refused; another file's `fn path` is renamed when a file calls the router's `path` without it |
+| Astra 6: the bake dropped an `exports` entry that is a link inside the package | The bake stages every `.contract` file of the package (and its manifest) by the path the package offers it at |
+| Astra 2: one library under two names became two copies in the stage | The bake refuses it by name: one directory is one package |
+| Grok 4: alike fonts had to list faces in one order | Faces compare as a set |
 

@@ -561,37 +561,72 @@ fn packages(app: &Path) -> Result<Packages, String> {
     let graph = contract::source_graph(&app.join("app.contract"));
     let mut files = BTreeMap::new();
     let mut roots: Vec<(PathBuf, PathBuf)> = Vec::new();
-    // Each name a package was reached by is staged: one directory installed
-    // under two names resolves under both in the stage as it did outside.
     for package in &graph.packages {
         let staged = Path::new("node_modules").join(&package.name);
-        match roots.iter().find(|(at, _)| *at == staged) {
-            Some((_, other)) if *other != package.root => {
+        if let Some((other, _)) = roots.iter().find(|(_, root)| *root == package.root) {
+            if *other != staged {
+                // Two staged copies would be two declarations of everything
+                // the library declares; one directory is one package.
                 return Err(format!(
-                    "two copies of the package `{}` ({} and {}) are used; the bake stages one",
-                    package.name,
+                    "the package at {} is used under two names ({} and `{}`); the bake stages a package under one",
+                    package.root.display(),
                     other.display(),
-                    package.root.display()
-                ))
+                    package.name
+                ));
             }
-            Some(_) => continue,
-            None => roots.push((staged.clone(), package.root.clone())),
+            continue;
         }
-        let read = graph
-            .sources
-            .iter()
-            .filter(|source| matches!(&source.origin, contract::Origin::Package { root, .. } if *root == package.root))
-            .map(|source| &source.path)
-            .chain([&package.manifest]);
-        for path in read {
-            let relative = path
-                .strip_prefix(&package.root)
-                .map_err(|e| e.to_string())?;
-            let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        if let Some((_, other)) = roots.iter().find(|(at, _)| *at == staged) {
+            return Err(format!(
+                "two copies of the package `{}` ({} and {}) are used; the bake stages one",
+                package.name,
+                other.display(),
+                package.root.display()
+            ));
+        }
+        roots.push((staged.clone(), package.root.clone()));
+        // Every Contract file and the manifest, by the path the package
+        // offers it at: an `exports` entry may be a link to another file of
+        // the package, and resolution reads the entry, not its target.
+        let mut seen = std::collections::HashSet::new();
+        stage_package(&package.root, &package.root, &staged, &mut files, &mut seen)?;
+    }
+    Ok((files, roots))
+}
+
+fn stage_package(
+    root: &Path,
+    at: &Path,
+    staged: &Path,
+    files: &mut BTreeMap<PathBuf, Vec<u8>>,
+    seen: &mut std::collections::HashSet<PathBuf>,
+) -> Result<(), String> {
+    // A directory link back up the package is read once.
+    if !seen.insert(at.canonicalize().map_err(|e| e.to_string())?) {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(at).map_err(|e| format!("{}: {e}", at.display()))? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name == "node_modules" || name.starts_with('.') {
+            continue;
+        }
+        // A link that leads out of the package is not the package's.
+        let Ok(real) = path.canonicalize() else {
+            continue;
+        };
+        if !real.starts_with(root) {
+            continue;
+        }
+        if real.is_dir() {
+            stage_package(root, &path, staged, files, seen)?;
+        } else if name.ends_with(".contract") || (at == root && name == "package.json") {
+            let relative = path.strip_prefix(root).map_err(|e| e.to_string())?;
+            let bytes = std::fs::read(&real).map_err(|e| format!("{}: {e}", real.display()))?;
             files.insert(staged.join(relative), bytes);
         }
     }
-    Ok((files, roots))
+    Ok(())
 }
 
 /// Capture the app-local source graph, and the directories the manifest
