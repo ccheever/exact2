@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import {spawn, spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {EventEmitter} from 'node:events';
-import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {createServer, get} from 'node:http';
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {resolve} from 'node:path';
+import {parse, relative, resolve, toNamespacedPath} from 'node:path';
 import {PassThrough} from 'node:stream';
 import {closeFilesystemReader, filesystem, filesystemErrorCode} from './filesystem.mjs';
 import {Cdp, chromium, closeWindowsBrowser, retainCleanupError, packagedBuildChanges, removeBrowserProfile} from './agent-launch.mjs';
@@ -13,9 +14,101 @@ import {browserKey, open} from './agent.mjs';
 import {cdpKey, withHeldModifiers} from './agent-keys.mjs';
 import {runCaps} from './caps.mjs';
 import {binaryenArchive, binaryenVersion} from './exact.mjs';
-import {listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
+import {buildTreeFile, serveBuildTree, listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
 import {gameShells} from '../game/app/shells.mjs';
 import {formatProofError} from '../game/proof.mjs';
+import {hermesWindowsRoots, readManifest} from './app.mjs';
+
+test('JS build trees serve native paths without admitting private or escaping files', async () => {
+  const owned=realpathSync(mkdtempSync(resolve(tmpdir(),'exact JS tree café ')));
+  const root=resolve(owned,'dist'), outside=resolve(owned,'outside');
+  let server;
+  try {
+    mkdirSync(resolve(root,'nested café'),{recursive:true}); mkdirSync(outside);
+    for(const [name,body] of [['index.html','shell'],['app.js','entry'],['nested café/data.js','unicode'],['nested café/index.html','nested'],['.private.js','private']])
+      writeFileSync(resolve(root,name),body);
+    writeFileSync(resolve(outside,'secret.js'),'outside');
+    symlinkSync(outside,resolve(root,'outside'),process.platform==='win32'?'junction':'dir');
+    server=createServer((req,res)=>serveBuildTree(root,req,res));
+    await new Promise(done=>server.listen(0,'127.0.0.1',done));
+    // A raw HTTP path preserves traversal spellings a URL constructor normalizes.
+    const request=path=>new Promise((done,fail)=>{
+      get({host:'127.0.0.1',port:server.address().port,path},res=>{
+        const chunks=[];res.on('data',chunk=>chunks.push(chunk));res.on('error',fail);
+        res.on('end',()=>done({status:res.statusCode,body:Buffer.concat(chunks).toString()}));
+      }).on('error',fail);
+    });
+    for(const [path,body] of [['/','shell'],['/index.html','shell'],['/app.js','entry'],['/nested%20caf%C3%A9/data.js','unicode'],['/nested%20caf%C3%A9/','nested'],['/app-route','shell']])
+      expect(await request(path)).toEqual({status:200,body});
+    for(const path of ['/.private.js','/%2e%2e/outside/secret.js','/nested%20caf%C3%A9/../../outside/secret.js','/nested%5cdata.js','/%00','/outside/secret.js'])
+      expect(await request(path)).toEqual({status:404,body:''});
+    // An explicitly selected volume root already ends in its native separator.
+    const volume=parse(root).root, file=resolve(root,'app.js');
+    const route='/'+relative(volume,file).replaceAll('\\','/');
+    expect(buildTreeFile(volume,route)?.path).toBe(file);
+  } finally {
+    if(server)await new Promise(done=>server.close(done));
+    rmSync(owned,{recursive:true,force:true});
+  }
+});
+
+test('ordinary Windows host manifests admit only the empty host settings object', () => {
+  const root=mkdtempSync(resolve(tmpdir(),'exact-windows-manifest-'));
+  const manifest={name:'Windows fixture',app:{id:'test.exact.windows',name:'Windows fixture'},host:{windows:{}},deploy:{store:{windows:'0'}}};
+  const write=host=>writeFileSync(resolve(root,'app.json'),JSON.stringify({...manifest,host}));
+  try {
+    write({windows:{}});
+    const accepted=readManifest(root,'fixture');
+    expect(accepted.host.windows).toEqual({});
+    expect(accepted.deploy.store.windows).toBe('0');
+    write({windows:{title:'unexpected'}});
+    expect(()=>readManifest(root,'fixture')).toThrow('host.windows.title: not a known key');
+    for(const value of [null,[],true,'windows']) {
+      write({windows:value});
+      expect(()=>readManifest(root,'fixture')).toThrow('host.windows: expected object');
+    }
+    write({});
+    expect(readManifest(root,'fixture').host.windows).toBeUndefined();
+  } finally { rmSync(root,{recursive:true,force:true}); }
+});
+
+test('storage error numbers retain platform meaning and require an exact typed suffix', () => {
+  const source=readFileSync(new URL('../js/src/prelude.js',import.meta.url),'utf8');
+  const mapping=source.slice(source.indexOf('  var windowsStorage ='),source.indexOf('  function storageError('));
+  const make=marker=>{
+    const global={__exact_windows_storage:marker};
+    const code=new Function('global',`${mapping}\nreturn storageCode;`)(global);
+    expect(global).not.toHaveProperty('__exact_windows_storage');
+    return code;
+  };
+  const windows=make(true), unix=make(undefined);
+  for(const [number,code] of [[2,'ENOENT'],[3,'ENOENT'],[32,'EBUSY'],[33,'EBUSY'],[80,'EEXIST'],[145,'ENOTEMPTY'],[170,'EBUSY'],[183,'EEXIST'],[267,'ENOTDIR']])
+    expect(windows(`filesystem: unavailable (os error ${number})`)).toBe(code);
+  for(const number of [5,17,21,39]) expect(windows(`filesystem: unavailable (os error ${number})`)).toBe('failed');
+  expect(unix('unavailable (os error 17)')).toBe('EEXIST');
+  expect(unix('unavailable (os error 39)')).toBe('ENOTEMPTY');
+  expect(unix('unavailable (os error 267)')).toBe('failed');
+  expect(windows('fs.readFile doc:/1/folder: cannot read a directory (filesystem code EISDIR)')).toBe('EISDIR');
+  expect(windows('(filesystem code EISDIR) then access refused (os error 5)')).toBe('failed');
+  expect(windows('denied: fs.read (filesystem code EISDIR)')).toBe('denied');
+  expect(unix('(filesystem code EISDIR)')).toBe('failed');
+});
+
+test.skipIf(process.platform !== 'win32')('Windows Hermes receipt roots capture a real junction install alias', () => {
+  const parent=mkdtempSync(resolve(tmpdir(),'exact-hermes roots café-'));
+  try {
+    const install=resolve(parent,'actual install'), alias=resolve(parent,'selected alias');
+    mkdirSync(install); symlinkSync(install,alias,'junction');
+    const canonical=realpathSync.native(install);
+    expect(realpathSync.native(alias)).toBe(canonical);
+    const roots=hermesWindowsRoots({EXACT_HERMES_DIR:alias});
+    expect(roots).toContain(alias);
+    expect(roots).toContain(toNamespacedPath(alias));
+    expect(roots).toContain(canonical);
+    expect(roots).toContain(toNamespacedPath(canonical));
+    expect(new Set(roots).size).toBe(roots.length);
+  } finally { rmSync(parent,{recursive:true,force:true}); }
+});
 
 test('proof interruption preserves a real CDP timeout message when its stack omits it', async () => {
   const input=new PassThrough(), output=new PassThrough(), cdp=new Cdp(input,output);

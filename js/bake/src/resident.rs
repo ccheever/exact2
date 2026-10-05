@@ -17,15 +17,13 @@ pub struct Producer {
 impl Producer {
     /// Start a producer using the requested tools. Compiler overrides are not ignored.
     pub fn new(tools: Tools) -> Result<Self, String> {
+        if exact_js::ENGINE_LINKED {
+            tools.check_engine()?;
+        }
         let stage = Scratch::new(&std::env::temp_dir())?;
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let standard = |tool: &Path, name: &str| {
-            tool.canonicalize().ok()
-                == root
-                    .join("node_modules/.bin")
-                    .join(name)
-                    .canonicalize()
-                    .ok()
+            tool.canonicalize().ok() == super::hermes::package_tool(&root, name).canonicalize().ok()
                 && tool.exists()
         };
         let compiler = if standard(&tools.tsc, "tsc") && standard(&tools.rolldown, "rolldown") {

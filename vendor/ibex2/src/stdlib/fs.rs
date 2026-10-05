@@ -437,6 +437,10 @@ pub fn run_document(
         .count()
         == 2;
     match op {
+        #[cfg(windows)]
+        FsOp::ReadFile => read_document_file(&real)
+            .map(FsResult::Bytes)
+            .map_err(failed),
         FsOp::Remove if chosen => Err(HostError::Failed(format!(
             "fs.rm {path}: the document itself is the person's; remove what is in it"
         ))),
@@ -466,6 +470,28 @@ pub fn run_document(
             Err(other) => Err(other),
         },
     }
+}
+
+/// Windows reports access-denied for both a directory read and an unreadable
+/// file. Inspect the same successfully opened handle, never a path precheck.
+/// Exact's storage adapter consumes the explicit suffix; real denial is kept.
+#[cfg(windows)]
+fn read_document_file(path: &Path) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)?;
+    if file.metadata()?.is_dir() {
+        return Err(std::io::Error::other(
+            "cannot read a directory (filesystem code EISDIR)",
+        ));
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    Ok(bytes)
 }
 
 #[cfg(test)]
@@ -586,3 +612,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(all(test, windows))]
+#[path = "windows_document_tests.rs"]
+mod windows_document_tests;

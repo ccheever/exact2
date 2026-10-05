@@ -9,7 +9,7 @@
 //! machine into `~/.cache/exact/hermes/<pin>-lean-ios/{ios,ios-simulator}`
 //! (EXACT_HERMES_IOS_DIR overrides; LLP 1027 D6, LLP 1036.001 D5).
 //! All linked engine archives are captured in OUT_DIR for the bake receipt.
-//! On macOS, iOS and Linux a missing engine is a build error naming how to
+//! On macOS, iOS, Linux and Windows a missing engine is a build error naming how to
 //! provision it; `EXACT_JS_ENGINE=stub` instead builds a stub whose
 //! `Module::load` refuses by name. Other targets are always the stub.
 //! `EXACT_HERMES_DIR`, `EXACT_HERMESC`, and `EXACT_ROLLDOWN` point at the
@@ -20,7 +20,7 @@
 //! whose `engine/hermes-input-receipt.json` must name the pin.
 //!
 //! The pin is vanilla Hermes 260318099.0.0-stable, facebook/hermes
-//! `HERMES_PIN` below, the one place it is written (ibex's
+//! `hermes.rs`'s HERMES_PIN, the one place it is written (ibex's
 //! `ios/Frameworks-vanilla/hermes-input-receipt.json`, where ibex wrote one,
 //! must name it). SHA-256 of the provisioned inputs (2026-08-28):
 //!
@@ -34,8 +34,10 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::process::Command;
 
-/// facebook/hermes, read by `scripts/app.mjs` (`hermesIos`) too.
-const HERMES_PIN: &str = "6badada762121682b5481b6124e6c3a991ae6046";
+// Non-Windows builds use only the shared pin; Windows also uses the resolver.
+#[allow(dead_code)]
+mod hermes;
+use hermes::HERMES_PIN;
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(exact_js_engine)");
@@ -49,6 +51,7 @@ fn main() {
         "HERMES_INCLUDE_DIR",
         "HERMES_LIB_DIR",
         "HOME",
+        "LOCALAPPDATA",
     ] {
         println!("cargo:rerun-if-env-changed={var}");
     }
@@ -56,6 +59,18 @@ fn main() {
     println!("cargo:rerun-if-changed=src/prelude.js");
     println!("cargo:rerun-if-changed=src/pure.js");
     println!("cargo:rerun-if-changed=src/standard.js");
+    println!("cargo:rerun-if-changed=hermes.rs");
+    for source in [
+        "windows-intl.json",
+        "windows-intl.patch",
+        "windows-intl-case.inc",
+        "windows-intl-date.inc",
+        "windows-intl-number.inc",
+        "windows-intl-probe.js",
+        "windows-intl-probe.cc",
+    ] {
+        println!("cargo:rerun-if-changed={source}");
+    }
 
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     // ibex2's sources are vendored; the engine builds stay in the ibex checkout.
@@ -103,6 +118,30 @@ fn main() {
     }
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target = env::var("TARGET").unwrap_or_default();
+    let stub = env::var("EXACT_JS_ENGINE").as_deref() == Ok("stub");
+    let windows = if target_os == "windows" && !stub {
+        assert!(
+            !env::var("CARGO_CFG_TARGET_FEATURE")
+                .unwrap_or_default()
+                .split(',')
+                .any(|s| s == "crt-static"),
+            "exact-js: Windows lean Hermes requires the dynamic MSVC CRT; crt-static is unsupported"
+        );
+        let compiler = hermes::compiler().unwrap_or_else(|e| panic!("{e}"));
+        let install = hermes::resolve(&target, Some(&compiler)).unwrap_or_else(|e| panic!("{e}"));
+        for input in &install.inputs {
+            println!("cargo:rerun-if-changed={}", input.display());
+        }
+        // New unrecorded payloads also invalidate an accepted complete install.
+        println!("cargo:rerun-if-changed={}", install.root.display());
+        println!(
+            "cargo:rustc-env=EXACT_JS_ENGINE_INPUTS={}",
+            install.receipt_sha256
+        );
+        Some(install)
+    } else {
+        None
+    };
     // The iOS input is a pair of lean CMake builds, not the full framework
     // (which also contains a compiler). No engine bytes enter Rust-only apps.
     let ios = || {
@@ -115,7 +154,14 @@ fn main() {
             })
     };
     let linux = ibex.join("linux-vanilla");
-    let (headers, static_dir, engine_lib_name, extra_libs) = if target_os == "ios" {
+    let (headers, static_dir, engine_lib_name, extra_libs) = if let Some(install) = &windows {
+        (
+            install.headers.clone(),
+            install.root.join("windows-static"),
+            "hermesvmlean_a".to_owned(),
+            install.archives[1..].to_vec(),
+        )
+    } else if target_os == "ios" {
         let static_dir = ios()
             .join(
                 if target.ends_with("-sim") || target.starts_with("x86_64-") {
@@ -170,10 +216,12 @@ fn main() {
     if target_os == "ios" {
         println!("cargo:rerun-if-changed={}", static_dir.display());
     }
-    let engine_archive = static_dir.join(format!("lib{engine_lib_name}.a"));
-    let hermes_target = matches!(target_os.as_str(), "macos" | "ios" | "linux");
+    let engine_archive = windows.as_ref().map_or_else(
+        || static_dir.join(format!("lib{engine_lib_name}.a")),
+        |install| install.archives[0].clone(),
+    );
+    let hermes_target = matches!(target_os.as_str(), "macos" | "ios" | "linux" | "windows");
     // The explicit selection wins before any engine input is inspected.
-    let stub = env::var("EXACT_JS_ENGINE").as_deref() == Ok("stub");
     let provisioned =
         headers.is_dir() && engine_archive.is_file() && extra_libs.iter().all(|lib| lib.is_file());
     if !hermes_target || stub || !provisioned {
@@ -188,7 +236,11 @@ fn main() {
         return;
     }
     // Headers, compiler and VM come from one commit.
-    if let Ok(receipt) = std::fs::read_to_string(engine.join("hermes-input-receipt.json")) {
+    if let Some(receipt) = windows
+        .is_none()
+        .then(|| std::fs::read_to_string(engine.join("hermes-input-receipt.json")))
+        .and_then(Result::ok)
+    {
         let commit = receipt
             .split_once("\"sourceCommit\": \"")
             .and_then(|(_, rest)| rest.get(..40))
@@ -224,13 +276,45 @@ fn main() {
         shim.flag("-isysroot")
             .flag(String::from_utf8(sdk.stdout).expect("SDK path").trim());
     }
+    // cl.exe's include search rejects the verbatim prefix returned by Rust's
+    // canonicalize, even for an existing short path. Keep canonical receipt
+    // inputs above; pass the same disk/UNC location in cl's accepted spelling.
+    let compiler_headers = if target_os == "windows" {
+        let mut parts = headers.components();
+        let base = match parts.next() {
+            Some(std::path::Component::Prefix(prefix)) => match prefix.kind() {
+                std::path::Prefix::VerbatimDisk(drive) => {
+                    Some(PathBuf::from(format!("{}:", drive as char)))
+                }
+                std::path::Prefix::VerbatimUNC(server, share) => {
+                    Some(PathBuf::from(r"\\").join(server).join(share))
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        base.map_or_else(
+            || headers.clone(),
+            |mut path| {
+                path.extend(parts);
+                path
+            },
+        )
+    } else {
+        headers.clone()
+    };
     shim.cpp(true)
         .file("src/shim.cc")
         .file(bindings.join("src/engine/ibex2_jsi.cc"))
         .include(bindings.join("include"))
-        .include(&headers)
-        .flag("-std=c++17");
-    if target_os != "linux" {
+        .include(&compiler_headers)
+        .std("c++17");
+    if target_os == "windows" {
+        shim.static_crt(false)
+            .flag("/EHsc")
+            .define("NOMINMAX", None)
+            .define("_ITERATOR_DEBUG_LEVEL", "0");
+    } else if target_os != "linux" {
         shim.flag("-stdlib=libc++");
     }
     shim.compile("exact_js_shim");
@@ -238,7 +322,14 @@ fn main() {
     println!("cargo:rustc-link-lib=static={engine_lib_name}");
     println!("cargo:rustc-link-lib=static=jsi");
     println!("cargo:rustc-link-lib=static=boost_context");
-    if target_os == "linux" {
+    if target_os == "windows" {
+        for library in ["icuuc", "icui18n", "icudata"] {
+            println!("cargo:rustc-link-lib=static={library}");
+        }
+        for library in hermes::SYSTEM_LIBRARIES {
+            println!("cargo:rustc-link-lib={library}");
+        }
+    } else if target_os == "linux" {
         println!("cargo:rustc-link-lib=stdc++");
         println!("cargo:rustc-link-lib=pthread");
         println!("cargo:rustc-link-lib=dl");
@@ -264,7 +355,9 @@ fn main() {
     let hermesc = env::var("EXACT_HERMESC")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
-            if cfg!(target_os = "linux") {
+            if let Some(install) = &windows {
+                install.compiler.clone()
+            } else if cfg!(target_os = "linux") {
                 ibex.join(format!("tools/hermes-vanilla/hermesc-linux-{arch}"))
             } else {
                 cached(
@@ -275,7 +368,7 @@ fn main() {
         });
     let rolldown = env::var("EXACT_ROLLDOWN")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| manifest.join("../node_modules/.bin/rolldown"));
+        .unwrap_or_else(|_| hermes::package_tool(&manifest.join(".."), "rolldown"));
     assert!(
         hermesc.is_file(),
         "exact-js: hermesc not found at {} (EXACT_HERMESC, ~/.cache/exact/hermes-macos/hermesc, or ibex: ./scripts/build-hermes.sh --vanilla)",
@@ -320,9 +413,24 @@ fn main() {
     .collect::<Vec<_>>()
     .join("\n")
         + "\nglobalThis.__exact_finish_pure();\n";
+    // This trusted marker selects the error-number vocabulary, then the
+    // prelude removes it before any app bytecode can observe it.
+    let prelude = if target_os == "windows" {
+        "globalThis.__exact_windows_storage = true;\n".to_owned() + &prelude
+    } else {
+        prelude
+    };
     let prelude_path = out.join("prelude.js");
     std::fs::write(&prelude_path, prelude).expect("write combined prelude");
     compile(&prelude_path, &out.join("prelude.hbc"));
+    if let Some(install) = &windows {
+        let hbc = std::fs::read(out.join("prelude.hbc")).expect("compiled prelude");
+        assert!(
+            hbc.len() >= 12
+                && u32::from_le_bytes(hbc[8..12].try_into().unwrap()) == install.bytecode_version,
+            "exact-js: compiler emitted a different bytecode version than its Windows receipt"
+        );
+    }
     compile(
         &bindings.join("src/bindings/harden.js"),
         &out.join("storage-harden.hbc"),
