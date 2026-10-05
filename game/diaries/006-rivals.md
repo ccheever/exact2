@@ -1612,3 +1612,46 @@ pair remains closed. No further wording loop is assumed from its outcome.
 The first baseline collection had already mixed two driver revisions because
 I launched it before reading the caps failure; it must be rejected and rerun
 with all source fixed, regardless of this caption change.
+
+The explicit-wait follow-up pair is also closed. With the controller, prompt
+and choices unchanged, both hosts again spend five timing attempts too early
+and achieve zero quick reloads in 96 decisions. The first mistimed press now
+sees “Wait for green · 0.7s”. Web finishes with 5,050 points/eleven targets
+and macOS with 7,250/fifteen; both have full health and neither finishes the
+drill. They perform 14.440/16.200 s of actions, seven timing presses each,
+and 73/69 short waits. The more explicit wording does not demonstrate an
+improvement in understanding; no third wording or controller attempt follows.
+It remains useful literal waiting feedback for the player, with no change to
+simulation timing. The game shell suite again passes 36 tests with four
+ignored, including strict Clippy (`/tmp/exact2-rivals-reload-caption-tests.log`).
+
+Wall times including builds are 80.718/76.855 s. Median/p95 gateway latency
+is 292/511 and 282/512 ms, with 99,257/96,438 input tokens and 3,999/3,965
+output tokens. Both process audits are available and leave zero recorded
+children. Both tenth-decision captures were inspected. Artifacts:
+`artifacts/jev-reload-wait-{web,macos}/`; summary:
+`/tmp/exact2-jev-reload-wait-summary.json`.
+
+The first baseline batch `artifacts/prove/run-vzGs1l/` is refused without
+changing pins: its web FreshGame run detects the source edit as stale before
+opening the next session. Its earlier modes also captured mixed driver input
+hashes. This is a verification sequencing mistake, not an engine regression.
+The replacement batch starts with source fixed at `c09d69ce0`.
+
+### Accepted reload baseline
+
+The fixed-source seven-run batch `artifacts/prove/run-JTtqLj/` agrees across
+Linux continuous/Save/FreshGame, web continuous/Save/FreshGame and native
+release. Each records the same source hash `d02aa6cf…`, both tick pins and
+all six save pins, including the new `quick-reload` continuation. All hard
+assertions pass; every available process audit leaves zero children. Native
+mode times are 7.782/10.258/10.668 s and release 6.154 s; web mode times are
+104.900/124.018/135.765 s including builds. Pins now cite `c09d69ce0`.
+Log: `/tmp/exact2-rivals-reload-final-repin.log`.
+
+The complete ordinary web/macOS pair then passes in 60.045/62.023 s after
+its bake phase (`artifacts/prove/run-6dgTmo/`). Inputs, pins, fourteen final
+world observations, published values and twenty saves agree between hosts.
+This closes the timed-reload implementation and restoration checks. The two
+Jev feedback pairs remain failed attempts to understand the timing cue;
+passing deterministic controls is not a claim that the game became more fun.

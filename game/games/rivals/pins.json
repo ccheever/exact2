@@ -1,22 +1,23 @@
 {
   "ticks": {
-    "0": "0x63d52c78e68a74c3",
-    "1080": "0x24e1caa4939ee624"
+    "0": "0x1a3ef6ae7f8baecd",
+    "1080": "0xf1ac3f1ea46ae4ca"
   },
   "saves": {
-    "continuation": "ea06815539d333d9b0a3c7cc72b8c12afe8a606f17c620967436898ede05f9ce",
-    "mayhem": "43f5ef2a20033d167212e42ab29bd37482ac991653cc8d9e40f3aef8c444fff6",
-    "mayhem-round": "0dd1583955153f6ba24f3f52fbaa7f1e4b3fdb7cbc550a61189b53eec3740c68",
-    "drill": "3fd47755915c39bc2cccc0d300dfcc3f73e425ba4d50fa728ab03a3600665630",
-    "bandage": "4b31da3d12e7b62b07d00adb0ad75c4e6b80997cfc3cfb9dc939a68b8d193f98"
+    "continuation": "a20ad789d4ae6545f7651a9d28ef91494dd9cd3aa9072cc354fd811e73641caa",
+    "mayhem": "6510e9494dc569777e3396b951a977fb75e4cca70355435f7ca95bf82cc8e8d2",
+    "mayhem-round": "c6e132ac0294d48094c56ff6ffe9008b22624e5e997b75988a415c580605f58d",
+    "drill": "196ca665594cd91c1eb2ab56d5f916774df4bcabdfb83a0b4fb36b8a8f9b0a02",
+    "bandage": "551ba06600f8a7dc97208f40c05e648f6c1a4200c1f48d5079dcdc701feb9435",
+    "quick-reload": "b3315accf84f755007d64dbcb97822803c404707524e9fb479915f90c815f63c"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "3212035ee6d00bf1db2b8d61a0fb774fbd17253d0fcffd766cb6193087504065",
+  "inputs": "d02aa6cf089db5a7926618177e0698288fce8dfa4cfa1b5acca2483d72b41d6d",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "80af3cb1a92c670adf554429463b2f9694b45c82",
-  "reason": "Add interruptible bandages, shared bot recovery and held-action save continuation"
+  "at": "c09d69ce0a759ca0c9dd836ec9a72869d3a4fda1",
+  "reason": "Timed reloads save each Fighters timing attempt and feedback, with explicit waiting cues and HUD timing button; fresh-process reload continuation"
 }
