@@ -1,7 +1,7 @@
 # LLP 1099: UIKit's springs, everywhere
 
 **Type:** RFC
-**Status:** Draft (r10), for Charlie's decision. Design only; nothing is built.
+**Status:** Accepted (design), r10. Charlie approved the design and all seven §10 recommendations on 2026-10-05, via the lead ("move to code"). Implementation is staged as §9: stage 0 is the fixtures as tests, stage 1 the engine on iOS, macOS and Linux with parse and lowering, stage 2 retargets, releases and the warning channel, and stage 3 the web parity layer.
 - r1 (`9b974e323`) was reviewed blind by Astra (`gpt-6-astra`, reasoning effort max): NEEDS REWORK, `llp/reviews/llp-1099-uikit-springs.astra.md`. It was also reviewed by Grok 4.7 (xhigh): SOUND WITH CHANGES, `llp/reviews/llp-1099-uikit-springs.grok.md`.
 - r2 (`0926e91f8`) took every round-1 finding, one of them in part. It added measured retargets (rows R) and edge cases (rows X).
 - Round 2 reviewed r2. Astra: NEEDS REWORK, `llp/reviews/llp-1099-uikit-springs-r2.astra.md`. Grok: NEEDS REWORK, `llp/reviews/llp-1099-uikit-springs-r2.grok.md`.
@@ -1229,6 +1229,18 @@ springs keep LLP 1062 D3: they start from rest and interrupt as CSS does.
    the spellings, and film both against UIKit.
 
 ## 10. Open questions for Charlie
+
+**Ruled by Charlie 2026-10-05, via the lead: every recommendation below, as
+recommended.**
+- Q1: refuse dynamic in-band strings; warn on and rewrite literals.
+- Q2: copy Core Animation's overdamped overshoot.
+- Q3: exact2's absolute rest.
+- Q4: positional syntax with a labelled velocity.
+- Q5: pin iOS 27.0.
+- Q6: opacity restarts from the presented value.
+- Q7: a release keeps the authored stiffness.
+
+The questions are kept as asked, with the alternatives considered.
 
 - **Q1. The band.**
   - Recommended: accept the reconstruction; refuse non-roots; inside the
