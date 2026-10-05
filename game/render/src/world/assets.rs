@@ -1,5 +1,5 @@
 use super::*;
-use crate::{DrawInstance, MaterialId, RENDER_SLOT_BASE};
+use crate::{models::REPLACE, DrawInstance, MaterialId, RENDER_SLOT_BASE};
 // Geometry, material, mirrored, viewmodel, and the level of detail.
 type GroupKey = (MeshId, MaterialId, bool, bool, u8);
 #[derive(Default)]
@@ -103,7 +103,10 @@ impl Assets {
                     .iter()
                     .zip(&self.part_bases[first..])
                     .all(|(&a, &b)| {
-                        (a == 0) == (b == 0) && (a == 0 || a as usize + part_first == b as usize)
+                        let flag = a & REPLACE == b & REPLACE;
+                        let (a, b) = (a & !REPLACE, b & !REPLACE);
+                        flag && (a == 0) == (b == 0)
+                            && (a == 0 || a as usize + part_first == b as usize)
                     });
             if !same {
                 return Ok(false);
@@ -165,8 +168,8 @@ impl Assets {
             } else {
                 (draws.merged, Some((draws.members, draws.starts)))
             };
-            // A material override is one record's tint and glow: every part
-            // of a record shares its material.
+            // A material override replaces its records' base colour factor:
+            // every part of a record shares its material.
             let material_look = |material: MaterialId| {
                 let index = draws.materials.iter().position(|&m| m == material)?;
                 let o = overrides
@@ -174,11 +177,7 @@ impl Assets {
                     .0
                     .iter()
                     .find(|o| o.material as usize == index)?;
-                let base = draws.bases[index];
-                let tint = o.color.map_or([1.; 4], |c| {
-                    std::array::from_fn(|i| if base[i] == 0. { 1. } else { c[i] / base[i] })
-                });
-                Some((tint, o.emissive))
+                Some((o.color, o.emissive))
             };
             drawn |= !nodes.is_empty();
             if !nodes.is_empty() {
@@ -219,14 +218,17 @@ impl Assets {
                     end[7] = f32::from_bits(u32::MAX);
                     self.part_looks.push(end);
                 }
-                self.part_bases.push(base);
-                self.levels.push(level as u8);
                 let (mut tint, mut glow) =
                     look.map_or(([1.; 4], [0.; 3]), |l| (l.color, l.emissive));
-                if let Some((t, g)) = material_look(material) {
-                    tint = std::array::from_fn(|i| tint[i] * t[i]);
+                if let Some((color, g)) = material_look(material) {
+                    if let Some(c) = color {
+                        tint = std::array::from_fn(|i| tint[i] * c[i]);
+                        base |= REPLACE;
+                    }
                     glow = std::array::from_fn(|i| glow[i] + g[i]);
                 }
+                self.part_bases.push(base);
+                self.levels.push(level as u8);
                 self.records.push(DrawInstance {
                     data: 0,
                     transform: entity.index(),

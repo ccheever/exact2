@@ -714,7 +714,8 @@ fn material_overrides_recolour_one_material_and_keep_instances_together() {
     let mut model = Model {
         meshes: vec![panel(0), panel(1)],
         materials: vec![
-            material([0.8, 0.2, 0.2, 1.], AlphaMode::Opaque),
+            // Authored pure red: blue and green are zero factors.
+            material([0.9, 0., 0., 1.], AlphaMode::Opaque),
             material([1., 1., 1., 1.], AlphaMode::Opaque),
         ],
         bounds: [-1.8, -0.8, 0., 1.8, 0.8, 0.],

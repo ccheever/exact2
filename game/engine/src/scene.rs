@@ -555,9 +555,8 @@ pub struct NodeMaterials(pub Vec<NodeMaterial>);
 pub struct MaterialOverride {
     /// The model's material index (the glTF material's index in its file).
     pub material: u32,
-    /// Replaces the material's base colour factor (linear RGBA; textures still
-    /// multiply it). `None` keeps it. A factor channel of zero cannot be
-    /// replaced: author that channel nonzero.
+    /// Replaces the material's base colour factor (linear RGBA; textures and
+    /// vertex colours still multiply it), zero channels included. `None` keeps it.
     pub color: Option<[f32; 4]>,
     /// Linear emission added wherever the material draws.
     pub emissive: [f32; 3],

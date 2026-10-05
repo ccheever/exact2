@@ -32,6 +32,8 @@ pub(crate) struct Material {
 }
 /// u32 words per model instance record: header, local, normal, tint, glow.
 pub(crate) const INSTANCE_WORDS: usize = 44;
+/// A record's look word flag: its tint replaces the material's base colour factor.
+pub(crate) const REPLACE: u32 = 1 << 31;
 pub(crate) type ModelNode = (MeshId, MaterialId, Mat4, Option<u32>);
 /// What the feed batches one loaded model from.
 pub(crate) struct Draws<'a> {
@@ -42,12 +44,11 @@ pub(crate) struct Draws<'a> {
     pub merged: &'a [ModelNode],
     pub members: &'a [Vec<String>],
     pub starts: &'a [Vec<u32>],
-    /// Renderer materials and their base colour factors, by model material index.
+    /// Renderer materials, by model material index.
     pub materials: &'a [MaterialId],
     /// Materials a game's `CustomMaterial` shades: a model with any of them in
     /// a merged draw draws its parts unmerged.
     pub custom: &'a std::collections::BTreeSet<MaterialId>,
-    pub bases: &'a [[f32; 4]],
 }
 pub(crate) struct Uploaded {
     pub nodes: Vec<ModelNode>,
@@ -63,8 +64,6 @@ pub(crate) struct Uploaded {
     pub active: bool,
     pub meshes: Vec<MeshId>,
     pub materials: Vec<MaterialId>,
-    /// Each model material's base colour factor, for `MaterialOverrides`.
-    pub bases: Vec<[f32; 4]>,
     pub skins: Vec<u32>,
 }
 impl Uploaded {
@@ -243,11 +242,15 @@ impl Models {
             words.extend(normal);
             words.extend(record.tint.map(f32::to_bits));
             words.extend(record.glow.map(f32::to_bits));
-            let look = self.part_looks.0.get(index).copied();
-            words.push(
-                look.filter(|&l| l != 0)
-                    .map_or(0, |l| records.len() as u32 + l),
-            );
+            // Low 31 bits: 1 + the record's first part look; top bit: replace.
+            let look = self.part_looks.0.get(index).copied().unwrap_or(0);
+            let base = look & !REPLACE;
+            let at = if base == 0 {
+                0
+            } else {
+                records.len() as u32 + base
+            };
+            words.push(at | (look & REPLACE));
         }
         // A merged part's look is one record-sized entry: its tint and glow.
         for look in &self.part_looks.1 {
@@ -495,7 +498,6 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 merged,
                 members,
                 starts,
-                bases: model.materials.iter().map(|m| m.base_color).collect(),
                 digest,
                 active: true,
                 meshes,
@@ -773,6 +775,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         // Part starts become absolute vertices; direct callers bring no looks.
         let (bases, mut looks) = std::mem::take(&mut self.models.pending_looks);
         for (record, &base) in records.iter().zip(&bases) {
+            let base = base & !REPLACE;
             if base == 0 {
                 continue;
             }

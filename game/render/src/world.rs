@@ -98,7 +98,6 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
                     starts: &m.starts,
                     materials: &m.materials,
                     custom: &self.models.custom,
-                    bases: &m.bases,
                 })
         } else {
             None

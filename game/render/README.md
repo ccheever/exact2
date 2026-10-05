@@ -313,11 +313,15 @@ emission per named node of one instance (stored in that node's instance record).
 `Opacity(o)` (presentation state, like `NodeMaterials`: written by `Game::present`,
 never saved or hashed) fades any instance, primitive or model: opaque surfaces drop pixels in
 an ordered 4×4 screen-door dither (depth stays exact, nothing is sorted; model
-shadows fade with it, primitive shadows do not), blended model materials multiply
-their alpha. Custom-material hooks ignore both.
-`MaterialOverrides` replaces a model material's base colour factor (and adds
-emission) on one instance: it becomes that material's records' tint, the base
-divided out, so instances in different colours still share their batches.
+shadows fade with it, primitive shadows too: their depth pass drops the same
+dithered texels, so at `Opacity(0)` an entity casts nothing), blended model
+materials multiply their alpha. This is coverage fading; a custom vertex or
+fragment shader that wants it calls `faded(slot, pixel)` (fade.wgsl, in
+`MATERIAL_SHADOWS_WGSL`) itself. Custom-material hooks ignore both.
+`MaterialOverrides` replaces a model material's base colour factor, zero channels
+included (and adds emission), on one instance: it becomes that material's records'
+tint with a flag that drops the authored factor, so instances in different colours
+still share their batches.
 Present rebuilds these every tick; the feed compares each entity's content, so
 unchanged looks cost nothing and changed ones (a pulsing glow) patch that entity's
 records and part looks in place in the instance buffer, without a rebatch. Only a
