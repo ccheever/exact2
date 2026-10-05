@@ -253,7 +253,8 @@ at CSS.
 - Standard calls are free functions, not methods: `trim(s)`, `includes(s, q)`.
   There are no nonempty list literals, object literals, general lambdas, array
   indexing, assignment expressions, or JavaScript built-ins by implication.
-- `fn` parameters and return types are explicit. Its body is one expression over
+- `fn label(done: bool): string = done ? "Done" : "Open"` is a function: parameters
+  and the return type are explicit, after `:` (not `->`). Its body is one expression over
   its parameters and standard calls (including `now()`), without component-state
   capture or recursion. Pass an app value in; do not invent an ambient reference.
 - Named arguments belong to component uses, record constructors,
@@ -501,7 +502,13 @@ or authenticated network session is available while baking. See
 ## Views, layout, and interaction
 
 The view forms are element, component use, `when`/`else`, keyed `each`, exhaustive
-option `match`, and `children`. Wrap root regions in a stable element. A component
+option `match`, and `children`. Wrap root regions in a stable element.
+HTML names Contract spells otherwise (the compiler names each): `div` is `column`,
+`row` or `view`; `span`, `p`, `strong`, `em`, `b` and `i` are `text`; `h1`–`h6` are
+`text role="heading" aria-level=N`; `label` is `text` beside its field, which
+`aria-label` (or `aria-labelledby`) names; `img` is `image`; `a` is `link`; `ul`,
+`ol` and `li` are a `list` or a `column` of rows; `title` and `meta` are `head
+title=… description=…`. A component
 call uses parentheses; a built-in element uses space-separated attributes.
 `button "Save" press=save` is text-child sugar; an explicit text child is useful
 when that label needs its own styling or driver id. A `button` is the web's
