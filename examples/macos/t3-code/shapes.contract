@@ -1,0 +1,158 @@
+shape Project
+  id: string
+  name: string
+  path: string
+  selected: bool
+shape Thread
+  id: string
+  title: string
+  projectName: string
+  projectMark: string
+  age: string
+  badge: string
+  stacked: bool
+  section: string
+  status: string
+  selected: bool
+shape Message
+  id: string
+  kind: string
+  title: string
+  body: string
+shape Provider
+  id: string
+  name: string
+  available: bool
+shape Model
+  id: string
+  name: string
+  providerId: string
+  selected: bool
+shape ModelOption
+  id: string
+  label: string
+  value: string
+  selected: bool
+shape ApprovalOption
+  id: string
+  label: string
+shape Approval
+  id: string
+  label: string
+  detail: string
+  canRespond: bool
+  responseReason: string
+  options: list<ApprovalOption>
+shape QuestionOption
+  id: string
+  label: string
+  description: string
+  selected: bool
+shape Question
+  id: string
+  requestId: string
+  header: string
+  question: string
+  multiSelect: bool
+  canRespond: bool
+  responseReason: string
+  customAllowed: bool
+  answer: string
+  last: bool
+  options: list<QuestionOption>
+shape DiffLine
+  id: string
+  kind: string
+  text: string
+shape DiffFile
+  id: string
+  name: string
+  additions: number
+  deletions: number
+shape Snapshot
+  revision: number
+  available: bool
+  connected: bool
+  connecting: bool
+  syncComplete: bool
+  status: string
+  error: string
+  serverUrl: string
+  uncertain: bool
+  uncertainMessage: string
+  sidebarWidth: number
+  sidebarOpen: bool
+  query: string
+  projectId: string
+  projectName: string
+  threadId: string
+  threadTitle: string
+  draft: string
+  running: bool
+  canSend: bool
+  canStop: bool
+  providerId: string
+  modelId: string
+  modelLabel: string
+  providerDriver: string
+  optionLabel: string
+  optionId: string
+  modelOptions: list<ModelOption>
+  settled: bool
+  projectMark: string
+  runtimeMode: string
+  modeLabel: string
+  interactionMode: string
+  hasMore: bool
+  historyLoading: bool
+  diffOpen: bool
+  diffLoading: bool
+  diffError: string
+  diffText: string
+  diffTitle: string
+  diffLines: list<DiffLine>
+  diffFiles: list<DiffFile>
+  projects: list<Project>
+  threads: list<Thread>
+  messages: list<Message>
+  providers: list<Provider>
+  models: list<Model>
+  approvals: list<Approval>
+  questions: list<Question>
+shape Change
+  revision: number
+  message: string
+shape Viewport
+  width: number
+  height: number
+
+style Ink
+  color="light-dark(#27272a, #ededed)"
+style Muted
+  color="light-dark(#71717a, #858585)"
+style Canvas
+  background-color="light-dark(#fcfcfc, #0a0a0a)"
+style Surface
+  background-color="light-dark(#ffffff, #101010)"
+style Edge
+  border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)"
+style Control
+  display="flex" flex-direction="row" align-items="center" justify-content="center"
+  box-sizing="border-box"
+  padding=7 gap=6 border-radius=8 border-width=0
+  background-color="#00000000" min-height=28 flex-shrink=0
+  color="light-dark(#52525b, #b0b0b0)"
+style Field
+  box-sizing="border-box" min-width=0 padding=10 border-radius=8
+  border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #303030)"
+  background-color="light-dark(#fafafa, #191919)"
+  color="light-dark(#27272a, #ededed)" font-size=13
+style Primary
+  display="flex" flex-direction="row" align-items="center" justify-content="center"
+  box-sizing="border-box"
+  padding-left=13 padding-right=13 height=32 border-radius=16 border-width=0
+  background-color="light-dark(#2451cc, #4475ed)" color="#ffffff"
+style Overlay
+  position="absolute" left=0 right=0 top=0 bottom=0
+  display="flex" align-items="center" justify-content="center"
+  background-color="#00000055" padding=24 box-sizing="border-box" z-index=20

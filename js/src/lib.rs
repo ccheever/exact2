@@ -50,6 +50,7 @@ mod crypto;
 mod engine;
 mod native;
 mod paired;
+mod parking;
 mod pure;
 mod storage;
 mod watch;
@@ -68,7 +69,7 @@ use exact_runner::{
     Store, Target, Work,
 };
 use serde_json::{json, Value as Json};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr};
 use std::sync::Arc;
 use std::time::Instant;
@@ -114,7 +115,7 @@ struct Sig {
 /// A parked answer's key: the runner's target when it named one, then the
 /// source and its arguments. The runner keeps one request in flight per
 /// target, so two targets asking one source with equal arguments are two
-/// calls; a new call on the same key replaces the old one.
+/// calls; the commit decides whether a new call replaces the old one.
 type Key = (Option<Target>, String, Vec<u8>);
 
 /// An answer that awaited a fetch: the prelude's call id, and the fetch
@@ -123,6 +124,9 @@ struct Parked {
     call: u64,
     ticket: u64,
     work_taken: bool,
+    /// An overlapping answer waits for the commit to accept its call before
+    /// handing this request to the host. A speculative re-read discards it.
+    staged: Option<Request>,
 }
 
 /// The ticket of an answer that has not begun: it arrived while another
@@ -883,46 +887,6 @@ impl Module {
         }
     }
 
-    /// The request the prelude recorded for `ticket`, if `fetch` was called.
-    fn take_request(&mut self, ticket: u64) -> Option<Request> {
-        let pos = self.host.requests.iter().position(|(t, _)| *t == ticket)?;
-        Some(self.host.requests.remove(pos).1)
-    }
-
-    /// Whether an answer is between storage steps: parked on its storage
-    /// continuation rather than on a fetch the host runs.
-    fn turn_open(&self) -> bool {
-        self.parked.iter().any(|(_, p)| p.ticket == 0)
-    }
-
-    /// A deferred answer's work: nothing to run, only a turn to wait for.
-    fn deferred_work() -> Dispatch {
-        Dispatch::Run(Work::Now(Box::new(|| {
-            Outcome::Response(Response {
-                status: 200,
-                headers: Vec::new(),
-                body: Vec::new(),
-            })
-        })))
-    }
-
-    fn key(target: Option<Target>, source: &str, args: &[Value]) -> Key {
-        let mut bytes = Vec::new();
-        for a in args {
-            bytes.extend(a.to_bytes());
-        }
-        (target, source.to_string(), bytes)
-    }
-
-    /// Parked calls let go in the prelude too, with the fetches they wait on.
-    fn forget_calls(&mut self, calls: Vec<u64>) {
-        if let Some(engine) = self.engine.as_mut() {
-            for call in calls {
-                let _ = engine.call("__exact_forget", [&call.to_string(), "", ""]);
-            }
-        }
-    }
-
     /// Begin an answer: marshal, call, drain, settle.
     fn begin(
         &mut self,
@@ -953,6 +917,7 @@ impl Module {
                     call: token,
                     ticket: DEFERRED,
                     work_taken: false,
+                    staged: None,
                 },
             ));
             return Ok(Answer::Later(Request::continuation(token)));
@@ -1029,6 +994,26 @@ impl Module {
                     })?
                 };
                 let key = Module::key(target, source, args);
+                // A re-read may discard this answer while keeping the old
+                // request. Its own token lets that commit choose the owner.
+                if target.is_some()
+                    && self
+                        .parked
+                        .iter()
+                        .chain(&self.streams)
+                        .any(|(k, _)| *k == key)
+                {
+                    self.parked.push((
+                        key,
+                        Parked {
+                            call,
+                            ticket,
+                            work_taken: false,
+                            staged: Some(request),
+                        },
+                    ));
+                    return Ok(Answer::Later(Request::continuation(call)));
+                }
                 let replaced: Vec<u64> = self
                     .parked
                     .iter()
@@ -1068,7 +1053,20 @@ impl Module {
                 "`{source}`: a reply for an answer not in flight"
             )));
         };
-        let Parked { call, ticket, .. } = self.parked.remove(pos).1;
+        let Parked {
+            call,
+            ticket,
+            staged,
+            ..
+        } = self.parked.remove(pos).1;
+        if let Some(request) = staged {
+            if let Outcome::Failed { message, .. } = outcome {
+                self.forget_calls(vec![call]);
+                return Err(DataError::Unavailable(message));
+            }
+            self.park(key, call, ticket, &request);
+            return Ok(Answer::Later(request));
+        }
         if ticket == DEFERRED {
             if let Outcome::Failed { message, .. } = &outcome {
                 return Err(DataError::Unavailable(message.clone()));
@@ -1141,21 +1139,6 @@ impl Module {
                 self.park(key, call, ticket, &request);
                 Ok(Answer::Later(request))
             }
-        }
-    }
-
-    /// Park a call on the request it waits for. A stream's call is not
-    /// resumed by its reply: each message is mapped (`__exact_message`).
-    fn park(&mut self, key: Key, call: u64, ticket: u64, request: &Request) {
-        let parked = Parked {
-            call,
-            ticket,
-            work_taken: false,
-        };
-        if request.stream {
-            self.streams.push((key, parked));
-        } else {
-            self.parked.push((key, parked));
         }
     }
 
@@ -1280,7 +1263,7 @@ impl DataSource for Module {
         if self
             .parked
             .iter()
-            .any(|(_, p)| p.call == token && p.ticket == DEFERRED)
+            .any(|(_, p)| p.call == token && (p.ticket == DEFERRED || p.staged.is_some()))
         {
             // The owner-thread and test paths run turns in order already.
             return Some(Box::new(|| {
@@ -1342,24 +1325,11 @@ impl DataSource for Module {
     /// Calls whose requests the runner let go are dropped, here and in the
     /// prelude with the fetches they wait on (LLP 1016 D5).
     fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
-        let keep: HashSet<Key> = in_flight
-            .iter()
-            .map(|f| Module::key(Some(f.target), f.source, f.args))
-            .collect();
-        let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.parked)
-            .into_iter()
-            .partition(|(key, _)| key.0.is_some() && !keep.contains(key));
-        self.parked = kept;
-        let (ended, open): (Vec<_>, Vec<_>) = std::mem::take(&mut self.streams)
-            .into_iter()
-            .partition(|(key, _)| key.0.is_some() && !keep.contains(key));
-        self.streams = open;
-        self.forget_calls(
-            gone.into_iter()
-                .chain(ended)
-                .map(|(_, parked)| parked.call)
-                .collect(),
-        );
+        self.forget_unheld(in_flight);
+    }
+
+    fn discard(&mut self, token: u64) {
+        self.discard_parked(token);
     }
 
     /// Stops the running call, or the next one to start, from any thread:

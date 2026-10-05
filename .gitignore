@@ -15,6 +15,7 @@ game/.shells/
 
 # Declarations the dev producer writes beside each app.ts for an editor.
 apps/*/app.contract.d.ts
+examples/macos/t3-code/app.contract.d.ts
 
 # Messages schema bytecode is compiled at bake, never committed.
 apps/messages-legacy/snapback/backend.ts

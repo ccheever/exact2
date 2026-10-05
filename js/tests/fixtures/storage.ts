@@ -14,6 +14,12 @@ async function answer(_source:string, args:unknown[], store:Store, storage:Stora
     try { return {text:String((await native!.later({value})).text)}; }
     catch(error:any) { return {text:'refused: ' + error.message}; }
   }
+  if (op === 'later-steps') {
+    if (!native?.available) return {text: 'no native module'};
+    const first = await native.later({value: 'status'});
+    const second = await native.later({value: 'events'});
+    return {text: String(first.text) + ':' + String(second.text)};
+  }
   if (op === 'native' || op === 'native-fetch') {
     if (!native?.available) return {text: 'no native module'};
     try {

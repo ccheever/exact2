@@ -1,0 +1,21 @@
+{
+  "$schema": "../../../scripts/app.schema.json",
+  "name": "T3 Code",
+  "short_name": "T3 Code",
+  "id": "com.exact.t3code.macos",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#fafafa",
+  "background_color": "#fafafa",
+  "app": { "id": "com.exact.t3code.macos", "name": "T3 Code" },
+  "modules": [],
+  "hooks": ["t3-composer", "t3-send"],
+  "rust": "off",
+  "host": {
+    "macos": {
+      "minimumOS": "14.0",
+      "window": { "width": 1280, "height": 840, "minWidth": 840, "minHeight": 620 }
+    }
+  },
+  "deploy": { "store": { "macos": "0", "web": "0", "ios": "0", "linux": "0" } }
+}

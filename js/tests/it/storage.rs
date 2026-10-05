@@ -223,6 +223,237 @@ fn native_later_answers_from_the_modules_own_thread() {
     assert!(native.handler().is_none());
 }
 
+fn native_reread_fixture() -> (Root, Runner<Module>, u64) {
+    struct Native;
+    impl exact_js::NativeModule for Native {
+        fn configure_storage(&mut self, _: PathBuf, _: PathBuf, _: PathBuf) -> Result<(), String> {
+            Ok(())
+        }
+        fn call(&mut self, _: &serde_json::Value) -> Result<serde_json::Value, String> {
+            unreachable!("this fixture only makes deferred calls")
+        }
+        fn later(&mut self) -> Option<exact_js::LaterHandler> {
+            Some(std::sync::Arc::new(|_, _| {
+                unreachable!("the test delivers replies")
+            }))
+        }
+    }
+    let root = Root::new();
+    let plan = contract::compile(
+        r#"
+shape Result
+  text: string
+component App
+  resource data = work("later-steps", "") as shape Result else work("placeholder", "")
+  mutation saved as shape Result refreshes data
+  mutation stored as shape Result
+  action write
+    send saved = work("later", "write")
+  action writeFile
+    send saved = work("file", "saved")
+  action storageOnly
+    send stored = work("file", "saved")
+  action reload
+    refresh data
+  view
+    text data.text testId="data"
+"#,
+    )
+    .unwrap();
+    let mut module = root.module().with_native(|_| Box::new(Native));
+    module.bind(&plan);
+    module.activate().unwrap();
+    let mut runner = Runner::boot(
+        plan,
+        module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let first = runner.take_requests();
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].request.body, br#"{"value":"status"}"#);
+    runner
+        .fulfill(first[0].ticket, response(r#"{"text":"status"}"#))
+        .unwrap();
+    let second = runner.take_requests();
+    assert_eq!(second.len(), 1);
+    assert_eq!(second[0].request.body, br#"{"value":"events"}"#);
+    (root, runner, second[0].ticket)
+}
+
+#[test]
+fn a_discarded_native_reread_preserves_the_request_already_in_flight() {
+    let (_root, mut runner, events) = native_reread_fixture();
+    runner.act("write", vec![]).unwrap();
+    let writes = runner.take_requests();
+    assert_eq!(writes.len(), 1, "the speculative read is never dispatched");
+    assert_eq!(writes[0].request.body, br#"{"value":"write"}"#);
+    runner
+        .fulfill(events, response(r#"{"text":"events"}"#))
+        .unwrap();
+    assert!(
+        runner.take_requests().is_empty(),
+        "the events reply must settle its own read"
+    );
+    let key = runner.kernel().find_by_test_id("data")[0];
+    assert_eq!(
+        runner
+            .kernel()
+            .node_by_key(key)
+            .unwrap()
+            .props
+            .str(PropId::Text),
+        Some("status:events")
+    );
+}
+
+#[test]
+fn a_storage_deferred_reread_preserves_the_native_request_already_in_flight() {
+    let (_root, mut runner, events) = native_reread_fixture();
+    runner.act("writeFile", vec![]).unwrap();
+    let writes = runner.take_requests();
+    assert_eq!(writes.len(), 1, "the storage-deferred read is discarded");
+    assert!(writes[0].request.continuation.is_some());
+    assert_eq!(
+        runner.data().in_flight(),
+        2,
+        "only the write and original read remain"
+    );
+    runner
+        .fulfill(events, response(r#"{"text":"events"}"#))
+        .unwrap();
+    assert!(runner.take_requests().is_empty());
+    let key = runner.kernel().find_by_test_id("data")[0];
+    assert_eq!(
+        runner
+            .kernel()
+            .node_by_key(key)
+            .unwrap()
+            .props
+            .str(PropId::Text),
+        Some("status:events")
+    );
+}
+
+#[test]
+fn an_accepted_native_refresh_replaces_only_its_previous_call() {
+    let (_root, mut runner, events) = native_reread_fixture();
+    runner.act("reload", vec![]).unwrap();
+    let admission = runner.take_requests();
+    assert_eq!(admission.len(), 1);
+    let token = admission[0]
+        .request
+        .continuation
+        .expect("overlapping call waits for acceptance");
+    assert_eq!(
+        runner.data().in_flight(),
+        1,
+        "the commit retired the old call"
+    );
+    assert!(runner
+        .fulfill(events, response(r#"{"text":"old-events"}"#))
+        .unwrap()
+        .is_none());
+    let exact_runner::Dispatch::Run(exact_runner::Work::Now(work)) = runner.dispatch_work(token)
+    else {
+        panic!("the accepted call can be dispatched")
+    };
+    runner.fulfill(admission[0].ticket, work()).unwrap();
+    let status = runner.take_requests();
+    assert_eq!(status.len(), 1);
+    assert_eq!(status[0].request.body, br#"{"value":"status"}"#);
+    runner
+        .fulfill(status[0].ticket, response(r#"{"text":"new-status"}"#))
+        .unwrap();
+    let events = runner.take_requests();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].request.body, br#"{"value":"events"}"#);
+    runner
+        .fulfill(events[0].ticket, response(r#"{"text":"new-events"}"#))
+        .unwrap();
+    let key = runner.kernel().find_by_test_id("data")[0];
+    assert_eq!(
+        runner
+            .kernel()
+            .node_by_key(key)
+            .unwrap()
+            .props
+            .str(PropId::Text),
+        Some("new-status:new-events")
+    );
+    assert_eq!(runner.data().in_flight(), 0);
+}
+
+#[test]
+fn an_accepted_storage_deferred_refresh_never_answers_the_old_native_ticket() {
+    let (_root, mut runner, old_events) = native_reread_fixture();
+    runner.act("storageOnly", vec![]).unwrap();
+    let mut writes = runner.take_requests();
+    assert_eq!(writes.len(), 1);
+    runner.act("reload", vec![]).unwrap();
+    let admission = runner.take_requests();
+    assert_eq!(admission.len(), 1);
+    let token = admission[0]
+        .request
+        .continuation
+        .expect("storage defers the refresh");
+    assert!(matches!(
+        runner.dispatch_work(token),
+        exact_runner::Dispatch::Held
+    ));
+    assert_eq!(runner.data().in_flight(), 2, "the native call was replaced");
+    assert!(runner
+        .fulfill(old_events, response(r#"{"text":"old-events"}"#))
+        .unwrap()
+        .is_none());
+    let mut released = None;
+    for _ in 0..10 {
+        let Some(write) = writes.pop() else { break };
+        let work_token = write.request.continuation.expect("file work stays local");
+        let exact_runner::Dispatch::Run(exact_runner::Work::Now(work)) =
+            runner.dispatch_work(work_token)
+        else {
+            panic!("the open storage turn runs")
+        };
+        runner.fulfill(write.ticket, work()).unwrap();
+        writes.extend(runner.take_requests());
+        for (ready, dispatch) in runner.release_work() {
+            assert_eq!(ready, token);
+            let exact_runner::Dispatch::Run(exact_runner::Work::Now(work)) = dispatch else {
+                panic!("the deferred answer is released")
+            };
+            released = Some(work);
+        }
+    }
+    runner
+        .fulfill(admission[0].ticket, released.expect("storage completed")())
+        .unwrap();
+    let status = runner.take_requests();
+    assert_eq!(status.len(), 1);
+    assert_eq!(status[0].request.body, br#"{"value":"status"}"#);
+    runner
+        .fulfill(status[0].ticket, response(r#"{"text":"fresh-status"}"#))
+        .unwrap();
+    let events = runner.take_requests();
+    assert_eq!(events.len(), 1);
+    runner
+        .fulfill(events[0].ticket, response(r#"{"text":"fresh-events"}"#))
+        .unwrap();
+    let key = runner.kernel().find_by_test_id("data")[0];
+    assert_eq!(
+        runner
+            .kernel()
+            .node_by_key(key)
+            .unwrap()
+            .props
+            .str(PropId::Text),
+        Some("fresh-status:fresh-events")
+    );
+    assert_eq!(runner.data().in_flight(), 0);
+}
+
 /// A module that takes no long calls answers `native.later` through `call`.
 #[test]
 fn native_later_without_a_handler_answers_now() {

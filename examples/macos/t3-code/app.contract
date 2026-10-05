@@ -1,0 +1,441 @@
+use NightlyBackdrop from "./nightly.contract"
+use Icon from "./icons.contract"
+use Wordmark from "./icons.contract"
+use ProviderMark from "./icons.contract"
+use ProjectMark from "./icons.contract"
+use Snapshot from "./shapes.contract"
+use Change from "./shapes.contract"
+use Viewport from "./shapes.contract"
+use Ink from "./shapes.contract"
+use Muted from "./shapes.contract"
+use Canvas from "./shapes.contract"
+use Surface from "./shapes.contract"
+use Edge from "./shapes.contract"
+use Control from "./shapes.contract"
+use Field from "./shapes.contract"
+use Primary from "./shapes.contract"
+use Overlay from "./shapes.contract"
+use ThreadSection from "./panels.contract"
+use TimelineRow from "./panels.contract"
+use Requests from "./panels.contract"
+use DiffPanel from "./panels.contract"
+
+shape Time
+  epochAtZero: number
+
+component T3Code
+  state elapsed = 0
+  resource wallTime = exactTime() as shape Time
+  resource data = snapshot(wallTime.epochAtZero + elapsed) as shape Snapshot
+  action tick
+    elapsed = now()
+  task clock mount
+    every(60000, tick)
+  resource viewport = exactViewport() as shape Viewport
+  mutation changed as shape Change refreshes data then commandCompleted
+  mutation localChanged as shape Change refreshes data
+  state commandPending = false
+  state connecting = false
+  state projectsOpen = false
+  state addingProject = false
+  state modelsOpen = false
+  state optionsOpen = ""
+  state origin = ""
+  state originEdited = false
+  state credential = ""
+  state projectPath = ""
+  state projectTitle = ""
+  state draft = ""
+  state draftOwner = "__unset__"
+  state draggedWidth = 0
+  state jumpRequest = 0
+  derive modal = connecting or projectsOpen or addingProject or modelsOpen
+  derive sidebarWidth = min(max(208, viewport.width - 640), max(208, draggedWidth > 0 ? draggedWidth : data.sidebarWidth))
+  derive narrowDiff = viewport.width < 1180
+  derive diffWidth = min(560, max(360, viewport.width * 0.42))
+  derive conversationWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - (data.diffOpen and not narrowDiff ? diffWidth : 0)
+  derive composerLeft = (data.sidebarOpen ? sidebarWidth : 0) + (conversationWidth - min(736, conversationWidth - 40)) / 2
+  derive composerOwner = `${data.serverUrl}:${data.projectId}:${data.threadId}`
+  derive composerText = draftOwner == composerOwner ? draft : data.draft
+  derive serverOrigin = originEdited ? origin : data.serverUrl
+
+  action closeOptions
+    optionsOpen = ""
+  action openOptions(name: string)
+    optionsOpen = optionsOpen == name ? "" : name
+  action modelOption(value: string)
+    optionsOpen = ""
+    if not commandPending
+      commandPending = true
+      send changed = command("model-option", data.optionId, value, 0)
+  action commandCompleted
+    commandPending = false
+  action command(op: string, id: string, value: string, n: number)
+    if op == "draft" or op == "search" or op == "sidebar" or op == "answer" or op == "choice" or op == "dismiss-error" or op == "close-diff"
+      send localChanged = command(op, id, value, n)
+    else
+      if not commandPending
+        commandPending = true
+        send changed = command(op, id, value, n)
+  action openConnection
+    connecting = true
+    credential = ""
+  action closeModal
+    connecting = false
+    projectsOpen = false
+    addingProject = false
+    modelsOpen = false
+    credential = ""
+    origin = ""
+    originEdited = false
+  action editOrigin(value: string)
+    origin = value
+    originEdited = true
+  action editCredential(value: string)
+    credential = value
+  action connect
+    if not commandPending
+      draftOwner = "__unset__"
+      commandPending = true
+      send changed = command("connect", serverOrigin == "" ? credential : serverOrigin, credential, 0)
+      credential = ""
+      origin = ""
+      originEdited = false
+      connecting = false
+  action reconnect
+    if not commandPending
+      commandPending = true
+      send changed = command("reconnect", "", "", 0)
+  action disconnect
+    if not commandPending
+      draftOwner = "__unset__"
+      commandPending = true
+      send changed = command("disconnect", "", "", 0)
+      connecting = false
+  action forget
+    if not commandPending
+      draftOwner = "__unset__"
+      commandPending = true
+      send changed = command("forget", "", "", 0)
+      credential = ""
+      connecting = false
+  action toggleSidebar
+    send localChanged = command("sidebar", "", data.sidebarOpen ? "closed" : "open", sidebarWidth)
+  action resizeSidebar(dx: number, dy: number)
+    // Exact's pan delivers incremental viewport deltas, not total translation.
+    draggedWidth = min(max(208, viewport.width - 640), max(208, sidebarWidth + dx))
+  action finishResize(vx: number, vy: number)
+    send localChanged = command("sidebar", "", "open", sidebarWidth)
+  action search(value: string)
+    send localChanged = command("search", "", value, 0)
+  action openProjects
+    projectsOpen = true
+  action selectProject(id: string)
+    if not commandPending
+      draftOwner = "__unset__"
+      commandPending = true
+      send changed = command("select-project", id, "", 0)
+      projectsOpen = false
+  action addProject
+    projectsOpen = false
+    addingProject = true
+  action editProjectPath(value: string)
+    projectPath = value
+  action editProjectTitle(value: string)
+    projectTitle = value
+  action saveProject
+    if not commandPending
+      commandPending = true
+      send changed = command("add-project", projectPath, projectTitle, 0)
+      addingProject = false
+  action selectThread(id: string)
+    if not commandPending
+      draftOwner = "__unset__"
+      commandPending = true
+      send changed = command("select-thread", id, "", 0)
+      jumpRequest = jumpRequest + 1
+  action newThread
+    if not commandPending
+      if data.projectId != ""
+        draftOwner = "__unset__"
+        commandPending = true
+        send changed = command("new-thread", "", "", 0)
+        jumpRequest = jumpRequest + 1
+        focus("composer")
+      else
+        projectsOpen = true
+  action write(value: string)
+    draft = value
+    draftOwner = composerOwner
+    send localChanged = command("draft", "", value, 0)
+  action send
+    if not commandPending
+      if data.canSend and composerText != ""
+        commandPending = true
+        send changed = command("send", "", composerText, 0)
+        draftOwner = "__unset__"
+        jumpRequest = jumpRequest + 1
+  action stop
+    if not commandPending
+      commandPending = true
+      send changed = command("stop", "", "", 0)
+  action openModels
+    modelsOpen = true
+  action selectProvider(id: string)
+    if not commandPending
+      commandPending = true
+      send changed = command("provider", id, "", 0)
+  action selectModel(id: string)
+    if not commandPending
+      commandPending = true
+      send changed = command("model", id, "", 0)
+      modelsOpen = false
+  action runtime(value: string)
+    optionsOpen = ""
+    if not commandPending
+      commandPending = true
+      send changed = command("runtime", "", value, 0)
+  action interaction(value: string)
+    optionsOpen = ""
+    if not commandPending
+      commandPending = true
+      send changed = command("interaction", "", value, 0)
+  action answer(id: string, value: string)
+    send localChanged = command("answer", id, value, 0)
+  action toggleDiff
+    if data.diffOpen
+      send localChanged = command("close-diff", "", "", 0)
+    else
+      if not commandPending
+        commandPending = true
+        send changed = command("diff", "", "", 0)
+  action closeDiff
+    send localChanged = command("close-diff", "", "", 0)
+  action earlier
+    if not commandPending
+      if data.hasMore and not data.historyLoading
+        commandPending = true
+        send changed = command("history", "", "", 0)
+
+  view
+    main testId="t3-code" viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas font-family="system-ui" color="light-dark(#27272a, #f5f5f5)"
+      row width="100%" height="100%" min-width=0 inert=modal
+        when data.sidebarOpen
+          column width=sidebarWidth height="100%" flex-shrink=0 background-color="light-dark(#fafafa, #080808)" border-right-style="solid" border-right-width=1 border-color="light-dark(#e4e4e7, #252525)" position="relative" testId="sidebar"
+            NightlyBackdrop()
+            row height=52 flex-shrink=0 padding-left=90 padding-right=8 gap=12 align-items="center" position="relative"
+              button press=toggleSidebar class=Control width=28 height=28 padding=6 aria-label="Toggle sidebar" aria-keyshortcuts="Meta+B" testId="toggle-sidebar"
+                Icon(name="sidebar", color="#d8daed", size=16)
+              row gap=4 align-items="center"
+                Wordmark()
+                text "Code" font-size=14 font-weight=500 letter-spacing=-0.35 color="#c4c3d2"
+            row padding-left=4 padding-right=4 gap=0 height=40 flex-shrink=0 align-items="center"
+              row flex=1 min-width=0 align-items="center" gap=8 padding-left=10
+                Icon(name="search", size=16, color="light-dark(#71717a, #858585)")
+                input value=data.query input=search placeholder="Search" aria-label="Search threads" testId="search-threads" font-size=14 flex=1 min-width=0 border-width=0 background-color="#00000000" class=Ink
+              button press=openProjects class=Control width=28 aria-label="Choose project" testId="choose-project"
+                Icon(name="folder", size=16, color="light-dark(#71717a, #858585)")
+              button press=addProject class=Control width=28 aria-label="Add project" testId="add-project" disabled=(not data.connected)
+                Icon(name="folder-plus", size=16, color="light-dark(#71717a, #858585)")
+              button press=newThread class=Control width=28 aria-label="New thread" aria-keyshortcuts="Meta+N" testId="new-thread" disabled=(commandPending or not data.connected)
+                Icon(name="compose", size=16, color="light-dark(#71717a, #858585)")
+            scroll flex=1 min-height=0 padding-left=4 padding-right=4 padding-bottom=8 testId="thread-list"
+              column min-height="100%" width="100%" gap=1
+                ThreadSection(threads=data.threads, section="pinned", label="", select=selectThread)
+                ThreadSection(threads=data.threads, section="active", label="", select=selectThread)
+                box flex=1 min-height=16
+                ThreadSection(threads=data.threads, section="working", label="Working", select=selectThread)
+                ThreadSection(threads=data.threads, section="snoozed", label="Snoozed", select=selectThread)
+                ThreadSection(threads=data.threads, section="settled", label="Settled", select=selectThread)
+                when data.query != "" and length(data.threads) == 0
+                  text "No threads found" class=Muted font-size=12 text-align="center" padding=20
+            row height=40 padding-left=8 padding-right=8 box-sizing="border-box" align-items="center" gap=4 flex-shrink=0
+              button press=openConnection testId="connection-settings" class=Control width=28 height=28 padding=6 aria-label="Settings"
+                Icon(name="settings", size=16, color="light-dark(#71717a, #858585)")
+              box flex=1
+              when not data.connected
+                button press=openConnection class=Control testId="connect-server"
+                  text (data.connecting ? "Connecting…" : "Connect") font-size=12 class=Muted
+              button press=reconnect testId="reconnect-server" class=Control width=28 height=28 padding=6 aria-label="Reconnect server"
+                Icon(name="refresh", size=16, color="light-dark(#71717a, #858585)")
+            box position="absolute" top=52 bottom=0 right=-3 width=6 z-index=5 touch-action="none" pan=resizeSidebar panrelease=finishResize aria-label="Resize sidebar" testId="sidebar-resize"
+        column flex=1 min-width=0 height="100%" position="relative"
+          row height=52 flex-shrink=0 align-items="center" gap=10 padding-left=(data.sidebarOpen ? 20 : 90) padding-right=14
+            when not data.sidebarOpen
+              button press=toggleSidebar class=Control width=28 aria-label="Toggle sidebar" aria-keyshortcuts="Meta+B" testId="toggle-sidebar"
+                Icon(name="sidebar", size=16, color="light-dark(#71717a, #858585)")
+              button press=newThread class=Control width=28 aria-label="New thread" aria-keyshortcuts="Meta+N" disabled=(commandPending or not data.connected)
+                Icon(name="compose", size=16, color="light-dark(#71717a, #858585)")
+            when data.projectId != ""
+              ProjectMark(label=data.projectMark, muted=false)
+              text data.projectName font-size=14 class=Muted line-clamp=1 max-width=180
+              text "/" font-size=14 color="light-dark(#d4d4d8, #525252)"
+            text (data.threadTitle == "" ? "New thread" : data.threadTitle) font-size=14 font-weight=500 class=Ink flex=1 min-width=0 line-clamp=1
+            button press=toggleDiff class=Control width=28 aria-label="Toggle changes" aria-keyshortcuts="Meta+D" testId="toggle-diff" disabled=(data.threadId == "") background-color=(data.diffOpen ? "light-dark(#eceef4, #242424)" : "#00000000")
+              Icon(name="changes", size=16, color="light-dark(#71717a, #858585)")
+          when data.error != ""
+            row padding=10 gap=10 background-color="light-dark(#fef2f2, #291516)" align-items="center" flex-shrink=0 testId="error-banner"
+              text data.error font-size=12 line-height=1.4 color="light-dark(#b91c1c, #fca5a5)" flex=1 min-width=0
+              button press=command("dismiss-error", "", "", 0) class=Control aria-label="Dismiss error"
+                text "×" font-size=18 class=Muted
+          when data.uncertain
+            row padding=12 gap=10 background-color="light-dark(#fffbeb, #211b0e)" align-items="center" flex-shrink=0 testId="uncertain-banner"
+              text data.uncertainMessage font-size=12 line-height=1.4 class=Ink flex=1 min-width=0
+              button press=command("retry", "", "", 0) disabled=(commandPending or not data.connected or not data.syncComplete) class=Control border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)"
+                text "Retry request" font-size=12 class=Ink
+          when length(data.messages) == 0
+            column flex=1 min-height=0 justify-content="center" align-items="center" padding=32 gap=10 testId="empty-thread"
+              text (data.connected ? "What would you like to build?" : "Connect to T3 Code") font-size=20 font-weight=500 letter-spacing=-0.5 class=Ink text-align="center"
+              text (not data.connected ? "Connect to your local T3 server to get started." : data.projectId == "" ? "Choose a project, then start a thread." : "Your project, your tools, your coding agent.") font-size=13 line-height=1.5 class=Muted text-align="center"
+              when data.connected and data.projectId == ""
+                button press=openProjects class=Primary margin-top=8 testId="empty-choose-project"
+                  text "Choose project" font-size=12 color="#ffffff"
+          else
+            when data.hasMore
+              button press=earlier disabled=(commandPending or data.historyLoading) class=Control align-self="center" margin-top=8 testId="load-earlier"
+                text (data.historyLoading ? "Loading history…" : "Load earlier messages") font-size=11 class=Muted
+            list virtualized=true scrollFollowEnd=true scrollTop=(1000000 + jumpRequest) id="transcript" testId="transcript" flex=1 min-height=0 width="100%" overflow-x="hidden"
+              each message in data.messages key=message.id
+                TimelineRow(message=message)
+          column padding-left=20 padding-right=20 padding-top=12 padding-bottom=20 flex-shrink=0 align-items="center" width="100%" box-sizing="border-box"
+            column width="100%" max-width=736 position="relative"
+              Requests(data=data, command=command, answer=answer, busy=commandPending, maximumHeight=min(300, max(120, viewport.height * 0.35)))
+              when data.settled
+                row margin-left=22 margin-right=22 margin-bottom=-12 padding-left=10 padding-right=10 padding-top=7 padding-bottom=19 gap=8 align-items="center" border-radius=20 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #1d1d1d)" background-color="light-dark(#fafafa, #101010)" testId="settled-banner"
+                  Icon(name="check", size=12, color="light-dark(#71717a, #858585)")
+                  text "This thread is settled" font-size=12 class=Ink
+                  text "Send a message to unsettle" font-size=12 class=Muted flex=1 min-width=0 line-clamp=1
+                  button press=command("unsettle", "", "", 0) class=Control disabled=commandPending testId="unsettle-thread" padding=0
+                    text "Un-settle" font-size=12 class=Ink
+              column width="100%" padding=16 gap=16 border-radius=24 class=Surface border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #202020)" box-sizing="border-box" testId="composer-surface" position="relative"
+                textarea id="composer" testId="composer" hook="t3-composer" value=composerText input=write submit=send placeholder=(data.connected ? "Ask anything, or describe a task…" : "Connect to your T3 server to send a message") aria-label="Message" width="100%" height=64 font-size=14 line-height="21px" padding=0 border-width=0 background-color="#00000000" class=Ink autocorrect="off" spellcheck="false"
+                row width="100%" gap=4 align-items="center" min-width=0 height=32
+                  button press=openModels class=Control aria-label="Choose provider and model" aria-keyshortcuts="Meta+Shift+M" testId="model-picker" disabled=(not data.connected) max-width=240 padding-left=0 padding-right=6 height=28 gap=6
+                    ProviderMark(driver=data.providerDriver)
+                    text (data.modelLabel == "" ? "Choose model" : data.modelLabel) font-size=14 class=Muted line-clamp=1 min-width=0
+                    Icon(name="chevron", size=12, color="light-dark(#71717a, #858585)")
+                  when data.optionId != ""
+                    box width=1 height=16 background-color="light-dark(#e4e4e7, #222222)" margin-left=5 margin-right=5
+                    button press=openOptions("effort") class=Control aria-label="Model reasoning effort" testId="reasoning-effort" disabled=(commandPending or not data.connected or data.running) height=28 padding-left=8 padding-right=8
+                      Icon(name="bolt", size=16, color="light-dark(#71717a, #858585)")
+                      text data.optionLabel font-size=14 class=Muted
+                      Icon(name="chevron", size=12, color="light-dark(#71717a, #858585)")
+                  box width=1 height=16 background-color="light-dark(#e4e4e7, #222222)" margin-left=5 margin-right=5
+                  button press=openOptions("runtime") class=Control aria-label="Approval policy" testId="runtime-mode" disabled=(commandPending or not data.connected or data.running) height=28 padding-left=8 padding-right=8
+                    Icon(name="lock", size=16, color="light-dark(#71717a, #858585)")
+                    text data.modeLabel font-size=14 class=Muted line-clamp=1
+                    Icon(name="chevron", size=12, color="light-dark(#71717a, #858585)")
+                  when data.interactionMode == "plan"
+                    button press=openOptions("runtime") class=Control testId="interaction-mode" aria-label="Plan mode"
+                      Icon(name="plan", size=16, color="light-dark(#71717a, #858585)")
+                      text "Plan" font-size=13 class=Muted
+                  box flex=1 min-width=0
+                  when data.canStop
+                    button press=stop disabled=commandPending testId="stop" aria-label="Stop generation" width=32 height=32 border-radius=16 background-color="light-dark(#27272a, #eeeeee)" border-width=0 display="flex" align-items="center" justify-content="center" flex-shrink=0
+                      box width=10 height=10 border-radius=2 background-color="light-dark(#ffffff, #1c1c1c)"
+                  button press=send id="send-message" hook="t3-send" testId="send-message" aria-label="Send message" aria-keyshortcuts="Meta+Enter" disabled=(commandPending or not data.canSend or composerText == "") width=32 height=32 border-radius=16 background-color=(data.canSend and composerText != "" ? "light-dark(#3b4eba, #353b82)" : "light-dark(#e4e4e7, #202344)") border-width=0 display="flex" align-items="center" justify-content="center" flex-shrink=0
+                    Icon(name="up", size=20, color=(data.canSend and composerText != "" ? "#ffffff" : "light-dark(#a1a1aa, #a3a4bc)"))
+        when data.diffOpen and not narrowDiff
+          box width=diffWidth height="100%" flex-shrink=0
+            DiffPanel(data=data, close=closeDiff)
+      when data.diffOpen and narrowDiff and not modal
+        box position="absolute" top=0 bottom=0 left=0 right=0 background-color="#00000044" z-index=10 press=closeDiff
+        box position="absolute" top=0 bottom=0 right=0 width=min(viewport.width, diffWidth) z-index=11
+          DiffPanel(data=data, close=closeDiff)
+      when optionsOpen != ""
+        box position="absolute" left=0 right=0 top=0 bottom=0 z-index=19 press=closeOptions aria-label="Close options" aria-keyshortcuts="Escape"
+        column position="absolute" left=min(viewport.width - 256, composerLeft + (optionsOpen == "effort" ? 156 : 250)) bottom=76 width=224 padding=6 gap=2 border-radius=12 border-style="solid" border-width=1 border-color="light-dark(#dedee3, #2a2a2a)" background-color="light-dark(#ffffff, #151515)" z-index=30 box-shadow="0 10px 30px #00000033" testId="composer-options"
+          when optionsOpen == "effort"
+            text "Reasoning effort" font-size=11 class=Muted padding=8
+            each option in data.modelOptions key=option.id
+              button press=modelOption(option.value) class=Control justify-content="flex-start" width="100%" testId=`effort-${option.value}` background-color=(option.selected ? "light-dark(#f4f4f5, #252525)" : "#00000000")
+                text option.label font-size=13 class=Ink flex=1
+                when option.selected
+                  text "✓" font-size=13 class=Ink
+          else
+            text "Permissions" font-size=11 class=Muted padding=8
+            button press=runtime("approval-required") class=Control justify-content="flex-start" width="100%" testId="mode-approval-required"
+              text "Ask for approval" font-size=13 class=Ink
+            button press=runtime("auto-accept-edits") class=Control justify-content="flex-start" width="100%" testId="mode-auto-accept-edits"
+              text "Auto-accept edits" font-size=13 class=Ink
+            button press=runtime("auto") class=Control justify-content="flex-start" width="100%" testId="mode-auto"
+              text "Auto" font-size=13 class=Ink
+            button press=runtime("full-access") class=Control justify-content="flex-start" width="100%" testId="mode-full-access"
+              text "Full access" font-size=13 class=Ink
+            box height=1 width="100%" background-color="light-dark(#e4e4e7, #2a2a2a)" margin-top=4 margin-bottom=4
+            button press=interaction(data.interactionMode == "plan" ? "default" : "plan") class=Control justify-content="flex-start" width="100%" testId="toggle-plan-mode"
+              Icon(name="plan", size=16, color="light-dark(#71717a, #858585)")
+              text (data.interactionMode == "plan" ? "Disable plan mode" : "Plan mode") font-size=13 class=Ink
+      when connecting
+        column class=Overlay
+          column width="100%" max-width=460 padding=24 gap=15 border-radius=18 class=Surface border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)" box-sizing="border-box" role="dialog" aria-label="Connect to T3" testId="connection-dialog"
+            row gap=12 align-items="center"
+              text "Connect to T3" font-size=19 font-weight=600 class=Ink flex=1
+              button press=closeModal class=Control aria-label="Close connection settings" aria-keyshortcuts="Escape"
+                text "×" font-size=20 class=Muted
+            text "Use your existing local T3 server. Provider accounts and projects stay with that server." font-size=13 line-height=1.5 class=Muted
+            text "Server address or pairing link" font-size=11 font-weight=500 class=Muted
+            input value=serverOrigin input=editOrigin placeholder="http://127.0.0.1:3773 or a T3 pairing URL" aria-label="Server address or pairing link" testId="server-origin" class=Field width="100%"
+            text "Pairing credential" font-size=11 font-weight=500 class=Muted
+            input value=credential input=editCredential type="password" placeholder="Token or pairing URL; leave blank to reconnect" aria-label="Pairing credential" testId="server-credential" class=Field width="100%"
+            when not data.available
+              text "This client requires its macOS native transport module." font-size=12 color="light-dark(#b91c1c, #fca5a5)"
+            row gap=8 justify-content="flex-end"
+              when data.connected
+                button press=disconnect disabled=commandPending class=Control testId="disconnect"
+                  text "Disconnect" font-size=12 class=Muted
+              button press=forget disabled=commandPending class=Control testId="forget-server"
+                text "Forget connection" font-size=12 class=Muted
+              button press=connect class=Primary disabled=(commandPending or not data.available or data.connecting or (serverOrigin == "" and credential == "")) testId="connect"
+                text "Connect" font-size=12 color="#ffffff"
+      when projectsOpen
+        column class=Overlay
+          column width="100%" max-width=440 max-height=(viewport.height - 96) padding=18 gap=12 border-radius=16 class=Surface border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)" box-sizing="border-box" role="dialog" aria-label="Choose project" testId="project-dialog"
+            row align-items="center" gap=12
+              text "Projects" font-size=17 font-weight=600 class=Ink flex=1
+              button press=addProject class=Control disabled=(not data.connected) testId="project-dialog-add"
+                text "+ Add project" font-size=12 class=Muted
+              button press=closeModal class=Control aria-label="Close project picker" aria-keyshortcuts="Escape"
+                text "×" font-size=19 class=Muted
+            scroll min-height=100 max-height=(viewport.height - 210)
+              column gap=5
+                each project in data.projects key=project.id
+                  button press=selectProject(project.id) disabled=commandPending testId=`project-${project.id}` padding=12 border-radius=9 border-width=0 display="flex" flex-direction="column" align-items="flex-start" gap=4 width="100%" box-sizing="border-box" background-color=(project.selected ? "light-dark(#f0f2f8, #242424)" : "#00000000")
+                    text project.name font-size=14 font-weight=500 class=Ink
+                    text project.path font-size=11 class=Muted line-clamp=2
+                when length(data.projects) == 0
+                  text "Add a workspace folder to start your first thread." font-size=13 line-height=1.5 class=Muted padding=12
+      when addingProject
+        column class=Overlay
+          column width="100%" max-width=450 padding=24 gap=14 border-radius=18 class=Surface border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)" box-sizing="border-box" role="dialog" aria-label="Add project" testId="add-project-dialog"
+            row align-items="center" gap=12
+              text "Add project" font-size=18 font-weight=600 class=Ink flex=1
+              button press=closeModal class=Control aria-label="Close add project" aria-keyshortcuts="Escape"
+                text "×" font-size=20 class=Muted
+            text "Choose an existing folder on the T3 server's Mac." font-size=13 class=Muted
+            input value=projectPath input=editProjectPath placeholder="/Users/you/projects/my-app" aria-label="Workspace folder" testId="project-path" class=Field width="100%"
+            input value=projectTitle input=editProjectTitle placeholder="Project name (optional)" aria-label="Project name" testId="project-name" class=Field width="100%"
+            button press=saveProject class=Primary align-self="flex-end" disabled=(commandPending or projectPath == "" or not data.connected) testId="save-project"
+              text "Add project" font-size=12 color="#ffffff"
+      when modelsOpen
+        column class=Overlay
+          column width="100%" max-width=550 max-height=(viewport.height - 96) border-radius=18 class=Surface border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)" box-sizing="border-box" overflow="hidden" role="dialog" aria-label="Choose model" testId="model-dialog"
+            row padding=16 gap=10 align-items="center" flex-shrink=0
+              text "Choose model" font-size=17 font-weight=600 class=Ink flex=1
+              button press=closeModal class=Control aria-label="Close model picker" aria-keyshortcuts="Escape"
+                text "×" font-size=20 class=Muted
+            row min-height=180 max-height=(viewport.height - 180) align-items="stretch"
+              scroll width=140 flex-shrink=0 background-color="light-dark(#fafafa, #171717)" padding=8 box-sizing="border-box"
+                column gap=5
+                  each provider in data.providers key=provider.id
+                    button press=selectProvider(provider.id) disabled=(commandPending or not provider.available or data.running) testId=`provider-${provider.id}` class=Control justify-content="flex-start" width="100%" box-sizing="border-box" background-color=(provider.id == data.providerId ? "light-dark(#e8ecf8, #273148)" : "#00000000")
+                      text provider.name font-size=12 class=Ink line-clamp=1
+              scroll flex=1 min-width=0 padding=8 box-sizing="border-box"
+                column gap=4
+                  each model in filter(data.models, (m) => m.providerId == data.providerId) key=model.id
+                    button press=selectModel(model.id) disabled=(commandPending or data.running) testId=`model-${model.id}` class=Control width="100%" box-sizing="border-box" justify-content="flex-start" background-color=(model.selected ? "light-dark(#f0f2f8, #242424)" : "#00000000")
+                      text model.name font-size=13 class=Ink flex=1 min-width=0
+                      when model.selected
+                        text "✓" font-size=14 color="light-dark(#2451cc, #79a3ff)"
+                  when length(filter(data.models, (m) => m.providerId == data.providerId)) == 0
+                    text "No models are available. Check provider setup in T3." font-size=12 line-height=1.5 class=Muted padding=12

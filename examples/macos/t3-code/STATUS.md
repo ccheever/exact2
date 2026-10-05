@@ -1,0 +1,44 @@
+# T3 Code clone: status
+
+Date: 2026-10-05. Reference: T3 Code `f870c419fc` (HEAD `1e2ecbd975`). exact2 base `c1522fdac`; checked against main `d2cb661eb`.
+
+The newest clone source is in the mc-orch worktree (`~/Documents/work/0.projects/exact2-worktrees/mc-orch-e88043b25805/examples/macos/t3-code/`, untracked, round 11 + an unfinished round 12). This directory holds an older copy (Oct 3) until the move. The full plan with item IDs is `~/.claude/plans/humble-humming-kay.md`. The framework-level list is in `EXACT2-GAPS.md`.
+
+## 1. Done (round 11, verified by tests and agent drives against the web oracle)
+
+Checks at round 11: `bun test` 991/0, strict `tsc` clean, `contract build` OK, 26 AppKit test binaries green, pixel matrix at 1280×840 and 840×620, light and dark.
+
+- **Connection:** pairing, Keychain credentials, saved environments, reconnect ladder, SSH environments, outdated-host update, Load balancing / GitHub sharing settings (UI only).
+- **Sidebar:** projects, shelves (Working/active/Settled/Snoozed), search, pin, settle and snooze, drag between shelves, row-action sweep, draft rows with context menu and undo.
+- **Conversation:** history paging, streaming rows, work log, checkpoints, changed files, Markdown, code blocks, Mermaid, Shiki-matched code colours, workspace-preparation Retry.
+- **Composer:** send/stop/queue/steer, model picker, reasoning and runtime options, Plan/Build, slash and @ menus, file/image/video attachments, stash, multi-model drafts.
+- **Requests:** approvals and questions.
+- **Version control:** branch picker, git actions, commit dialog, pull, publish wizard, new worktree, pull request checkout dialog.
+- **Right panel:** workspace card, diffs, Files (tree, previews, editor, rendered HTML), linked pull requests, pull request surface (read and Ready/Merge), attachment previews (PDF, HTML, audio, video), Device surface (3D phone, tools, iPhone Duo, foldable).
+- **Pages:** Pull Requests list and detail (read), Usage, welcome wizard, command palette, toasts, notifications.
+- **Settings:** all 14 routes, theme editor and VS Code theme import, keybindings, providers (config only), connections, SnapShots, diagnostics, licenses.
+- **Desktop shell:** reference menu bar, ⌘Q hold, window frame persistence, Korean 2-Set chord handling.
+
+Round 12 (unfinished, in mc-orch): r12-sidebar and r12-render done (`bun test` 1025/0); r12-threads stopped mid-work; no native build or Swift tests after the stop.
+
+## 2. To do (app level)
+
+IDs follow the plan.
+
+- **Round 12 wrap-up:** finish r12-threads; build and test the fixr edits; fix the real-input failures (scroll position after a wheel and a thread switch, Files editor focus, 1970 onboarding time, false "Some requests are slow" toast, `t3.server.origin` after removing a backend).
+- **Move and rebase:** copy the newest clone here; rebase onto exact2 main (LLP 1091 `use` lines, new button layout, remove workarounds that main fixed).
+- **A. Upstream (53 commits):** remove the reverted "/compact before resume" (A1); on-demand tool output `orchestration.getTurnItem` (A2); card-less tool rows (A3); descriptive file links (A4); Working order (A5); Shift PR quick actions (A6); multi-route environments (A7); install-aware update commands (A8); and A9–A17.
+- **B. Large features:** terminal drawer and Terminal surface (Ghostty WASM in a WKWebView), floating device player drag/resize, interface font size (needs framework X3).
+- **C. Pull requests:** comment and review composer, title/description/comment editing, reviewer and label pickers, Code tab with review threads, reactions, host stacks, PR-side thread links, hover cards, live refresh, Merge/Update branch header actions.
+- **D. Providers and settings:** provider sign-in and runtime install, managed Codex with ChatGPT, ACP sign-in and session management, ChatGPT plan notices, reset credits, `/feedback`, thread Automations and live scheduled tasks, tracked project clone, custom model options, Update all.
+- **E. Desktop:** embedded local T3 server, "This machine" (Local environment, Network access, Tailscale HTTPS, authorized clients, pairing links), `t3 app` activation, `t3code://` deep links, SSH password prompt, keep-awake, small menu and quit-hold differences.
+- **G. Chat, composer, diff:** `server.reportClientActivity` every 25 s (G1, highest impact), diff and Files line comments, Cite from a reply, large-diff loading and expandable lines, "Delete the worktree too?", composer server-update banner, Auto balance, media actions, ultrathink frame and Cursor `fastMode:false`, legacy sidebar, compact composer menu, keybinding gaps.
+- **Verification still owed:** real-input sessions, real device hub, reference Electron app as desktop oracle, protocol-trace comparison; GitHub writes later with disposable accounts.
+
+## 3. Framework level (exact2) — see `EXACT2-GAPS.md`
+
+- **Policy decisions:** Browser surface (Chromium + CDP, X1), Developer Tools (X2), notification actions and badges (X28), timers in data sources (X19).
+- **Missing features:** app-settable root font size (X3), helper executables in the bundle (X4), URL scheme delivery (X5), quit hold for modules (X6), macOS ATS keys (X7), agent pointer input to native views (X8), resources outside the root file (X9), rich-text editing (X20), two-way WebSocket (X21), reactive layout facts (X22), scroll restore and offsets (X23), still-pointer rehover (X24), keyup / `KeyboardEvent.code` / capture phase (X25), menu control (X26), title-bar options (X27), `app:/` video and PDF (X29), TS topic announce and pixel readback (X30).
+- **Rendering parity:** text (X10), shadows and blur (X11), textarea sizing (X12), hover during a pan (X13), non-Latin chords (X15), smart substitutions (X16), popover flips (X17), SVG morph (X18).
+- **Runtime bug:** native replies dropped for a let-go answer (X14); the clone carries `js/src/parking.rs` as an uncommitted fix.
+- **Already fixed on main:** `pointer-events: none` and overflow hit testing, `cursor`, popover top/bottom placement, key bubbling and `tabindex`, awaiting another answer's fetch, `title` tooltips.
