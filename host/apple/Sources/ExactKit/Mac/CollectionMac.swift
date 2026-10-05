@@ -9,6 +9,7 @@ import AppKit
 /// than carrying the background into view (LLP 1050.000 D5).
 final class FlippedView: NSView {
     override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { raisedHit(super.hitTest(point), point) }
     /// What the mounted rows cover, in this view's coordinates; nil: anything.
     var preparedLimit: (() -> NSRect?)?
     /// AppKit's last request, kept so rows built later can widen the answer.
@@ -223,7 +224,13 @@ extension CollectionHost {
         // Spacer reuse can move a pinned row within the same parent. Detaching
         // it to reorder clears AppKit's first responder, even when its logical
         // selection and the row itself survive the collection commit.
-        let ordered = container.subviews.filter { !($0 is NodeView) } + children
+        // A row playing its exit (LLP 1063) is still a subview but no longer
+        // a child: it stays above its old siblings, where `beginExit` put it,
+        // and every subview has a rank (mail F22: a nil rank trapped). A
+        // paint ghost keeps its own place (`keepingGhosts`).
+        let wanted = Set(children.map(ObjectIdentifier.init))
+        let leaving = container.subviews.filter { ($0 as? NodeView).map { !$0.paintGhost } ?? false && !wanted.contains(ObjectIdentifier($0)) }
+        let ordered = container.subviews.filter { !($0 is NodeView) } + NodeView.keepingGhosts(children.filter { $0.superview === container }, in: container) + leaving
         guard !ordered.elementsEqual(container.subviews, by: { $0 === $1 }) else { return }
         var ranks = Dictionary(uniqueKeysWithValues: ordered.enumerated().map { (ObjectIdentifier($0.element), $0.offset) })
         withUnsafeMutablePointer(to: &ranks) { context in
@@ -278,9 +285,10 @@ extension CollectionHost {
         return Double(horizontal ? node.bounds.width : node.bounds.height)
     }
     /// An anchor's correction (`CollectionCursor.takeShift`): the offset
-    /// moves by `delta` with the rows that moved; a momentum scroll's next
-    /// delta goes on from there.
-    func shift(_ id: UInt32, by delta: Double, extent: Double) {
+    /// moves by `delta` with the rows that moved, from `start` (where the
+    /// batch began, before the clip view clamped to a document that shrank
+    /// under it); a momentum scroll's next delta goes on from there.
+    func shift(_ id: UInt32, by delta: Double, extent: Double, from start: Double?) {
         guard let node = presenter?.views[id], let scroll = node.scroll else { return }
         let clip = scroll.contentView, horizontal = entries[id]?.snapshot.horizontal ?? false
         let content = node.contentBox()
@@ -293,7 +301,7 @@ extension CollectionHost {
             owedTargets[id] = horizontal ? NSPoint(x: headed.x + CGFloat(delta), y: headed.y) : NSPoint(x: headed.x, y: headed.y + CGFloat(delta))
             return
         }
-        let now = Double(horizontal ? clip.bounds.minX - content.minX : clip.bounds.minY - content.minY)
+        let now = start ?? Double(horizontal ? clip.bounds.minX - content.minX : clip.bounds.minY - content.minY)
         correct(id, top: now + (delta.isFinite ? delta : 0), extent: extent)
     }
     /// A smooth correction's target that arrived while one was animating.

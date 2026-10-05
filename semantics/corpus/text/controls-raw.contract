@@ -1,0 +1,21 @@
+// Raw control characters (U+0001, U+001F, DEL, U+0085, U+2028) inside a
+// typed string: both sides must quote them identically.
+component App
+  state s = ""
+  derive n = length(s)
+  action set(v: string)
+    s = v
+  view
+    column
+      input value=s change=set testId="in"
+      text s testId="echo"
+
+test "raw controls"
+  type "in" "ab"
+  expect state n == 3
+  type "in" ""
+  expect state n == 2
+  type "in" "xy z"
+  expect state n == 5
+  type "in" ""
+  expect state n == 3

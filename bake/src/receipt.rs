@@ -527,7 +527,29 @@ fn artifact_graph(
         }
         artifacts.push(json!({"name":asset["name"],"kind":"bundle","sha256":asset["sha256"],"bytes":asset["bytes"],"requires":requires}));
     }
-    Ok(json!({"version":1,"sources":sources,"surfaceCalls":calls,"artifacts":artifacts}))
+    // The host's loaded modules the plan can reach (LLP 1047 D1's loaded
+    // tier), deferred templates and branches included, each by the rule its
+    // host loads it by: the Canvas 2D GPU module for a `Canvas`, the SVG
+    // island module where `svg_islands` holds, the video arm for a `Video`,
+    // the web arm for a `WebView`. A build whose plan is fixed leaves out
+    // the rest.
+    let makes = |wanted: exact_kernel::NodeType| {
+        plan.nodes
+            .iter()
+            .any(|node| exact_kernel::NodeType::from_wire(node.node_type) == Some(wanted))
+    };
+    let loads: Vec<&str> = [
+        ("canvas", makes(exact_kernel::NodeType::Canvas)),
+        ("svg", exact_runner::svg_islands(plan)),
+        ("video", makes(exact_kernel::NodeType::Video)),
+        ("web", makes(exact_kernel::NodeType::WebView)),
+    ]
+    .into_iter()
+    .filter_map(|(module, reached)| reached.then_some(module))
+    .collect();
+    Ok(
+        json!({"version":1,"sources":sources,"surfaceCalls":calls,"loads":loads,"artifacts":artifacts}),
+    )
 }
 
 /// Refresh the resident compiler's candidate graph beside its plan. The

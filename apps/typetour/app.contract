@@ -164,7 +164,7 @@ component TypeTour
               row height=36 border-radius=10 background-color="light-dark(#e3e3e8, #1c1c1e)" align-items="center" padding-left=10 gap=8
                 box width=12 height=12 border-radius=6 border-style="solid" border-width=2 border-color="light-dark(#8e8e93, #98989d)"
                 text "Search" font-size=17 color="light-dark(#8e8e93, #98989d)"
-              button press=go("settings") testId="settings-profile" width="100%" margin-top=22 display="flex" flex-direction="row" align-items="center" gap=14 padding=12 border-radius=12 background-color="light-dark(#ffffff, #1c1c1e)"
+              button press=go("settings") testId="settings-profile" width="100%" margin-top=22 display="flex" flex-direction="row" align-items="center" gap=14 padding=12 border-radius=12 background-color="light-dark(#ffffff, #1c1c1e)" text-align="start"
                 column width=58 height=58 border-radius=29 background-color="light-dark(#3a3a3c, #636366)" align-items="center" justify-content="center" flex-shrink=0
                   text "CC" font-family="Exciting Lilt" font-weight=700 font-size=24 color="#ffffff"
                 column flex=1 min-width=0 gap=2
@@ -358,7 +358,7 @@ component Notification
     time: string
     press: action
   view
-    button press=press testId=`notification-${id}` width="100%" display="flex" flex-direction="row" gap=12 padding=14 box-sizing="border-box" border-radius=22 background-color="#ffffff2e" align-items="flex-start"
+    button press=press testId=`notification-${id}` width="100%" display="flex" flex-direction="row" gap=12 padding=14 box-sizing="border-box" border-radius=22 background-color="#ffffff2e" align-items="flex-start" text-align="start"
       column width=38 height=38 border-radius=9 background-color="#ffffff" align-items="center" justify-content="center" flex-shrink=0
         text glyph font-family="Exciting Lilt" font-weight=700 font-size=20 color="#0c0c0e"
       column flex=1 min-width=0 gap=2
@@ -415,7 +415,7 @@ component SettingsRow
     to: string
     press: action
   view
-    button press=press(to) testId=`row-${id}` width="100%" display="flex" flex-direction="row" align-items="center" gap=12 padding-left=16 min-height=44
+    button press=press(to) testId=`row-${id}` width="100%" display="flex" flex-direction="row" align-items="center" gap=12 padding-left=16 min-height=44 text-align="start"
       column width=29 height=29 border-radius=7 background-color="light-dark(#3a3a3c, #636366)" align-items="center" justify-content="center" flex-shrink=0
         text glyph font-family="Exciting Lilt" font-weight=700 font-size=17 color="#ffffff"
       row flex=1 min-width=0 align-self="stretch" align-items="center" gap=8 padding-right=16 padding-top=10 padding-bottom=10 border-bottom-style="solid" border-bottom-width=(last ? 0 : 0.5) border-color="light-dark(#c6c6c8, #38383a)"
@@ -454,7 +454,7 @@ component Conversation
     scale: number
     press: action
   view
-    button press=press(id) testId=`conversation-${id}` aria-label=`${name}, ${preview}` width="100%" display="flex" flex-direction="row" align-items="center" gap=8 padding-left=10
+    button press=press(id) testId=`conversation-${id}` aria-label=`${name}, ${preview}` width="100%" display="flex" flex-direction="row" align-items="center" gap=8 padding-left=10 text-align="start"
       box width=8 height=8 border-radius=4 background-color=(unread ? "light-dark(#1c1c1e, #e5e5ea)" : "#00000000") flex-shrink=0
       column width=48 height=48 border-radius=24 background-color="light-dark(#3a3a3c, #636366)" align-items="center" justify-content="center" flex-shrink=0
         text initials font-family="Exciting Lilt" font-weight=700 font-size=20 color="#ffffff"

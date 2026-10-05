@@ -102,6 +102,7 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Only external layout/receipt/scroll paths call this; held transform ticks do not.
     pub(super) fn refresh_transform_geometry(&mut self) -> Option<String> {
+        self.publish_scroll();
         if self.transform_geometry.busy {
             return None;
         }

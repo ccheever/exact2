@@ -72,6 +72,44 @@ impl<D: DataSource> Host<D> {
         self.emit_layout(batch)
     }
 
+    /// @ref LLP 1083 D3 — each sticky node's constraint, when it changed.
+    /// It follows its parent's and its scroller's boxes as well as its own,
+    /// so every sticky node is read again after a layout; there are few.
+    fn emit_sticky(&mut self, batch: &mut Batch) {
+        let kernel = self.runner.kernel();
+        let keys = kernel.sticky_nodes();
+        if keys.is_empty() && self.stickies.is_empty() {
+            return;
+        }
+        let mut now = IdMap::default();
+        for key in keys {
+            let Some(node) = kernel.node_by_key(key) else {
+                continue;
+            };
+            if let Some(c) = kernel.sticky_constraint(key) {
+                if self.stickies.get(&node.id) != Some(&c) {
+                    batch.sticky(node.id, Some(&c));
+                }
+                now.insert(node.id, c);
+            }
+        }
+        for id in self.stickies.keys() {
+            if !now.contains_key(id) && kernel.node(*id).is_some() {
+                batch.sticky(*id, None);
+            }
+        }
+        self.stickies = now;
+    }
+
+    /// LLP 1083.000 D4: publish ranks independently of geometry, including zero.
+    pub(super) fn emit_ranks(&mut self, batch: &mut Batch) {
+        for (id, placed) in self.runner.kernel().paint_order() {
+            if self.ranks.insert(id, placed.rank) != Some(placed.rank) {
+                batch.rank(id, placed.rank);
+            }
+        }
+    }
+
     /// The parent-relative frames and scroll content sizes that changed since
     /// the presenter last heard them.
     fn emit_layout(&mut self, batch: &mut Batch) -> Result<(), String> {
@@ -142,6 +180,8 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.snap_layout(batch);
+        self.emit_sticky(batch);
+        self.emit_ranks(batch);
         // Layout/receipt work may change the live window. Motion-only ticks and
         // stale feedback never traverse the tree to collect this metadata.
         let collections = if self.native_mode() {
@@ -192,6 +232,133 @@ mod tests {
         let k = host.runner.kernel();
         k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
     }
+    #[test]
+    fn ranks_follow_paint_facts_without_geometry_and_clear_to_zero() {
+        use exact_kernel::{StyleId, StyleProps, StyleValue};
+        fn opacity(id: ViewId, value: f64) -> Op {
+            let mut patch = StyleProps::default();
+            patch
+                .set_dynamic(StyleId::Opacity, &StyleValue::Number(value))
+                .unwrap();
+            Op::SetStyle {
+                id,
+                patch: Box::new(patch),
+            }
+        }
+        let mut host = fixture();
+        let root = id(&host, "root");
+        let other = id(&host, "other");
+        assert_eq!(host.ranks[&other], 0);
+        let frame = host.mirror[&other].frame;
+        let mut apply = |ops: &[Op]| {
+            let receipt = host.runner.kernel_mut().apply(0, 99, ops).unwrap();
+            host.commit(&[Timed { at_ms: 0., receipt }], None)
+        };
+        let raised = apply(&[opacity(other, 0.5)]);
+        assert!(
+            raised.contains(&format!("{{\"op\":\"rank\",\"id\":{other},\"rank\":1}}")),
+            "{raised}"
+        );
+        let cleared = apply(&[opacity(other, 1.)]);
+        assert!(
+            cleared.contains(&format!("{{\"op\":\"rank\",\"id\":{other},\"rank\":0}}")),
+            "{cleared}"
+        );
+        assert_eq!(host.mirror[&other].frame, frame);
+        let mut unchanged = Batch::new();
+        host.layout(&mut unchanged).unwrap();
+        assert!(!unchanged
+            .finish(None, false, 0., None)
+            .contains("\"op\":\"rank\""));
+        assert_eq!(host.ranks[&root], 1);
+        let receipt = host
+            .runner
+            .kernel_mut()
+            .apply(0, 100, &[Op::DestroyView { id: other }])
+            .unwrap();
+        host.commit(&[Timed { at_ms: 0., receipt }], None);
+        assert!(!host.ranks.contains_key(&other));
+    }
+
+    #[test]
+    fn ranks_follow_props_children_and_new_roots() {
+        let mut host = fixture();
+        let root = id(&host, "root");
+        let port = id(&host, "port");
+        let other = id(&host, "other");
+        let receipt = host
+            .runner
+            .kernel_mut()
+            .apply(
+                0,
+                99,
+                &[Op::SetProp {
+                    id: other,
+                    prop: PropId::BackgroundMaterial,
+                    value: "thin".into(),
+                }],
+            )
+            .unwrap();
+        let batch = host.commit(&[Timed { at_ms: 0., receipt }], None);
+        assert!(batch.contains(&format!("{{\"op\":\"rank\",\"id\":{other},\"rank\":1}}")));
+        let receipt = host
+            .runner
+            .kernel_mut()
+            .apply(
+                0,
+                100,
+                &[
+                    Op::SetChildren {
+                        id: root,
+                        children: vec![port],
+                    },
+                    Op::AttachRoot { id: other },
+                ],
+            )
+            .unwrap();
+        host.commit(&[Timed { at_ms: 0., receipt }], None);
+        assert_eq!(host.ranks[&other], 1);
+        // A plain box moved out of the tree then made a root changes rank
+        // even though it has no authored style or geometry change.
+        let receipt = host
+            .runner
+            .kernel_mut()
+            .apply(
+                0,
+                101,
+                &[
+                    Op::CreateView {
+                        id: 999,
+                        node_type: NodeType::View,
+                    },
+                    Op::SetChildren {
+                        id: root,
+                        children: vec![port, 999],
+                    },
+                ],
+            )
+            .unwrap();
+        host.commit(&[Timed { at_ms: 0., receipt }], None);
+        assert_eq!(host.ranks[&999], 0);
+        let receipt = host
+            .runner
+            .kernel_mut()
+            .apply(
+                0,
+                102,
+                &[
+                    Op::SetChildren {
+                        id: root,
+                        children: vec![port],
+                    },
+                    Op::AttachRoot { id: 999 },
+                ],
+            )
+            .unwrap();
+        let batch = host.commit(&[Timed { at_ms: 0., receipt }], None);
+        assert!(batch.contains("{\"op\":\"rank\",\"id\":999,\"rank\":1}"));
+    }
+
     #[test]
     fn ancestor_spelling_change_reaches_an_unmoved_editor() {
         let mut host = fixture();

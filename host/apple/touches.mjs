@@ -12,7 +12,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { iosTriple, phoneBridge } from './build.mjs';
+import { iosTriple } from './build.mjs';
+import { phoneBridge } from './devices.mjs';
 
 const ROOT = resolve(new URL('../..', import.meta.url).pathname);
 const RUNNER_ID = 'com.exact.touches.xctrunner';
@@ -215,31 +216,110 @@ export async function openTouches({ udid, appId, appPath, onProcess }) {
 }
 
 const sameAim = (a, b) => a.orientation === b.orientation && a.session === b.session && a.generation === b.generation
-  && ['w', 'h', 'x', 'y'].every((k) => a.screen[k] === b.screen[k]) && a.point[0] === b.point[0] && a.point[1] === b.point[1];
+  && ['w', 'h', 'x', 'y'].every((k) => a.screen[k] === b.screen[k]) && a.point[0] === b.point[0] && a.point[1] === b.point[1]
+  && String(a.viewport) === String(b.viewport);
+
+/** A drag's bounds (LLP 1080.000 §11): each duration in ms; the travel is bounded so its moves fit the dispatch log's ring (D5). */
+export const DRAG_BOUNDS = { press: 10000, hold: 10000, over: 2000, total: 10000 };
 
 /**
- * A real tap on view `id` (LLP 1080.000 D4/D5/D8): the host aims (`at`, a
- * viewport point, or the target's middle), the aim is taken twice and must
- * agree (orientation, origin, size, point, session), the runner checks the
- * app is in the foreground and taps, and the window's dispatch log must show
- * exactly one new touch that began and ended — else an error that says what
- * the log saw. `ask` is the app's carrier; `touches` the runner's.
+ * A real tap on view `id` (LLP 1080.000 D4/D5/D8), or with `drag` one whole
+ * real gesture from it (§11): the host aims (`at`, a viewport point, or the
+ * target's middle), the aim is taken twice and must agree (orientation,
+ * origin, size, point, session), the runner checks the app is in the
+ * foreground and injects, and the window's dispatch log must show exactly
+ * one new touch that began and ended (for a drag that moves, moved by the
+ * asked delta) — else an error that says what the log saw. `drag` is
+ * `{dx, dy, press, over, hold, during}`, points and ms; `during` are thunks
+ * run while the finger is down after the move, each bracketed by the log:
+ * begun before the first, not lifted after the last. `ask` is the app's carrier; `touches`
+ * the runner's.
  */
-export async function realTap({ ask, touches, id, at, abandon }) {
+export async function realTap({ ask, touches, id, at, drag, abandon }) {
   // A failure of the runner or of the app's carrier: no diagnostic read follows it (`tapRefusal`).
   const transport = (message) => Object.assign(new Error(message), { transport: true });
+  const what = drag ? `drag #${id}` : `tap #${id}`;
   const aimReq = { op: 'tap', id, aim: at ? { x: at[0], y: at[1] } : true };
   const first = await ask(aimReq);
   if (first.error) throw new Error(first.error);
   const fg = await touches.ask({ op: 'foreground' });
-  if (fg.error) throw transport(`tap #${id}: the touch runner: ${fg.error}`);
-  if (fg.state !== 'runningForeground') throw new Error(`tap #${id}: the app is ${fg.state ?? fg.error}, not in the foreground`);
+  if (fg.error) throw transport(`${what}: the touch runner: ${fg.error}`);
+  if (fg.state !== 'runningForeground') throw new Error(`${what}: the app is ${fg.state ?? fg.error}, not in the foreground`);
   const aim = (await ask(aimReq));
   if (aim.error) throw new Error(aim.error);
-  if (!sameAim(first.aim, aim.aim)) throw new Error(`tap #${id}: the screen rotated or moved since aim`);
+  if (!sameAim(first.aim, aim.aim)) throw new Error(`${what}: the screen rotated or moved since aim`);
   const a = aim.aim;
-  const injected = await touches.ask({ op: 'tap', point: a.point });
-  if (injected.error) throw transport(`tap #${id}: the touch runner: ${injected.error}`);
+  let request = { op: 'tap', point: a.point }, moves = false, ms = 0;
+  if (drag) {
+    // The end, from the start the host resolved just now, in the viewport it reported with it.
+    const end = [a.at[0] + drag.dx, a.at[1] + drag.dy], [vw, vh] = a.viewport;
+    if (!(end[0] >= 0 && end[1] >= 0 && end[0] <= vw && end[1] <= vh)) throw new Error(`${what}: the drag would end at (${end}), outside the viewport (${vw} × ${vh})`);
+    moves = drag.dx !== 0 || drag.dy !== 0;
+    ms = drag.press + drag.hold + (moves ? drag.over : 0);
+    // Points per second: what XCTest's velocity measured as on a 3x simulator, whatever its header says (§11).
+    request = { op: 'drag', point: a.point, to: [a.point[0] + drag.dx, a.point[1] + drag.dy], press: drag.press / 1000, hold: drag.hold / 1000, velocity: moves ? Math.hypot(drag.dx, drag.dy) / (drag.over / 1000) : 0 };
+  }
+  const injecting = touches.ask(request, RUNNER_MS + ms);
+  let finished = false;
+  injecting.then(() => { finished = true; });
+  const during = [];
+  // The runner's call holds the finger and the app's carrier is free
+  // meanwhile: `during` waits for the new touch to begin, runs the ops, and
+  // checks that touch has not lifted. Every read and op races the gesture:
+  // past its end (and a second's grace) nothing more runs, the dangling
+  // request is left to the carrier's own bound, and the failure names it.
+  // Whatever fails, the gesture is let finish first, and the runner's error
+  // wins. Requests and touch dispatch share the main run loop, so a read
+  // that finds no `ended` came before the window dispatched the lift.
+  if (drag?.during?.length) {
+    const over = Symbol('over');
+    const gestureEnd = injecting.then(() => new Promise((r) => setTimeout(r, 1000))).then(() => over);
+    const raced = async (promise) => {
+      promise.catch(() => {}); // a late failure after the race is not this drive's
+      const r = await Promise.race([promise, gestureEnd]);
+      if (r === over) {
+        // The runner is done; the app has not answered a second after: its carrier is spent.
+        const why = `${what}: the ops during it outlasted the gesture by a second; the app's carrier was stopped (lengthen press or hold)`;
+        abandon?.(why);
+        throw transport(why);
+      }
+      return r;
+    };
+    const entries = async () => {
+      const out = [];
+      for (let cursor = a.seq; ;) {
+        const page = await raced(ask({ op: 'tap', log: cursor }));
+        if (page.error || page.lost) throw new Error(`${what}: the dispatch log: ${page.error ?? `dropped entries past seq ${cursor}`}`);
+        out.push(...page.log);
+        if (page.log.length) cursor = page.log[page.log.length - 1].seq;
+        if (!page.truncated) return out;
+      }
+    };
+    // The one touch that began after the aim, and whether it has lifted.
+    const ours = (log) => {
+      const ids = [...new Set(log.filter((e) => e.phase === 'began').map((e) => e.touch))];
+      if (ids.length > 1) throw new Error(`${what}: ambiguous: ${ids.length} touches after seq ${a.seq}: ${JSON.stringify(log.slice(0, 8))}`);
+      return ids.length ? { lifted: log.some((e) => e.touch === ids[0] && e.phase === 'ended') } : null;
+    };
+    const early = `${what}: the touch lifted before the ops during it`;
+    try {
+      for (let touch; !(touch = ours(await entries()));) {
+        if (finished) throw new Error(ours(await entries())?.lifted ? `${early} began; lengthen press or hold` : `${what}: the runner finished and no touch had begun`);
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (ours(await entries()).lifted) throw new Error(`${early} began; lengthen press or hold`);
+      // The ops run after the move, as the carriers' own phases run them (kanban F14): the runner presses and drags on real time.
+      await new Promise((r) => setTimeout(r, drag.press + (moves ? drag.over : 0)));
+      for (const op of drag.during) during.push(await raced(op()));
+      if (ours(await entries()).lifted) throw new Error(`${early} finished; lengthen press or hold`);
+    } catch (error) {
+      const done = await injecting;
+      if (done.error) throw transport(`${what}: the touch runner: ${done.error}`);
+      throw error;
+    }
+  }
+  const injected = await injecting;
+  if (injected.error) throw transport(`${what}: the touch runner: ${injected.error}`);
   // The barrier: every entry after the aim's seq, paged by the last one read
   // (a reply holds 32), each read bounded by what is left of the second.
   const deadline = Date.now() + 1000;
@@ -251,30 +331,42 @@ export async function realTap({ ask, touches, id, at, abandon }) {
     if (!page) {
       // The app did not answer within the second: its carrier is spent (a
       // late reply must not answer a later request) and the runner ends now.
-      const why = `tap #${id}: the dispatch log did not answer within 1 s of the touch; the app's carrier and the touch runner were stopped`;
+      const why = `${what}: the dispatch log did not answer within 1 s of the touch; the app's carrier and the touch runner were stopped`;
       abandon?.(why);
       touches.end?.();
       throw transport(why);
     }
-    if (page.error) throw new Error(`tap #${id}: the dispatch log: ${page.error}`);
-    if (page.lost) throw new Error(`tap #${id}: the dispatch log dropped entries past seq ${cursor}`);
+    if (page.error) throw new Error(`${what}: the dispatch log: ${page.error}`);
+    if (page.lost) throw new Error(`${what}: the dispatch log dropped entries past seq ${cursor}`);
     seen.push(...page.log);
     if (page.log.length) cursor = page.log[page.log.length - 1].seq;
     if (page.truncated) continue; // more already logged: read it before judging
     const ids = [...new Set(seen.map((e) => e.touch))];
-    if (ids.length > 1) throw new Error(`tap #${id}: ambiguous: ${ids.length} touches after seq ${a.seq}: ${JSON.stringify(seen.slice(0, 8))}`);
+    if (ids.length > 1) throw new Error(`${what}: ambiguous: ${ids.length} touches after seq ${a.seq}: ${JSON.stringify(seen.slice(0, 8))}`);
     const began = seen.find((e) => e.phase === 'began'), end = seen.find((e) => e.phase === 'ended');
     if (began && end) {
-      if (began.session !== a.session || began.generation !== a.generation) throw new Error(`tap #${id}: the touch landed in session ${began.session} (generation ${began.generation}), not ${a.session}`);
-      if (began.node !== a.hit) throw new Error(`tap #${id}: the touch landed on ${began.node == null ? began.view : `node #${began.node}`}, not on node #${a.hit} the aim hit-tested`);
+      if (began.session !== a.session || began.generation !== a.generation) throw new Error(`${what}: the touch landed in session ${began.session} (generation ${began.generation}), not ${a.session}`);
+      if (began.node !== a.hit) throw new Error(`${what}: the touch landed on ${began.node == null ? began.view : `node #${began.node}`}, not on node #${a.hit} the aim hit-tested`);
+      const moved = seen.filter((e) => e.phase === 'moved');
+      const travel = [end.at[0] - began.at[0], end.at[1] - began.at[1]];
+      if (drag) {
+        // It began where aimed and lifted where asked, each within a point
+        // or 5% of the distance, in the window's space the log records.
+        const tolerance = Math.max(1, 0.05 * Math.hypot(drag.dx, drag.dy)), w = a.window;
+        const startOff = Math.hypot(began.at[0] - w[0], began.at[1] - w[1]), endOff = Math.hypot(end.at[0] - w[0] - drag.dx, end.at[1] - w[1] - drag.dy);
+        if (startOff > tolerance) throw new Error(`${what}: the touch began at (${began.at}), not at the aimed (${w}) within ${tolerance.toFixed(1)} pt`);
+        if (endOff > tolerance || (moves && !moved.length)) throw new Error(`${what}: the touch moved (${travel}) in ${moved.length} moves, not the asked (${drag.dx}, ${drag.dy}) within ${tolerance.toFixed(1)} pt`);
+      }
       return {
         tapped: id, at: a.at, delivery: 'platform',
         landed: { session: began.session, generation: began.generation, node: began.node, view: began.view },
-        touch: { began: began.t, ended: end.t, moved: seen.filter((e) => e.phase === 'moved').length, type: began.type },
+        touch: { began: began.t, ended: end.t, moved: moved.length, type: began.type, ...(drag ? { travel, lastMove: moved.at(-1)?.t ?? null } : {}) },
+        ...(drag ? { drag: { dx: drag.dx, dy: drag.dy, press: drag.press, over: moves ? drag.over : 0, hold: drag.hold } } : {}),
+        ...(during.length ? { during } : {}),
         injected: injected.injected, aim: a.point, orientation: a.orientation,
       };
     }
-    if (Date.now() >= deadline) throw new Error(`tap #${id}: no touch reached the app's window within 1 s; the runner finished at ${injected.injected?.end} (log: ${JSON.stringify(seen)})`);
+    if (Date.now() >= deadline) throw new Error(`${what}: no touch reached the app's window within 1 s; the runner finished at ${injected.injected?.end} (log: ${JSON.stringify(seen)})`);
     await new Promise((r) => setTimeout(r, 16));
   }
 }

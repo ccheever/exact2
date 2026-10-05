@@ -52,6 +52,24 @@ margin stays inside it. On the web a root is an element inside
 `#exact-root`, where that margin would collapse through to the page, so the
 web host lowers a block root to `display: flow-root` (2026-09-23; a root at
 y 0 with its child at 30, where the page had both at 30).
+A `button` is Chrome's `<button>` under the web reset (`all: unset;
+display: block`; Charlie, 2026-10-04, reversing 2026-09-23's "One native
+button, flex column", which three app diaries hit: kanban F16, onboarding F3,
+recipes F5, about 25 buttons written around it). Its automatic width shrinks
+to fit, as HTML sizes a button (`item_is_table`, Taffy patch 21). A block
+button's content lies in HTML's anonymous button content box, a flow-root
+centred safely in the block axis, which no `align-content` moves (Chrome 154:
+a 20px child at 40 in 100px, two at 30 and 50, a 150px one at 0); the kernel
+lays its children out with block `align-content: safe center` (`style.rs`
+`taffy_style`; patch 26 moves absolute children's static positions with
+them). The UA sheet's `text-align: center` is a fixed row. An authored `display:
+flex` or `grid` makes an ordinary container, a row unless `flex-direction`
+says otherwise, which Chrome does not centre. Literal Chrome cases:
+`browser_cases::a_button_lays_out_its_content_as_chrome_does`.
+Declared: its outer display is the reset's `block`, not the UA's
+`inline-block`. The kernel has no inline formatting context, so in a block
+parent two buttons stack where Chrome sets them on one line box; in a flex or
+grid parent the two displays are the same (an item is blockified).
 
 **Native tab-bar projection (LLP 1059; Charlie, 2026-09-27):** an iOS
 symbol-and-label tablist can report its native control size through the host
@@ -380,7 +398,9 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   `press-haptic` (host-owned as `press-scale`), `content-transition`,
   `scroll-edge-effect`, `hover-effect` and `smart-invert`. Each draws on the
   platform that has it; the web writes no declaration for them and draws a
-  symbol monochrome. The `-apple-system-*` label, fill and separator colours
+  symbol monochrome. `press-haptic` alone has a web arm: the pressed
+  element's `--exact-press-haptic`, which the input glue plays at the press
+  as `navigator.vibrate` where the browser has it, as `haptic()` does. The `-apple-system-*` label, fill and separator colours
   are WebKit's names. The kernel keeps them as themselves (`ColorValue::System`),
   and each paints as a `light-dark()` pair of UIKit's values. Inside a blur
   material, Apple draws them vibrantly, blended with what the material blurs:
@@ -406,6 +426,15 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   `UITabBar` reports its intrinsic height through the kernel measurement seam
   and fills the resulting box. The former overflow deviation is removed
   (`issues/closed/20260927-tab-bar-height-to-layout.md`).
+
+**Clock timelines (2026-10-03, [LLP 1055.002](1055.002-synced-animations.rfc.md)
+D2; not reviewed).** `animation-timeline` takes a third value, `clock(<ident>)`,
+which CSS has no form of. Its animations stay on the clock (it is `auto` to
+every other reader, the name lookup included) and each starts at the last
+cycle boundary of the timeline it names, so every animation on one timeline is
+in phase. The reason: indicators that appear at different moments (two pending
+commands, skeletons) should pulse together, and CSS can only do that with a
+script setting each animation's `startTime`; the web host does exactly that.
 
 **Drag timelines (2026-09-27, [LLP 1057.003](1057.003-gesture-timelines.rfc.md)
 D1, accepted by Charlie).** `drag-timeline`, bit 150, is not CSS. CSS names a
@@ -521,9 +550,17 @@ box was a containing block:
   nested-z and internal/external SVG backdrop cases on web and macOS
   (2026-09-30); the latter allows the declared display-colour-space difference.
 - **`z-index` orders siblings.** Apple's presenters give it to the layer
-  (`usedZIndex`); the Linux painter does not read it. CSS orders a whole
-  stacking context.
-- **`position: fixed` and `sticky` are not rows.**
+  (`usedZIndex`); the Linux painter stacks siblings by the same rule (LLP
+  1083 D6). CSS orders a whole stacking context.
+- **`order` lays out, and painting stays in tree order** (feed F19). A flex
+  or grid container hands the layout engine its children in order-modified
+  document order (`kernel/src/layout/order.rs`), so items are placed as CSS
+  places them. CSS also paints flex and grid items in that order; the kernel
+  paints them in tree order, so two reordered items that overlap stack as
+  their tree order says. Focus and accessibility order are tree order, as
+  on the web.
+- **`position: fixed` is not a row.** `sticky` lays out as `relative` with no
+  offset; each native host moves it as its scroller scrolls (LLP 1083).
 A text field (`input`, `textarea`) lays out as the web's (2026-09-30): it keeps
 its own width in a block container, where a `<div>` stretches, and stretches in
 flex, under insets and at a percentage. At `field-sizing: fixed` its width is
@@ -1030,3 +1067,50 @@ same intrinsic-size seam. Without metadata its fallback is 300×150. The Contrac
 tag carries the browser video UA rule `object-fit: contain`; an explicit CSS row
 wins. Playback, controls and the media clock belong to the browser or the optional
 AVKit artifact. Keyboard layout uses the existing viewport policy, not media state.
+
+Viewport dimensions (2026-10-04): dimension rows admit `vw`, `vh`, `vmin`,
+`vmax`, `svw`, `svh`, `lvw`, `lvh`, `dvw`, `dvh`. The web retains the CSS
+unit; native resolves it from the root layout offer and re-derives it on
+resize. Native windows have no retractable browser chrome, so their small,
+large and dynamic viewports coincide. Viewport units on scalar length rows
+(font size, spacing, border widths) remain unsupported; their diagnostic
+names the length forms the row accepts.
+
+`cursor` (2026-10-04) admits CSS's predefined keyword set, inherited. Web emits
+the keyword. macOS uses NSCursor; unavailable artwork (help/wait/progress,
+diagonal resize, zoom before macOS 15) uses an arrow/crosshair stand-in. iOS,
+tvOS and Linux ignore this presentation hint: their presenters expose no
+CSS cursor executor. Cursor image URLs remain unsupported.
+
+Font lists (2026-10-04) are CSS family lists, one to 64 members; a plan family
+with no faces names an installed local family. Web uses the full CSS list;
+Apple matches available families and gives CoreText the ordered cascade.
+Linux matches the first available family, with its existing cosmic-text
+glyph fallback. It logs `font-stack-fallback` for a multi-member list: an
+authored per-glyph cascade needs a shaping API beyond cosmic-text's one
+`Attrs.family`, and remains owed rather than silently claimed as CSS parity.
+
+CSS form and text vocabulary (app diaries kanban F11, ledger F1/F4,
+minesweeper F4, pomodoro F2): `rows` is HTML intrinsic line count and maxlength
+limits user UTF-16 edits, leaving authored values intact. Native interactive
+CSS resize handles are not implemented; Contract admits none and diagnoses
+other CSS values. Portable user-select admits auto/none: macOS selection omits
+none subtrees; iOS/Linux have no ordinary selectable text executor, so
+text/all/contain are diagnosed at compile time. Border shorthands reset and
+lower to existing side rows. Native border painters support none/hidden/solid;
+other line styles are diagnosed. Text-decoration lowers solid currentcolor
+underline/line-through to the existing line row; other color/style/thickness
+components are diagnosed. Linux draws its UA lines from font size and glyph
+advances; underline skip-ink:auto is not implemented and its driver log names
+that deviation once. Web and Apple use their text systems' decoration metrics.
+
+CSS flex shorthand admits grow/shrink factors and any admitted dimension basis,
+with the factors adjacent as CSS requires. Intrinsic flex-basis keywords
+content/min-content/max-content/fit-content are not represented by v1 dimension
+rows; the compiler names their intrinsic sizing requirement and refuses them,
+rather than describing valid CSS as a malformed shorthand.
+
+Font-family's other CSS generics (cursive/fantasy/math/emoji/fangsong) have no
+native mapping in the current catalog, and CSS-wide values are not represented
+by plan stack ids. Contract diagnoses both limits; quoted names are local
+families even when their spelling is a CSS generic.

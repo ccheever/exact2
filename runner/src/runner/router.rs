@@ -572,23 +572,42 @@ impl<D: DataSource> Runner<D> {
         let rest = (0..self.plan.slots.len()).filter(|i| Some(*i) != locale);
         for i in locale.into_iter().chain(rest) {
             let row = &self.plan.slots[i];
-            if row.owner.is_some() || self.plan.router == Some(SlotsId(i as u32)) {
+            if row.owner.is_some() || row.late || self.plan.router == Some(SlotsId(i as u32)) {
                 continue;
             }
-            let name = self.plan.str(row.name);
-            let kept = carried
-                .and_then(|c| c.slots.iter().find(|(n, _)| n == name))
-                .map(|(_, v)| v.clone())
-                .filter(|v| v.conforms(&self.plan, row.ty));
-            let v = match kept {
-                Some(v) => v,
-                None => self.eval(row.init, &[], &[])?,
-            };
-            if !v.conforms(&self.plan, row.ty) {
-                return Err(RunnerError::SlotType { slot: name.into() });
-            }
-            self.slots[i] = v;
+            self.init_slot(i, carried)?;
         }
+        Ok(())
+    }
+
+    /// The root slots of children used outside every region, initialized
+    /// as the root instance first renders: after boot settlement, so an
+    /// initializer may read derives and resources (LLP 1017 P4c). A carried
+    /// value still wins, as for any root slot.
+    pub(super) fn init_late_slots(&mut self, carried: Option<&Carried>) -> Result<(), RunnerError> {
+        for i in 0..self.plan.slots.len() {
+            if self.plan.slots[i].late {
+                self.init_slot(i, carried)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn init_slot(&mut self, i: usize, carried: Option<&Carried>) -> Result<(), RunnerError> {
+        let row = &self.plan.slots[i];
+        let name = self.plan.str(row.name);
+        let kept = carried
+            .and_then(|c| c.slots.iter().find(|(n, _)| n == name))
+            .map(|(_, v)| v.clone())
+            .filter(|v| v.conforms(&self.plan, row.ty));
+        let v = match kept {
+            Some(v) => v,
+            None => self.eval(row.init, &[], &[])?,
+        };
+        if !v.conforms(&self.plan, row.ty) {
+            return Err(RunnerError::SlotType { slot: name.into() });
+        }
+        self.slots[i] = v;
         Ok(())
     }
 

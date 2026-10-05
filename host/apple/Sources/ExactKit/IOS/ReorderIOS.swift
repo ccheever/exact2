@@ -2,7 +2,7 @@
 // keeps the List's pan off a vertical contact starts on the drag itself;
 // any handle starts on a long press, which the List's pan beats by moving
 // first (scroll always wins).
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 import QuartzCore
 
@@ -11,7 +11,10 @@ extension NodeView {
         let handle = !(props["reorderFor"] ?? "").isEmpty
         if handle, reorderPan == nil {
             let pan = UIPanGestureRecognizer(target: self, action: #selector(reorderDragged(_:)))
-            pan.maximumNumberOfTouches = 1; pan.delegate = self
+            #if !os(tvOS)
+            pan.maximumNumberOfTouches = 1
+            #endif
+            pan.delegate = self
             let press = UILongPressGestureRecognizer(target: self, action: #selector(reorderDragged(_:)))
             press.delegate = self
             addGestureRecognizer(pan); addGestureRecognizer(press)

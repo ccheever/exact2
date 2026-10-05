@@ -393,6 +393,28 @@ fn anchors_preserve_key_and_offset_through_prepend_reorder_and_height_changes() 
     assert_eq!(index.restore_anchor(&anchor, 20.0).unwrap(), 95.0);
 }
 
+/// At its start a list anchors nothing, as CSS scroll anchoring selects no
+/// anchor at a zero offset: a row inserted on top shows (mail F8). An end it
+/// follows still wins where the start is also the end.
+#[test]
+fn a_list_at_its_start_shows_rows_inserted_above() {
+    let mut short = index(&[5.0; 2]);
+    let transcript = short.capture_anchor(0.0, 20.0, true).unwrap();
+    let mut index = index(&[10.0; 5]);
+    let top = index.capture_anchor(0.0, 20.0, false).unwrap();
+    let mut prepended = keys(5);
+    prepended.insert(0, "new".into());
+    index.replace_keys(prepended).unwrap();
+    assert_eq!(index.restore_anchor(&top, 20.0).unwrap(), 0.0);
+    assert!(!index.kept_row(&top, 20.0, 0.0), "the start stays absolute");
+    short.replace_keys(keys(6)).unwrap();
+    assert!(short.restore_anchor(&transcript, 20.0).unwrap() > 0.0);
+    assert_eq!(
+        short.restore_anchor(&transcript, 20.0).unwrap(),
+        short.total_height() - 20.0
+    );
+}
+
 #[test]
 fn deleted_anchor_chooses_next_survivor_in_old_order_then_previous() {
     let mut index = index(&[10.0; 10]);

@@ -1,0 +1,36 @@
+// Sends in if/else and match branches; record and option arguments.
+shape Draft
+  title: string
+  pinned: bool
+
+shape Saved
+  id: string
+
+component App
+  state draft = Draft(title="t", pinned=false)
+  state maybe = none
+  mutation saved as shape Saved
+  derive savedId = match saved { case some(s) => s.id, case none => "unsaved" }
+  action save
+    if draft.pinned
+      send saved = savePinned(draft)
+    else
+      send saved = save(draft, maybe)
+  action pin
+    draft = Draft(draft, pinned=not draft.pinned)
+  action setMaybe
+    maybe = some(3)
+  view
+    column
+      text savedId testId="id"
+      button "save" press=save testId="save"
+      button "pin" press=pin testId="pin"
+      button "maybe" press=setMaybe testId="maybe"
+
+test "branches"
+  tap "save"
+  tap "pin"
+  tap "save"
+  tap "pin"
+  tap "maybe"
+  tap "save"

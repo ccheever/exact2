@@ -2,6 +2,7 @@
 //! @ref LLP 0059.000#315-sqlite--host-module-capability-bearing-already-built — provider and typed boundary
 use crate::boundary::{HostArg, HostError, HostValue};
 use crate::grant::GrantSet;
+use crate::host_opcodes::sqlite_async;
 use crate::stdlib::sqlite::{
     Command, Database, ExecuteResult, Location, Provider, Rows, Statement, Value,
 };
@@ -49,6 +50,12 @@ impl Registry {
         self.provider
             .set(provider)
             .map_err(|_| invalid("SQLite provider is already configured"))
+    }
+    pub(crate) fn has_provider(&self) -> bool {
+        self.provider.get().is_some()
+    }
+    pub(crate) fn provider(&self) -> Option<Arc<dyn Provider>> {
+        self.provider.get().cloned()
     }
     fn database(&self, id: u64) -> Result<Database, HostError> {
         self.databases
@@ -160,7 +167,7 @@ pub(crate) fn run(
     if registry.closed.load(Ordering::Acquire) {
         return Err(closed());
     }
-    if op == 150 {
+    if op == sqlite_async::OPEN {
         let path = crate::stdlib::app_fs::resolve_sqlite(
             grants,
             state.app_directories(),
@@ -182,7 +189,7 @@ pub(crate) fn run(
     }
     let id = handle(number(args, 0)?)?;
     match op {
-        151 => {
+        sqlite_async::PREPARE => {
             let statement = registry.database(id)?.prepare(string(args, 1)?)?;
             let mut statements = registry.statements.lock().unwrap();
             if registry.closed.load(Ordering::Acquire) {
@@ -192,23 +199,23 @@ pub(crate) fn run(
             statements.insert(id, Arc::new(statement));
             Ok(HostValue::Number(id as f64))
         }
-        152 => registry.result(ResultData::Execute(
+        sqlite_async::EXECUTE => registry.result(ResultData::Execute(
             registry
                 .database(id)?
                 .execute(string(args, 1)?, &parameters(&args[2..])?)?,
         )),
-        153 => registry.result(ResultData::Rows(
+        sqlite_async::QUERY => registry.result(ResultData::Rows(
             registry
                 .database(id)?
                 .query(string(args, 1)?, &parameters(&args[2..])?)?,
         )),
-        154 => registry.result(ResultData::Execute(
+        sqlite_async::STATEMENT_EXECUTE => registry.result(ResultData::Execute(
             registry.statement(id)?.execute(&parameters(&args[1..])?)?,
         )),
-        155 => registry.result(ResultData::Rows(
+        sqlite_async::STATEMENT_QUERY => registry.result(ResultData::Rows(
             registry.statement(id)?.query(&parameters(&args[1..])?)?,
         )),
-        156 => {
+        sqlite_async::TRANSACTION => {
             let n = count(number(args, 1)?)?;
             let mut offset = 2;
             let mut commands = Vec::new();
@@ -235,11 +242,11 @@ pub(crate) fn run(
                 registry.database(id)?.transaction(&commands)?,
             ))
         }
-        157 => {
+        sqlite_async::CLOSE => {
             registry.close_database(id)?;
             Ok(HostValue::Undefined)
         }
-        158 => {
+        sqlite_async::STATEMENT_CLOSE => {
             registry.close_statement(id);
             Ok(HostValue::Undefined)
         }

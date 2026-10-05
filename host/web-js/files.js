@@ -96,7 +96,7 @@ export async function answer(req) {
 Object.assign(x(), { files: { holds, answer } });
 
 // ---------------------------------------------------------------- showPicker (picker.rs)
-const tokens = el => (el.getAttribute('accept') ?? el.dataset.accept ?? '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+const tokens = el => (el.getAttribute('accept') ?? '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
 const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif', tif: 'image/tiff', tiff: 'image/tiff',
   mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', json: 'application/json', md: 'text/markdown', markdown: 'text/markdown', txt: 'text/plain' };
 const accepts = (accept, name, mime) => accept.some(t => t === '.' + extension(name) || t === mime || (t.endsWith('/*') && mime.split('/')[0] === t.slice(0, -2)));

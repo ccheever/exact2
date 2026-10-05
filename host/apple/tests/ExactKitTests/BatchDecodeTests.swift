@@ -178,6 +178,15 @@ final class BatchDecodeTests: XCTestCase {
         XCTAssertEqual(Batch.decode(Data(("{\"unknown\":" + String(repeating: "[", count: 513) + "0" + String(repeating: "]", count: 513) + "}").utf8)).error, "unreadable batch")
     }
 
+    func testRankAdapterKeepsWideIntegersAndZeroInEitherFieldOrder() throws {
+        for value in [Int64(-4_294_967_290), 0, 1, 4_294_967_290] {
+            for op in ["{\"op\":\"rank\",\"id\":7,\"rank\":\(value)}", "{\"rank\":\(value),\"id\":7,\"op\":\"rank\"}"] {
+                let batch = try compare("{\"ops\":[\(op)]}")
+                XCTAssertEqual((batch.ops.first?.payload["rank"] as? NSNumber)?.int64Value, value)
+            }
+        }
+    }
+
     func testTransformReplyUsesTheSameBatchReader() throws {
         let wire = #"{"accepted":true,"committed":true,"runtime":"18446744073709551615","geometrySequence":"2","translateToken":"3","scaleToken":"4","value":[1,2,3],"batch":{"ops":[{"op":"present","id":1,"x":0.1}],"timer_due_ms":123.25,"timers":true}}"#
         let reply = try XCTUnwrap(TransformDragReply(Data(wire.utf8)))

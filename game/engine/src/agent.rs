@@ -1,7 +1,6 @@
 use crate::values::quote;
 use crate::{
-    json, spatial, Clock, Data, DataError, Entity, Game, Parent, Reader, Sim, Vec2, Vec3, Visible,
-    World,
+    json, spatial, Clock, Data, DataError, Entity, Game, Parent, Reader, Sim, Vec2, Vec3, World,
 };
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -362,7 +361,7 @@ impl<G: Game> Sim<G> {
                     encode(&depth)?,
                     format!(
                         "{{\"inFrustum\":{},\"behindCamera\":{behind},\"distance\":{}}}",
-                        inside && w.get::<Visible>(e).is_none_or(|v| v.0),
+                        inside && w.is_visible(e),
                         encode(&distance)?
                     ),
                 )

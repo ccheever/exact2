@@ -17,6 +17,12 @@ impl<D: DataSource> Presenter<D> {
         self.clocked(e)
     }
 
+    /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
+    pub fn land_then(&mut self) -> (f64, Option<String>) {
+        let e = self.host.land_then();
+        self.clocked(e)
+    }
+
     fn clocked(&mut self, e: Option<String>) -> (f64, Option<String>) {
         let landed = self.host.now();
         self.host.tick(landed);

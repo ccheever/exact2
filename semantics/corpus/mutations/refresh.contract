@@ -1,0 +1,32 @@
+// A mutation that refreshes a resource, and `refresh` as a statement.
+shape Item
+  id: string
+
+shape Ack
+  done: bool
+
+component App
+  state q = "x"
+  resource items = items(q) as shape list<Item>
+  mutation ack as shape Ack refreshes items
+  derive n = length(items)
+  derive acked = match ack { case some(a) => a.done, case none => false }
+  action poke
+    send ack = poke(q)
+  action reload
+    refresh items
+  action setQ(v: string)
+    q = v
+  view
+    column
+      text `${n}` testId="n"
+      input value=q change=setQ testId="q"
+      button "poke" press=poke testId="poke"
+      button "reload" press=reload testId="reload"
+
+test "poke and reload"
+  tap "poke"
+  tap "reload"
+  type "q" "y"
+  tap "poke"
+  type "q" "x"

@@ -2,12 +2,15 @@
 #[cfg(unix)]
 #[path = "app_fs_unix.rs"]
 mod implementation;
-#[cfg(unix)]
+#[cfg(windows)]
+#[path = "app_fs_windows.rs"]
+mod implementation;
+#[cfg(any(unix, windows))]
 pub(crate) use implementation::atomic_native;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub use implementation::*;
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 mod implementation {
     use crate::{
         boundary::HostError,
@@ -50,7 +53,7 @@ mod implementation {
         Err(unsupported())
     }
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 pub(crate) use implementation::atomic_native;
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 pub use implementation::*;

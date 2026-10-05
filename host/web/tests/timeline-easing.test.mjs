@@ -32,7 +32,7 @@ const hostCommitBody = `
   const prepareContexts = () => {}, runFocusCommands = () => {}, inertAncestor = () => false, refreshSymbols = () => {};
   const focusAutofocus = () => {}, positionContexts = () => {}, markScrollDocument = () => {}, syncLists = () => {};
   const followScroll = () => {}, settleFollow = () => {}, settleValue = () => {}, letGo = () => {}, flowBatch = () => {};
-  const navigation = {project() {}, apply() {}}, log = () => {}, inputReady = false, agentMode = false, frameSampler = null;
+  const navigation = {project() {}, apply() {}}, log = () => {}, inputReady = false, agentMode = false, frameSampler = null, clocks = {sync() {}};
   const viewFor = (_, id) => views.get(id), applyProps = () => {}, attach = () => {}, listView = () => {};
   ${operationSource}
   ${applySource}

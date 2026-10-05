@@ -1,0 +1,35 @@
+// Derives of every type: string, bool, option, record, and how each is
+// observed.
+shape Pair
+  a: number
+  b: string
+
+component App
+  state n = 1
+  derive s = `n=${n}`
+  derive b = n % 2 == 0
+  derive o = n > 2 ? some(n) : none
+  derive r = Pair(a=n, b=s)
+  derive ra = r.a + 1
+  derive oText = match o { case some(v) => `${v}`, case none => "none" }
+  action inc
+    n = n + 1
+  view
+    column
+      text oText testId="o"
+      text r.b testId="rb"
+      button "inc" press=inc testId="inc"
+
+test "types"
+  expect state s == "n=1"
+  expect state b == false
+  expect state o == none
+  expect state ra == 2
+  expect text "o" == "none"
+  tap "inc"
+  tap "inc"
+  expect state b == false
+  expect text "o" == "3"
+  expect text "rb" == "n=3"
+  tap "inc"
+  expect state b == true

@@ -9,13 +9,14 @@ pub mod console;
 pub mod crypto;
 pub mod fetch;
 pub mod fs;
-pub mod headers_ops;
 #[cfg(all(feature = "hermes", target_os = "linux"))]
 pub(crate) mod intl;
 #[cfg(all(feature = "hermes", target_os = "linux"))]
 pub(crate) mod intl_case;
 #[cfg(all(feature = "hermes", target_os = "linux"))]
 pub(crate) mod intl_datetime;
+pub mod subtle;
+pub(crate) mod subtle_abi;
 pub mod text;
 pub mod timers;
 pub mod url;
@@ -27,3 +28,9 @@ mod fetch_body;
 pub mod sqlite;
 
 pub mod app_fs;
+#[cfg(windows)]
+pub(crate) mod windows_directory;
+#[cfg(windows)]
+mod windows_fs;
+#[cfg(windows)]
+pub(crate) mod windows_path;

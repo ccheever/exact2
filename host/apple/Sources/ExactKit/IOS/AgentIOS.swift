@@ -10,7 +10,7 @@
 // it (the web's chaining rule); `type` puts text through the field's own
 // `insertText`; `screenshot` draws the viewport's hierarchy to a PNG (Metal
 // layers included, so `window: true` is the same picture).
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 extension Agent {
@@ -94,6 +94,11 @@ extension Agent {
     /// must finish before `clock settle` returns (LLP 1035.003 D5).
     func nativeInFlight() -> Bool {
         if presenter.navigation.inTransition || presenter.modals.inTransition || presenter.menus.inTransition || presenter.hasPendingKeyboardResize || nativeGeometryInFlight() { return true }
+        // A smooth correction (a list following its end, a smooth
+        // `scrollIntoView`) is UIKit's scroll animation under platform timing
+        // (LLP 1070.000 §11): the fixed point is where it lands, within
+        // settle's bound (LLP 1035.003 D5).
+        if !presenter.collections.animating.isEmpty { return true }
         guard let editor = pendingTextReveal else { return false }
         guard let node = editor.owner, presenter.views[node.id] === node,
               node.textArea === editor, !presenter.navigation.isInactiveRoute(containing: node),
@@ -173,7 +178,9 @@ extension Agent {
         if let top = keyboardTop, let container = keyboardContainer {
             keyboard["top"] = Agent.r2(vp.convert(CGPoint(x: 0, y: top), from: container).y - vp.contentOffset.y)
         }
+        #if !os(tvOS)
         if let view = presenter.session?.view { keyboard["guide"] = Agent.r2(view.keyboardLayoutGuide.layoutFrame.minY) }
+        #endif
         var navigation = presenter.navigation.observation()
         navigation["presentation"] = presenter.modals.presentation ?? NSNull()
         navigation["closedby"] = presenter.modals.closedby ?? NSNull()
@@ -373,6 +380,7 @@ extension Agent {
         host.glassAgentFields(&native)
         if presenter.leaves.isPending(host) { native["pending"] = true }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
+        if let grouped = presenter.groupedLists.observation(host) { native["groupedList"] = grouped }
         if let control = presenter.controls.observation(host) { native["control"] = control }
         var responder: UIResponder? = host
         while let current = responder {
@@ -400,11 +408,38 @@ extension Agent {
         return presenter.textHost(UInt32(id))
     }
 
+    /// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
+    /// view whose middle is out of view is scrolled to the middle of each
+    /// enclosing scroll view it is outside of, innermost first, then the
+    /// page's — as the web's `scrollIntoView` does there (block centre,
+    /// inline only as far as it takes) — by `scrollRectToVisible`, unanimated,
+    /// as far as each one's range allows; their delegates tell the app, as a
+    /// finger's scroll does.
+    func reveal(_ req: [String: Any]) -> [String: Any] {
+        guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        let from = box(v)
+        var scrolled = false
+        for case let sv as UIScrollView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) where sv.isScrollEnabled {
+            let frame = v.convert(v.bounds, to: sv), port = sv.bounds, mid = CGPoint(x: frame.midX, y: frame.midY)
+            if port.contains(mid) { continue }
+            var rect = port
+            if mid.y < port.minY || mid.y >= port.maxY { rect.origin.y = mid.y - port.height / 2 }
+            if mid.x < port.minX || mid.x >= port.maxX { rect.origin.x = frame.minX; rect.size.width = frame.width }
+            sv.scrollRectToVisible(rect, animated: false)
+            scrolled = true
+        }
+        guard scrolled else { return ["revealed": Int(v.id), "scrolled": false] }
+        presenter.settlePump()
+        let to = box(v)
+        return ["revealed": Int(v.id), "scrolled": to.origin != from.origin,
+                "from": [Agent.r2(from.midX), Agent.r2(from.midY)], "to": [Agent.r2(to.midX), Agent.r2(to.midY)]]
+    }
+
     func tap(_ req: [String: Any]) -> [String: Any] {
         if let reply = touchForm(req) { return reply }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
-           let node = view(req), node.isDescendant(of: presenter.viewport) {
+           let node = view(req), node.isDescendant(of: presenter.viewport), !presenter.groupedLists.draws(node.id) {
             guard let point = tapPoint(req, node: node) else {
                 return ["error": "tap #\(req["id"] ?? node.id): no visible text fragment; scroll it into view first"]
             }
@@ -446,6 +481,11 @@ extension Agent {
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           let reply = presenter.groupedLists.activate(node) {
+            return reply
+        }
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            let activated = presenter.controls.activate(node) {
             if let unsupported = presenter.controls.unopened(node) { return unsupported }
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "control"]
@@ -468,6 +508,13 @@ extension Agent {
             let event: UIControl.Event = button.allControlEvents.contains(.primaryActionTriggered) ? .primaryActionTriggered : .touchUpInside
             button.sendActions(for: event)
             return ["tapped": id, "at": [Agent.r2(b.midX), Agent.r2(b.midY)], "delivery": "host-activation", "native": "swipe-action"]
+        }
+        // A wheel on what a grouped list draws scrolls that list, even when
+        // the node is a custom row's view its cell's reuse took off screen.
+        if let wheel = req["wheel"] as? [Double], wheel.count == 2, wheel.allSatisfy(\.isFinite),
+           let id = req["id"] as? Int, let list = presenter.groupedLists.scroller(for: UInt32(id)), presenter.views[UInt32(id)]?.window == nil {
+            Agent.scroll(from: list, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
+            return ["tapped": id, "wheel": wheel]
         }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         let b = box(v)
@@ -525,7 +572,9 @@ extension Agent {
         if let wheel = req["wheel"] as? [Double], wheel.count == 2 {
             // The web's sign (a positive dy scrolls down), points.
             guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
-            Agent.scroll(from: hit, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
+            // A row a grouped list draws scrolls that list, wherever its
+            // hidden node lies (LLP 1084 D8).
+            Agent.scroll(from: presenter.groupedLists.scroller(for: v.id) ?? hit, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
             if ExactEnv.agentFreezes { presenter.settlePump() }
             return ["tapped": Int(v.id), "wheel": wheel, "at": at]
         }
@@ -557,8 +606,10 @@ extension Agent {
         // blurs its input on a click anywhere else), and the keyboard goes.
         if !took && !presenter.contextRetainsFocus(n ?? v) { presenter.viewport.endEditing(true) }
         var pressed: Any = NSNull()
-        if let element { presenter.press(element); pressed = Int(element) }
-        if let action, presenter.views[action.id] === action { presenter.press(action.id); action.finishPointerPress(); pressed = Int(action.id) }
+        // An iPad's hardware keys held through the tap (gallery F20).
+        let held = (req["modifiers"] as? String).map { $0.hasSuffix("+") || $0.isEmpty ? $0 : $0 + "+" } ?? ""
+        if let element { presenter.press(element, held: held); pressed = Int(element) }
+        if let action, presenter.views[action.id] === action { presenter.press(action.id, held: held); action.finishPointerPress(); pressed = Int(action.id) }
         return ["tapped": Int(v.id), "at": at, "pressed": pressed]
     }
 
@@ -597,19 +648,27 @@ extension Agent {
         var v: UIView? = hit
         while let cur = v {
             // A waiting scroll (a closed swipe row's) scrolls as the wheel asks.
-            var target = cur as? ScrollView
+            var target: UIScrollView? = cur as? ScrollView
             if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scroll }
+            // A grouped list's collection view scrolls in its place (LLP 1084 D8).
+            if target == nil, cur is GroupedCollectionView { target = cur as? UIScrollView }
             if let sv = target {
+                let scrollsX = (sv as? ScrollView)?.scrollsX ?? false, scrollsY = (sv as? ScrollView)?.scrollsY ?? true
                 // Native bars and keyboard avoidance can make the resting
                 // start negative. Their insets are part of the usable range.
                 let i = sv.adjustedContentInset
                 let minX = -i.left, minY = -i.top
                 let maxX = max(minX, sv.contentSize.width + i.right - sv.bounds.width), maxY = max(minY, sv.contentSize.height + i.bottom - sv.bounds.height)
                 let o = sv.contentOffset
-                let takeX = sv.scrollsX && dx != 0 && maxX > minX && ((dx > 0 && o.x < maxX) || (dx < 0 && o.x > minX))
-                let takeY = sv.scrollsY && dy != 0 && maxY > minY && ((dy > 0 && o.y < maxY) || (dy < 0 && o.y > minY))
+                let takeX = scrollsX && dx != 0 && maxX > minX && ((dx > 0 && o.x < maxX) || (dx < 0 && o.x > minX))
+                let takeY = scrollsY && dy != 0 && maxY > minY && ((dy > 0 && o.y < maxY) || (dy < 0 && o.y > minY))
                 if takeX || takeY {
                     let target = CGPoint(x: takeX ? min(max(o.x + dx, minX), maxX) : o.x, y: takeY ? min(max(o.y + dy, minY), maxY) : o.y)
+                    // A wheel interrupts a smooth correction as a drag does: a
+                    // plain write sends no animation end (LLP 1070.000 §11).
+                    if let list = sv.superview as? NodeView, let p = list.presenter, p.collections.animating.contains(list.id) {
+                        p.collections.animationEnded(list.id, dragging: true)
+                    }
                     sv.setContentOffset(target, animated: false)
                     return
                 }
@@ -626,6 +685,7 @@ extension Agent {
     func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
         if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
         if v.isSurfaceControl, let key = req["key"] as? String, let code = KeyCodes.device(key)?.code, ["Space", "Enter", "NumpadEnter"].contains(code) {
             let phase = req["phase"] as? String
@@ -666,45 +726,52 @@ extension Agent {
             }
             return ["typed": v.id, "key": key, "delivery": "recognized"]
         }
-        if let key = req["key"] as? String, ["Space", " ", "Enter"].contains(key), v.handlers.contains("press") {
-            _ = v.becomeFirstResponder()
-            if req["phase"] as? String != "up" { presenter.press(v.id) }
-            return ["typed": v.id, "key": key, "delivery": "recognized"]
+        if let key = req["key"] as? String {
+            // A key at the target as a hardware keyboard's (KeyEvents.swift):
+            // the focus's `key` handlers and its ancestors', then, unless one
+            // prevented it, its default — a press, or the editor's edit, made
+            // here since UIKit synthesizes no presses. A target that takes no
+            // focus leaves it where it is, as the web's `focus()` on one does.
+            // A chord's modifiers ride with its key; with Control or Command
+            // held a key types nothing, as a keyboard's shortcut does not.
+            let (held, bare) = KeyCodes.split(key)
+            let name = KeyCodes.device(bare)?.key ?? (bare == "Space" ? " " : bare)
+            let types = name.count == 1 && !held.contains("Control+") && !held.contains("Meta+")
+            if let f = v.textArea { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
+            else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
+            else if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
+            let focus = v.field != nil || v.textArea != nil || v.isFirstResponder || v.handlers.contains("press") ? v : nil
+            // The page's shortcuts first, as the web's capture listener and
+            // macOS's `routeKey` hear them (gallery F18, ShortcutsIOS).
+            #if os(iOS)
+            if req["phase"] as? String != "up", let node = presenter.shortcut(key: name, held: held, focus: focus ?? presenter.focusedNode) {
+                presenter.press(node.id)
+                return ["typed": Int(v.id), "key": key, "shortcut": Int(node.id), "delivery": "recognized"]
+            }
+            #endif
+            if req["phase"] as? String != "up", !presenter.keyDown(at: focus, name, held: held), let focus {
+                if let f = focus.textArea {
+                    if name == "Enter" { f.insertText("\n") } else if name == "Backspace" { f.deleteBackward() } else if types { f.insertText(name) }
+                    pendingTextReveal = f as? TextArea
+                } else if let f = focus.field as? TextField {
+                    f.heard = name
+                    if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = focus.textFieldShouldReturn(f) } else if types { f.insertText(name) }
+                    f.heard = nil
+                } else if focus.handlers.contains("press"), name == "Enter" || name == " " { presenter.press(focus.id) }
+            }
+            return ["typed": Int(v.id), "key": key, "value": v.textArea?.text ?? v.field?.text ?? "", "delivery": "recognized"]
         }
         if let f = v.textArea {
             f.becomeFirstResponder()
-            if let key = req["key"] as? String {
-                if key == "Enter" { f.insertText("\n") }
-                else if key == "Backspace" { f.deleteBackward() }
-                else { return ["error": "unsupported textarea key \(key)"] }
-            } else {
-                f.selectAll(nil)
-                f.insertText(req["text"] as? String ?? "")
-            }
+            f.selectAll(nil)
+            f.insertText(TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props))
             // UITextView reveals an insertion asynchronously, including
             // when UIView animations are disabled. Observe it; never seek it.
             pendingTextReveal = f as? TextArea
             return ["typed": Int(v.id), "value": f.text ?? ""]
         }
-        if let key = req["key"] as? String {
-            // A key at the target: the field's (Enter, as its delegate would
-            // hear it) or a focused node's, by the web's name — delivered as
-            // the responder-chain rule would (UIKit synthesizes no presses).
-            if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } } else if v.canBecomeFirstResponder { if !v.isFirstResponder { _ = v.becomeFirstResponder() } } else { return ["error": "view \(v.id) takes no key"] }
-            // Enter at a field is what its delegate would hear: a submit,
-            // and a key for a `key` handler (the field's own or an ancestor's).
-            if key == "Backspace", let field = v.field {
-                field.deleteBackward()
-                return ["typed": Int(v.id), "key": key, "value": field.text ?? ""]
-            }
-            if key == "Enter", v.field != nil, v.handlers.contains("submit") { presenter.submit(v.id) }
-            var n: UIView? = v
-            while let cur = n, !((cur as? NodeView)?.handlers.contains("key") ?? false) { n = cur.superview }
-            if let node = n as? NodeView { presenter.key(node.id, key) } else if !(key == "Enter" && v.handlers.contains("submit")) { return ["error": "no key handler at view \(v.id)"] }
-            return ["typed": Int(v.id), "key": key, "value": v.field?.text ?? ""]
-        }
         guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }
-        let text = req["text"] as? String ?? ""
+        let text = TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props)
         f.becomeFirstResponder()
         f.selectAll(nil)
         f.insertText(text)

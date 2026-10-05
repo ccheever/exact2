@@ -13,6 +13,10 @@ mod code;
 mod emit;
 mod faces;
 mod facts;
+mod nested;
+mod paint;
+#[cfg(test)]
+mod paint_tests;
 mod reads;
 mod style;
 
@@ -78,6 +82,16 @@ fn main() -> ExitCode {
         // Every refusal, each naming its own file (LLP 1054 L9), as `contract build` prints them.
         match contract::compile_path_all(path, sites) {
             Ok((p, m)) => {
+                // The native bake's refusals, here too: this build bakes
+                // nothing, and a plan every native build refuses must not
+                // pass the web loop (files diary F13).
+                if let Err(e) = contract::check(&p) {
+                    match &m {
+                        Some(m) => eprintln!("{}", m.bake_error(&e)),
+                        None => eprintln!("{input}: {e}"),
+                    }
+                    return ExitCode::from(1);
+                }
                 map = m;
                 p
             }
@@ -90,7 +104,7 @@ fn main() -> ExitCode {
         }
     };
     if dump {
-        emit::dump(&plan);
+        dump_plan(&plan);
     }
     match emit::emit(&plan, sites, dev_reload) {
         Ok(out_files) => {
@@ -101,6 +115,7 @@ fn main() -> ExitCode {
             }
             for (name, text) in [
                 ("app.js", &out_files.js),
+                ("paint.js", &out_files.paint),
                 ("app.css", &out_files.css),
                 ("names.js", &out_files.names),
                 ("pages.json", &out_files.pages),
@@ -109,6 +124,24 @@ fn main() -> ExitCode {
                     eprintln!("{name}: {e}");
                     return ExitCode::from(1);
                 }
+            }
+            // What a Rust data module binds with (rust-data.js): the plan
+            // without the bake's answers, which the page already has in
+            // `app.js` and which can be most of a baked plan's bytes.
+            if let Err(e) = std::fs::write(
+                dir.join("app.bind.plan"),
+                plan.without_compiled_values().encode(),
+            ) {
+                eprintln!("app.bind.plan: {e}");
+                return ExitCode::from(1);
+            }
+            // What `app.ts` is type-checked against, as the native bake
+            // checks it (host/web-js/build.mjs; calendar F9).
+            if let Err(e) = contract::typescript(&plan).and_then(|d| {
+                std::fs::write(dir.join("app.contract.d.ts"), d).map_err(|e| e.to_string())
+            }) {
+                eprintln!("app.contract.d.ts: {e}");
+                return ExitCode::from(1);
             }
             // A Contract compiled here is also the plan beside the pages
             // (the build's `app.plan`), so the build runs no second compile.
@@ -139,6 +172,25 @@ fn main() -> ExitCode {
                 {
                     let _ = std::fs::write(dir.join("files.flag"), "");
                 }
+            }
+            // Every portable symbol role, which symbols.js loads when a bound
+            // source names one the plan's strings don't (ledger diary F10).
+            let roles: Vec<String> = exact_kernel::generated::SYMBOL_ROLES
+                .iter()
+                .filter_map(|r| exact_kernel::generated::symbol(r).map(|s| (r, s)))
+                .map(|(r, (_, path, filled))| {
+                    format!(
+                        "{}:[{},{}]",
+                        serde_json::to_string(r).unwrap(),
+                        serde_json::to_string(path).unwrap(),
+                        filled as u8
+                    )
+                })
+                .collect();
+            let roles = format!("export default {{{}}};", roles.join(","));
+            if let Err(e) = std::fs::write(dir.join("symbol-roles.js"), roles) {
+                eprintln!("symbol-roles.js: {e}");
+                return ExitCode::from(1);
             }
             if out_files.markdown {
                 let _ = std::fs::write(dir.join("markdown.flag"), "");
@@ -176,5 +228,67 @@ fn main() -> ExitCode {
             eprintln!("{input}: {e}");
             ExitCode::from(1)
         }
+    }
+}
+
+fn dump_plan(plan: &exact_plan::Plan) {
+    use crate::code::{Scope, Uses};
+    use exact_kernel::NodeType;
+    let mut uses = Uses::default();
+    let s = Scope::default();
+    let f = |code: exact_plan::Code, uses: &mut Uses, scope: &Scope, params: usize| {
+        code::function(plan, plan.code(code), scope, params, uses)
+            .unwrap_or_else(|e| format!("<{e}>"))
+    };
+    eprintln!("router: {:?}", plan.router);
+    for (i, r) in plan.slots.iter().enumerate() {
+        eprintln!(
+            "slot {i} {} = {}",
+            plan.str(r.name),
+            f(r.init, &mut uses, &s, 0)
+        );
+    }
+    for (i, r) in plan.derives.iter().enumerate() {
+        eprintln!(
+            "derive {i} {} = {}",
+            plan.str(r.name),
+            f(r.body, &mut uses, &s, 0)
+        );
+    }
+    for (i, r) in plan.resources.iter().enumerate() {
+        eprintln!(
+            "resource {i} {} = {}(..{})",
+            plan.str(r.name),
+            plan.str(r.source),
+            r.args.len
+        );
+    }
+    let a = Scope {
+        action: true,
+        ..Scope::default()
+    };
+    for (i, r) in plan.actions.iter().enumerate() {
+        eprintln!(
+            "action {i} {} = {}",
+            plan.str(r.name),
+            f(r.body, &mut uses, &a, r.params.len as usize)
+        );
+    }
+    for (i, r) in plan.regions.iter().enumerate() {
+        eprintln!(
+            "region {i} {:?} parent {:?} arm {:?} order {} arms {:?}",
+            r.kind, r.parent, r.arm, r.order, r.arms
+        );
+    }
+    for (i, n) in plan.nodes.iter().enumerate() {
+        eprintln!(
+            "node {i} type {:?} parent {:?} arm {:?} order {} bindings {} handlers {}",
+            NodeType::from_wire(n.node_type),
+            n.parent,
+            n.arm,
+            n.order,
+            n.bindings.len,
+            n.handlers.len
+        );
     }
 }

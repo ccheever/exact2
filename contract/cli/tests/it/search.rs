@@ -46,7 +46,7 @@ fn text(r: &Runner<Sessions>, id: &str) -> String {
         .to_string()
 }
 
-fn background(r: &Runner<Sessions>, id: &str) -> exact_kernel::ColorValue {
+fn background(r: &Runner<Sessions>, id: &str) -> Option<exact_kernel::ColorValue> {
     let k = r.kernel();
     k.node_by_key(k.find_by_test_id(id)[0])
         .unwrap()
@@ -66,8 +66,8 @@ fn a_launcher_highlights_the_rows_whose_code_starts_with_the_digit_typed() {
         "/",
     )
     .unwrap();
-    let white = Color::parse_hex("#ffffff").unwrap().into();
-    let amber = Color::parse_hex("#ffe08a").unwrap().into();
+    let white = Some(Color::parse_hex("#ffffff").unwrap().into());
+    let amber = Some(Color::parse_hex("#ffe08a").unwrap().into());
     // Nothing typed: every name includes "", every code starts with "",
     // and no row is highlighted.
     assert_eq!(text(&r, "named"), "3 named");

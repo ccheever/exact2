@@ -518,6 +518,7 @@ try {
     if((await ask('parallel')).request.url!=='https://api.castle.xyz/a')throw new Error('parallel first request');
     if((await ask('parallel',[],response('\u0000\u00ff'))).request.url!=='https://api.castle.xyz/b')throw new Error('parallel second request');
     if((await ask('parallel',[],response('ok'))).value.error!=='0,255/ok')throw new Error('parallel binary body');
+    for(const expected of ['1/1','2/2']){await ask('reused');const reused=await ask('reused',[],response('ok'));if(reused.value?.error!==expected)throw new Error(`abort listeners outlive their fetches: ${JSON.stringify(reused)}`);}
     if((await ask('logout')).writes[0][1]!==null)throw new Error('forget');
     castle.dispose();
     // A worker placement (LLP 1027.002 D2): the same module, prepared on a

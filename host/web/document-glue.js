@@ -92,7 +92,8 @@ function documentBoot(options) {
       if (hears(event.target, kind)) enqueue(event.target, kind);
     } else if (event.type === "keydown") {
       for (const el of els) {
-        if (hears(el, "key")) enqueue(el, "key", event.key);
+        // The chord kind 6 carries, as glue.js's `keyChord` writes it.
+        if (hears(el, "key")) enqueue(el, "key", (event.shiftKey ? "Shift+" : "") + (event.ctrlKey ? "Control+" : "") + (event.altKey ? "Alt+" : "") + (event.metaKey ? "Meta+" : "") + event.key);
         if (hears(el, "submit") && el.localName !== "textarea" && event.key === "Enter" && !event.isComposing) {
           event.preventDefault(); enqueue(el, "submit");
         }

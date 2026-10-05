@@ -11,40 +11,69 @@ use exact_web::host::template::Parts;
 use std::fmt::Write as _;
 
 impl Em<'_> {
+    /// Whether image `i` needs symbols.js — it draws a symbol, its source is
+    /// bound, or its source is an `app:/` file, which symbols.js resolves
+    /// (`data-app-src`, LLP 1069.002 D7) — and whether its source is bound.
+    pub(super) fn image_piece(&self, i: u32, parts: &Parts) -> Option<bool> {
+        let plan = self.plan;
+        let bound = plan.nodes[i as usize]
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+            .any(|b| {
+                b.kind == BindingKind::Prop
+                    && b.id == PropId::ImageSource as u16
+                    && style::literal(plan, plan.code(b.expr)).is_none()
+            });
+        let app = parts
+            .props
+            .get("src")
+            .is_some_and(|s| s.starts_with("app:/"));
+        (bound || app || parts.props.contains_key("data-symbol-path")).then_some(bound)
+    }
+
+    /// @ref LLP 1055.002 — a synced animation: the web host's clocks
+    /// (navigation.js `animationClocks`, through rt.js), made once, set a
+    /// joined animation's start after each commit; under the agent its
+    /// register does (agent.js).
+    pub(super) fn clocks(&mut self) {
+        let (clocks, after, clock) = (
+            self.uses.rt("animationClocks"),
+            self.uses.rt("After"),
+            self.uses.rt("clock"),
+        );
+        let _ = write!(
+            self.out,
+            "if(!globalThis.__exactClocks&&typeof requestAnimationFrame==\"function\"&&!globalThis.__exactRender){{const c=globalThis.__exactClocks={clocks}(document);{after}.push(()=>{clock}.agent||c.sync());}}"
+        );
+    }
+
+    /// [`Self::clocks`] when a static declaration puts the node on a clock.
+    pub(super) fn clocks_in(&mut self, declarations: &str) {
+        if declarations.contains("--exact-animation-clock:") {
+            self.clocks();
+        }
+    }
+
+    pub(super) fn f(
+        &mut self,
+        code: exact_plan::Code,
+        scope: &crate::code::Scope,
+    ) -> Result<String, String> {
+        crate::code::function(self.plan, self.plan.code(code), scope, 0, &mut self.uses)
+    }
+
     /// A bound paint fact for the CSS sibling-order rule. The expression is
     /// pure; the same effect scope as its style owns this attribute.
     pub(super) fn paint_binding(&mut self, kind: NodeType, b: &BindingsRow, e: &str, f: &str) {
-        if kind.is_svg_element() || kind.is_metadata() {
+        if !self.paint || kind.is_svg_element() || kind.is_metadata() {
             return;
         }
-        let fact = match b.kind {
-            BindingKind::Style => StyleId::from_bit(b.id as u32).and_then(|id| {
-                Some(match id {
-                    StyleId::PositionType => {
-                        ("data-exact-position".into(), "v!=null&&v!==\"static\"")
-                    }
-                    StyleId::Display => ("data-exact-flex".into(), "v===\"flex\"||v===\"grid\""),
-                    StyleId::ZIndex => ("data-exact-z".into(), "v!=null&&v!==\"auto\""),
-                    id if exact_web::host::layers::STACKS.contains(&id) => {
-                        (format!("data-exact-stack-{}", id as u16), "v!=null")
-                    }
-                    _ => return None,
-                })
-            }),
-            BindingKind::Prop => PropId::from_wire(b.id).and_then(|id| {
-                let condition = match id {
-                    PropId::BackgroundMaterial | PropId::NavigationKey => "v!=null",
-                    PropId::NavigationPresentation => "v===\"modal\"",
-                    _ => return None,
-                };
-                Some((format!("data-exact-stack-prop-{}", id as u16), condition))
-            }),
-        };
-        if let Some((name, condition)) = fact {
+        if let Some((name, value)) = crate::paint::binding(self.plan, kind, b) {
             let p = self.uses.rt("P");
             let _ = write!(
                 self.out,
-                "{p}({e},\"{name}\",()=>{{const v=({f})();return ({condition})?\"\":null}});"
+                "{p}({e},\"{name}\",()=>{{const v=({f})();return {value}}});"
             );
         }
     }
@@ -79,7 +108,11 @@ impl Em<'_> {
                 .map(|b| plan.binding(b))
                 .find(|b| b.kind == BindingKind::Style && b.id == id as u16)
         };
-        let timeline = binding(StyleId::AnimationTimeline).is_some();
+        // A clock (LLP 1055.002) plays on the page's timeline: only a drag
+        // timeline's consumer is paused for the drag to seek.
+        let clock = |s: &str| s.trim_start().starts_with("clock(");
+        let timeline = binding(StyleId::AnimationTimeline)
+            .is_some_and(|t| style::can_be(plan, plan.code(t.expr), &|s| !clock(s)));
         let id = StyleId::from_bit(b.id as u32).ok_or("unknown style row")?;
         if matches!(
             id,
@@ -91,6 +124,9 @@ impl Em<'_> {
                 | StyleId::JustifyItems
         ) {
             self.uses.rt("gridValue");
+        }
+        if id == StyleId::AnimationTimeline && style::can_be(plan, plan.code(b.expr), &clock) {
+            self.clocks();
         }
         let refuse = |why: &str| Err(format!("node {i}: {why} is not in the JS target"));
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
@@ -133,6 +169,8 @@ impl Em<'_> {
                 if display.is_some_and(|d| d != "block")
                     || parts.css.contains("overflow-x:scroll")
                     || parts.css.contains("overflow-y:scroll")
+                    || parts.css.contains("overflow-x:auto")
+                    || parts.css.contains("overflow-y:auto")
                 {
                     self.warnings.push(format!(
                         "node {i}: style row line_clamp skipped: legacy line-clamp requires a non-scrolling block"
@@ -146,6 +184,13 @@ impl Em<'_> {
                     ("-webkit-box-orient".into(), String::new(), when("\"vertical\"")),
                     ("overflow".into(), String::new(), when("\"hidden\"")),
                 ]
+            }
+            // @ref LLP 1077 D14 — host-owned, as `press-scale`: the custom
+            // property input-glue.js plays at the press (css.rs).
+            StyleId::PressHaptic => {
+                let press = self.uses.rt("pressFeedback");
+                let _ = write!(self.out, "{press}();");
+                one("--exact-press-haptic", Some("v=>v==null||v===\"none\"?null:v".into()))
             }
             // The feedback's factor, and `scale` as its product (css.rs), on
             // a node whose own `scale` does not also compose through it.
@@ -397,11 +442,14 @@ pub(super) fn presence_decls(css: &mut String) -> String {
             "--exact-exit-animation:",
             "--exact-drag-timeline:",
             "--exact-animation-timeline:",
+            // A synced animation's clock (LLP 1055.002), read the same way.
+            "--exact-animation-clock:",
             "--exact-animation-range:",
             "--exact-timeline-scope:",
-            // The press feedback's factor (LLP 1061), which input-glue.js
-            // reads from the element's own style.
+            // The press feedback's factor (LLP 1061) and haptic (LLP 1077
+            // D14), which input-glue.js reads from the element's own style.
             "--exact-press:",
+            "--exact-press-haptic:",
         ]
         .iter()
         .any(|p| decl.starts_with(p))
@@ -424,8 +472,27 @@ impl Em<'_> {
 
     /// What an element needs once made: a canvas's surface, a native
     /// module's mount (LLP 1024 D3), a hooked node's page-module hook (LLP
-    /// 1075.003.000, `data-hook` among its static attributes).
-    pub(crate) fn element_extras(&mut self, tag: &str, e: &str, attrs: &[(String, String)]) {
+    /// 1075.003.000, `data-hook` among its static attributes), and the
+    /// constant values settled once its tree is in place, as bound ones are
+    /// (rt.js `drain`): a select's, which its options carry (calendar diary
+    /// F6), and a scroller's offsets (F8).
+    pub(crate) fn element_extras(
+        &mut self,
+        tag: &str,
+        e: &str,
+        attrs: &[(String, String)],
+        props: &exact_kernel::SortedMap<String, String>,
+    ) {
+        for name in ["value", "scrollTop", "scrollLeft"] {
+            if let Some(v) = props
+                .get(name)
+                .filter(|_| name != "value" || tag == "select")
+            {
+                let p = self.uses.rt("P");
+                let v = serde_json::to_string(v).unwrap();
+                let _ = write!(self.out, "{p}({e},\"{name}\",()=>{v});");
+            }
+        }
         if tag == "canvas" {
             let cv = self.uses.rt("cv");
             let _ = write!(self.out, "{cv}({e});");
@@ -467,6 +534,11 @@ pub(super) fn attributes(
                     attrs.push(("data-autofocus".into(), "false".into()));
                 }
             }
+            // The app's own file (LLP 1069.002 D7): symbols.js shows it
+            // through an object URL; the browser has no `app:` scheme.
+            "src" if element == "img" && value.starts_with("app:/") => {
+                attrs.push(("data-app-src".into(), value.clone()));
+            }
             "src" if element == "img" && value.starts_with("symbol:") => {
                 attrs.push((
                     name.clone(),
@@ -482,12 +554,13 @@ pub(super) fn attributes(
                 attrs.push((name.clone(), value.clone()));
                 css.push_str("touch-action:none;");
             }
+            // A select's value is its options' (`element_extras`).
             "value" => match element {
-                "input" | "button" => attrs.push((name.clone(), value.clone())),
+                "input" | "button" | "option" => attrs.push((name.clone(), value.clone())),
                 "textarea" => content = Some(value.clone()),
                 _ => {}
             },
-            "checked" | "inert" | "disabled" | "readonly" => {
+            "checked" | "inert" | "disabled" | "readonly" | "multiple" => {
                 if value == "true" {
                     attrs.push((name.clone(), String::new()));
                 }
@@ -499,7 +572,7 @@ pub(super) fn attributes(
             | "playsinline"
             | "disablepictureinpicture"
             | "disableremoteplayback"
-                if element == "video" =>
+                if element == "video" || element == "audio" =>
             {
                 if value == "true" {
                     attrs.push((name.clone(), String::new()));

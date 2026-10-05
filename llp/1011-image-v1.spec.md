@@ -110,6 +110,21 @@ the app's asset root (§3, §4). The Caltrain app: `image
 the top of the header; `apps/caltrain/assets/caltrain.png` is a generated
 320×120 PNG (a train), the only asset today.
 
+**App files and `data:` URLs (2026-10-04, recipes F9/F18, gallery F7/F17).**
+An `app:/data|cache|tmp/…` source is the app's own file (LLP 1069.002 D7) on
+every host, from the first frame and with nothing picked: the web hosts show
+the page's file store's entry as an object URL (`picker-glue.js` `appURL`),
+Apple and Linux the file under the roots storage will configure, known at
+boot. A `data:` source (RFC 2397, base64 or percent-encoded) is admitted on
+every host, as a page's `<img>` takes one, up to **1 MiB of URL text**
+(`exact_raster::MAX_DATA_URL_BYTES`; Apple's `RasterInput.dataLimit`, the web
+hosts' `DATA_LIMIT`): small generated pictures, never a photo, which is an
+`app:/` file. Past the bound every host shows nothing (the web hosts and Apple
+journal `image refused: a data: source is over 1048576 bytes`; Linux refuses
+it as an undecodable source); the browser itself has no such bound,
+which is the declared deviation. One source string works on every host, so a
+data module never tells hosts apart to choose one.
+
 **Symbol sources (2026-09-10, LLP 1035.004).** `image "symbol:back"
 font-size=17 font-weight=600 tint-color="#007aff"` uses one of the seven
 schema roles: back, close, compose, add, microphone, send and search. Literal
@@ -189,8 +204,10 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   as fallback intrinsic size; raw SF sources are also empty on web/Linux,
   never fetched. `layout` reports current resolution and its reason; missing
   raw names produce no warning. Symbol/raster changes clear old image state;
-  any other scheme (`file:` included) does not
-  load. A source that does not load is reported as `nil` with a line on
+  `app:/` resolves under `AppFiles`' roots, learned from the library at boot
+  (`appRoots`); a `data:` URL within its bound is decoded and spooled to a
+  temporary file (`RasterInput.dataURL`); any other scheme (`file:` included)
+  does not load. A source that does not load is reported as `nil` with a line on
   stderr.
 - **Loading** (`NodeView.loadImage`): when an `image` node's
   `imageSource` prop is set or changes, the presenter bumps the view's

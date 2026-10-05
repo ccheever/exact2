@@ -53,6 +53,56 @@ fn device() -> Option<Gpu> {
     fixture::device_or_skip(fixture::device())
 }
 
+#[test]
+fn offscreen_module_admits_device_before_its_first_readback() {
+    struct Ready(bool);
+    impl Surface for Ready {
+        fn device_ready(&mut self, _: wgpu::Features) {
+            self.0 = true;
+        }
+        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
+            Ok(())
+        }
+        fn render(
+            &mut self,
+            frame: &Frame,
+            device: &wgpu::Device,
+            queue: &wgpu::Queue,
+            encoder: &mut wgpu::CommandEncoder,
+            target: &wgpu::TextureView,
+            format: wgpu::TextureFormat,
+        ) -> bool {
+            assert!(
+                self.0,
+                "offscreen canvases need the same device admission as presented canvases"
+            );
+            Fill([0.2, 0.4, 0.6, 1.0]).render(frame, device, queue, encoder, target, format)
+        }
+    }
+    static REGISTRY: exact_gpu::Registry = exact_gpu::Registry {
+        surfaces: &[("ready", 0, || Box::new(Ready(false)))],
+        shaders: &[],
+    };
+    let Some(gpu) = device() else { return };
+    let mut module = exact_gpu::Module::new(&REGISTRY);
+    module.set_gpu(gpu);
+    let id = module.create_headless("ready").unwrap();
+    assert!(module.bind(id, &[], None));
+    let frame = Frame {
+        width: 3.,
+        height: 2.,
+        scale: 1.,
+        now_ms: 0.,
+        seekable: false,
+        period_ms: 0.,
+        children_generation: 0,
+        shader_generation: 0,
+    };
+    let (pixels, wants) = module.readback(id, &frame).unwrap();
+    assert!(!wants);
+    assert_eq!(pixels.at(2, 1), [51, 102, 153, 255]);
+}
+
 fn texture(gpu: &Gpu, format: wgpu::TextureFormat, layers: u32) -> wgpu::Texture {
     gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: None,

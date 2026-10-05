@@ -959,7 +959,7 @@ const rows = [
   ['browser: click → changed DOM', ms(out.browser_first_interaction?.changed_dom_ms - out.browser_first_interaction?.input_ms), out.browser_first_interaction?.target ?? out.browser_interaction_note ?? out.browser_note ?? 'unmeasured'],
   ['boot modules before first pixel', `${out.boot_modules}`, `${out.boot.javascript_bytes} B source JS; ${out.boot_ok ? 'allowed paths' : 'VIOLATION'}; not a content/work proof`],
   [out.web_target === 'js' ? 'edit → DOM (JS target: rebuild, reload)' : 'edit → DOM (resident dev loop)', ms(out.reload_ms), Number.isFinite(out.reload_ms) ? `p50; p95 ${ms(out.reload_p95_ms)}; next frame ${ms(out.reload_frame_opportunity_ms)}; budget ${budget('Dev restart')}` : out.reload_note ?? ''],
-  ['macOS: exec → first paint (raw)', ms(out.macos_total_ms), Number.isFinite(out.macos_paint_ms) ? `${out.macos_views} views; empty AppKit main → draw ${ms(out.floor_draw_ms)}; a development build (apple-dev, no LTO: ~5% slower than release)` : out.macos_note ?? ''],
+  ['macOS: exec → first paint (raw)', ms(out.macos_total_ms), Number.isFinite(out.macos_paint_ms) ? `${out.macos_views} views; empty AppKit main → draw ${ms(out.floor_draw_ms)}; a development build (host-dev, no LTO: ~5% slower than release)` : out.macos_note ?? ''],
 ];
 if (Number.isFinite(out.macos_paint_ms)) rows.push(
   ['  Exact: runner → NSViews', ms(out.macos_framework_ms), grade(out.macos_framework_ms, 'Cold start')],
@@ -982,7 +982,7 @@ if (long) {
   rows.push(['macOS: initial captured build', out.macos_build_failed ? 'FAILED' : s(out.macos_build_s), out.macos_build_failed ?? `cargo ${s(out.macos_build_cargo_s)} · swift ${s(out.macos_build_swift_s)}; budget ${budget('Full build')}`]);
   const mib = (v) => (Number.isFinite(v) ? `${(v / 1048576).toFixed(2)} MB` : 'n/a');
   rows.push(
-    ['macOS: link delta (sample host − floor)', out.link_delta_failed ? 'FAILED' : mib(out.link_delta_bytes), out.link_delta_failed ?? Number.isFinite(out.link_delta_bytes) ? `${mib(out.link_delta_gzip_bytes)} gzip; host ${mib(out.host_bytes)}, floor ${mib(out.floor_bytes)}; the archive + ExactKit, nothing optional (LLP 1031 D7); apple-dev, ~1 MB over release` : 'not measured (the sample host or the floor did not build)'],
+    ['macOS: link delta (sample host − floor)', out.link_delta_failed ? 'FAILED' : mib(out.link_delta_bytes), out.link_delta_failed ?? Number.isFinite(out.link_delta_bytes) ? `${mib(out.link_delta_gzip_bytes)} gzip; host ${mib(out.host_bytes)}, floor ${mib(out.floor_bytes)}; the archive + ExactKit, nothing optional (LLP 1031 D7); host-dev, ~1 MB over release` : 'not measured (the sample host or the floor did not build)'],
     ['  optional: GPU module (dlopen)', mib(out.gpu_module_bytes), Number.isFinite(out.gpu_module_bytes) ? `${mib(out.gpu_module_gzip_bytes)} gzip; paid at the first canvas` : 'no GPU crate'],
     ['  optional: web arm (dlopen)', mib(out.web_module_bytes), Number.isFinite(out.web_module_bytes) ? `${mib(out.web_module_gzip_bytes)} gzip; paid at the first iframe` : 'n/a'],
   );

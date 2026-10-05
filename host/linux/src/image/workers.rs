@@ -1,16 +1,15 @@
 //! The process owns exactly two persistent PNG workers. Waiting work is source
 //! identity/metadata; encoded bytes and raster buffers never enter this queue.
 use super::{assets::ImageInput, png_decode, Assets, Bitmap};
+use crate::wake::Stream as UnixStream;
 use exact_raster::{
     DecodePermit, Gate, RasterSession, Refusal, ResidentBytes, COLD_ENTRIES, PENDING_JOBS,
     SUBSCRIPTIONS,
 };
 use std::collections::BTreeMap;
 use std::io::{Cursor, Read, Seek, Write};
-use std::os::{
-    fd::{AsRawFd, RawFd},
-    unix::net::UnixStream,
-};
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, RawFd};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
@@ -174,6 +173,7 @@ impl Backend {
         self.forget(id);
         self.session.cancel(id);
     }
+    #[cfg(unix)]
     pub fn wake_fd(&self) -> RawFd {
         self.wake_read.lock().unwrap().as_raw_fd()
     }
@@ -306,12 +306,7 @@ fn open(source: &SourceOwner) -> Result<(Box<dyn Input>, u64), Refusal> {
             Ok((Box::new(Cursor::new(bytes)), len))
         }
         ImageInput::Path(path) => {
-            use std::os::unix::fs::OpenOptionsExt;
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_NONBLOCK)
-                .open(path)
-                .map_err(|_| Refusal::DecodeFailed)?;
+            let file = crate::file::open_regular(&path).map_err(|_| Refusal::DecodeFailed)?;
             let metadata = file.metadata().map_err(|_| Refusal::DecodeFailed)?;
             if !metadata.is_file() {
                 return Err(Refusal::DecodeFailed);

@@ -276,8 +276,7 @@ impl PlanBuilder {
         KeyframesId(self.plan.keyframes.len() as u32 - 1)
     }
 
-    /// An ordered font stack. v1's semantic validator accepts one member;
-    /// the range keeps the format additive for authored cascade later.
+    /// An ordered CSS font fallback list (one to 64 members).
     pub fn font_stack(&mut self, members: &[(StackMemberKind, Option<FamiliesId>)]) -> StacksId {
         let start = self.plan.stack_members.len() as u32;
         for (kind, family) in members {
@@ -303,6 +302,7 @@ impl PlanBuilder {
             ty,
             init,
             owner: None,
+            late: false,
         });
         SlotsId(self.plan.slots.len() as u32 - 1)
     }
@@ -670,10 +670,17 @@ impl PlanBuilder {
         self.plan.slots[id.0 as usize].init = init;
     }
 
-    /// Make a slot a row slot of an `each` region: one value per keyed row,
-    /// read and written through the row's frame (LLP 1017 P4c).
-    pub fn set_slot_owner(&mut self, id: SlotsId, region: RegionsId) {
-        self.plan.slots[id.0 as usize].owner = Some(region);
+    /// Make a slot owned by an arm's instance — an `each` row, a `when` or
+    /// `match` arm: one value per instance, created with it, read and
+    /// written through its frame (LLP 1017 P4c).
+    pub fn set_slot_owner(&mut self, id: SlotsId, arm: ArmsId) {
+        self.plan.slots[id.0 as usize].owner = Some(arm);
+    }
+
+    /// Make a root slot initialized at the boot render, after boot
+    /// settlement: a child's state used outside every region.
+    pub fn set_slot_late(&mut self, id: SlotsId) {
+        self.plan.slots[id.0 as usize].late = true;
     }
 
     /// Replace a derive's body.

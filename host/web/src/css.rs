@@ -101,8 +101,13 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     push_text!(&mut out, "--exact-drag-timeline:{};", d.css());
                 }
             }
+            // @ref LLP 1055.002 — a clock is no CSS timeline either: the
+            // animations play on the page's, and the glue sets their start
+            // (navigation.js `animationClocks`).
             (StyleId::AnimationTimeline, RowValue::AnimationTimeline(t)) => {
-                if t.0.is_some() {
+                if let Some(clock) = t.clock() {
+                    push_text!(&mut out, "--exact-animation-clock:{};", clock);
+                } else if t.0.is_some() {
                     push_text!(
                         &mut out,
                         "--exact-animation-timeline:{};animation-play-state:paused;",
@@ -197,7 +202,9 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             }
             (StyleId::FontFamily, RowValue::Number(index)) => {
                 if let Some(family) = font_names.get(*index as usize) {
-                    let value = if is_generic_family(family) {
+                    let value = if family.starts_with('"') || family.contains(',') {
+                        family.clone()
+                    } else if is_generic_family(family) {
                         generic_stack(family).to_string()
                     } else {
                         css_string(family)
@@ -210,14 +217,17 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     });
                 }
             }
+            (StyleId::TextDecorationLine, RowValue::Enum("underline-line-through")) => {
+                out.push_str("text-decoration-line:underline line-through;")
+            }
             (StyleId::LineClamp, RowValue::Number(n)) => {
                 if *n > 0.0 {
                     // The legacy clamp requires an old flex box and clipping. It
                     // cannot replace a modern flex/grid/hidden box or a scroller.
                     // Keep those authored semantics; unsupported clamp is named.
                     if style.display != Display::Block
-                        || style.overflow_x == Overflow::Scroll
-                        || style.overflow_y == Overflow::Scroll
+                        || matches!(style.overflow_x, Overflow::Scroll | Overflow::Auto)
+                        || matches!(style.overflow_y, Overflow::Scroll | Overflow::Auto)
                     {
                         skipped.push(Skipped {
                             row: id,
@@ -258,6 +268,17 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                 }
                 out.push(';');
             }
+            // @ref LLP 1077 D14 — host-owned feedback, as `press-scale`: a
+            // custom property input-glue.js reads from the pressed element's
+            // own style, and plays as `navigator.vibrate` where it exists.
+            (StyleId::PressHaptic, RowValue::Enum(kind)) => {
+                if *kind != "none" {
+                    push_text!(&mut out, "--exact-press-haptic:{};", kind);
+                }
+            }
+            // Written with `rotate` and `translate` (LLP 1077 D8), never alone:
+            // nothing of their own to write, and nothing skipped (kanban F30).
+            (StyleId::RotateAxis | StyleId::TranslateZ, _) => {}
             _ if lowered(id, &value) => {
                 property(&mut out, id);
                 out.push(':');
@@ -411,8 +432,6 @@ fn apple_corner(style: &StyleProps, id: StyleId) -> bool {
 fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
     match value {
         RowValue::Vec2(_) => id == StyleId::Translate,
-        // Written with `rotate` and `translate` (LLP 1077 D8).
-        RowValue::RotateAxis(_) => false,
         // Apple's affordances: no CSS property (LLP 1077 §5).
         RowValue::SymbolPalette(_) => false,
         _ if matches!(
@@ -420,7 +439,6 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
             StyleId::SymbolRendering
                 | StyleId::SymbolValue
                 | StyleId::SymbolEffect
-                | StyleId::PressHaptic
                 | StyleId::ContentTransition
                 | StyleId::ScrollEdgeEffect
                 | StyleId::HoverEffect
@@ -429,7 +447,6 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
         {
             false
         }
-        RowValue::Number(_) if id == StyleId::TranslateZ => false,
         RowValue::Color2(_)
         | RowValue::Transitions(_)
         | RowValue::Animations(_)
@@ -534,7 +551,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::BoxShadow(s) => out.push_str(&s.css()),
         RowValue::CornerShape(c) => out.push_str(&c.css()),
         RowValue::RotateAxis(_) | RowValue::SymbolPalette(_) => {}
-        RowValue::Tracks(tracks) => out.push_str(&tracks.css()),
+        RowValue::Tracks(tracks) => out.push_str(tracks.css()),
         RowValue::Placement(placement) => out.push_str(&placement.css()),
         RowValue::Vec2(v) => {
             num_into(out, v.x);
@@ -543,10 +560,14 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             out.push_str("px");
         }
         RowValue::Number(n) => match id {
+            StyleId::ZIndex => {
+                let max = exact_kernel::paint_order::Z_MAX;
+                out.push_str(&(*n as i32).clamp(-max, max).to_string());
+            }
             StyleId::FlexGrow
             | StyleId::FlexShrink
             | StyleId::Opacity
-            | StyleId::ZIndex
+            | StyleId::Order
             | StyleId::FontWeight
             | StyleId::Scale
             // SVG's unitless numbers (LLP 1055 D2); `r`, `cx`, `cy` are lengths.
@@ -672,6 +693,10 @@ pub fn easing_css(e: &Easing) -> String {
 
 pub(crate) fn dimension(out: &mut String, d: Dimension) {
     match d {
+        Dimension::Viewport(unit, n) => {
+            num_into(out, n);
+            out.push_str(unit.name());
+        }
         Dimension::Auto => out.push_str("auto"),
         Dimension::Points(p) => {
             num_into(out, p);
@@ -891,6 +916,16 @@ mod declaration_tests {
         }
         let fonts: Vec<String> = fonts.iter().map(|f| f.to_string()).collect();
         css_text(&style, &fonts).0
+    }
+
+    #[test]
+    fn cursor_emits_the_css_keyword_including_explicit_auto_override() {
+        for value in ["auto", "default", "crosshair"] {
+            assert_eq!(
+                css(&[(StyleId::Cursor, StyleValue::Text(value.into()))], &[]),
+                format!("cursor:{value};")
+            );
+        }
     }
 
     /// The declarations `css_text` composes itself, as the `write!`-built
@@ -1153,6 +1188,25 @@ mod declaration_tests {
         );
     }
 
+    /// `press-haptic` is the custom property input-glue.js plays at the
+    /// press (LLP 1077 D14, workout F4); `rotate`'s axis part is written
+    /// with the angle and skips nothing (kanban F30).
+    #[test]
+    fn press_haptic_is_the_glues_property_and_a_rotation_skips_nothing() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(StyleId::PressHaptic, &t("impact-medium"))
+            .unwrap();
+        for row in [StyleId::Rotate, StyleId::RotateAxis] {
+            style.set_dynamic(row, &t("3deg")).unwrap();
+        }
+        let (text, skipped) = css_text(&style, &[]);
+        assert_eq!(text, "rotate:3deg;--exact-press-haptic:impact-medium;");
+        assert!(skipped.is_empty(), "{skipped:?}");
+        assert_eq!(css(&[(StyleId::PressHaptic, t("none"))], &[]), "");
+    }
+
     /// The feedback's separate factor leaves the row's scale and
     /// authored transition list intact; 1 needs no effect.
     #[test]
@@ -1214,4 +1268,44 @@ mod declaration_tests {
             list.css().replace(" grow,", " grow-exact-press,")
         );
     }
+}
+
+/// CSS family aliases for declared fonts; local families keep their CSS names.
+pub fn font_alias(plan: &exact_plan::Plan, family: exact_plan::FamiliesId) -> String {
+    let row = plan.familie(family);
+    if row.faces.len == 0 {
+        return plan.str(row.name).into();
+    }
+    let i = plan
+        .stacks
+        .iter()
+        .position(|s| {
+            s.members.len == 1
+                && plan.stack_member(s.members.iter().next().unwrap()).family == Some(family)
+        })
+        .unwrap_or(8 + family.0 as usize);
+    format!("ExactPlanStack{i}")
+}
+
+/// Every stack's complete CSS fallback list in authored order.
+pub fn font_family_names(plan: &exact_plan::Plan) -> Vec<String> {
+    plan.stacks
+        .iter()
+        .map(|stack| {
+            stack
+                .members
+                .iter()
+                .map(|id| {
+                    let member = plan.stack_member(id);
+                    match member.kind {
+                        exact_plan::StackMemberKind::Family => {
+                            css_string(&font_alias(plan, member.family.unwrap()))
+                        }
+                        generic => generic_stack(generic.name()).into(),
+                    }
+                })
+                .collect::<Vec<String>>()
+                .join(", ")
+        })
+        .collect()
 }

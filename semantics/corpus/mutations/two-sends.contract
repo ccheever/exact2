@@ -1,0 +1,34 @@
+// Two sends to one mutation in an action: both are asked, the last answer
+// lands. A send and a read of the mutation in the same action: the read
+// sees the pre-state.
+shape Ack
+  n: number
+  s: string
+
+component App
+  mutation ack as shape Ack
+  state seenBefore = "none"
+  state k = 0
+  derive label = match ack { case some(a) => a.s, case none => "-" }
+  action twice
+    send ack = ping("first", k)
+    send ack = ping("second", k)
+    k = k + 1
+  action readBack
+    send ack = ping("third", k)
+    seenBefore = match ack { case some(a) => `had ${a.s}`, case none => "none" }
+  view
+    column
+      text label testId="label"
+      text seenBefore testId="before"
+      button "twice" press=twice testId="twice"
+      button "read" press=readBack testId="read"
+
+test "last send lands"
+  tap "twice"
+  tap "twice"
+
+test "read sees pre-state"
+  tap "read"
+  expect state seenBefore == "none"
+  tap "read"

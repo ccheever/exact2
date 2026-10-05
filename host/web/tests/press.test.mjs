@@ -18,13 +18,14 @@ const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavaila
 
 // The shell's own stylesheet, with nodes as the host writes them: a card
 // (0.9) holding a button (0.5), a plain pressable (no row) in the card, and
-// a disabled button.
+// a disabled button, and a native button with neither (its card's press is its own).
 const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\S]*?<\/style>/)[0] + `
 <div id="exact-root" style="padding:20px">
   <div id="card" data-exact-on="press" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.9;width:300px;height:300px;padding:20px">
     <button id="button" data-exact-on="press" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.5;width:100px;height:100px">b</button>
-    <div id="plain" data-exact-on="press" style="width:100px;height:50px">p</div>
-    <button id="off" data-exact-on="press" disabled style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.5;width:100px;height:50px">d</button>
+    <div id="plain" data-exact-on="press" style="width:100px;height:50px;--exact-press-haptic:impact-medium">p</div>
+    <button id="off" data-exact-on="press" disabled style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.5;--exact-press-haptic:selection;width:100px;height:50px">d</button>
+    <button id="native" type="button" data-button-style="filled" style="width:100px;height:40px"><span id="title">n</span></button>
   </div>
   <button id="scaled" data-exact-on="press" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.5;width:100px;height:60px;--exact-scale:1.5;transform-origin:0 0">s</button>
   <svg width="400" height="180"><rect id="svg" data-exact-on="press" x="0" y="0" width="100" height="60" transform="translate(100 40) rotate(20)" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.5;transform-origin:20px 10px;fill:red" /></svg>
@@ -32,6 +33,7 @@ const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\
 <script type="module">
   import { createInputHandlers } from './input-glue.js';
   const root = document.getElementById('exact-root');
+  window.vibrations = []; navigator.vibrate = ms => { vibrations.push(ms); return true; }; // headless Chrome has none
   createInputHandlers({ root, views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor: () => false, dispatch() {} });
   window.ready = true;
 </script>`;
@@ -57,6 +59,21 @@ check('only the innermost pressable shows the press, and only while inside', asy
     };
     await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
     for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    // Host glass/dimming remains stacking even against authored `none`.
+    expect(await evaluate(`(() => {
+      const out = [];
+      for (const style of ['glass', 'prominent-glass', 'clear-glass', 'prominent-clear-glass']) {
+        const el = document.createElement('button');
+        el.dataset.buttonStyle = style;
+        el.style.backdropFilter = 'none';
+        el.style.filter = 'none'; el.disabled = true;
+        document.body.append(el);
+        const cs = getComputedStyle(el);
+        out.push(cs.backdropFilter !== 'none' && cs.filter === 'opacity(0.45)');
+        el.remove();
+      }
+      return out;
+    })()`)).toEqual([true, true, true, true]);
     const centre = (id) => evaluate(`(() => { const r = document.getElementById('${id}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
     const mouse = (type, [x, y]) => call('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 });
     const pressed = () => evaluate(`[...document.querySelectorAll('[data-pressed]')].map(el => el.id).join()`);
@@ -80,13 +97,31 @@ check('only the innermost pressable shows the press, and only while inside', asy
     expect(await pressed()).toBe('');
 
     // The innermost pressable has no row: nothing shows, not even its card.
+    // Its `press-haptic` plays at the press, as `haptic()`'s length (LLP 1077 D14).
+    const vibrations = () => evaluate('vibrations.join()');
+    expect(await vibrations()).toBe('');
     await mouse('mousePressed', await centre('plain'));
     expect(await pressed()).toBe('');
+    expect(await vibrations()).toBe('12');
     await mouse('mouseReleased', await centre('plain'));
-    // A disabled button gives nothing either; its card is not pressed through it.
+    // A disabled button gives nothing either; its card is not pressed through it, and its haptic is silent.
     await mouse('mousePressed', await centre('off'));
     expect(await pressed()).toBe('');
     await mouse('mouseReleased', await centre('off'));
+    expect(await vibrations()).toBe('12');
+    // A native button highlights as a UIButton does, with no row or handler
+    // of its own: its face dims, nothing scales, its card is not pressed.
+    const face = () => evaluate(`getComputedStyle(document.getElementById('title')).opacity`);
+    await mouse('mousePressed', await centre('native'));
+    expect(await pressed()).toBe('native');
+    expect(await face()).toBe('0.5');
+    expect(await scale('native')).toBe(1);
+    expect(await scale('card')).toBe(1);
+    await mouse('mouseReleased', await centre('native'));
+    expect(await pressed()).toBe('');
+    expect(await face()).toBe('1');
+    // Mobile WebKit's grey tap highlight never paints over any of it.
+    expect(await evaluate(`getComputedStyle(document.documentElement).getPropertyValue('-webkit-tap-highlight-color')`)).toBe('rgba(0, 0, 0, 0)');
 
     // Reduced motion keeps the host feedback, as a native button keeps its highlight.
     await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });

@@ -43,22 +43,27 @@ impl sqlite::Provider for SqliteProvider {
         }
         // Reject existing symlinks at every component, including the final file.
         // The host keeps parents stable after this check; this is not an OS sandbox.
-        let mut ancestor = std::path::PathBuf::new();
-        for part in path.components() {
-            if matches!(part, std::path::Component::ParentDir) {
-                return Err(error("parent traversal is not allowed"));
-            }
-            ancestor.push(part);
-            match std::fs::symlink_metadata(&ancestor) {
-                Ok(meta) if meta.file_type().is_symlink() => {
-                    return Err(error("symbolic links are not allowed"))
+        #[cfg(windows)]
+        ibex2::stdlib::app_fs::validate_sqlite_location(&path)?;
+        #[cfg(not(windows))]
+        {
+            let mut ancestor = std::path::PathBuf::new();
+            for part in path.components() {
+                if matches!(part, std::path::Component::ParentDir) {
+                    return Err(error("parent traversal is not allowed"));
                 }
-                Ok(meta) if ancestor == path && !meta.is_file() => {
-                    return Err(error("database must be a regular file"));
+                ancestor.push(part);
+                match std::fs::symlink_metadata(&ancestor) {
+                    Ok(meta) if meta.file_type().is_symlink() => {
+                        return Err(error("symbolic links are not allowed"))
+                    }
+                    Ok(meta) if ancestor == path && !meta.is_file() => {
+                        return Err(error("database must be a regular file"));
+                    }
+                    Ok(_) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound && ancestor == path => {}
+                    Err(e) => return Err(error(e)),
                 }
-                Ok(_) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound && ancestor == path => {}
-                Err(e) => return Err(error(e)),
             }
         }
         let connection = Connection::open_with_flags(

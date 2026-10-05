@@ -3,7 +3,8 @@
 // a transcript of varied rows that opens at its last row, its estimate (48)
 // wrong for every row, and lands there on measured sizes; one that opens
 // empty and gets its rows later; then a reader who scrolls it up and a
-// line that comes without `scrollFollowEnd`, which leaves them there.
+// line that comes without `scrollFollowEnd`, which leaves them there. The
+// long one's `ScrollEvent` says whether the reader is at its end (chat F4).
 shape Card
   id: string
   n: number
@@ -15,15 +16,19 @@ component StartEnd
   resource cards = cards(2000) as shape list<Card>
   state said = 0
   derive lines = filter(cards, c => c.n < said)
+  state atEnd = false
   action say
     said = said + 400
+  action moved(x: number, y: number, e: ScrollEvent)
+    atEnd = e.scrollHeight - e.scrollTop - e.clientHeight <= 1
   view
     column testId="root" height="100%" display="flex" flex-direction="column"
       row gap=8 padding=8 flex-shrink=0
         button press=say testId="say"
           text "say"
         text `${length(lines)} lines` testId="summary"
-      list virtualized=true scroll-start="end" estimated-item-height=48 testId="long" flex=1 min-height=0 width="100%" overflow-x="hidden"
+        text (atEnd ? "at the end" : "away") testId="at-end"
+      list virtualized=true scroll-start="end" scroll=moved estimated-item-height=48 testId="long" flex=1 min-height=0 width="100%" overflow-x="hidden"
         each c in cards key=c.id
           text `${c.label}, ${c.width} wide` testId=`row-${c.n}` padding=(4 + c.width / 20) font-size=13 border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"
       list virtualized=true scroll-start="end" testId="later" height=160 flex-shrink=0 width="100%" overflow-x="hidden" background-color="#f1f5fa"

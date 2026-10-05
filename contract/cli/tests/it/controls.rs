@@ -463,3 +463,31 @@ fn a_date_carries_htmls_value_format_within_min_and_max() {
     assert_eq!(value(&r, at).as_deref(), Some("2026-09-27T14:30"));
     assert!(r.dispatch(at, Event::Change(true.into())).is_err());
 }
+
+/// `spellcheck` and `autocorrect` are HTML's enumerated attributes whose IDL
+/// attributes are bools: a bool is written as their words, a string as
+/// itself (shop diary F7: `spellcheck=false` was refused as no string).
+#[test]
+fn spellcheck_and_autocorrect_take_a_bool_as_their_words() {
+    let mut r = boot(
+        "component App\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      input spellcheck=false autocorrect=false testId=\"off\"\n      input spellcheck=on autocorrect=on testId=\"bound\"\n      input spellcheck=\"true\" autocorrect=\"on\" testId=\"words\"\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n",
+    );
+    let words = |r: &Runner<NoData>, id: &str| {
+        let node = r.kernel().node(view_of(r, id)).unwrap();
+        (
+            node.props.str(PropId::Spellcheck).map(str::to_string),
+            node.props.str(PropId::Autocorrect).map(str::to_string),
+        )
+    };
+    let pair = |a: &str, b: &str| (Some(a.to_string()), Some(b.to_string()));
+    assert_eq!(words(&r, "off"), pair("false", "off"));
+    assert_eq!(words(&r, "bound"), pair("false", "off"));
+    assert_eq!(words(&r, "words"), pair("true", "on"));
+    let flip = view_of(&r, "flip");
+    r.dispatch(flip, Event::Press).unwrap();
+    assert_eq!(words(&r, "bound"), pair("true", "on"));
+    let e = contract::compile("component App\n  view\n    input spellcheck=3\n")
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("`spellcheck` takes a string"), "{e}");
+}

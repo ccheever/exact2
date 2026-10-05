@@ -1,0 +1,16 @@
+# Code review: named colours, document links in a capture, the source map in a web root (82b76214e..63790c0e3), 2026-10-04 (grok)
+
+- **Family:** xAI — `~/.grok/bin/grok -m grok-4.7 --reasoning-effort xhigh --always-approve --no-subagents --output-format plain --prompt-file <brief>`, headless, `--cwd` a detached worktree at `63790c0e3` (clean afterwards).
+- **Method:** the shared brief (sha256 `c415b0df418b91bd7921e0ae5dd5729dc35f3d734e3362fc78e35a110774cf15`); round 1; blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** stdout, unedited; the text before the verdict is progress narration.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** both are astra's #1–#3 by other routes, fixed in `c2937e08c`: a linked app.contract or asset is refused (only .md/.txt document links outside the static trees are skipped); keyframes take names.
+
+---
+
+
+The named-colour table is the CSS Color 4 set of 148: sorted, no duplicates, and the same sRGB bytes as `canvas/src/color.rs`. `gray` is 128, `green` is 0,128,0. Static styles, `light-dark()`, gradients, SVG paint, and dynamic rows all go through `Color::parse` or the browser, so those paths agree. The source map exclusion is the right publication fix: wasm roots use the `listPublicFiles` allowlist (the map is not on it), install pages do not reference it, and the dev server still serves it locally for the agent. An app-root `CLAUDE.md` link is not refused by `scripts/rust.mjs` (the contract-only walk), `host/web/dev.mjs`, or the receipt walker.
+
+1. **High.** The web JS build will now compile a symlinked `app.contract` that points outside the app. `host/web-js/build.mjs:163` only refuses a symlink whose name matches `/\.(ts|json)$/` or whose target is a directory, then skips the rest. The same build compiles `appDir/app.contract` with `exact-web-js` (`build.mjs:59`), and `read_source` (`contract/cli/src/lib.rs:248`) follows the link. `use` targets are canonicalized and must stay under the app (`contract/cli/src/sources.rs:110-122`); the root file is not. The native capture still refuses `.contract`, `.ttf`, `.otf`, and anything under `assets/`, `deck/`, or `gpu/shaders` (`js/bake/src/lib.rs:574-586`), so the native bake fails and the JS target succeeds with the outside text in the plan. A file symlink under `assets/` is also no longer a build failure; `cpSync` at `build.mjs:447` plants it in `out` (deploy’s `listBuildFiles` skips non-regular files, so the origin does not get the bytes). **Fix:** refuse every symlink the web build actually reads or copies (`.contract`, and the asset/deck/shader trees), and reject a root contract whose `canonicalize()` is not that path.
+
+2. **Medium.** A node can be `color="red"`, and a keyframe still cannot. `motion/src/color.rs:6-15` only accepts hex, `rgb()`/`rgba()`, and `transparent`; its test still expects `"red"` to fail (`motion/src/color.rs:110`). Keyframes are checked with that parser (`contract/lower/src/svg.rs:427`, `motion/src/animation/parse.rs:532-536`), so `from color="red"` is a compile error on every host. Computed transitions are fine: `color_targets` uses the resolved `Color`. **Fix:** parse the same 148 names in `motion::color::parse` (motion cannot call the kernel; share the table downward).

@@ -537,6 +537,7 @@ impl Feed {
         let mut batches = initial
             || next.assets != old.assets
             || next.mesh != old.mesh
+            || next.parent != old.parent
             || next.visible != old.visible
             || next.viewmodel != old.viewmodel
             || next.lod != old.lod
@@ -756,7 +757,7 @@ impl Feed {
                     self.dimensions.resize(slot + 1, [1.0; 3]);
                 }
                 self.dimensions[slot] = dimensions(mesh);
-                if w.get::<Visible>(e).is_some_and(|v| !v.0) {
+                if !w.is_visible(e) {
                     continue;
                 }
                 let viewmodel = w.has::<ViewModel>(e);

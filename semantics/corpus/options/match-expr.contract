@@ -1,0 +1,52 @@
+// `match` on an option inside expressions: in derives, templates, ternaries
+// and nested matches.
+// A slot initialised to `none` has an open element type in derives (the
+// checker does not read it back from the actions' writes), so its payload
+// goes through typed `fn`s here.
+fn str(s: string): string = s
+fn len(s: string): number = length(s)
+fn isX(s: string): bool = s == "x"
+
+component App
+  state picked = none
+  state other = none
+  derive label = match picked { case some(p) => `picked ${str(p)}`, case none => "nothing" }
+  derive count = match picked { case some(p) => len(p), case none => 0 }
+  derive pair = match picked { case some(p) => match other { case some(o) => `${str(p)}+${str(o)}`, case none => `${str(p)} alone` }, case none => "empty" }
+  derive flag = match picked { case some(p) => isX(p), case none => false }
+  action pick(v: string)
+    picked = some(v)
+  action pickOther(v: string)
+    other = some(v)
+  action clear
+    picked = none
+  view
+    column
+      text label testId="label"
+      text pair testId="pair"
+      text `${count} ${flag}` testId="cf"
+      text match other { case some(o) => str(o), case none => "-" } testId="other"
+      button "x" press=pick("x") testId="pick-x"
+      button "long" press=pick("hello") testId="pick-long"
+      button "o" press=pickOther("o") testId="other-o"
+      button "clear" press=clear testId="clear"
+
+test "none"
+  expect text "label" == "nothing"
+  expect text "pair" == "empty"
+  expect text "cf" == "0 false"
+  expect text "other" == "-"
+
+test "some"
+  tap "pick-x"
+  expect text "label" == "picked x"
+  expect text "pair" == "x alone"
+  expect text "cf" == "1 true"
+  tap "other-o"
+  expect text "pair" == "x+o"
+  expect text "other" == "o"
+  tap "pick-long"
+  expect state count == 5
+  expect state flag == false
+  tap "clear"
+  expect text "pair" == "empty"

@@ -164,7 +164,7 @@ export EXACT_UPDATE_TRUST=development
 cargo test -p interaction-gallery-data
 bun host/web/dev.mjs --app interaction-gallery
 bun host/apple/build.mjs --app interaction-gallery --run
-cargo build --release -p interaction-gallery-linux
+cargo build --profile host-dev -p interaction-gallery-linux
 ```
 
 The pure model can be tested before workspace integration:

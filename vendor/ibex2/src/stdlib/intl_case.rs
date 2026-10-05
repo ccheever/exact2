@@ -8,9 +8,8 @@
 //! @ref LLP 0057#3-the-boundary — Rust owns standard-library semantics
 
 use crate::boundary::{HostArg, HostError, HostValue};
+use crate::host_opcodes::intl_case::MAP as INTL_CASE;
 use std::ffi::{c_char, c_int};
-
-const INTL_CASE: u32 = 97;
 
 extern "C" {
     fn ibex2_icu_case_map(

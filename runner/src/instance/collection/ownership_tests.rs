@@ -33,7 +33,7 @@ fn list(
     let num = b.primitive(TypeKind::Number);
     let zero = b.constant(&Value::Number(0.0));
     let slot = b.slot(&format!("row_counter_{}", region.0), num, zero);
-    b.set_slot_owner(slot, region);
+    b.set_slot_owner(slot, arms[0]);
     b.node(NodeType::View as u8, None, Some(arms[0]), 0, &[], &[], None)
 }
 

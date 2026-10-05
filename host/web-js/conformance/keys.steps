@@ -1,0 +1,31 @@
+# Printable and named keys at a field reach its handler and the page's; `x`
+# is prevented and not typed; Enter submits only past the page's handler.
+# The grid's arrows and Space scroll nothing.
+key field 7
+key field x
+key field Backspace
+key field Enter
+key field 7
+key field Enter
+key grid ArrowDown
+key grid ArrowDown
+key grid Space
+# A chord's modifiers reach the action: Shift+Enter breaks the textarea's
+# line, Enter sends it, and Meta+s or Control+s at the grid saves (and types
+# nothing in the field).
+key area a
+key area Shift+Enter
+key area b
+key area Enter
+key grid Meta+s
+key field Control+s
+# A pressable column: Enter and Space press it.
+key pressable Enter
+key pressable Space
+# `selectText` selects the field's text: the next key replaces it.
+tap rename
+key field y
+# A stopped key reaches no ancestor's handler; Enter still submits.
+key field Escape
+type field go
+key field Enter

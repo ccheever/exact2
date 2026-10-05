@@ -21,8 +21,9 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { appleArtifacts, simulator, simulators } from '../host/apple/build.mjs';
-import { resolveApp } from './app.mjs';
+import { appleArtifacts } from '../host/apple/build.mjs';
+import { simulator, simulators } from '../host/apple/devices.mjs';
+import { HOST_DEV, resolveApp } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -151,7 +152,7 @@ export async function duoSmoke({ open, check: record }) {
   const plans = {};
   for (const name of ['insets', 'keyboard-bar']) {
     const plan = resolve(out, `${name}.plan`);
-    const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, `contract/corpus/${name}.contract`), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+    const c = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', resolve(ROOT, `contract/corpus/${name}.contract`), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
     if (check(c.status === 0, `the ${name} fixture did not compile: ${c.stderr}`)) plans[name] = plan;
   }
   const lab = resolveApp('duo-lab');

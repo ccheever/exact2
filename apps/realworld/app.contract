@@ -268,8 +268,13 @@ component RealWorld
             favs=favs,
             favorite=favorite
           )
+      // Every entry of the stack stays mounted, as a native stack keeps the
+      // screens under its top: the navigation root shows the one whose key
+      // is `current.id` and hides the rest and makes them inert. So each
+      // entry's page, and the drafts its components hold (a child's state
+      // lives as long as its instance, LLP 1017 P4c), survives Back.
       each e in stack(nav) key = e.id
-        when e.id == current.id and e.name != "home" and e.name != "tag"
+        when e.name != "home" and e.name != "tag"
           column navigationKey=`${e.id}` flex=1 testId=`page-${e.name}`
             when e.name == "login"
               head title="Sign in — Conduit"

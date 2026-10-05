@@ -1,0 +1,28 @@
+// Strings with control characters, quotes and backslashes typed into an
+// input: lengths, equality and how they are shown.
+component App
+  state s = ""
+  derive n = length(s)
+  derive hasTab = includes(s, "\t")
+  derive hasQuote = includes(s, "\"")
+  derive hasNl = includes(s, "\n")
+  action set(v: string)
+    s = v
+  view
+    column
+      input value=s change=set testId="in"
+      text s testId="echo"
+      text `[${s}]` testId="wrapped"
+
+test "escapes"
+  type "in" "a\tb"
+  expect state n == 3
+  expect state hasTab == true
+  type "in" "say \"hi\""
+  expect state hasQuote == true
+  expect text "echo" == "say \"hi\""
+  type "in" "line1\nline2"
+  expect state hasNl == true
+  expect state n == 11
+  type "in" "back\\slash"
+  expect state n == 10

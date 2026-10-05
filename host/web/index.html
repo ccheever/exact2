@@ -21,6 +21,12 @@
      first frame of an app that never calls `setScheme` is wrong. `setScheme`
      overrides this on the element, as an app choosing light or dark. */
   html { color-scheme: light dark; }
+  /* Press feedback is the node's own (`press-scale`, LLP 1061), as on UIKit,
+     where a pressable view shows none unless it declares one; mobile WebKit's
+     grey tap highlight would paint over it on every button and link. A
+     native button keeps a highlight as UIButton does: the input glue marks it
+     `data-pressed` by the same rule as a press, and its face dims. */
+  html { -webkit-tap-highlight-color: transparent; }
   /* LLP 1019 §5: nearest real face, never browser-synthesized bold/italic. */
   #exact-root { height: 100%; font-synthesis: none; }
   body { font: 16px system-ui, sans-serif; }
@@ -51,17 +57,18 @@
   button[data-button-style] { appearance: auto; background: revert; border: revert; border-radius: revert; padding: revert; font: revert; color: revert; box-sizing: border-box; letter-spacing: normal; word-spacing: normal; text-transform: none; text-shadow: none; font-variant: normal; align-items: center; justify-content: center; gap: .25em; white-space: nowrap; overflow: hidden; -webkit-user-select: none; user-select: none; }
   button[data-button-style] > :not(img) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   button[data-button-style] > img { --exact-tint: currentColor; }
+  button[data-button-style][data-pressed] > * { opacity: .5; }
   /* A symbol alone is drawn larger, as UIKit draws a symbol-only button's (about 20 pt in a 40 pt glass button). */
   button[data-button-style] > img:only-child { font-size: 1.5em; }
   button:is([data-button-style="plain"], [data-button-style="borderless"], [data-button-style="tinted"], [data-button-style="bordered-tinted"], [data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"]) { appearance: none; border: none; border-radius: 999px; padding: 7px 12px; }
   button:is([data-button-style="plain"], [data-button-style="borderless"]) { background: none; color: var(--exact-accent, AccentColor); }
   button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 15%, transparent); color: var(--exact-accent, AccentColor); }
   button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]) { background: var(--exact-accent, AccentColor); color: #fff; }
-  button:is([data-button-style="glass"], [data-button-style="prominent-glass"]) { backdrop-filter: blur(20px) saturate(150%); background: light-dark(#ffffffb3, #262629b3); color: CanvasText; box-shadow: 0 8px 24px #0000000d, inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
-  button:is([data-button-style="clear-glass"], [data-button-style="prominent-clear-glass"]) { backdrop-filter: blur(10px) saturate(120%); background: light-dark(#ffffff26, #ffffff1a); color: CanvasText; box-shadow: inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
+  button:is([data-button-style="glass"], [data-button-style="prominent-glass"]) { backdrop-filter: blur(20px) saturate(150%) !important; background: light-dark(#ffffffb3, #262629b3); color: CanvasText; box-shadow: 0 8px 24px #0000000d, inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
+  button:is([data-button-style="clear-glass"], [data-button-style="prominent-clear-glass"]) { backdrop-filter: blur(10px) saturate(120%) !important; background: light-dark(#ffffff26, #ffffff1a); color: CanvasText; box-shadow: inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
   button:is([data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 85%, transparent); color: #fff; }
   /* Dimmed by a filter, so an authored opacity (inline, bound or animated) composes with it. */
-  button[data-button-style]:not([data-button-style="bordered"], [data-button-style="gray"]):disabled { filter: opacity(.45); }
+  button[data-button-style]:not([data-button-style="bordered"], [data-button-style="gray"]):disabled { filter: opacity(.45) !important; }
   /* Keep the textarea's native long-word wrapping through the control reset. */
   textarea { overflow-wrap: revert; }
   /* Authored flex/grid display must not expose a closed native popover. */
@@ -69,9 +76,10 @@
   dialog:not([open]) { display: none !important; }
   /* Gesture feedback is decorative, including when its opacity is zero. */
   [swipeIndicator="true"] { pointer-events: none; }
-  /* Modal dimming belongs to the host; UIKit supplies its own backdrop. */
+  /* Modal dimming belongs to the host; UIKit supplies its own backdrop. It dims the route the
+     sheet covers (navigation.js marks it), so the sheet's own background paints undimmed (recipes F6). */
   [navigationPresentation="modal"] { isolation: isolate; position: relative; }
-  [navigationPresentation="modal"]::before { content: ""; position: absolute; inset: 0; z-index: -1; background: #00000033; }
+  [data-exact-covered]::after { content: ""; position: absolute; inset: 0; background: #00000033; pointer-events: none; }
   /* `all: unset` would inherit the field's color onto the placeholder. */
   input::placeholder, textarea::placeholder { color: light-dark(#3c3c434c, #ebebf54c); opacity: 1; }
   /* A platform material (host policy, LLP 1053.000 D3, D4): the schema's approximation of the named material, from the variables the host sets

@@ -8,7 +8,7 @@
 // the platform's (`AgentNativeIOS.swift`, `AgentNativeMac.swift`).
 import Foundation
 import CoreFoundation
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 #else
 import AppKit

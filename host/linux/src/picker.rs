@@ -4,6 +4,7 @@
 //! directories behind `app:/` (D4, D7), the copy into `app:/tmp/picked/`,
 //! and a picked image's pixel size read from its header (D3).
 
+use exact_runner::DataError;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -21,6 +22,94 @@ static ROOTS: Mutex<Option<[PathBuf; 3]>> = Mutex::new(None);
 pub fn set_roots(data: PathBuf, cache: PathBuf, temporary: PathBuf) {
     let _ = std::fs::remove_dir_all(temporary.join("picked"));
     *ROOTS.lock().unwrap_or_else(|e| e.into_inner()) = Some([data, cache, temporary]);
+}
+
+/// The app's `app:/data`, `app:/cache` and `app:/tmp` (LLP 1027.001): under
+/// the XDG bases, or a scripted drive's scratch tree (`--storage`), apart
+/// from the app's real files, with that tree when an authored test starts it
+/// empty (`EXACT_AGENT_STORAGE_FRESH`). `None`: an app with no id, or a
+/// drive with no scratch store, which has no storage.
+#[allow(clippy::type_complexity)]
+pub(crate) fn app_dirs(app_id: &str) -> Result<Option<([PathBuf; 3], Option<PathBuf>)>, DataError> {
+    // Scripted drives must not read or write the developer's app files;
+    // one that names a scratch tree gets storage there instead.
+    let scratch = match std::env::var_os("EXACT_AGENT") {
+        Some(_) => match agent_scratch()? {
+            Some(name) => Some(name),
+            None => return Ok(None),
+        },
+        None => None,
+    };
+    if app_id.is_empty() {
+        return Ok(None);
+    }
+    if matches!(app_id, "." | "..")
+        || !app_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b))
+    {
+        return Err(DataError::Unavailable("unsafe app storage identity".into()));
+    }
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))?;
+    let base = |variable: &str, fallback: &str| {
+        std::env::var_os(variable)
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .unwrap_or_else(|| home.join(fallback))
+            .join("exact")
+            .join(app_id)
+    };
+    let mut data = base("XDG_DATA_HOME", ".local/share").join("data");
+    let mut cache = base("XDG_CACHE_HOME", ".cache");
+    let mut fresh = None;
+    if let Some(name) = scratch {
+        cache = cache.join("agent").join(name);
+        if std::env::var_os("EXACT_AGENT_STORAGE_FRESH").is_some() {
+            fresh = Some(cache.clone());
+        }
+        data = cache.join("data");
+    }
+    // Sibling roots keep app:/cache grants from implicitly reaching tmp.
+    // The user's cache base avoids a predictable shared /tmp directory.
+    Ok(Some((
+        [data, cache.join("cache"), cache.join("temporary")],
+        fresh,
+    )))
+}
+
+/// A scripted drive's scratch storage (`EXACT_AGENT_STORAGE=<name>`): a tree
+/// of its own under the cache base, so a drive can exercise storage without
+/// touching the app's real files. Absent, a drive has no storage.
+fn agent_scratch() -> Result<Option<String>, DataError> {
+    let Some(name) = std::env::var_os("EXACT_AGENT_STORAGE") else {
+        return Ok(None);
+    };
+    match name.to_str() {
+        Some(name)
+            if !matches!(name, "" | "." | "..")
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b)) =>
+        {
+            Ok(Some(name.to_owned()))
+        }
+        _ => Err(DataError::Unavailable(
+            "EXACT_AGENT_STORAGE: one name of letters, digits, '.', '-' or '_'".into(),
+        )),
+    }
+}
+
+/// The app's directories at boot, before storage is configured after first
+/// pixel: an `image "app:/data/…"` resolves from the first frame, whether or
+/// not anything was picked (D7; recipes F18). Nothing is emptied until
+/// storage is configured ([`set_roots`]).
+pub fn know_roots(app_id: &str) {
+    if let Ok(Some((roots, _))) = app_dirs(app_id) {
+        *ROOTS.lock().unwrap_or_else(|e| e.into_inner()) = Some(roots);
+    }
 }
 
 /// A scripted drive without a scratch store has no app directories; its
@@ -205,5 +294,42 @@ mod tests {
         assert_eq!(resolve("app:/tmp/../x"), None);
         assert_eq!(resolve("app:/etc/passwd"), None);
         assert_eq!(resolve("/etc/passwd"), None);
+    }
+
+    /// An `app:/data` image resolves before storage is configured, with
+    /// nothing picked (D7; recipes F18): in a child, whose roots are its own.
+    #[test]
+    fn app_roots_are_known_at_boot_before_storage() {
+        const CHILD: &str = "EXACT_LINUX_ROOTS_TEST";
+        if std::env::var_os(CHILD).is_none() {
+            let home = std::env::temp_dir().join(format!("exact-roots-{}", std::process::id()));
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "picker::tests::app_roots_are_known_at_boot_before_storage",
+                ])
+                .env(CHILD, "1")
+                .env("HOME", &home)
+                .env("EXACT_AGENT", "1")
+                .env("EXACT_AGENT_STORAGE", "s1")
+                .env_remove("XDG_DATA_HOME")
+                .env_remove("XDG_CACHE_HOME")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            assert!(!home.exists(), "knowing the roots creates nothing");
+            return;
+        }
+        know_roots("test.exact.roots");
+        let file = resolve("app:/data/photos/a.jpg").unwrap();
+        assert!(
+            file.ends_with(".cache/exact/test.exact.roots/agent/s1/data/photos/a.jpg"),
+            "{}",
+            file.display()
+        );
     }
 }

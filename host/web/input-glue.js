@@ -1,6 +1,13 @@
 // Input-only glue: loaded after the baked first pixel, independently of data readiness.
+/** An element whose `press` the keyboard reaches only through its tabindex:
+ * not one the browser activates itself (the wasm host's handler list, or the
+ * JS target's `data-exact-on`). */
+const pressesByKey = el => !el.matches("button, a[href], input, select, textarea, summary")
+  && (el.exactHandlers ?? el.dataset.exactOn?.split(" "))?.includes("press") === true;
 const shortcutKeys = new Set(["Enter", "Tab", "Escape", "Backspace", "Delete", "Insert", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
-export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false }) {
+/** The modifiers an event holds, as a chord prefix (a pointer record's last field; glue.js's press writes the same). */
+const modifiers = e => (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "");
+export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false, log = () => {} }) {
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
   // it; any other goes to the root's `navigate` handler, as popstate does.
@@ -42,9 +49,14 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         && event.altKey === modifiers.has("Alt") && event.shiftKey === modifiers.has("Shift")
         && event.key.toLowerCase() === key.toLowerCase();
     };
+    // Nothing behind the frontmost modal — a modal `dialog`, or the last
+    // shown `aria-modal` view (gallery F22) — and never Enter or Space while
+    // the focus is a control they activate (onboarding F27).
+    const modal = document.activeElement.closest("dialog:modal") ?? [...root.querySelectorAll('[aria-modal="true"]')].findLast(m => m.getClientRects().length && !inertAncestor(m));
+    const focus = document.activeElement, activates = focus?.matches?.("button, a[href], summary, input[type=checkbox], input[type=radio], [data-exact-on~=press]");
     for (const el of root.querySelectorAll("button[aria-keyshortcuts]")) {
-      const modal = document.activeElement.closest("dialog:modal");
       if (modal && !modal.contains(el)) continue;
+      if (activates && focus !== el && (event.key === "Enter" || event.key === " ") && !(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) continue;
       if (!el.isConnected || !el.getClientRects().length || inertAncestor(el) || getComputedStyle(el).visibility !== "visible") continue;
       if (!(el.getAttribute("aria-keyshortcuts") ?? "").split(/\s+/).some(matches)) continue;
       event.preventDefault();
@@ -53,17 +65,31 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       return;
     }
   }, true);
+  // A pressable that is not a button or a link (`tabindex="0"`, written
+  // where its handlers are) activates as one, as it does natively: Enter, or
+  // Space unless it is a link, after the key's handlers, unless one
+  // prevented it — the bubble phase at the document is after them all (chat F14).
+  document.addEventListener("keydown", (event) => {
+    const el = event.target;
+    if (event.defaultPrevented || event.isComposing || event.repeat || event.metaKey || event.ctrlKey || event.altKey || !ready()) return;
+    if (typeof el?.matches !== "function" || !root.contains(el) || !pressesByKey(el)) return;
+    if (event.key !== "Enter" && !(event.key === " " && el.getAttribute("role") !== "link")) return;
+    event.preventDefault();
+    el.click();
+  });
   // @ref LLP 1061 D3 — press feedback by UIKit's rule, not `:active`'s: the
   // innermost node with a `press` handler takes the press (its pressable
   // ancestors, which `:active` would also match, do not), and shows it only
   // while the pointer is inside the box it had when pressed — leaving
   // releases it, coming back presses again; a pan or a cancel ends it. The
   // browser eases a separate factor, multiplied into CSS `scale`, so
-  // authored transforms, transitions and keyframes keep their values.
+  // authored transforms, transitions and keyframes keep their values. A
+  // native button is pressed by the same rule with or without a row or a
+  // handler of its own, as a UIButton highlights (the shell dims its face).
   const feedback = new WeakMap();
   const showPress = (el, down) => {
     el.toggleAttribute("data-pressed", down);
-    const to = down ? Number(el.style.getPropertyValue("--exact-press")) : 1;
+    const to = down ? Number(el.style.getPropertyValue("--exact-press") || 1) : 1;
     const old = feedback.get(el);
     if (old?.to === to || !old && to === 1) return;
     const progress = old?.animation.effect.getComputedTiming().progress ?? 0;
@@ -96,8 +122,14 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   root.addEventListener("pointerdown", e => {
     if (e.button !== 0 || !e.isPrimary) return;
     release(); // a press whose release never reached the page
-    const el = e.target.closest?.("[data-exact-on~=press]");
-    if (!el || !root.contains(el) || !el.style.getPropertyValue("--exact-press") || el.closest(":disabled,[disabled='true']")) return;
+    const el = e.target.closest?.("[data-exact-on~=press],button[data-button-style]");
+    if (!el || !root.contains(el) || el.closest(":disabled,[disabled='true']")) return;
+    // @ref LLP 1077 D14 — `press-haptic` plays at the press, as Apple's does:
+    // `navigator.vibrate` where the browser has it (not desktop, not iOS
+    // Safari), with `haptic()`'s two lengths (workout F4).
+    const haptic = el.style.getPropertyValue("--exact-press-haptic").trim();
+    if (haptic && haptic !== "none") navigator.vibrate?.(haptic === "selection" ? 5 : 12);
+    if (!(el.style.getPropertyValue("--exact-press") || el.matches("button[data-button-style]"))) return;
     const r = unpressedBox(el);
     press = { el, id: e.pointerId, box: [r.left, r.top, r.right, r.bottom] };
     showPress(el, true);
@@ -113,11 +145,29 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // button or a touch going down on the node, then up or cancelled (a
     // cancel is an up). The up is heard on the document, so it arrives
     // wherever the pointer lifts; a pointer capture would also retarget the
-    // click there, a press the platforms do not make. `fire(29)` is down,
-    // `fire(30)` up.
+    // click there, a press the platforms do not make. LLP 1056 §3 stage 3 —
+    // `pointermove`: a free pointer over the node (no button down), or the
+    // held one anywhere, at most once a frame, the latest. Each carries the
+    // `PointerEvent` record (`offsetX,offsetY,buttons,pressure,pointerType,
+    // pointerId,` the modifiers held, from the content box): `fire(29, r)` is down, 30 up, 31 a
+    // move. The JS target's pointer.js is the same rule.
     pointer(el, on, fire) {
-      let held = null;
+      let held = null, last = null, move = null, frame = 0;
       const wants = kind => el.exactHandlers?.includes(kind);
+      const record = (e, lifted = false) => {
+        const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+        const sx = el.offsetWidth ? r.width / el.offsetWidth : 1, sy = el.offsetHeight ? r.height / el.offsetHeight : 1;
+        const left = parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft), top = parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop);
+        const type = e.pointerType === "pen" || e.pointerType === "touch" ? e.pointerType : "mouse";
+        return `${(e.clientX - r.left) / (sx || 1) - left},${(e.clientY - r.top) / (sy || 1) - top},${lifted ? 0 : e.buttons},${lifted ? 0 : Math.min(1, Math.max(0, e.pressure || 0))},${type},${e.pointerId},${modifiers(e)}`;
+      };
+      const flush = () => {
+        cancelAnimationFrame(frame); frame = 0;
+        const m = move; move = null;
+        if (m && wants("pointermove") && ready()) fire(31, record(m));
+      };
+      const moved = e => { last = e; move = e; if (!frame) frame = requestAnimationFrame(flush); };
+      const heldMove = e => { if (e.pointerId === held) moved(e); };
       // The end: an up or cancel anywhere in the document, or the pointer
       // leaving it (out of the window, into a frame) or the window losing
       // focus, which this document never hears the up from.
@@ -126,16 +176,29 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         if (e.type === "blur" ? e.target !== window : e.pointerId !== held || (e.type === "pointerout" && e.relatedTarget && e.relatedTarget.localName !== "iframe")) return;
         held = null;
         for (const [type, target] of ends) target.removeEventListener(type, up, target === document);
-        if (wants("pointerup") && ready()) fire(30);
+        document.removeEventListener("pointermove", heldMove, true);
+        flush();
+        if (wants("pointerup") && ready()) fire(30, record(e.type === "blur" ? last : e, true));
       };
+      const disabled = () => el.matches(":disabled") || el.hasAttribute("disabled") || inertAncestor(el);
+      // A free pointer over it: the innermost node hearing moves takes them;
+      // one that hears only down or up lets them by to an ancestor that
+      // hears them, as pointer.js does.
+      on("pointermove", e => {
+        if (e.exactPointerMover || !wants("pointermove")) return;
+        e.exactPointerMover = el;
+        if (held === null && e.buttons === 0 && !disabled()) moved(e);
+      });
       return e => {
         // The innermost enabled pointer node takes it (the event bubbles
         // here first from inner ones, which mark it).
-        if (e.exactPointerOwner || !e.isPrimary || e.button !== 0 || held !== null || el.matches(":disabled") || el.hasAttribute("disabled") || inertAncestor(el)) return;
+        if (e.exactPointerOwner || !e.isPrimary || e.button !== 0 || held !== null || disabled()) return;
         e.exactPointerOwner = el;
-        held = e.pointerId;
+        held = e.pointerId; last = e;
         for (const [type, target] of ends) target.addEventListener(type, up, target === document);
-        if (wants("pointerdown")) fire(29);
+        document.addEventListener("pointermove", heldMove, true);
+        flush();
+        if (wants("pointerdown") && ready()) fire(29, record(e));
       };
     },
     pan(el, id, on) {
@@ -146,13 +209,21 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       let contact = null, frame = 0, suppressClick = false;
       const contacts = () => (globalThis.exact ??= {}).contacts ??= new Map();
       const live = () => views.get(id) === el && !retiredViews.has(el) && ready() && !inertAncestor(el) && !el.closest(":disabled,[disabled='true']");
+      // Under a nested press the pan captures nothing until it begins, so until
+      // then the window hears the contact's moves and its end (capture phase),
+      // wherever they happen: a release outside this node ends it here too.
+      const watched = { pointermove: e => move(e, true), pointerup: e => up(e, true), pointercancel: e => { if (e.pointerId === contact?.pointer) cancelled(e); } };
+      const watch = on => { for (const t in watched) (on ? addEventListener : removeEventListener)(t, watched[t], true); };
+      const drop = () => { if (contact?.watching) watch(false); contact = null; };
       const flush = () => {
         cancelAnimationFrame(frame); frame = 0;
-        if (!contact || !live()) { contact = null; return; }
+        if (!contact || !live()) { drop(); return; }
         const [x,y] = contact.to, [px,py] = contact.from;
         // exact_motion::gesture::SLOP; a pan-only plan links no motion export to ask.
         if (!contact.active && Math.max(Math.abs(x-px),Math.abs(y-py)) <= 4) return;
         if (!contact.active) release(); // a pan ends a press, as it cancels a touch
+        // The button's tap is over: the drag is the pan's, captured, so this node hears the rest.
+        if (contact.watching) { watch(false); contact.watching = false; el.setPointerCapture(contact.pointer); }
         contact.active = true; contact.from = [x,y];
         if (x !== px || y !== py) dispatch(id, `${x-px},${y-py}`);
       };
@@ -160,7 +231,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         if (!contact.deferred) return false;
         const state = contacts().get(e.pointerId);
         if (state === "pending") return true;
-        if (state === "claimed") { contact = null; return true; }
+        if (state === "claimed") { drop(); return true; }
         contact.deferred = false; el.setPointerCapture(e.pointerId); return false;
       };
       // @ref LLP 1057 §10.6 — a pan that began ends with one `panrelease`:
@@ -168,28 +239,50 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       // timestamp (motion-glue's `pan`); a cancelled contact releases at rest.
       const sample = (e, first = false) => velocity.sample?.(id, e.clientX, e.clientY, e.timeStamp, first);
       const released = (payload) => { if (el.exactHandlers?.includes("panrelease") && live()) dispatchRelease(id, payload); };
-      const cancel = () => { cancelAnimationFrame(frame); frame=0; const began = contact?.active; contact=null; if (began) released("0,0"); };
-      on("pointermove", e => { if (contact?.pointer !== e.pointerId || waiting(e)) return; sample(e); contact.to=[e.clientX,e.clientY]; if (!frame) frame=requestAnimationFrame(flush); });
-      on("pointerup", e => {
-        if (contact?.pointer !== e.pointerId || contact.deferred && contacts().get(e.pointerId) === "claimed") { if (contact?.pointer === e.pointerId) contact = null; return; }
+      const cancel = () => { cancelAnimationFrame(frame); frame=0; const began = contact?.active; drop(); if (began) released("0,0"); };
+      // The browser took the contact (pointercancel): it scrolls or zooms by a
+      // finger this node does not claim. Silent, it was a drag that died after
+      // two moves (files diary F10); the journal says why and what claims it.
+      const cancelled = e => {
+        if (contact?.pointer === e.pointerId) log(`pan cancelled: the browser took the ${e.pointerType || "pointer"} contact to scroll or zoom; give the dragged node touch-action="none", or "pan-y" or "pan-x" to leave the browser the other axis`);
+        cancel();
+      };
+      // A watched contact is the window's alone (`watched`); this node's listeners take it once captured.
+      const move = (e, outside = false) => {
+        if (contact?.pointer !== e.pointerId || !!contact.watching !== outside || waiting(e)) return;
+        if (e.buttons === 0 && e.pointerType !== "touch") return cancel(); // its button came up where no one heard it
+        sample(e); contact.to=[e.clientX,e.clientY]; if (!frame) frame=requestAnimationFrame(flush);
+      };
+      const up = (e, outside = false) => {
+        if (contact?.pointer === e.pointerId && !!contact.watching !== outside) return;
+        if (contact?.pointer !== e.pointerId || contact.deferred && contacts().get(e.pointerId) === "claimed") { if (contact?.pointer === e.pointerId) drop(); return; }
         sample(e); contact.to=[e.clientX,e.clientY]; flush(); suppressClick = !!contact?.active;
-        const began = contact?.active; contact=null;
+        const began = contact?.active; drop();
         if (began) { const [vx, vy] = velocity.velocity?.(id, e.timeStamp) ?? [0, 0]; released(`${vx},${vy}`); }
-      });
-      on("pointercancel", cancel);
+      };
+      on("pointermove", e => move(e));
+      on("pointerup", e => up(e));
+      on("pointercancel", cancelled);
       // A child's implicit touch capture, lost when a deferred pan takes it, bubbles here.
       on("lostpointercapture", e => { if (e.target === el) cancel(); });
       el.addEventListener("click", e => { if (suppressClick) { suppressClick = false; e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+      el.addEventListener("dragstart", e => { if (contact?.nested) e.preventDefault(); }); // a link's own drag is not the pan's
       return e => {
         // Only the click right after a pan is suppressed; a drag makes none.
         suppressClick = false;
-        if (!live() || !e.isPrimary || e.button !== 0 || contact || el.matches("input,textarea,[contenteditable]")) return;
-        // A control or press handler between the contact and this node keeps it (rule 3).
-        const inner = e.target.closest("input,textarea,select,button,a[href],[contenteditable],[data-exact-on~='press']");
+        if (!live() || !e.isPrimary || e.button !== 0 || contact || e.exactPan || el.matches("input,textarea,[contenteditable]")) return;
+        // A control or editor between the contact and this node keeps it (rule 3).
+        const inner = e.target.closest("input,textarea,select,[contenteditable]");
         if (inner && inner !== el && el.contains(inner)) return;
+        // A press handler between keeps it only within the slop, as a draggable
+        // element hears a drag that starts on a button inside it (kanban F6):
+        // nothing is captured or prevented until the pan begins, so a tap stays the button's.
+        const press = e.target.closest("button,a[href],[data-exact-on~='press']"), nested = !!press && press !== el && el.contains(press);
         const deferred = contacts().get(e.pointerId) === "pending";
-        e.preventDefault(); e.stopPropagation(); if (!deferred) el.setPointerCapture(e.pointerId);
-        contact = {pointer:e.pointerId,from:[e.clientX,e.clientY],to:[e.clientX,e.clientY],active:false,deferred};
+        e.exactPan = true; // the innermost pan takes the contact (rule 3)
+        if (!nested) { e.preventDefault(); e.stopPropagation(); if (!deferred) el.setPointerCapture(e.pointerId); }
+        contact = {pointer:e.pointerId,from:[e.clientX,e.clientY],to:[e.clientX,e.clientY],active:false,deferred,nested,watching:nested};
+        if (nested) watch(true);
         velocity.sample?.(id, e.clientX, e.clientY, e.timeStamp, true);
       };
     },

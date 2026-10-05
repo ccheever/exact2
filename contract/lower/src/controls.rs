@@ -59,6 +59,20 @@ pub(crate) fn control(
     tag: &str,
     attrs: &[contract_syntax::Attr],
 ) -> Result<Option<&'static str>, LowerError> {
+    if tag != "textarea" {
+        if let Some(a) = attrs.iter().find(|a| a.name == "rows") {
+            return err("lower-attr-tag", "HTML rows belongs to textarea", a.span);
+        }
+    }
+    if !matches!(tag, "input" | "textarea") {
+        if let Some(a) = attrs.iter().find(|a| a.name == "maxlength") {
+            return err(
+                "lower-attr-tag",
+                "HTML maxlength belongs to input or textarea",
+                a.span,
+            );
+        }
+    }
     // @ref LLP 1069.011 D1, D2 — a native button, and its style nowhere else.
     if tag == "button" && native_button(attrs)? {
         return Ok(Some("button"));
@@ -508,6 +522,7 @@ fn may_be_empty(e: &Expr) -> bool {
         Expr::Str(s, _) => s.trim().is_empty(),
         Expr::None(_) => true,
         Expr::Ternary(_, a, b, _) => may_be_empty(a) || may_be_empty(b),
+        Expr::Typed(x, _, _) => may_be_empty(x),
         _ => false,
     }
 }
@@ -518,6 +533,7 @@ fn always_empty(e: &Expr) -> bool {
         Expr::Str(s, _) => s.trim().is_empty(),
         Expr::None(_) => true,
         Expr::Ternary(_, a, b, _) => always_empty(a) && always_empty(b),
+        Expr::Typed(x, _, _) => always_empty(x),
         _ => false,
     }
 }

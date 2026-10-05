@@ -1,0 +1,27 @@
+# Differential random testing: Contract programs run on the Rust runner and
+# on the Lean semantics (`semantics/`), their observations compared step by
+# step. Async lane only: it needs a Lean toolchain (`semantics/README.md`).
+[package]
+name = "contract-difftest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Differential testing of the Contract runner against the Lean semantics"
+publish = false
+
+[lib]
+name = "contract_difftest"
+
+[[bin]]
+name = "difftest"
+path = "src/main.rs"
+
+[dependencies]
+contract = { path = "../../contract/cli" }
+contract-lower = { path = "../../contract/lower" }
+contract-syntax = { path = "../../contract/syntax" }
+contract-types = { path = "../../contract/types" }
+exact-kernel = { path = "../../kernel" }
+exact-plan = { path = "../../plan" }
+exact-runner = { path = "../../runner" }
+serde_json = "1.0"

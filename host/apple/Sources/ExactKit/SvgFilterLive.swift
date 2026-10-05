@@ -58,7 +58,7 @@ final class SvgFilterLive {
     private var last: Input?
     /// Drives a draw a frame while the sub-scene holds a running animation
     /// (iOS: the picture follows its content there; macOS draws islands).
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     private var link: CADisplayLink?
     #endif
     private var pending: Input?
@@ -156,7 +156,7 @@ final class SvgFilterLive {
     }
 
     private func animate(_ on: Bool) {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         if on, link == nil {
             let l = CADisplayLink(target: LinkTarget(self), selector: #selector(LinkTarget.tick))
             l.add(to: .main, forMode: .common)
@@ -186,7 +186,7 @@ final class SvgFilterLive {
     func stop() { animate(false); last = nil; pending = nil }
 
     deinit {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         link?.invalidate()
         #endif
     }

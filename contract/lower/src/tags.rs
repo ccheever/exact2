@@ -12,9 +12,7 @@
 //! with a stable id — there is no fallback attribute, and an old spelling
 //! (`size`, `fontSize`, `radius`, `label`) is refused with the CSS name it
 //! became.
-
 use exact_kernel::{NodeType, PropId, StyleId};
-
 /// What an attribute lowers to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttrTarget {
@@ -26,12 +24,13 @@ pub enum AttrTarget {
     InvertedBoolProp(PropId),
     /// A handler for the named event.
     Handler(&'static str),
-    /// CSS `flex: <n>` — grow, shrink, and basis together.
+    /// CSS `flex` shorthand — grow, shrink, and basis together.
     Flex,
+    /// CSS border and text-decoration shorthands.
+    Shorthand,
     /// A canvas's surface binding: `surface=name(args)` (LLP 1009 D3).
     Surface,
 }
-
 /// The rows that make a box the containing block of its absolutely
 /// positioned descendants on some host, whatever its `position` (LLP 1074
 /// T1): a box with one is lowered `position: relative` unless it names a
@@ -64,7 +63,6 @@ pub const CONTAINS_ABSOLUTE: [StyleId; 16] = [
     // CSS: `perspective` makes a containing block too (LLP 1077 D8).
     StyleId::Perspective,
 ];
-
 /// Whether an attribute makes its box a containing block (see
 /// [`CONTAINS_ABSOLUTE`]): one of those rows, a material (a backdrop filter),
 /// a navigation screen or modal (which the host moves), or a context
@@ -81,30 +79,6 @@ pub fn contains_absolute(name: &str, value: &contract_syntax::Expr) -> bool {
             "backgroundMaterial" | "navigationKey" | "navigationPresentation" | "contextTarget"
         ),
     }
-}
-
-/// A Contract button has one cross-host inner layout: the flex column fixed
-/// by [`tag`]. Chrome gives a block/inline `<button>` an anonymous box that
-/// centres its contents, which the kernel cannot represent as that display.
-pub(crate) fn validate_button_display(
-    name: &str,
-    attrs: &[contract_syntax::Attr],
-) -> Result<(), crate::LowerError> {
-    use contract_syntax::Expr;
-    if name != "button" {
-        return Ok(());
-    }
-    let Some(display) = attrs.iter().rev().find(|a| a.name == "display") else {
-        return Ok(());
-    };
-    if matches!(&display.value, Expr::Str(v, _) if v == "block" || v.starts_with("inline")) {
-        return crate::err(
-            "lower-attr-value",
-            "a `button` is a flex column on every host; remove `display`, or use `display=\"flex\"`",
-            display.span,
-        );
-    }
-    Ok(())
 }
 
 /// An element's attributes with `position: relative` added, when it is the
@@ -145,7 +119,7 @@ pub(crate) fn positioned(
         // A bound position is fine when every value it can take is positioned.
         Some(a) if !always_positioned(&a.value) => crate::err(
             "lower-attr-value",
-            "a bound `position` on a box that clips, scrolls, transforms or animates: such a box is the containing block of its absolutely positioned descendants on every host, so every value its position can take must be `relative` or `absolute`",
+            "a bound `position` on a box that clips, scrolls, transforms or animates: such a box is the containing block of its absolutely positioned descendants on every host, so every value its position can take must be `relative`, `absolute` or `sticky`",
             a.span,
         ),
         Some(_) => Ok(None),
@@ -187,19 +161,17 @@ pub(crate) fn positioned(
         }
     }
 }
-
-/// Whether every value a `position` expression can take is `relative` or
-/// `absolute`: a literal, or a choice between such expressions. Anything a
-/// value could come from at run time (a state, a field, a call) is not.
+/// Whether every value a `position` expression can take is positioned: a
+/// `relative`, `absolute` or `sticky` literal, or a choice between such. A
+/// value from run time (a state, a field, a call) is not.
 fn always_positioned(value: &contract_syntax::Expr) -> bool {
     use contract_syntax::Expr;
     match value {
-        Expr::Str(v, _) => v == "relative" || v == "absolute",
+        Expr::Str(v, _) => v == "relative" || v == "absolute" || v == "sticky",
         Expr::Ternary(_, a, b, _) => always_positioned(a) && always_positioned(b),
         _ => false,
     }
 }
-
 /// A tag's node type, its fixed rows, and how positional arguments land.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tag {
@@ -212,11 +184,9 @@ pub struct Tag {
     /// The prop the first positional argument fills, if any.
     pub positional: Option<PropId>,
 }
-
 fn p(name: &str) -> PropId {
     PropId::from_name(name).unwrap_or_else(|| panic!("kernel schema has no prop `{name}`"))
 }
-
 /// Look up a tag.
 pub fn tag(name: &str) -> Option<Tag> {
     let fe = |fixed_props: &'static [(PropId, &'static str)]| Tag {
@@ -274,17 +244,17 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: Some(PropId::Text),
         },
-        // A pressable `column` (Charlie, 2026-09-23: "One native button, flex
-        // column"): a block <button> would centre its content in an anonymous
-        // box, which a flex one does not, so the web lays it out as the
-        // kernel does (LLP 1006 §3, LLP 1007 §1).
+        // Chrome's `<button>` (Charlie, 2026-10-04, reversing 2026-09-23's
+        // "One native button, flex column"; LLP 1001 §1): a block whose
+        // content the kernel centres as HTML's anonymous button box does,
+        // with the UA sheet's `text-align: center`. An authored `display`
+        // makes it a flex or grid container, as in Chrome.
         // @ref LLP 1069.011 D1 — Exact's UA sheet: a button is the author's
         // box (`appearance: none`); `appearance="auto"` asks for the platform's.
         "button" => Tag {
             node_type: NodeType::Pressable,
             fixed_styles: &[
-                (StyleId::Display, "flex"),
-                (StyleId::FlexDirection, "column"),
+                (StyleId::TextAlign, "center"),
                 (StyleId::Appearance, "none"),
             ],
             fixed_props: &[(PropId::AccessibilityRole, "button")],
@@ -333,6 +303,7 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: Some(PropId::Src),
         },
+        "audio" => crate::media::AUDIO,
         "image" => Tag {
             node_type: NodeType::Image,
             fixed_styles: &[],
@@ -492,7 +463,6 @@ pub fn tag(name: &str) -> Option<Tag> {
         _ => return None,
     })
 }
-
 /// What a prop attribute's value must be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropTy {
@@ -505,7 +475,6 @@ pub enum PropTy {
     /// A finite number, including a fractional pixel.
     Float,
 }
-
 /// The type a prop attribute takes, by the kernel prop's name.
 pub fn prop_ty(prop: PropId) -> PropTy {
     match prop.kind() {
@@ -515,12 +484,13 @@ pub fn prop_ty(prop: PropId) -> PropTy {
         exact_kernel::PropKind::Str => PropTy::Str,
     }
 }
-
 /// Whether an attribute sets style rows.
 pub fn style(name: &str) -> bool {
-    matches!(attr(name), Some(AttrTarget::Styles(_)))
+    matches!(
+        attr(name),
+        Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand)
+    )
 }
-
 /// Look up an attribute.
 pub fn attr(name: &str) -> Option<AttrTarget> {
     let styles = |rows: &'static [StyleId]| AttrTarget::Styles(rows);
@@ -554,6 +524,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "min" => AttrTarget::Prop(p("min")),
         "max" => AttrTarget::Prop(p("max")),
         "step" => AttrTarget::Prop(p("step")),
+        "rows" => AttrTarget::Prop(p("rows")),
+        "maxlength" => AttrTarget::Prop(p("maxlength")),
         "cancel" => AttrTarget::Handler("cancel"),
         "select" => AttrTarget::Handler("select"),
         "hover" => AttrTarget::Handler("hover"),
@@ -567,6 +539,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "dblclick" => AttrTarget::Handler("dblclick"),
         "pointerdown" => AttrTarget::Handler("pointerdown"), // LLP 1005 §Events, DOM's own
         "pointerup" => AttrTarget::Handler("pointerup"),
+        "pointermove" => AttrTarget::Handler("pointermove"), // LLP 1056 §3 stage 3
+        "copy" => AttrTarget::Handler("copy"),
+        "cut" => AttrTarget::Handler("cut"),
+        "paste" => AttrTarget::Handler("paste"),
         "reachstart" => AttrTarget::Handler("reachstart"),
         "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),
@@ -582,8 +558,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "reorderFor" => AttrTarget::Prop(p("reorderFor")),
         "transformDragFor" => AttrTarget::Prop(p("transformDragFor")),
         "heightDragFor" => AttrTarget::Prop(p("heightDragFor")),
-        // the canvas's surface (LLP 1009 D3)
-        "surface" => AttrTarget::Surface,
+        "surface" => AttrTarget::Surface, // the canvas's surface (LLP 1009 D3)
         // props (HTML and ARIA attribute names; `testId` is Exact's)
         "poster" => AttrTarget::Prop(p("poster")),
         "autoplay" => AttrTarget::Prop(p("autoplay")),
@@ -628,8 +603,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "canonical" => AttrTarget::Prop(p("headCanonical")),
         "robots" => AttrTarget::Prop(p("headRobots")),
         "status" => AttrTarget::Prop(p("headStatus")),
-        // `scroll document=(expr)`: the page's scroller when the expression
-        // holds (LLP 1048.003 D4); bare `scroll document` is `document=true`.
+        // `scroll document=(expr)`: the page's scroller when it holds (LLP 1048.003 D4); bare is `=true`.
         "document" => AttrTarget::Prop(p("scrollDocument")),
         "virtualized" => AttrTarget::Prop(p("virtualized")),
         "testId" => AttrTarget::Prop(p("testId")),
@@ -637,7 +611,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationBack" => AttrTarget::Prop(p("navigationBack")),
         "navigationPresentation" => AttrTarget::Prop(p("navigationPresentation")),
         "navigationDetent" => AttrTarget::Prop(p("navigationDetent")),
-        "navigationSource" => AttrTarget::Prop(p("navigationSource")),
+        "navigationSource" | "sharedElement" => AttrTarget::Prop(p(name)),
         // @ref LLP 1075.003 §3.5 — the route's content scroll view, by HTML id.
         "navigationScroll" => AttrTarget::Prop(p("navigationScroll")),
         // @ref LLP 1075.003.000 — the node the app's native code receives.
@@ -649,6 +623,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "backgroundMaterial" => AttrTarget::Prop(p("backgroundMaterial")),
         "glassGroup" => AttrTarget::Prop(p("glassGroup")),
         "buttonStyle" => AttrTarget::Prop(p("buttonStyle")),
+        "listStyle" => AttrTarget::Prop(p("listStyle")),
         "toolbarPlacement" => AttrTarget::Prop(p("toolbarPlacement")),
         "retainFocus" => AttrTarget::Prop(p("retainFocus")),
         "swipeIndicator" => AttrTarget::Prop(p("swipeIndicator")),
@@ -668,6 +643,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // HTML's attribute is `inputmode`; the kernel's prop keeps the DOM
         // property's spelling, as the schema does for every prop.
         "inputmode" => AttrTarget::Prop(p("inputMode")),
+        "enterkeyhint" => AttrTarget::Prop(p("enterKeyHint")),
+        // An image's accessible name by HTML's spelling (feed F1).
+        "alt" => AttrTarget::Prop(p("accessibilityLabel")),
         "autocapitalize" => AttrTarget::Prop(p("autocapitalize")),
         "autocorrect" => AttrTarget::Prop(p("autocorrect")),
         "spellcheck" => AttrTarget::Prop(p("spellcheck")),
@@ -708,7 +686,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "keyboardDismissMode" => AttrTarget::Prop(p("keyboardDismissMode")),
         // @ref LLP 1077 D12 — what a discrete symbol effect plays on.
         "symbolEffectValue" => AttrTarget::Prop(p("symbolEffectValue")),
-        "href" => AttrTarget::Prop(p("href")),
+        "href" | "target" => AttrTarget::Prop(p(name)),
         "disabled" => AttrTarget::Prop(p("disabled")),
         "inert" => AttrTarget::Prop(p("inert")),
         "readonly" => AttrTarget::InvertedBoolProp(p("editable")),
@@ -729,12 +707,16 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-checked" => AttrTarget::Prop(p("accessibilityChecked")),
         // @ref LLP 1039 D6 — vertical tablists retain authored layout.
         "aria-orientation" => AttrTarget::Prop(p("accessibilityOrientation")),
-        // @ref LLP 1075.003 §3.7 — a tab names its tabpanel.
-        "aria-controls" => AttrTarget::Prop(p("accessibilityControls")),
+        "aria-controls" => AttrTarget::Prop(p("accessibilityControls")), // LLP 1075.003 §3.7: a tab names its tabpanel.
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
         "aria-pressed" => AttrTarget::Prop(p("accessibilityPressed")),
+        "aria-modal" => AttrTarget::Prop(p("accessibilityModal")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
+        "aria-invalid" => AttrTarget::Prop(p("accessibilityInvalid")), // onboarding F22, spreadsheet F20
+        "aria-describedby" => AttrTarget::Prop(p("accessibilityDescribedBy")),
+        "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
+        "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),
@@ -783,7 +765,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "feScale" => AttrTarget::Prop(p("feScale")),
         "xChannelSelector" => AttrTarget::Prop(p("xChannelSelector")),
         "yChannelSelector" => AttrTarget::Prop(p("yChannelSelector")),
-        "order" => AttrTarget::Prop(p("order")),
+        "feOrder" => AttrTarget::Prop(p("feOrder")),
         "kernelMatrix" => AttrTarget::Prop(p("kernelMatrix")),
         "divisor" => AttrTarget::Prop(p("divisor")),
         "bias" => AttrTarget::Prop(p("bias")),
@@ -892,6 +874,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "text-overflow" => styles(&[StyleId::TextOverflow]),
         // @ref LLP 1053 §0 G4 — `normal` and `tabular-nums`; others refused by name.
         "font-variant-numeric" => styles(&[StyleId::FontVariantNumeric]),
+        "text-decoration" | "border" | "border-top" | "border-right" | "border-bottom"
+        | "border-left" => AttrTarget::Shorthand,
+        "resize" => styles(&[StyleId::Resize]),
+        "user-select" => styles(&[StyleId::UserSelect]),
         "text-decoration-line" => styles(&[StyleId::TextDecorationLine]),
         // @ref LLP 1064 D5
         "text-transform" => styles(&[StyleId::TextTransform]),
@@ -999,6 +985,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "min-height" => styles(&[StyleId::MinHeight]),
         "max-width" => styles(&[StyleId::MaxWidth]),
         "max-height" => styles(&[StyleId::MaxHeight]),
+        "cursor" => styles(&[StyleId::Cursor]),
         "flex" => AttrTarget::Flex,
         // @ref LLP 1053 G3 — the longhand: `flex-basis` stays `auto`, unlike `flex`.
         "flex-grow" => styles(&[StyleId::FlexGrow]),
@@ -1045,6 +1032,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "overscroll-behavior-y" => styles(&[StyleId::OverscrollBehaviorY]),
         "scroll-behavior" => styles(&[StyleId::ScrollBehavior]),
         "z-index" => styles(&[StyleId::ZIndex]),
+        "order" => styles(&[StyleId::Order]),
         "transition" => styles(&[StyleId::Transition]),
         // @ref LLP 1063 — played as the node leaves; its names resolve against
         // the plan's keyframes as `animation`'s do (LLP 1055 D5).
@@ -1076,8 +1064,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
     })
 }
 
-/// The name an old spelling became — the short nicknames and the DOM's
-/// camelCase that the table accepted before LLP 1017 §8.1 — so the refusal of
+/// The name an old nickname or DOM camelCase spelling became (LLP 1017 §8.1), so the refusal of
 /// `size=13` says `font-size`. Nothing here is accepted; it is only named.
 pub fn renamed(old: &str) -> Option<&'static str> {
     Some(match old {
@@ -1138,6 +1125,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "hint" | "accessibilityHint" => "aria-description",
         "headingLevel" => "aria-level",
         "inputMode" | "keyboardType" => "inputmode",
+        "enterKeyHint" | "returnKeyType" => "enterkeyhint",
         "viewportFit" | "safeArea" | "safeAreaView" => "viewport-fit",
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",
@@ -1147,7 +1135,6 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         _ => return None,
     })
 }
-
 // A list's row-size estimate is the virtualized list's host policy (LLP 1010
 // §6.5); the fixed-height windowed list it once also named is deleted (LLP
 // 1070 stage 1), so a hint without `virtualized=true` says how to migrate.
@@ -1224,7 +1211,6 @@ pub(crate) fn validate_list(
     }
     Ok(())
 }
-
 /// The attributes `head` takes, and only `head` (LLP 1048.003 D1).
 pub const HEAD_FIELDS: &[&str] = &[
     "title",
@@ -1234,17 +1220,15 @@ pub const HEAD_FIELDS: &[&str] = &[
     "robots",
     "status",
 ];
-
 /// Suggest one unambiguous single-edit spelling from the existing attribute
 /// lookup. No second vocabulary is maintained, and this never admits an alias.
 pub(crate) fn similar_attr(name: &str, style_only: bool) -> Option<String> {
     similar(name, |candidate| match attr(candidate) {
-        Some(AttrTarget::Styles(_) | AttrTarget::Flex) => true,
+        Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand) => true,
         Some(_) => !style_only,
         None => false,
     })
 }
-
 /// The same for a tag, from the tag lookup.
 pub(crate) fn similar_tag(name: &str) -> Option<String> {
     similar(name, |candidate| tag(candidate).is_some())

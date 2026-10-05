@@ -11,7 +11,8 @@ let binary;
 function executable() {
   if (binary) return binary;
   const directory = resolve(root, 'target/exact-filesystem-tool');
-  const target = resolve(directory, 'debug/exact-filesystem');
+  const suffix = process.platform === 'win32' ? '.exe' : '';
+  const target = resolve(directory, `debug/exact-filesystem${suffix}`);
   // A separate tooling target also permits calls from an active app Cargo
   // build script: the helper has no compiler/app dependency and never waits
   // on that app build directory lock. Once per Bun process, Cargo checks
@@ -28,7 +29,7 @@ function executable() {
   // bootstrap claim through capture, then execute immutable captured bytes.
   // This is not the helper's stream lock; stale build claims are never stolen.
   mkdirSync(directory, { recursive: true });
-  const claim = resolve(directory, '.bootstrap.lock'), owner = `${process.pid}:${randomBytes(12).toString('hex')}`;
+  const claim = resolve(directory, '.bootstrap.lock'), owner = `${process.pid}-${randomBytes(12).toString('hex')}`;
   const started = Date.now(), wait = new Int32Array(new SharedArrayBuffer(4));
   for (;;) {
     try { writeFileSync(claim, owner, { flag: 'wx' }); break; }
@@ -51,7 +52,7 @@ function executable() {
     if (built.error) throw built.error;
     if (built.status !== 0) throw new Error(built.stderr || `could not build exact-filesystem (status ${built.status}, signal ${built.signal ?? 'none'})`);
     const bytes = readFileSync(target), digest = createHash('sha256').update(bytes).digest('hex');
-    const captured = resolve(directory, `exact-filesystem-${digest}`);
+    const captured = resolve(directory, `exact-filesystem-${digest}${suffix}`);
     if (!existsSync(captured)) {
       const temporary = `${captured}.${owner}.tmp`;
       try {
@@ -63,11 +64,17 @@ function executable() {
     return captured;
   } finally { release(); }
 }
+export function filesystemErrorCode(errno, platform = process.platform) {
+  const codes = platform === 'win32'
+    ? {2:'ENOENT',3:'ENOENT',4:'EMFILE',5:'EACCES',32:'EBUSY',33:'EBUSY',80:'EEXIST',183:'EEXIST',145:'ENOTEMPTY',206:'ENAMETOOLONG',112:'ENOSPC',1117:'EIO'}
+    : {2:'ENOENT',13:'EACCES',1:'EPERM',5:'EIO',24:'EMFILE',23:'ENFILE'};
+  return codes[errno] ?? 'EXACT_FS_REFUSED';
+}
 function decode(response) {
   if (!response.error) return response.value;
   const error = new Error(response.error);
-  // errno values shared by Darwin and Linux for these availability failures.
-  error.code = ({ 2: 'ENOENT', 13: 'EACCES', 1: 'EPERM', 5: 'EIO', 24: 'EMFILE', 23: 'ENFILE' })[response.errno] ?? 'EXACT_FS_REFUSED';
+  // Windows reports Win32 error codes; 5 is access denied rather than Unix EIO.
+  error.code = filesystemErrorCode(response.errno);
   throw error;
 }
 const request = (input) => ({ ...input, token: randomBytes(24).toString('hex') });

@@ -601,7 +601,8 @@ pub struct ModelLod {
 #[derive(Clone, Copy, Debug, Default, PartialEq, crate::Presentation)]
 pub struct Offset(pub Transform);
 
-/// Explicit visibility; absent visibility is interpreted as visible.
+/// Local visibility; a hidden Parent ancestor also hides this entity.
+/// An absent row is true. SocketFollow alone does not inherit visibility.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Component)]
 pub struct Visible(pub bool);
 impl Default for Visible {
@@ -839,6 +840,7 @@ impl World {
 }
 
 mod hierarchy;
+mod visibility;
 pub(crate) use hierarchy::Hierarchy;
 
 #[cfg(test)]

@@ -69,7 +69,9 @@ fn keyframes_parse_merge_and_order() {
             (Property::R, Value::scalar(2.0))
         ]
     );
-    assert!(Keyframes::parse("from{color:red}").is_err());
+    assert!(Keyframes::parse("from{color:blurple}").is_err());
+    assert!(Keyframes::parse("from{color:hsl(0 100% 50%)}").is_ok());
+    assert!(Keyframes::parse("from{color:reddish}").is_err());
     assert!(Keyframes::parse("from{height:3px}").is_err());
     assert!(Keyframes::parse("120%{opacity:1}").is_err());
     assert_eq!(Keyframes::parse(&k.css()).unwrap(), k);

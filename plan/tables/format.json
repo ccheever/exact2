@@ -123,7 +123,13 @@
         },
         {
           "name": "owner",
-          "codec": "opt:regions"
+          "codec": "opt:arms",
+          "_comment": "@ref LLP 1017.000 (child state): the arm whose instance owns this slot — an `each` row, a `when` or `match` arm. The slot is created, its init evaluated in that arm's frames, when the arm instance is created, and dropped with it. None: a root slot."
+        },
+        {
+          "name": "late",
+          "codec": "bool",
+          "_comment": "@ref LLP 1017.000 (child state): a root slot holding the state of a child used outside every region; its init runs once at the boot render, after boot settlement (so it may read derives and resources), not with the other root slots before it. Always false when owner is set."
         }
       ]
     },
@@ -635,7 +641,11 @@
       "cancel",
       "panrelease",
       "pointerdown",
-      "pointerup"
+      "pointerup",
+      "pointermove",
+      "copy",
+      "cut",
+      "paste"
     ]
   },
   "_opcodes": "The expression VM: a stack machine over values with a small locals stack (`BindLocal` pops into it, `LoadLocal` copies from it, `DropLocal` pops it) for names an inline `match` binds and the item and index a `Map`/`Filter` callback binds. Each opcode names its operand layout; the decoder validates framing and every index operand. `depth` operands count enclosing instance scopes (0 = innermost). Type inference guarantees stack discipline; the VM still traps, never UB.",

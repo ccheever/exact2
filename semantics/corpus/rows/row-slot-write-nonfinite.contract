@@ -1,0 +1,38 @@
+// A slot an arm or a row owns, written with a number that is not finite:
+// the commit is refused (the slot's type admits finite numbers), as a root
+// slot's is, and a row whose slot starts non-finite cannot be made. The web
+// JS target once left these slots untyped and took the write.
+shape Item
+  id: string
+
+component App
+  state show = true
+  resource items = items(1) as shape list<Item>
+  view
+    column
+      when show
+        Cell(index=0)
+      each it, i in items key=i
+        Cell(index=i + 1)
+
+component Cell
+  props
+    index: number
+  state v = 1
+  action blow
+    v = v / 0
+  action halve
+    v = v / 2
+  view
+    column
+      text `${v}` testId=`v-${index}`
+      button "blow" press=blow testId=`blow-${index}`
+      button "halve" press=halve testId=`halve-${index}`
+
+test "an owned slot keeps its type"
+  tap "blow-0"
+  expect text "v-0" == "1"
+  tap "halve-0"
+  expect text "v-0" == "0.5"
+  tap "blow-1"
+  tap "halve-1"

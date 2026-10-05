@@ -100,11 +100,12 @@ final class TextGeometryTests: XCTestCase {
             ["op": "paragraph", "id": 2, "runs": []],
             ["op": "create", "id": 3, "kind": "text", "style": style, "props": ["text": "retained run"]],
             ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "rank", "id": 3, "rank": 6],
         ])
         let paragraph = presenter.views[3]!
         XCTAssertNil(presenter.inlineText(3))
         XCTAssertTrue(paragraph.wantsLayer)
-        XCTAssertEqual(paragraph.layer?.zPosition, 3)
+        XCTAssertEqual(paragraph.layer?.zPosition, 0.001)
         XCTAssertNotNil(paragraph.layer?.mask)
         XCTAssertTrue(paragraph.isParagraph)
         apply([

@@ -28,6 +28,7 @@ mod posts;
 pub mod records;
 pub mod routes;
 mod selection;
+pub use selection::event_record;
 /// The strings call and the tables it is checked against (LLP 1060).
 pub mod strings;
 mod uses;
@@ -638,6 +639,20 @@ pub(crate) fn source_argument(
     )
 }
 
+/// `t`, a use's argument, as the declared type of the prop it fills
+/// ([`Expr::Typed`]): `none`'s `option<?>` becomes the declared option.
+pub fn ascribe(t: &Ty, declared: &TypeExpr, shapes: &Shapes, span: Span) -> Result<Ty, TypeError> {
+    let declared = shapes.resolve(declared)?;
+    match declared.unify(t) {
+        Some(u) => Ok(u),
+        None => err(
+            "type-prop",
+            format!("this argument is `{t}`, where the prop is declared `{declared}`"),
+            span,
+        ),
+    }
+}
+
 /// Infer an expression's type in `scope`.
 pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
     Ok(match e {
@@ -819,6 +834,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             } else if let Some(f) = Stdlib::from_name(name).filter(|f| lists::is_list_op(*f)) {
                 return lists::infer_call(f, args, *span, scope, shapes);
             } else if let Some(f) = Stdlib::from_name(name) {
+                routes::not_the_router(f, args, scope, shapes, *span)?;
                 routes::require_table(f, shapes, *span)?;
                 geometry::check_call(f, args, scope, *span)?;
                 if args.len() != f.arity() {
@@ -960,6 +976,10 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             let mut inner = scope.clone();
             inner.push(vec![(name.clone(), Ref::Local(0), t)]);
             infer(body, &inner, shapes)?
+        }
+        Expr::Typed(value, ty, span) => {
+            let t = infer(value, scope, shapes)?;
+            ascribe(&t, ty, shapes, *span)?
         }
         Expr::Arrow { span, .. } => {
             return err(
@@ -1237,7 +1257,14 @@ fn check_children(file: &File, types: &mut Types, sink: &mut Sink) {
                 .unwrap_or(c.span);
             sink.push(TypeError {
                 id: "type-child-resource",
-                message: format!("component `{}` takes props: a resource, mutation, or task lives in the root (a child may own state, derives, and actions)", c.name),
+                message: format!(
+                    "component `{}` is a child (the root is the root file's first component, `{}`): a resource, mutation, or task lives in the root, and a child may own state, derives, and actions. Move this declaration into `{}` and pass what `{}` needs as props; or, if `{}` is the app, move it above the other components",
+                    c.name,
+                    file.components[0].name,
+                    file.components[0].name,
+                    c.name,
+                    c.name
+                ),
                 span,
             });
         }

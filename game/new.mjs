@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { gameDefaults } from './app/shells.mjs';
 import { pathFrom, patchLines } from '../scripts/app.mjs';
@@ -16,9 +16,9 @@ export function takenTypes(directory = import.meta.dir) {
   return new Set([...exported, ...items(read(resolve(directory, 'engine/src/scene.rs'))), ...template.filter(t => t !== 'SmallGame')]);
 }
 export function createGame(destination, directory = import.meta.dir, options = {}) {
-  const local = destination === '.' || destination?.includes('/');
+  const local = destination === '.' || /[\\/]/.test(destination ?? '');
   const name = local ? basename(resolve(destination)) : destination;
-  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name ?? '') || /-(web|apple|linux|gpu)$/.test(name)) {
+  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name ?? '') || /-(web|apple|linux|windows|gpu)$/.test(name)) {
     throw new Error('Usage: bun game/new.mjs <name|path> [--assets] (lowercase-hyphenated name, no host suffix)');
   }
   // The type is `use exact_game::*;`'s neighbour: it may not shadow an engine export
@@ -110,8 +110,10 @@ ${patchLines(dir).join('\n')}
 `,
     'rust-toolchain.toml': readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8'),
     'exact.mjs': commandsFor(dir, name),
-    '.gitignore': '/target/\n/dist/\n/app.contract.d.ts\n',
+    '.gitignore': '/target/\n/dist/\n/app.contract.d.ts\n/.exact/\n',
+    'AGENTS.md': agentNotes(dir, name),
     'app.json': JSON.stringify({
+      $schema: pathFrom(dir, resolve(ROOT, 'scripts/app.schema.json')),
       name: title, short_name: title, id: `com.example.${name}`, start_url: '/', display: 'standalone',
       app: { id: `com.example.${name}`, name: title },
       host: { ios: { minimumOS: '17.0', deviceFamily: ['iphone', 'ipad'] }, macos: { minimumOS: '14.0', window: { width: 900, height: 700 } }, web: {} },
@@ -178,7 +180,9 @@ const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
 type ExactEmbeddedData = exact_js::Placed<exact_js::Module>;
 fn embedded_data() -> ExactEmbeddedData {
-    exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS).placed(TYPESCRIPT_PLACEMENT)
+    exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS)
+        .with_canvas_surfaces(CANVAS_SURFACES)
+        .placed(TYPESCRIPT_PLACEMENT)
 }
 include!(concat!(env!("OUT_DIR"), "/logic.rs"));
 exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data);
@@ -215,7 +219,9 @@ const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 
 type ExactEmbeddedData = exact_js_web::Module;
 fn embedded_data() -> ExactEmbeddedData {
-    exact_js_web::Module::new(APP, GRANTS, REVISION).placed(TYPESCRIPT_PLACEMENT)
+    exact_js_web::Module::new(APP, GRANTS, REVISION)
+        .with_canvas_surfaces(CANVAS_SURFACES)
+        .placed(TYPESCRIPT_PLACEMENT)
 }
 include!(concat!(env!("OUT_DIR"), "/logic.rs"));
 exact_web::host!(
@@ -234,17 +240,100 @@ exact_web::host!(
     mkdirSync(dirname(resolve(dir, path)), { recursive: true });
     writeFileSync(resolve(dir, path), text);
   }
+  linkClaude(dir);
   writeFileSync(resolve(dir, 'Cargo.lock'), readFileSync(resolve(ROOT, 'Cargo.lock')));
   const deferred = resolveOffline(dir, true);
-  const run = `bun ${JSON.stringify(relative(process.cwd(), resolve(dir, 'exact.mjs')) || 'exact.mjs')}`;
+  const run = 'bun exact.mjs';
   return `Created ${dir}
+  cd '${dir.replaceAll("'", "'\\''")}'
   ${run} web          the web dev loop
-  ${run} test web     run app.test.contract (web, macos or ios)
+  ${run} contract types app.contract -o app.contract.d.ts   the types app.ts imports
+  ${run} test web     build, then run app.test.contract, or the files named (web; macos or ios after mac/ios)
   ${run} agent web tree  inspect or drive the app
   ${run} ios --run    build and launch on an iOS simulator
   ${run} mac --run    build and launch on this Mac${deferred ? `
 Cargo.lock is still exact2's: this machine's Cargo cache lacks some of its crates, so the
 first build resolves it, fetching them once (it needs the network then, not now).` : ''}`;
+}
+
+const BEGIN = '<!-- exact:begin (exact new writes this block; bun exact.mjs update rewrites it) -->', END = '<!-- exact:end -->';
+
+/** What an agent in the app's directory can't discover (LLP 1086 D1): where
+ * the guides are, the app's commands, and the loop. Paths are from the app to
+ * this checkout, so \`update\` follows a checkout that moved. */
+function agentNotes(dir, name) {
+  const doc = file => pathFrom(dir, resolve(ROOT, 'docs', file));
+  return `${BEGIN}
+# ${name}: an Exact app
+
+The view is \`app.contract\` (Contract), its data is \`app.ts\` (TypeScript), and
+\`app.json\` is the manifest (its \`$schema\` gives an editor every key). The app uses
+the exact2 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
+
+Read before writing code:
+
+- ${doc('contract-for-agents.md')}: the working guide. Start here.
+- ${doc('agent-pitfalls.md')}: verified footguns, symptom → cause → fix.
+- ${doc('contract-for-humans.md')}: explanations and complete examples, including the data module.
+- ${doc('contract-grammar.md')}: exact forms, built-in functions, events.
+
+Commands, from this directory:
+
+| | |
+|---|---|
+| \`bun exact.mjs contract types app.contract -o app.contract.d.ts\` | the types \`app.ts\` imports; rerun after changing a source's signature |
+| \`bun exact.mjs contract build app.contract --json\` | compile; \`[]\` or every diagnostic with its range |
+| \`bun exact.mjs contract vocab [name]\` | the tags, attributes and CSS properties Contract accepts |
+| \`bun exact.mjs web\` | the web dev loop, at the URL it prints (8765 unless another loop holds it) |
+| \`bun exact.mjs test web\` | build the web app if needed, then run \`app.test.contract\` (also \`macos\`, \`ios\`) |
+| \`bun exact.mjs agent web tree "tap <id>" "screenshot out.png"\` | drive the app as a person would |
+| \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
+| \`bun exact.mjs update\` | after exact2 moves or changes its patches |
+
+The loop: generate the types, edit, \`contract build --json\` until it prints \`[]\`,
+\`test web\`, look at it with \`agent web … screenshot\`, then the native hosts.
+\`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup --check\` names anything this machine is missing.
+
+Generated, so don't edit: the \`[patch.crates-io]\` table in \`Cargo.toml\`,
+\`rust-toolchain.toml\`, \`exact.mjs\`, and this block.
+
+${readFileSync(resolve(ROOT, 'docs/diary.md'), 'utf8').replace(/^#/gm, '##').trimEnd()}
+${END}
+`;
+}
+
+/** CLAUDE.md is AGENTS.md, as in exact2 itself: a link (a build's capture
+ * skips a link it never reads), or a copy where the filesystem has none
+ * (`update` rewrites a copy's block too). */
+function linkClaude(dir) {
+  try { symlinkSync('AGENTS.md', resolve(dir, 'CLAUDE.md')); }
+  catch { writeFileSync(resolve(dir, 'CLAUDE.md'), readFileSync(resolve(dir, 'AGENTS.md'))); }
+}
+
+/** The diary's own block, from before it joined the generated one. */
+const OLD_DIARY = /\n*<!-- exact diary[^>]*-->[\s\S]*?<!-- \/exact diary -->\n?/;
+
+/** Rewrite the generated block in AGENTS.md and a CLAUDE.md that is a copy,
+ * keeping what an author wrote around it; an app with neither gets both.
+ * The diary's \`.exact/\` stays out of git. */
+function updateNotes(dir, name) {
+  const block = agentNotes(dir, name), changed = [];
+  const ignorePath = resolve(dir, '.gitignore'), ignore = existsSync(ignorePath) ? readFileSync(ignorePath, 'utf8') : '';
+  if (!/^\/?\.exact\/?$/m.test(ignore)) { writeFileSync(ignorePath, `${ignore}${ignore && !ignore.endsWith('\n') ? '\n' : ''}/.exact/\n`); changed.push('.gitignore'); }
+  const present = ['AGENTS.md', 'CLAUDE.md'].filter(file => existsSync(resolve(dir, file)) && !lstatSync(resolve(dir, file)).isSymbolicLink());
+  if (!present.length) {
+    writeFileSync(resolve(dir, 'AGENTS.md'), block);
+    if (!existsSync(resolve(dir, 'CLAUDE.md'))) linkClaude(dir);
+    return [...changed, 'AGENTS.md', 'CLAUDE.md'];
+  }
+  for (const file of present) {
+    const path = resolve(dir, file), text = existsSync(path) ? readFileSync(path, 'utf8').replace(OLD_DIARY, '\n') : '';
+    const at = text.indexOf(BEGIN), end = text.indexOf(END, at);
+    const next = at >= 0 && end > at ? text.slice(0, at) + block.trimEnd() + text.slice(end + END.length)
+      : text ? `${text.trimEnd()}\n\n${block}` : block;
+    if (next !== text) { writeFileSync(path, next); changed.push(file); }
+  }
+  return changed;
 }
 
 /** The app's own command runner. EXACT2 names the checkout once (D3); the
@@ -254,8 +343,10 @@ function commandsFor(dir, name) {
 // ${name}'s commands, run with the exact2 checkout named by EXACT2
 // (default ${pathFrom(dir, ROOT)}). Generated by \`exact new\`; \`bun exact.mjs update\` rewrites
 // this file, the crates.io patches, the toolchain and the exact2 dependency paths.
-import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { constants } from 'node:os';
+import { relative, resolve } from 'node:path';
 
 const EXACT2 = resolve(import.meta.dir, process.env.EXACT2 ?? ${JSON.stringify(pathFrom(dir, ROOT))});
 const [verb, ...rest] = process.argv.slice(2);
@@ -263,22 +354,62 @@ const host = (verb === 'test' || verb === 'agent') && rest[0] && !rest[0].starts
 const verbs = {
   web: ['host/web/dev.mjs', '--app', '${name}'],
   'web-build': ['host/web/build.mjs', '${name}'],
-  test: ['scripts/agent.mjs', host, '--app', '${name}', '--test', resolve(import.meta.dir, 'app.test.contract')],
+  test: ['scripts/agent.mjs', host, '--app', '${name}'],
   agent: ['scripts/agent.mjs', host, '--app', '${name}'],
   ios: ['host/apple/build.mjs', '--ios', '${name}-apple'],
   mac: ['host/apple/build.mjs', '${name}-apple'],
   update: ['scripts/exact.mjs', 'new', import.meta.dir, '--update'],
+  contract: ['scripts/exact.mjs', 'contract'],
+  feedback: ['scripts/feedback.mjs'],
 };
 if (!verbs[verb]) {
   console.error(\`Usage: bun exact.mjs <\${Object.keys(verbs).join('|')}> [arguments for that script]\`);
   process.exit(2);
 }
-const [script, ...args] = verbs[verb];
-const result = spawnSync(process.execPath, [resolve(EXACT2, script), ...args, ...rest], {
-  stdio: 'inherit',
-  env: { ...process.env, EXACT_APP_DIR: import.meta.dir },
+// The automatic build reports on stderr, so a drive's stdout stays its reply (\`--json\`).
+// The child ends with this process: a signal here is passed on, and a dev server
+// stops when this process is gone however it ended (\`EXACT_LAUNCHER_PID\`).
+const run = ([script, ...args], more = [], stdio = 'inherit') => new Promise((done) => {
+  const child = spawn(process.execPath, [resolve(EXACT2, script), ...args, ...more], {
+    stdio,
+    env: { ...process.env, EXACT_APP_DIR: import.meta.dir, EXACT_LAUNCHER_PID: String(process.pid) },
+  });
+  const pass = (signal) => child.kill(signal), signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+  for (const signal of signals) process.on(signal, pass);
+  child.on('error', () => done(1));
+  child.on('exit', (code, signal) => {
+    for (const s of signals) process.off(s, pass);
+    done(code ?? 128 + (constants.signals[signal] ?? 0));
+  });
 });
-process.exit(result.status ?? 1);
+const started = Date.now();
+// The diary's command log (exact2's docs/diary.md): which exact2, what ran, how it ended. No arguments.
+const log = exit => { if (verb !== 'feedback') try {
+  const exact2 = spawnSync('git', ['-C', EXACT2, 'rev-parse', '--short=9', 'HEAD'], { encoding: 'utf8' }).stdout?.trim() || null;
+  mkdirSync(resolve(import.meta.dir, '.exact'), { recursive: true });
+  appendFileSync(resolve(import.meta.dir, '.exact/commands.jsonl'), JSON.stringify({ at: new Date(started).toISOString(), exact2, verb: verb === 'test' || verb === 'agent' ? \`\${verb} \${host}\` : verb, exit, ms: Date.now() - started }) + '\\n');
+} catch {} return exit; };
+// The web build is about a second when nothing changed, so a web drive builds
+// first rather than refusing a stale build; a native build stays explicit.
+const drivesWeb = (verb === 'test' || verb === 'agent') && host === 'web' && !rest.some(a => a === '--url' || a === '--web-dist');
+// \`test [host] [file|glob …]\`: the test files named (each \`.contract\`, a glob or \`--test <file>\`, from the
+// current directory), else app.test.contract; each runs in turn and any failure fails the command.
+const tests = [];
+for (let i = verb === 'test' ? 0 : rest.length; i < rest.length;) {
+  const named = rest[i] === '--test' ? rest.splice(i, 2)[1] : /\\.contract$|\\*/.test(rest[i]) ? rest.splice(i, 1)[0] : (i++, null);
+  if (named == null) continue;
+  const found = named.includes('*') ? [...new Bun.Glob(named).scanSync({ absolute: true })].sort() : [resolve(named)];
+  if (!found.length) { console.error(\`no test file matches \${named}\`); process.exit(log(2)); }
+  tests.push(...found);
+}
+if (drivesWeb) { const built = await run(verbs['web-build'], [], [0, 2, 2]); if (built) process.exit(log(built)); }
+if (verb !== 'test') process.exit(log(await run(verbs[verb], rest)));
+let failed = 0;
+for (const file of tests.length ? tests : [resolve(import.meta.dir, 'app.test.contract')]) {
+  if (tests.length > 1) console.log(\`# \${relative(process.cwd(), file)}\`);
+  failed = (await run(verbs.test, ['--test', file, ...rest])) || failed;
+}
+process.exit(log(failed));
 `;
 }
 
@@ -289,6 +420,7 @@ process.exit(result.status ?? 1);
 function resolveOffline(dir, deferrable = false) {
   const lock = spawnSync('cargo', ['metadata', '--offline', '--format-version', '1'], { cwd: dir, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
   if (lock.status === 0) return false;
+  if (lock.error?.code === 'ENOENT') throw new Error('cargo was not found on PATH or in ~/.cargo/bin; install Rust with rustup (https://rustup.rs)');
   // Cargo may have rewritten the lock before failing to download; the first
   // build recognises exact2's bytes, so put them back.
   if (deferrable && /no matching package named|attempting to make an HTTP request|in the offline mode/.test(lock.stderr ?? '')) return writeFileSync(resolve(dir, 'Cargo.lock'), readFileSync(resolve(ROOT, 'Cargo.lock'))), true;
@@ -305,6 +437,13 @@ function updateApp(dir, name) {
     : manifest.replace(section, table => block + (at + table.length < manifest.length ? '\n' : '')));
   writeFileSync(resolve(dir, 'rust-toolchain.toml'), readFileSync(resolve(ROOT, 'rust-toolchain.toml')));
   writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name));
+  const notes = updateNotes(dir, name);
+  const manifestPath = resolve(dir, 'app.json');
+  if (existsSync(manifestPath)) {
+    const text = readFileSync(manifestPath, 'utf8');
+    const next = text.replace(/("\$schema"\s*:\s*)"[^"]*"/, (_, head) => head + JSON.stringify(pathFrom(dir, resolve(ROOT, 'scripts/app.schema.json'))));
+    if (next !== text) writeFileSync(manifestPath, next);
+  }
   // An older app may predate the generated test command. Preserve authored
   // tests; otherwise start with a boot check that assumes no app-specific IDs.
   const test = resolve(dir, 'app.test.contract');
@@ -324,7 +463,7 @@ test "the app opens"
     if (next !== text) { writeFileSync(path, next); changed.push(file); }
   }
   resolveOffline(dir);
-  return `Updated ${dir}: patches, toolchain, exact.mjs${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
+  return `Updated ${dir}: patches, toolchain, exact.mjs${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
 }
 
 if (import.meta.main) {

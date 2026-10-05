@@ -8,7 +8,7 @@
 // reselect-pops-to-root stay the router's (LLP 1038 D4, D12). Under the
 // agent the authored tablist paints and the bar stays hidden. Which tabs a
 // root has is NavigationTabs.swift's.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// The tab delegate Exact keeps: a tab the bar would select presses its
@@ -125,6 +125,7 @@ extension NavigationHost {
         }()
         mount(holder, in: parent, at: p.root)
         tabOwner = holder
+        tint(tabs.tablist)
         // Kept under the agent too, where the authored tablist shows in the
         // bar's place: a real touch refuses it (LLP 1080.000 D7).
         adoptedTablist = tabs.tablist.id
@@ -138,6 +139,7 @@ extension NavigationHost {
     private func mount(_ holder: UIViewController, in parent: UIViewController, at root: NodeView) {
         parent.addChild(holder)
         root.addSubview(holder.view)
+        holder.view.setPaintForeground()
         holder.view.frame = root.bounds
         holder.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         holder.didMove(toParent: parent)
@@ -185,7 +187,7 @@ extension NavigationHost {
     }
 
     private func hideTabBar(_ container: UITabBarController) {
-        if #available(iOS 18.0, *) { container.setTabBarHidden(true, animated: false) } else { container.tabBar.isHidden = true }
+        if #available(iOS 18.0, tvOS 18.0, *) { container.setTabBarHidden(true, animated: false) } else { container.tabBar.isHidden = true }
     }
 
     /// Before installing: a root that gains, loses or changes its tabs gets
@@ -249,6 +251,27 @@ extension NavigationHost {
             if face.badge != nil || had { item.badgeValue = face.badge }
         }
         tabItems = signature
+        tint(tabs.tablist)
+    }
+
+    /// The tablist's `accent-color` tints the bar's selected item, as it
+    /// tints a control (recipes F20, shop F28); `auto` keeps the system's.
+    /// The row is inherited, as in CSS, and reaches the host only on the
+    /// node that sets it: the nearest ancestor that does is read. Resolved
+    /// per appearance, so dark mode follows.
+    func tint(_ list: NodeView) {
+        guard let bar = tabController?.tabBar else { return }
+        var view: UIView? = list
+        while let at = view, (at as? NodeView)?.channels("accent_color", dark: false) == nil { view = at.superview }
+        let source = view as? NodeView
+        let wanted = [source?.channels("accent_color", dark: false), source?.channels("accent_color", dark: true)]
+        guard wanted != tabTint else { return }
+        tabTint = wanted
+        bar.tintColor = source.map { source in
+            UIColor { [weak source] traits in
+                source?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .tintColor
+            }
+        }
     }
 
     /// The bar would select `controller`: press its authored tab.
@@ -284,6 +307,7 @@ extension NavigationHost {
         tabNavigations = [:]
         tabPanels = []
         tabItems = []
+        tabTint = nil
         adoptedTablist = nil
     }
 

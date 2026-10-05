@@ -61,13 +61,13 @@ struct SwipeIndicator {
 enum SwipeInput {
     static func allows(_ view: NodeView) -> Bool {
         guard view.window != nil, !view.disabled, !view.inert, !view.isHidden else { return false }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         guard view.isUserInteractionEnabled else { return false }
         #endif
         var ancestor = view.superview
         while let parent = ancestor {
             if parent.isHidden || (parent as? NodeView)?.disabled == true { return false }
-            #if os(iOS)
+            #if os(iOS) || os(tvOS)
             if !parent.isUserInteractionEnabled { return false }
             #endif
             ancestor = parent.superview

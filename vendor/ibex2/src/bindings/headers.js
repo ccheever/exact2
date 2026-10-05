@@ -11,6 +11,20 @@
 (function (global) {
   "use strict";
 
+  // PURE begins with Headers, so it owns the bootstrap-only identity registry
+  // shared by every later platform factory. structured_clone.js captures the
+  // reader after all selected groups have evaluated, then deletes both names.
+  // @ref LLP 0059.000#310-atob--btoa-structuredclone-blob-customevent--pure-ungated — platform values are classified by private identity, never public shape
+  var platformBrands = new WeakMap();
+  global.__ibex2_brand = function (value, kind, data) {
+    platformBrands.set(value, { kind: kind, data: data });
+    return value;
+  };
+  global.__ibex2_platform_brand = function (value) {
+    return platformBrands.get(value);
+  };
+  var brand = global.__ibex2_brand;
+
   // Captured, then removed from the global object: the ops take integer
   // handles, and a module that could reach them could read any header list
   // in the runtime by guessing one.
@@ -75,6 +89,7 @@
       enumerable: false,
       writable: false,
     });
+    brand(this, "Headers");
     try {
       fill(this, init);
     } catch (e) {
@@ -149,7 +164,7 @@
       _index: { value: 0, enumerable: false, writable: true },
       _pick: { value: pick, enumerable: false },
     });
-    return iterator;
+    return brand(iterator, "HeadersIterator");
   }
 
   Headers.prototype.entries = function () {

@@ -74,7 +74,7 @@ impl<G: Game> Sim<G> {
             journal_next: self.world.journal_next(),
             overflow_logged: self.overflow_logged,
         };
-        let mut w = bin::Encoder::prefixed(b"EXSIM\0\x06");
+        let mut w = bin::Encoder::prefixed(b"EXSIM\0\x07");
         saved.write(&mut w);
         Ok(w.finish())
     }
@@ -92,28 +92,28 @@ impl<G: Game> Sim<G> {
         bytes: &[u8],
         retain_args: bool,
     ) -> Result<(), DataError> {
-        if bytes.starts_with(b"EXSIM\0\x05") {
-            return Err(DataError::new("restore refused: an EXSIM v5 save predates v6's pointer motion and mouse buttons (`InputEvent::Pointer` dx, dy, buttons); no cross-version migration before 1.0: recreate with `screenshot checkpoint.world world save`; inspect `state`"));
+        if bytes.starts_with(b"EXSIM\0\x06") {
+            return Err(DataError::new("restore refused: an EXSIM v6 save predates v7's primary pointer press origin (`PointerState::press_origin`); no cross-version migration before 1.0: recreate with `screenshot checkpoint.world world save`; inspect `state`"));
         }
-        let payload = bytes.strip_prefix(b"EXSIM\0\x06").ok_or_else(|| {
+        let payload = bytes.strip_prefix(b"EXSIM\0\x07").ok_or_else(|| {
             DataError::new(format!(
-                "restore refused: unsupported simulation save format (expected EXSIM v6; saw {:02x?}); no cross-version migration before 1.0: recreate with `screenshot checkpoint.world world save`; inspect `state`",
+                "restore refused: unsupported simulation save format (expected EXSIM v7; saw {:02x?}); no cross-version migration before 1.0: recreate with `screenshot checkpoint.world world save`; inspect `state`",
                 &bytes[..bytes.len().min(8)]
             ))
         })?;
         let mut s: Saved = bin::from_slice(payload)?;
         if s.game != G::ID {
             return Err(DataError::new(format!(
-                "restore refused: EXSIM v6 save belongs to `{}`, expected `{}`; game IDs must match, no cross-game migration; inspect `state`",
+                "restore refused: EXSIM v7 save belongs to `{}`, expected `{}`; game IDs must match, no cross-game migration; inspect `state`",
                 s.game,
                 G::ID
             )));
         }
         if s.world_us < 0 || s.queue.len() > QUEUE_LIMIT {
-            return Err(DataError::new("restore refused: EXSIM v6 has invalid saved clock or input queue; no repair migration; inspect `state` and create a fresh save"));
+            return Err(DataError::new("restore refused: EXSIM v7 has invalid saved clock or input queue; no repair migration; inspect `state` and create a fresh save"));
         }
         if self.setup_pending {
-            return Err(DataError::new("restore refused: EXSIM v6 awaits declared assets; inspect untargeted `state`: world[0].loading and world[0].assets; retry after delivery"));
+            return Err(DataError::new("restore refused: EXSIM v7 awaits declared assets; inspect untargeted `state`: world[0].loading and world[0].assets; retry after delivery"));
         }
         let args = if retain_args {
             &self.args_json
@@ -129,7 +129,7 @@ impl<G: Game> Sim<G> {
             input.validate(&event.event).map_err(DataError::new)?;
             if let Some(us) = &mut event.world_us {
                 *us = us.checked_add(s.world_us).ok_or_else(|| DataError::new(
-                    "restore refused: EXSIM v6 saved input stamp overflow; inspect state and create a fresh save"))?;
+                    "restore refused: EXSIM v7 saved input stamp overflow; inspect state and create a fresh save"))?;
             }
         }
         let mut registry = self.world.registered_scratch();
@@ -137,7 +137,7 @@ impl<G: Game> Sim<G> {
         let validated = registry.validate_saved(&s.world)?;
         let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;
         if validated.hz() != G::HZ || validated.tick() as u128 != due {
-            return Err(DataError::new("restore refused: EXSIM v6 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
+            return Err(DataError::new("restore refused: EXSIM v7 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
         }
         input.restore_dynamic(s.input);
         let mut next =

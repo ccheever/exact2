@@ -83,10 +83,11 @@ final class VideoView {
     private var visibilityBlocked = false
     private var autoplay = OffscreenAutoplay()
     private var autoplaySource: String?
-    /// The rule applies: armed, muted, `paused` unbound.
+    /// The rule applies: armed, muted, `paused` unbound, a `video` (an
+    /// `audio` is never seen, so Chrome never holds it; LLP 1042 §8).
     private var autoplayRule: Bool {
         guard let owner else { return false }
-        return autoplay.armed && owner.props["paused"] == nil && owner.props["muted"] == "true"
+        return autoplay.armed && owner.props["paused"] == nil && owner.props["muted"] == "true" && owner.props["semanticTag"] != "audio"
     }
     /// The last source resolved per name (`src`, `poster`): its authored text
     /// and what it resolved to. A resolution reads the file system.

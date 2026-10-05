@@ -1,0 +1,33 @@
+// `match` in a view: each arm renders its own subtree; the bound name is
+// visible inside the `some` arm.
+component App
+  state sel = none
+  action pick(v: string)
+    sel = some(v)
+  action clear
+    sel = none
+  view
+    column
+      match sel
+        case some(s)
+          column testId="chosen"
+            text s testId="name"
+            text `${length(s)}` testId="len"
+        case none
+          text "pick one" testId="empty"
+      button "a" press=pick("alpha") testId="pick-a"
+      button "c" press=clear testId="clear"
+
+test "none arm"
+  expect tree has "empty"
+  expect tree missing "chosen"
+  expect tree missing "name"
+
+test "some arm"
+  tap "pick-a"
+  expect tree missing "empty"
+  expect text "name" == "alpha"
+  expect text "len" == "5"
+  tap "clear"
+  expect tree has "empty"
+  expect tree missing "name"

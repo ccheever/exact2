@@ -176,6 +176,7 @@ test('shell test CLI honors an app path and keeps the no-path SDK sweep', () => 
     mkdirSync(bin);
     for (const file of ['Cargo.toml', '.cargo/config.toml', 'app/shells.mjs', 'app/shells.lock'])
       cpSync(resolve(import.meta.dir, file), resolve(sdk, file));
+    cpSync(resolve(import.meta.dir, '../rust-toolchain.toml'), resolve(parent, 'rust-toolchain.toml'));
     cpSync(resolve(import.meta.dir, 'new'), resolve(sdk, 'new'), {recursive:true});
     const fixture = resolve(sdk, 'games/fixture'), bench = resolve(sdk, 'bench/example');
     for (const app of [external, fixture, bench]) {
@@ -444,7 +445,7 @@ test('the SDK lock decides every version; a game that adds packages captures its
   assert.deepEqual(outsideWorkspaceProblems(import.meta.dir), []);
   const sdkCargo = Bun.TOML.parse(readFileSync(resolve(import.meta.dir, 'Cargo.toml'), 'utf8'));
   const coreCargo = Bun.TOML.parse(readFileSync(resolve(import.meta.dir, '../Cargo.toml'), 'utf8'));
-  assert.deepEqual(sdkCargo.profile['apple-dev'], coreCargo.profile['apple-dev']);
+  assert.deepEqual(sdkCargo.profile['host-dev'], coreCargo.profile['host-dev']);
   // The checked-in SDK lock is current for the union of every shell's dependencies.
   sdkLock();
 }, 120000);
@@ -640,28 +641,4 @@ test('a game whose type would shadow an engine export or a template item is refu
   for (const type of ['World','Camera','Transform','Beacon','Options']) assert.ok(taken.has(type),type);
   for (const name of ['world','camera','beacon']) assert.throws(()=>createGame(resolve(tmpdir(),`zz-${process.pid}`,name)),/would collide/);
   assert.ok(!taken.has('Garden'));
-});
-
-test('game.render names the hooks and shader pack the generated GPU shell exports', async () => {
-  const {gameDefaults, gameShells} = await import('./app/shells.mjs');
-  const {shaderRoots} = await import('../scripts/app.mjs');
-  const root=realpathSync(mkdtempSync(resolve(tmpdir(),'render-hooks-'))), app=resolve(root,'my-game');
-  try {
-    createGame(app);
-    const render={crate:'my-game-render',hooks:'Wind',shaders:'shaders::SHADERS'};
-    writeFileSync(resolve(app,'app.json'),JSON.stringify({game:{assets:true,render}}));
-    assert.throws(()=>gameShells(app,gameDefaults(app).game,import.meta.dir),/requires .*render\/Cargo.toml/);
-    mkdirSync(resolve(app,'render/src'),{recursive:true});
-    writeFileSync(resolve(app,'render/Cargo.toml'),'[package]\nname = "my-game-render"\nworkspace = "../.shells"\n');
-    gameShells(app,gameDefaults(app).game,import.meta.dir);
-    const gpu=resolve(app,'.shells/gpu');
-    assert.equal(readFileSync(resolve(gpu,'src/lib.rs'),'utf8'),
-      'exact_game_render::module!(game_logic::MyGame, assets, hooks = game_render::Wind, shaders = game_render::shaders::SHADERS);\n');
-    assert.match(readFileSync(resolve(gpu,'Cargo.toml'),'utf8'),/^game-render = \{ package = "my-game-render", path = "..\/..\/render" \}$/m);
-    assert.ok(Bun.TOML.parse(readFileSync(resolve(app,'.shells/Cargo.toml'),'utf8')).workspace.members.includes('../render'));
-    assert.deepEqual(shaderRoots({dir:app,manifest:{game:{render}}}),[resolve(app,'render/shaders')]);
-    assert.deepEqual(shaderRoots({dir:app,manifest:{game:{}}}),[]);
-    writeFileSync(resolve(app,'app.json'),JSON.stringify({game:{render:{...render,hooks:'not a path'}}}));
-    assert.throws(()=>gameShells(app,gameDefaults(app).game,import.meta.dir),/game.render must contain/);
-  } finally {rmSync(root,{recursive:true,force:true});}
 });

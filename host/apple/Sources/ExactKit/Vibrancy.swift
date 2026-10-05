@@ -8,7 +8,7 @@
 // draws a descendant vibrantly when the view allows it. iOS: a blur
 // material's vibrancy effect needs the drawing inside a vibrancy effect view
 // within the blur's content view (`IOS/VibrancyIOS.swift`).
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 #else
 import AppKit

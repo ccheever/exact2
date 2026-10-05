@@ -69,6 +69,24 @@ impl SourceMap {
         out.push(b'}');
     }
 
+    /// Where plan node `node` was declared: its file and span.
+    pub fn node(&self, node: usize) -> Option<(&std::path::Path, Span)> {
+        let site = self.sites.nodes.get(node)?;
+        Some((self.sources.path(site.span), site.span))
+    }
+
+    /// Where the plan's slot, derive or action named `name` was declared.
+    pub fn declared(&self, name: &str) -> Option<(&std::path::Path, Span)> {
+        let d = self
+            .sites
+            .slots
+            .iter()
+            .chain(&self.sites.derives)
+            .chain(&self.sites.actions)
+            .find(|d| d.name == name)?;
+        Some((self.sources.path(d.span), d.span))
+    }
+
     /// Resolve a bake refusal through the node the runner actually measured.
     /// Refusals without a node keep an absent file and zero source range.
     pub fn bake_error(&self, error: &BakeError) -> CompileError {
@@ -95,7 +113,7 @@ impl SourceMap {
             id: id.into(),
             message,
             span: node.map_or_else(Span::default, |node| node.span),
-            file: node.map(|node| self.sources.path(node.span).to_path_buf()),
+            file: node.map(|node| self.sources.path(node.span).into()),
             related: related.into_boxed_slice(),
         }
     }

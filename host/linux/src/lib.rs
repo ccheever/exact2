@@ -46,6 +46,7 @@ pub mod delivery;
 pub mod display;
 pub mod executor;
 pub mod fetch;
+mod file;
 pub mod frames;
 pub mod gpu;
 pub mod host;
@@ -62,7 +63,15 @@ mod surfaces;
 pub mod text;
 #[cfg(target_os = "linux")]
 pub mod vnc;
+mod wake;
 mod zone;
+
+/// Install the Windows event-loop wake for native work, images and text results.
+/// Removing it at shutdown releases the event loop without stopping shared workers.
+#[cfg(windows)]
+pub fn set_event_waker(waker: Option<std::sync::Arc<dyn Fn() + Send + Sync>>) {
+    wake::install(waker);
+}
 
 pub use app::run;
 pub use host::{Host, HostError};

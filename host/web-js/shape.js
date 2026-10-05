@@ -22,7 +22,19 @@ export function conforms(v, t, i = [0], o) {
   return true;
 }
 function skip(t, i) { const c = t[i[0]++]; if (c === "?" || c === "[") skip(t, i); else if (c === "{") { while (t[i[0]] !== "}") skip(t, i); i[0]++; } }
-/** Plan value equality: signed zero, NaN, and recursively equal lists. */
+/** Contract's `==`, and what the runner compares a resource's arguments
+ * with (runner/src/compare.rs `equal`, `Value`'s `PartialEq`): numbers as
+ * IEEE compares them (`-0` equals `0`, NaN equals nothing, itself
+ * included), lists and records item by item. */
+export function equal(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return a === b;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (!equal(a[i], b[i])) return false;
+  return true;
+}
+/** Plan value identity, for change detection (an equal value keeps its old
+ * object): signed zero told apart, NaN the same as itself, and recursively
+ * equal lists. Not Contract's `==`, which is `equal`. */
 export function eq(a, b) {
   if (a === b) return a !== 0 || 1 / a === 1 / b;
   if (typeof a === "number" && typeof b === "number") return a !== a && b !== b;

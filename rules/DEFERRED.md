@@ -230,6 +230,22 @@ tab's child that is a filled box holding one text is its tab bar item's badge
 count on Chats is the consumer. Unblocks a native tab badge with no module.
 Take: none offered; waived by Charlie's approval. No badge attribute and no
 badge on a bare tablist's bar.
+**Expanded (Charlie, 2026-10-03: "Declarative nav basics"):** a heading's
+group as a richer title (avatar, subtitle, press), the tab bar hidden for a
+route pushed while the authored tablist is, no bar for a route with no
+header, and a named scroller under an inline title's bar (LLP 1075.003
+§9.10). The Signal Clone's conversation header and photo viewer are the
+consumer. Unblocks them with no module. Take: none offered; waived by
+Charlie's approval. No new attribute, no title menu, no bar added by a route.
+**Expanded (Charlie, 2026-10-03: "A native grouped-list role mapped to
+UICollectionView list layout"):** `list appearance="auto"` is a grouped list
+(LLP 1084): sections with a header and footer, rows read by shape, UIKit's
+own list on iOS and a measured sheet elsewhere; `listStyle` picks
+`inset-grouped`, `grouped` or `plain`. The Signal Clone's settings screens are
+the consumer. Unblocks native cell highlight, separators, dynamic type and
+VoiceOver rows in a settings screen without a module. Take: none offered;
+waived by Charlie's approval. No sidebar styles, no virtualized grouped list,
+no grouped swipe actions.
 
 ## Surfaces
 
@@ -243,8 +259,29 @@ explicitly stateless modules removes OS loading from the update latency path.
 Generic executor-private state migration stays out; this is one committed
 generation with an executor change, not a second app reload or patch protocol.
 
+**Expanded (Charlie, 2026-10-03, waiver: "So maybe we just say we support all
+Apple platforms in-tree, and out-of-tree is for like Amazon's new TV operating
+system thing"; "yeah, this sounds good, let's pull it in"):** the Apple
+platforms UIKit covers are in-tree surfaces: tvOS (Doug Lowder's port,
+`host/apple/build.mjs --tvos`; the Siri Remote's focus, Select and Menu) and
+visionOS when someone ports it. Each is a variant of the iOS presenter, not a
+new one: shared Swift admits it beside `os(iOS)`, Rust cfgs beside
+`target_os = "ios"`, and its own code compiles into its own binary alone.
+Unblocks Caltrain on an Apple TV. watchOS, which has no UIKit, stays out. A
+platform with its own UI stack (Amazon's Vega OS) is a host outside this
+repository, on the plan, runner and agent seams; its RFC is owed. The take is
+waived.
+
 - **Windows.** A working Direct2D host exists in the old repo. It is real work, and it
-  doubles the native matrix. Port it after the loop is proven.
+  doubles the native matrix. **Admitted (Charlie, 2026-10-04):** "make an exact2
+  implementation for the Windows platform, including the game engine" for standalone
+  Skirmish (LLP 1015.000). Take: single-player first; multiplayer and general Windows
+  app expansion wait behind the working game. The engine remains optional.
+  **Expanded (Charlie, 2026-10-04):** "something simple and app-like that uses a
+  lot of windows native stuff" admits Windows Desk, a bounded text workspace
+  using Contract and an app-local Win32 control presenter. General Windows
+  control parity remains behind these two consumers; no additional showcase
+  or framework is admitted by this example.
 - **Android.** Same.
 
 Every surface multiplies the sweep, the presenter count, and the number of ways one
@@ -371,9 +408,15 @@ the last statement of a last `if`/`match` branch). The compiler puts the named
 action's statements there, so it runs last in the same commit (LLP 1017 §P4c,
 "The tail call"). The Signal Clone's photo viewer is the consumer: its release
 decides to dismiss. Unblocks a child that decides, in its own logic, to tell
-its parent. Take: none offered; waived by Charlie's approval. Still refused:
-an action calling a root action by name, a call anywhere but the tail,
-recursion, and a return value.
+its parent. Take: none offered; waived by Charlie's approval.
+**Expanded (LLP 1089; waived by the orchestrator under Charlie's 2026-10-04
+delegation, "make decisions without me"):** a call anywhere a statement may
+stand, to an action of the same component, an `action` prop, or an injected
+action, expanded into that commit; a host command keeps its name. Consumers:
+Files' four copies of "open" (F27) and the spreadsheet's close-the-editor and
+move copies (F21); Mail's swipe (F18) is the tail call, once the docs say so.
+Take: none offered. Still refused: recursion, a return value, and an action
+passed as an argument.
 
 **Motion** — **in v1**, in the LLP 1002 shape: CSS's `transition` model. Targets
 are kernel style rows (`translate`, `scale`, `rotate`, `opacity`); a `transition`
@@ -407,8 +450,13 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   beside `press`, `pan` and `contextmenu` and take nothing from them (LLP 1005
   §Events). The Signal Clone's hold-to-record mic is the consumer: recording
   starts the moment the finger lands. Unblocks hold-to-act controls. Take:
-  none offered; waived by Charlie's approval. Still no pointer coordinates,
-  moves, ids or multi-touch.
+  none offered; waived by Charlie's approval. Still no multi-touch.
+  **Built (2026-10-04, LLP 1056 §8.6; the widening confirmed by Charlie the
+  same day):** stage 3's pointer coordinates, which Canvas 2D's acceptance
+  admitted for a canvas's handlers, as a `PointerEvent` record (DOM's
+  offset, buttons, pressure, type and id) on these two and a new
+  `pointermove`, on any node. The paint app's diary (F1) is the consumer.
+  Take: none offered.
   **Expanded (Charlie, 2026-09-29: "Yeah add the every frame task"; take
   waived, none offered; waiver confirmed by Charlie 2026-09-30):** one root task form, `every(frame, action)`
   (LLP 1073): the action once per presented frame, never caught up, and on
@@ -582,6 +630,10 @@ This half matters more than the feature half.
 - No migration guides.
 - Generated files are built, never committed.
 - Sparse prose. The code and the checks are the authority.
+  **Except the author guides (Charlie, 2026-10-04, LLP 1086 D9):** the guides under
+  `docs/` describe the shipped product to the people and agents building with it. A
+  change that alters what an author writes or runs updates them in the same change.
+  That is not apparatus and needs no approval; a new file there still does.
 
 ## Moving something off this list
 

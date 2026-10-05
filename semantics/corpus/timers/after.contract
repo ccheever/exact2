@@ -1,0 +1,20 @@
+// `after(ms, action)` fires once.
+component App
+  state fired = 0
+  state at = 0
+  action ding
+    fired = fired + 1
+    at = now()
+  task once mount
+    after(500, ding)
+  view
+    text `${fired}` testId="f"
+
+test "fires once"
+  clock +499
+  expect state fired == 0
+  clock +1
+  expect state fired == 1
+  expect state at == 500
+  clock +5000
+  expect state fired == 1

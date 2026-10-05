@@ -40,7 +40,11 @@ final class MouseLayoutPan {
                     presenter!.onPanSample?(true, Double(last.x), Double(last.y), event.timestamp)
                     return true
                 }
-                if view.field != nil || view.textArea != nil || view.handlers.contains("press") { return false }
+                // An editor keeps the contact; a press between keeps it only
+                // within the slop — the pan that begins takes the press (the
+                // chain clears it), as a draggable element hears a drag that
+                // starts on a button inside it (LLP 1057.001 rule 3; kanban F6).
+                if view.field != nil || view.textArea != nil { return false }
             }
             at = current.superview
         }
@@ -80,7 +84,7 @@ final class MouseLayoutPan {
     func abandon() { candidate = nil; active = false }
     func retire(_ id: UInt32) { if candidate?.id == id { cancel() } }
 }
-#elseif os(iOS)
+#elseif os(iOS) || os(tvOS)
 import UIKit
 
 // UIPanGestureRecognizer begins after its recognition threshold. Preserve the
@@ -114,7 +118,10 @@ extension NodeView {
     func updateLayoutPan() {
         if handlers.contains("pan"), layoutPanRecognizer == nil {
             let g = ContactLayoutPan(target: self, action: #selector(layoutPanning(_:)))
-            g.maximumNumberOfTouches = 1; g.delegate = self
+            #if !os(tvOS)
+            g.maximumNumberOfTouches = 1
+            #endif
+            g.delegate = self
             addGestureRecognizer(g); layoutPanRecognizer = g
         } else if !handlers.contains("pan"), let g = layoutPanRecognizer {
             removeGestureRecognizer(g); layoutPanRecognizer = nil
@@ -139,6 +146,9 @@ extension NodeView {
             let v = gesture.velocity(in: presenter.viewport)
             presenter.panRelease(id, Double(v.x), Double(v.y))
         } else if [.cancelled, .failed].contains(gesture.state) {
+            // UIKit took the contact (a system gesture, a scroll view's pan):
+            // the journal says so, as the web's does (files diary F10).
+            if gesture.state == .cancelled { presenter.session?.log("pan cancelled: UIKit took the contact (a system gesture or a scroll view's pan)") }
             presenter.panRelease(id, 0, 0)
         }
     }

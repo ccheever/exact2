@@ -1,0 +1,33 @@
+// `and` / `or` decide on their left operand; the right one is evaluated
+// only when needed. With a non-finite intermediate on the right the
+// result is still a well-typed bool.
+component App
+  state d = 0
+  state items = 0
+  derive guarded = d != 0 and 10 / d > 1
+  derive fallback = d == 0 or 10 / d > 1
+  derive avg = items == 0 ? 0 : 100 / items
+  action setD(v: number)
+    d = v
+  action setItems(v: number)
+    items = v
+  view
+    column
+      text `${guarded} ${fallback} ${avg}` testId="r"
+      button "d0" press=setD(0) testId="d0"
+      button "d5" press=setD(5) testId="d5"
+      button "d20" press=setD(20) testId="d20"
+      button "i4" press=setItems(4) testId="i4"
+
+test "zero"
+  expect text "r" == "false true 0"
+
+test "nonzero"
+  tap "d5"
+  expect text "r" == "true true 0"
+  tap "d20"
+  expect text "r" == "false false 0"
+  tap "i4"
+  expect text "r" == "false false 25"
+  tap "d0"
+  expect text "r" == "false true 25"

@@ -477,3 +477,6 @@ mod test_model;
 #[cfg(test)]
 #[path = "../tests/fixture/device.rs"]
 mod test_device;
+
+#[cfg(test)]
+mod visibility_tests;

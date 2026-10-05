@@ -1,4 +1,4 @@
-use Snapshot from "./shapes.contract"
+use Snapshot, NativeGlass, card from "./shapes.contract"
 use Change from "./shapes.contract"
 use Model from "./shapes.contract"
 use Viewport from "./shapes.contract"
@@ -267,9 +267,9 @@ component Messages
                     scroll swipeContent=`conversation-${t.id}` swipeLeading=`unread-${t.id}` swipeTrailing=`delete-thread-${t.id} mute-${t.id}` scroll=inboxScrolled(t.id) testId=`thread-swipe-${t.id}` width="100%" height=86.667 overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory" scrollLeft=(inboxEditing ? 200 : (swiped == t.id ? swipeOffset : 70))
                       row width="100%" height=86.667
                         row width=70 height=86.667 flex-shrink=0 scroll-snap-align="start" align-items="center" justify-content="center"
-                          button press=inboxOperation("unread", t.id) id=`unread-${t.id}` testId=`unread-${t.id}` aria-label=(t.unread ? "Mark as read" : "Mark as unread") width=50 height=50 border-radius=25 background-color="#0088ff" justify-content="center"
+                          button press=inboxOperation("unread", t.id) id=`unread-${t.id}` testId=`unread-${t.id}` aria-label=(t.unread ? "Mark as read" : "Mark as unread") width=50 height=50 border-radius=25 background-color="#0088ff"
                             text "●" font-size=24 color="#ffffff"
-                        button press=openThread(t.id, t.draft) contextmenu=swipe(t.id) id=`conversation-${t.id}` testId=`conversation-${t.id}` aria-label=`${t.name}, ${t.preview}` width="100%" height=86.667 flex-shrink=0 scroll-snap-align="start" display="flex" flex-direction="row" align-items="center" gap=12 padding-left=16 padding-right=16 box-sizing="border-box" class=Canvas
+                        button press=openThread(t.id, t.draft) contextmenu=swipe(t.id) id=`conversation-${t.id}` testId=`conversation-${t.id}` aria-label=`${t.name}, ${t.preview}` width="100%" height=86.667 flex-shrink=0 scroll-snap-align="start" display="flex" flex-direction="row" align-items="center" gap=12 padding-left=16 padding-right=16 box-sizing="border-box" class=Canvas text-align="start"
                           Avatar(initials=t.initials, color=t.color, size=54)
                           column flex=1 min-width=0 align-self="stretch" justify-content="center" border-bottom-width=0.333 border-bottom-style="solid" border-color="light-dark(#d1d1d6, #38383a)" padding-top=12 padding-bottom=12
                             row align-items="center" gap=4 margin-bottom=4
@@ -326,7 +326,7 @@ component Messages
                     column flex=1 min-width=0
                       text "Replying to" font-size=11 color="#0088ff"
                       text replyBody font-size=13 class=Secondary line-clamp=2
-                    button press=cancelReply testId="cancel-reply" width=28 height=28 justify-content="center"
+                    button press=cancelReply testId="cancel-reply" width=28 height=28
                       text "×" font-size=22 class=Secondary
                 row align-items="flex-end" gap=12
                   button press=togglePanel retainFocus=true testId="add" aria-label="Add" class=GlassButton backgroundMaterial="glass"
@@ -397,17 +397,17 @@ component Messages
                 button press=dismiss testId="dismiss-context" aria-label="Dismiss message menu" position="absolute" top=0 left=0 width="100%" height="100%"
                 column position="absolute" left=(not selectedOutgoing and thread == "demo" ? 47 : 16) right=16 top=max(76, min(selectedY - 68, viewport.height - selectedHeight - 292)) gap=12 align-items=(selectedOutgoing ? "flex-end" : "flex-start")
                   row border-radius=30 backgroundMaterial="glass" padding=8 gap=4 animation=(viewport.prefersReducedMotion ? "none" : "card 180ms ease-out")
-                    button press=react("❤️") testId="react-heart" width=40 height=40 justify-content="center"
+                    button press=react("❤️") testId="react-heart" width=40 height=40
                       image "assets/tapbacks/heart.png" width=34 height=34 object-fit="contain"
-                    button press=react("👍") testId="react-like" width=40 height=40 justify-content="center"
+                    button press=react("👍") testId="react-like" width=40 height=40
                       image "assets/tapbacks/like.png" width=34 height=34 object-fit="contain"
-                    button press=react("👎") testId="react-dislike" width=40 height=40 justify-content="center"
+                    button press=react("👎") testId="react-dislike" width=40 height=40
                       image "assets/tapbacks/dislike.png" width=34 height=34 object-fit="contain"
-                    button press=react("😂") testId="react-laugh" width=40 height=40 justify-content="center"
+                    button press=react("😂") testId="react-laugh" width=40 height=40
                       image "assets/tapbacks/laugh.png" width=34 height=34 object-fit="contain"
-                    button press=react("‼️") testId="react-emphasis" width=40 height=40 justify-content="center"
+                    button press=react("‼️") testId="react-emphasis" width=40 height=40
                       image "assets/tapbacks/emphasis.png" width=34 height=34 object-fit="contain"
-                    button press=react("❓") testId="react-question" width=40 height=40 justify-content="center"
+                    button press=react("❓") testId="react-question" width=40 height=40
                       image "assets/tapbacks/question.png" width=34 height=34 object-fit="contain"
                   column contextTarget=`bubble-${selected}` contextMagnify=true max-height=320 overflow="hidden" padding-bottom=6.65
                     Balloon(body=selectedBody, outgoing=selectedOutgoing, tail=true, maximum=maximum, identifier="context-balloon")

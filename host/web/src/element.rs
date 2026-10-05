@@ -27,7 +27,8 @@ pub(super) fn host_css(node: &NodeRef<'_>, css: String, tag: &str) -> String {
 /// its own (LLP 1007.001): the only child of a box or a button, with no style
 /// row, no prop but its text and no handler — nothing a box of its own could
 /// show or hear. Its element stays (the runtime writes its text, the agent
-/// reads its node) as `display: contents`, so it makes no box, and a flex
+/// reads its node) as `display: contents`, so it makes no box (an inline
+/// box under a box that restricts touch, [`contents`]), and a flex
 /// box holding it is a block ([`blocks`]): its text is the box's own line
 /// boxes, laid out and painted as a stretched style-less block child's are.
 /// Only where the two lay out alike — a block, or a flex column that
@@ -147,14 +148,61 @@ pub fn blocks(mut css: String, holds_folded: bool) -> String {
     css
 }
 
-/// A folded text's CSS ([`folds`]): no box.
-pub fn contents(css: String, folded: bool) -> String {
+/// A folded text's CSS ([`folds`]): no box (`display: contents`), or an
+/// inline box under a box that restricts touch ([`touch_scoped`]). Chrome
+/// 154 lays out the text of a `display: contents` element with a style that
+/// keeps no effective `touch-action`, so a touch that starts on its glyphs
+/// under a `touch-action: none` pan is the browser's, cancelled after its
+/// first move (smoke step 11b); an inline box keeps its ancestors' touch
+/// action, at one more layout object (LLP 1007.001 §5).
+pub fn contents(css: String, folded: bool, touch_scoped: bool) -> String {
     if !folded {
         return css;
     }
     let mut css = css.replace("display:block;", "");
-    css.push_str("display:contents;");
+    css.push_str(if touch_scoped {
+        "display:inline;"
+    } else {
+        "display:contents;"
+    });
     css
+}
+
+/// Whether a box restricts touch on the web: an authored `touch-action`
+/// other than `auto`, or what the page gives `touch-action: none` — a drag
+/// timeline's source, a game action, a reorder handle.
+pub fn restricts_touch(n: &NodeFacts<'_>) -> bool {
+    use exact_kernel::{StyleId, TouchAction};
+    (n.style.mask.has(StyleId::TouchAction) && n.style.touch_action != TouchAction::Auto)
+        || n.style.mask.has(StyleId::DragTimeline)
+        || n.props.str(PropId::Action).is_some()
+        || n.props.str(PropId::ReorderFor).is_some()
+}
+
+/// A node of `kernel`'s CSS with its fold's ([`contents`]), as its tree stands.
+pub(super) fn folded_css(
+    kernel: &Kernel,
+    node: &NodeRef<'_>,
+    css: String,
+    handled: bool,
+) -> String {
+    contents(
+        css,
+        folded(kernel, node, handled),
+        touch_scoped(kernel, node),
+    )
+}
+
+/// Whether a node of `kernel` sits under a box that [`restricts_touch`].
+pub(super) fn touch_scoped(kernel: &Kernel, node: &NodeRef<'_>) -> bool {
+    let mut up = node.parent;
+    while let Some(p) = up.and_then(|p| kernel.node(p)) {
+        if restricts_touch(&p.facts()) {
+            return true;
+        }
+        up = p.parent;
+    }
+    false
 }
 
 /// [`host_css`], from a node's facts.
@@ -167,7 +215,9 @@ pub fn host_css_of(node: &NodeFacts<'_>, mut css: String, tag: &str) -> String {
         if !(css.starts_with("position:") || css.contains(";position:")) {
             css.push_str("position:relative;");
         }
-        css.push_str("isolation:isolate;");
+        if !node.style.mask.has(StyleId::Isolation) {
+            css.push_str("isolation:isolate;");
+        }
         canvas_css(node, &mut css);
     }
     // A root is a block formatting context in the kernel, as CSS's root
@@ -332,6 +382,13 @@ pub(super) fn in_button(kernel: &Kernel, node: &NodeRef<'_>) -> bool {
 }
 
 /// The element for a node wherever it is: its type, refined by `semanticTag`.
+/// A URL that leaves the app: an absolute `http(s)` one, or scheme-relative.
+/// A path, or a relative URL, stays in it (the native hosts' rule).
+pub fn leaves_app(href: &str) -> bool {
+    let h = href.trim_start().to_ascii_lowercase();
+    h.starts_with("http:") || h.starts_with("https:") || h.starts_with("//")
+}
+
 fn element(node: &NodeFacts<'_>) -> &'static str {
     if node.node_type == NodeType::TextInput
         && node.props.str(PropId::SemanticTag) == Some("textarea")
@@ -420,6 +477,8 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
         NodeType::Control => "input",
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
+        // @ref LLP 1042 §8 — HTML's `audio` is the media node marked so.
+        NodeType::Video if node.props.str(PropId::SemanticTag) == Some("audio") => "audio",
         NodeType::Video => "video",
         // Never created: a head is the page's `<head>` (LLP 1048.003 D1).
         NodeType::Head => "template",
@@ -714,6 +773,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Placeholder => "placeholder",
             PropId::Type => "type",
             PropId::InputMode => "inputmode",
+            PropId::EnterKeyHint => "enterkeyhint",
             PropId::Autocapitalize => "autocapitalize",
             PropId::Autocorrect => "autocorrect",
             PropId::Spellcheck => "spellcheck",
@@ -727,6 +787,9 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::NavigationBack => "navigationBack",
             PropId::NavigationPresentation => "navigationPresentation",
             PropId::NavigationSource => "navigationSource",
+            // LLP 1013.000 D7: the shared-element name the JS target's view
+            // transitions pair by.
+            PropId::SharedElement => "data-shared-element",
             PropId::Closedby => "closedby",
             PropId::ContextTarget => "contextTarget",
             PropId::ContextMagnify => "contextMagnify",
@@ -742,6 +805,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::SwipeIndicator => "swipeIndicator",
             PropId::Href if text.is_empty() => continue,
             PropId::Href => "href",
+            PropId::Target => "target",
             PropId::Disabled => "disabled",
             PropId::Min => "min",
             PropId::Max => "max",
@@ -786,6 +850,12 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Sandbox => "sandbox",
             PropId::SemanticTag => continue,
             PropId::Checked => "checked",
+            PropId::Rows => "rows",
+            PropId::Maxlength => "maxlength",
+            // A file input's own attributes (LLP 1069.002 D1), so the
+            // browser's picker takes the types and the count (gallery F6).
+            PropId::Accept => "accept",
+            PropId::Multiple => "multiple",
             // The Popover API by identity (LLP 1021 D5): the browser owns
             // the top layer, light dismiss, and Escape once these land on
             // the real elements.
@@ -799,7 +869,12 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilitySelected => "aria-selected",
             PropId::AccessibilityExpanded => "aria-expanded",
             PropId::AccessibilityPressed => "aria-pressed",
+            PropId::AccessibilityModal => "aria-modal",
             PropId::AccessibilityElementsHidden => "aria-hidden",
+            PropId::AccessibilityInvalid => "aria-invalid",
+            PropId::AccessibilityDescribedBy => "aria-describedby",
+            PropId::AccessibilityRequired => "aria-required",
+            PropId::AccessibilityHasPopup => "aria-haspopup",
             // SVG 2 attributes by their exact (case-sensitive) names (LLP 1055 D1).
             PropId::ViewBox => "viewBox",
             PropId::PreserveAspectRatio => "preserveAspectRatio",
@@ -840,6 +915,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::FeDy => "dy",
             PropId::FeScale => "scale",
             PropId::FeRadius => "radius",
+            PropId::FeOrder => "order",
             PropId::LightX => "x",
             PropId::LightY => "y",
             PropId::LightZ => "z",
@@ -898,7 +974,25 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             if symbol.is_some_and(|s| s.2) {
                 out.insert("data-symbol-fill".into(), String::new());
             }
-            out.insert("alt".into(), String::new());
+            // Decorative unless the author named it (`alt`, `aria-label`).
+            if !out.contains_key("alt") {
+                out.insert("alt".into(), String::new());
+            }
+        }
+    }
+    // A link to an absolute URL leaves the app, as natively (the system
+    // browser): a new browsing context, unless the author named a `target`
+    // (chat F11, hn-reader F3). `external` marks the default, which the JS
+    // target's runtime recomputes as a bound `href` changes (rt.js `P`).
+    if element(node) == "a" {
+        match out.get("target").map(String::as_str) {
+            Some("_blank") => _ = out.insert("rel".into(), "noopener".into()),
+            Some(_) => {}
+            None if out.get("href").is_some_and(|h| leaves_app(h)) => {
+                out.insert("target".into(), "_blank".into());
+                out.insert("rel".into(), "external noopener".into());
+            }
+            None => {}
         }
     }
     // A role the element already has natively is left off (ARIA in HTML:
@@ -993,9 +1087,22 @@ impl<D: exact_runner::DataSource> super::Host<D> {
         let m = self.mirror.get(&node.id);
         let (css, _) = crate::css::css_text(&css_style(kernel, node), &self.font_names);
         let css = host_css(node, css, tag_for(node, m.is_some_and(|m| m.in_button)));
-        let fold = folded(kernel, node, m.is_some_and(|m| m.handled));
+        let css = folded_css(kernel, node, css, m.is_some_and(|m| m.handled));
         let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
-        let css = blocks(contents(css, fold), holds_folded(kernel, node, &handled));
+        let css = blocks(css, holds_folded(kernel, node, &handled));
+        self.paint_css(node, css)
+    }
+
+    /// Refresh isolation in newly computed or server-cached CSS. An authored
+    /// `isolate` keeps its value; required isolation overrides authored `auto`.
+    pub(super) fn paint_css(&self, node: &NodeRef<'_>, css: String) -> String {
+        if node.style.mask.has(StyleId::Isolation) && !self.layers.isolated(node.id) {
+            return css;
+        }
+        let css = css
+            .split_inclusive(';')
+            .filter(|row| !row.starts_with("isolation:"))
+            .collect();
         super::layers::with_isolation(css, self.layers.isolated(node.id))
     }
 
@@ -1083,7 +1190,7 @@ mod dataset_tests {
                     | "mode"
                     | "numOctaves"
                     | "operator"
-                    | "order"
+                    | "feOrder"
                     | "preserveAlpha"
                     | "primitiveUnits"
                     | "result"
@@ -1097,6 +1204,46 @@ mod dataset_tests {
                     | "targetY"
                     | "values"
             )
+    }
+
+    /// A link to an absolute URL opens outside the app, as natively, unless
+    /// its `target` is authored; a path stays (chat F11, hn-reader F3).
+    #[test]
+    fn a_link_out_of_the_app_opens_a_new_browsing_context() {
+        let link = |href: &str, target: Option<&str>| {
+            let style = StyleProps::default();
+            let mut props = PropList::new();
+            props.set(PropId::Href, PropValue::Str(href.into()));
+            if let Some(t) = target {
+                props.set(PropId::Target, PropValue::Str(t.into()));
+            }
+            let out = super::props_of(&NodeFacts {
+                id: 1,
+                node_type: NodeType::Pressable,
+                style: &style,
+                props: &props,
+                is_root: false,
+                inline_run: false,
+            });
+            let get = |k: &str| out.get(k).cloned();
+            (get("target"), get("rel"))
+        };
+        let out = (Some("_blank".into()), Some("external noopener".into()));
+        assert_eq!(link("https://example.com/a", None), out);
+        assert_eq!(link("//example.com/a", None), out);
+        assert_eq!(link("/c/42", None), (None, None));
+        assert_eq!(
+            link("https://example.com/", Some("_self")),
+            (Some("_self".into()), None)
+        );
+        let blank = (Some("_blank".into()), Some("noopener".into()));
+        assert_eq!(link("/c/42", Some("_blank")), blank);
+        let app = |t: &str| {
+            format!("component A\n  view\n    link href=\"/x\" target=\"{t}\"\n      text \"x\"\n")
+        };
+        assert!(contract::compile(&app("_blank")).is_ok());
+        let e = contract::compile(&app("_top")).unwrap_err().to_string();
+        assert!(e.contains("`target` takes"), "{e}");
     }
 
     /// @ref LLP 1075.003 §3.3 — every `data-` name this host writes on an
@@ -1119,6 +1266,7 @@ mod dataset_tests {
             NodeType::Svg,
             NodeType::Control,
         ];
+        let mut unreserved = std::collections::BTreeSet::new();
         for prop in PropId::ALL {
             if prop == PropId::Dataset || svg_only(prop) {
                 continue;
@@ -1132,15 +1280,17 @@ mod dataset_tests {
             for kind in kinds {
                 for name in written(kind, prop, value.clone()).keys() {
                     if let Some(word) = name.strip_prefix("data-") {
-                        assert!(
-                            contract_lower::dataset::reserved(word),
-                            "`{name}` (from {}) is not reserved in contract/lower/src/dataset.rs",
-                            prop.name()
-                        );
+                        if !contract_lower::dataset::reserved(word) {
+                            unreserved.insert(format!("`{name}` (from {})", prop.name()));
+                        }
                     }
                 }
             }
         }
+        assert!(
+            unreserved.is_empty(),
+            "not reserved in contract/lower/src/dataset.rs: {unreserved:?}"
+        );
     }
 
     #[test]

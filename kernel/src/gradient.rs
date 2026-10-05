@@ -751,7 +751,7 @@ fn stops(args: &[&str], conic: bool) -> Result<Vec<Stop>, &'static str> {
         let color = words[..split].join(" ");
         let color = ColorValue::parse_light_dark(&color)
             .or_else(|| Color::parse(&color).map(ColorValue::Fixed))
-            .ok_or("a stop's colour is `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()`, `transparent` or `light-dark(a, b)`")?;
+            .ok_or("a stop's colour is a CSS colour (hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `transparent`) or `light-dark(a, b)`")?;
         if split == words.len() {
             authored.push((color, None));
         }

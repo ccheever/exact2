@@ -27,14 +27,15 @@ collects syntax, operator precedence, built-in functions, tags, and events.
 7. [Views and repeated content](#views-and-repeated-content)
 8. [Components, providers, and slots](#components-providers-and-slots)
 9. [Resources and mutations](#resources-and-mutations)
-10. [Styling and layout](#styling-and-layout)
-11. [Input, events, and commands](#input-events-and-commands)
-12. [Navigation and documents](#navigation-and-documents)
-13. [Time, motion, and geometry](#time-motion-and-geometry)
-14. [Graphics, media, and native extensions](#graphics-media-and-native-extensions)
-15. [Platform facts and localization](#platform-facts-and-localization)
-16. [Testing, diagnostics, and delivery](#testing-diagnostics-and-delivery)
-17. [Where to go next](#where-to-go-next)
+10. [Writing the data module](#writing-the-data-module)
+11. [Styling and layout](#styling-and-layout)
+12. [Input, events, and commands](#input-events-and-commands)
+13. [Navigation and documents](#navigation-and-documents)
+14. [Time, motion, and geometry](#time-motion-and-geometry)
+15. [Graphics, media, and native extensions](#graphics-media-and-native-extensions)
+16. [Platform facts and localization](#platform-facts-and-localization)
+17. [Testing, diagnostics, and delivery](#testing-diagnostics-and-delivery)
+18. [Where to go next](#where-to-go-next)
 
 ## Run an app
 
@@ -60,8 +61,10 @@ bun scripts/exact.mjs new ../hello
 The new app has `app.contract` (its interface), `app.ts` (its data module),
 `app.json` (its manifest), `app.test.contract`, `web/` and `apple/` crates, and its
 own Cargo workspace; it consumes this checkout by path. Its generated `exact.mjs`
-runs the web and native commands (`bun exact.mjs test`, for example); run it with
-no verb to list them, and see the [tooling reference](reference.md).
+runs the web and native commands (`bun exact.mjs test`, for example; `bun exact.mjs
+test web tests/*.test.contract` runs the files named, from the current directory,
+in turn); run it with no verb to list them, and see the [tooling reference](reference.md).
+Stopping or killing `bun exact.mjs web` stops its dev server too.
 
 You can compile a standalone Contract file without running a host:
 
@@ -120,17 +123,26 @@ may supply reusable declarations; the importing file's first component remains
 its root.
 
 ```text
-use Card from "./parts.contract"
-use Item from "./models.contract"
+use Card, Badge as StatusBadge from "./parts.contract"
+use Item, pulse from "./models.contract"
 ```
 
-Imports are local `.contract` files inside the app directory. Paths begin
-with `./`, stay below the importing file, and cannot contain `..` segments. They cannot import
-JavaScript packages or TypeScript functions. Import cycles, conflicting
-declarations, and unknown exports are refused. Fonts are not individually named
-`use` exports. Loading a file merges its resolved declarations, not just the
-single named declaration; there is no import namespace. Keep external work
-behind the data interface.
+Each file has its own names (LLP 1091): its own declarations, and the names its
+`use` lines list. Nothing comes along unnamed: if `parts.contract` uses `Icon`,
+`Card` still works, but this file writes `Icon()` only after naming it too,
+from `./icons.contract` or from `./parts.contract`, which passes on what it
+names. `as` renames one name in this file. Any component, shape, `fn`, style,
+keyframes or timeline can be named; there is no `export` keyword.
+
+Two files may declare the same name: each file's references mean its own
+declaration. One name brought into a file twice from different declarations,
+or brought and also declared, is refused; rename one with `as`. Fonts stay
+app-wide, like CSS's `@font-face`.
+
+Imports are `.contract` files inside the app directory. Paths begin with `./`,
+stay below the importing file, and cannot contain `..` segments. They cannot
+import JavaScript packages or TypeScript functions. Import cycles and unknown
+names are refused. Keep external work behind the data interface.
 
 Identifiers start with an ASCII letter or underscore. Letters, digits, and
 underscores can follow. A hyphen followed by a letter is part of the identifier:
@@ -237,8 +249,9 @@ action search(value: string)
 
 Root components may own states, derives, actions, resources, mutations, and
 tasks. Child components may own states, derives, and actions; root-only work
-must be passed down as values or actions. State initializers can depend on
-earlier states; do not build cycles. Derives can be declared in dependency order
+must be passed down as values or actions. State initializers read props,
+injects and earlier states only: they run before any resource answers or
+derive is computed. Derives can be declared in dependency order
 or another order, but their dependency graph must be acyclic.
 
 An action's state reads observe the state at its start. Its writes land together.
@@ -525,7 +538,8 @@ The `refreshes items` clause re-reads `items` when the mutation is sent (an answ
 the source gives at once shows immediately) and forces it again when the reply
 lands. `then afterSave` runs a parameterless action in its own commit at the
 host's next clock advance, once for every answer that landed before it, so it
-reads the latest answer. It does not run for a failure that brought no answer,
+reads the latest answer (the agent driver lands it at the end of the input
+that settled the answer). It does not run for a failure that brought no answer,
 and it must not send its own mutation. Do not use `then` as a general event queue.
 
 `pending(resourceOrMutation)` asks whether a request is in flight.
@@ -576,8 +590,12 @@ arguments, not state, and is answered once at build. See
 
 The app build bakes initial resource values into its plan for first paint. At
 build there is no network, storage, store write or native module; a source that
-needs a request is left unbaked and asked at run time. Generate the interface
-rather than guessing it:
+needs a request is left unbaked and asked at run time. A baked value is only
+the first frame: every host asks the TypeScript module again at launch (a native
+host once the module loads after first pixel), even for a source with no
+arguments, so what the module knows at launch reaches the view. `logs` names
+each resource that showed a build-time answer and what its ask answered. Generate
+the interface rather than guessing it:
 
 ```sh
 cargo run -q -p contract -- types path/to/app.contract -o /tmp/app.contract.d.ts
@@ -586,8 +604,191 @@ cargo run -q -p contract -- rust path/to/app.contract -o /tmp/shapes.rs
 
 Generated declarations are build artifacts. The data module's
 `export const grants` governs network and storage permissions; a source name alone
-grants nothing. Use [the data-module reference](reference.md#generate-typescript-data-source-types)
-and [Fieldnotes](../apps/fieldnotes) for storage and mixed application examples.
+grants nothing. The next section writes one end to end;
+[Fieldnotes](../apps/fieldnotes) is a larger storage example.
+
+## Writing the data module
+
+The view asks; `app.ts` answers. The README's todo list keeps its data in memory.
+This app keeps a reading list in SQLite, so it survives a restart, and shows a
+quote fetched from the network. It was made with `exact new`, and its test passes
+on the web host.
+
+```contract
+shape Book
+  id: string
+  title: string
+shape Saved
+  ok: bool
+  message: string
+shape Quote
+  text: string
+
+component ReadingList
+  state draft = ""
+  state notice = ""
+  resource books = books() as shape list<Book>
+  resource quote = quote() as shape Quote else empty(text="…")
+  mutation saved as shape Saved refreshes books then afterSave
+  action edit(value: string)
+    draft = value
+  action add
+    if trim(draft) != ""
+      send saved = addBook(trim(draft))
+      draft = ""
+  action afterSave
+    match saved
+      case some(result)
+        notice = result.message
+      case none
+        notice = ""
+  view
+    column padding=24 gap=12
+      text "Reading list" font-size=28 font-weight=700
+      text quote.text color="#6b7280" testId="quote"
+      row gap=8
+        input value=draft input=edit submit=add placeholder="A book" aria-label="New book" testId="title" flex=1
+        button press=add testId="add"
+          text "Add"
+      text notice testId="notice"
+      each book in books key=book.id
+        text book.title testId=`book-${book.id}`
+```
+
+Generate the types `app.ts` imports, and regenerate them whenever a source's
+arguments or declared shape change:
+
+```sh
+bun exact.mjs contract types app.contract -o app.contract.d.ts
+```
+
+```ts
+import type { Answer, Database, Result, Sources, Storage } from './app.contract.d.ts';
+
+export const appId = 'com.example.reading-list';
+// One capability per line: what this module may reach. Nothing else is allowed.
+export const grants = [
+  'sqlite.open app:/data/books.db',
+  'net.fetch https://api.quotable.kurokeita.dev',
+].join('\n');
+
+// An open database locks its file, so a read and a write that overlap (a
+// mutation and the refresh it triggers) would refuse each other as busy.
+// One queue, one open at a time.
+let queue: Promise<unknown> = Promise.resolve();
+function withBooks<T>(storage: Storage, work: (db: Database) => Promise<T>): Promise<T> {
+  const run = queue.then(async () => {
+    const db = await storage.sqlite.open('app:/data/books.db');
+    try {
+      await db.execute('CREATE TABLE IF NOT EXISTS books (id INTEGER PRIMARY KEY, title TEXT NOT NULL)');
+      return await work(db);
+    } finally { await db.close(); }
+  });
+  queue = run.catch(() => {});
+  return run;
+}
+
+const sources: Sources = {
+  // A read: SQLite rows to the declared `list<Book>`. Integers arrive as
+  // bigint, so convert them. At build (bake) time there is no storage, and
+  // the throw leaves the resource to be asked when the app runs.
+  books: (_args, _store, storage): Promise<Result<'books'>> =>
+    withBooks(storage, async (db) => {
+      const { rows } = await db.query('SELECT id, title FROM books ORDER BY id');
+      return rows.map(([id, title]) => ({ id: String(id), title: String(title) }));
+    }),
+  // A write, sent by the `saved` mutation; `refreshes books` reads the list again.
+  addBook: ([title], _store, storage): Promise<Result<'addBook'>> =>
+    withBooks(storage, async (db) => {
+      await db.execute('INSERT INTO books (title) VALUES (?)', [title]);
+      return { ok: true, message: `Added ${title}.` };
+    }).catch((error) => ({ ok: false, message: String(error) })),
+  // The network: only the origin `grants` names. A failure is data here.
+  quote: async (): Promise<Result<'quote'>> => {
+    try {
+      const response = await fetch('https://api.quotable.kurokeita.dev/api/quotes/random');
+      if (!response.ok) return { text: '' };
+      const body = (await response.json()) as { quote?: { content?: string } };
+      return { text: body.quote?.content ?? '' };
+    } catch {
+      return { text: '' };
+    }
+  },
+};
+
+export const answer: Answer = (source, args, store, storage, native) =>
+  sources[source](args, store, storage, native);
+```
+
+Each name the Contract calls (`books()`, `addBook(…)`, `quote()`) is a key of
+`sources`. A source receives its arguments as an array, then the store (secrets),
+`storage` (files and SQLite), and the native module, if any. It returns the
+declared shape, or a promise of it. A resource and a mutation are answered the
+same way; the difference is only who asks and when.
+
+**Grants.** `grants` lists, one per line, everything the module may reach. A
+call outside them fails. The capabilities are:
+
+| Grant | Allows |
+|---|---|
+| `net.fetch https://api.example.com` | `fetch` to that origin (`https://*.example.com` for its subdomains) |
+| `net.websocket wss://api.example.com` | a WebSocket to that origin |
+| `sqlite.open app:/data/name.db` | `storage.sqlite.open` on that path |
+| `fs.read app:/data/dir`, `fs.write app:/data/dir` | `storage.fs` under that prefix (`app:/data`, `app:/cache`, `app:/tmp`) |
+| `secret.keep name` | `store.keepKey(name, pair)` and `store.key(name)`: a P-256 key pair kept by the platform |
+| `storage.kv scope`, `env.read NAME` | a host's key–value scope and environment variable (`grants/src/lib.rs`); a data module has no API for them yet: its `storage` is `fs` and `sqlite`, so keep key–value data in a file or a table |
+
+**What catches people.**
+
+- *A source cannot read the clock, start a timer or call `Math.random()`.*
+  `Date.now()`, `new Date()` without a value, `setTimeout`, `setInterval`,
+  `performance.now()` and `Math.random()` are refused when first used, on every
+  executor (`crypto.getRandomValues` and `crypto.randomUUID` work inside an answer); the type check cannot see it, and only `logs` shows the refusal. Time
+  and seeds are arguments: pass `now()` from the Contract (the
+  [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
+- *There is no storage or network at build time.* The build bakes each
+  resource's first value into the plan. A source that throws then (as `books`
+  does, with storage unavailable) is simply asked again when the app runs. To
+  show something better than the type's zero meanwhile, give the resource an
+  `else` placeholder, as `quote` does.
+- *An open database locks its file.* A mutation and the refresh it triggers
+  overlap, and the second `open` fails as busy. Queue every open, as
+  `withBooks` does.
+- *SQLite integers are `bigint`.* Convert them (`String(id)`, `Number(n)`)
+  before returning; a Contract `number` is not a `bigint`.
+- *A domain failure is data.* `addBook` returns `ok: false` with a message
+  rather than throwing, so the view can say what happened. A thrown error
+  leaves a resource `failed(…)` and a mutation without an answer.
+- *`app.ts` imports only local files.* npm packages are not bundled yet.
+
+**Testing with storage.** Each authored test gets an empty store of its own,
+apart from the app's real data. An ad hoc `agent` drive has none unless it
+names a scratch store with `--storage`:
+
+```contract-test
+test "a book is added and kept"
+  clock settle
+  type "title" "Middlemarch"
+  tap "add"
+  clock settle
+  expect text "notice" == "Added Middlemarch."
+  expect text "book-1" == "Middlemarch"
+```
+
+```sh
+bun exact.mjs test web                    # each test starts with an empty store
+bun exact.mjs agent web --storage demo "type title Dune" "tap add" "clock settle" tree
+```
+
+On the web, every agent drive starts a new browser profile, so a scratch store
+lasts one drive. To see the list survive a restart, add a book in the dev loop
+(`bun exact.mjs web`) and reload the page, or run the app on macOS.
+
+**Rust instead.** A data module can be a Rust crate rather than `app.ts`:
+`bun exact.mjs contract rust app.contract -o shapes.rs` generates the shapes as
+structs with their conversions, and [Caltrain's data crate](../apps/caltrain/data/src/lib.rs)
+answers its sources that way. The [reference](reference.md#generate-typescript-data-source-types)
+covers placement on a worker, live replacement, and the platform limits.
 
 ## Styling and layout
 
@@ -643,6 +844,13 @@ measured layout as well as the compiler's structural checks.
 
 Use `aria-label`, roles, and other admitted ARIA attributes where content alone
 does not name a control. Keep accessible labels separate from driver `testId`s.
+They mean on every host what they mean in a browser: `aria-hidden` takes a
+subtree off the tree and out of its ancestors' names; `role="checkbox"`,
+`"radio"` or `"switch"` with `aria-checked` is that control, `role="img"` with a
+label an image; `aria-describedby` (the ids of the elements whose text describes
+this one) and `aria-description` are its description. `aria-invalid`,
+`aria-required` and `aria-haspopup` take their ARIA words or a bool; UIKit has
+no property for those three, so iOS exposes none of them.
 Font sizes, touch targets, focus behavior, and contrast remain author decisions.
 
 Declare bundled fonts at file scope:
@@ -670,13 +878,16 @@ textarea value=body input=editBody
 `input` and `change` carry the control's new value as the final action argument:
 a string for a text field, textarea or `select`, a boolean for a checkbox or
 switch, a number for `type="range"`, and a `list<Picked>` for a file input.
-`hover` carries a boolean; `key` carries a key name. Captured arguments precede
+`hover` carries a boolean; `key` carries a key name, and to an action that
+takes one more parameter its `KeyboardEvent` (the modifiers). Captured arguments precede
 the payload: `input=edit(item.id)` calls the bound action with the id followed
 by the new text. This syntax is binding, not immediate evaluation.
 
 Use explicit types when they make the interface clear; omitted action parameter
-types can be inferred from event sites. There is no event object with methods
-such as `preventDefault`, and no inline `() => …` handler.
+types can be inferred from event sites. There is no inline `() => …` handler;
+a `key` action claims its key with the host command `preventDefault()`, and
+keeps it from its ancestors' `key` handlers with `stopPropagation()`
+([keys](contract-grammar.md#keys)).
 
 The complete event inventory and payload groups are in the
 [event reference](contract-grammar.md#events). HTML controls include `select` and
@@ -741,6 +952,35 @@ custom-button style to one. `accent-color` tints the styles that support it
 [the native-button fixture](../scripts/fixtures/native-buttons.contract) and
 [its compiler checks](../contract/lower/src/controls.rs) for the admitted forms.
 
+A settings screen is a grouped list: a `list` whose `appearance` is the literal
+`auto`. Its children are `section`s. A section's first child may be a `header`
+and its last a `footer`, each holding a `text`; everything between is its rows.
+A row is read by its shape: an optional leading `image "symbol:…"`, a `text`
+title, an optional second `text` (a value) or a `column` of two texts (a
+subtitle), and an optional trailing accessory — a `forward-chevron` or
+`checkmark` image, a checkbox or switch `input`, or a `button` holding only
+`image "symbol:info"`. `destructive` draws a row red. Any other row is custom
+and keeps its own views.
+
+```text
+list appearance="auto" listStyle="inset-grouped" flex=1
+  section
+    header
+      text "Account"
+    button press=openProfile
+      image "symbol:person"
+      text "Profile"
+      image "symbol:forward-chevron"
+    footer
+      text "Who can see you."
+```
+
+`listStyle` is `inset-grouped` (the default), `grouped` or `plain`, a literal.
+iOS draws UIKit's own list (`UICollectionView` with a list configuration); the
+other hosts draw a sheet measured from it, and your own attributes replace any
+of its rows. See [the grouped-list fixture](../scripts/fixtures/grouped-list.contract)
+and LLP 1084.
+
 ## Navigation and documents
 
 A root-file `routes` table declares paths and an implicit router state. Nested
@@ -761,9 +1001,9 @@ component App
   action followLink(url: string)
     nav = go(nav, url)
   view
-    main navigationKey=`${current.id}` navigationBack="back" navigate=followLink
+    main navigationKey=`${current.id}` navigationBack="back" navigate=followLink width="100%" height="100%"
       each e in stack(nav) key=e.id
-        column navigationKey=`${e.id}` gap=8
+        column navigationKey=`${e.id}` position="absolute" inset=0 gap=8 background-color="#ffffff"
           text e.name testId=`route-${e.id}`
           when e.name == "item"
             text e.params.id
@@ -777,6 +1017,9 @@ A navigation stack is built this way: one row per entry of `stack(nav)`, keyed b
 the entry's id, so a retained screen keeps its state. The root's `navigationKey`
 names the top entry, and each row's `navigationKey` names its own; the host
 presents the stack from them. `navigationBack` names the `id` of the back control.
+Each row is a direct child of the root and fills it: a covered entry is hidden, not
+removed, so one in the flow would still take its room. Tabs with a stack each are
+laid out as [the tabs corpus](../contract/corpus/tabs.contract) shows.
 `navigate=` receives locations the host navigates to itself, such as link clicks
 and browser history.
 
@@ -866,13 +1109,16 @@ For direct manipulation, `pan`, `panrelease`, `heightrelease`,
 `transformgeometry`/`transformrelease`, and `reorderdrop` supply measured payloads.
 The transform pair must be declared together. The height, transform and reorder
 drags start only from a handle that names its target's `id` with `heightDragFor`,
-`transformDragFor` or `reorderFor`. The platform owns gesture
+`transformDragFor` or `reorderFor`, and `reorderdrop` belongs to a vertical
+`list virtualized=true`, whose rows are the only ones a host can drag. The platform owns gesture
 recognition and competition with scrolling; Contract does not define a general
 gesture arena. See [Interaction Gallery](../apps/interaction-gallery/app.contract)
 and [Spark](../apps/spark/app.contract) for complete bindings.
 
-`frame("id")` reads the last laid-out border box in root coordinates, without
-transforms or scrolling. `measure("id")` asks for its height-auto layout under its
+`frame("id")` reads the last laid-out border box where the viewer sees it, as
+`getBoundingClientRect` does: in the viewport, every scroll offset above it
+applied (the page's too), but without transforms. `measure("id")` asks for its
+height-auto layout, at the same origin, under its
 current offer; its id is literal. Both are action-only and return `Geometry`,
 including `unavailable` and `provisional`; handle those flags rather than assuming
 layout already happened. Geometry reads are not reactive view expressions.
@@ -890,7 +1136,7 @@ and its arguments; it is not a drawing-command language. Heavy computation and
 game loops belong in those modules. See [Canvas Gallery](../apps/canvas-gallery/app.contract),
 [SVG Gallery](../apps/svg-gallery/app.contract), and [the game workspace](../game/README.md).
 
-`image`, `video`, `iframe`, and Markdown-capable text/editors use host facilities.
+`image`, `video`, `audio`, `iframe`, and Markdown-capable text/editors use host facilities.
 Use `object-fit` for replaced media; distinguish text content from markup.
 [Video Player](../apps/video-player/app.contract) shows playback bindings and
 [Markdown Stress](../apps/markdown-stress/app.contract) selection and editing;
@@ -899,8 +1145,9 @@ editing run on the web and Apple hosts; Linux shows `markup="markdown"` text as
 raw source and has no `iframe` or `video`.
 
 A hyphenated tag can address the app's native module: the bake checks the tag
-against `app.json`'s `modules` list, and its attributes pass to the module
-unchecked. Merely inventing a tag does not create a widget. Native
+against `app.json`'s `modules` list, and its unknown attributes pass to the
+module unchecked; a known attribute styles or labels the module's box, and one
+the box has no use for is refused. Merely inventing a tag does not create a widget. Native
 modules and GPU capabilities are separate optional artifacts; they do not add
 features to every core build. Use [Photo Editor](../apps/photo-editor/app.contract)
 as a concrete native-module example.

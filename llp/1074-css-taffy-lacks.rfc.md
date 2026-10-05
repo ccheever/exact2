@@ -43,7 +43,7 @@ The design round for T1 had one question to settle: the reviewers showed that "d
 **Also decided:**
 - A static box's insets do nothing. Its `z-index` applies only when it is a flex or grid item, on the web by CSS and on Apple by `usedZIndex`.
 - The root is the fallback containing block. The web hosts give the root element `position: relative`.
-- `fixed` and `sticky` are not added. `fixed` inside a scroller needs the view re-parenting D1 avoids.
+- `fixed` and `sticky` are not added. `fixed` inside a scroller needs the view re-parenting D1 avoids. (`sticky` was added later: LLP 1083.)
 - Hoisting is inside Taffy, with the kernel keeping the record of which box contains which (the hybrid Astra proposed). Route B is dead.
 
 **Built, all on `lane/taffy-css`:**
@@ -211,7 +211,7 @@ five formerly owed cases and content-overflow cases pass against Chrome.
 These need no new layout algorithm. They do need schema rows, Contract grammar, validation, serialization and CSS emission. Read from source; not run.
 
 - **`grid-template-areas` and named grid lines.** The kernel's grid placement is numeric and would need extending. Differential cases first.
-- **`safe` and `unsafe` alignment.** LLP 1054.000.001 already proposes `safe center`.
+- **`safe` and `unsafe` alignment.** LLP 1054.000.001 proposed `safe center`; the kernel now uses Taffy's block `safe center` internally for a button's content (2026-10-04, LLP 1001 §1), and the schema still exposes neither keyword.
 - **`start`, `end`, `self-start`, `self-end`: exposed 2026-09-30.** Item/self alignment accepts all four; content alignment accepts `start` and `end`. Schema-generated validation and CSS serialization share the vocabulary; Contract also exposes `justify-items` and `align-content`. Chrome fixtures cover LTR and RTL.
 - **`display: flow-root`.** The web host already appends it on a block root.
 - **Preferred-size keywords** `min-content`, `max-content`, `fit-content`, `stretch`.

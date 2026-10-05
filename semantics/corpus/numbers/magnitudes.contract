@@ -1,0 +1,26 @@
+// Large and small magnitudes: precision loss above 2^53, underflow to zero,
+// overflow inside expressions (refused only if stored).
+component App
+  state big = 9007199254740992
+  state small = 0.000000000000000000001
+  derive plusOne = big + 1 == big
+  derive plusTwo = big + 2 == big
+  derive under = small * small * small * small * small * small * small * small * small * small * small * small * small * small * small * small
+  derive overflowed = big * big * big * big * big * big * big * big * big * big * big * big * big * big * big * big * big * big * big * big > 1000
+  derive ratio = small / big
+  view
+    column
+      text `${big + 1} ${big + 2} ${big * 2}` testId="big"
+      text `${small}` testId="small"
+      text `${ratio}` testId="ratio"
+      text `${big * big * big * big * big * big * big * big * big * big * big * big * big * big * big * big * big * big * big * big}` testId="inf"
+
+test "magnitudes"
+  expect state plusOne == true
+  expect state plusTwo == false
+  expect state under == 0
+  expect state overflowed == true
+  expect text "big" == "9007199254740992 9007199254740994 18014398509481984"
+  expect text "small" == "1e-21"
+  expect text "ratio" == "1.1102230246251564e-37"
+  expect text "inf" == "Infinity"

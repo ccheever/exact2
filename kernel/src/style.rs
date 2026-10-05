@@ -1,10 +1,6 @@
-//! Style value types and the one lowering onto Taffy.
-//!
-//! The generated `StyleProps` holds the rows; this module holds the value
-//! grammars the rows use (dimensions, colors, grid tracks and placements) and
-//! `to_taffy`, the single place where authored style becomes engine style.
-//! Percentages are authored as points (0–100) on the wire and in storage and
-//! are converted to Taffy's fraction exactly once, here.
+//! Style grammars (dimensions, colors, grid tracks/placements) and Taffy lowering.
+//! Generated `StyleProps` holds rows; `to_taffy` converts authored to engine style.
+//! Percentages use points (0–100) on the wire/in storage, becoming fractions here.
 
 use taffy::prelude::{auto, length, percent};
 
@@ -29,7 +25,13 @@ pub use grid::{
 };
 pub mod env;
 pub use env::link as link_segments;
-pub use env::{Edge, Env, EnvRefusal, Rect, SegmentVar};
+pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, SegmentVar};
+/// Link the wide colour forms (`lab()`, `lch()`, `oklab()`, `oklch()`,
+/// `color()`) into every colour row's grammar: native hosts and the compiler
+/// at start, a web artifact by use (LLP 1047 D2, LLP 1056 §8.2).
+pub use exact_motion::color::css::link_wide as link_wide_colors;
+mod viewport;
+pub use viewport::ViewportUnit;
 pub mod relative;
 mod shadow;
 pub mod space;
@@ -65,6 +67,8 @@ pub enum Dimension {
     /// <x> <y>)`, plus points. Undefined on a viewport with one segment, or
     /// past its grid: the row's initial value then (CSS-ENV-1 §2.3).
     Segment(SegmentVar, u8, u8, f32),
+    /// A percentage of a viewport dimension, resolved at layout.
+    Viewport(ViewportUnit, f32),
 }
 
 /// The `calc()` pairs the engine holds by handle: Taffy keeps one opaque
@@ -101,6 +105,7 @@ impl Dimension {
             Dimension::Auto => true,
             Dimension::Points(v)
             | Dimension::Percent(v)
+            | Dimension::Viewport(_, v)
             | Dimension::Env(_, v)
             | Dimension::Segment(_, _, _, v) => v.is_finite(),
             Dimension::Calc(p, v) => p.is_finite() && v.is_finite(),
@@ -156,6 +161,7 @@ impl Dimension {
     pub fn resolve(self, env: &Env) -> Dimension {
         match self {
             Dimension::Env(edge, plus) => Dimension::Points(env.inset(edge) + plus),
+            Dimension::Viewport(unit, n) => Dimension::Points(unit.basis(env) * n / 100.0),
             Dimension::Segment(var, x, y, plus) => env::resolve(var, x, y, plus, env),
             other => other,
         }
@@ -169,7 +175,9 @@ impl Dimension {
             Dimension::Points(v) => Dimension::Points(v + points),
             Dimension::Percent(p) => Dimension::Calc(p, points),
             Dimension::Calc(p, v) => Dimension::Calc(p, v + points),
-            Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
+                unreachable!("resolved above")
+            }
         }
     }
 
@@ -184,7 +192,9 @@ impl Dimension {
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
             Dimension::Calc(p, v) => taffy::style::Dimension::calc(calc_handle(p, v)),
-            Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
+                unreachable!("resolved above")
+            }
         }
     }
 
@@ -194,7 +204,9 @@ impl Dimension {
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
             Dimension::Calc(p, v) => taffy::style::LengthPercentageAuto::calc(calc_handle(p, v)),
-            Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
+                unreachable!("resolved above")
+            }
         }
     }
 
@@ -206,7 +218,9 @@ impl Dimension {
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
             Dimension::Calc(p, v) => taffy::style::LengthPercentage::calc(calc_handle(p, v)),
-            Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
+                unreachable!("resolved above")
+            }
         }
     }
 
@@ -219,7 +233,9 @@ impl Dimension {
             Dimension::Percent(v) => (v / 100.0).to_bits() == 0,
             // A calc() is a handle the engine resolves, never its zero length.
             Dimension::Calc(..) => false,
-            Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
+                unreachable!("resolved above")
+            }
         }
     }
 }
@@ -320,7 +336,7 @@ pub enum StyleValue {
     /// A number: points for dimensions, the raw value for numeric rows, a
     /// packed `0xRRGGBBAA` for colors.
     Number(f64),
-    /// Text: an enum value by name, or a color as `#rrggbb[aa]` or `rgb()`.
+    /// Text: an enum value by name, or a CSS colour.
     Text(String),
     /// A percentage, authored 0–100.
     Percent(f64),
@@ -331,6 +347,21 @@ pub enum StyleValue {
 }
 
 impl StyleValue {
+    /// Whether this value is a CSS-wide keyword that leaves row `style`
+    /// unset — inherited, else initial — which is what clearing the row
+    /// does: `unset`, and `inherit` on an inherited row (`color:
+    /// currentcolor` is `inherit`). `inherit` on any other row needs its
+    /// parent's value, which no row holds, so it stays refused (feed F1).
+    pub fn unsets(&self, style: StyleId) -> bool {
+        let StyleValue::Text(t) = self else {
+            return false;
+        };
+        let t = t.trim();
+        t.eq_ignore_ascii_case("unset")
+            || (t.eq_ignore_ascii_case("inherit") && StyleMask::INHERITED.has(style))
+            || (t.eq_ignore_ascii_case("currentcolor") && style == StyleId::TextColor)
+    }
+
     pub(crate) fn line_height(&self, style: StyleId) -> Result<LineHeight, StyleValueError> {
         let value = match self {
             Self::Number(n) if *n >= 0.0 => Some(LineHeight::Number(*n as f32)),
@@ -455,6 +486,7 @@ impl StyleValue {
                 Ok(parsed) => Ok(parsed),
             }?
             .or_else(|| Dimension::parse_calc(t))
+            .or_else(|| viewport::parse(t))
                 .or_else(|| {
                     parse_pixel_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']))
                         .map(Dimension::Points)
@@ -464,7 +496,7 @@ impl StyleValue {
                 .or_else(|| absolute_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])))
                 .ok_or(StyleValueError::WrongKind {
                     style,
-                    expected: "number, px, rem or em length, percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), or env(viewport-segment-* x y)",
+                    expected: "number, px, rem or em length, viewport length (vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh), percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), or env(viewport-segment-* x y)",
                 }),
             _ => Err(StyleValueError::WrongKind {
                 style,
@@ -737,55 +769,21 @@ impl From<Color> for ColorValue {
 }
 
 impl Color {
-    /// A CSS colour: hex or `rgb()` notation, or the keyword `transparent`
-    /// (any ASCII case, as CSS keywords are: transparent black), whitespace
-    /// around it free.
+    /// A CSS colour, by the one parser every reader shares
+    /// ([`exact_motion::color::css`]): hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`,
+    /// `hwb()`, a named colour or `transparent` (any ASCII case, whitespace
+    /// around it free), and the wide forms (`lab()`, `oklch()`, `color()`…)
+    /// clipped to sRGB once a host links them ([`link_wide_colors`]). The web
+    /// hands the same text to the browser, so a colour that paints there
+    /// paints on every host (feed F13). `currentColor` is not a colour here:
+    /// a row that takes it says so ([`StyleValue::keyword_color`]).
     pub fn parse(text: &str) -> Option<Color> {
-        let text = text.trim();
-        if text.eq_ignore_ascii_case("transparent") {
-            return Some(Color::rgba(0, 0, 0, 0));
-        }
-        Color::parse_hex(text).or_else(|| Color::parse_rgb(text))
-    }
-
-    /// CSS `rgb()` / `rgba()` (one function under two names, as in CSS
-    /// Color 4): `rgb(255, 0, 0)`, `rgba(255, 0, 0, 0.5)`, `rgb(255 0 0 / 50%)`.
-    /// A channel is a number 0–255 or a percentage; alpha is a number 0–1 or
-    /// a percentage; out-of-range values clamp, as on the web.
-    fn parse_rgb(text: &str) -> Option<Color> {
-        let inner = text
-            .strip_prefix("rgba(")
-            .or_else(|| text.strip_prefix("rgb("))?
-            .strip_suffix(')')?;
-        let parts: Vec<&str> = if inner.contains(',') {
-            inner.split(',').map(str::trim).collect()
-        } else {
-            let (rgb, alpha) = match inner.split_once('/') {
-                Some((rgb, alpha)) => (rgb, Some(alpha.trim())),
-                None => (inner, None),
-            };
-            rgb.split_whitespace().chain(alpha).collect()
+        use exact_motion::color::css::{self, Parsed};
+        let c = match css::parse(text)? {
+            Parsed::Color(c) | Parsed::Wide(c, _) => c,
+            Parsed::Current => return None,
         };
-        let ([r, g, b], alpha) = match parts[..] {
-            [r, g, b] => ([r, g, b], None),
-            [r, g, b, a] => ([r, g, b], Some(a)),
-            _ => return None,
-        };
-        // A value as a byte: a percentage of 255, or a number in `unit`s of
-        // a byte (1 for a channel, 255 for alpha).
-        let byte = |s: &str, unit: f32| -> Option<u8> {
-            let v = match s.strip_suffix('%') {
-                Some(p) => exact_num::parse_f32(p).ok()? / 100.0 * 255.0,
-                None => exact_num::parse_f32(s).ok()? * unit,
-            };
-            v.is_finite().then(|| v.round().clamp(0.0, 255.0) as u8)
-        };
-        Some(Color::rgba(
-            byte(r, 1.0)?,
-            byte(g, 1.0)?,
-            byte(b, 1.0)?,
-            alpha.map_or(Some(255), |a| byte(a, 255.0))?,
-        ))
+        Some(Color::rgba(c.r, c.g, c.b, (c.a * 255.0).round() as u8))
     }
 
     /// Parse CSS hex notation: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`.
@@ -1067,7 +1065,7 @@ fn overflow(v: Overflow) -> taffy::style::Overflow {
     match v {
         Overflow::Visible => taffy::style::Overflow::Visible,
         Overflow::Hidden => taffy::style::Overflow::Hidden,
-        Overflow::Scroll => taffy::style::Overflow::Scroll,
+        Overflow::Scroll | Overflow::Auto => taffy::style::Overflow::Scroll,
     }
 }
 
@@ -1199,10 +1197,10 @@ impl StyleProps {
                 Dimension::Auto => StyleValue::Auto,
                 Dimension::Percent(p) => StyleValue::Percent(f64::from(p)),
                 Dimension::Points(v) => StyleValue::Number(f64::from(v)),
-                // No row's default is a calc() or an env() length.
-                Dimension::Calc(..) | Dimension::Env(..) | Dimension::Segment(..) => {
-                    StyleValue::Number(0.0)
-                }
+                Dimension::Calc(..)
+                | Dimension::Env(..)
+                | Dimension::Segment(..)
+                | Dimension::Viewport(..) => StyleValue::Number(0.0),
             };
             // The default fits its own row; nothing to refuse.
             let _ = out.set_dynamic(id, &value);
@@ -1244,15 +1242,17 @@ impl StyleProps {
             PositionType::Static => taffy::style::Position::Static,
             PositionType::Relative => taffy::style::Position::Relative,
             PositionType::Absolute => taffy::style::Position::Absolute,
+            // @ref LLP 1083 D1 — a sticky box lays out as a relative one
+            // whose insets are not offsets: the host moves it as its
+            // scroller scrolls (`sticky.rs`).
+            PositionType::Sticky => taffy::style::Position::Relative,
         };
         let overflow_y = if !self.mask.has(StyleId::OverflowY) && node_type.scrolls_by_default() {
             taffy::style::Overflow::Scroll
         } else {
             overflow(self.overflow_y)
         };
-        // CSS Overflow §3: when one axis is not `visible`, a `visible` other
-        // axis computes to `auto`. The schema has no `auto`; `scroll` is its
-        // stand-in (Taffy's sizing is the same). Symmetric, either axis.
+        // CSS: a visible axis beside a scrolling one computes to auto.
         let mut overflow_x = overflow(self.overflow_x);
         let mut overflow_y = overflow_y;
         use taffy::style::Overflow as O;
@@ -1282,11 +1282,21 @@ impl StyleProps {
         s.aspect_ratio = self.aspect_ratio.preferred();
         s.aspect_ratio_content_box = self.aspect_ratio.content_box();
 
-        s.inset = taffy::geometry::Rect {
-            top: self.top.to_lpa(env),
-            right: self.right.to_lpa(env),
-            bottom: self.bottom.to_lpa(env),
-            left: self.left.to_lpa(env),
+        s.inset = if self.position_type == PositionType::Sticky {
+            let auto = taffy::style::LengthPercentageAuto::auto();
+            taffy::geometry::Rect {
+                top: auto,
+                right: auto,
+                bottom: auto,
+                left: auto,
+            }
+        } else {
+            taffy::geometry::Rect {
+                top: self.top.to_lpa(env),
+                right: self.right.to_lpa(env),
+                bottom: self.bottom.to_lpa(env),
+                left: self.left.to_lpa(env),
+            }
         };
         s.margin = taffy::geometry::Rect {
             top: self.margin_top.to_lpa(env),
@@ -1334,31 +1344,22 @@ impl StyleProps {
     }
 }
 
-/// Whether any set dimension row of `style` is an `env()` length — the
-/// rows a change of the kernel's environment re-derives.
-pub fn uses_env(style: &StyleProps) -> bool {
-    style.mask.iter().any(|id| {
-        matches!(
-            style.get(id),
-            RowValue::Dimension(Dimension::Env(..) | Dimension::Segment(..))
-        )
-    })
-}
-
 /// The engine style for a live slot, its `env()` lengths resolved against
 /// the arena's environment.
 pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     let mut s = arena
         .style(slot)
         .to_taffy(arena.node_type(slot), arena.env());
-    // Exact resets a `<button>` to an authored flex container, but HTML's
-    // form-control block sizing still makes its automatic inline size
-    // shrink-to-fit. The element remains a button when an author gives it
-    // another ARIA role; only a Pressable with href projects as an `<a>`.
-    if arena.node_type(slot) == NodeType::Pressable
-        && arena.props(slot).str(crate::PropId::Href).is_none()
-    {
+    // HTML's button layout, which Exact's reset of a `<button>` keeps: its
+    // automatic inline size is shrink-to-fit, and a block button's content
+    // sits in an anonymous flow-root box centred safely in the block axis,
+    // whatever `align-content` says (Chrome 154; LLP 1001 §1). A flex or
+    // grid button lays out as any flex or grid container.
+    if arena.is_button(slot) {
         s.item_is_table = true;
+        if s.display == taffy::Display::Block {
+            s.align_content = Some(taffy::style::AlignContent::SAFE_CENTER);
+        }
     }
     // The page reset makes a checkbox border-box for both `appearance:auto`
     // and `none`. With native appearance Chrome additionally ignores its
@@ -1435,6 +1436,7 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
         Some(crate::kernel::HostCover::Whole) => s.display = taffy::style::Display::None,
         Some(crate::kernel::HostCover::Edges([top, right, bottom, left])) => {
             let (style, env) = (arena.style(slot), arena.env());
+            let top = top + crate::kernel::header_inset(arena, slot, top);
             s.padding = taffy::geometry::Rect {
                 top: style.padding_top.plus(env, top).to_lp(env),
                 right: style.padding_right.plus(env, right).to_lp(env),
@@ -1459,22 +1461,8 @@ mod tests;
 #[cfg(test)]
 mod finite_tests;
 
-impl crate::generated::TouchAction {
-    /// Whether the value leaves pinch zoom to the platform: `auto`,
-    /// `manipulation` or any value naming `pinch-zoom` (LLP 1057.001 §2).
-    pub fn pinch_zoom(self) -> bool {
-        matches!(self, Self::Auto | Self::Manipulation) || self.name().ends_with("pinch-zoom")
-    }
-    /// The same value's pan axes alone: `pinch-zoom` dropped, which leaves
-    /// `none` when it named nothing else. What a pan decides by.
-    pub fn pans(self) -> Self {
-        match self.name().strip_suffix("pinch-zoom") {
-            Some("") => Self::None,
-            Some(rest) => Self::from_name(rest.trim_end()).unwrap_or(Self::None),
-            None => self,
-        }
-    }
-}
+// A `touch-action` value's pinch and pan parts.
+mod touch_action;
 
 #[cfg(test)]
 mod touch_action_tests;

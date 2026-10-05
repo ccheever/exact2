@@ -44,7 +44,7 @@ impl Assets {
         }
         for (entity, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
             let Mesh::Asset(name) = mesh else { continue };
-            if w.get::<Visible>(entity).is_some_and(|v| !v.0) {
+            if !w.is_visible(entity) {
                 continue;
             }
             self.entity(w, r, entity, name)?;
@@ -185,7 +185,10 @@ impl Assets {
             }
             for (i, &(geometry, material, local, skin)) in nodes.iter().enumerate() {
                 let slot = RENDER_SLOT_BASE + self.records.len() as u32;
-                let parts = members.map_or(std::slice::from_ref(&names[i]), |m| &m.0[i]);
+                let parts = members.map_or_else(
+                    || names.get(i).map_or(&[][..], std::slice::from_ref),
+                    |m| &m.0[i][..],
+                );
                 let find = |node: &String| {
                     looks
                         .as_ref()

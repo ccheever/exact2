@@ -1,13 +1,11 @@
 // Tooling-only filesystem operations; never linked by an app. @ref LLP 1030.002.
 use base64::{engine::general_purpose::STANDARD, Engine};
-use directory::{refuse, Directory};
+use directory::{identity, lock_exclusive, refuse, Directory, Kind};
 use exact_filesystem as directory;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::{self, BufRead, Read, Seek, SeekFrom, Write};
-use std::os::fd::AsRawFd;
-use std::os::unix::fs::MetadataExt;
 
 fn field<'a>(input: &'a Value, key: &str) -> io::Result<&'a str> {
     input[key]
@@ -44,11 +42,13 @@ fn retained_bytes(dir: &Directory) -> io::Result<u64> {
     let mut bytes = 0u64;
     for leaf in dir.names()? {
         let info = dir.kind(&leaf)?;
-        let size = match info.st_mode & libc::S_IFMT {
-            libc::S_IFDIR => retained_bytes(&dir.child(&leaf, false)?)?,
-            libc::S_IFREG => {
-                u64::try_from(info.st_size).map_err(|_| refuse("invalid file size"))?
-            }
+        let size = match info {
+            Kind {
+                directory: true, ..
+            } => retained_bytes(&dir.child(&leaf, false)?)?,
+            Kind {
+                regular: true, len, ..
+            } => len,
             _ => {
                 return Err(refuse(
                     "retained files must be regular files or directories",
@@ -152,6 +152,12 @@ fn operate(root: &Directory, input: &Value, locked: Option<&Lock>) -> io::Result
         lock.verify(root)?;
     }
     let op = field(input, "op")?;
+    #[cfg(windows)]
+    if op == "head" {
+        return Err(refuse(
+            "durable stream-head publication is not qualified on Windows",
+        ));
+    }
     if op == "retain" {
         return retain(root, input);
     }
@@ -234,12 +240,12 @@ impl Lock {
         let (dir, leaf) = root.parent(path, true)?;
         let mut file = dir.file(&leaf, libc::O_RDWR | libc::O_CREAT)?;
         // Locks are host-independent OS ownership, not wall-clock/PID leases.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        if lock_exclusive(&file).is_err() {
             return Err(refuse("stream is locked by another publisher"));
         }
         let old = file.metadata()?;
         let named = dir.kind(&leaf)?;
-        if i128::from(old.dev()) != i128::from(named.st_dev) || old.ino() != named.st_ino {
+        if identity(&file)? != named.identity {
             return Err(refuse("lock changed while acquiring"));
         }
         let mut previous = Vec::new();
@@ -279,17 +285,11 @@ impl Lock {
     }
     fn verify(&self, root: &Directory) -> io::Result<()> {
         let (current, _) = root.parent(&self.path, false)?;
-        let opened_dir = self.dir.0.metadata()?;
-        let current_dir = current.0.metadata()?;
-        if opened_dir.dev() != current_dir.dev() || opened_dir.ino() != current_dir.ino() {
+        if identity(&self.dir.0)? != identity(&current.0)? {
             return Err(refuse("locked stream directory was replaced"));
         }
-        let old = self.file.metadata()?;
         let named = self.dir.kind(&self.leaf)?;
-        if i128::from(old.dev()) != i128::from(named.st_dev)
-            || old.ino() != named.st_ino
-            || self.dir.read(&self.leaf)? != self.token
-        {
+        if identity(&self.file)? != named.identity || self.dir.read(&self.leaf)? != self.token {
             return Err(refuse(
                 "stream lock was replaced; refusing publisher operation",
             ));
@@ -370,3 +370,5 @@ fn main() -> io::Result<()> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, windows))]
+mod windows_tests;
