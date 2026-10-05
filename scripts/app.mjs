@@ -69,9 +69,27 @@ function shaderPath(app,path) {
   if (isAbsolute(path)) throw new Error('shader paths must be relative to app.json so source snapshots remain relocatable');
   return resolve(app.dir,path);
 }
+/** The game renderer's WGSL a shader may name as a prelude, by the constant
+ * `exact_game_render::hooks` exports for the same files (FRAME_WGSL,
+ * MATERIAL_WGSL, MATERIAL_SHADOWS_WGSL), so a game outside this repository
+ * never names the SDK's source paths. */
+export const ENGINE_PRELUDES = {
+  'exact-game-render:frame': ['frame.wgsl'],
+  'exact-game-render:material': ['frame.wgsl', 'transform.wgsl', 'custom_instance.wgsl'],
+  'exact-game-render:material_shadows': ['shadow_sample.wgsl', 'lights.wgsl', 'material_shadows.wgsl'],
+};
+/** One declared prelude entry's files: an engine set, or a path relative to app.json. */
+function preludePaths(app, path) {
+  if (path.startsWith('exact-game-render:')) {
+    const files = ENGINE_PRELUDES[path];
+    if (!files) throw new Error(`unknown engine prelude ${path}; one of ${Object.keys(ENGINE_PRELUDES).join(', ')}`);
+    return files.map(file => resolve(ROOT, 'game/render/src/shaders', file));
+  }
+  return [shaderPath(app, path)];
+}
 /** Shared WGSL libraries prepended to a named shader, in declared order. */
 export function shaderPreludeFiles(app) {
-  return [...new Set(Object.values(shaderConfig(app).shaderPreludes ?? {}).flat())].map(path => shaderPath(app,path));
+  return [...new Set(Object.values(shaderConfig(app).shaderPreludes ?? {}).flat().flatMap(path => preludePaths(app, path)))];
 }
 /** Directory watches also cover edits to shared prelude files. */
 export function shaderWatchRoots(app) {
@@ -91,10 +109,8 @@ export function shaderFiles(app) {
   for (const [stem, paths] of Object.entries(shaderConfig(app).shaderPreludes ?? {})) {
     const name = `${stem}.wgsl`;
     if (!files.has(name)) throw new Error(`shader prelude names missing shader ${name}`);
-    const parts = paths.map(path => {
-      const full = shaderPath(app,path);
-      return Buffer.from(filesystem({op:'get',root:dirname(full),path:basename(full)}),'base64');
-    });
+    const parts = paths.flatMap(path => preludePaths(app, path)).map(full =>
+      Buffer.from(filesystem({op:'get',root:dirname(full),path:basename(full)}),'base64'));
     files.set(name, Buffer.concat([...parts.flatMap(bytes => [bytes,Buffer.from('\n')]),files.get(name)]));
   }
   return files;

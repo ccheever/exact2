@@ -16,7 +16,7 @@ pub mod shaders {
 /// The assembled inventory as the hosts register it, for tests that load it.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn shader_dir() -> std::path::PathBuf {
-    std::path::Path::new(env!("OUT_DIR")).join("shaders")
+    std::path::PathBuf::from(env!("EXACT_GAME_SHADERS"))
 }
 
 #[derive(Default)]

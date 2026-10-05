@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { shaderFiles } from '../../scripts/app.mjs';
 
 // Resolve authored keys in memory; only the bake writes the resolved manifest.
 const merge = (base, overrides) => {
@@ -164,8 +165,17 @@ export function gameShells(dir, game, workspace) {
   // Clippy reads the determinism lints from here, for authored and generated logic alike.
   const lints = [resolve(source, 'app/determinism'), resolve(gameRoot, 'app/determinism')].find(path => existsSync(resolve(path, 'clippy.toml')));
   const clippy = lints ? `CLIPPY_CONF_DIR = ${JSON.stringify(lints)}\n` : '';
-  config = config.includes('[env]\n') ? config.replace('[env]\n', `[env]\n${clippy}`) : `${config}\n[env]\n${clippy}`;
+  // The render crate reflects the shader inventory exactly as the bake ships it
+  // (each shader after its gpu.shaderPreludes): one join, written here.
+  const shaders = render ? `EXACT_GAME_SHADERS = ${JSON.stringify(resolve(root, 'shaders'))}\n` : '';
+  config = config.includes('[env]\n') ? config.replace('[env]\n', `[env]\n${clippy}${shaders}`) : `${config}\n[env]\n${clippy}${shaders}`;
   writeChanged(resolve(root,'.cargo/config.toml'), config, false);
+  if (render) {
+    const inventory = shaderFiles({dir, manifest: app}), folder = resolve(root, 'shaders');
+    mkdirSync(folder, {recursive:true});
+    for (const name of readdirSync(folder)) if (!inventory.has(name)) rmSync(resolve(folder, name));
+    for (const [name, bytes] of inventory) writeChanged(resolve(folder, name), bytes.toString('utf8'), false);
+  }
   // An external game cannot inherit the SDK's compiler through its ancestors.
   writeChanged(resolve(root,'rust-toolchain.toml'), readFileSync(resolve(gameRoot,'../rust-toolchain.toml'),'utf8'), false);
   writeChanged(resolve(root, 'app.json'), JSON.stringify(app, null, 2) + '\n', false);

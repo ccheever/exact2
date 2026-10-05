@@ -1,5 +1,5 @@
 import {test, expect} from 'bun:test';
-import {mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, realpathSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {gameDefaults, gameShells} from './shells.mjs';
@@ -152,5 +152,27 @@ test('the old game.presentation key fails with its rename', () => {
     expect(() => gameShells(dir, gameDefaults(dir).game, resolve(import.meta.dir, '..')))
       .toThrow('game.presentation is now game.render');
     expect(existsSync(resolve(dir, '.shells'))).toBe(false);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+test('the bake writes the render crate its assembled shader inventory, engine preludes included', async () => {
+  const {ENGINE_PRELUDES} = await import('../../scripts/app.mjs');
+  // The sets are the renderer's own constants, file for file.
+  const materials = readFileSync(resolve(import.meta.dir, '../render/src/hooks/materials.rs'), 'utf8');
+  const constant = name => [...materials.slice(materials.indexOf(`pub const ${name}`)).split(');')[0].matchAll(/shaders\/(\w+\.wgsl)/g)].map(m => m[1]);
+  expect(ENGINE_PRELUDES['exact-game-render:material']).toEqual(constant('MATERIAL_WGSL'));
+  expect(ENGINE_PRELUDES['exact-game-render:material_shadows']).toEqual(constant('MATERIAL_SHADOWS_WGSL'));
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-render-inventory-'));
+  try {
+    mkdirSync(resolve(dir, 'logic/src'), {recursive:true}); mkdirSync(resolve(dir, 'render/shaders'), {recursive:true});
+    writeFileSync(resolve(dir, 'logic/src/lib.rs'), 'impl Game for Island { const ID: &\'static str = "island"; }');
+    writeFileSync(resolve(dir, 'render/Cargo.toml'), '[package]\nname = "island-render"\nworkspace = "../.shells"\n');
+    writeFileSync(resolve(dir, 'render/shaders/sky.wgsl'), '// sky body\n');
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({game:{render:{crate:'island-render', hooks:'Hooks'}},
+      gpu:{shaderRoots:['render/shaders'], shaderPreludes:{sky:['exact-game-render:frame']}}}));
+    gameShells(dir, gameDefaults(dir).game, resolve(import.meta.dir, '..'));
+    const frame = readFileSync(resolve(import.meta.dir, '../render/src/shaders/frame.wgsl'), 'utf8');
+    expect(readFileSync(resolve(dir, '.shells/shaders/sky.wgsl'), 'utf8')).toBe(`${frame}\n// sky body\n`);
+    expect(readFileSync(resolve(dir, '.shells/.cargo/config.toml'), 'utf8')).toContain(`EXACT_GAME_SHADERS = ${JSON.stringify(resolve(realpathSync(dir), '.shells/shaders'))}`);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });

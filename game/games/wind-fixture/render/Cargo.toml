@@ -14,4 +14,3 @@ wind-fixture-logic = { path = "../logic" }
 
 [build-dependencies]
 exact-gpu-reflect.workspace = true
-serde_json = "1"

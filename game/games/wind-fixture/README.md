@@ -7,13 +7,15 @@ game_render::Wind, shaders = game_render::shaders::SHADERS)`.
 
 - `render/shaders/wind_forward.wgsl`, `wind_shadow.wgsl`: a custom vertex material
   (`CustomMaterial`) over the generated `reed.model`; its paired shadow pass bends
-  the same way. `gpu.shaderPreludes` puts the engine's material WGSL and
+  the same way. `gpu.shaderPreludes` puts the renderer's exported sets
+  (`exact-game-render:material`, `exact-game-render:material_shadows`) and
   `render/wgsl/wind.wgsl` in front of each, so they are ordinary shader assets.
-- `render/shaders/sky.wgsl`: a dusk sky in the background stage, after the engine's
-  frame-uniform prelude.
-- `render/build.rs` reflects the inventory exactly as the bake ships it (each shader
-  after its preludes), so `shaders::SHADERS` and `<name>::module()` match what hosts
-  register; nothing is assembled at run time, and every shader reloads live.
+- `render/shaders/sky.wgsl`: a dusk sky in the background stage, after
+  `exact-game-render:frame`.
+- `render/build.rs` reflects the inventory the game bake assembled
+  (`EXACT_GAME_SHADERS`, each shader after its preludes), so `shaders::SHADERS` and
+  `<name>::module()` match what hosts register; nothing is assembled at run time,
+  and every shader reloads live.
 
 The wind is presentation: it reads simulation time and never moves an entity. Its
 strength is a `#[derive(Presentation)] Gust` that `Game::present` rebuilds from the
