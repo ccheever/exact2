@@ -757,6 +757,25 @@ impl Parser {
                         }
                     }
                 }
+                // A one-line declaration continued on an indented line (a
+                // resource's `else` under it; authoring bench).
+                TokenKind::Indent if matches!(self.peek2(), TokenKind::Ident(_)) => {
+                    let TokenKind::Ident(w) = self.peek2().clone() else {
+                        unreachable!()
+                    };
+                    let example = if w == "else" {
+                        " (`resource tasks = loadTasks() as shape list<Task> else empty()`)"
+                    } else {
+                        ""
+                    };
+                    return self.err(
+                        "syntax-expected-section",
+                        format!(
+                            "`{w} …` is indented under the line above, and a declaration is one \
+                             line: join them{example}"
+                        ),
+                    );
+                }
                 other => {
                     return self.err(
                         "syntax-expected-section",

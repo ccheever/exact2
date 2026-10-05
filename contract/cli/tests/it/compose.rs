@@ -142,3 +142,22 @@ fn a_misspelled_or_mistyped_prop_is_refused_where_it_is_written() {
     assert_eq!(error.message, "`todo` expects `Todo`, given `string`");
     contract::compile(&source("todo=todo, onPick=pick")).unwrap();
 }
+
+#[test]
+fn a_declaration_continued_on_an_indented_line_is_told_to_join_it() {
+    let src = "shape Task\n  id: string\ncomponent App\n  resource tasks = loadTasks() as shape list<Task>\n    else empty()\n  view\n    text \"a\"\n";
+    let error = contract::compile(src).unwrap_err();
+    assert_eq!(error.id, "syntax-expected-section");
+    assert_eq!(
+        error.message,
+        "`else …` is indented under the line above, and a declaration is one line: join them (`resource tasks = loadTasks() as shape list<Task> else empty()`)"
+    );
+}
+
+#[test]
+fn failed_names_why_a_mutation_is_not_its_argument() {
+    let src = "shape Saved\n  ok: bool\ncomponent App\n  mutation save as shape Saved\n  view\n    text failed(save) ? \"x\" : \"y\"\n";
+    let error = contract::compile(src).unwrap_err();
+    assert_eq!(error.id, "type-failed-argument");
+    assert!(error.message.starts_with("`save` is a mutation, and `failed` takes a resource: a mutation whose request fails without an answer keeps its previous value"), "{error}");
+}
