@@ -1450,3 +1450,31 @@ do not change the controller and rerun it to a win. Artifacts:
 `artifacts/jev-surplus-fuel-{web,macos}/`; durations 74.473/70.344 s, no driver
 failures, both cleanup audits available with zero remaining children.
 Both are exploratory `UNVERIFIED` outcomes, not deterministic proof runs.
+
+**Native canvas bitmap orientation (2026-10-04).** The false missing-text
+report above led to a separate real defect in the canvas texture path, already
+queued from Caltrain: a copied layer tree loses the flipped coordinate space
+inherited from AppKit ancestors outside the captured subtree. A Contract label
+captured by `Capture.bitmap` has only 34% glyph-mask overlap with AppKit's
+direct capture and is vertically inverted in the decoded image. Forest's
+ordinary overlay does not use this texture path.
+
+`PaintCapture` now retains that inherited bitmap orientation in an image-only
+sublayer; the authored child frames, transforms, masks and paint order stay on
+their original copies. It does not redraw or allocate a second bitmap for each
+label. The first attempted fix, preserving ancestor geometry around the entire
+copy, moved the label and was removed. The second fixes the pixels without
+moving geometry. The existing agent screenshot path remains separate.
+
+The regression compares a whole canvas overlay and individual Contract/native
+text children with AppKit's direct drawing, allowing one physical pixel at
+antialiased glyph edges. Against the original renderer it rejects 32–37% of
+the ink; with the fix less than 1% is unmatched. It also compares a native
+image and an explicit image layer's colored top, bottom and border. All five
+capture tests pass, including the existing current-batch rank, animation,
+opacity and mask cases. The full macOS suite executes 684 tests with two
+skipped and zero failures in 41.725 s; the added decorated-image assertions
+then pass in the focused run. All root checks pass in 43.316 s, with 2,436
+passing tests and nine ignored across 81 binaries. No game drive overlaps
+those checks. Logs: `/tmp/exact2-canvas-orientation-*.log`. App drives and
+cross-host game save comparisons follow this source checkpoint.

@@ -8,6 +8,12 @@ import UIKit
 
 extension Capture {
     static func paintOrderLayer(of view: PaintView, root: CALayer) -> CALayer {
+        #if os(macOS)
+        // AppKit's backing images inherit the orientation of ancestors
+        // outside this subtree. Geometry alone does not carry that into an
+        // unattached copy; flip the pixels without moving child frames.
+        let flipContents = root.contentsAreFlipped() != root.isGeometryFlipped
+        #endif
         var owners: [ObjectIdentifier: PaintView] = [:]
         func index(_ v: PaintView) {
             #if os(macOS)
@@ -70,10 +76,21 @@ extension Capture {
             layer.cornerCurve = values.cornerCurve
             layer.backgroundColor = values.backgroundColor
             layer.borderColor = values.borderColor; layer.borderWidth = values.borderWidth
-            layer.contents = values.contents; layer.contentsScale = values.contentsScale
-            layer.contentsRect = values.contentsRect; layer.contentsCenter = values.contentsCenter
-            layer.contentsGravity = values.contentsGravity
-            layer.minificationFilter = values.minificationFilter; layer.magnificationFilter = values.magnificationFilter
+            let contents: CALayer
+            #if os(macOS)
+            if flipContents, values.contents != nil {
+                contents = CALayer()
+                contents.frame = values.bounds
+                contents.transform = CATransform3DMakeScale(1, -1, 1)
+                layer.addSublayer(contents)
+            } else { contents = layer }
+            #else
+            contents = layer
+            #endif
+            contents.contents = values.contents; contents.contentsScale = values.contentsScale
+            contents.contentsRect = values.contentsRect; contents.contentsCenter = values.contentsCenter
+            contents.contentsGravity = values.contentsGravity
+            contents.minificationFilter = values.minificationFilter; contents.magnificationFilter = values.magnificationFilter
             layer.shadowPath = values.shadowPath; layer.shadowColor = values.shadowColor
             layer.shadowOffset = values.shadowOffset; layer.shadowRadius = values.shadowRadius
             layer.shadowOpacity = values.shadowOpacity

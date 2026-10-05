@@ -6,6 +6,87 @@ import XCTest
 private var capturedPaintPixels: [[UInt8]] = []
 
 final class PaintCaptureMacTests: XCTestCase {
+    func testCanvasTextCaptureKeepsAppKitGlyphOrientation() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "capture-orientation")
+        defer { session.destroy() }
+        let p = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 80),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        defer { window.close() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "canvas"],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Friendly F · player 42"],
+             "style": ["font_size": 22, "text_color": [255, 255, 255, 255]]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "children", "id": 2, "ids": [3]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 320, "h": 80],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 320, "h": 80],
+            ["op": "frame", "id": 3, "x": 12, "y": 17, "w": 280, "h": 30],
+        ]))
+        let overlay = try XCTUnwrap(p.views[2]?.overlay)
+        let label = NSTextField(labelWithString: "Native field Fpq")
+        label.frame = NSRect(x: 12, y: 50, width: 280, height: 26)
+        label.font = .systemFont(ofSize: 19); label.textColor = .white
+        overlay.addSubview(label)
+        let image = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 8, bitsPerPixel: 32))
+        for x in 0..<2 { image.setColor(.red, atX: x, y: 0); image.setColor(.blue, atX: x, y: 1) }
+        let imageView = NSImageView(frame: NSRect(x: 260, y: 50, width: 26, height: 26))
+        imageView.image = NSImage(cgImage: try XCTUnwrap(image.cgImage), size: NSSize(width: 26, height: 26))
+        overlay.addSubview(imageView)
+        let decoratedImage = CALayer()
+        decoratedImage.frame = CGRect(x: 220, y: 50, width: 26, height: 26)
+        decoratedImage.contents = image.cgImage
+        decoratedImage.borderColor = NSColor.green.cgColor; decoratedImage.borderWidth = 2
+        overlay.layer?.addSublayer(decoratedImage)
+        window.orderFront(nil)
+        window.displayIfNeeded(); CATransaction.flush()
+        // Both a whole HUD texture and one placed child use this capture.
+        for view in [overlay, try XCTUnwrap(p.views[3]), label] as [NSView] {
+            let reference = try XCTUnwrap(Capture.picture(of: view))
+            let captured = try XCTUnwrap(Capture.bitmap(of: view, scale: window.backingScaleFactor))
+            XCTAssertEqual(reference.pixelsWide, captured.pixelsWide)
+            XCTAssertEqual(reference.pixelsHigh, captured.pixelsHigh)
+            let width = reference.pixelsWide, height = reference.pixelsHigh
+            func mask(_ rep: NSBitmapImageRep) -> [Bool] {
+                (0..<(width * height)).map { (rep.colorAt(x: $0 % width, y: $0 / width)?.alphaComponent ?? 0) > 0.5 }
+            }
+            let expected = mask(reference), actual = mask(captured)
+            // CoreText's direct and cached glyph edges can differ by one
+            // physical pixel. Match ink in both directions within that edge;
+            // a vertically inverted letter cannot pass this comparison.
+            func missed(_ from: [Bool], _ to: [Bool]) -> Int {
+                from.indices.filter { from[$0] && !to[$0] }.filter { index in
+                    let x = index % width, y = index / width
+                    return !(max(0, y - 1)...min(height - 1, y + 1)).contains { yy in
+                        (max(0, x - 1)...min(width - 1, x + 1)).contains { to[yy * width + $0] }
+                    }
+                }.count
+            }
+            let ink = expected.filter { $0 }.count + actual.filter { $0 }.count
+            let missing = missed(expected, actual) + missed(actual, expected)
+            XCTAssertGreaterThan(ink, 200, "the comparison contains glyphs")
+            XCTAssertLessThan(Double(missing) / Double(max(1, ink)), 0.01,
+                              "\(type(of: view)): glyph orientation and position match AppKit within one physical pixel")
+            if view === overlay {
+                for point in [CGPoint(x: 270, y: 54), CGPoint(x: 270, y: 72),
+                              CGPoint(x: 233, y: 54), CGPoint(x: 233, y: 72), CGPoint(x: 221, y: 63)] {
+                    let x = Int(point.x * window.backingScaleFactor), yy = Int(point.y * window.backingScaleFactor)
+                    let a = try XCTUnwrap(reference.colorAt(x: x, y: yy)?.usingColorSpace(.sRGB))
+                    let b = try XCTUnwrap(captured.colorAt(x: x, y: yy)?.usingColorSpace(.sRGB))
+                    XCTAssertEqual(a.redComponent, b.redComponent, accuracy: 0.01)
+                    XCTAssertEqual(a.greenComponent, b.greenComponent, accuracy: 0.01)
+                    XCTAssertEqual(a.blueComponent, b.blueComponent, accuracy: 0.01)
+                }
+            }
+        }
+    }
+
     func testCanvasCapturesRanksFromTheCurrentBatch() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "paint-capture")
