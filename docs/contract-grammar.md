@@ -582,7 +582,8 @@ list virtualized=true scroll-start="end" scrollFollowEnd=true scroll=moved …
 
 As on the web, the event comes when the offset changes (a follow of the end
 moves it); content that grows below a reader who is not following it changes
-no offset and sends none. `panrelease` appends x/y release velocity;
+no offset and sends none. `pan` supplies the move since its last event (dx, dy),
+not the distance from the press: add them up for a drag's offset. `panrelease` appends x/y release velocity;
 `heightrelease` appends height and velocity. A `pan` hears a drag that starts
 anywhere inside it, a nested `button` or `press` node included: past the slop
 the pan takes the contact and the press does not fire, while a tap still
