@@ -1562,3 +1562,33 @@ failure on each host is that explained old pin. All three complete saves
 match across hosts and cleanup audits are available and empty. The new HUD
 capture was inspected. Root checks pass in 43.659 s; broader native tests and
 the strict baseline refresh follow this source change.
+
+The full macOS suite executes 685 tests with two skipped and zero failures in
+41.060 s. `b282171d2` then integrates five main commits through `15fae50b4`
+(the web CLI's storage warning and documentation). The queue conflict keeps
+both sides' entries; native runtime sources do not change. All root checks
+pass after the merge in 43.299 s: 2,436 passing tests, nine ignored, 81
+binaries, 40.29 s summed execution. No game proof overlaps those checks.
+Logs: `/tmp/exact2-placement-identity-{apple-tests.log,main-checks.json}`.
+
+The strict baseline refresh is accepted at source `b282171d2`
+(`placement-fixture/artifacts/prove/run-olGdQA/`): Linux Off/Save/FreshGame
+56.312/0.252/0.261 s, web 22.329/34.284/35.695 s, Linux release 69.150 s,
+including builds where needed. All seven runs have zero failures, matching
+pins and available, empty cleanup audits. Tick 330 remains `0x7136b1be5a2f6a8d`;
+only the continuation pin moves to the explained EXSIM v7 digest. The final
+web/macOS proof (`run-JJayO6`) passes in 15.675/2.784 s with equal source
+inputs, all three final world/publication observations and all three save
+files identical, and no remaining recorded children. The capture/save queue
+entry is removed.
+
+The fixture's strict Clippy and all four simulation tests also pass with the
+updated pins (`/tmp/exact2-placement-identity-logic-tests.log`).
+
+Garden, Forest and Rivals each rebuild and pass short macOS drives of
+harvesting/backpack, food compass or rifle firing, plus movement, pause and
+resume. Their images in `artifacts/placement-identity-macos/main-check.png`
+were inspected; all cleanup audits are available and empty. These are
+`UNVERIFIED` partial runs, with durations 10.894/10.294/10.357 s including
+builds, overlapping the strict fixture's web build. They add no frame-time
+claim and do not replace the earlier full game proofs or Jev trials.

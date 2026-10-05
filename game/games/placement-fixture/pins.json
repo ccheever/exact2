@@ -3,14 +3,15 @@
     "330": "0x7136b1be5a2f6a8d"
   },
   "saves": {
-    "continuation": "84506a97b1a8786dad5e7829c49ed43f835b176015fd044ae93a778ec81598c7"
+    "continuation": "651e8484f1e638527f0f5aaf000f5647664ce17daca74eadc51a7197be1475c7"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "b01b3ef2b8d8d0752a88199d7d0b8038b225c0ac3d5e3f3a9a3f8fc332bc195e",
+  "inputs": "c9417affd86c210b0e6cdae8c0d65064c7535cd0bccde97a1567ccd1bb4a0307",
   "game": "placement-fixture",
   "generated": "bun game/prove.mjs placement-fixture --repin --hosts 'linux,web'",
-  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
+  "at": "b282171d20a6f22b8aead1f793d84e59886891e3",
+  "reason": "EXSIM v7 header from 2e49129cb; original-order and reordered continuations now compared after focus input reaches a tick"
 }
