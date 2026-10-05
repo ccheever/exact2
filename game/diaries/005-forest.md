@@ -1408,15 +1408,21 @@ leave zero recorded children. The original three tick pins and the previous
 12 world hashes remain unchanged. These overlapping runs measure verification
 work, not interactive latency; no new Jev trial was run for this change.
 
-Image review found a separate open host defect: macOS's `cached-supply.png`
-loses parts of several HUD text lines although the preceding `spare-fuel.png`
-is clean. A short fresh-process restore/pickup/drop reproduction under
-`artifacts/supplies-redraw/` also produces damaged text, and another screenshot
-alone does not reliably repair it. A second run,
-`artifacts/supplies-redraw-window/`, has clean agent and window-server images
-at the final tick; it does not isolate the fault to screenshots or prove the
-live HUD unaffected. No host fix has been made. Investigate the canvas HUD
-capture and backing-layer redraw before calling native image parity complete.
+Image review initially appeared to show missing macOS HUD text in
+`cached-supply.png` and the short `artifacts/supplies-redraw/` reproduction.
+That host-defect claim was wrong: the image-viewing output showed missing
+text that is present in the saved PNG. Decoding its bottom-left panel and
+comparing the bright text mask with a new clean capture gives 11,730 versus
+11,733 lit pixels, with only three differing pixels over the whole panel.
+The decoded original's cropped image contains all six lines and the drop
+button. Six more pickup/drop cycles (`artifacts/hud-pairs-before/`) each
+capture the agent image, window-server image and agent image again; all have
+complete text masks. A focused host test of partial text invalidation and
+repeated agent capture passes unchanged and was removed because it does not
+reproduce a defect. No host code was changed. The earlier diagnosis also
+mistook Forest's ordinary native overlay for a GPU-uploaded HUD texture;
+the game's renderer uses `ChildrenMode::Overlay` without placed children.
+Temporary pixel probes: `/tmp/exact2-hud-{pixels,mask,crop}.swift`.
 
 Periodic main integration: `51fa87a60` merges four new commits through
 `dfdbb1058` (documentation and an iOS grouped-list regression test), with
@@ -1424,3 +1430,23 @@ no conflicts or runtime changes. All five root checks pass in 47.694 s:
 2,436 tests pass across 81 binaries, nine ignored, zero failures. Their
 reported execution totals 40.25 s; no game proof ran concurrently.
 Logs: `/tmp/exact2-supplies-main-checks.json` and matching check logs.
+
+**Surplus-fuel Jev follow-up (2026-10-04).** A new pair keeps the existing
+build-and-survive goal, choices and 96-decision limit, with the shipped drop
+action and its visible label. Both build the windbreak (web decision 48,
+macOS 69), then hit the cap with zero waits, no dawn and Health 100. Web
+finishes with Fire 99%, Hunger 84, one log and two scrap; macOS with Fire
+88%, Hunger 87 and one scrap. They select drop four/two times and observe
+the no-room prompt eight/three times. The transcript verifies the intended
+trade: web decision 69 feeds two logs at Fire 65%, leaving its scrap at 89%;
+macOS decision 91 feeds two logs at 64%, leaving its scrap at 88%.
+
+Each drop is followed immediately by picking the item up again. Web repeats
+that loop three times around the first retained scrap and once around a log;
+macOS does it twice. The action preserves supplies, but these observations
+show no improvement in the complete build-and-survive task. They do not
+establish that human players share the model's behavior. This pair is closed;
+do not change the controller and rerun it to a win. Artifacts:
+`artifacts/jev-surplus-fuel-{web,macos}/`; durations 74.473/70.344 s, no driver
+failures, both cleanup audits available with zero remaining children.
+Both are exploratory `UNVERIFIED` outcomes, not deterministic proof runs.
