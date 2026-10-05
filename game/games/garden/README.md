@@ -22,6 +22,14 @@ sends the picked fruit into the satchel with a short chime. These gestures,
 particles and sounds use the saved game clock and preserve crop timing and prices.
 `game.audio` selects the optional sound output.
 
+The Garden panel's **Look** row starts a new garden in another look; play is
+identical in each. **Art pass** draws baked models from `art.mjs` (run
+`bun game/games/garden/art.mjs` to regenerate `art/`; the bake turns it into
+`.model` assets): a model per crop and growth stage with far levels of detail,
+fruit shapes recoloured per mutation, a picket fence with lanterns, a seed
+stall with its keeper, a ten-minute day and night, and rain and snow. Its
+models are `Game::STREAMED`, so every look fetches them in the background.
+
 Walk with WASD or the stick. **E** plants the seed in your hand on the tile
 under you, or harvests what is ripe there. You start with 20¢ and one carrot.
 The outline marks that tile: cyan when empty, amber while growing or regrowing,

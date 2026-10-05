@@ -7,6 +7,11 @@ pub mod farm;
 mod feedback;
 pub mod garden;
 pub mod hud;
+mod looks;
+mod models;
+mod pass;
+mod scenery;
+mod sculpt;
 pub mod shop;
 
 use exact_game::character::Character;
@@ -31,6 +36,10 @@ pub struct Options {
     /// instead of only at stage events. The O(entities) path, for measuring.
     #[live]
     pub smooth: bool,
+    /// The look: "" (classic), "golden", "storybook" or "pass" (the art
+    /// pass's baked models). Changing it rebuilds the garden, since models
+    /// are chosen at setup.
+    pub art: String,
 }
 
 /// Status is republished at most this often unless something happened.
@@ -52,6 +61,9 @@ impl Game for Garden {
     /// A garden does not need 120 Hz: walking interpolates, and every tick
     /// of an hour-long `clock +N` seek is paid for.
     const HZ: u32 = 30;
+    /// The art pass's baked models, fetched in the background in every look;
+    /// the classic and generated looks never wait for them.
+    const STREAMED: &'static [&'static str] = pass::MODELS;
     type Args = Options;
     fn actions() -> Actions {
         Actions::new()
@@ -61,6 +73,16 @@ impl Game for Garden {
             .button("refill", &["KeyR"])
             .button("feed", &["KeyF"])
             .button("jump", &["Space"])
+    }
+    fn validate(args: &Options) -> Result<(), String> {
+        if args.art.is_empty() || args.art == "pass" || looks::style(&args.art).is_some() {
+            Ok(())
+        } else {
+            Err(format!(
+                "art `{}`: expected \"\", \"golden\", \"storybook\" or \"pass\"",
+                args.art
+            ))
+        }
     }
     fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
         // Plants and fruit first appear mid-game; a fresh process restoring a
@@ -145,7 +167,7 @@ impl Game for Garden {
                 garden::paint([0.2, 0.7, 1.0]),
             ),
         );
-        art::setup(w);
+        art::setup(w, &args.art);
         feedback::setup(w);
         farm::lay_ground(w);
         shop::restock(w, 0);
@@ -155,6 +177,11 @@ impl Game for Garden {
     }
     fn paused(args: &Options) -> bool {
         args.paused
+    }
+    fn present(p: &mut Present, args: &Options) {
+        if args.art == "pass" {
+            pass::present(p);
+        }
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
         farm::observe_epoch(w, args.epoch);
@@ -193,6 +220,9 @@ impl Game for Garden {
                 w.resource_mut::<Farm>().last = message;
                 acted = true;
             }
+        }
+        if pass::on(w) {
+            pass::step(w);
         }
         feedback::step(w, contact);
         audio::step(w);

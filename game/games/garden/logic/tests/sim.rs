@@ -1087,3 +1087,165 @@ fn feeding_improves_one_harvest_without_rerolling_it_and_survives_restore() {
         }
     }
 }
+
+/// The looks change only presentation: the same inputs grow the same garden,
+/// each look restores its own saves, and a save refuses another look's models.
+#[test]
+fn every_look_plays_the_same_garden() {
+    let play = |art: &str| {
+        let mut game = Sim::<Garden>::new(Options {
+            seed: 3,
+            art: art.into(),
+            ..Options::default()
+        })
+        .unwrap();
+        send(&mut game, "fill 100");
+        send(&mut game, "expand");
+        game.run(3.0 * 60_000.0);
+        game
+    };
+    // Scenery entities come first, so compare everything but entity indices.
+    let garden = |game: &Sim<Garden>| -> Vec<String> {
+        census_of(game.world())
+            .iter()
+            .map(|row| {
+                let mut words: Vec<&str> = row.split(' ').collect();
+                words.remove(1);
+                words.join(" ")
+            })
+            .collect()
+    };
+    let classic = play("");
+    for art in ["golden", "storybook", "pass"] {
+        let mut game = play(art);
+        assert_eq!(garden(&game), garden(&classic), "{art}");
+        load_art(&mut game, art);
+        let saved = game.save().unwrap();
+        let mut back = Sim::<Garden>::new(Options {
+            seed: 3,
+            art: art.into(),
+            ..Options::default()
+        })
+        .unwrap();
+        load_art(&mut back, art);
+        back.restore(&saved).unwrap();
+        assert_eq!(back.world().hash(), game.world().hash(), "{art}");
+        let mut other = new(3);
+        assert!(other.restore(&saved).is_err(), "{art} restored as classic");
+    }
+    assert!(Sim::<Garden>::new(Options {
+        art: "neon".into(),
+        ..Options::default()
+    })
+    .is_err());
+}
+
+/// The art pass draws baked models, which a headless test reads from the
+/// bake's output (`shells.mjs --test` bakes `art/` first). The other looks
+/// generate theirs at setup.
+fn load_art(game: &mut Sim<Garden>, art: &str) {
+    if art == "pass" {
+        let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        game.load_assets(|name| std::fs::read(assets.join(name)))
+            .unwrap();
+    }
+}
+
+/// The art pass's fruit hang on its models: every slot of every crop sits
+/// beside its plant, never in another tile, and regrows where it was.
+#[test]
+fn the_art_pass_hangs_fruit_on_its_plants_and_presents_mutations() {
+    use exact_game::{MaterialOverrides, Mesh, ModelLod};
+    let mut game = Sim::<Garden>::new(Options {
+        seed: 5,
+        art: "pass".into(),
+        ..Options::default()
+    })
+    .unwrap();
+    send(&mut game, "fill 28");
+    game.run(900_000.0);
+    let w = game.world();
+    let mut plants = 0;
+    for (e, p) in w.query::<&Plant>().iter() {
+        plants += 1;
+        let pose = w.require::<Transform>(e);
+        assert_eq!(pose.position.y, 0.0, "pass plants stand on the ground");
+        let Mesh::Asset(name) = &*w.require::<Mesh>(e) else {
+            panic!("a pass plant is a baked model")
+        };
+        assert_eq!(
+            name,
+            &format!("plant-{}-{}.model", CROPS[p.kind as usize].id, p.stage)
+        );
+        assert!(w.get::<ModelLod>(e).is_some());
+    }
+    assert!(plants > 0);
+    let mut mutated = 0;
+    for (e, f) in w.query::<&Fruit>().iter() {
+        let plant = w.require::<Plant>(f.plant.unwrap());
+        let at = w.require::<Transform>(e).position;
+        let center = garden_logic::garden::tile_center(plant.tile);
+        assert!(
+            (at.x - center.x).abs() < 1.6 && (at.z - center.z).abs() < 1.6,
+            "{} slot {} hangs off its tile: {at:?} from {center:?}",
+            CROPS[f.kind as usize].id,
+            f.slot
+        );
+        let Mesh::Asset(name) = &*w.require::<Mesh>(e) else {
+            panic!("a pass fruit is a baked model")
+        };
+        assert_eq!(name.ends_with("-unripe.model"), !f.ripe, "{name}");
+        // Mutation looks are presentation only: present writes them, a save never holds them.
+        assert_eq!(
+            w.get::<MaterialOverrides>(e).is_some(),
+            f.ripe && f.muts != 0,
+            "{name} {}",
+            f.muts
+        );
+        mutated += (f.ripe && f.muts != 0) as u32;
+    }
+    assert!(mutated > 0, "the weather mutated some fruit");
+    // A restored garden presents the same looks, rebuilt from the save.
+    load_art(&mut game, "pass");
+    let saved = game.save().unwrap();
+    let mut back = Sim::<Garden>::new(Options {
+        seed: 5,
+        art: "pass".into(),
+        ..Options::default()
+    })
+    .unwrap();
+    load_art(&mut back, "pass");
+    back.restore(&saved).unwrap();
+    let looks = |game: &Sim<Garden>| -> Vec<String> {
+        let w = game.world();
+        w.query::<&Fruit>()
+            .iter()
+            .map(|(e, _)| format!("{:?}", w.get::<MaterialOverrides>(e).map(|m| m.clone())))
+            .collect()
+    };
+    assert_eq!(looks(&back), looks(&game));
+}
+
+/// The art pass under the paranoid Save mode: every sampled tick rebuilds the
+/// world through restore and presents again; play and looks stay the same.
+#[test]
+fn the_art_pass_survives_paranoid_restores() {
+    let run = |mode| {
+        let mut game = Sim::<Garden>::new(Options {
+            seed: 9,
+            art: "pass".into(),
+            ..Options::default()
+        })
+        .unwrap()
+        .paranoid(mode);
+        load_art(&mut game, "pass");
+        send(&mut game, "fill 20");
+        load_art(&mut game, "pass");
+        game.run(240_000.0);
+        (census_of(game.world()), game.world().hash())
+    };
+    assert_eq!(
+        run(exact_game::Paranoid::Save),
+        run(exact_game::Paranoid::Off)
+    );
+}

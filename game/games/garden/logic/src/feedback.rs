@@ -154,9 +154,15 @@ pub fn cue(w: &World, cue: Cue, at: Vec3) {
 
 pub fn harvest(w: &World, at: Vec3, item: &garden::Item) {
     cue(w, Cue::Harvest, at);
-    *w.require_mut::<Mesh>("picked-fruit") = Mesh::asset(format!("fruit-{}.model", item.kind));
-    *w.require_mut::<Material>("picked-fruit") =
-        garden::paint(crops::fruit_color(item.kind, item.muts));
+    if crate::pass::on(w) {
+        // The art pass's ripe model; present gives it the mutation's look.
+        *w.require_mut::<Mesh>("picked-fruit") = crate::pass::fruit_model(item.kind, true).0;
+        *w.require_mut::<Material>("picked-fruit") = Material::default();
+    } else {
+        *w.require_mut::<Mesh>("picked-fruit") = Mesh::asset(format!("fruit-{}.model", item.kind));
+        *w.require_mut::<Material>("picked-fruit") =
+            garden::paint(crops::fruit_color(item.kind, item.muts));
+    }
     let mut feedback = w.resource_mut::<Feedback>();
     feedback.fruit_from = at;
     feedback.fruit_scale = (item.weight / crops::crop(item.kind).weight)

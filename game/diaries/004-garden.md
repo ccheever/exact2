@@ -1656,3 +1656,73 @@ and 115 draws; these separate bounded runs show added presentation cost,
 not a controlled speed regression estimate or a browser FPS result.
 Log: `/tmp/exact2-garden-feel-render.log`. This candidate is mechanically
 verified and visually inspected; no human preference result has been collected.
+
+## The old art pass as a fourth look (2026-10-05)
+
+Branch `art/garden` (2026-10-03) drew the garden from baked glTF on a much
+older engine and garden. It is now `art: "pass"`, a fourth look beside
+classic, golden and storybook (Garden panel → Look → Art pass), redone on
+today's engine. Play is unchanged: `every_look_plays_the_same_garden`
+includes it, and the classic look is byte-identical: its Linux proof reports
+the same tick hashes (0 `0xd436feb13a9f57a4`, 5136 `0xdddce38bb7a444bf`)
+and the same five save digests before and after this change. Those still
+differ from `pins.json`, which predates main's new built-in components.
+
+- **`art.mjs` (794 lines)** keeps the old mesh kit and writes binary glTF
+  (218 files, 3.5 MB, 0.14 s, byte-identical on rerun) plus seven shared PNG
+  textures in `art/textures/` (soil, wood, bark, cloth, straw, stone, grass).
+  Each texture bakes once by name, so soil mounds and bark trunks are now
+  textured where the old pass used vertex-colour noise. Plants are 14 crops
+  × 5 stages, each with a `-far` level (mature plants 1,043 → 180 triangles
+  on average); fruit is 14 shapes ripe and unripe, each with a far level;
+  then the fence, a lantern, stall, barrel, can, path stones, tufts, a turf
+  ground, two grass patches, and a farmer and keeper as body/arm/leg parts.
+- **`logic/src/pass.rs` (953 lines)**: setup, the fence rebuilt as the
+  garden grows (with a gate by the barrel facing the stall and inward
+  lanterns), the day and night, weather, the close-up camera and `present`.
+  `garden.rs` asks `pass::on` for a model per stage, a ground-standing pose
+  at `plant_center` and fruit offsets that match the models. The farmer is
+  the shared gesture rig under the classic names, so watering, planting and
+  harvest gestures work unchanged.
+
+What the current engine replaced:
+
+| Old workaround | Now |
+|---|---|
+| 112 fruit models, one per mutation look | 14 shapes (+ unripe); mutations are `MaterialOverrides` on material 0 written by `Game::present` from the saved `muts`. Rainbow cycles hue, Gold glints, Shocked flickers (`p.rng`) |
+| a far-off speck per model to keep 202 models resident (~1,800 empty draws) | `Game::STREAMED`; resident once loaded |
+| no LOD | `ModelLod` per plant and fruit (28 m / 18 m); grass patches `hide: 80 m` |
+| textures embedded per model | shared `art/textures/` PNGs, content-named |
+| lantern lit/dark meshes swapped by a saved `Lantern` component | one lantern model, glass glow from `present`; constant point lights the sun drowns by day |
+| keeper sway and wave in saved `Limb`/`Gait` components | `Offset` from `present` |
+| rain/snow sphere moving with its particles | `Shape::Box` + `WorldSpace` + `ParticleLook.stretch` streaks |
+| — | plants between a near camera and the farmer fade (`Opacity` from `present`, visiting only the tiles under the sight line) |
+
+What stays in the simulation, and why: a plant's model per stage is a `Mesh`
+swap at the stage event (present cannot change meshes); the sun, moon, sky,
+fog and exposure are `DirectionalLight`s and the `Environment` resource,
+which present cannot write (presentation resources are not supported); the
+weather emitter. Sun, moon and `Environment` are ambient so they never hold
+the clock awake. The farmer's walk swing stays the shared, saved gesture
+rig: moving it to present would move the classic look's pins. Dropped: the
+HUD fruit swatches (a new `ShopRow` field would change the classic look's
+saved publications), and no wind sway (a `game.render` crate would also
+load for every look).
+
+Cost. The web dist grows from 3.8 MB to 11 MB; `assets/` is 6.1 MB (1.5 MB
+gzipped), of which a device fetches the models and one texture family.
+Overview on the web at 100 / 10,000 plants: classic 123 / 155 draws, 46,669 /
+5.34 M submitted triangles; the pass 755 / 835 draws, 0.34 M / 20.9 M
+(submitted counts every LOD level; the camera draws far levels). `STREAMED`
+is static per game, so the classic look fetches the pass's models too. It
+never waits for them, but on a local server they arrive before its first
+frame and are prepared inside it: classic's first submitted frame moved from
+169–410 ms to 494–503 ms over three runs each, and its ready boundary now
+holds 671 mesh uploads and 45 pipelines instead of 37 and 35. The other
+choice, undeclared models loaded on sight, costs classic nothing but brings
+back the pop-in and save refusals the speck workaround hid.
+
+Verified: `bun game/app/shells.mjs ./game/games/garden --test` (29 sim tests,
+including the art pass's fruit placement, presented mutations surviving a
+restore, and a paranoid Save run); `proof.mjs linux` as above; screenshots of
+day, night, rain, close-up, overview and 10,000 plants on the web.

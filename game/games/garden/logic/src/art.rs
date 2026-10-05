@@ -440,7 +440,13 @@ fn flower_bank() -> MeshData {
     m.finish()
 }
 
-pub fn setup(w: &mut World) {
+pub fn setup(w: &mut World, art: &str) {
+    if art == "pass" {
+        return crate::pass::setup(w);
+    }
+    if let Some(style) = crate::looks::style(art) {
+        return crate::looks::setup(w, style);
+    }
     let body = w
         .generated("gardener.model", gardener())
         .expect("gardener mesh");
@@ -538,7 +544,18 @@ pub fn setup(w: &mut World) {
 }
 
 pub fn resize(w: &World, span: f32, mid: f32) {
+    if crate::pass::on(w) {
+        return crate::pass::resize(w, span, mid);
+    }
     *w.require_mut::<Mesh>("bed-edge") = Mesh::cuboid(Vec3::new(span + 4.2, 0.25, span + 4.2));
     w.require_mut::<Transform>("bed-edge").position = Vec3::new(mid, -0.18, -mid);
     w.require_mut::<Transform>("orchard").position = Vec3::new(0., 0., -span - 2.0);
+    crate::looks::resize(w, span, mid);
+}
+
+/// After the garden grows: the art pass rebuilds its fence around it.
+pub fn regrow(w: &mut World) {
+    if crate::pass::on(w) {
+        crate::pass::build_fence(w);
+    }
 }

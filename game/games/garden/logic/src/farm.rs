@@ -330,6 +330,7 @@ pub fn resize(w: &mut World, size: u16) {
         farm.size = size;
     }
     lay_ground(w);
+    crate::art::regrow(w);
 }
 
 /// Sizes the ground, the player's bounds and the overview camera to the garden.
@@ -351,6 +352,8 @@ pub fn lay_ground(w: &World) {
         Follow::new(w.named("ground").unwrap())
             .offset(0.0, r * 0.9, r * 0.75)
             .lag(0.3)
+    } else if crate::pass::on(w) {
+        crate::pass::camera(w)
     } else {
         Follow::new(w.named("player").unwrap())
             .offset(0.0, 9.0, 11.0)
@@ -491,6 +494,11 @@ pub fn command(w: &mut World, cmd: &str) {
             w.resource_mut::<Farm>().overview = o;
             lay_ground(w);
             Ok((if o { "Overview" } else { "Close" }).into())
+        }
+        "closeup" if crate::pass::on(w) => {
+            let line = crate::pass::toggle_closeup(w);
+            lay_ground(w);
+            Ok(line)
         }
         "fill" => Ok(format!("Planted {}", fill(w, arg.parse().unwrap_or(100)))),
         "away" => {

@@ -209,21 +209,27 @@ fn plant_pose(kind: u8, tile: [u16; 2], scale: f32) -> Transform {
 /// Spawns a plant on a tile at garden time `at` and schedules its first stage.
 pub fn plant(w: &mut World, kind: u8, tile: [u16; 2], at: u64) -> Entity {
     let c = crop(kind);
-    let e = w.spawn((
-        plant_pose(kind, tile, plant_scale(0)),
-        Mesh::asset(format!("plant-{kind}.model")),
-        Material::default(),
-        Plant {
-            kind,
-            tile,
-            planted: at,
-            grow_ms: c.grow_s as u64 * 1000,
-            watered: false,
-            fed: false,
-            stage: 0,
-            fruits: vec![None; c.slots as usize],
-        },
-    ));
+    let p = Plant {
+        kind,
+        tile,
+        planted: at,
+        grow_ms: c.grow_s as u64 * 1000,
+        watered: false,
+        fed: false,
+        stage: 0,
+        fruits: vec![None; c.slots as usize],
+    };
+    let e = if crate::pass::on(w) {
+        let (mesh, lod) = crate::pass::plant_model(kind, 0);
+        w.spawn((crate::pass::plant_pose(tile), mesh, lod, p))
+    } else {
+        w.spawn((
+            plant_pose(kind, tile, plant_scale(0)),
+            Mesh::asset(format!("plant-{kind}.model")),
+            Material::default(),
+            p,
+        ))
+    };
     let step = c.grow_s as u64 * 1000 / 4;
     w.resource_mut::<Schedule>().push(at + step, Due::Grow(e));
     w.resource_mut::<Census>().plants += 1;
@@ -252,25 +258,33 @@ pub fn bear(w: &mut World, plant: Entity, kind: u8, slot: u8, at: u64) -> Entity
     let ripe_at = at + c.fruit_s as u64 * 1000;
     let base = w.require::<Plant>(plant).tile;
     let fed = w.require::<Plant>(plant).fed;
-    let mut pose = Transform::at(0.0, c.height / 2.0, 0.0).with_scale(0.4);
-    pose.position += plant_center(base) + fruit_offset(kind, slot);
-    let e = w.spawn((
-        pose,
-        Mesh::asset(format!("fruit-{kind}.model")),
-        paint([0.55, 0.75, 0.35]),
-        Fruit {
-            kind,
-            plant: Some(plant),
-            slot,
-            set_at: at,
-            ripe_at,
-            ripe: false,
-            watered: false,
-            fed,
-            weight: c.weight,
-            muts: 0,
-        },
-    ));
+    let fruit = Fruit {
+        kind,
+        plant: Some(plant),
+        slot,
+        set_at: at,
+        ripe_at,
+        ripe: false,
+        watered: false,
+        fed,
+        weight: c.weight,
+        muts: 0,
+    };
+    let e = if crate::pass::on(w) {
+        let (mesh, lod) = crate::pass::fruit_model(kind, false);
+        let mut pose = Transform::default().with_scale(0.4);
+        pose.position = crate::pass::fruit_position(base, kind, slot);
+        w.spawn((pose, mesh, lod, fruit))
+    } else {
+        let mut pose = Transform::at(0.0, c.height / 2.0, 0.0).with_scale(0.4);
+        pose.position += plant_center(base) + fruit_offset(kind, slot);
+        w.spawn((
+            pose,
+            Mesh::asset(format!("fruit-{kind}.model")),
+            paint([0.55, 0.75, 0.35]),
+            fruit,
+        ))
+    };
     w.require_mut::<Plant>(plant).fruits[slot as usize] = Some(e);
     w.resource_mut::<Census>().fruit += 1;
     if ripe_at <= at {
@@ -334,12 +348,20 @@ fn ripen(w: &mut World, e: Entity) {
     }
     let size = (weight / crop(kind).weight).sqrt();
     w.require_mut::<Transform>(e).scale = Vec3::splat(size);
-    let color = crops::fruit_color(kind, muts);
-    *w.require_mut::<Material>(e) = if muts & (crops::GOLD | crops::RAINBOW | crops::SHOCKED) != 0 {
-        paint(color).emissive(color[0] * 0.5, color[1] * 0.5, color[2] * 0.5)
+    if crate::pass::on(w) {
+        // The ripe model; its mutation look is presentation (pass::present).
+        let (mesh, lod) = crate::pass::fruit_model(kind, true);
+        *w.require_mut::<Mesh>(e) = mesh;
+        *w.require_mut::<ModelLod>(e) = lod;
     } else {
-        paint(color)
-    };
+        let color = crops::fruit_color(kind, muts);
+        *w.require_mut::<Material>(e) =
+            if muts & (crops::GOLD | crops::RAINBOW | crops::SHOCKED) != 0 {
+                paint(color).emissive(color[0] * 0.5, color[1] * 0.5, color[2] * 0.5)
+            } else {
+                paint(color)
+            };
+    }
     let mut census = w.resource_mut::<Census>();
     census.ripe += 1;
     if muts != 0 {
@@ -406,7 +428,14 @@ fn grow(w: &mut World, e: Entity, at: u64) {
         return;
     };
     w.require_mut::<Plant>(e).stage = stage;
-    *w.require_mut::<Transform>(e) = plant_pose(kind, tile, plant_scale(stage));
+    if crate::pass::on(w) {
+        // A model per stage in the art pass, where classic scales one.
+        let (mesh, lod) = crate::pass::plant_model(kind, stage);
+        *w.require_mut::<Mesh>(e) = mesh;
+        *w.require_mut::<ModelLod>(e) = lod;
+    } else {
+        *w.require_mut::<Transform>(e) = plant_pose(kind, tile, plant_scale(stage));
+    }
     let c = crop(kind);
     if stage < 4 {
         w.resource_mut::<Schedule>()
@@ -618,10 +647,16 @@ pub fn fruits_of(w: &World, plant: Entity) -> Vec<(Entity, bool, u64)> {
 /// Smooth growth, the way a naive clone animates it: every tick, every
 /// growing plant and unripe fruit gets a new scale. O(entities) per tick.
 pub fn animate(w: &World, now: u64) {
+    // The art pass's plants stand on the ground and grow by stage models too.
+    let grounded = crate::pass::on(w);
     for (_, (t, p)) in w.query::<(&mut Transform, &Plant)>().iter() {
         if p.stage < 4 {
             let c = crop(p.kind);
             let f = ((now - p.planted.min(now)) as f32 / p.grow_ms.max(1) as f32).min(1.0);
+            if grounded {
+                t.scale = Vec3::splat(0.75 + 0.25 * f);
+                continue;
+            }
             let s = 0.25 + 0.75 * f;
             t.scale = Vec3::splat(s);
             t.position.y = c.height * s / 2.0;
