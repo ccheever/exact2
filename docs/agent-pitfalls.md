@@ -133,6 +133,16 @@ guide's rules don't make obvious.
   runner's own data source has no such cap. Keep an answer under 16 MiB, or page
   it. (LLP 1090 conformance plan, `host/web-js/conformance/budget.contract`.)
 
+- **A second card drag right after a drop does nothing.** A drop is held until its
+  move shows (a second at most; [the agent guide](contract-for-agents.md#views-layout-and-interaction),
+  boards), and a drag that starts while it is held is refused without a word: nothing
+  moves and nothing is logged. A board whose drop sends a mutation that `refreshes` its
+  cards shows the move only when storage answers, so the next quick drag is lost (a
+  person's, or a test's: two `drag to` steps in a row). Fix: show the move in the
+  drop's own commit (keep the board in state the action writes, and save it through
+  the mutation), and in a test or drive put `clock settle` between drags. (Authoring
+  bench, LLP 1087, r26 and r29 t4-kanban, 2026-10-05.)
+
 ## Native presentation and navigation (iOS)
 
 - **Edge-swipe back does nothing.** Cause: the pop gesture presses the control named
