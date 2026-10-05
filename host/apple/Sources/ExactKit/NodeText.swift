@@ -96,7 +96,7 @@ extension NodeView {
         if props["markup"] == "markdown", let source = props["text"] {
             // Markdown source: the archive expands it into runs, the same
             // expansion the measurer used (LLP 1045 D3).
-            runs = MarkupRuns.expand(source, base: textRun(""), color: style["text_color"]?.textChannels(dark: night))
+            runs = MarkupRuns.expand(source, base: textRun(""), color: textChannels("text_color", dark: night))
             // `currentcolor` in a shadow or stroke is each piece's own colour.
             let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
             for i in runs.indices { (runs[i].shadow, runs[i].stroke) = rows.resolve(dark: night, contrast: contrast, elevated: elevated, tint: tint, color: runs[i].color ?? own) }

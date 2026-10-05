@@ -134,6 +134,60 @@ final class ProfileColorTests: XCTestCase {
         XCTAssertTrue(foundDifferentTransforms, "the fixture must distinguish intents")
     }
 
+    func testProfiledSVGFillAndStrokePaintAfterCacheEviction() throws {
+        let dir = try root()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let bytes = try XCTUnwrap(CGColorSpace(name: CGColorSpace.displayP3)?.copyICCData()) as Data
+        let url = dir.appendingPathComponent("assets/brand.icc"), resolver = AssetResolver(root: dir)
+        try bytes.write(to: url)
+        func scene(_ name: String) throws -> [String: Any] {
+            func color(_ values: [Double]) -> [String: Any] {
+                ["cs": [["s": name, "i": "relative-colorimetric", "v": values]]]
+            }
+            let shape: [String: Any] = ["id": 1, "n": 1, "o": 1, "w": 4,
+                "p": [0, 8, 8, 1, 24, 8, 1, 24, 24, 1, 8, 24, 3],
+                "f": color([1, 0, 0, 1]), "s": color([0, 1, 0, 1])]
+            let wire: [String: Any] = ["ops": [["op": "svg", "id": 1, "scene": [
+                "box": [0, 0, 32, 32], "t": [1, 0, 0, 1, 0, 0], "els": [shape]]]]]
+            let batch = Batch.decode(try JSONSerialization.data(withJSONObject: wire), resolver: resolver)
+            XCTAssertNil(batch.error)
+            return try XCTUnwrap(batch.ops.first?.payload["scene"] as? [String: Any])
+        }
+        func assertPaints(_ payload: [String: Any], _ phase: String) throws {
+            // A fresh scene forces conversion again, rather than reusing CGColors.
+            let svg = SvgScene()
+            svg.apply(payload, dark: false, clock: nil)
+            let shape = try XCTUnwrap(svg.root.sublayers?.first as? CAShapeLayer)
+            XCTAssertNotNil(shape.fillColor, phase + " fill")
+            XCTAssertNotNil(shape.strokeColor, phase + " stroke")
+            let context = try XCTUnwrap(CGContext(data: nil, width: 32, height: 32,
+                bitsPerComponent: 8, bytesPerRow: 32 * 4,
+                space: XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB)),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            svg.root.render(in: context)
+            let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+            let fill = (16 * 32 + 16) * 4, stroke = (16 * 32 + 8) * 4
+            XCTAssertGreaterThan(pixels[fill], 240, phase + " red fill")
+            XCTAssertLessThan(pixels[fill + 1], 15, phase + " red fill")
+            XCTAssertEqual(pixels[fill + 3], 255, phase + " opaque fill")
+            XCTAssertGreaterThan(pixels[stroke + 1], 240, phase + " green stroke")
+            XCTAssertLessThan(pixels[stroke], 15, phase + " green stroke")
+            XCTAssertEqual(pixels[stroke + 3], 255, phase + " opaque stroke")
+        }
+        let live = try scene("icc:assets/brand.icc")
+        try assertPaints(live, "ICC before eviction")
+        try assertPaints(scene("cg:kCGColorSpaceDCIP3"), "named profile")
+        for i in 0..<80 {
+            var generation = bytes
+            generation[84] = UInt8(i); generation[85] = 2
+            try generation.write(to: url)
+            _ = try row(resolver)
+        }
+        XCTAssertLessThanOrEqual(ProfileSpaces.cacheCount, 64)
+        try FileManager.default.removeItem(at: url)
+        try assertPaints(live, "ICC after eviction and asset removal")
+    }
+
     func testProfiledTextPreservesGamutBeyondSRGBAndP3() throws {
         for name in ["cg:kCGColorSpaceDCIP3", "cg:kCGColorSpaceROMMRGB"] {
             let value: BatchValue = ["cs": [["s": .string(name), "v": [0, 1, 0, 1]]]]

@@ -198,7 +198,8 @@ names.
   as written. Any other CSS space crosses as extended linear sRGB, unclipped.
   Backgrounds, borders, text, inline runs, box shadows, text shadows, SVG
   fills and strokes, gradients and motion frames all draw in the color's
-  space.
+  space. Markdown and plain text resolve platform colors through the owning
+  view's tint, contrast and elevation traits (LLP 1095 D5).
 - **Web** emits the canonical CSS text (`color(display-p3 1 0 0)`), and the
   browser draws it.
 - **Linux** draws sRGB-gamut colors. CSS's arithmetic gives the exact sRGB
@@ -251,7 +252,9 @@ column for every app to serve the few colors that need it.
   across eviction, file replacement and session/generation changes. Unused
   evicted handles are reclaimed. A cache miss resolves the owning asset again.
   ICC colors are converted once to extended sRGB with the authored rendering
-  intent, since `CGColor` itself does not retain an intent.
+  intent, since `CGColor` itself does not retain an intent. SVG payloads keep
+  those handles through their adapter and use the same profile-aware color
+  conversion for fills and strokes; this does not change SVG's dynamic range.
 - **Web and Linux** don't have it. The web gets it when browsers ship
   `@color-profile`, and then emits the at-rule as written.
 - An image's own embedded profile needs no declaration; the decoder reads
@@ -725,6 +728,9 @@ per-appearance gradient encoding and sampling (opaque and translucent),
 explicit-plan ICC boot through a real session, wide text presentation layers,
 candidate profile isolation through prepare/discard/commit, discrete large-HDR
 transitions, and bounded ICC caching with live values surviving eviction.
+Round 3 covers Markdown/plain-text parity under view tint, contrast and elevation
+overrides, and rendered SVG profile fills and strokes, including retained ICC
+payloads after cache eviction and removal of the source asset.
 The suggested native `platform-color` profile-fallback bake bypass was rejected:
 `parse_platform` admits only plain legacy colors or a legacy `light-dark` pair;
 profile fallbacks fail compilation before bake validation. Build/run results

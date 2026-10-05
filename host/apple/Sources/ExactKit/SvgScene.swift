@@ -27,18 +27,19 @@ private func nums(_ v: Any?) -> [Double] { (v as? [Any])?.map(num) ?? [] }
 /// A colour the host sent: `[r,g,b,a]` (0–255), a `light-dark()` pair, or a
 /// colour in its own space, `{"cs": [{"s", "v"}…]}` (LLP 1100 D2).
 private func color(_ v: Any?, dark: Bool) -> CGColor? {
-    if let o = v as? [String: Any], let halves = o["cs"] as? [Any], !halves.isEmpty,
-       let half = halves[dark && halves.count > 1 ? 1 : 0] as? [String: Any],
-       let name = ["srgb": CGColorSpace.extendedSRGB, "display-p3": CGColorSpace.extendedDisplayP3,
-                   "srgb-linear": CGColorSpace.extendedLinearSRGB][half["s"] as? String ?? ""],
-       let space = CGColorSpace(name: name), case let v = nums(half["v"]), v.count == 4 {
-        return CGColor(colorSpace: space, components: v.map { CGFloat($0) }).map(ColorRange.tagged)
+    // Restore the typed color, including the ICC handle kept by the payload
+    // adapter, and use the same conversion/intent as every other paint path.
+    func value(_ v: Any?) -> BatchValue {
+        switch v {
+        case let p as ProfileSpaces.Handle: return .profile(p)
+        case let n as NSNumber: return .number(n.doubleValue)
+        case let s as String: return .string(s)
+        case let a as [Any]: return .array(a.map { value($0) })
+        case let o as [String: Any]: return .object(o.mapValues { value($0) })
+        default: return .null
+        }
     }
-    guard let a = v as? [Any] else { return nil }
-    let c: [Double]
-    if a.count == 2, let pair = a[dark ? 1 : 0] as? [Any] { c = pair.map(num) } else { c = a.map(num) }
-    guard c.count == 4 else { return nil }
-    return CGColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
+    return value(v).cgColor(dark: dark)
 }
 
 /// `[0,x,y, 1,x,y, 2,x1,y1,x2,y2,x,y, 3]`: move, line, cubic, close.
@@ -121,6 +122,7 @@ enum CssAnimations {
         case let n as NSNumber: h.combine(n.doubleValue.bitPattern)
         case let n as Double: h.combine(n.bitPattern)
         case let s as String: h.combine(s)
+        case let p as ProfileSpaces.Handle: h.combine(p.key)
         case let a as [Any]: h.combine(a.count); for x in a { digest(x, into: &h) }
         // A prepared path hashes as the numbers it was built from.
         case let p as PreparedPath: h.combine(p.digest)

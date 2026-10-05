@@ -110,7 +110,7 @@ enum BatchValue: Equatable {
         switch self {
         case .number(let n): return NSNumber(value: n)
         case .string(let s): return s
-        case .profile(let p): return p.key
+        case .profile(let p): return p
         case .bool(let b): return b
         case .array(let a): return a.map(\.any)
         case .object(let o): return o.mapValues(\.any)
