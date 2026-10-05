@@ -387,7 +387,7 @@ Choose the mechanism from its lifetime:
 | Refresh reads around a mutation | `mutation … refreshes resourceA, resourceB` |
 | React once to a settled mutation | `mutation … then actionName` |
 | Pending indicator | `pending(resourceOrMutationName)` |
-| Resource request failed without an answer | `failed(resourceName)` (a resource only: a mutation's failure is a domain result it answers, such as `ok: false`) |
+| Resource request failed without an answer | `failed(resourceName)` (a resource only: a mutation answers its failure as a domain result, such as `ok: false`) |
 | Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
 
 Resources read as their declared type. Mutations read as `option<T>` and start at
@@ -823,7 +823,7 @@ what is in flight lands, with each answer's `then`, the clock unmoved), `resize
 test shows what persists),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text; a control's value, so a `select` reads its chosen value, not its
-options, and a checkbox `true` or `false`; else its descendants' — a button's label — else a field's value), and
+options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and
 `expect state name == <number|string|bool|none|[]>`, where `name` may go on into
 a record's fields (`board.active.present`). A failed expect with no input before
 it names the requests still in flight (the boot's own, or what a `clock +N` left
