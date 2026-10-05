@@ -1072,3 +1072,91 @@ fn mayhem_continues_past_five_and_restores_through_the_round_finish() {
     }
     assert!(sim.save().unwrap() == back.save().unwrap());
 }
+
+#[test]
+fn shot_feedback_restores_mid_flash_without_repeating_the_shot() {
+    use exact_game::{audio::Voices, Paranoid, Visible};
+    for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
+        let mut sim = range().paranoid(mode);
+        sim.run(400.0);
+        sim.tap("KeyF");
+        sim.run(9.0);
+        assert_eq!(fighter(&sim, "player").rifle_ammo, 29);
+        assert!(sim.world().require::<Visible>("vm-rifle-flash-core").0);
+        let voices = sim.world().resource::<Voices>();
+        assert!(voices.voices.iter().any(|v| v.sound == "rifle-shot"));
+        assert!(voices.voices.iter().any(|v| v.sound == "head-hit"));
+        let next_voice = voices.next_id;
+        drop(voices);
+        let saved = sim.save().unwrap();
+        let mut back = range().paranoid(mode);
+        back.restore_bound(&saved).unwrap();
+        assert_eq!(saved, back.save().unwrap());
+        for s in [&mut sim, &mut back] {
+            s.run(400.0);
+            assert_eq!(fighter(s, "player").rifle_ammo, 29);
+            assert!(!s.world().require::<Visible>("vm-rifle-flash-core").0);
+            assert!(s.world().resource::<Voices>().voices.is_empty());
+            assert_eq!(s.world().resource::<Voices>().next_id, next_voice);
+        }
+        assert_eq!(sim.save().unwrap(), back.save().unwrap());
+    }
+}
+
+#[test]
+fn magazine_pose_and_reload_sounds_follow_completion_and_cancellation() {
+    use exact_game::{audio::Voices, Transform};
+    let mut sim = used_magazine("Digit1");
+    let rest = *sim.world().require::<Transform>("vm-rifle-mag");
+    sim.tap("KeyR");
+    sim.run(9.0);
+    assert!(sim
+        .world()
+        .resource::<Voices>()
+        .voices
+        .iter()
+        .any(|v| v.sound == "reload-out"));
+    sim.run(790.0);
+    assert!(sim.world().require::<Transform>("vm-rifle-mag").position.y < rest.position.y - 0.1);
+    let saved = sim.save().unwrap();
+    let mut back = range();
+    back.restore_bound(&saved).unwrap();
+    for s in [&mut sim, &mut back] {
+        s.tap("KeyR");
+        s.run(9.0);
+        assert_eq!(fighter(s, "player").rifle_ammo, 30);
+        assert!(s
+            .world()
+            .resource::<Voices>()
+            .voices
+            .iter()
+            .any(|v| v.sound == "reload-in"));
+        s.run(400.0);
+    }
+    assert_eq!(sim.save().unwrap(), back.save().unwrap());
+    sim.tap("KeyF");
+    sim.run(300.0);
+    sim.tap("KeyR");
+    sim.run(200.0);
+    sim.tap("Digit3");
+    sim.run(9.0);
+    assert!(!sim
+        .world()
+        .resource::<Voices>()
+        .voices
+        .iter()
+        .any(|v| v.sound == "reload-in"));
+}
+
+#[test]
+fn ending_the_drill_still_expires_last_shot_feedback() {
+    use exact_game::{audio::Voices, Visible};
+    let mut sim = range();
+    sim.run(29_980.0);
+    sim.tap("KeyF");
+    sim.run(9.0);
+    assert!(!sim.world().resource::<Voices>().voices.is_empty());
+    sim.run(400.0);
+    assert!(sim.world().resource::<Voices>().voices.is_empty());
+    assert!(!sim.world().require::<Visible>("vm-rifle-flash-core").0);
+}

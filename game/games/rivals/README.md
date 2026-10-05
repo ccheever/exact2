@@ -51,6 +51,16 @@ timing attempt per reload; an early or late press keeps the normal deadline.
 Holding R does not trigger the second press. Switching weapons cancels the
 reload. The window and a missed attempt survive saving and restoring.
 
+The first-person rifle has a stock, barrel, sights, magazine and gloved hands;
+the launcher has a collared tube and sight, and the knife has a guard and blade.
+Firing briefly lights the muzzle, and reloading tilts the weapon and lowers its
+magazine before it returns. Rifle, launcher and knife have distinct sounds;
+hits, headshots and eliminations give different confirmation cues. Other fighters'
+shots and explosions are positional. These models and gestures follow saved
+world time, including a save during a shot or reload. The manifest's `game.audio`
+selects the optional output; the gameplay aim, spread, damage and reload windows
+remain the same.
+
 Each life gives you one bandage. Hold for 1.5 seconds to recover up to 40 HP;
 walking slows while you dress the wound. Releasing early, taking damage,
 firing, reloading, switching weapons, jumping, sprinting or sliding interrupts
@@ -83,6 +93,7 @@ new search destination. A brain produces the same
 | `logic/src/lib.rs` | options, actions, the tick, camera, viewmodel, HUD record |
 | `logic/src/fighter.rs` | the capsule fighter: movement, slide, knockback, aiming |
 | `logic/src/weapons.rs` | rifle, rockets, knife, splash, hitscan, effects |
+| `logic/src/presentation.rs` | first-person models, saved gestures and firing/hit sounds |
 | `logic/src/bots.rs` | sight, aim, strafing, cover |
 | `logic/src/round.rs` | kills, feed, damage numbers, respawn, round win |
 | `logic/src/training.rs` | target order, combo scoring and fixed respawn lanes |

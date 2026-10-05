@@ -346,6 +346,36 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await reloadBack.world('world').save(resolve(out,'reloaded-restored.world'));
   check('fresh process preserves the reload window and continuation bytes', readFileSync(resolve(out,'reloaded.world')).equals(readFileSync(resolve(out,'reloaded-restored.world'))));
   await reloadBack.close();
+
+  const feedback = await open({fresh:true});
+  await feedback.tap('range');
+  const fg = feedback.world('world');
+  await fg.run(400); await fg.tap('KeyF'); await fg.run(17);
+  check('a rifle shot lights its muzzle without changing ammunition cost', (await fg.get('vm-rifle-flash-core','Visible'))?.[0] === true
+    && text(await feedback.tree(),'ammo') === '29 / 30');
+  const voices = (await feedback.state()).world?.find(w=>w.name==='world')?.audio?.voices ?? [];
+  check('the shot and head hit have distinct local sounds', ['rifle-shot','head-hit'].every(sound=>voices.some(v=>v.sound===sound && v.at==='ui')));
+  if (host !== 'linux') await feedback.screenshot(resolve(out,'shot-feedback.png'));
+  await fg.run(9);
+  await fg.save(resolve(out,'shot-feedback.world'));
+  const finishFeedback = async session => {
+    const g = session.world('world');
+    await g.run(450);
+    check('the muzzle flash expires and does not fire again after restoration', (await g.get('vm-rifle-flash-core','Visible'))?.[0] === false
+      && text(await session.tree(),'ammo') === '29 / 30');
+    check('the completed shot leaves no active audio voice', ((await session.state()).world?.find(w=>w.name==='world')?.audio?.voices ?? []).length===0);
+    await g.tap('KeyR'); await g.run(1700);
+  };
+  await finishFeedback(feedback);
+  await fg.save(resolve(out,'feedback-continued.world'));
+  pinSave('shot-feedback',resolve(out,'feedback-continued.world'));
+  await feedback.close();
+  const feedbackBack = await open({fresh:true,world:resolve(out,'shot-feedback.world')});
+  await feedbackBack.tap('range');
+  await finishFeedback(feedbackBack);
+  await feedbackBack.world('world').save(resolve(out,'feedback-restored.world'));
+  check('fresh process preserves shot feedback and continuation bytes', readFileSync(resolve(out,'feedback-continued.world')).equals(readFileSync(resolve(out,'feedback-restored.world'))));
+  await feedbackBack.close();
 });
 
 async function rocketPractice(session) {

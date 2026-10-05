@@ -366,6 +366,7 @@ pub fn fly(w: &mut World) -> Vec<Damage> {
 /// Splash: overlap a sphere against fighters, then check each one's line of
 /// sight to the blast so cover protects. Knockback pushes away from the centre.
 pub fn explode(w: &mut World, owner: u32, at: Vec3, direct: Option<Entity>) -> Vec<Damage> {
+    crate::presentation::explosion(w, at);
     let now = w.seconds() as f32;
     let mask = fighters_mask(w);
     let caught = physics::overlap(

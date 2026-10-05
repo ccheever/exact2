@@ -4,6 +4,7 @@
 pub mod arena;
 pub mod bots;
 pub mod fighter;
+pub mod presentation;
 pub mod round;
 pub mod training;
 pub mod weapons;
@@ -202,6 +203,7 @@ pub fn register(w: &mut World) {
         .register::<Effect>()
         .register::<Ambient>();
     w.register_resource::<Round>();
+    presentation::register(w);
 }
 
 pub fn setup(w: &mut World, args: &Options) {
@@ -258,83 +260,14 @@ pub fn setup(w: &mut World, args: &Options) {
             },
         ),
     );
-    viewmodel(w, camera);
+    presentation::setup(w, camera);
     w.insert_resource(Round {
         number: 1,
         ..Round::default()
     });
     camera_follow(w, args);
+    presentation::pose(w);
     publish(w, args, Vec2::ZERO);
-}
-
-/// First-person weapon models, children of the camera.
-fn viewmodel(w: &mut World, camera: Entity) {
-    let dark = Material::rgb(0.12, 0.13, 0.15).metallic(0.6).rough(0.4);
-    let parts: [(&str, Weapon, Vec3, Mesh, Material, Quat); 5] = [
-        (
-            "vm-rifle",
-            Weapon::Rifle,
-            Vec3::new(0.2, -0.19, -0.58),
-            Mesh::cuboid(Vec3::new(0.06, 0.08, 0.45)),
-            dark,
-            Quat::IDENTITY,
-        ),
-        (
-            "vm-rifle-mag",
-            Weapon::Rifle,
-            Vec3::new(0.2, -0.27, -0.52),
-            Mesh::cuboid(Vec3::new(0.04, 0.12, 0.07)),
-            Material::rgb(0.75, 0.55, 0.2),
-            Quat::IDENTITY,
-        ),
-        (
-            "vm-rocket",
-            Weapon::Rocket,
-            Vec3::new(0.22, -0.2, -0.4),
-            Mesh::cylinder(0.08, 0.75),
-            Material::rgb(0.25, 0.42, 0.25).rough(0.7),
-            Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
-        ),
-        (
-            "vm-knife",
-            Weapon::Knife,
-            Vec3::new(0.22, -0.2, -0.38),
-            Mesh::cuboid(Vec3::new(0.02, 0.05, 0.3)),
-            Material::rgb(0.85, 0.87, 0.9).metallic(0.9).rough(0.2),
-            Quat::IDENTITY,
-        ),
-        (
-            "vm-knife-grip",
-            Weapon::Knife,
-            Vec3::new(0.22, -0.21, -0.2),
-            Mesh::cuboid(Vec3::new(0.035, 0.06, 0.12)),
-            Material::rgb(0.1, 0.1, 0.1),
-            Quat::IDENTITY,
-        ),
-    ];
-    for (name, weapon, at, mesh, material, rotation) in parts {
-        let mut t = Transform::at(at.x, at.y, at.z);
-        t.rotation = rotation;
-        w.spawn_named(
-            name,
-            (
-                Parent(camera),
-                t,
-                mesh,
-                material,
-                Visible(weapon == Weapon::Rifle),
-                ViewModel,
-                WeaponPart { weapon, rest: at },
-            ),
-        );
-    }
-}
-
-/// One part of a first-person weapon model and where it rests.
-#[derive(Clone, Debug, Default, Component)]
-pub struct WeaponPart {
-    pub weapon: Weapon,
-    pub rest: Vec3,
 }
 
 /// The player's intent: input actions plus the mouse's accumulated delta.
@@ -393,6 +326,7 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
     if args.range && now >= training::DURATION {
         mouse_look(w, args, false);
         weapons::effects(w);
+        presentation::step(w);
         publish(w, args, input.viewport());
         return;
     }
@@ -404,6 +338,7 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
         } else {
             mouse_look(w, args, false);
             weapons::effects(w);
+            presentation::step(w);
             publish(w, args, input.viewport());
             return;
         }
@@ -430,12 +365,15 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
             let f = w.require::<Fighter>(*e);
             (w.require::<Transform>(*e).position, f.eye)
         };
+        let before = presentation::ActionState::read(w, *e);
         hits.extend(weapons::act(w, *e, intent, at + Vec3::new(0.0, eye, 0.0)));
+        presentation::actions(w, *e, before);
     }
     hits.extend(weapons::fly(w));
     if args.range {
         training::score(w, &hits, args.bot_count());
     }
+    presentation::hits(w, &hits);
     round::score(w, hits);
     fighter::bandages(w);
     round::respawn(w);
@@ -450,6 +388,7 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
     }
     camera_follow(w, args);
     weapons::effects(w);
+    presentation::step(w);
     publish(w, args, input.viewport());
 }
 
@@ -481,10 +420,8 @@ fn mouse_look(w: &mut World, args: &Options, on: bool) {
     }
 }
 
-/// The camera sits at the player's eye; the viewmodel kicks with recoil and
-/// comes to the centre when aiming down sights.
+/// The camera sits at the player's eye and narrows its field when aiming.
 pub fn camera_follow(w: &mut World, args: &Options) {
-    let now = w.seconds() as f32;
     let (at, f) = {
         let e = w.named("player").expect("player");
         (
@@ -501,34 +438,6 @@ pub fn camera_follow(w: &mut World, args: &Options) {
         w.require_mut::<Camera>("camera").fov_y_degrees = fov;
     }
     mouse_look(w, args, f.alive);
-    let swing = (now - f.swing_at).clamp(0.0, 0.3) / 0.3;
-    for (_, (vm, t, visible)) in w
-        .query::<(&WeaponPart, &mut Transform, &mut Visible)>()
-        .iter()
-    {
-        let show = f.alive && vm.weapon == f.weapon;
-        if visible.0 != show {
-            visible.0 = show;
-        }
-        let mut at = vm.rest + Vec3::new(0.0, 0.0, 0.06 * f.kick);
-        if f.aiming {
-            at.x -= 0.2;
-            at.y += 0.06;
-        }
-        if f.reload_until > 0.0 {
-            at.y -= 0.12;
-        }
-        if f.bandage_until > 0.0 {
-            at.y -= 0.25;
-        }
-        if vm.weapon == Weapon::Knife && swing < 1.0 {
-            at +=
-                Vec3::new(-0.15, 0.05, -0.15) * exact_game::math::sin(swing * std::f32::consts::PI);
-        }
-        if t.position != at {
-            t.position = at;
-        }
-    }
 }
 
 pub fn contacts(w: &World, viewport: Vec2, target: Option<u32>) -> Vec<Contact> {

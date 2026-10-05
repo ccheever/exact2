@@ -1,4 +1,4 @@
 {
   "data": ["pointer-lock"],
-  "game": { "crate": "rivals-logic", "type": "Rivals" }
+  "game": { "crate": "rivals-logic", "type": "Rivals", "audio": true }
 }

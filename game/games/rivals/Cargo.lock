@@ -884,6 +884,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-game-audio"
+version = "0.1.0"
+dependencies = [
+ "exact-game",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "windows",
+]
+
+[[package]]
 name = "exact-game-derive"
 version = "0.1.0"
 
@@ -2996,6 +3007,7 @@ name = "rivals-gpu"
 version = "0.1.0"
 dependencies = [
  "exact-game",
+ "exact-game-audio",
  "exact-game-render",
  "rivals-logic",
  "serde_json",
