@@ -24,9 +24,9 @@ fn a_held_request_times_out_and_the_ordered_request_behind_it_runs() {
     assert!(timed_out(&outcomes[0].1, 100), "{outcomes:?}");
     assert_eq!(outcomes[0].0, 1);
     assert!(matches!(&outcomes[1], (2, Outcome::Response(r)) if r.body == b"done"));
-    // Well before the fixture's own 5 s hold gives up.
+    // Well before the fixture's own minute-long hold gives up.
     assert!(
-        started.elapsed() < Duration::from_secs(3),
+        started.elapsed() < Duration::from_secs(30),
         "{:?}",
         started.elapsed()
     );
@@ -88,6 +88,7 @@ fn a_deadline_out_of_range_or_on_work_that_is_not_http_is_refused() {
 /// byte every 50 ms, which an idle timeout alone would never end. Each times
 /// out on its deadline, and the trickling exchange is torn down.
 #[test]
+#[ignore = "async lane: a real socket under the platform transport (URLSession), timing-sensitive on a loaded machine; bun scripts/async.mjs runs it"]
 fn the_platform_transport_cancels_a_silent_and_a_trickling_server_at_the_deadline() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();

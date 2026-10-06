@@ -118,6 +118,8 @@ final class FlatLeaves {
         return true
     }
     func isFlat(_ id: UInt32) -> Bool { leaves[id] != nil }
+    /// The node a flat leaf's children op placed it in.
+    func parent(of id: UInt32) -> UInt32? { leaves[id]?.parent }
     /// `id`'s children moved to another container view (a material or a
     /// glass group came or went): its leaves follow at the next flush.
     func containerChanged(_ id: UInt32) { if order[id] != nil { dirty.insert(id) } }

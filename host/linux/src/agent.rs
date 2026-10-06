@@ -80,6 +80,8 @@ pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> Stri
     // may activate a generation after the initial boot's frame was counted.
     if p.dirty() {
         let _ = p.frame();
+        // What that frame moved under the resting pointer is hovered (#139).
+        p.follow_pointer();
     }
     p.first_pixel();
     tagged(p, line, reply)
@@ -663,14 +665,12 @@ fn tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             };
             row["focused"] = (p.focus() == Some(id)).into();
             // What a field shows: typed text its bound value has not
-            // replaced (LLP 1069.001 D4).
-            if p.chosen.contains_key(&id)
-                && p.host()
-                    .kernel()
-                    .node(id)
-                    .is_some_and(|n| n.node_type == exact_kernel::NodeType::TextInput)
-            {
-                row["props"]["value"] = p.field_text(id).into();
+            // replaced (LLP 1069.001 D4); a password's masked (#134).
+            if let Some(node) = p.host().kernel().node(id).filter(|n| {
+                p.chosen.contains_key(&id) && n.node_type == exact_kernel::NodeType::TextInput
+            }) {
+                let text = p.field_text(id);
+                row["props"]["value"] = exact_runner::agent::shown_value(node.props, &text).into();
             }
             if row["type"] == "WebView" || row["type"] == "Video" {
                 row["unavailable"] = true.into();

@@ -149,6 +149,71 @@ fn tree_answers_its_target() {
     }
 }
 
+/// #134: a password field's value is never agent output — the `type`
+/// reply and the tree show a fixed mark, whatever its length, for a bound
+/// field and for typed text no binding replaced; the app's state keeps it.
+#[test]
+fn a_password_value_is_masked_in_every_reply() {
+    let plan = contract::compile(
+        "component App\n  state secret = \"\"\n  action onInput(v: string)\n    secret = v\n  view\n    column width=300\n      input type=\"password\" value=secret input=onInput testId=\"bound\" height=24\n      input type=\"password\" testId=\"loose\" height=24\n      input type=\"password\" testId=\"empty\" height=24\n",
+    )
+    .unwrap();
+    let bytes = contract::bake(plan, NoData).unwrap().encode();
+    let (mut p, _) = Presenter::boot_with(
+        &bytes,
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let tree: serde_json::Value =
+        serde_json::from_str(&handle(&mut p, r#"{"op":"tree"}"#)).unwrap();
+    let id = |name: &str| {
+        tree["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["props"]["testId"] == name)
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap()
+    };
+    let (bound, loose, empty) = (id("bound"), id("loose"), id("empty"));
+    for field in [bound, loose] {
+        let reply = handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{field},"text":"hunter2"}}"#),
+        );
+        assert!(reply.contains(r#""value":"•••""#), "{reply}");
+    }
+    let tree = handle(&mut p, r#"{"op":"tree"}"#);
+    assert!(!tree.contains("hunter2"), "{tree}");
+    let value = |id: u64| -> serde_json::Value {
+        let tree: serde_json::Value = serde_json::from_str(&tree).unwrap();
+        tree["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == id)
+            .unwrap()["props"]["value"]
+            .clone()
+    };
+    assert_eq!(value(bound), "•••");
+    assert_eq!(value(loose), "•••");
+    // An empty field shows that it is empty.
+    assert!(value(empty).is_null() || value(empty) == "", "{tree}");
+    // `layout <field>`'s runner half too.
+    let node = handle(&mut p, &format!(r#"{{"op":"node","id":{bound}}}"#));
+    assert!(
+        node.contains(r#""value":"•••""#) && !node.contains("hunter2"),
+        "{node}"
+    );
+    let state = handle(&mut p, r#"{"op":"state"}"#);
+    assert!(state.contains(r#""secret":"hunter2""#), "{state}");
+}
+
 /// LLP 1061 D5: `prefer` sets what `exactViewport()` answers and the
 /// system appearance; an unknown feature is refused and nothing applies.
 #[test]
@@ -713,6 +778,43 @@ fn a_hover_never_presses_and_a_key_is_never_text() {
         "false 0 kept Escape",
         "a key is heard by name and types nothing"
     );
+}
+
+/// #139: the pointer rests while a timer removes the row above the hovered
+/// one; the next frame's hover follows the layout, as the web's does —
+/// `hover` out of the row that slid away, into the one that slid under it.
+#[test]
+fn a_resting_pointer_hovers_what_the_layout_moves_under_it() {
+    let plan = contract::compile("component App\n  state rows = [\"a\", \"b\", \"c\"]\n  state hovered = \"\"\n  state armed = false\n  task drop when armed\n    after(3000, removeFirst)\n  action hov(id: string, on: bool)\n    hovered = on ? id : (hovered == id ? \"\" : hovered)\n  action arm\n    armed = true\n  action removeFirst\n    rows = slice(rows, 1)\n    armed = false\n  view\n    column width=300 height=300\n      text `${hovered}` testId=\"log\" height=20\n      each r in rows key=r\n        box hover=hov(r) press=arm testId=`row-${r}` width=200 height=60\n").unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let id = |p: &Presenter<NoData>, test_id: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+    };
+    let log = |p: &Presenter<NoData>| {
+        let k = p.host().kernel();
+        let node = k.node_by_key(k.find_by_test_id("log")[0]).unwrap();
+        node.props
+            .str(exact_kernel::PropId::Text)
+            .unwrap()
+            .to_string()
+    };
+    let b = id(&p, "row-b");
+    handle(&mut p, &format!(r#"{{"op":"tap","id":{b}}}"#));
+    handle(&mut p, &format!(r#"{{"op":"tap","id":{b},"hover":true}}"#));
+    assert_eq!(log(&p), "b");
+    // The clock's commit removes row a; the frame after it is hit-tested.
+    handle(&mut p, r#"{"op":"clock","to":3100}"#);
+    assert_eq!(log(&p), "c", "row c slid under the resting pointer");
 }
 
 #[test]

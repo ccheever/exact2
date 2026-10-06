@@ -750,6 +750,61 @@ fn iso_dates_are_to_iso_string_s_date_part() {
     }
 }
 
+fn fixed(f: Stdlib, x: f64, digits: f64) -> Option<Value> {
+    formatting(f, &[Value::Number(x), Value::Number(digits)])
+}
+
+/// LLP 1102 §3.2 (decided (c)): `toFixed` against Bun 1.4.2's
+/// `x.toFixed(d)` (the binary value rounded, a tie away from zero, `1e21`
+/// and up as `String(x)` prints), but `""` where it prints `NaN` or
+/// `Infinity` (D7); `formatDecimal` an integer count, exactly. A random
+/// sweep of both agreed with JavaScript on 200,000 cases when they were
+/// written; `difftest arith` holds them to the Lean semantics.
+#[test]
+fn to_fixed_is_javascript_s_and_format_decimal_is_exact() {
+    #[rustfmt::skip]
+    let rows: &[(f64, f64, &str)] = &[
+        (1.005, 2.0, "1.00"), (1.45, 1.0, "1.4"), (2.5, 0.0, "3"), (-2.5, 0.0, "-3"),
+        (0.5, 0.0, "1"), (-0.001, 2.0, "-0.00"), (-0.0, 2.0, "0.00"), (123.456, 1.0, "123.5"),
+        (1e21, 2.0, "1e+21"), (-1e21, 0.0, "-1e+21"), (999999999999999900000.0, 2.0, "999999999999999868928.00"),
+        (0.1, 20.0, "0.10000000000000000555"), (5e-324, 3.0, "0.000"), (1.255, 2.0, "1.25"),
+        (8.345, 2.0, "8.35"), (10.235, 2.0, "10.23"), (0.000001, 20.0, "0.00000100000000000000"),
+        (0.1, 100.0, "0.1000000000000000055511151231257827021181583404541015625000000000000000000000000000000000000000000000"),
+        (f64::NAN, 2.0, ""), (f64::INFINITY, 0.0, ""), (f64::NEG_INFINITY, 100.0, ""),
+    ];
+    for &(x, d, want) in rows {
+        assert_eq!(
+            fixed(Stdlib::ToFixed, x, d),
+            Some(Value::str(want)),
+            "toFixed({x}, {d})"
+        );
+    }
+    #[rustfmt::skip]
+    let rows: &[(f64, f64, &str)] = &[
+        (1234.0, 2.0, "12.34"), (-5.0, 2.0, "-0.05"), (7.0, 0.0, "7"), (-0.0, 2.0, "0.00"),
+        (0.0, 0.0, "0"), (5.0, 20.0, "0.00000000000000000005"), (-1234567.0, 3.0, "-1234.567"),
+        (9007199254740993.0, 2.0, "90071992547409.92"), (1e21, 0.0, "1000000000000000000000"),
+        (f64::MAX, 0.0, "179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368"),
+        (12.5, 2.0, ""), (f64::NAN, 2.0, ""), (f64::INFINITY, 2.0, ""), (5e-324, 2.0, ""),
+    ];
+    for &(x, d, want) in rows {
+        assert_eq!(
+            fixed(Stdlib::FormatDecimal, x, d),
+            Some(Value::str(want)),
+            "formatDecimal({x}, {d})"
+        );
+    }
+    // Digits the compiler refuses are refused here too, never guessed.
+    for (f, d) in [
+        (Stdlib::ToFixed, 101.0),
+        (Stdlib::ToFixed, 1.5),
+        (Stdlib::ToFixed, -1.0),
+        (Stdlib::FormatDecimal, 21.0),
+    ] {
+        assert_eq!(fixed(f, 1.0, d), None, "{f:?} at {d}");
+    }
+}
+
 #[test]
 fn a_style_outside_the_table_is_refused_not_guessed() {
     let args = [Value::Number(0.0), Value::Number(0.0), Value::str("long")];

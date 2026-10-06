@@ -255,7 +255,9 @@ public enum DevMenu {
         }
         let started = CACurrentMediaTime()
         let batch = session.boot(size: session.presenter.viewportSize)
-        print("reloaded in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
+        // stderr, never stdout: stdout is the agent's reply channel on macOS,
+        // and a reply-shaped line there answers the driver's next request.
+        fputs("exact: reloaded in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")\n", stderr)
     }
 
     static func info() -> String {

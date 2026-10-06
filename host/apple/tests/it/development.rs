@@ -21,6 +21,7 @@ fn bun(script: &str) -> String {
 }
 
 #[test]
+#[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
 fn development_opening_metadata_is_app_specific_and_opt_in() {
     bun(r#"
 import assert from 'node:assert/strict';
@@ -73,6 +74,7 @@ assert.ok(html.includes('cannot detect whether a client is installed'));
 
 #[cfg(target_os = "macos")]
 #[test]
+#[ignore = "async lane: launches Bun and the Swift compiler; bun scripts/async.mjs runs it"]
 fn swift_development_link_admits_only_its_dev_server_and_token() {
     // What build.mjs bakes and the link a dev server offers for that build,
     // read here exactly as a development bundle's Info.plist is.
@@ -171,6 +173,7 @@ precondition(!ExactDevelopmentLink.claims(link("https://x.test/", token)) && !Ex
 
 #[cfg(target_os = "macos")]
 #[test]
+#[ignore = "async lane: launches the Swift compiler; bun scripts/async.mjs runs it"]
 fn local_development_plan_loads_the_pair_and_retries_partial_writes() {
     let source = include_str!("../../Sources/ExactKit/PlanURL.swift")
         .split("/// Explicit development-only opening action")

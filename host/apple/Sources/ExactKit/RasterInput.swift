@@ -38,7 +38,7 @@ final class RasterInput: @unchecked Sendable {
         guard !cancellation.isCancelled else { throw URLError(.cancelled) }
         // The app's own file (LLP 1069.002 D7): a picked photo's preview.
         if name.hasPrefix("app:/") {
-            guard let url = AppFiles.url(name) else { throw RasterFailure.decode }
+            guard let url = AppFiles.url(name) else { throw RasterFailure.unresolved }
             let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
             guard values.isRegularFile == true, let count = values.fileSize,
                   count > 0, count <= RasterMetadata.encodedLimit else { throw RasterFailure.encodedLimit }
@@ -53,12 +53,12 @@ final class RasterInput: @unchecked Sendable {
             return RasterInput(url: file, encodedBytes: bytes.count, temporary: true)
         }
         if let url = URL(string: name), let scheme = url.scheme {
-            guard scheme == "https" || scheme == "http" else { throw RasterFailure.decode }
+            guard scheme == "https" || scheme == "http" else { throw RasterFailure.unresolved }
             let download = try RasterDownload(url: url)
             let (file, count) = try download.run(cancellation)
             return RasterInput(url: file, encodedBytes: count, temporary: true)
         }
-        guard let url = resolver.url(name, maximumBytes: RasterMetadata.encodedLimit) else { throw RasterFailure.decode }
+        guard let url = resolver.url(name, maximumBytes: RasterMetadata.encodedLimit) else { throw RasterFailure.unresolved }
         let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
         guard values.isRegularFile == true, let count = values.fileSize,
               count > 0, count <= RasterMetadata.encodedLimit else { throw RasterFailure.encodedLimit }
@@ -98,6 +98,12 @@ final class RasterInput: @unchecked Sendable {
         guard bytes.count == encodedBytes else { throw RasterFailure.decode }
         return bytes
     }
+}
+
+/// A response that is not 2xx: its status is the image's `error` (LLP 1011 §4).
+struct RasterHTTPStatus: Error, CustomStringConvertible {
+    let code: Int
+    var description: String { "HTTP \(code)" }
 }
 
 private final class RasterDownload: NSObject, URLSessionDataDelegate, @unchecked Sendable {
@@ -145,8 +151,10 @@ private final class RasterDownload: NSObject, URLSessionDataDelegate, @unchecked
     }
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        guard response.expectedContentLength <= RasterMetadata.encodedLimit,
-              (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? false else {
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            failure = RasterHTTPStatus(code: (response as? HTTPURLResponse)?.statusCode ?? 0); completionHandler(.cancel); return
+        }
+        guard response.expectedContentLength <= RasterMetadata.encodedLimit else {
             failure = RasterFailure.encodedLimit; completionHandler(.cancel); return
         }
         completionHandler(.allow)
