@@ -290,6 +290,7 @@ struct Inline {
     /// The live region as last written, and its boxes for hit-testing.
     last: Option<crate::grid::Grid>,
     hits: Vec<(exact_kernel::ViewId, crate::grid::CellRect)>,
+    scrollers: Vec<(exact_kernel::ViewId, crate::grid::CellRect, f32)>,
     /// Mouse reporting is on (only while a dialog is open, LLP 1101.001):
     /// the cursor row inside the region at each position query still
     /// unanswered, and the region's top screen row from the last answer.
@@ -411,6 +412,7 @@ impl Inline {
         self.cursor_row = target_row;
         self.last = Some(painted.grid);
         self.hits = painted.hits;
+        self.scrollers = painted.scrollers;
         // Clicks only while a dialog is open; scroll and selection are the
         // terminal's the rest of the time.
         let want = host.has_layer();
@@ -442,6 +444,13 @@ impl Inline {
     fn click<D: DataSource>(&self, host: &mut Host<D>, x: i32, y: i32) {
         if let Some(top) = self.top {
             host.click_in(&self.hits, x, y - top as i32);
+        }
+    }
+
+    /// A wheel at a screen cell, if it lands in the live region.
+    fn wheel<D: DataSource>(&self, host: &mut Host<D>, x: i32, y: i32, rows: i32) {
+        if let Some(top) = self.top {
+            host.wheel_in(&self.scrollers, x, y - top as i32, rows);
         }
     }
 
@@ -567,6 +576,7 @@ fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
         protocol: Protocol::detect(),
         last: None,
         hits: Vec::new(),
+        scrollers: Vec::new(),
         mouse: false,
         queries: std::collections::VecDeque::new(),
         top: None,
@@ -670,6 +680,7 @@ fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
                 Input::Click(x, y) if mode == Mode::Inline => inline.click(host, x, y),
                 Input::Click(x, y) => host.click(x, y),
                 Input::CursorAt(row, _) => inline.answered(row),
+                Input::Wheel(x, y, rows) if mode == Mode::Inline => inline.wheel(host, x, y, rows),
                 Input::Wheel(x, y, rows) => host.wheel(x, y, rows),
                 Input::Paste(text) => host.paste(&text),
             }
@@ -784,10 +795,50 @@ mod tests {
                 protocol: Protocol::Blocks,
                 last: None,
                 hits: Vec::new(),
+                scrollers: Vec::new(),
                 mouse: false,
                 queries: std::collections::VecDeque::new(),
                 top: None,
             }
+        }
+
+        const PICKER: &str = "component App\n  state picked = \"none\"\n  action pick(v: string)\n    picked = v\n  action open\n    showModal(\"d\")\n  view\n    column\n      column role=\"log\"\n        text \"line one\" id=\"a\"\n        text \"line two\" id=\"b\"\n      text `picked ${picked}`\n      dialog id=\"d\" closedby=\"any\"\n        each v in [\"alpha\", \"beta\", \"gamma\", \"delta\"] key=v\n          button press=pick(v) commandfor=\"d\" command=\"close\" text-align=\"start\"\n            text v\n";
+
+        /// A click on a dialog item lands on that item: the writer locates
+        /// its live region by the terminal's answer to a cursor query, as a
+        /// real terminal gives it (here, vt100's).
+        #[test]
+        fn an_inline_click_hits_the_item_under_it() {
+            let plan = contract::compile(PICKER).expect("compiles");
+            let mut host = Host::boot(plan, (), Mode::Inline, 30, 12).expect("boots");
+            host.arm = false;
+            let mut screen = Screen {
+                vt: vt100::Parser::new(12, 30, 1000),
+                scrolled: Vec::new(),
+            };
+            let mut inline = writer();
+            // Some history first, so the region is not at the screen's top.
+            for _ in 0..3 {
+                let mut out = String::new();
+                inline.frame(&mut host, &mut out);
+                screen.feed(&out);
+                for _ in 0..out.matches("\x1b[6n").count() {
+                    inline.answered(screen.vt.screen().cursor_position().0 as usize + 1);
+                }
+                host.act("open");
+            }
+            let contents = screen.vt.screen().contents();
+            let (y, line) = contents
+                .lines()
+                .enumerate()
+                .find(|(_, l)| l.contains("gamma"))
+                .expect("the dialog is on screen");
+            let x = line.find("gamma").expect("gamma") as i32;
+            inline.click(&mut host, x, y as i32);
+            let mut out = String::new();
+            inline.frame(&mut host, &mut out);
+            screen.feed(&out);
+            assert!(screen.all().contains("picked gamma"), "{}", screen.all());
         }
 
         #[test]

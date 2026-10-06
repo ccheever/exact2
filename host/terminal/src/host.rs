@@ -712,6 +712,17 @@ impl<D: DataSource> Host<D> {
         Some((n.frame.height / ROW).round().max(1.0) as usize)
     }
 
+    /// A wheel at a cell of a region painted apart (inline's live region),
+    /// against that painting's scrollers.
+    pub fn wheel_in(&mut self, scrollers: &[(ViewId, CellRect, f32)], x: i32, y: i32, rows: i32) {
+        let found = scrollers.iter().rev().find(|(_, r, _)| r.contains(x, y));
+        if let Some((id, _, reach)) = found {
+            let at = self.scroll.entry(*id).or_insert(0.0);
+            *at = (at.min(*reach) + rows as f32 * ROW).clamp(0.0, *reach);
+            self.changed();
+        }
+    }
+
     /// Whether a dialog or popover is open.
     pub fn has_layer(&self) -> bool {
         !self.layers.is_empty()
