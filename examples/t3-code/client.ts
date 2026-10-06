@@ -17,21 +17,21 @@ import { editorLocal } from './composer-editor';
 import { adoptStash } from './composer-editor-stash';
 import { adoptComposerFiles } from './composer-editor-files';
 import { startThreadSearch } from './sidebar-presentation';
-import { sidebarCommand, sidebarLocal, sidebarSelecting, sidebarOpened, sidebarRefreshed } from './sidebar-commands';
+import { sidebarCommand, sidebarLocal, sidebarOpened, sidebarRefreshed } from './sidebar-commands';
 import { reconnectOnLaunch, launchFocus } from './r8-pointer-reconnect';
 import { adoptSidebarPrefs } from './sidebar-state';
 import { PROVIDER_OPS } from './providers';
 import { CONNECTION_OPS } from './connections';
 import { READ_OPS, WRITE_OPS, runOps, type OpOut } from './client-ops';
-import { fleet, parseFleetThreadId, focusFleetThread } from './settings-b-fleet';
+import { fleet } from './settings-b-fleet';
 import { groupLabel } from './r6-polish-groups';
 import { adoptModelPrefs } from './settings-b-models';
 import { settingsBCommand } from './settings-b-commands';
-import { type RequestDraft, dismissThreadError } from './requests';
+import { type RequestDraft } from './requests';
 import { DiffState, DIFF_LOCAL_OPS, adoptDiff, diffPaths, diffRequest, diffView, selectCheckpoint, selectScope } from './diff';
 import { rememberDiffLayout } from './settings-appearance-look';
 import { TELEMETRY_KEY, telemetryEvent } from './settings-a-telemetry';
-import { heroCarry, heroLand, ensureScratchProject, mostRecentProjectId } from './pages-home';
+import { mostRecentProjectId } from './pages-home';
 import { pagesLocal } from './pages-commands';
 import { adoptPagesPrefs } from './pages-prefs';
 import { adoptShellPrefs } from './shell-prefs';
@@ -43,7 +43,7 @@ import { DEVICE_STATE_KEY, deviceStateEvent } from './r4-surfaces-device';
 import { WORKTREE_SETUP_KEY, worktreeSetupEvent } from './timeline-worktree';
 import { GIT_ACTION_KEY, gitActionEvent } from './r4-git-actions';
 import { obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThread, mergeHistory,
-  readyCheckpoint, messages, type Obj, type Shell, type ThreadState } from './domain';
+  readyCheckpoint, type Obj, type Shell, type ThreadState } from './domain';
 import { ClientError, bridgeReply, providerAvailable, applyConfig, type Native, type Files } from './protocol';
 
 const localPath = 'app:/data/t3-code.json';
@@ -101,9 +101,9 @@ export class T3Client {
   private refreshEpoch = 0;
   private commandEpoch = 0;
   private lastEvent = 0;
-  private threadEpoch = 0;
-  private threadSubscription = '';
-  private subscriptions: Record<string, string> = {};
+  threadEpoch = 0;
+  threadSubscription = '';
+  subscriptions: Record<string, string> = {};
   private needsFreshSnapshot = false;
   /** The refresh adopting captures, or -1. A newer read takes over one Exact let go mid-flight. */
   private snapshotAdopting = -1;
@@ -625,12 +625,7 @@ export class T3Client {
       await this.load(storage);
       await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, confirmQuit: quitMode(this.local) });
       if (await runOps(this, READ_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
-      else if (op === 'copy-message') {
-        const message = messages(this.thread).find(message => message.id === id && ['user', 'assistant', 'plan'].includes(message.kind));
-        if (!message) throw new ClientError('That message is no longer available.');
-        await this.call(native, { op: 'copyText', text: message.body });
-        resultMessage = 'Copied message';
-      } else if (op === 'grouping-mode') {
+      else if (op === 'grouping-mode') {
         if (!groupingModes.includes(value)) throw new ClientError('Unsupported grouping mode.');
         this.local.groupingMode = value;
       } else if (op === 'grouping-override') {
@@ -652,49 +647,20 @@ export class T3Client {
         if (n) { this.local.sidebarWidth = Math.min(4096, Math.max(208, n)); storeSidebarWidth(this); } // a drag ended (the toggle sends 0)
         if (value === 'open' || value === 'closed') this.local.sidebarOpen = value === 'open';
         else if (!n) this.local.sidebarOpen = !this.local.sidebarOpen;
-      } else if (op === 'dismiss-error') { dismissThreadError(this); this.error = ''; }
-      else if (op === 'close-diff') { this.diffOpen = false; this.diffLoading = false; }
+      } else if (op === 'close-diff') { this.diffOpen = false; this.diffLoading = false; }
       else if (op === 'diff-view' && id === 'copy') { await this.call(native, { op: 'copyText', text: value }); resultMessage = 'Copied file path'; }
       else if (op === 'diff-view') { diffView(this, id, value, diffPaths(this)); if (id === 'layout') rememberDiffLayout(this, value); }
-      else if (op === 'select-project' || op === 'new-thread' || op.startsWith('pages:hero-')) {
-        const carry = op.startsWith('pages:hero-') ? await heroCarry(this, op.slice(11), id, () => ensureScratchProject(this, native!)) : null;
-        if (carry) id = carry.projectId;
-        if (id && this.shell.projects.some(project => project.id === id)) this.projectId = id;
-        this.threadId = ''; this.thread = null; this.threadSubscription = ''; this.threadEpoch++;
-        delete this.subscriptions.thread;
-        this.threadLive = true; this.diffOpen = false; this.answers = {}; this.chooseDefaults();
-        if (this.connection === 'connected') await this.call(native, { op: 'unsubscribe', key: 'thread' });
-        if (carry) heroLand(this, carry);
-      } else if (op === 'select-thread') {
-        if (parseFleetThreadId(id)) { const focused = await focusFleetThread(this, native, id); this.adoptStatus(focused.value, focused.generation); } // settings-b: another environment
-        else if (!(await sidebarSelecting(this, native, id, value))) await this.openSelected(native, id);
-      } else if (op === 'history') await this.history(native);
       else if (['diff', 'checkpoint-diff', 'diff-scope', 'diff-refresh', 'diff-whitespace'].includes(op)) await this.diff(native, op, id, value, n);
       else {
         this.requireWrite();
         if (await runOps(this, WRITE_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
-        else if (op === 'fork-message') {
-          const source = messages(this.thread).find(message => message.id === id && message.kind === 'assistant');
-          if (!source?.runId || !source.completed) {
-            throw new ClientError('Only a completed response can be forked.');
-          }
-          const [commandId, targetThreadId] = await this.ids(native, 2);
-          await this.dispatch(native, storage, { type: 'thread.fork', commandId, createdBy: 'user', creationSource: 'web',
-            sourceThreadId: source.sourceThreadId || this.threadId, targetThreadId,
-            sourcePoint: { type: 'run', runId: source.runId }, title: `${str(obj(this.projection.thread).title, 'Thread')} fork` }, 'Fork response');
-          this.threadId = targetThreadId;
-          await this.openThread(native, targetThreadId);
-        } else if (op === 'add-project') await this.addProject(native, storage, id, value);
+        else if (op === 'add-project') await this.addProject(native, storage, id, value);
         else if (op === 'rename-project' || op === 'remove-project') await this.manageProject(native, storage, op, id, value);
         else if (op === 'rename-group' || op === 'remove-group') await this.manageGroup(native, storage, op, id, value);
         else if (op === 'remove-group-member') {
           this.shell = applyShell(this.shell, await this.http(native, '/api/orchestration/shell'));
           if (!this.projectGroups().some(group => group.key === value && group.members.some(member => member.id === id))) throw new ClientError('Project group membership changed. Reopen its settings.');
           await this.manageProject(native, storage, 'remove-project', id, '');
-        }
-        else if (op === 'unsettle') {
-          const [commandId] = await this.ids(native, 1);
-          await this.dispatch(native, storage, { type: 'thread.unsettle', commandId, threadId: this.threadId, reason: 'user' }, 'Un-settle thread');
         }
         else if (op.startsWith('rest:')) resultMessage = await restCommand(this, native, storage, op.slice(5), id, value);
         else if (op.startsWith('chat:')) resultMessage = await chatCommand(this, native, storage, op.slice(5), id, value);
