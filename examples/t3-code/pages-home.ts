@@ -87,12 +87,15 @@ export function heroProjects(client: Pick<T3Client, 'shell' | 'projectId' | 'con
  * on this device (HostedStaticOnboardingState); "offline": a saved environment
  * that is not connected (the reference renders nothing until it bootstraps);
  * "no-projects": connected with no project (NoProjectsHero); "start-error":
- * projects exist but no draft target resolved (DraftStartError); "" the hero.
+ * projects exist but no draft target resolved (DraftStartError); "no-thread": the
+ * route names a thread the environment does not hold (NoActiveThreadState); "" the hero.
  */
-export function landingKind(input: { connected: boolean; ready: boolean; savedEnvironments: number; connecting: boolean; projects: number; projectId: string; threadId: string }): string {
+export function landingKind(input: { connected: boolean; ready: boolean; savedEnvironments: number; connecting: boolean; projects: number; projectId: string; threadId: string; missingThread?: boolean }): string {
   if (!input.connected) return input.savedEnvironments === 0 && !input.connecting ? 'no-environment' : 'offline';
   if (!input.ready) return 'offline';
   if (input.projects === 0) return 'no-projects';
+  // composer-fidelity G15: a route to a thread the environment does not hold (ChatView's NoActiveThreadState).
+  if (input.threadId && input.missingThread) return 'no-thread';
   if (!input.projectId && !input.threadId) return 'start-error';
   return '';
 }
@@ -125,7 +128,8 @@ export async function pagesHome(client: T3Client, native: Native | null | undefi
   return {
     // /welcome renders NoProjectsHero beneath the wizard.
     landing: firstRunPending ? 'no-projects' : landingKind({ connected, ready: client.ready, savedEnvironments: saved, connecting: ['connecting', 'reconnecting'].includes(client.connection),
-      projects: client.shell.projects.length, projectId: client.projectId, threadId: client.threadId }),
+      projects: client.shell.projects.length, projectId: client.projectId, threadId: client.threadId,
+      missingThread: !client.thread && !client.shell.threads.some(thread => thread.id === client.threadId) }),
     headline, projectName, projectNames: [{ id: projectName }], projects,
     noProjectItem: !!root, scratchDraft,
     // "or start without a project" sits under the heading only while a real project (or choice) shows.
