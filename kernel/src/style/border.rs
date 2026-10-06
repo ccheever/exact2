@@ -8,7 +8,7 @@ use crate::generated::{BorderStyle, StyleProps};
 impl StyleProps {
     /// CSS effective border widths: none and hidden occupy no border area.
     pub fn border_widths(&self) -> [f32; 4] {
-        [
+        let widths = [
             (self.border_style_top, self.border_width_top),
             (self.border_style_right, self.border_width_right),
             (self.border_style_bottom, self.border_width_bottom),
@@ -17,7 +17,8 @@ impl StyleProps {
         .map(|(style, width)| match style {
             BorderStyle::Solid | BorderStyle::Inset => width.max(0.0),
             BorderStyle::None | BorderStyle::Hidden => 0.0,
-        })
+        });
+        super::cells::border(widths)
     }
 
     /// Border colours after resolving currentColor against this node's

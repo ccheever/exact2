@@ -33,6 +33,7 @@ pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, SegmentVar};
 pub use exact_motion::color::css::link_wide as link_wide_colors;
 mod viewport;
 pub use viewport::ViewportUnit;
+pub mod cells;
 mod color_parse;
 pub mod profiled;
 pub mod relative;

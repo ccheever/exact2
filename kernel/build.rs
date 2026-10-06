@@ -1267,9 +1267,10 @@ fn generate(schema: &Schema, digest: u64) -> String {
         "        let provisional = relative.map(|r| crate::style::relative::provisional(id, r));"
     )
     .unwrap();
+    // A terminal's `ch`/`lh` store their pixels at the fixed cell (LLP 1101 D3).
     writeln!(
         w,
-        "        let value = provisional.as_ref().unwrap_or(value);"
+        "        let cells = crate::style::cells::of(id, value)?;\n        let value = provisional.as_ref().or(cells.as_ref()).unwrap_or(value);"
     )
     .unwrap();
     writeln!(w, "        match id {{").unwrap();
