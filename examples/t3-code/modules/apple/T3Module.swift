@@ -110,7 +110,7 @@ final class T3Module: ExactModule {
         frames.install(element); scrollEnds.install(element)
         composer.install(element); chrome.install(element); timeline.install(element); menus.install(element); turns.install(element); video.install(element); media.install(element); devices.install(element)
         launcher.install(element); measure.install(element); r9.install(element); r10.install(element)
-        T3PlainText.install(element) // the Files editor types exactly what was typed (T3PanelsNative.swift, lane r5-panels)
+        T3FileEditor.install(element) // the Files editor takes the focus its press began (T3PanelsNative.swift, lane r5-panels)
         if element.hook == .t3Composer { snapShot.setComposer(key: ObjectIdentifier(element), owner: element.data[.snapshotOwner] ?? "", view: element.view, focus: { [weak element] in element?.focus() }) }
         if element.hook == .t3SnapshotTile, let view = element.view { snapShot.installTile(id: element.data[.snapshotId] ?? "", view: view) }
     }
