@@ -203,7 +203,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
 
     private func natural(_ id: UInt32, _ control: UISegmentedControl) -> CGSize {
         let fonts = [UIControl.State.normal, .selected].map { (control.titleTextAttributes(for: $0)?[.font] as? UIFont).map { "\($0.fontName) \($0.pointSize)" } ?? "" }
-        let segments = (0..<control.numberOfSegments).map { "\(control.titleForSegment(at: $0) ?? "")|\(control.imageForSegment(at: $0)?.size ?? .zero)" }
+        let segments = (0..<control.numberOfSegments).map { "\(control.titleForSegment(at: $0) ?? "")|\(control.imageForSegment(at: $0)?.size ?? .zero)|\(control.widthForSegment(at: $0))" }
+            + ["\(control.apportionsSegmentWidthsByContent)"]
         let t = control.traitCollection
         let source = "\(segments)|\(fonts)|\(t.preferredContentSizeCategory.rawValue)|\(t.legibilityWeight.rawValue)"
         // A hook's own look (a background image, a divider) sizes it too:
