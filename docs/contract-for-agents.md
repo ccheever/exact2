@@ -560,7 +560,8 @@ A shape has no exported name in the `.d.ts`: name one by its source,
 an optional answer is `… | null`, so `NonNullable<Result<'find'>>`).
 The [human guide's data-module section](contract-for-humans.md#writing-the-data-module)
 has a complete `app.ts`: synchronous, `fetch` and SQLite sources, the grants
-each needs, and how to drive it with storage.
+each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https://…'].join('\n')`),
+and how to drive it with storage.
 The compiler accepting a source call does not provide its implementation. Check
 its arguments, declared result, grants, storage access, and bake-time behavior.
 Keep generated output out of version control. Use app-local sources for domain

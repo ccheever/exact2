@@ -719,6 +719,18 @@ pub(crate) fn check_style_value(
                                     .to_string()
                             })
                         });
+                        // CSS's initial `none` on a maximum (r30 t4-kanban).
+                        let hint = hint.or_else(|| {
+                            (matches!(a.name.as_str(), "max-width" | "max-height")
+                                && matches!(value, Expr::Str(t, _) if t.trim() == "none"))
+                            .then(|| {
+                                format!(
+                                    "; no limit is the default, so leave `{}` out \
+                                     (an explicit no-limit is `auto` here)",
+                                    a.name
+                                )
+                            })
+                        });
                         return err(
                             "lower-attr-value",
                             format!(
