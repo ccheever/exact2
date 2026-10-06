@@ -65,12 +65,14 @@ final class RasterSpoolTests: XCTestCase {
     /// a second process's sweep (another descriptor) keeps it. The held
     /// descriptor itself is close-on-exec, so no exec'd child keeps it.
     func testEstablishingSweepsAndHoldsItsOwnLock() throws {
-        let dead = try spool("dead", lock: true)
+        let base = root.appendingPathComponent("exact-raster")
+        let dead = try spool("exact-raster/dead", lock: true)
+        let outside = try spool("outside", lock: true)
         let spool = RasterSpool(tmp: root)
         let mine = try spool.directory()
-        let base = root.appendingPathComponent("exact-raster")
         XCTAssertEqual(mine.deletingLastPathComponent().standardizedFileURL, base.standardizedFileURL)
-        XCTAssertTrue(fm.fileExists(atPath: dead.path), "outside the spool root: not swept")
+        XCTAssertFalse(fm.fileExists(atPath: dead.path), "the first spool sweeps an abandoned directory (Astra r3 finding 2)")
+        XCTAssertTrue(fm.fileExists(atPath: outside.path), "outside the spool root: not swept")
         RasterSpool.sweep(base)
         XCTAssertTrue(fm.fileExists(atPath: mine.path), "this process's lock is held")
         let fd = open(mine.appendingPathComponent(".lock").path, O_RDWR | O_CLOEXEC)
@@ -136,9 +138,32 @@ final class RasterSpoolTests: XCTestCase {
         var info = stat()
         XCTAssertEqual(lstat(linked.path, &info), 0)
         XCTAssertEqual(info.st_mode & S_IFMT, S_IFDIR, "the root is a real directory now")
+    }
+
+    /// Two launches both see the symlinked root; the second is paused there
+    /// while the first repairs it and spools, then resumes its own repair:
+    /// the first's live spool survives (Astra r2 finding 1, r3 finding 1).
+    func testAConcurrentRepairKeepsTheOtherLaunchsSpool() throws {
+        let elsewhere = fm.temporaryDirectory.appendingPathComponent("raster-elsewhere-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: elsewhere) }
+        let linked = root.appendingPathComponent("exact-raster")
+        try fm.createSymbolicLink(at: linked, withDestinationURL: elsewhere)
+        var first: (url: URL, lock: Int32)?
+        RasterSpool.sawSymlink = { [fm] in
+            RasterSpool.sawSymlink = nil
+            // The other launch, all the way through, while this one waits.
+            first = try? RasterSpool.establish(in: linked)
+            if let first { try? Data("bytes".utf8).write(to: first.url.appendingPathComponent("spooled")) }
+            _ = fm
+        }
+        defer { RasterSpool.sawSymlink = nil }
         let second = try RasterSpool.establish(in: linked)
         defer { close(second.lock) }
-        XCTAssertTrue(fm.fileExists(atPath: first.url.path), "a second launch's repair keeps the first's live spool")
+        let made = try XCTUnwrap(first)
+        defer { close(made.lock) }
+        XCTAssertTrue(fm.fileExists(atPath: made.url.appendingPathComponent("spooled").path), "the first launch's live spool survives")
+        XCTAssertNotEqual(made.url, second.url)
     }
 
     /// The spools of builds before the directory, loose in an iOS app's own

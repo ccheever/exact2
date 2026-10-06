@@ -15,6 +15,10 @@ final class RasterSpool: @unchecked Sendable {
     /// now (the image fails, and the next spool asks again).
     static let attempts = 20, pause: useconds_t = 25_000
 
+    /// Tests only: runs between seeing a symlinked root and unlinking it, so
+    /// another launch's repair can be put exactly there.
+    nonisolated(unsafe) static var sawSymlink: (() -> Void)?
+
     let tmp: URL
     private let guarded = NSLock()
     private var established: (url: URL, lock: Int32)?
@@ -50,7 +54,10 @@ final class RasterSpool: @unchecked Sendable {
         // cannot remove a directory, so a real root another launch just made
         // survives a concurrent repair), and a real directory takes its place.
         var info = stat()
-        if lstat(root.path, &info) == 0, info.st_mode & S_IFMT == S_IFLNK { unlink(root.path) }
+        if lstat(root.path, &info) == 0, info.st_mode & S_IFMT == S_IFLNK {
+            sawSymlink?()
+            unlink(root.path)
+        }
         if mkdir(root.path, 0o700) != 0, errno != EEXIST { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         let namespace = try lockFile(root.appendingPathComponent(".namespace.lock"), create: true, attempts: attempts)
         defer { close(namespace) }
