@@ -10,10 +10,10 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         /// The app's trace id: a status read lists the traces still pending (r3-protocol-reader.ts).
         var trace: Int? = nil
     }
-    private let queue = DispatchQueue(label: "com.exact.t3code.transport")
+    let queue = DispatchQueue(label: "com.exact.t3code.transport")
     private let changed: (String) -> Void
-    private let credentials: T3Credentials
-    private let savedEnvironments: T3SavedEnvironments
+    let credentials: T3Credentials
+    let savedEnvironments: T3SavedEnvironments
     private let persistent: Bool
     /// The focused transport restores its origin at launch; background
     /// environment transports (T3Fleet) never replace that saved origin.
@@ -22,7 +22,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     private let defaults: UserDefaults
     private static let originKey = "t3.server.origin"
     private let preferencesURL: URL?
-    private var session: URLSession!
+    var session: URLSession!
     private var socket: URLSessionWebSocketTask?
     private var httpTasks: [Int: URLSessionDataTask] = [:]
     private var pending: [String: Pending] = [:]
@@ -34,21 +34,21 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     /// failures per key, and the failed subscription whose `_retryDue` is scheduled.
     private var streamRetries: [String: Int] = [:]
     private var failedStreams: [String: String] = [:]
-    private var inbox = T3Inbox()
+    var inbox = T3Inbox()
     private var transfers = T3Transfers()
     private var outbox: [String] = []
     private var outboxBytes = 0
     private var sending = false
-    private var generation = 0
+    var generation = 0
     private var serial = 0
-    private var origin: URL?
-    private var token = ""
+    var origin: URL?
+    var token = ""
     private var privateValues: [String] = []
-    private var descriptor: [String: Any] = [:]
+    var descriptor: [String: Any] = [:]
     private var state = "disconnected"
     private var message = "Connect to your T3 server."
-    private var alive = true
-    private var wantsConnection = false
+    var alive = true
+    var wantsConnection = false
     /// Consecutive failed attempts (T3Reconnect.delay's ladder); reset only by a stable connection or a retry.
     private var failures = 0
     private var connectedAt: Date?
@@ -59,7 +59,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     private var probeUnanswered = false
     private let random: () -> Double
     private var signals: T3Signals?
-    private var reconnect: DispatchWorkItem?
+    var reconnect: DispatchWorkItem?
     private var tick: DispatchSourceTimer?
     private var lastPong = Date()
     private var nextPing = Date()
@@ -95,6 +95,11 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         }
     }
 
+    /// Each area's ops (T3Transport+<Area>.swift), tried on the queue after the core ops above:
+    /// an area runs the ops it owns and answers false for the rest. No two areas share an op.
+    /// A feature adds its area's method in its own file and one entry here.
+    private static let areas: [(T3Transport) -> ([String: Any], @escaping Completion) throws -> Bool] = [T3Transport.environmentOps]
+
     func perform(_ request: [String: Any], completion: @escaping Completion) {
         queue.async { [self] in
             guard alive else { return finish(completion, failure: T3Failure(kind: "Closed", message: "The window was closed.")) }
@@ -129,39 +134,6 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
                     if request["abandon"] as? Bool == true { origin = nil; descriptor = [:] }
                     setStatus("disconnected", "Disconnected.")
                     finish(completion, value: status())
-                case "environments": finish(completion, value: ["saved": savedEnvironments.all])
-                case "connectionPreferences": finish(completion, value: ["text": savedEnvironments.preferences])
-                case "setConnectionPreferences":
-                    guard let text = request["text"] as? String else { throw arguments("setConnectionPreferences requires text.") }
-                    try savedEnvironments.setPreferences(text); finish(completion, value: ["text": text])
-                case "setEnvironmentEnabled":
-                    guard let raw = request["origin"] as? String, let environment = request["environmentId"] as? String, !environment.isEmpty,
-                          let enabled = request["enabled"] as? Bool else { throw arguments("setEnvironmentEnabled requires origin, environmentId and enabled.") }
-                    let saved = try T3Endpoint.origin(raw)
-                    guard savedEnvironments.setEnabled(origin: saved.absoluteString, environment: environment, enabled: enabled) else {
-                        throw T3Failure(kind: "Missing", message: "That environment is no longer saved on this device.")
-                    }
-                    finish(completion, value: ["saved": savedEnvironments.all])
-                case "forgetEnvironment":
-                    // Forget one saved environment's pairing on this device; the
-                    // active connection closes only when it is that environment.
-                    guard let raw = request["origin"] as? String, let environment = request["environmentId"] as? String, !environment.isEmpty else {
-                        throw arguments("forgetEnvironment requires origin and environmentId.")
-                    }
-                    let saved = try T3Endpoint.origin(raw)
-                    try credentials.forget(origin: saved.absoluteString, environment: environment)
-                    savedEnvironments.forget(origin: saved.absoluteString, environment: environment)
-                    let focusedId = descriptor["environmentId"] as? String ?? ""
-                    let focused = origin == saved && (focusedId == environment || focusedId.isEmpty)
-                    if focused {
-                        wantsConnection = false; reconnect?.cancel(); reconnect = nil
-                        retire(T3Failure(kind: "Disconnected", message: "Disconnected from the server.", uncertain: true))
-                        generation += 1; inbox.reset(); token = ""
-                        setStatus("disconnected", "Disconnected.")
-                    }
-                    forgotten(saved, wasFocused: focused)
-                    finish(completion, value: status())
-                case "pairEnvironment": try pairEnvironment(request, completion: completion)
                 case "http": try readHTTP(request, completion: completion)
                 case "uploadAttachment": try uploadAttachment(request, completion: completion)
                 case "request": try rpc(request, completion: completion)
@@ -181,7 +153,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
                 case "releaseChunk":
                     if let id = request["id"] as? String { transfers.release(id) }
                     finish(completion, value: [:])
-                default: throw arguments("Unknown native operation.")
+                default: guard try Self.areas.contains(where: { try $0(self)(request, completion) }) else { throw arguments("Unknown native operation.") }
                 }
             } catch { finish(completion, failure: failure(error)) }
         }
@@ -199,7 +171,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         }
     }
 
-    private func arguments(_ text: String) -> T3Failure { T3Failure(kind: "Arguments", message: text) }
+    func arguments(_ text: String) -> T3Failure { T3Failure(kind: "Arguments", message: text) }
     private func readPreferences() throws -> String {
         guard let preferencesURL else { throw T3Failure(kind: "Persistence", message: "The app data directory is unavailable.") }
         do {
@@ -246,18 +218,18 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     /// relaunch already chooses without the key when it is empty (`relaunchTarget`: this machine, then the first
     /// saved one, never a switched-off one), and the next socket that opens writes the key anew. A second saved
     /// environment at the same origin keeps the key, since the origin still names a saved environment.
-    private func forgotten(_ gone: URL, wasFocused: Bool) {
+    func forgotten(_ gone: URL, wasFocused: Bool) {
         if wasFocused { origin = nil; descriptor = [:]; failureKind = ""; failureTrace = ""; lastHTTPTrace = "" }
         guard persistent, remembersOrigin, !isSaved(gone),
               let saved = defaults.string(forKey: Self.originKey), (try? T3Endpoint.origin(saved)) == gone else { return }
         defaults.removeObject(forKey: Self.originKey)
     }
-    private func status() -> [String: Any] {
+    func status() -> [String: Any] {
         ["state": state, "origin": origin?.absoluteString ?? "", "environmentId": descriptor["environmentId"] as? String ?? "",
          "message": message, "descriptor": descriptor, "failureKind": failureKind, "traceId": failureTrace,
          "traces": pending.values.compactMap { $0.trace }]
     }
-    private func setStatus(_ next: String, _ text: String) {
+    func setStatus(_ next: String, _ text: String) {
         let cleaned = clean(text)
         guard next != state || cleaned != message else { return }
         state = next; message = cleaned
@@ -275,7 +247,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         }
         if alive { changed("t3.status") }
     }
-    private func clean(_ input: String) -> String {
+    func clean(_ input: String) -> String {
         var result = input
         for secret in privateValues + (token.isEmpty ? [] : [token]) where !secret.isEmpty {
             result = result.replacingOccurrences(of: secret, with: "[redacted]")
@@ -284,15 +256,15 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         result = result.replacingOccurrences(of: "(?i)(wsTicket|token|access_token)=([^&\\s]+)", with: "$1=[redacted]", options: .regularExpression)
         return String(result.prefix(700))
     }
-    private func failure(_ error: Error) -> T3Failure {
+    func failure(_ error: Error) -> T3Failure {
         if let error = error as? T3Failure { return T3Failure(kind: error.kind, message: clean(error.message), uncertain: error.uncertain, reason: error.reason, detail: clean(error.detail)) }
         return T3Failure(kind: "Network", message: clean(error.localizedDescription))
     }
-    private func finish(_ completion: Completion, value: Any = NSNull()) {
+    func finish(_ completion: Completion, value: Any = NSNull()) {
         do { completion(["ok": true, "generation": generation, "value": try transfers.prepare(value)]) }
         catch { finish(completion, failure: failure(error)) }
     }
-    private func finish(_ completion: Completion, failure: T3Failure) {
+    func finish(_ completion: Completion, failure: T3Failure) {
         completion(["ok": false, "generation": generation, "error": self.failure(failure).json])
     }
 
@@ -307,64 +279,6 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         wantsConnection = true; failures = 0; everConnected = false; opening = completion
         // r9-connect: the origin is remembered once its socket opens; a failed pairing leaves nothing behind.
         start(credential: credential)
-    }
-
-    /// Pair another environment without touching the active connection: read its
-    /// descriptor, exchange the one-time credential, and keep the token in Keychain.
-    private func pairEnvironment(_ request: [String: Any], completion: @escaping Completion) throws {
-        let target = try T3Endpoint.origin(request["origin"] as? String ?? "")
-        let credential = try T3Endpoint.credential(request["credential"] as? String ?? "", at: target)
-        guard !credential.isEmpty else { throw T3Failure(kind: "Credential", message: "Enter a pairing code.") }
-        let secrets = [credential]
-        let scrub = { (text: String) -> String in secrets.reduce(self.clean(text)) { $0.replacingOccurrences(of: $1, with: "[redacted]") } }
-        func send(_ path: String, body: Data?, then: @escaping ([String: Any]) -> Void) {
-            do {
-                var req = URLRequest(url: try T3Endpoint.path(path, at: target))
-                req.httpMethod = body == nil ? "GET" : "POST"; req.httpBody = body
-                req.setValue("2", forHTTPHeaderField: "x-t3-orchestration-protocol")
-                req.setValue("application/json", forHTTPHeaderField: "Accept")
-                if body != nil { req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type") }
-                session.dataTask(with: req) { [weak self] data, response, error in
-                    guard let self else { return }
-                    self.queue.async {
-                        guard self.alive else { return self.finish(completion, failure: T3Failure(kind: "Closed", message: "The window was closed.")) }
-                        if let error { return self.finish(completion, failure: T3Failure(kind: "Network", message: scrub(error.localizedDescription))) }
-                        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                        let bytes = data ?? Data()
-                        let decoded = bytes.count <= T3Wire.maximumBytes ? (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any] : nil
-                        guard (200..<300).contains(status), let decoded else {
-                            let reason = decoded?["message"] as? String ?? (decoded?["reason"] as? String == "invalid_credential" ? "The environment credential is invalid." : "The server returned HTTP \(status).")
-                            return self.finish(completion, failure: T3Failure(kind: [401, 403].contains(status) ? "Authentication" : "HTTP", message: scrub(reason)))
-                        }
-                        then(decoded)
-                    }
-                }.resume()
-            } catch { finish(completion, failure: failure(error)) }
-        }
-        send("/.well-known/t3/environment", body: nil) { [self] descriptor in
-            guard let environment = descriptor["environmentId"] as? String, !environment.isEmpty else {
-                return finish(completion, failure: T3Failure(kind: "Protocol", message: "The server did not identify its environment."))
-            }
-            // The message names the direction (compatibility.ts); T3Fleet's fleetOutdatedPair saves an
-            // outdated host that can update itself, so this one never exchanges the credential.
-            if let problem = T3Compatibility.problem(descriptor) { return finish(completion, failure: T3Failure(kind: "Protocol", message: problem.message)) }
-            let body = T3Endpoint.form([
-                "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange", "subject_token": credential,
-                "subject_token_type": "urn:t3:params:oauth:token-type:environment-bootstrap",
-                "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
-                "scope": "orchestration:read orchestration:operate review:write",
-                "client_label": "Exact T3 for Mac", "client_device_type": "desktop", "client_os": "macos",
-            ])
-            send("/oauth/token", body: body) { [self] grant in
-                guard grant["token_type"] as? String == "Bearer", let access = grant["access_token"] as? String, !access.isEmpty else {
-                    return finish(completion, failure: T3Failure(kind: "Protocol", message: "The server did not issue a bearer access token."))
-                }
-                do { try credentials.save(access, origin: target.absoluteString, environment: environment) }
-                catch { return finish(completion, failure: failure(error)) }
-                savedEnvironments.remember(origin: target.absoluteString, descriptor: descriptor)
-                finish(completion, value: ["origin": target.absoluteString, "environmentId": environment, "label": descriptor["label"] as? String ?? ""])
-            }
-        }
     }
 
     private func start(credential: String = "") {
@@ -728,7 +642,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         tick = timer; timer.resume()
     }
 
-    private func retire(_ reason: T3Failure) {
+    func retire(_ reason: T3Failure) {
         activity?.disconnect(activityID)
         for lease in activityScopes.values { activity?.release(lease) }; activityScopes.removeAll()
         tick?.cancel(); tick = nil
