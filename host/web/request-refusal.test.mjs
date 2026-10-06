@@ -1059,3 +1059,19 @@ try {
 `);
   expect(verdict).toBe('advanced');
 });
+
+test('a request deadline cancels a server that never answers, on the wasm and TypeScript paths', async () => {
+  const origin = Bun.serve({ port: 0, idleTimeout: 0, fetch: () => new Promise(() => {}) });
+  const set = normalized(`net.fetch ${origin.url.origin}`);
+  try {
+    const started = Date.now();
+    const timed = await request({ method: 'GET', url: origin.url.href, headers: [], timeoutMs: 150 }, { grantSet: set, controllers: new Set() });
+    expect([timed.kind, text(timed)]).toEqual([9, 'the request timed out after 150 ms']);
+    const refused = await request({ method: 'GET', url: origin.url.href, headers: [], timeoutMs: 0 }, { grantSet: set, controllers: new Set() });
+    expect(refused.kind).toBe(2);
+    const error = await fetchWith(set, origin.url.href, { exactTimeout: 150 }).catch(e => e);
+    expect([error.name, error.kind, error.message]).toEqual(['FetchError', 'Timeout', 'the request timed out after 150 ms']);
+    expect(Date.now() - started).toBeLessThan(5000);
+    await expect(fetchWith(set, origin.url.href, { exactTimeout: 1.5 })).rejects.toThrow('exactTimeout must be an integer number of milliseconds from 1 to 3600000');
+  } finally { origin.stop(true); }
+});

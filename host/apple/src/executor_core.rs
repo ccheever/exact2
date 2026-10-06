@@ -846,12 +846,25 @@ fn execute(
         Ok(b) => b,
         Err(unbound) => return failed(FailureKind::Refused, unbound),
     };
+    if let Some(why) = request.timeout_refusal() {
+        return failed(FailureKind::Refused, why);
+    }
     let limit = match request.http {
         HttpScheduling::Ordered => MAX_BODY,
         HttpScheduling::Independent { max_response_bytes } => max_response_bytes as usize,
     };
+    let timeout = request.timeout_ms;
     let mut req = fetch_request(request, forced);
     req.max_body = Some(limit);
+    // The platform's idle timeout (URLSession's, 60 s by default) follows
+    // the deadline a second later: it never ends a request before the
+    // deadline does (so the reply says Timeout, not a network error), and a
+    // deadline over 60 s is not cut short by it.
+    req.timeout = timeout.map(|ms| std::time::Duration::from_millis(u64::from(ms) + 1_000));
+    // The whole exchange, headers and body, ends by the deadline: the
+    // platform's idle timeout alone would let a server that trickles bytes
+    // hold the ordered lane for as long as it likes.
+    let deadline = timeout.map(|ms| Deadline::arm(ms, abort));
     let result = b
         .fetch
         .stream(req, &abort.signal())
@@ -863,7 +876,46 @@ fn execute(
             headers: r.headers.entries().to_vec(),
             body: r.body,
         }),
+        Err(_) if deadline.as_ref().is_some_and(Deadline::passed) => failed(
+            FailureKind::Timeout,
+            format!("the request timed out after {} ms", timeout.unwrap_or(0)),
+        ),
         Err(e) => fetch_failure(e, abort),
+    }
+}
+
+/// A request's deadline: a thread that aborts the request when it passes,
+/// and ends at once when the request finishes first (the sender drops).
+struct Deadline {
+    passed: Arc<std::sync::atomic::AtomicBool>,
+    _done: std::sync::mpsc::Sender<()>,
+}
+
+impl Deadline {
+    fn arm(ms: u32, abort: &AbortController) -> Deadline {
+        let (done, wait) = std::sync::mpsc::channel::<()>();
+        let passed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (flag, abort) = (passed.clone(), abort.clone());
+        let spawned = std::thread::Builder::new()
+            .name("exact-fetch-deadline".into())
+            .spawn(move || {
+                if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+                    wait.recv_timeout(std::time::Duration::from_millis(ms.into()))
+                {
+                    flag.store(true, Ordering::Release);
+                    abort.abort();
+                }
+            });
+        // Without a thread the platform's own timeout (set above) still holds.
+        drop(spawned);
+        Deadline {
+            passed,
+            _done: done,
+        }
+    }
+
+    fn passed(&self) -> bool {
+        self.passed.load(Ordering::Acquire)
     }
 }
 

@@ -205,6 +205,18 @@ none, and ibex2's transport is the platform's; whatever ends a request without
 a response arrives as `Failed`, and a timeout policy, if one is ever wanted,
 is a later decision for both executors at once.
 
+> **Amended 2026-10-05 (the Signal clone's minute-long sends; team lead's
+> request).** A source may now ask for a deadline per request:
+> TypeScript's `fetch(url, { exactTimeout: ms })`, `Request::timeout(ms)` in
+> Rust, 1 to 3,600,000 ms, for the whole exchange. When it passes the
+> executor cancels the request and replies `Outcome::Failed` with the new
+> `FailureKind::Timeout` (a `FetchError` of kind `Timeout`). Both executors
+> at once, as this paragraph asked: the native one arms a deadline that aborts
+> the exchange (and sets the platform's own limit, URLSession's
+> `timeoutInterval` or ureq's, a second past it so it never ends a request
+> first), the web's uses `AbortSignal.timeout`. A request without one keeps
+> the platform's limits; a stream, storage, native or auth work takes none.
+
 ### D5 — One request per resource; the newest arguments win
 
 A resource has at most one request in flight. When settlement finds a pending

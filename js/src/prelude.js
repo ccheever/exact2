@@ -792,6 +792,15 @@
       return Promise.reject(new TypeError("exactStream maps each event to the answer: (event) => value"));
     if (stream && call.stream) return Promise.reject(new Error("an answer streams one request"));
     if (stream && ceiling === undefined) ceiling = 1048576;
+    // A deadline for the whole exchange (headers and body), in milliseconds:
+    // the host cancels the request when it passes and the fetch rejects with
+    // a FetchError of kind "Timeout". A stream has none.
+    var timeout = init ? init.exactTimeout : undefined;
+    if (timeout !== undefined) {
+      if (!Number.isInteger(timeout) || timeout < 1 || timeout > 3600000)
+        return Promise.reject(new TypeError("exactTimeout must be an integer number of milliseconds from 1 to 3600000"));
+      if (stream) return Promise.reject(new TypeError("exactTimeout: a stream has no timeout"));
+    }
     // The web's `signal`: an aborted fetch rejects with its reason at once.
     // The host's request still runs; its reply is dropped (`__exact_fulfill`).
     var signal = init ? init.signal : undefined;
@@ -801,7 +810,7 @@
     }
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, max_response_bytes: ceiling, stream: stream ? true : undefined }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, max_response_bytes: ceiling, stream: stream ? true : undefined, timeout_ms: timeout }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;

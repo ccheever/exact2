@@ -15,10 +15,20 @@ const noHeaders = headers => headers == null || [...new Headers(headers)].length
 const hostAsset = (input, init) => assetPath(input) && String(init.method ?? 'GET').toUpperCase() === 'GET'
   && init.body == null && noHeaders(init.headers);
 
+// `exactTimeout` (ms): the whole exchange ends by then, as on native, and the
+// fetch rejects with a FetchError of kind "Timeout".
+function deadlineOf(init) {
+  const ms = init.exactTimeout;
+  if (ms === undefined) return null;
+  if (!Number.isInteger(ms) || ms < 1 || ms > 3600000) throw new TypeError('exactTimeout must be an integer number of milliseconds from 1 to 3600000');
+  return { ms, signal: AbortSignal.timeout(ms) };
+}
+
 export async function fetchWith(set, input, init = {}) {
-  let value, asset;
+  let value, asset, deadline;
+  init ??= {};
+  deadline = deadlineOf(init);
   try {
-    init ??= {};
     asset = hostAsset(input, init);
     value = typeof Request === 'function' && input instanceof Request ? input.url
       : asset ? new URL(String(input), globalThis.location?.href).href : new URL(String(input)).href;
@@ -28,7 +38,9 @@ export async function fetchWith(set, input, init = {}) {
   if (invalid) throw new FetchError('Refused', invalid);
   if (!asset && !admitsNetwork(set, value, 'fetch')) throw new FetchError('Refused', refusal('net.fetch'));
   try {
-    const response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...init, redirect: 'follow' });
+    const { exactTimeout: _, ...rest } = init;
+    const signal = deadline ? (rest.signal ? AbortSignal.any([rest.signal, deadline.signal]) : deadline.signal) : rest.signal;
+    const response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...rest, ...(signal ? { signal } : {}), redirect: 'follow' });
     // A redirect that left the grants names where it led (podcast F5), as
     // the native executor does; the browser followed it to this last hop.
     if (response.url && (asset
@@ -38,6 +50,7 @@ export async function fetchWith(set, input, init = {}) {
   }
   catch (error) {
     if (error instanceof FetchError) throw error;
+    if (deadline?.signal.aborted && !init.signal?.aborted) throw new FetchError('Timeout', `the request timed out after ${deadline.ms} ms`);
     throw new FetchError('Network', error?.message ?? error);
   }
 }

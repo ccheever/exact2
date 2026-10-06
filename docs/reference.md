@@ -503,6 +503,15 @@ their end; only its answer is dropped, so
 serializing storage through one promise chain composes with `refreshes` and
 fast-changing arguments (ledger F12, minesweeper F10).
 
+A `fetch` waits as long as the platform lets it (URLSession's 60 seconds
+without data on Apple), holding an ordered source's lane meanwhile. Give it a
+deadline with `exactTimeout`, in milliseconds (1 to 3600000), for the whole
+exchange, headers and body: `fetch(url, { exactTimeout: 10000 })`. When it
+passes the request is cancelled and the fetch rejects with a `FetchError`
+whose `kind` is `Timeout` (`the request timed out after 10000 ms`). The same
+holds on Apple, Linux, the web's wasm host and the web build; a stream
+(`exactStream`) takes none.
+
 An answer that keeps coming (LLP 1016.000) is a `fetch` with `exactStream`,
 returned as the answer: `return fetch(url, { exactStream: (event) => value })`.
 The promise never settles; each message, and the end, is mapped now (the

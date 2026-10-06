@@ -172,6 +172,9 @@ function answer(source: string, args: unknown[], store: Store): unknown {
       method: "POST",
       ...(args[2] ? { exactIndependentHttp: { maxResponseBytes: args[1] } } : {}),
     }).then(r => r.text());
+    // A deadline for the whole exchange: a timeout rejects with its kind.
+    case "timed": return fetch("https://api.castle.xyz/slow", { exactTimeout: args[0] } as RequestInit)
+      .then(r => r.text(), (e: { kind: string; message: string }) => `failed: ${e.kind}: ${e.message}`);
     default: throw new DataError("UnknownSource", source);
   }
 }

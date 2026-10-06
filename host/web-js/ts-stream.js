@@ -6,7 +6,7 @@
 // `__exact_message`).
 import { streamed } from './http-body.js';
 
-const KINDS = ['Response', 'Network', 'Refused', 'Unsupported', 'Aborted'], said = new TextDecoder();
+const KINDS = ['Response', 'Network', 'Refused', 'Unsupported', 'Aborted', , , , , 'Timeout'], said = new TextDecoder();
 // Hermes's checks and words on `init` (js/src/prelude.js `fetch`): a
 // refusal ends the stream with that message, which fails the answer.
 function request(input, init) {

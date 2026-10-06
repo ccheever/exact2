@@ -149,6 +149,7 @@ fn request_json(request: &Request) -> Json {
         "headers": request.headers,
         "body": base64(&request.body),
         "stream": request.stream,
+        "timeout_ms": request.timeout_ms,
     })
 }
 
@@ -192,6 +193,15 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         headers,
         body: json["body"].as_str().and_then(unbase64).unwrap_or_default(),
         stream: json["stream"].as_bool().unwrap_or(false),
+        timeout_ms: match &json["timeout_ms"] {
+            Json::Null => None,
+            value => Some(
+                value
+                    .as_u64()
+                    .and_then(|n| u32::try_from(n).ok())
+                    .ok_or_else(|| unavailable("turn reply: an invalid request timeout"))?,
+            ),
+        },
     })
 }
 

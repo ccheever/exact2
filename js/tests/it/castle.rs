@@ -190,6 +190,35 @@ fn independent_fetch_is_explicit_bounded_and_keeps_each_invocation() {
     }
 }
 
+#[test]
+fn a_fetch_deadline_reaches_the_request_and_its_timeout_rejects_with_its_kind() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource result = timed(250) as shape string\n  view\n    text result\n").unwrap());
+    let mut s = store();
+    let args = [Value::Number(250.0)];
+    let request = later(m.answer(&mut s, "timed", &args).unwrap());
+    assert_eq!(request.timeout_ms, Some(250));
+    let timed_out = Outcome::Failed {
+        kind: exact_runner::FailureKind::Timeout,
+        message: "the request timed out after 250 ms".into(),
+    };
+    assert_eq!(
+        now(m.parse(&mut s, "timed", &args, timed_out).unwrap()),
+        Value::str("failed: Timeout: the request timed out after 250 ms")
+    );
+    // A deadline out of range is the fetch's TypeError, before any request.
+    for bad in [0.0, -1.0, 1.5, 3600001.0] {
+        let refused = now(m.answer(&mut s, "timed", &[Value::Number(bad)]).unwrap());
+        assert!(
+            refused.as_str().is_some_and(|m| m.contains(
+                "exactTimeout must be an integer number of milliseconds from 1 to 3600000"
+            )),
+            "{refused:?}"
+        );
+        assert_eq!(m.in_flight(), 0);
+    }
+}
+
 fn event(id: &str, data: &str, coalesced: u32) -> Outcome {
     Outcome::Message(exact_runner::Message {
         event: String::new(),
