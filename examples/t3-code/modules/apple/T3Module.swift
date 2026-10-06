@@ -11,11 +11,11 @@ final class T3Module: ExactModule {
     private let timelineTips = T3TimelineTooltip()
     private let fleet: T3Fleet // Background environments (T3Fleet.swift).
     let ssh: T3Ssh // Add Environment → SSH: discovery, ssh -G, tunnels (T3Ssh.swift).
-    private let composer: T3Composer
-    private let intent: T3ComposerIntent // Send gestures and ⌘ state (T3ComposerIntent.swift).
+    let composer: T3Composer
+    let intent: T3ComposerIntent // Send gestures and ⌘ state (T3ComposerIntent.swift).
     private let frames: T3ComposerFrames // Popover anchors in window space (T3ComposerFrames.swift).
     private let scrollEnds: R5ComposerScroll // r5-composer: ref lists' next-page signal (R5ComposerScroll.swift).
-    private let attach: T3ComposerAttach // Attach files: picked images become PNG drafts (T3ComposerAttach.swift).
+    let attach: T3ComposerAttach // Attach files: picked images become PNG drafts (T3ComposerAttach.swift).
     private let video: T3ComposerVideo // A shelf video's expanded preview (T3ComposerVideo.swift).
     private let media: R6MediaPreview // lane r6-media: attachment PDF and HTML bodies (R6MediaPreview.swift).
     let devices: R6DeviceStreams // lane r6-media: device screens, input and screenshots (R6DeviceStream.swift).
@@ -71,15 +71,6 @@ final class T3Module: ExactModule {
         if gate.began(request, answer: { reply.send($0) }) { return }
         if let key = request["fleet"] as? String { gate.sent(request); return fleet.perform(key, request) { [gate] in gate.answered(request); reply.send($0) } }
         if request["op"] as? String == "r8MeasureFrame" { DispatchQueue.main.async { [weak self] in reply.send(self?.measure.perform(request) ?? ["ok": false, "generation": 0]) }; return } // lane r8-keys
-        if let op = request["op"] as? String, op.hasPrefix("editor") {
-            DispatchQueue.main.async { [weak self] in reply.send(self?.composer.perform(request) ?? ["ok": false, "generation": 0]) }
-            return
-        }
-        if let op = request["op"] as? String, op.hasPrefix("composerAttach") { return attach.perform(request) { reply.send($0) } } // pick, read, remove (T3ComposerAttach.swift)
-        if request["op"] as? String == "composerSendIntent" {
-            DispatchQueue.main.async { [weak self] in reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": self?.intent.take() ?? [:]]) }
-            return
-        }
         if request["op"] as? String == "devicePresentation" {
             DispatchQueue.main.async { [weak self] in
                 self?.chrome.setAppearance(request["appearanceMode"] as? String ?? "system")
@@ -112,7 +103,7 @@ final class T3Module: ExactModule {
     /// Each area's ops (T3Module+<Area>.swift), in turn: an area answers the ops it owns and
     /// calls `next` for the rest; what no area owns goes to the transport. No two areas share
     /// an op. A feature adds its area's method in its own file and one entry here.
-    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.timelineOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps]
+    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.timelineOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps, T3Module.composerOps]
     private func route(_ request: [String: Any], reply: ExactReply, from index: Int) {
         guard index < Self.areas.count else { return forward(request, reply: reply) }
         Self.areas[index](self)(request, reply) { self.route(request, reply: reply, from: index + 1) }
