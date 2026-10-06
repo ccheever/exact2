@@ -20,7 +20,7 @@ const same = Object.is;
 // (58 as 57.99997), and a revision bumped by that would refuse the drop a
 // gap was certified for (LLP 1094 D7).
 const MEASURE_NOISE = 0.01;
-const noise = (index, key, position, size) => index.measured(key) && Math.abs(index.h[position] - size) <= MEASURE_NOISE;
+const noise = (index, key, position, size) => index.measured(key) && (index.h[position] === 0) === (size === 0) && Math.abs(index.h[position] - size) <= MEASURE_NOISE;
 
 // ---------------------------------------------------------------- the size index (index.rs)
 // A sum tree over row heights; `me` is each leaf's measured epoch (0: an
@@ -207,11 +207,13 @@ class Collection {
     if (compare && !rekeyed) { inPlace = []; items.forEach((it, p) => { if (!same(it, this.items[p])) inPlace.push(p); }); }
     if (rekeyed) { this.index.replace(idents); this.idents = idents; this.dups = dups; }
     const moved = rekeyed || !inPlace || inPlace.length;
-    // A grouped session's offsets move with its rows, at once (LLP 1094 D8),
-    // ending a preview too: the index above already lost a held drop's row,
-    // so its rows' offsets fall to zero here, in the commit that moved them.
-    this.instant = !!(moved && (this.incoming || this.preview?.grouped));
-    if (this.preview && moved) this.endPreview();
+    // A grouped session's offsets move with its rows, at once (LLP 1094 D8).
+    const instant = !!(moved && (this.incoming || this.preview?.grouped));
+    // A held drop's row already left the index above, so its rows' offsets
+    // fall to zero here, in the commit that moved them: at once too. (The
+    // runner ends the preview before its index changes, mod.rs `update_data`.)
+    if (this.preview && moved) { if (this.preview.holding) this.instant = instant; this.endPreview(); }
+    this.instant = instant;
     if (moved) this.preparedMove?.();
     this.items = items;
     if (this.kept.size) for (const k of [...this.kept.keys()]) if (!this.index.pos.has(k.split("\0")[0])) this.kept.delete(k);

@@ -273,3 +273,23 @@ fn a_build_only_report_that_changes_the_port_is_refused() {
         )
         .is_err());
 }
+
+#[test]
+fn noise_is_small_and_never_crosses_zero() {
+    // Float32 ulps on a real height are noise; anything across zero is a
+    // measurement (a zero-height row is skipped and revived as one).
+    let mut index = SizeIndex::new(32.0).unwrap();
+    index
+        .replace_keys(["a", "b"].map(Into::into).to_vec())
+        .unwrap();
+    for (i, h) in [58.0, 0.0].into_iter().enumerate() {
+        let token = index.measurement_token_at(i).unwrap();
+        index.set_measured_height_at(i, token, h).unwrap();
+    }
+    assert!(index.noise_at(0, 57.999_97));
+    assert_eq!(index.denoised(0, 57.999_97), 58.0);
+    assert!(!index.noise_at(0, 58.02));
+    assert!(index.noise_at(1, 0.0));
+    assert!(!index.noise_at(1, 0.005));
+    assert_eq!(index.denoised(1, 0.005), 0.005);
+}

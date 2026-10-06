@@ -41,11 +41,6 @@ pub(super) fn collections_json(tree: &Tree) -> String {
 
 const BOOTSTRAP_ROWS: usize = 16;
 const ESTIMATED_HEIGHT: f64 = 32.0;
-/// A row remeasured within this of the height it already has keeps that
-/// height: a translated row reads float32 ulps off (58 as 57.99997), and a
-/// revision bumped by that would refuse the drop a gap was certified for
-/// (LLP 1094 D7; list.js `MEASURE_NOISE`).
-const MEASURE_NOISE: f64 = 0.01;
 /// Travel the window leads by, past its viewport of overscan.
 const LEAD_SECONDS: f64 = 0.25;
 /// A mounted row farther than this many viewports from what shows retires
@@ -1347,15 +1342,7 @@ impl Collection {
     ) -> Result<(), InstanceError> {
         let row = &self.mounted[by_view[&measurement.view]];
         let key = self.index.shared_key(row.position).unwrap().clone();
-        let size = match self.index.height(row.position) {
-            Some(h)
-                if self.index.is_measured_at(row.position)
-                    && (h - measurement.size).abs() <= MEASURE_NOISE =>
-            {
-                h
-            }
-            _ => measurement.size,
-        };
+        let size = self.index.denoised(row.position, measurement.size);
         self.index
             .set_measured_height_at(row.position, row.token, size)
             .map_err(index_error)?;
@@ -1411,11 +1398,7 @@ impl Collection {
             let row = &self.mounted[by_view[&m.view]];
             let key = self.index.key(row.position).unwrap();
             self.index.measurement_token(key) == Some(row.token)
-                && !(self.index.is_measured(key)
-                    && self
-                        .index
-                        .height(row.position)
-                        .is_some_and(|h| (h - m.size).abs() <= MEASURE_NOISE)
+                && !(self.index.noise_at(row.position, m.size)
                     && (m.size == 0.0) == self.zero_heights.contains(key))
         };
         if feedback.measurements.iter().any(remeasures)
