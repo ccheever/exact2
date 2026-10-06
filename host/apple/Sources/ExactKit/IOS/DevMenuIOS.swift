@@ -10,6 +10,75 @@
 // nothing.
 #if os(iOS) || os(tvOS)
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
+
+/// A four-finger gesture that fails as soon as its touches are not a
+/// four-finger landing: one that travels with fewer than four down, or fewer
+/// than four down a moment after the first. A window recognizer left
+/// possible through a one-finger drag holds every UIKit recognizer that
+/// waits for it to fail: a zoom's drag to dismiss began only on lift-off (a
+/// three-finger hold of the same shape took it from 17 to 650 ms).
+final class FourFingerGate {
+    /// The moment after a touch the rest of the four may still land in, and
+    /// how far a touch may travel before they have.
+    static let landing: TimeInterval = 0.1, slop: CGFloat = 8
+    private var starts: [ObjectIdentifier: CGPoint] = [:]
+    /// The most touches down at once this attempt (the event's: a recognizer
+    /// waiting for four counts none as its own): four, and it is a landing,
+    /// a double tap's pause between its taps included.
+    private(set) var peak = 0
+    private var attempt = 0
+    static func down(_ event: UIEvent) -> Int {
+        event.allTouches?.filter { $0.phase != .ended && $0.phase != .cancelled }.count ?? 0
+    }
+    /// Touches landed (`points`, where each is), `down` touching in all.
+    func began(_ r: UIGestureRecognizer, _ points: [ObjectIdentifier: CGPoint], down: Int) {
+        for (key, p) in points { starts[key] = p }
+        peak = max(peak, down)
+        guard r.state == .possible, peak < 4 else { return }
+        let this = attempt
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.landing) { [weak self, weak r] in
+            guard let self, let r, attempt == this, r.state == .possible, peak < 4 else { return }
+            r.state = .failed
+        }
+    }
+    func moved(_ r: UIGestureRecognizer, _ points: [ObjectIdentifier: CGPoint], down: Int) {
+        peak = max(peak, down)
+        guard r.state == .possible, peak < 4 else { return }
+        for (key, p) in points {
+            guard let start = starts[key] else { starts[key] = p; continue }
+            if hypot(p.x - start.x, p.y - start.y) > Self.slop { r.state = .failed; return }
+        }
+    }
+    func reset() { starts.removeAll(); peak = 0; attempt += 1 }
+}
+private func points(_ touches: Set<UITouch>) -> [ObjectIdentifier: CGPoint] {
+    Dictionary(uniqueKeysWithValues: touches.map { (ObjectIdentifier($0), $0.location(in: nil)) })
+}
+final class FourFingerTap: UITapGestureRecognizer {
+    private let gate = FourFingerGate()
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        gate.began(self, points(touches), down: FourFingerGate.down(event))
+    }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesMoved(touches, with: event)
+        gate.moved(self, points(touches), down: FourFingerGate.down(event))
+    }
+    override func reset() { super.reset(); gate.reset() }
+}
+final class FourFingerHold: UILongPressGestureRecognizer {
+    private let gate = FourFingerGate()
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        gate.began(self, points(touches), down: FourFingerGate.down(event))
+    }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesMoved(touches, with: event)
+        gate.moved(self, points(touches), down: FourFingerGate.down(event))
+    }
+    override func reset() { super.reset(); gate.reset() }
+}
 
 final class DevMenuTarget: NSObject, UIGestureRecognizerDelegate {
     @objc func menuTap(_ g: UIGestureRecognizer) {
@@ -59,7 +128,7 @@ public enum DevMenu {
         DevMenu.controller = controller
         DevMenu.planPath = planPath
         guard enabled else { return }
-        let reload = UITapGestureRecognizer(target: target, action: #selector(DevMenuTarget.reloadTap(_:)))
+        let reload = FourFingerTap(target: target, action: #selector(DevMenuTarget.reloadTap(_:)))
         #if !os(tvOS)
         reload.numberOfTouchesRequired = 4
         #endif
@@ -67,7 +136,7 @@ public enum DevMenu {
         // Developer shortcuts must not hold app touches across a URL restart.
         // iOS 26.6.1 crashed in UIKit's delayed-event queue on the physical phone.
         reload.delaysTouchesEnded = false
-        let menu = UITapGestureRecognizer(target: target, action: #selector(DevMenuTarget.menuTap(_:)))
+        let menu = FourFingerTap(target: target, action: #selector(DevMenuTarget.menuTap(_:)))
         #if !os(tvOS)
         menu.numberOfTouchesRequired = 4
         #endif
@@ -75,7 +144,7 @@ public enum DevMenu {
         menu.require(toFail: reload)
         // Four fingers held: the trigger that survives fingers that drift
         // past a tap's slop, or a tap another recognizer took.
-        let press = UILongPressGestureRecognizer(target: target, action: #selector(DevMenuTarget.menuPress(_:)))
+        let press = FourFingerHold(target: target, action: #selector(DevMenuTarget.menuPress(_:)))
         #if !os(tvOS)
         press.numberOfTouchesRequired = 4
         #endif

@@ -55,6 +55,52 @@ final class DevMenuIOSTests: XCTestCase {
         override var state: UIGestureRecognizer.State { get { set } set { set = newValue } }
     }
 
+    /// A recognizer whose state the gate sets, as UIKit's own would.
+    private final class Stub: UIGestureRecognizer {
+        var set: UIGestureRecognizer.State = .possible
+        override var state: UIGestureRecognizer.State { get { set } set { set = newValue } }
+    }
+    private final class Touch {}
+
+    /// One finger dragging fails the four-finger gestures at once, so no UIKit
+    /// recognizer that waits for them (a zoom's drag to dismiss) is held.
+    func testOneFingerFailsTheFourFingerGesturesAtOnce() {
+        let one = Touch(), key = ObjectIdentifier(one)
+        // It travels past the slop with one finger down: failed then.
+        var r = Stub(), gate = FourFingerGate()
+        gate.began(r, [key: CGPoint(x: 2, y: 400)], down: 1)
+        gate.moved(r, [key: CGPoint(x: 6, y: 400)], down: 1)
+        XCTAssertEqual(r.state, .possible, "inside the slop, the others may still land")
+        gate.moved(r, [key: CGPoint(x: 20, y: 400)], down: 1)
+        XCTAssertEqual(r.state, .failed, "a one-finger drag fails it")
+        // It stays put: failed once the moment for the rest to land is over.
+        r = Stub(); gate = FourFingerGate()
+        gate.began(r, [key: .zero], down: 1)
+        RunLoop.main.run(until: Date().addingTimeInterval(FourFingerGate.landing + 0.05))
+        XCTAssertEqual(r.state, .failed, "a one-finger press fails it too")
+        // Four that landed together stay possible however they then move.
+        r = Stub(); gate = FourFingerGate()
+        let four = (0..<4).map { _ in Touch() }
+        gate.began(r, [ObjectIdentifier(four[0]): .zero], down: 1)
+        gate.began(r, Dictionary(uniqueKeysWithValues: four.dropFirst().map { (ObjectIdentifier($0), CGPoint.zero) }), down: 4)
+        gate.moved(r, [ObjectIdentifier(four[0]): CGPoint(x: 30, y: 0)], down: 4)
+        RunLoop.main.run(until: Date().addingTimeInterval(FourFingerGate.landing + 0.05))
+        XCTAssertEqual(r.state, .possible, "a four-finger landing is the menu's")
+        // A new attempt starts afresh: a stale moment does not fail it.
+        gate.reset()
+        gate.began(r, [key: .zero], down: 1)
+        XCTAssertEqual(r.state, .possible)
+    }
+
+    func testTheWindowsFourFingerGesturesAreTheGated() throws {
+        let session = try install()
+        defer { session.destroy() }
+        let ours = (window.gestureRecognizers ?? []).filter { $0.delegate === DevMenu.target }
+        XCTAssertEqual(ours.count, 3)
+        XCTAssertTrue(ours.allSatisfy { $0 is FourFingerTap || $0 is FourFingerHold })
+        XCTAssertTrue(ours.allSatisfy { !$0.delaysTouchesBegan })
+    }
+
     func testEachTriggerJournalsAndAHoldTogglesOnce() throws {
         let session = try install()
         defer { session.destroy() }
