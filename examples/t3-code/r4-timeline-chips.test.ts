@@ -47,7 +47,7 @@ describe('sent-message context chips', () => {
   });
   test('an assistant quote reads its quote cut at 64 characters and "View source" opens the cited thread', () => {
     const quote = 'q'.repeat(70);
-    const chips = messageChips({ text: `see [Assistant quote](t3-citation://v1/env/thread-9/msg-2?text=${quote}&start=0&end=70)` }, '', []);
+    const chips = messageChips({ text: `see [Assistant quote](t3-citation://v1/env/thread-9/msg-2?text=${quote}&start=0&end=70&prefix=&suffix=)` }, '', []);
     expect(chips.map(chip => [chip.kind, chip.label, chip.tip, chip.target, chip.detail])).toEqual([['citation', `${'q'.repeat(64)}…`, 'View source', 'thread-9', 'msg-2']]);
   });
   test('formatAttachmentSize, middle truncation and path resolution follow the reference helpers', () => {
