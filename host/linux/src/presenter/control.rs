@@ -169,6 +169,7 @@ impl<D: DataSource> Presenter<D> {
         // A date, range or select keeps the choice until its bound value
         // changes, as the web build's does (`paint::control::choice`; LLP
         // 1069.001 D4, amended 2026-10-04; kanban2 #5).
+        self.forget_replaced_choices();
         if shown != value {
             self.chosen.insert(id, (value.to_owned(), shown.clone()));
             shown = value.to_owned();

@@ -688,6 +688,15 @@ fn an_unbound_field_holds_its_typed_text_until_its_bound_value_changes() {
     assert_eq!(p.field_text(refused), "other");
     p.tap(id(&p, "swap")).unwrap();
     assert_eq!(p.field_text(refused), "kept");
+    // Two commits before the presenter looks: the one between still counts.
+    p.type_text(refused, "again").unwrap();
+    let swap = id(&p, "swap");
+    p.host_mut()
+        .dispatch_at(swap, exact_runner::Event::Press, 0.);
+    p.host_mut()
+        .dispatch_at(swap, exact_runner::Event::Press, 0.);
+    p.after_commit();
+    assert_eq!(p.field_text(refused), "kept");
     let literal = id(&p, "literal");
     p.type_text(literal, "y").unwrap();
     assert_eq!(p.field_text(literal), "y", "a literal value is a default");

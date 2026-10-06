@@ -531,6 +531,21 @@ impl<D: DataSource> Presenter<D> {
         )
     }
 
+    /// A choice or typed text whose bound value any commit since changed is
+    /// gone, as the web build's write of `value` replaces it (LLP 1069.001
+    /// D4): the value coming back does not bring it back.
+    pub(crate) fn forget_replaced_choices(&mut self) {
+        for (id, value) in self.host.take_bound_values() {
+            if self
+                .chosen
+                .get(&id)
+                .is_some_and(|(_, at)| value.as_ref() != Some(at))
+            {
+                self.chosen.remove(&id);
+            }
+        }
+    }
+
     /// A field's committed `value`.
     fn bound_text(&self, id: ViewId) -> String {
         self.host
@@ -558,8 +573,8 @@ impl<D: DataSource> Presenter<D> {
     fn keep_typed(&mut self, id: ViewId, typed: String, before: String) {
         // No handler need hear an edit for it to show.
         self.dirty = true;
+        self.forget_replaced_choices();
         if self.host.kernel().node(id).is_none() {
-            self.chosen.remove(&id);
             return;
         }
         let bound = self.bound_text(id);

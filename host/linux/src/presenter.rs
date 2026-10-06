@@ -661,15 +661,7 @@ impl<D: DataSource> Presenter<D> {
             self.executor.resume_ordered();
         }
         self.cancel_removed_controls();
-        // A choice or typed text whose bound value has changed since is gone,
-        // as the web build's write of `value` replaces it (LLP 1069.001 D4):
-        // the value coming back does not bring it back.
-        let kernel = self.host.kernel();
-        self.chosen.retain(|id, (_, at)| {
-            kernel
-                .node(*id)
-                .is_some_and(|n| n.props.str(PropId::Value).unwrap_or("") == at)
-        });
+        self.forget_replaced_choices();
         let admitted = self.host.grants();
         for r in self.host.take_requests() {
             if r.request.surface.is_some() {
@@ -1335,6 +1327,7 @@ impl<D: DataSource> Presenter<D> {
     /// Another host took over: it is measured as the last was, and counted.
     pub(crate) fn replaced(&mut self) {
         self.brush.paint_epoch = None; // A new kernel may have the same epoch.
+        self.chosen.clear(); // A new runner reuses view ids.
         self.hosts += 1;
         self.measure();
     }
