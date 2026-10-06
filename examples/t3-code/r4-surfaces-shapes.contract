@@ -1,3 +1,4 @@
+use TerminalDrawerView from "./terminal.contract"
 // The right panel's tabbed surfaces (lane r4-surfaces, r4-surfaces-panel.ts):
 // the tab strip, the Files surface (tree and preview), the Linked pull requests
 // surface and the device hub's setup wizard, as ShellView.panel carries them.
@@ -21,6 +22,9 @@ shape R4Tab
   pending: bool
   renaming: bool
   renameValue: string
+  closeTitle: string
+  closeBody: string
+  closeTarget: string
   menu: list<R4TabMenuItem>
 // right-panel-tab-menu: one row of the tab's context menu (right-panel-tabs.ts tabMenuRows).
 shape R4TabMenuItem
@@ -219,7 +223,16 @@ shape R4Device
   r6: R6DeviceView
   // 1e2ecbd975 (5318d054a5): a local host has no available platform (device-support.ts).
   localPlatformsUnavailable: bool
+shape TerminalSurfaceClose
+  op: string
+  serial: number
+  title: string
+  body: string
+  target: string
+
 shape R4Panel
+  terminalClose: TerminalSurfaceClose
+  terminal: TerminalDrawerView
   open: bool
   kind: string
   active: string

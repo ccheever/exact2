@@ -1,3 +1,6 @@
+import { parseScopedThreadKey } from './terminal-ui-state';
+import { addTerminalSurface, focusPanelTerminal, terminalPanelLocal, terminalPanelView, panelTerminalLabel, terminalSurfaceCloseCopy, installTerminalPanelCleanup, type PanelTerminal } from './terminal-panel';
+import { activeRef, terminalAvailable, terminalDrawerView, emptyTerminalDrawerView, type TerminalDrawerView } from './terminal-drawer-view';
 // The right panel's tabbed surfaces (lane r4-surfaces; MIT reference, see LICENSE-T3:
 // apps/web/src/rightPanelStore.ts, components/RightPanelTabs.tsx, ChatView.tsx
 // addFilesSurface / addDeviceSurface / openFileSurface): an ordered set of surface
@@ -31,33 +34,37 @@ import { requestDiff } from './r11-device-diff';
 import { deviceTargetOf, restoreDeviceTarget, type DeviceTarget } from './r6-media-device';
 import type { PrTarget } from './r5-panels-pr';
 
-export type SurfaceKind = 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment';
-export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number; pr?: PrTarget; attachment?: AttachmentMeta; device?: DeviceTarget; title?: string };
+export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment';
+export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number; pr?: PrTarget; attachment?: AttachmentMeta; device?: DeviceTarget; title?: string; terminal?: PanelTerminal };
 export type PanelState = { surfaces: Surface[]; active: string; visible: boolean; userRevision: number };
-export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean; renaming: boolean; renameValue: string; menu: TabMenuRow[] };
+export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean; renaming: boolean; renameValue: string; closeTitle: string; closeBody: string; closeTarget: string; menu: TabMenuRow[] };
 export type PanelView = {
-  open: boolean; kind: string; active: string; count: number; tabs: PanelTab[];
+  open: boolean; kind: string; active: string; count: number; tabs: PanelTab[]; terminal: TerminalDrawerView; terminalClose: { serial: number; title: string; body: string; target: string; op: string };
   files: FilesView; prs: PrsView; device: DeviceView; deviceSetup: boolean; pr: PrSurfaceView; attachment: AttachmentView; deviceMini: R6DeviceMini; tabStrip: TabStrip;
 };
 
-type Store = { panels: Map<string, PanelState>; deviceSetup: string };
+type Store = { panels: Map<string, PanelState>; deviceSetup: string; terminalClose: { serial: number; title: string; body: string; target: string; op: string } };
 const stores = new WeakMap<T3Client, Store>();
 export function surfaceStore(client: T3Client): Store {
   let store = stores.get(client);
-  if (!store) { store = { panels: new Map(), deviceSetup: '' }; stores.set(client, store); }
+  if (!store) { store = { panels: new Map(), deviceSetup: '', terminalClose: { serial: 0, title: '', body: '', target: '', op: '' } }; stores.set(client, store); }
   return store;
 }
 /** The thread (or draft) the panel belongs to: rightPanelStore keys by thread. */
-export const panelKey = (client: T3Client): string => client.draftKey;
+export const panelKey = (client: T3Client): string => { const ref = activeRef(client); return ref ? `${ref.environmentId}:${ref.threadId}` : client.draftKey; };
 export function panelState(client: T3Client): PanelState {
   const store = surfaceStore(client), key = panelKey(client);
   let state = store.panels.get(key);
+  if (!state && key !== client.draftKey) {
+    state = store.panels.get(client.draftKey);
+    if (state) { store.panels.delete(client.draftKey); store.panels.set(key, state); }
+  }
   if (!state) { state = { surfaces: [], active: '', visible: false, userRevision: 0 }; store.panels.set(key, state); }
   return state;
 }
 
 const singleton = (kind: SurfaceKind): Surface => ({ id: kind, kind, path: '', line: 0, reveal: 0 });
-const SINGLETON: Record<string, SurfaceKind> = { files: 'files', f: 'files', device: 'device', m: 'device', 'pull-requests': 'pull-requests', l: 'pull-requests', diff: 'diff', d: 'diff' };
+const SINGLETON: Record<string, SurfaceKind> = { terminal: 'terminal', t: 'terminal', files: 'files', f: 'files', device: 'device', m: 'device', 'pull-requests': 'pull-requests', l: 'pull-requests', diff: 'diff', d: 'diff' };
 export const surfaceKindOf = (value: string): SurfaceKind | null => SINGLETON[value.toLowerCase()] ?? null;
 
 function upsert(state: PanelState, surface: Surface, activate = true): void {
@@ -101,6 +108,7 @@ export function availability(client: T3Client) {
   const thread = client.shell.threads.find(entry => entry.id === client.threadId);
   const project = client.shell.projects.find(entry => entry.id === client.projectId);
   return {
+    terminal: terminalAvailable(client),
     files: !!project && !!workspaceOf(client).cwd,
     device: !!client.threadId,
     pullRequests: !!thread && capabilities(client).threadPullRequests === true && visiblePullRequests(thread.pullRequests).length > 0,
@@ -129,6 +137,7 @@ export async function openSurface(client: T3Client, native: Native, value: strin
   const kind = surfaceKindOf(value), state = panelState(client), can = availability(client);
   if (openThreadPullRequest(client, state, value) !== null) return ''; // r5-panels: Pull request (P)
   if (!kind || kind === 'file') return '';
+  if (kind === 'terminal') { await addTerminalSurface(client, native); return ''; }
   if (kind === 'diff') { if (!can.diff) return ''; upsert(state, singleton('diff')); await showDiff(client, native); return ''; }
   if (kind === 'files') { if (!can.files) return ''; client.diffOpen = false; upsert(state, singleton('files')); await ensureTree(client, native); return ''; }
   if (kind === 'pull-requests') { if (!can.pullRequests) return ''; client.diffOpen = false; upsert(state, singleton('pull-requests')); return ''; }
@@ -160,9 +169,15 @@ export async function openFileSurface(client: T3Client, native: Native, requeste
 
 /** `shelllocal:surface-*`: tab and panel state, the explorer and every read. */
 export async function surfaceLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
-  const state = panelState(client);
-  syncDiff(client, state);
+  const targetSplit = op === 'close-confirmed' ? id.lastIndexOf('|') : -1;
+  const targetKey = targetSplit >= 0 ? id.slice(0, targetSplit) : panelKey(client);
+  if (targetSplit >= 0) id = id.slice(targetSplit + 1);
+  const state = targetKey === panelKey(client) ? panelState(client) : surfaceStore(client).panels.get(targetKey);
+  if (!state) return '';
+  if (targetKey === panelKey(client)) syncDiff(client, state);
   state.userRevision++;
+  installTerminalPanelCleanup(client, native, state, parseScopedThreadKey(targetKey));
+  if (op.startsWith('terminal-')) return terminalPanelLocal(client, native, op.slice(9), id, value);
   if (op === 'open') return openSurface(client, native, id || value);
   if (op === 'file') { await openFileSurface(client, native, id, Number(value) || 0, value === 'tree'); return ''; }
   if (op === 'menu') { const action = await showTabMenu(client, native, state, id, value === 'key'); return action && panelState(client) === state ? surfaceLocal(client, native, action, id, '') : ''; }
@@ -172,12 +187,23 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
     const surface = state.surfaces.find(entry => entry.id === id);
     if (!surface) return '';
     state.active = id; state.visible = true;
+    if (surface.kind === 'terminal') focusPanelTerminal(client);
     if (surface.kind === 'device') selectDeviceTarget(client, panelKey(client), surface.device);
     if (surface.kind === 'diff') await showDiff(client, native);
     else { client.diffOpen = false; if (surface.kind === 'file') await ensureFile(client, native, surface.path, false); if (surface.kind === 'files') await ensureTree(client, native); }
     return '';
   }
+  if (op === 'close') {
+    const surface = state.surfaces.find(entry => entry.id === id && entry.kind === 'terminal');
+    if (surface) {
+      const copy = terminalSurfaceCloseCopy(client, surface), store = surfaceStore(client);
+      store.terminalClose = { serial: store.terminalClose.serial + 1, title: copy.closeTitle, body: copy.closeBody, op: 'shelllocal:surface-close-confirmed', target: `${panelKey(client)}|${id}` };
+      return '';
+    }
+  }
+  if (op === 'close-confirmed') op = 'close';
   if (['close', 'close-others', 'close-to-right', 'close-all'].includes(op)) {
+    const hadTerminal = state.surfaces.some(entry => entry.kind === 'terminal');
     await closePanelSurfaces(client, state, op, id);
     if (panelState(client) !== state) return '';
     if (!state.surfaces.some(entry => entry.kind === 'diff')) client.diffOpen = false;
@@ -185,7 +211,8 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
     if (next?.kind === 'diff' && state.visible && !client.diffOpen) await showDiff(client, native);
     else if (next && next.kind !== 'diff') client.diffOpen = false;
     if (next?.kind === 'device') selectDeviceTarget(client, panelKey(client), next.device);
-    return '';
+    if (next?.kind === 'terminal') focusPanelTerminal(client);
+    return hadTerminal && !state.surfaces.length ? 'terminal:focus-composer' : '';
   }
   if (op === 'hide') {
     // closePreviewPanel (ChatView.tsx): closing the whole panel on a live device floats it instead of dropping it.
@@ -236,13 +263,13 @@ export async function surfaceCommand(client: T3Client, native: Native, storage: 
 
 function tabOf(client: T3Client, surface: Surface, active: string, pending: ReadonlySet<string>): PanelTab {
   const state = panelState(client), editor = tabRename(state);
-  const rename = { renaming: editor.id === surface.id, renameValue: editor.id === surface.id ? editor.value : '', menu: tabMenuRows(surface, state.surfaces) };
+  const rename = { closeTarget: `${panelKey(client)}|${surface.id}`, ...terminalSurfaceCloseCopy(client, surface), renaming: editor.id === surface.id, renameValue: editor.id === surface.id ? editor.value : '', menu: tabMenuRows(surface, state.surfaces) };
   const r5 = r5Tab(client, surface);
   if (r5) return { id: surface.id, kind: surface.kind, ...r5, ...rename, active: surface.id === active, pending: false };
   const name = surface.path.slice(Math.max(surface.path.lastIndexOf('/'), surface.path.lastIndexOf('\\')) + 1);
   const device = surface.kind === 'device' ? deviceTab(client, panelKey(client)) : null; // lane r7-device: the open device's name and mark
-  const title = surface.kind === 'diff' ? 'Diff' : surface.kind === 'files' ? 'Files' : surface.kind === 'file' ? name : surface.kind === 'pull-requests' ? 'Pull requests' : surface.title || surface.device?.name || device?.title || 'Device';
-  const icon = surface.kind === 'diff' ? 'file-diff' : surface.kind === 'files' ? 'files' : surface.kind === 'pull-requests' ? 'link-2' : surface.kind === 'device' ? (surface.device ? surface.device.platform === 'android' ? 'android' : 'apple' : 'smartphone') : '';
+  const title = surface.kind === 'terminal' ? panelTerminalLabel(client, surface.terminal?.activeTerminalId ?? '') : surface.kind === 'diff' ? 'Diff' : surface.kind === 'files' ? 'Files' : surface.kind === 'file' ? name : surface.kind === 'pull-requests' ? 'Pull requests' : surface.title || surface.device?.name || device?.title || 'Device';
+  const icon = surface.kind === 'terminal' ? 'terminal' : surface.kind === 'diff' ? 'file-diff' : surface.kind === 'files' ? 'files' : surface.kind === 'pull-requests' ? 'link-2' : surface.kind === 'device' ? (surface.device ? surface.device.platform === 'android' ? 'android' : 'apple' : 'smartphone') : '';
   return { id: surface.id, kind: surface.kind, ...rename, title, icon, tone: '', fileToken: surface.kind === 'file' ? fileIconToken(surface.path) : '', active: surface.id === active, pending: pending.has(surface.path) };
 }
 
@@ -270,6 +297,8 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   const r5 = await r5Views(client, live, active, open, now);
   await r5Prefetch(client, live, state.surfaces, now); // lane r6-pr: tab icons from loaded detail
   return {
+    terminalClose: store.terminalClose,
+    terminal: active?.kind === 'terminal' ? terminalPanelView(client, await terminalDrawerView(client, native, 0, now), active) : emptyTerminalDrawerView(),
     open, kind: active?.kind ?? '', active: active?.id ?? '', count: state.surfaces.length,
     tabs: state.surfaces.map(surface => tabOf(client, surface, state.active, pendingPaths(client))), files, prs, device, deviceSetup, ...r5,
     deviceMini: visibleMini(r6DeviceMini(client, deviceStateOf(client)), shownDevice(client)), // r12-threads: shouldRenderPreviewMiniPlayer (its frame: chat-canvas-view.ts)
@@ -281,4 +310,4 @@ export function shownDevice(client: T3Client): DeviceTarget | undefined {
   const state = panelState(client), active = state.surfaces.find(entry => entry.id === state.active);
   return state.visible && active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
 }
-export const closedPanel = (): PanelView => ({ open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP });
+export const closedPanel = (): PanelView => ({ terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP });

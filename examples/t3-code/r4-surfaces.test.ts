@@ -78,7 +78,7 @@ describe('rightPanelStore rules', () => {
     const rows = surfaces(client);
     expect(rows.find(row => row.id === 'files')).toMatchObject({ available: true, reason: '' });
     expect(rows.find(row => row.id === 'device')).toMatchObject({ available: true });
-    expect(rows.find(row => row.id === 'terminal')).toMatchObject({ available: false, reason: 'Available when a project is open.' });
+    expect(rows.find(row => row.id === 'terminal')).toMatchObject({ available: true, reason: '' });
     expect(rows.find(row => row.id === 'pull-requests')).toMatchObject({ available: false, reason: 'No linked pull requests available.' });
     const draft = fakeClient({ threadId: '' }).client;
     expect(surfaces(draft).find(row => row.id === 'device')).toMatchObject({ available: false, reason: 'Available from a thread.' });

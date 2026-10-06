@@ -1,13 +1,13 @@
 ---
 name: 20261005-terminal-layout
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: in-progress
 verification: unverified
-delivery: none
+delivery: open
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-terminal-drawer
+pr_url: https://github.com/ccheever/exact2/pull/175
 verified_commit: null
 ---
 
@@ -107,6 +107,18 @@ Checked sources and time: plan issue drafts in [issues](../issues/README.md), 20
 - Keep the page key policy in the page (it must answer in the same event). TS sends the chord list for the contexts
   `terminalFocus:true, terminalOpen:true` (the clone's `chordWinners`, `keyboard-dispatch.ts`). The hook reports focus changes;
   TS turns them into the real `terminalFocus` and `terminalOpen` values.
+- Keys while the terminal has focus (read from the reference at `1e2ecbd975`, recorded by terminal-drawer):
+  `ThreadTerminalDrawer.tsx:745-781` `handleBeforeKey` hands these to the app instead of the terminal:
+  the close shortcut (`preventTerminalCloseShortcut`, ⌘W), `terminal.toggle` (⌘J), `terminal.split` (⌘D),
+  `terminal.splitVertical` (⇧⌘D), `terminal.new` (⌘N) and `diff.toggle`, each evaluated with
+  `terminalFocus:true, terminalOpen:true`. It keeps for the terminal: navigation chords
+  (`terminalNavigationShortcutData`), delete chords (`terminalDeleteShortcutData`) and clear (⌘K → `^L`,
+  `isTerminalClearShortcut`). The window handler (`ChatView.tsx:7583-7600`) still runs with
+  `terminalFocus:true` when the terminal owns focus, so commands whose default binding has no
+  `!terminalFocus` condition (`keybindings` defaults, e.g. ⌘B, ⌥⌘B, ⇧⌘J, ⌘O, ⇧⌘[ / ⇧⌘], ⌘1–9) also apply;
+  those with `!terminalFocus` (⌘K palette, ⌘P, ⌘N new chat, …) do not. Check the Ghostty surface's
+  `beforeKey` path (`terminal/ghostty/surface.ts:1057`) for which events reach the window before porting.
+  terminal-drawer passes only ⌘J through today.
 - Sidebar: teal (`text-teal-600`, dark `text-teal-300/90`) terminal icon, 14 pt in the row, 12 pt in the hover card; pulse 2 s stepped
   opacity 1 → 0.5 → 1 (`index.css:302-315`), no pulse under reduced motion. Row label `N terminal process(es) running`; palette tooltip
   `Terminal process running`. The server polls every 1 s, so the icon lags by up to about 1 s (`Manager.ts:100`).
@@ -140,14 +152,14 @@ Required environment: lane backend at the pin, oracle build, Xcode 27.0, Bun 1.4
 
 ## Progress
 
-Planned. No branch.
+Implemented on PR #175 with the expanded terminal work. The actual native app exercises terminal groups, horizontal/vertical splits, the four-pane limit, independent right-panel terminals, terminal-owned shortcuts and busy-process labels. Reused native session callbacks and queued resizes are fenced by session identity. This does not close every acceptance permutation.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| Expanded native verification, 2026-10-07 | Source fingerprints in linked evidence | Groups/splits/panel/keys/busy indicators driven; native and real-server regressions pass | [Matrix](https://github.com/ccheever/exact2/blob/t3-code-evidence/evidence/terminal-drawer/20261007-expanded-parity/MATRIX.md) | Fine-grained remaining subcases remain explicit |
 
 ## Next action
 
-`prepare` after `20261005-terminal-drawer` merges.
+Review the combined implementation and recorded runtime evidence on PR #175. Keep verification open for the remaining matrix subcases; the original Browser route remains a separate full-parity blocker.

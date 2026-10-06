@@ -91,6 +91,29 @@ final class EditorFixture {
 }
 
 final class ComposerEditorTests: XCTestCase {
+    func testContextInsertionRetainsCaretAndSelectionAfterComposerBlur() {
+        for blurred in [false, true] {
+            for replacing in [false, true] {
+                let fixture = EditorFixture()
+                fixture.type("LEFT RIGHT")
+                let range = NSRange(location: 5, length: replacing ? 5 : 0)
+                fixture.editor.setSelectedRange(range)
+                if blurred {
+                    let terminal = NSTextView(frame: NSRect(x: 0, y: 140, width: 100, height: 30))
+                    fixture.window.contentView?.addSubview(terminal)
+                    XCTAssertTrue(fixture.window.makeFirstResponder(terminal))
+                    XCTAssertEqual(fixture.editor.selectedRange(), range)
+                }
+                let result = fixture.composer.editor.insert(["text": "[Terminal 1](t3-context://v1/terminal/probe)"])
+                XCTAssertEqual(result["applied"] as? Bool, true)
+                XCTAssertEqual(fixture.editor.string, "LEFT [Terminal 1](t3-context://v1/terminal/probe) " + (replacing ? "" : "RIGHT"),
+                               "insertion must preserve the retained selection even after a terminal menu takes focus")
+                XCTAssertTrue(fixture.window.firstResponder === fixture.editor)
+                XCTAssertEqual(fixture.editor.selectedRange().length, 0)
+            }
+        }
+    }
+
     // MARK: Pure rules
 
     func testTriggerDetectionMatchesComposerLogic() {

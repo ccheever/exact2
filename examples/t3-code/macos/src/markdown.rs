@@ -62,6 +62,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "shellView",
             "shellDetails",
             "chatCanvas",
+            "terminalDrawer", // terminal-drawer: the thread terminal drawer (terminal-drawer-view.ts)
             "sidebarLaunchWidth",
             "prList",
             "prDetail",
@@ -519,6 +520,38 @@ fn document(id: Value, text: &str) -> Value {
     document_with_skills(id, text, None)
 }
 
+// The parser strips a code fence and its final newline. Preserve whether each
+// source fence closed so an unfinished block cannot inherit a runnable command
+// from an earlier block with identical text.
+fn closed_code_fences(text: &str) -> Vec<bool> {
+    let mut closed = Vec::new();
+    let mut open: Option<(char, usize)> = None;
+    for line in text.lines() {
+        let line = line.trim_start();
+        match open {
+            Some((marker, width)) => {
+                let count = line.chars().take_while(|c| *c == marker).count();
+                if count >= width && line[count..].trim().is_empty() {
+                    closed.push(true);
+                    open = None;
+                }
+            }
+            None => {
+                if let Some(marker @ ('`' | '~')) = line.chars().next() {
+                    let width = line.chars().take_while(|c| *c == marker).count();
+                    if width >= 3 {
+                        open = Some((marker, width));
+                    }
+                }
+            }
+        }
+    }
+    if open.is_some() {
+        closed.push(false);
+    }
+    closed
+}
+
 fn document_with_skills(id: Value, text: &str, skill_values: Option<&Value>) -> Value {
     let skills: Vec<(String, String)> = match skill_values {
         Some(Value::List(skills)) => skills
@@ -557,6 +590,8 @@ fn document_with_skills(id: Value, text: &str, skill_values: Option<&Value>) -> 
             *cell = skill_runs(cell, &skills);
         }
     }
+    let fences = closed_code_fences(&text);
+    let mut code_index = 0;
     let mut previous: Option<&markdown_parse::Block> = None;
     let mut blocks = Vec::new();
     let mut skip = 0;
@@ -646,6 +681,12 @@ fn document_with_skills(id: Value, text: &str, skill_values: Option<&Value>) -> 
         }
         fields.push(Value::Bool(flow.is_some()));
         no_table(&mut fields);
+        if matches!(block.kind, markdown_parse::Kind::Code) {
+            if let Some(last) = fields.last_mut() {
+                *last = Value::Bool(fences.get(code_index).copied().unwrap_or(false));
+            }
+            code_index += 1;
+        }
         blocks.push(Value::record(fields));
     }
     Value::record(vec![id, Value::list(blocks)])
@@ -1151,7 +1192,7 @@ mod tests {
                 let Value::Record(fields) = block else {
                     panic!("block")
                 };
-                assert_eq!(fields.len(), 15);
+                assert_eq!(fields.len(), 16);
                 fields[1].as_str().unwrap_or("").to_string()
             })
             .collect();
@@ -1217,5 +1258,41 @@ mod tests {
             })
             .collect();
         assert_eq!(gaps, vec![0.0, 20.0, 10.4, 10.4, 10.4, 10.4, 0.0]);
+    }
+}
+
+#[cfg(test)]
+mod terminal_fence_tests {
+    use super::*;
+    #[test]
+    fn matching_closed_and_open_identical_commands_stay_distinct() {
+        assert_eq!(
+            closed_code_fences("```bash\necho hi\n```\n\n```bash\necho hi\n"),
+            vec![true, false]
+        );
+        assert_eq!(closed_code_fences("````bash\necho hi\n```"), vec![false]);
+        let doc = document(
+            Value::str("m"),
+            "```bash\necho hi\n```\n\n```bash\necho hi\n",
+        );
+        let Value::Record(document) = doc else {
+            panic!("document")
+        };
+        let Value::List(blocks) = &document[1] else {
+            panic!("blocks")
+        };
+        let flags: Vec<bool> = blocks
+            .iter()
+            .filter_map(|block| {
+                let Value::Record(fields) = block else {
+                    return None;
+                };
+                if fields[1].as_str() != Some("code") {
+                    return None;
+                }
+                Some(fields.last() == Some(&Value::Bool(true)))
+            })
+            .collect();
+        assert_eq!(flags, vec![true, false]);
     }
 }

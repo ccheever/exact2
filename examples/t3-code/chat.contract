@@ -13,7 +13,7 @@ use TipBubble from "./shell-tip.contract"
 // a new draft in its project; a server thread's title opens the thread action
 // menu (TitleMenu) and renames inline on double-click; right-click opens the
 // same menu (a draft offers Project settings). The controls sit 13pt from the
-// edge: thread details, terminal drawer (unavailable here) and right panel;
+// edge: thread details, terminal drawer (terminal-drawer: ⌘J's toggle) and right panel;
 // with the right panel open only the details toggle stays in this header.
 component ChatHeader
   props
@@ -77,9 +77,9 @@ component ChatHeader
           TipBubble(label=(shell.keyThreadPanel == "" ? "Toggle thread details" : `Toggle thread details (${shell.keyThreadPanel})`), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "details" and not detailsOpen))
         when not rightOpen
           box position="relative" flex-shrink=0 hover=hover("terminal")
-            button disabled=true aria-label="Toggle terminal drawer" testId="toggle-terminal" width=28 height=28 padding=0 border-radius=10 border-width=0 opacity=0.64 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="#00000000"
+            button press=panel("terminal", "") disabled=(not shell.terminalAvailable) aria-label="Toggle terminal drawer" aria-pressed=shell.terminalOpen testId="toggle-terminal" width=28 height=28 padding=0 border-radius=10 border-width=0 opacity=(shell.terminalAvailable ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(shell.terminalAvailable and (shell.terminalOpen or hovered == "terminal") ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
               ShellIcon(name="panel-bottom", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
-            TipBubble(label="Terminal drawer is unavailable", side="bottom", align="end", offset=32, inset=40, shown=(hovered == "terminal"))
+            TipBubble(label=(shell.terminalAvailable ? (shell.keyTerminal == "" ? "Toggle terminal drawer" : `Toggle terminal drawer (${shell.keyTerminal})`) : "Terminal drawer is unavailable"), side="bottom", align="end", offset=32, inset=40, shown=(hovered == "terminal"))
           box position="relative" flex-shrink=0
             button press=panel("toggle", "") hover=hover("right") aria-label="Toggle right panel" testId="toggle-right-panel" width=28 height=28 padding=0 border-radius=10 border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(hovered == "right" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
               ShellIcon(name="panel-right", size=16, color="light-dark(#27272acc, #f5f5f5cc)")

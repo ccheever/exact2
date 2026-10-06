@@ -2,6 +2,7 @@
 use ProjectGlyph from "./sidebar-shapes.contract"
 
 shape LegacyThreadRow
+  terminalCount: number
   id: string
   title: string
   label: string

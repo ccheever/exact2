@@ -10,7 +10,7 @@
 // Changes: the confirmation is the sidebar's dialog (kind "delete-worktree"),
 // answered by a later command instead of an awaited promise, so the deletion
 // that asked is resumed from `worktreePrompt`; closing terminals with their
-// history is one hook (`closeThreadTerminals`) the terminal-drawer task fills.
+// history is one hook (`closeThreadTerminals`), set by terminal-drawer-view.ts.
 import { arr, effectiveWorktreeRules, obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
 import type { Files, Native } from './protocol';

@@ -4,8 +4,11 @@
 // plus the sidebar's own view state. Pure over the client and `now`.
 import { arr, num, obj, str, type Obj } from './domain';
 import { machineKind } from './connections';
-import { fleetThreads } from './settings-b-fleet'; // settings-b: background environments' threads
+import { fleetThreads, parseFleetThreadId, fleetTerminalProcessCount } from './settings-b-fleet'; // settings-b: background environments' threads
 import type { T3Client } from './client';
+import { knownSessions } from './terminal-drawer-view';
+import { selectRunningSubprocessTerminalIds } from './terminal-session';
+import { terminalFocused } from './terminal-focus';
 import { searchMatch, serverMatches, snoozePresets, threadSearchPending, type SearchPart, type SnoozePreset } from './sidebar-presentation';
 import { SETTLED_TAIL_INITIAL_COUNT, SETTLED_TAIL_PAGE_COUNT, clock, sidebarPrefs, sidebarSession, undoLive } from './sidebar-state';
 import { sidebarProviderPill } from './sidebar-provider-pill';
@@ -27,9 +30,18 @@ type Identity = (name: string) => { projectMark: string; projectInk: string; pro
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };
 export interface SidebarHelpers { projectIdentity: Identity; providerBadge: Badge }
 
+/** ThreadStatusIndicators/Sidebar.tsx: shells alone are idle; only child processes count. */
+export function terminalProcessCount(client: T3Client, threadId: string): number {
+  const ref = parseFleetThreadId(threadId) ?? { environmentId: client.environmentId, threadId };
+  if (ref.environmentId !== client.environmentId) return fleetTerminalProcessCount(ref.environmentId, ref.threadId);
+  return selectRunningSubprocessTerminalIds(knownSessions(client, ref)).length;
+}
+export const terminalProcessLabel = (count: number): string => count ? `${count} terminal ${count === 1 ? 'process' : 'processes'} running` : '';
+
 export interface SidebarThread {
   id: string; title: string; projectName: string; projectMark: string; projectInk: string; projectSurface: string;
   projectGray: string; projectGraySurface: string; providerDriver: string; providerBadge: string; providerBadgeColor: string; providerName: string;
+  terminalCount: number; terminalLabel: string;
   age: string; badge: string; stacked: boolean; badgeIcon: string; badgeState: string; section: string; status: string; selected: boolean; searchFirst: boolean;
   matchLabel: string; matchUser: boolean; matchParts: SearchPart[];
   card: boolean; statusIcon: string; statusColor: string; duration: string; titleColor: string; titleWeight: number;
@@ -157,6 +169,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
   const projectTitle = str(thread.fleetProjectTitle) || str(project?.title), projectName = displayNames(client).get(str(thread.projectId)) || projectTitle;
   const instance = providers.find(provider => provider.instanceId === obj(thread.modelSelection).instanceId);
   const prs = arr(thread.pullRequests), id = str(thread.id);
+  const terminalCount = terminalProcessCount(client, id);
   const active = id === client.threadId, multi = session.selection.includes(id);
   const visited = lastVisited(thread, prefs.visited[id]);
   const status = sidebarStatus(thread), unread = unseenCompletion(thread, visited), woke = isWoke(thread, wokeAt(thread, now), visited);
@@ -169,6 +182,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
   return {
     id, title: str(thread.title, 'Untitled thread'), projectName, ...helpers.projectIdentity(projectTitle), ...grayIdentity(helpers.projectIdentity(projectTitle).projectInk),
     providerDriver: str(instance?.driver), ...helpers.providerBadge(instance, providers), providerName: str(instance?.displayName),
+    terminalCount, terminalLabel: terminalProcessLabel(terminalCount),
     age: section === 'settled' ? ageLabel(settledTimestamp(thread), now) : threadTimeLabel(thread, now),
     ...sidebarPrBadge(thread), // r5-panels: resolveThreadPullRequestBadge (r5-panels-pr.ts)
     section, status: pill?.label ?? '', selected: active, searchFirst: extra.searchFirst,
@@ -214,7 +228,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
   const rows = searching ? searchRows(client, parts) : renderedRows(client, parts);
   if (session.searchQuery !== client.query) { session.searchQuery = client.query; session.searchIndex = 0; }
   const searchIndex = rows.length ? Math.min(session.searchIndex, rows.length - 1) : 0;
-  const hints = !searching && client.presentation.sidebarJumpHints === true;
+  const hints = !searching && !terminalFocused(client) && client.presentation.sidebarJumpHints === true;
   const jumps = hints ? jumpLabels(client, rows.length) : [];
   const threads = rows.map(({ thread, section }, index) => row(client, thread, section, now, helpers,
     { searchFirst: searching && index === searchIndex, jump: jumps[index] ?? '', searching }));

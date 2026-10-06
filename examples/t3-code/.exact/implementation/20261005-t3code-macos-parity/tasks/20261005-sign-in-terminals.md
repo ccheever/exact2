@@ -1,13 +1,13 @@
 ---
 name: 20261005-sign-in-terminals
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: in-progress
 verification: unverified
-delivery: none
+delivery: open
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-terminal-drawer
+pr_url: https://github.com/ccheever/exact2/pull/175
 verified_commit: null
 ---
 
@@ -132,7 +132,11 @@ Required environment: lane backend with a PTY, oracle build, Xcode 27.0, Bun 1.4
 
 ## Progress
 
-Planned. No branch.
+Implemented in the terminal parity branch alongside the terminal surface and drawer. The provider-auth prerequisite has no remote PR as of 2026-10-06; this change supplies its terminal Account branch (subscribe/start/respond/cancel), with the other authentication interaction types still outside this task.
+
+`onboarding-terminal.ts` owns command resolution and serialized generation-safe setup/cleanup; `pages-welcome.ts` owns one controller per environment and closes sessions when leaving Agents. `provider-auth-terminal.ts` owns transcript deltas and live Account state. `T3TerminalAuth.swift` serializes input through the native transport in 4,096-UTF-16-unit slices, preserving surrogate pairs and fencing identity/read-only changes. Native auth mode is supplied by `T3TerminalView.swift`; it skips terminal session RPCs and opens only HTTP(S) links.
+
+Development checks: 48 focused tests pass across onboarding terminal, provider auth terminal, welcome wizard, and provider settings, including original command resolver cases and the integrated welcome open/leave cleanup path. Strict TypeScript compilation of `app.ts` passes with ES2022. Real harmless PTY fixture passes through the production Swift transport and pinned backend: terminal-auth subscribe/start/respond/cancel, ordered 4,096/4,096/1,808-byte input, 93×31 resize, read-only suppression, second-slice real server refusal clearing the queue, and onboarding pretype with no shell effect until explicit Enter. Evidence: `target/terminal-parity/auth/run-1.log` and `rpc-trace.json` (13 assertions). UI acceptance, screenshots, and the integrated native build remain unverified. Selected guidance remains state-and-data, accessibility, design, and testing-and-debugging at `20261005-platforms-v3`.
 
 ## Attempts and evidence
 
@@ -142,4 +146,10 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` after `20261005-terminal-drawer` and `20261005-provider-sign-in-and-install` merge. TN1 may start after `20261005-terminal-drawer` alone if the user wants to split it.
+Review the Account and onboarding runtime evidence below, retaining the matrix’s untested subcases. No real account login or installer execution was required for these terminal checks.
+
+## Integrated verification, 2026-10-07
+
+The actual macOS Account terminal passed separate OS key events for `abc`, exact 10,000-character native Cmd+V, Escape forwarded as byte `1b` with Account still open, Cancel unmounting the terminal, and successful retry. Physical Tab moved to Registry agent ID; Shift+Tab moved to Cancel, with zero PTY input bytes. No real authentication service or credentials were used. The final Tab repair also passed an actual WKWebView regression for stale key-view links and no double advancement.
+
+The earlier JavaScript queue lost superseded requests during real continuous input. It was replaced by the native serial queue; the failed evidence remains distinct from the repaired results. Native auth tests cover ordering, failure clearing/recovery, identity fencing and read-only suppression. Evidence: [auth runtime proof](https://github.com/ccheever/exact2/blob/t3-code-evidence/evidence/terminal-drawer/20261007-expanded-parity/auth/sanitized-runtime-proof.json) and [Tab report](https://github.com/ccheever/exact2/blob/t3-code-evidence/evidence/terminal-drawer/20261007-expanded-parity/auth/gui-tab/RESULTS.md). Both actual onboarding Install buttons are now driven: Codex and Claude prefill the exact command without CR/LF, wait for Enter, then Close removes the terminal and its shell. No Enter was sent. Destination PTY byte proof and screenshots are in the [onboarding report](https://github.com/ccheever/exact2/blob/t3-code-evidence/evidence/terminal-drawer/20261007-expanded-parity/onboarding/RESULTS.md).

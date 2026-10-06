@@ -86,6 +86,8 @@ shape ShellView
   keyRightPanel: string
   keyThreadPanel: string
   keyTerminal: string
+  terminalAvailable: bool // terminal-drawer: an active server thread with a project
+  terminalOpen: bool
   keyNewThread: string
   keyNewThreadLocal: string
   keySidebar: string

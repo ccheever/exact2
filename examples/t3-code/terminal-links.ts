@@ -199,7 +199,7 @@ export function collectWrappedTerminalLinkLine(
 }
 
 export function isTerminalLinkActivation(
-  event: Pick<MouseEvent, "metaKey" | "ctrlKey">,
+  event: { readonly metaKey: boolean; readonly ctrlKey: boolean },
   platform = typeof navigator === "undefined" ? "" : navigator.platform,
 ): boolean {
   if (platform.length === 0) return false;

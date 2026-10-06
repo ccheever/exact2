@@ -1,13 +1,13 @@
 ---
 name: 20261005-terminal-integrations
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: in-progress
 verification: unverified
-delivery: none
+delivery: open
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-terminal-drawer
+pr_url: https://github.com/ccheever/exact2/pull/175
 verified_commit: null
 ---
 
@@ -29,7 +29,7 @@ Included:
    Copy, Paste), their positions, and the rules that a newer right-click supersedes a pending popup.
 2. **Composer terminal chip**: insert at the caret, record in the draft, expired chip (no text), toast on send,
    the sent-message chip label and popover.
-3. **Links**: URL and path activation. The Browser surface is excluded: every URL opens in the system browser.
+3. **Links**: URL and path activation. A requested in-app Browser route remains unavailable under framework issue #100; the explicit external-browser route is separate. A system-browser fallback does not establish full functional parity.
 4. **Scripts**: run a project script in a terminal, "Run in terminal" on shell code blocks, setup card "Open terminal".
 
 Excluded: tabs, splits, panel surface, keys, sidebar indicator (`20261005-terminal-layout`); session transport,
@@ -136,7 +136,11 @@ Required environment: lane backend at the pin, oracle build, Xcode 27.0, Bun 1.4
 
 ## Progress
 
-Planned. No branch.
+Implemented in the active terminal parity worktree (2026-10-06). Selection records now insert at the native caret, persist with local drafts, deduplicate by terminal/range, and join message context. Missing/expired terminal references are omitted with the reference guidance; an expired-only send stays in the composer. Sent chips preserve the full inline label and show the terminal title, Line/Lines range and captured output in their popover. The terminal popover uses the existing native auto-popover top layer with position-area top: click-away/Escape dismissal and viewport clamping follow the host, without clipping inside the transcript. Source ContextChipPopover is a button PopoverTrigger, so keyboard activation opens it; focus alone does not (the earlier ticket prose was overbroad). Draft chip tooltips carry captured output and expired guidance.
+
+Project-script controls are enabled and resolve project settings, remember the last choice, and use the drawer's open/write runner. Shell-fence buttons use the reference eligibility conditions plus per-block closed-fence state; identical code in a Python or unfinished fence cannot inherit a runnable shell block's button. Terminal path links resolve against the terminal folder and use the preferred editor. Browser links honor the original default/system and modifier branches; the selected in-app Browser branch remains explicitly unavailable (issue #100), so full original equivalence is not claimed.
+
+Development checks: 37 focused Bun tests/106 assertions passed before the added two script integration tests; the complete integration file now passes 13 tests/60 assertions including real runner open/write request shapes, reuse, remember and failure paths. Strict TypeScript app compilation passed. Contract build and Rust fence test attempt were blocked by concurrently edited pages-welcome.contract syntax; rerun after integration. Follow-up: 29 integration/chip tests and 87 assertions pass, including explicit autoOpenPreview unmatched-dependency behavior. Rust retry reached capture but source changes during capture aborted it; rerun once source edits settle. Native menus are owned by the terminal surface agent; GUI selection, draft/sent chips, tooltips, script runs and links still require the integrated macOS sweep.
 
 ## Attempts and evidence
 
@@ -146,4 +150,10 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` after `20261005-terminal-layout` merges.
+Review the integrated evidence below and the remaining matrix subcases. Browser app-target remains a tracked parity blocker.
+
+## Integrated evidence, 2026-10-07
+
+The [expanded report](https://github.com/ccheever/exact2/blob/t3-code-evidence/evidence/terminal-drawer/20261007-expanded-parity/README.md) and [acceptance matrix](https://github.com/ccheever/exact2/blob/t3-code-evidence/evidence/terminal-drawer/20261007-expanded-parity/MATRIX.md) distinguish runtime observations from component tests and remaining gaps. [Final drawer motion](https://github.com/ccheever/exact2/blob/t3-code-evidence/evidence/terminal-drawer/20261007-expanded-parity/motion/final-drawer-observations.json) records actual macOS open/close, sampled reversal, reduced-motion endpoints and focus restoration. Publication URLs target the evidence branch.
+
+C02–C05 runtime core now passes: actual three-line selection and AppKit Add to chat, exact clipboard, retained-caret insertion with one separator, atomic deletion, normal restart persistence, fake-provider send and draft/sent previews. D04 automatically displays setup completion and activates the existing PTY. See the linked matrix and its selection/setup reports. Remaining coverage includes C01 selection permutations, 64k GUI variants, C06 external editor display/caret (routing and process spawn pass), C07 in-app Browser mismatch, C08 external-app outcomes, D01 prefer-new/remembered-script GUI variants, and D02 real failed-RPC injection.

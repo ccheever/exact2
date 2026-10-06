@@ -1,3 +1,4 @@
+import { activeRef, revealTerminal } from './terminal-drawer-view';
 // The worktree setup card, adapted from T3 Code (MIT, see LICENSE-T3):
 // packages/contracts/src/worktreeSetup.ts (the snapshot and stage labels),
 // packages/client-runtime/src/worktreeSetup.ts (resolveVisibleWorktreeSetup,
@@ -9,28 +10,35 @@ import { arr, obj, str, type Obj } from './domain';
 import { ClientError, activeRun, type Native } from './protocol';
 import type { T3Client } from './client';
 import { setupTurnStarted } from './r12-threads-worktree';
+import { subscriptionSerial } from './shell-vcs';
 
 export const WORKTREE_SETUP_KEY = 'worktree-setup';
 const STAGE_LABELS: Record<string, string> = { fetch: 'Fetch base branch', checkout: 'Check out files', submodules: 'Init submodules',
   'setup-script': 'Run setup script', agent: 'Start agent' };
 const TAIL_LINES = 4;
 
-interface SetupState { id: string; threadId: string; latest: Obj | null; detailsOpen: boolean }
+interface SetupState { id: string; threadId: string; latest: Obj | null; detailsOpen: boolean; generation: number; environmentId: string; epoch: number; floor: number; maxSeen: number }
 const states = new WeakMap<T3Client, SetupState>();
 function stateOf(client: T3Client): SetupState {
   let state = states.get(client);
-  if (!state) { state = { id: '', threadId: '', latest: null, detailsOpen: false }; states.set(client, state); }
+  if (!state) { state = { id: '', threadId: '', latest: null, detailsOpen: false, generation: -1, environmentId: '', epoch: 0, floor: 0, maxSeen: 0 }; states.set(client, state); }
   return state;
 }
 
 /** One event of the subscribeWorktreeSetup stream: null (nothing tracked) or the newest snapshot by sequence. */
 export function worktreeSetupEvent(client: T3Client, entry: Obj): void {
   const state = states.get(client);
-  if (!state || !state.id || str(entry.subscriptionId) !== state.id) return;
+  if (!state || !state.threadId || state.threadId !== client.threadId || state.generation !== client.generation ||
+      state.environmentId !== client.environmentId || Number(entry.generation) !== state.generation) return;
+  const id = str(entry.subscriptionId), serial = subscriptionSerial(id);
+  state.maxSeen = Math.max(state.maxSeen, serial);
+  if (serial <= state.floor || (state.id && serial < subscriptionSerial(state.id))) return;
   const item = entry.value === null ? null : obj(entry.value);
-  if (item && (item._transportError || item._streamEnded)) { state.id = ''; return; }
-  if (!item || !item.threadId) return;
-  if (str(item.threadId) !== state.threadId) return;
+  if (item?.threadId && str(item.threadId) !== state.threadId) return;
+  // The native stream may publish before its subscribe answer reaches this snapshot.
+  state.id = id;
+  if (item && (item._retryDue || item._streamEnded)) { state.id = ''; state.floor = state.maxSeen; return; }
+  if (!item || item._transportError || !item.threadId) return;
   if (state.latest && Number(state.latest.sequence) > Number(item.sequence)) return;
   state.latest = item;
 }
@@ -46,13 +54,30 @@ export function wantsWorktreeSetup(client: T3Client): string {
 export async function syncWorktreeSetup(client: T3Client, native: Native | null | undefined): Promise<void> {
   if (!native?.available || !client.ready) return;
   const state = stateOf(client), wanted = wantsWorktreeSetup(client);
+  if (state.generation !== client.generation || state.environmentId !== client.environmentId) {
+    Object.assign(state, { id: '', threadId: '', latest: null, detailsOpen: false, generation: client.generation,
+      environmentId: client.environmentId, floor: 0, maxSeen: 0 });
+    state.epoch++;
+  }
   if (state.id && state.threadId === wanted) return;
-  if (state.id) { await client.restAccess(native).call({ op: 'unsubscribe', key: WORKTREE_SETUP_KEY }).catch(() => undefined); state.id = ''; }
-  if (state.threadId !== wanted) { state.latest = null; state.detailsOpen = false; }
-  state.threadId = wanted;
-  if (!wanted) return;
-  try { state.id = str((await client.restAccess(native).call({ op: 'subscribe', key: WORKTREE_SETUP_KEY, method: 'subscribeWorktreeSetup', payload: { threadId: wanted } })).id); }
-  catch { state.id = ''; }
+  const previous = state.id;
+  if (state.threadId !== wanted) {
+    state.id = ''; state.latest = null; state.detailsOpen = false; state.threadId = wanted;
+    state.floor = state.maxSeen; state.epoch++;
+  }
+  const epoch = state.epoch, generation = client.generation, environment = client.environmentId;
+  if (!wanted) {
+    if (previous) await client.restAccess(native).call({ op: 'unsubscribe', key: WORKTREE_SETUP_KEY }).catch(() => undefined);
+    return;
+  }
+  state.floor = state.maxSeen;
+  try {
+    const reply = await client.restAccess(native).call({ op: 'subscribe', key: WORKTREE_SETUP_KEY, method: 'subscribeWorktreeSetup', payload: { threadId: wanted } });
+    if (state.epoch !== epoch || client.generation !== generation || client.environmentId !== environment || client.threadId !== wanted) return;
+    const id = str(reply.id), serial = subscriptionSerial(id);
+    state.maxSeen = Math.max(state.maxSeen, serial);
+    if (serial > state.floor && (!state.id || serial > subscriptionSerial(state.id))) state.id = id;
+  } catch { /* A later snapshot retries; an already adopted early event remains valid. */ }
 }
 
 export const agentStarted = (snapshot: Obj) => arr(snapshot.stages).some(stage => stage.id === 'agent' && stage.status === 'done');
@@ -118,13 +143,18 @@ export function setupView(snapshot: Obj, embedded: boolean, detailsOpen: boolean
     }),
     details: [['Branch', str(snapshot.branch)], ['Base', str(snapshot.baseRef)], ['Path', str(snapshot.worktreePath)], ['Setup', str(script.command)]]
       .filter(([, value]) => value).map(([name, value]) => ({ id: name!, text: value! })),
-    detailsOpen, terminal: false, cancel: !embedded && running,
+    detailsOpen, terminal: !!str(script.terminalId) && !!setupStage && setupStage.status !== 'pending', cancel: !embedded && running,
   };
 }
 
 /** The card's Details toggle and Cancel (worktreeSetup.cancel interrupts the server-side bootstrap). */
 export async function worktreeSetupAction(client: T3Client, native: Native, op: string): Promise<string> {
   const state = stateOf(client);
+  if (op === 'setup-terminal') {
+    const snapshot = state.latest, ref = activeRef(client), terminalId = str(obj(snapshot?.setupScript).terminalId);
+    if (ref && snapshot?.threadId === ref.threadId && terminalId) revealTerminal(client, ref, terminalId);
+    return '';
+  }
   if (op === 'setup-details') { state.detailsOpen = !state.detailsOpen; return ''; }
   if (op === 'setup-cancel') {
     const snapshot = state.latest;

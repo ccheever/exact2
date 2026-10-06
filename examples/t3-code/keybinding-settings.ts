@@ -50,7 +50,7 @@ export function validWhen(value: string): boolean {
 export function bindingId(binding: Obj): string {
   return encodeURIComponent(JSON.stringify([str(binding.command), shortcutInput(obj(binding.shortcut)), whenExpression(binding.whenAst)]));
 }
-type ShortcutContext = { composerFocus: boolean; editableFocus: boolean; turnRunning: boolean; modelPickerOpen: boolean; draftThreadRoute: boolean; modalOpen: boolean };
+type ShortcutContext = { terminalFocus?: boolean; terminalOpen?: boolean; composerFocus: boolean; editableFocus: boolean; turnRunning: boolean; modelPickerOpen: boolean; draftThreadRoute: boolean; modalOpen: boolean };
 const whenMatches = (ast: unknown, context: ShortcutContext, depth = 0): boolean | null => {
   const node = obj(ast); if (!node.type) return true; if (depth > 64) return null;
   if (node.type === 'identifier') {

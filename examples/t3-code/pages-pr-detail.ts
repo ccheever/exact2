@@ -63,7 +63,7 @@ export function emptyDetail() {
     canEdit: false, canClose: false, canReopen: false, canDraft: false, canReady: false, canMerge: false, canUpdateBranch: false, canReview: false, canLabel: false,
     projectId: '', host: '', hostName: 'GitHub', code: [] as { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[],
     // r4-timeline: Settings → Appearance code font, size and word wrap for the Markdown.
-    md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [] as ChipView[] }, diffScheme: 'red-green',
+    md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [] as ChipView[], runCommands: [] as string[] }, diffScheme: 'red-green',
   };
 }
 export type PrDetailView = ReturnType<typeof emptyDetail>;
