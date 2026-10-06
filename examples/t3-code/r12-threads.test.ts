@@ -7,7 +7,9 @@ import { environmentOptions, runOnEnvironment } from './r4-git-env';
 import { awaitScratchProject, machineChanging, scratchChoices, SCRATCH_NOT_LOADED } from './r12-threads-scratch';
 import { activityRun, setupTurnStarted } from './r12-threads-worktree';
 import { adoptWorktreeSetup, threadWorktreeSetup } from './timeline-worktree';
-import { autoShowDevices, placeMini, resetLaunch, visibleMini } from './r12-threads-device';
+import { autoShowDevices, resetLaunch, visibleMini } from './r12-threads-device';
+import { chatCanvasView } from './chat-canvas-view';
+import { resolvePreviewMiniPlayerFrame, resolveDeviceMiniPlayerSourceSize } from './previewMiniPlayerLayout';
 import { r6DeviceMini, floatMiniDevice } from './r6-media-device';
 import { toasts } from './toast';
 
@@ -146,12 +148,21 @@ describe('a thread\'s device session floats (ChatView autoShowFloatingPreview)',
     expect(visibleMini(mini, { hostId: 'local', deviceId: 'OTHER', platform: 'ios', name: '' }).show).toBe(true);
     expect(visibleMini(mini, undefined).show).toBe(true);
   });
-  test('a new player is at least 240 wide at the source aspect, its bottom 12 above the composer (chatCanvasLayout)', () => {
-    expect(placeMini(9 / 19.5, { chat: [400, 0, 740, 840], overlay: [400, 668, 740, 172] })).toEqual({ width: 240, height: 520, top: 128 });
-    // A short canvas fits the height; the player never rises above 12 under the header.
-    expect(placeMini(9 / 19.5, { chat: [0, 0, 600, 500], overlay: [0, 408, 600, 100] })).toEqual({ width: 150, height: 324, top: 64 });
-    expect(placeMini(16 / 9, { chat: [0, 0, 900, 840], overlay: [0, 668, 900, 172] })).toEqual({ width: 320, height: 180, top: 468 });
-    expect(placeMini(9 / 19.5, {})).toEqual({ width: 240, height: 520, top: 64 });
+  test('a new player is at least 240 wide at the source aspect and starts beside the composer (resolvePreviewMiniPlayerFrame, chatCanvasLayout)', async () => {
+    // previewMiniPlayerLayout.test.ts "floats a phone at the minimum width rather than the default box".
+    expect(resolvePreviewMiniPlayerFrame({ width: null, position: null, source: resolveDeviceMiniPlayerSourceSize('ios', null), container: { width: 1_000, height: 700 } })).toMatchObject({ width: 240, height: 520 });
+    // chatCanvasLayout.ts "New players start beside the composer": its bottom 12 above the canvas's, 12 from the right edge.
+    const client = { ...thread(), draftKey: 'env:t1', local: {}, presentation: { frames: { chat: [400, 0, 740, 840], overlay: [400, 668, 740, 172] } } } as unknown as T3Client;
+    floatMiniDevice(client, 't1', { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: 'iPhone 18 Pro' });
+    const canvas = await chatCanvasView(client, null, { width: 740, viewportHeight: 840, detailsInline: false, chatMax: 736, overlaid: true, gesture: '' });
+    // 740 pt leaves no readable lane beside it, so it rises above the composer and overlaps messages instead.
+    expect([canvas.mini.width, canvas.mini.height, canvas.mini.x + canvas.mini.width, canvas.overlapsChat]).toEqual([240, 520, 740 - 12, true]);
+    expect(canvas.mini.top + canvas.mini.height).toBeLessThanOrEqual(668 - 12);
+    // A landscape source at the default box: 320 × 180 at the bottom right of a wide canvas.
+    const wide = { ...thread(), draftKey: 'env:t1', local: {}, presentation: { frames: { chat: [0, 0, 1600, 840], overlay: [432, 668, 736, 172] }, deviceStreams: { 'local\u0000IPHONE': { width: 1920, height: 1080, orientation: 'landscape_left' } } } } as unknown as T3Client;
+    floatMiniDevice(wide, 't1', { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: 'iPhone 18 Pro' });
+    expect((await chatCanvasView(wide, null, { width: 1600, viewportHeight: 840, detailsInline: false, chatMax: 736, overlaid: true, gesture: '' })).mini)
+      .toMatchObject({ width: 320, height: 180, x: 1600 - 12 - 320, top: 840 - 12 - 180 });
   });
 });
 

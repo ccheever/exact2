@@ -33,6 +33,7 @@ import { prepareTimeline, refreshTimelineReads } from './timeline-prepare';
 import { paletteCommand } from './palette-commands';
 import { shellView } from './shell';
 import { shellDetails } from './shell-details';
+import { chatCanvasView } from './chat-canvas-view'; // floating-device-player
 import { sidebarLaunchWidth } from './r4-polish-sidebar-width';
 
 export const appId = 'com.exact.t3code.macos';
@@ -102,6 +103,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'paletteCommand') return paletteCommand(client, native, storage, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''));
   if (source === 'shellDetails') return shellDetails(client, native, args[0] === true, String(args[1] || ''), args[3] === true, Number(args[4]) || 0, Number(args[5]) || 0); // args[3]: the card docks inline; args[4]: wall time; args[5]: the window right of the canvas (lane r6-pr)
   if (source === 'sidebarLaunchWidth') return sidebarLaunchWidth(client, Number(args[0]) || 0, !!native?.available); // r4-polish: the width fixed at load
+  if (source === 'chatCanvas') return chatCanvasView(client, native, { width: Number(args[1]) || 0, viewportHeight: Number(args[2]) || 0, detailsInline: args[3] === true, chatMax: Number(args[4]) || 0, overlaid: args[5] === true, gesture: String(args[6] || '') }); // floating-device-player: args[7..8] re-ask when the player changes
   if (source === 'shellView') return shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true);
   if (source === 'command') return client.command(String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), Number(args[3]) || 0, native, storage);
   throw new Error(`Unknown T3 source: ${source}`);

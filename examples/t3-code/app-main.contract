@@ -39,6 +39,7 @@ use DiffPanel from "./diff.contract"
 use ShellView from "./shell-shapes.contract"
 use SurfacePanel from "./shell-panels.contract"
 use R6DeviceMiniPlayer from "./r6-device.contract"
+use ChatCanvasView from "./chat-canvas.contract"
 use ShellDetails from "./shell-shapes.contract"
 use ThreadDetailsInline from "./shell-details.contract"
 
@@ -109,22 +110,24 @@ component ChatColumn
     // r8-pointer D11: the chat column's right edge in the window is (sidebar) + conversationWidth; the Send tooltip
     // shifts to stay inside it, since a right panel (a later section) paints over anything reaching past it.
     sidebarWidth: number
+    // The chat canvas (chat-canvas-view.ts): the lane, the card's fold and the floating player's frame; `canvasGesture`
+    // reports a player gesture to it.
+    canvas: ChatCanvasView
+    canvasGesture: action
   // r8-pointer D9/D10: the transcript's hovered row (message.hoverKey) and its hovered tooltip part.
   state rowHover = ""
   state partHover = ""
   action hoverPart(row: string, part: string, over: bool)
     rowHover = over ? row : (rowHover == row ? "" : rowHover)
     partHover = over ? part : (partHover == part ? "" : partHover)
-  // chatCanvasLayout (upstream 429c625a85): with the workspace card docked, chat stays centred while it
-  // clears the card by 32pt, else moves left only as far as needed and narrows only at the 20pt padding.
-  // Every lane container keeps its own 20pt padding and adds `laneInset` on its end side.
-  derive laneWidth = min(data.look.chatMax, conversationWidth - 344)
-  derive laneLeft = max(20, min((conversationWidth - laneWidth) / 2, conversationWidth - 324 - laneWidth))
-  derive laneInset = details.inline ? max(0, conversationWidth - 2 * laneLeft - laneWidth) : 0
-  // r4-composer: the composer stack's lane (the 20pt paddings and laneInset, centred) for the overlay.
+  // resolveChatCanvasLayout (chat-canvas-view.ts) places the lane: centred, moved left and then narrowed for the docked
+  // workspace card (32pt clear of it) and for the floating player. Every lane container keeps its own 20pt padding and
+  // adds the canvas's insetEnd (`--chat-lane-inset-end`) on its end side; the composer stack is the lane itself. Until
+  // the canvas first answers, chat is centred.
+  derive laneInset = canvas.ready ? canvas.insetEnd : 0
   derive overlaid = length(data.messages) > 0
-  derive stackWidth = max(0, min(data.look.chatMax, conversationWidth - 40 - laneInset))
-  derive stackLeft = 20 + max(0, conversationWidth - 40 - laneInset - stackWidth) / 2
+  derive stackWidth = canvas.ready ? canvas.width : max(0, min(data.look.chatMax, conversationWidth - 40))
+  derive stackLeft = canvas.ready ? canvas.left : 20 + max(0, conversationWidth - 40 - stackWidth) / 2
   view
     column flex=1 min-width=0 height="100%" position="relative" inert=pageCover hook="t3-frame" data-frame="chat"
       when viewport.prefersColorScheme == "dark"
@@ -185,9 +188,9 @@ component ChatColumn
             when data.requestMode == "question" and not resting
               RequestActions(data=data, command=command, busy=commandPending, scheme=viewport.prefersColorScheme)
       ComposerDrawerLayer(editor=editor, dark=(viewport.prefersColorScheme == "dark"), op=editorOp)
-      // lane r6-media: a device floated over the chat (r6-device.contract).
-      when shell.panel.deviceMini.show
-        R6DeviceMiniPlayer(mini=shell.panel.deviceMini, top=shell.panel.deviceMini.top, local=chatLocal)
+      // lane r6-media: a device floated over the chat (r6-device.contract), in the canvas's frame.
+      when shell.panel.deviceMini.show and canvas.mini.show and canvas.mini.key == shell.panel.deviceMini.key
+        R6DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture)
       when length(data.messages) == 0 and data.connected and data.projectId != ""
         // Reference stack: the composer plus a 52pt strip zone under it, centred in the column.
         // Until the branch strip renders under the draft composer, this spacer reserves its 32pt.
@@ -197,10 +200,12 @@ component ChatColumn
       else
         AlertStack(data=data, dismissed=dismissedProviderBanner, busy=commandPending, dismissProvider=dismissProviderBanner, command=command)
       // One subtree per scheme: light-dark() inside the card's SVG glyphs does not re-resolve on a scheme flip.
-      when details.inline and viewport.prefersColorScheme == "dark"
-        ThreadDetailsInline(details=details, maxHeight=(viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal)
-      when details.inline and viewport.prefersColorScheme != "dark"
-        ThreadDetailsInline(details=details, maxHeight=(viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal)
+      // resolveThreadDetailsCardLayout: the card folds to the height above a player resized into it, and leaves when
+      // no readable height (160pt) is left.
+      when details.inline and canvas.cardShown and viewport.prefersColorScheme == "dark"
+        ThreadDetailsInline(details=details, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal)
+      when details.inline and canvas.cardShown and viewport.prefersColorScheme != "dark"
+        ThreadDetailsInline(details=details, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal)
 
 // The right panel beside the chat on a wide window: the diff, or the surface chooser.
 component RightPanels

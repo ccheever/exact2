@@ -11,6 +11,7 @@
 use R6DeviceView from "./r6-device-shapes.contract"
 use R6DeviceWorkspace from "./r6-device-shapes.contract"
 use R6DeviceMini from "./r6-device-shapes.contract"
+use ChatCanvasMini from "./chat-canvas.contract"
 use R4Icon from "./r4-surfaces-icons.contract"
 use R7DevGlyph from "./r7-device.contract"
 use R7DevToolsDrawer from "./r7-device.contract"
@@ -246,34 +247,96 @@ component R6DeviceWorkspaceView
         else
           R7DevToolsDrawer(tools=ws.r7.tools, local=local, edit=local, command=command)
 
-// ThreadPreviewMiniPlayer (device): the stream at the source's aspect, sized and placed by
-// r12-threads-device.ts placeMini (chatCanvasLayout), 12pt from the chat's right edge, rounded 12
-// with a hairline ring; its pill offers "Open preview in right panel" and "Close floating
-// preview". Dragging and resizing are not built.
+// ThreadPreviewMiniPlayer (device, T3 Code 1e2ecbd975 MiniPlayerShell): the stream at the source's aspect in
+// the chat canvas's frame (chat-canvas-view.ts), clipped at its radius with a hairline ring. The 12 pt handle
+// (its 8 pt dot) and the pill drag it; eight invisible grab zones straddling the edges (8 pt thick) and corners
+// (16 pt square) resize it, their cursor the only affordance. A gesture reports its pan total since it began
+// (`serial|sourceKey|direction|dx|dy`) to the canvas source, which applies it from the frame on screen; the
+// release clears it. The zones are siblings of the clipped frame so their outer half takes the press. The pill
+// ("Open preview in right panel", "Close floating preview") shows while the handle or the pill is hovered, a
+// pill button has focus (group-focus-within) or a gesture runs (the host sends no hover during a pan).
 component R6DeviceMiniPlayer
   props
     mini: R6DeviceMini
-    top: number
+    frame: ChatCanvasMini
+    still: bool
     local: action
-  // lane r12-threads: the pill shows while its 12pt handle (8 in from the corner) or the pill is
-  // hovered; otherwise only the handle's 8pt dot (ThreadPreviewMiniPlayer's group-hover).
+    gesture: action
   state dotOver = false
   state pillOver = false
+  state pillFocus = ""
+  state dragging = ""
+  state started = 0
+  state gx = 0
+  state gy = 0
   action overDot(value: bool)
     dotOver = value
   action overPill(value: bool)
     pillOver = value
+  action focusPill(id: string, value: bool)
+    pillFocus = value ? id : (pillFocus == id ? "" : pillFocus)
+  // MiniPlayerShell beginGesture / handlePointerMove: the frame at the first pan, then the total.
+  action pan(direction: string, dx: number, dy: number)
+    let starting = dragging == ""
+    let count = starting ? started + 1 : started
+    let nx = (starting ? 0 : gx) + dx
+    let ny = (starting ? 0 : gy) + dy
+    started = count
+    dragging = direction
+    gx = nx
+    gy = ny
+    gesture(`${floor(now())}.${count}|${mini.sourceKey}|${direction}|${nx}|${ny}`)
+  // endGesture: the stored frame stays where the last move left it.
+  action release(vx: number, vy: number)
+    dragging = ""
+    gx = 0
+    gy = 0
+    gesture("")
+  derive pill = dotOver or pillOver or pillFocus != "" or dragging != ""
+  derive edge = 4
+  derive corner = 8
   view
-    column position="absolute" top=top right=12 width=mini.width height=mini.height z-index=40 border-radius=12 overflow="hidden" background-color="light-dark(#f4f4f5, #1a1a1a)" box-shadow="0 25px 50px -12px #00000059" role="region" aria-label="Floating device preview" testId="device-mini-player"
-      box hook="t3-media" data-media-kind=`device-${mini.platform}` data-device-id=mini.deviceId data-device-host=mini.hostId position="absolute" left=0 top=0 right=0 bottom=0 role="application" aria-label=(mini.platform == "ios" ? "iOS Simulator screen" : "Android Emulator screen") testId="device-mini-screen"
-      when mini.stream.status != "streaming"
-        box position="absolute" left=0 top=0 right=0 bottom=0
-          R6DeviceLoading(name=mini.name, description=mini.description, message=mini.stream.message, stage="stream", error=mini.stream.error, reconnect=local("surface-r6dev-reconnect", "", mini.key))
-      box position="absolute" left=0 top=0 right=0 bottom=0 border-radius=12 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" inert=true
-      when not (dotOver or pillOver)
-        box position="absolute" top=7 right=7 width=10 height=10 border-radius=5 border-width=1 border-style="solid" border-color="light-dark(#ffffffb3, #0a0a0ab3)" background-color="light-dark(#0a0a0a40, #fafafa40)" box-sizing="border-box" box-shadow="0 1px 2px 0 #0000000d" inert=true
-      box position="absolute" top=8 right=8 width=12 height=12 hover=overDot testId="device-mini-handle"
-      when dotOver or pillOver
-        row position="absolute" top=8 right=8 height=32 padding=2 gap=2 box-sizing="border-box" align-items="center" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="light-dark(#fefefeeb, #171717eb)" box-shadow="0 10px 15px -3px #00000033" hover=overPill
-          R6RailButton(icon="panel-right", label="Open preview in right panel", disabled=false, pressed=false, press=local("surface-r6dev-mini-restore", "", ""), testId="device-mini-restore")
-          R6RailButton(icon="x", label="Close floating preview", disabled=false, pressed=false, press=local("surface-r6dev-mini-close", "", ""), testId="device-mini-close")
+    box position="absolute" left=frame.x top=frame.top width=frame.width height=frame.height z-index=40 role="region" aria-label="Floating device preview" testId="device-mini-player"
+      column position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius overflow="hidden" background-color="light-dark(#f4f4f5, #1a1a1a)" box-shadow="0 25px 50px -12px #00000059"
+        box hook="t3-media" data-media-kind=`device-${mini.platform}` data-device-id=mini.deviceId data-device-host=mini.hostId position="absolute" left=0 top=0 right=0 bottom=0 role="application" aria-label=(mini.platform == "ios" ? "iOS Simulator screen" : "Android Emulator screen") testId="device-mini-screen"
+        when mini.stream.status != "streaming"
+          box position="absolute" left=0 top=0 right=0 bottom=0
+            R6DeviceLoading(name=mini.name, description=mini.description, message=mini.stream.message, stage="stream", error=mini.stream.error, reconnect=local("surface-r6dev-reconnect", "", mini.key))
+        box position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" inert=true
+      box position="absolute" top=(frame.pillInset - 1) right=(frame.pillInset - 1) width=10 height=10 border-radius=5 border-width=1 border-style="solid" border-color="light-dark(#ffffffb3, #0a0a0ab3)" background-color="light-dark(#0a0a0a40, #fafafa40)" box-sizing="border-box" box-shadow="0 1px 2px 0 #0000000d" opacity=(pill ? 0 : 1) transition=(still ? "opacity 0ms" : "opacity 150ms cubic-bezier(0.4, 0, 0.2, 1)") inert=true
+      box position="absolute" top=frame.pillInset right=frame.pillInset width=12 height=12 hover=overDot pan=pan("move") panrelease=release touch-action="none" cursor=(dragging == "move" ? "grabbing" : "grab") testId="device-mini-handle"
+      row position="absolute" top=frame.pillInset right=frame.pillInset height=32 padding=2 gap=2 box-sizing="border-box" align-items="center" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="light-dark(#fefefeeb, #171717eb)" box-shadow="0 10px 15px -3px #00000033" opacity=(pill ? 1 : 0) transition=(still ? "opacity 0ms" : "opacity 150ms cubic-bezier(0.4, 0, 0.2, 1)") pointer-events=(pill ? "auto" : "none") hover=overPill pan=pan("move") panrelease=release touch-action="none" cursor=(dragging == "move" ? "grabbing" : "grab") testId="device-mini-pill"
+        R6MiniPillButton(icon="panel-right", label="Open preview in right panel", shown=pill, press=local("surface-r6dev-mini-restore", "", ""), focusChange=focusPill("restore"), testId="device-mini-restore")
+        R6MiniPillButton(icon="x", label="Close floating preview", shown=pill, press=local("surface-r6dev-mini-close", "", ""), focusChange=focusPill("close"), testId="device-mini-close")
+      box position="absolute" left=0 right=0 top=(0 - edge) height=(2 * edge) pan=pan("north") panrelease=release touch-action="none" cursor="ns-resize" role="presentation" testId="device-mini-resize-north"
+      box position="absolute" left=0 right=0 bottom=(0 - edge) height=(2 * edge) pan=pan("south") panrelease=release touch-action="none" cursor="ns-resize" role="presentation" testId="device-mini-resize-south"
+      box position="absolute" top=0 bottom=0 left=(0 - edge) width=(2 * edge) pan=pan("west") panrelease=release touch-action="none" cursor="ew-resize" role="presentation" testId="device-mini-resize-west"
+      box position="absolute" top=0 bottom=0 right=(0 - edge) width=(2 * edge) pan=pan("east") panrelease=release touch-action="none" cursor="ew-resize" role="presentation" testId="device-mini-resize-east"
+      box position="absolute" left=(0 - corner) top=(0 - corner) width=(2 * corner) height=(2 * corner) pan=pan("northwest") panrelease=release touch-action="none" cursor="nwse-resize" role="presentation" testId="device-mini-resize-northwest"
+      box position="absolute" right=(0 - corner) top=(0 - corner) width=(2 * corner) height=(2 * corner) pan=pan("northeast") panrelease=release touch-action="none" cursor="nesw-resize" role="presentation" testId="device-mini-resize-northeast"
+      box position="absolute" left=(0 - corner) bottom=(0 - corner) width=(2 * corner) height=(2 * corner) pan=pan("southwest") panrelease=release touch-action="none" cursor="nesw-resize" role="presentation" testId="device-mini-resize-southwest"
+      box position="absolute" right=(0 - corner) bottom=(0 - corner) width=(2 * corner) height=(2 * corner) pan=pan("southeast") panrelease=release touch-action="none" cursor="nwse-resize" role="presentation" testId="device-mini-resize-southeast"
+
+// A pill button (Button ghost icon-xs): focusable while the pill is hidden (opacity 0), as group-focus-within
+// needs, but it takes no pointer then; its glyph refuses the pointer too, since a box's pointer-events covers
+// only its own hit.
+component R6MiniPillButton
+  props
+    icon: string
+    label: string
+    shown: bool
+    press: action
+    focusChange: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover focus=focusChange(true) blur=focusChange(false) pointer-events=(shown ? "auto" : "none") aria-label=label testId=testId width=28 height=28 padding=0 border-radius=8 border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over and shown ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+      svg width=16 height=16 viewBox="0 0 24 24" color=r6devInk() fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 pointer-events="none" aria-hidden=true
+        when icon == "panel-right"
+          rect x=3 y=3 width=18 height=18 rx=2
+          path d="M15 3v18"
+        when icon == "x"
+          path d="M18 6 6 18"
+          path d="m6 6 12 12"
