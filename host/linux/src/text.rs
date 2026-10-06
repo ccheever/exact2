@@ -221,7 +221,13 @@ impl Spec {
 pub struct Paragraph {
     /// Width-independent canonical text, shape and catalog.
     source: Rc<ShapedSource>,
-    layouts: Arc<Lines>,
+    /// This width's lines and glyphs. A width only measured keeps none (the
+    /// storage spike's arrangement (c)): the first paint breaks the shared
+    /// shape at `remake` again and keeps them (b).
+    record: std::cell::OnceCell<Arc<Lines>>,
+    /// The width to break again for `record`; `None` when it is always kept
+    /// (flowed, clamped, ellipsized and adopted widths).
+    remake: Option<Option<f32>>,
     flow: Option<flow::FlowLayout>,
     #[cfg(test)]
     layout_lifetime: Arc<()>,
@@ -237,8 +243,8 @@ pub struct Paragraph {
     bottoms: Arc<Vec<f32>>,
     ink: RefCell<ink::Cache>,
     ellipsized: RefCell<Option<(f32, Rc<Paragraph>)>>,
-    // S + L, excluding canonical key K. Shared S must be deduplicated across
-    // snapshots; lazy ink is read separately below.
+    // S + width scalars, excluding canonical key K. Shared S must be
+    // deduplicated across snapshots; lazy lines and ink are read separately.
     resident_capacity_bytes: usize,
     // Moved source String capacities are included above; no length estimate.
     private_text_bytes_estimate: usize,
@@ -261,9 +267,23 @@ impl Paragraph {
         shaping::Runs::new(self)
     }
 
-    /// This width's lines, glyphs and faces.
+    /// This width's lines, glyphs and faces (made now if it was only
+    /// measured).
     pub fn lines(&self) -> &Lines {
-        &self.layouts
+        self.layouts()
+    }
+
+    /// The shared record of this width's lines, made on first use.
+    pub(crate) fn layouts(&self) -> &Arc<Lines> {
+        self.record.get_or_init(|| {
+            let width = self.remake.expect("a kept record is present");
+            Arc::new(self.source.remake(width))
+        })
+    }
+
+    /// The record's bytes if it exists.
+    fn lines_capacity_bytes(&self) -> usize {
+        self.record.get().map_or(0, |l| l.capacity_bytes())
     }
 
     fn layout_capacity_bytes(&self) -> usize {
@@ -319,7 +339,7 @@ impl Paragraph {
     /// Current accessible capacity in O(1), without visiting shaped glyphs.
     /// Accounting/maintenance runs outside paint's exclusive ink borrow.
     fn owned_capacity_bytes(&self) -> usize {
-        self.resident_capacity_bytes + self.ink_capacity_bytes()
+        self.resident_capacity_bytes + self.lines_capacity_bytes() + self.ink_capacity_bytes()
     }
 
     /// CSS inline backgrounds (LLP 1053 §0): each run's `background-color`
@@ -838,6 +858,7 @@ impl TextEngine {
         // Glyph positions already carry device scale. The GPU stream is separate
         // and remains full; only this CPU loop selects conservative ink spans.
         let glyph_ts = transform.pre_scale(1.0 / scale, 1.0 / scale);
+        paragraph.layouts();
         let mut catalog = paragraph.source.catalog.borrow_mut();
         let mut cache = paragraph.ink.borrow_mut();
         if !cache.matches(&catalog.ink_catalog, scale) {
@@ -849,7 +870,7 @@ impl TextEngine {
             cache.index = ink::Index::build(&mut catalog, paragraph, scale).map(Into::into);
         }
         let paint = PixmapPaint::default();
-        let slots = ink::slots(&mut catalog, &paragraph.layouts);
+        let slots = ink::slots(&mut catalog, paragraph.layouts());
         let mut draw = |g: &LayoutGlyph, baseline: f32, ink: RunPaint| {
             #[cfg(test)]
             {
@@ -916,7 +937,7 @@ impl TextEngine {
             }
         }
         let catalog = paragraph.source.catalog.borrow();
-        let faces = &paragraph.layouts.faces;
+        let faces = &paragraph.layouts().faces;
         runs.into_iter()
             .filter_map(|((face, size, run_index), glyphs)| {
                 let face = faces.get(face as usize)?;

@@ -108,3 +108,40 @@ fn a_giant_paragraph_gives_back_the_engines_scratch() {
         .collect();
     assert_eq!(before, after);
 }
+
+/// A width only measured keeps its scalars, not its lines (the storage
+/// spike's arrangement (c)); its first paint breaks the shared shape again
+/// and keeps the lines (b), the same ones the measure laid out.
+#[test]
+fn a_measured_width_keeps_no_lines_until_it_is_painted() {
+    let mut engine = engine();
+    let spec = crate::paint::text_spec(
+        &exact_kernel::StyleProps::default(),
+        &"office words 123 ".repeat(200),
+    );
+    let metrics = engine.measure(&spec, AxisOffer::Definite(300.));
+    let p = engine.paragraph(&spec, Some(300.));
+    assert_eq!(p.lines_capacity_bytes(), 0, "measured only: no lines kept");
+    let before = engine.residency().owned_capacity_bytes;
+    let painted = p.lines().glyphs.len();
+    assert!(painted > 1000);
+    let lines = p.lines_capacity_bytes();
+    assert!(lines > 0);
+    assert_eq!(engine.residency().owned_capacity_bytes, before + lines);
+    // What was measured is what is painted.
+    assert_eq!(paragraph_metrics(&p), metrics);
+    let mut fresh = engine_fresh();
+    let eager = fresh.layout(&spec, Some(300.));
+    let glyphs = |p: &Paragraph| -> Vec<_> {
+        p.lines()
+            .glyphs
+            .iter()
+            .map(|g| (g.glyph_id, g.x.to_bits(), g.start))
+            .collect()
+    };
+    assert_eq!(glyphs(&p), glyphs(&eager));
+}
+
+fn engine_fresh() -> TextEngine {
+    engine()
+}

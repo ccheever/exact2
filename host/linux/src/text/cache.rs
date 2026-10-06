@@ -140,12 +140,14 @@ impl Payloads {
     }
     fn width(&mut self, p: &Paragraph) -> usize {
         let mut bytes = 0;
-        let baselines = p.baselines.capacity() * size_of::<f32>();
-        if self.lines.insert(Arc::as_ptr(&p.layouts)) {
-            bytes += p.resident_capacity_bytes - p.source.accessible_capacity_bytes - baselines;
+        if let Some(lines) = p.record.get() {
+            if self.lines.insert(Arc::as_ptr(lines)) {
+                bytes += lines.capacity_bytes();
+            }
         }
+        // Baselines, bottoms and a flow travel together.
         if self.baselines.insert(Arc::as_ptr(&p.baselines)) {
-            bytes += baselines;
+            bytes += p.resident_capacity_bytes - p.source.accessible_capacity_bytes;
         }
         if let Some(index) = &p.ink.borrow().index {
             if self.indexes.insert(&**index as *const _) {
@@ -1022,6 +1024,5 @@ pub(super) fn capacities(paragraph: &Paragraph) -> usize {
     paragraph.source.accessible_capacity_bytes
         + vector(&paragraph.baselines)
         + vector(&paragraph.bottoms)
-        + paragraph.layouts.capacity_bytes()
         + paragraph.flow.as_ref().map_or(0, |f| f.capacity_bytes())
 }

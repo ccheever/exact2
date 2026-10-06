@@ -148,7 +148,7 @@ impl CompletedText {
     }
     pub fn layout_capacity_bytes(&self) -> usize {
         self.layout.as_ref().map_or(0, |l| {
-            l.capacity
+            (l.capacity + l.lines.capacity_bytes())
                 .saturating_sub(self.input.source.0.shape.get().map_or(0, |s| s.1))
         })
     }
@@ -363,7 +363,7 @@ impl FontWorker {
             Some(Arc::new(Layout {
                 index,
                 metrics,
-                lines: p.layouts,
+                lines: p.layouts().clone(),
                 baselines: p.baselines,
                 bottoms: p.bottoms,
                 capacity: p.resident_capacity_bytes,
@@ -430,7 +430,8 @@ pub(crate) fn adopt(
                 data.clone(),
                 *bytes,
             )),
-            layouts: l.lines.clone(),
+            record: std::cell::OnceCell::from(l.lines.clone()),
+            remake: None,
             baselines: l.baselines.clone(),
             bottoms: l.bottoms.clone(),
             flow: None,

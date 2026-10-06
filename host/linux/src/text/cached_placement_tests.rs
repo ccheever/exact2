@@ -372,7 +372,8 @@ fn cached_none_is_no_ink_but_absent_still_calls_uncached() {
     let mut engine = engine();
     let mut p = engine.layout(&spec("fj"), Some(100.0));
     // A real out-of-face glyph produces None through the ordinary Swash API.
-    for glyph in &mut Arc::get_mut(&mut p.layouts).unwrap().glyphs {
+    p.layouts();
+    for glyph in &mut Arc::get_mut(p.record.get_mut().unwrap()).unwrap().glyphs {
         glyph.glyph_id = u32::from(u16::MAX);
     }
     let required = keys(&p, 1.0);
