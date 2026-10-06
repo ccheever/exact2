@@ -40,4 +40,4 @@ component ToolActivityIcon
     box width=16 height=16 position="relative" flex-shrink=0 aria-label=label
       when not loaded
         children
-      box position="absolute" left=0 top=0 width=16 height=16 padding=0 border-width=0 background-color="#00000000" pointer-events="none" aria-hidden=true hook="t3-tool-icon" data-tool-icon-light=light data-tool-icon-dark=dark press=settled
+      box position="absolute" left=0 top=0 width=16 height=16 padding=0 border-width=0 background-color="#00000000" pointer-events="none" aria-hidden=true tabindex=-1 hook="t3-tool-icon" data-tool-icon-light=light data-tool-icon-dark=dark press=settled
