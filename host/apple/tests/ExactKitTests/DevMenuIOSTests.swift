@@ -103,10 +103,22 @@ final class DevMenuIOSTests: XCTestCase {
         // A reload drops a presentation still waiting.
         modal.shown = leaving
         DevMenu.present(UIAlertController(title: "u", message: nil, preferredStyle: .alert))
-        DevMenu.pending += 1
+        DevMenu.reload()
         modal.shown = nil
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
         XCTAssertEqual(modal.asked.count, 1, "the dropped one never shows")
+        // The menu toggled during a dismissal waits; toggled again, it never opens.
+        modal.shown = leaving
+        DevMenu.toggle()
+        XCTAssertNotNil(DevMenu.waiting)
+        DevMenu.toggle()
+        XCTAssertNil(DevMenu.waiting)
+        modal.shown = nil
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(modal.asked.count, 1, "the cancelled menu never shows")
+        // Toggled once more, with nothing under way, it opens.
+        DevMenu.toggle()
+        XCTAssertTrue(modal.asked.last === DevMenu.sheet)
     }
 }
 #endif

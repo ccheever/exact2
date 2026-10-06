@@ -99,6 +99,8 @@ public enum DevMenu {
     /// One presentation waiting for a transition to finish: replaced by a
     /// newer one, dropped by a reload or by closing the menu.
     nonisolated(unsafe) static var pending = 0
+    /// What that presentation is, while it waits.
+    nonisolated(unsafe) static weak var waiting: UIViewController?
 
     /// `vc` over whatever is presented, once no presentation or dismissal
     /// is under way there (UIKit refuses one then, silently); a few tries.
@@ -110,7 +112,8 @@ public enum DevMenu {
         func go(_ attempt: Int) {
             guard ticket == pending, let c = presenter else { return }
             if c.isBeingPresented || c.isBeingDismissed || c.presentedViewController != nil {
-                guard attempt < 8 else { note("dev menu: not shown, a presentation never finished"); return }
+                guard attempt < 8 else { waiting = nil; note("dev menu: not shown, a presentation never finished"); return }
+                waiting = vc
                 if attempt == 0 { note("dev menu: waiting for a presentation to finish") }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { go(attempt + 1) }
                 return
@@ -120,6 +123,7 @@ public enum DevMenu {
                 pop.sourceRect = CGRect(x: c.view.bounds.midX, y: c.view.bounds.midY, width: 1, height: 1)
                 pop.permittedArrowDirections = []
             }
+            waiting = nil
             c.present(vc, animated: true)
         }
         go(0)
@@ -140,6 +144,8 @@ public enum DevMenu {
     public static func toggle() {
         // A sheet still held but no longer shown (dismissed by its own
         // action) is not open: show a new one.
+        // One still waiting to open: a second toggle cancels it.
+        if let s = sheet, waiting === s { pending += 1; waiting = nil; sheet = nil; return }
         if let s = sheet, s.presentingViewController != nil { pending += 1; s.dismiss(animated: true) } else { show() }
     }
 
