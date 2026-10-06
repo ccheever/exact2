@@ -86,7 +86,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { basename, delimiter, dirname, resolve, sep } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
-import { hermesIos } from './app.mjs';
+import { hermesIos, hermesLeanSysRoots } from './app.mjs';
 import { useXcode } from '../host/apple/devices.mjs';
 import { HERMES_IOS_ARCHIVES, provisionHermesIos } from '../host/apple/hermes.mjs';
 import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, macReleaseEntitlements, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
@@ -1082,6 +1082,13 @@ test('lean iOS Hermes provisions into its per-pin cache, only from the pinned pr
     provisionHermesIos('ios-simulator', { ...env, EXACT_HERMES_IOS_DIR: elsewhere });
     assert.equal(existsSync(elsewhere), false);
   } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('bake receipts recognize the install-once Hermes cache and explicit installs', () => {
+  const home = resolve(tmpdir(), 'exact-hermes-receipt-home');
+  assert.deepEqual(hermesLeanSysRoots({ HOME: home }), [resolve(home, '.cargo/hermes-lean-sys')]);
+  const selected = resolve(home, 'selected engine');
+  assert.deepEqual(hermesLeanSysRoots({ HERMES_LEAN_SYS_DIR: selected }), [selected]);
 });
 
 // Real actool: separate compiles into the same bundle silently replace Assets.car.

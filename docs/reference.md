@@ -17,61 +17,31 @@ build, serve, watch, and reload scripts run under Bun. Run tooling unit tests wi
 fixture checkouts. This is the source
 tooling installation; a standalone CLI distribution is not packaged yet.
 
-An app with TypeScript sources (`app.ts`) is baked with Hermes on the machine
-that builds it, for every host (the web's build too: its crate build-depends on
-`exact-js-bake`, which runs `js/build.rs`). `js/build.rs` links the engine and
-the `hermesc` compiler from a sibling **ibex** checkout at `../ibex`
-([expo/ibex](https://github.com/expo/ibex)): clone it beside this repo and run
-`./scripts/build-hermes.sh --vanilla` there once. `EXACT_HERMES_DIR` and
-`EXACT_HERMESC` point at an engine and a compiler built elsewhere. Without
-them, the build of such an app stops in `exact-js`'s build script with a
-message naming these steps. On iOS the app links a lean VM instead, built
-once per machine into `~/.cache/exact/hermes/<pin>-lean-ios` by
-`host/apple/build.mjs --ios`, which clones the pinned source and builds a host
-compiler when this machine has neither; CMake is its one prerequisite, and a
-build without it says so in one message (`EXACT_HERMES_IOS_DIR` names archives
-built elsewhere). An app with a Rust data crate and no `app.ts` needs none of
-this.
+An app with TypeScript sources (`app.ts`) is baked with the `hermesc` paired
+with Exact's linked lean Hermes. Install Ibex's pinned, attested bundle once:
+
+```sh
+cargo run --manifest-path vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml -- --target <triple>
+```
+
+The verified install lives under `~/.cargo/hermes-lean-sys/`. Exact sets
+`HERMES_LEAN_SYS_OFFLINE=1` in `.cargo/config.toml`, so an ordinary build
+neither downloads a bundle nor compiles Hermes; a missing install fails with
+the one-time command. `HERMES_LEAN_SYS_DIR` remains a development override.
+E1 supports macOS and Linux and deliberately leaves Linux Intl off; E2 adds
+the v4 tvOS, Windows, and Linux English-Intl tiers. A Rust-only app needs no
+engine at run time.
 
 ### Windows TypeScript
 
-Windows x64 uses Exact's pinned bytecode-only Hermes and static ICU 76.1, built
-with the dynamic MSVC CRT. From an x64 Visual Studio developer shell with
-PowerShell 7, Git, tar, CMake and Ninja available, run
-`pwsh -File js/build-windows.ps1 -Jobs 2`. The helper fetches pinned private build
-dependencies, retains its short work directory and verifies the actual compiler,
-archives, headers, locale data and VM probes before publishing an absent cache.
-It prints the resolved installation path and receipt digest. No ICU DLL or source
-compiler is needed by the packaged application. The x64 Microsoft Visual C++
-runtime is required by the dynamic CRT; this helper does not install its
-redistributable on a destination machine.
-
-The default cache is
-`%LOCALAPPDATA%/Exact/hermes/<pin>-lean-windows-x64-icu76-intl1`.
-`EXACT_HERMES_DIR` selects a complete matching install; an `EXACT_HERMESC` override
-must have the same identity as its compiler. The producer and linker validate one
-receipt and reject missing, extra or altered payloads. `EXACT_JS_ENGINE=stub` is
-an explicit opt-out whose executor refuses to load; it cannot bake a working
-TypeScript app. Rust-only apps do not link this VM.
-
-An ordinary TypeScript app needs an explicit Windows shell using `exact-windows`
-and the native `exact-js` data constructor; `exact new` does not generate that
-shell yet. Declare `host.windows: {}` and `deploy.store.windows: "0"` in its
-manifest. The Windows packager is `bun host/windows/build.mjs <app>` with the
-ordinary external-app `EXACT_APP_DIR` selection. Signed module delivery and
-generic cross-process persistence are not added by this support.
-
-Windows Intl uses a deliberately bounded, receipt-bound adapter. Date formatting
-supports Gregorian dates, styles, best-fit component formatting, actual parts,
-hour cycles and positional decimal numbering. A locale whose effective calendar
-is not Gregorian is refused unless explicitly overridden to Gregorian. Number
-formatting supports standard decimal, percent and currency with symbol/code
-display, boolean grouping, fraction/significant precision and half-expand
-rounding. Nonstandard notation, unit/accounting/name display, non-default rounding
-policies and algorithmic numbering are refused by name. Locale casing uses real
-ICU strings. This is not a claim of complete Intl or timezone-alias conformance;
-the supported behavior and actual probes are recorded in
-[LLP 1027.006](../llp/1027.006-windows-native-typescript.plan.md).
+The former private `260318099.0.0` build is superseded. Native Windows
+TypeScript is intentionally deferred in E1: E2 will re-vendor Ibex's v4 pins,
+use its debugger-off lean Windows bundle with OS-backed Intl, and requalify the
+ordinary app path described by
+[LLP 1027.006](../llp/1027.006-windows-native-typescript.plan.md). Do not use
+`js/build-windows.ps1` or its old `%LOCALAPPDATA%/Exact/hermes` cache as the
+engine for this snapshot. `EXACT_JS_ENGINE=stub` remains the Hermes-free,
+refusing build for CI; it cannot bake a working TypeScript app.
 
 Windows application storage uses the current user's LocalAppData known folder,
 under `exact/<app-id>/{data,cache,temporary}` (`app:/tmp` uses `temporary`). It does
@@ -693,7 +663,7 @@ session: nothing about a document is remembered across launches.
 ### Bake and deliver a TypeScript module
 
 Build an app-local `app.ts` module and bake its Contract through the resulting
-Hermes bytecode (currently a macOS producer with the sibling ibex toolchain):
+Hermes bytecode with the compiler from the verified install-once bundle:
 
 ```sh
 cargo run -q -p exact-js-bake -- path/to/app --out path/to/new-generation
@@ -704,7 +674,8 @@ captures local imports, type-checks, bundles with Rolldown, compiles HBC, and
 bakes with an empty store. It writes `app.plan`, `app.js`, `app.hbc`, generated
 types, and an `app.module.json` pairing receipt into a **new** directory; it
 never overwrites an existing generation. npm dependencies are not captured yet.
-`EXACT_TSC`, `EXACT_ROLLDOWN`, and `EXACT_HERMESC` override producer tools.
+`EXACT_TSC` and `EXACT_ROLLDOWN` override producer tools. `hermesc` is always
+the compiler paired with the selected `hermes-lean-sys` bundle.
 A module's placement (LLP 1027.002) is the manifest's: `typescript.placement`
 and `rust.placement` are `main` (the default) or `worker`, overridable per
 platform under `platforms.<platform>.placement`; `EXACT_TYPESCRIPT_PLACEMENT`
@@ -757,22 +728,12 @@ the existing grant-checked host transport. Executor-local continuation tickets
 drain microtasks without re-entering wasm; stale incarnations cannot fulfill the
 replacement app. 
 
-Linux provisions the same vanilla pin with `./scripts/build-hermes-linux.sh
---vanilla --release --intl` in the sibling Ibex checkout. Exact links its lean
-archive from `ibex/linux-vanilla` and compiles with the matching
-`ibex/tools/hermes-vanilla/hermesc-linux-<arch>`. After replacing an engine or
-compiler, run `cargo clean -p exact-js` before rebuilding native apps so a warm
-build cannot reuse captured archives or bytecode from the previous installation.
-
-iOS and tvOS use lean bytecode-only Hermes archives, not the compiler-containing
-framework. `bun host/apple/build.mjs --ios` (or `--device`, or `--tvos`) builds the one it
-needs from ibex's Hermes source, once per machine, into
-`~/.cache/exact/hermes/<pin>-lean-ios` (override with `EXACT_HERMES_IOS_DIR`,
-LLP 1036.001 D5); the recipe and archive layout are in
-[LLP 1027 D6](../llp/1027-typescript-data-sources.rfc.md#d6--the-web-the-browser-is-the-executor-one-wasm-import-the-same-module-under-two-loaders).
-The platform directories are `ios`, `ios-simulator` and `tvos-simulator`;
-`--tvos` builds for an Apple TV simulator and bakes the manifest's iOS plan.
-The normal Apple build captures the linked archives in its receipt.
+Linux uses the same installer command at the top of this reference with its
+Rust target triple; E1 deliberately does not select Ibex's optional Intl group.
+The verified bundle supplies both the lean archive and matching compiler.
+iOS has a pinned v3 bundle as well. tvOS and Windows remain E2 work and must not
+fall back to the former sibling-Ibex/private-cache recipes. The normal native
+build captures bundle inputs under the `hermes-lean-sys/` bake receipt root.
 `smoke.mjs --app-only` runs the selected app and its tests without unrelated
 bare-plan host fixtures. The driver supports `ios --device [--phone <name|udid>]`:
 the phone connects outward to a temporary Mac-side port with a per-launch token.

@@ -429,26 +429,28 @@ export function sdkReport(env = process.env) {
     rows.push(row('Xcode', developer, 'Xcode.app', xcode, 'install Xcode, then sudo xcode-select -s /Applications/Xcode.app', 'macOS and iOS'));
   }
   const hermes = hermesSources(env);
-  rows.push(row('hermesc', hermes.hermesc, 'facebook/hermes pin', hermes.hermescOk, hermes.fix, 'TypeScript apps on native hosts; the web needs none'));
-  if (process.platform === 'darwin') rows.push(row('Hermes engine', hermes.engine, 'facebook/hermes pin', hermes.engineOk, hermes.fix, 'TypeScript on macOS (iOS builds its own)'));
+  rows.push(row('hermesc', hermes.hermesc, 'Ibex Hermes 260318099.0.4', hermes.hermescOk, hermes.fix, 'TypeScript apps on native hosts; the web needs none'));
+  if (process.platform === 'darwin') rows.push(row('Hermes engine', hermes.engine, 'Ibex Hermes 260318099.0.4 lean', hermes.engineOk, hermes.fix, 'TypeScript on macOS'));
   return rows;
 }
 
-/** Where js/build.rs will look for Hermes, in its order: a named path; the
- * machine cache, only with no sibling ibex at all; the sibling ibex. */
+/** The install-once, digest-addressed Ibex bundle selected by hermes-lean-sys. */
 export function hermesSources(env = process.env) {
-  const ibex = resolve(ROOT, '../ibex'), cache = resolve(env.HOME ?? homedir(), '.cache/exact/hermes-macos');
-  const fromCache = process.platform === 'darwin' && !env.EXACT_HERMES_DIR && !existsSync(ibex) && existsSync(resolve(cache, 'engine'));
-  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
-  const hermesc = env.EXACT_HERMESC ? resolve(env.EXACT_HERMESC)
-    : process.platform === 'linux' ? resolve(ibex, `tools/hermes-vanilla/hermesc-linux-${arch}`)
-    : fromCache ? resolve(cache, 'hermesc') : resolve(ibex, `tools/hermes-vanilla/hermesc-macos-${arch}`);
-  const engine = env.EXACT_HERMES_DIR ? resolve(env.EXACT_HERMES_DIR) : fromCache ? resolve(cache, 'engine') : resolve(ibex, 'ios/Frameworks-vanilla');
-  const receipt = !fromCache || (() => { try { return readFileSync(resolve(cache, 'engine/hermes-input-receipt.json'), 'utf8').includes('"sourceCommit"'); } catch { return false; } })();
+  const support = readFileSync(resolve(ROOT, 'vendor/ibex/crates/hermes-lean-sys/build_support.rs'), 'utf8');
+  const tag = /RELEASE_TAG: &str = "([^"]+)"/.exec(support)?.[1];
+  const os = process.platform === 'darwin' ? 'apple-darwin' : process.platform === 'linux' ? 'unknown-linux-gnu' : null;
+  const arch = process.arch === 'arm64' ? 'aarch64' : process.arch === 'x64' ? 'x86_64' : null;
+  const target = os && arch ? `${arch}-${os}` : '';
+  const block = new RegExp(`target: "${target.replaceAll('-', '\\-')}"[\\s\\S]*?sha256: "([0-9a-f]{64})"`).exec(support);
+  const cache = resolve(env.CARGO_HOME ?? resolve(env.HOME ?? homedir(), '.cargo'), 'hermes-lean-sys');
+  const engine = resolve(env.HERMES_LEAN_SYS_DIR ?? resolve(cache, tag ?? 'unresolved', block?.[1] ?? 'unresolved'));
+  const hermesc = resolve(engine, 'bin', process.platform === 'win32' ? 'hermesc.exe' : 'hermesc');
+  const lean = resolve(engine, 'lib', process.platform === 'win32' ? 'hermesvmlean_a.lib' : 'libhermesvmlean_a.a');
+  const receipt = existsSync(resolve(engine, 'hermes-input-receipt.json'));
   return {
     hermesc: existsSync(hermesc) ? hermesc : '', hermescOk: existsSync(hermesc),
-    engine: existsSync(engine) ? engine : '', engineOk: existsSync(engine) && receipt,
-    fix: `git clone https://github.com/expo/ibex ${ibex} && (cd ${ibex} && ./scripts/build-hermes.sh --vanilla)`,
+    engine: existsSync(lean) ? engine : '', engineOk: existsSync(lean) && receipt,
+    fix: `cargo run --manifest-path ${resolve(ROOT, 'vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml')} -- --target ${target || '<triple>'}`,
   };
 }
 

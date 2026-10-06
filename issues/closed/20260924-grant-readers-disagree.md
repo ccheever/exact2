@@ -6,7 +6,7 @@
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-24
-**Related:** Crew port report F1 (2026-09-24); vendor/ibex2/src/grant.rs; js/src/lib.rs Module::inspect
+**Related:** Crew port report F1 (2026-09-24); vendor/ibex/crates/ibex2/src/grant.rs; js/src/lib.rs Module::inspect
 
 Seth's Crew port (report of 2026-09-24, F1) declared `secret.keep crewHost`. Native hosts parse the whole grant set with `ibex2::grant::GrantSet::parse`, which refuses a camelCase secret name, and before this report they then held no grants at all, `net.fetch` included, with no message. The same report's fix makes the TypeScript bake refuse such grants (`Module::inspect`, `js/src/lib.rs`), makes native hosts journal the parse error and name it in every refusal, and renames `apps/realworld`'s `jwtToken` to `realworld.jwt`.
 

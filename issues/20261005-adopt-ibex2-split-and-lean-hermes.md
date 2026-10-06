@@ -1,11 +1,11 @@
 # Adopt the split ibex2 (bindings door on the lean VM, pinned Hermes bundles) in exact-js
 
 **Status:** Open
-**Systems:** js (exact-js), vendor/ibex2, Hermes engine pin, build
+**Systems:** js (exact-js), vendor/ibex/crates/ibex2, Hermes engine pin, build
 **Severity:** P2 (no breakage today; exact2 runs on its ibex1-era vendor)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-05
-**Related:** expo/ibex LLP 0057.000 §5.0 (three doors), §6 L1 (L1b–L1h notes); exact2 LLP 1027.006 (Windows native TypeScript); vendor/ibex2/EXACT-PATCHES.md
+**Related:** expo/ibex LLP 0057.000 §5.0 (three doors), §6 L1 (L1b–L1h notes); exact2 LLP 1027.006 (Windows native TypeScript); vendor/ibex/crates/ibex2/EXACT-PATCHES.md
 
 ## Why this is open
 

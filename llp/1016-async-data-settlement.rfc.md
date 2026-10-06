@@ -278,7 +278,7 @@ matched whole, never a prefix (as built: the web glue matches `URL.origin`
 the same way). *Amended 2026-09-26 (Charlie, LLP 1054.000 R5):* or
 `scheme://*.domain`, every host strictly under one domain of two labels or
 more, at that scheme and port; a cross-origin redirect drops the request's
-credentials (vendor/ibex2 patch 1). The app's data crate declares its grants as one constant —
+credentials (vendor/ibex/crates/ibex2 patch 1). The app's data crate declares its grants as one constant —
 `pub const GRANTS: &str = "net.fetch https://api.castle.xyz\n";` — that the
 `host!` macros hand to `Host::endow` on Apple and that `glue.js` receives at
 boot (a string list) and checks before `fetch`, so a request outside the grant

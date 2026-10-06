@@ -202,16 +202,19 @@ Linux host.
 - **Google Chrome.** The agent drives the web through headless Chrome. Set `CHROME` to
   use another Chromium.
 - **Xcode**, for the macOS and iOS hosts.
-- **Hermes**, only for TypeScript apps on native hosts. Builds find it in the machine
-  cache (`~/.cache/exact/hermes-macos`) or in an [expo/ibex](https://github.com/expo/ibex)
-  checkout beside this repository; `setup --check` says which, or that neither is there.
-  To build it: `git clone https://github.com/expo/ibex ../ibex && (cd ../ibex && ./scripts/build-hermes.sh --vanilla)`.
-  iOS also needs **CMake** (`brew install cmake`): the first iOS build fetches the
-  pinned Hermes source and builds its lean VM once for the machine.
-  On Windows x64, use an x64 Visual Studio developer shell with PowerShell 7,
-  CMake and Ninja, then run `pwsh -File js/build-windows.ps1 -Jobs 2`. This builds
-  Exact's pinned lean VM and static ICU into a separate, verified local cache;
-  existing installs are preserved. See the [Windows TypeScript setup and limits](docs/reference.md#windows-typescript).
+- **Hermes**, only for TypeScript apps on native hosts. Exact consumes Ibex's
+  pinned, attested `260318099.0.4` release bundle; ordinary Cargo builds are
+  offline and never download or compile an engine. Install it once for each
+  target before building (for this Mac, use `aarch64-apple-darwin`):
+
+  ```sh
+  cargo run --manifest-path vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml -- --target <triple>
+  ```
+
+  The installer verifies the bundle and publishes it under
+  `~/.cargo/hermes-lean-sys/`. E1 supports macOS and Linux; tvOS and Windows
+  bundles follow in E2. `HERMES_LEAN_SYS_DIR` is only an explicit development
+  override, not normal setup.
 
 To install the pinned Bun beside any existing installation:
 `curl -fsSL https://bun.sh/install | BUN_INSTALL=~/.bun-1.4.2 bash -s bun-v1.4.2`.

@@ -915,7 +915,14 @@ parallel fetch, binary bodies, four transport failures, typed argument/source
 errors, sync/async exceptions, stuck promises, corrupt/identity refusals and
 disposal during a draining turn. Page and guest builtins remain untouched.
 
-**iOS execution (Codex, 2026-09-07).** `js/build.rs` selects lean CMake archives
+**Hermes pin decision (Charlie, 2026-10-06).** Exact now consumes Ibex 2's
+split `ibex2` / `hermes-lean-sys` crates and their pinned, attested Hermes
+`260318099.0.4` bundles. This replaces Exact's `260318099.0.0` private
+provisioning. The install-once installer performs acquisition explicitly;
+offline builds set `HERMES_LEAN_SYS_OFFLINE` and never download or compile an
+engine in `build.rs`. Waiting would only make the migration gnarlier.
+
+**iOS execution (Codex, 2026-09-07; provisioning superseded 2026-10-06).** `js/build.rs` selects lean CMake archives
 for the actual Rust target: `ios-simulator` for `*-ios-sim`/x86 iOS, `ios` for
 devices. The host bake still uses the macOS VM/compiler; its shim explicitly
 selects the macOS SDK even when the parent build targets iOS. All three engine
@@ -923,7 +930,7 @@ archives are copied into `OUT_DIR`, so normal bake receipts inventory the
 actual linked engine inputs. Missing target archives produce a named refusing
 stub, not an apparent working executor. Rust-only clients still link no VM.
 
-Provisioning uses pristine Hermes at the commit `js/build.rs` pins
+The historical provisioning below used pristine Hermes at the commit `js/build.rs` pinned
 (`HERMES_PIN`, the one place it is written), matching the sibling ibex vanilla
 headers and compiler. Do not substitute the full iOS framework (it embeds
 a compiler). `host/apple/build.mjs --ios` runs this recipe itself when a
@@ -1216,16 +1223,14 @@ has the answer that the split already exists, plus one more cut.
    exactly this today for the request executor and the Keychain
    (host/apple/Cargo.toml:27, host/linux/Cargo.toml:30). This is "the
    stdlib available to Rust," and it is done.
-2. **The engine build** — the vanilla Hermes lean VM and `hermesc`,
-   per platform, with the receipt that binds bytecode to VM
+2. **The engine build** — now implemented by Ibex's vendored
+   `hermes-lean-sys` and install-once installer (2026-10-06): the vanilla
+   Hermes lean VM and `hermesc`, per platform, with the receipt that binds bytecode to VM
    (`ios/Frameworks-vanilla/`: `macos-static/libhermesvmlean_a.a`,
    `hermes.xcframework`, `tools/hermes-vanilla/hermesc-macos-arm64`,
-   `hermes-input-receipt.json`). Today it is a directory and a path in
-   a `build.rs`. **Proposed: a crate** — `hermes-lean-sys` for this
-   text — that carries the archives (or fetches them by digest at
-   build), the headers, the link lines (build.rs:5–16 of ibex2's, less
-   the Objective-C++), and `hermesc`'s path, and that both ibex2's
-   engine layer and `exact-js` depend on. Owed for it: a Linux
+   `hermes-input-receipt.json`). The crate exports the headers, link lines,
+   and paired `hermesc`; both Ibex's bindings door and `exact-js` depend on it.
+   Acquisition is never a build-script side effect. Owed for it: a Linux
    `x86_64`/`aarch64` lean build (the Hetzner builders, the Linux host)
    and an iOS device measurement (§10 Q7).
 3. **ibex2's runtime layer** — `engine/hermes.rs`, `hermes_shim.cc`,

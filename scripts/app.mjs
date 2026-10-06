@@ -869,6 +869,15 @@ export function hermesWindowsRoots(env = process.env) {
   const roots = [requested, ...(existsSync(requested) ? [realpathSync.native(requested)] : [])];
   return [...new Set(roots.flatMap(path => [path,toNamespacedPath(path)]))];
 }
+/** Classification roots for Ibex's verified install-once Hermes bundles.
+ * The digest directory remains part of the receipt name, so a bundle update
+ * necessarily changes the bake identity. */
+export function hermesLeanSysRoots(env = process.env) {
+  const requested = resolve(env.HERMES_LEAN_SYS_DIR
+    ?? resolve(env.CARGO_HOME ?? resolve(env.HOME ?? homedir(), '.cargo'), 'hermes-lean-sys'));
+  const roots = [requested, ...(existsSync(requested) ? [realpathSync.native(requested)] : [])];
+  return [...new Set(roots.flatMap(path => process.platform === 'win32' ? [path,toNamespacedPath(path)] : [path]))];
+}
 /** The profile a development native build compiles with (Cargo.toml): an
  * Apple app through host/apple/build.mjs, the Linux host by `linuxBuild`.
  * What ships is baked at `release`. */
@@ -1047,6 +1056,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const packages = [...graph.roles.keys()].map((id) => graph.packages.get(id));
   const locations = packages.map((p) => ({ path: dirname(p.manifest_path), name:`crate:${p.name}@${p.version}` })).sort((a,b) => b.path.length-a.path.length);
   const hermes = hermesIos(env).root;
+  const hermesLeanRoots = hermesLeanSysRoots(env);
   const windowsHermesc = process.platform === 'win32' && env.EXACT_HERMESC ? resolve(env.EXACT_HERMESC) : null;
   const windowsRoots = hermesWindowsRoots(env);
   // The longest root a path is under is the first of its own ancestors, itself included, that is one: what
@@ -1061,6 +1071,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     if (made) return `generated:${made.pkg.name}:${made.role}/${relative(made.path,path)}`;
     const pkg = rootOf(locatedAt, path);
     if (pkg) return `${pkg.name}/${relative(pkg.path,path)}`;
+    const hermesLeanRoot = hermesLeanRoots.find(root => under(root,path));
+    if (hermesLeanRoot) return `hermes-lean-sys/${relative(hermesLeanRoot,path)}`;
     if (under(hermes,path)) return `hermes-ios/${relative(hermes,path)}`; // wherever the archives live
     const windowsRoot = windowsRoots.find(root => under(root,path));
     if (windowsRoot) return `hermes-windows/${relative(windowsRoot,path)}`;
@@ -1157,7 +1169,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     if (existsSync(resolve(app.dir, 'app.ts'))) {
       // The TS producer is a build dependency, outside the runtime Cargo graph.
       // Its canonical API declaration still determines the accepted app module.
-      add(resolve(ROOT, 'vendor/ibex2/src/bindings/storage.d.ts'));
+      add(resolve(ROOT, 'vendor/ibex/crates/ibex2/src/bindings/storage.d.ts'));
       for (const path of Object.values(webHostFiles('module'))) add(resolve(ROOT, path));
     }
     if (existsSync(resolve(app.dir, 'app.ts')) || /^\s*(?:fs\.|sqlite\.)/m.test(compat.inputs.grantCeiling ?? '')) {

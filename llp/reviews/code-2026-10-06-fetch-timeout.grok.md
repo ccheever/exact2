@@ -7,13 +7,13 @@ I'll review the newest commit on HEAD as a read-only defect check, starting with
 
 Use a free kind (1–4 and 8 are taken; 9 is auth). Leave kind 9 as the auth delivery.
 
-**[P1] On the rustls transport a deadline longer than 10 seconds still loses to the connect timeout — `vendor/ibex2/src/transport/rustls_http.rs:488`**
+**[P1] On the rustls transport a deadline longer than 10 seconds still loses to the connect timeout — `vendor/ibex/crates/ibex2/src/transport/rustls_http.rs:488`**
 
 The per-request override raises `timeout_global`, `timeout_recv_response`, and `timeout_recv_body` to deadline+1s. The agent’s `timeout_connect` of 10s (`rustls_http.rs:123`) is left in place. ureq’s next timeout for connect is the minimum of that 10s and the global budget, so a 30s deadline whose TCP handshake or TLS handshake takes 11s fails at 10s. The deadline thread has not set its flag yet, so `executor_core.rs:883` classifies it as `Network`. Darwin’s `timeoutInterval` is set to deadline+1s and does not have this cut.
 
 Set `timeout_connect` (and the send timeouts) to the same limit.
 
-**[P2] Name resolution on that transport is not bounded by the deadline — `vendor/ibex2/src/transport/rustls_http.rs:207`**
+**[P2] Name resolution on that transport is not bounded by the deadline — `vendor/ibex/crates/ibex2/src/transport/rustls_http.rs:207`**
 
 The deadline thread aborts the shared `AbortController`, and that does interrupt a blocked read and a blocked TCP connect: Darwin’s `ibex2_darwin_http_cancel` broadcasts the exchange condition and cancels the task; rustls shuts the socket down and the connect loop rechecks the signal about every 50ms. The resolver does not. It calls the system resolver with `NotHappening` and only checks the signal after `getaddrinfo` returns. A lookup that hangs holds the ordered lane until the OS gives up. The deadline flag is then already set, so the eventual error is `Timeout`, but the deadline did not end the wait.
 
@@ -34,7 +34,7 @@ I'll review the per-fetch deadline on `df7677f15` and HEAD without changing file
 
 When `exactTimeout` is set, `fetchWith` reads the body and constructs a new `Response` from those bytes plus the original status and headers. In Chrome that constructor throws `TypeError` for 204, 205, and 304, because an empty `ArrayBuffer` still counts as a body, and it throws `RangeError` for an opaque response’s status 0 (`mode: "no-cors"`). The catch at line 63 turns that throw into `FetchError` kind `Network`, so a completed exchange is reported as a network failure. A response that does construct comes back with `url` `""`, `redirected` false, and `type` `"default"`, including after a redirect the grant check already accepted. Bun’s constructor accepts a body on 204, so the new stalled-body test does not see the throw.
 
-[P3] ureq still cuts Expect: 100-continue at one second — vendor/ibex2/src/transport/rustls_http.rs:496
+[P3] ureq still cuts Expect: 100-continue at one second — vendor/ibex/crates/ibex2/src/transport/rustls_http.rs:496
 
 The per-request config sets the global, connect, send, and receive limits to the deadline plus one second, and leaves `timeout_await_100` at ureq’s default of one second. That timer runs when the request carries `Expect: 100-continue`. A POST with that header and `exactTimeout` of 30 seconds fails about a second in if the server has not answered yet. The deadline thread has not fired, so the executor reports a network error. Set `timeout_await_100` to the same limit as the other phases.
 
@@ -49,4 +49,4 @@ I'll review those three commits as they stand, starting with the deadline change
 
 **3. An ordered timeout refusal never raises the executor's fence.** `host/apple/src/abi.rs:240` and `host/linux/src/presenter.rs:677` refuse on `timeout_refusal()` before auth and surface routing, and they record the ordered flag. An executor refusal also sets `ordered_barrier` (`host/apple/src/executor_core.rs:243`, the core Linux shares) so later ordered work waits until that refusal settles. These two sites leave the barrier clear. `resume_ordered` only clears it, and only when no ordered refusal remains. An ordered `fetch("exact-auth:")` or `fetch("exact-native:")` with `exactTimeout` and no `exactIndependentHttp` is refused here while the next ordered request, in the same batch or in a later commit before the pump, is admitted and can be fulfilled first. The ordered refusal cannot be delivered while that later request holds the lane.
 
-These round-2 claims check out. 204, 205, and 304 keep their status, and `url`, `redirected`, `type`, and headers come through on the returned response. A stalled body is `Timeout` on the web build and kind 10 on the wasm host; a caller's own `TimeoutError` stays `Network` / kind 4, and `signal.reason === deadline.reason` holds in Bun. `signal: null` clears a `Request`'s signal with or without a deadline. Apple and Linux do refuse before auth and surface dispatch. `timeout_await_100` is raised to the same per-request limit as the other ureq phases (`vendor/ibex2/src/transport/rustls_http.rs:497`).
+These round-2 claims check out. 204, 205, and 304 keep their status, and `url`, `redirected`, `type`, and headers come through on the returned response. A stalled body is `Timeout` on the web build and kind 10 on the wasm host; a caller's own `TimeoutError` stays `Network` / kind 4, and `signal.reason === deadline.reason` holds in Bun. `signal: null` clears a `Request`'s signal with or without a deadline. Apple and Linux do refuse before auth and surface dispatch. `timeout_await_100` is raised to the same per-request limit as the other ureq phases (`vendor/ibex/crates/ibex2/src/transport/rustls_http.rs:497`).

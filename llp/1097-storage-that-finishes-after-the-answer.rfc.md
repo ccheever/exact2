@@ -141,9 +141,9 @@ they run any continuation:
   - `Session::continuation` returns when Ibex2's shared context is idle or
     any completion is queued (`js/src/storage.rs:63–92`). `is_idle` and
     `wait` are module-wide, and `admit` wakes every waiter
-    (`vendor/ibex2/src/task.rs:201`, `:273–282`, `:728–731`).
+    (`vendor/ibex/crates/ibex2/src/task.rs:201`, `:273–282`, `:728–731`).
     `deliver_one` pops the head with no owner
-    (`vendor/ibex2/src/engine/ibex2_jsi.cc:1004–1015`).
+    (`vendor/ibex/crates/ibex2/src/engine/ibex2_jsi.cc:1004–1015`).
   - The wasm target's realm keeps an answer's turn on `tail` until its
     storage lands (`module-glue.js:184–205`). A storage call captures the
     answer's owner at issue (`module-glue.js:130`, `storage.js:53–56`).
