@@ -62,3 +62,28 @@ The new tests **would fail against round 1’s implementation**, by inspection: 
 XCTest was not run because its build requires writes unavailable in this read-only session. No files were changed.
 
 **Verdict: NOT READY.**
+# Round 3
+
+- **Method:** one brief (sha256 `9b2a309872067f7a3ed314b836db8f210f61ff0de8bfd2b3329494206da9398e`), blind to the other review, on 6ae05e432 with rounds 1 and 2's artifacts. The last round.
+- **Verdict:** NOT READY.
+- **Disposition:** Both taken (ccb38d8df). 1: a scroller with `isScrollEnabled` off is passed over (test: a disabled pager alone keeps the drag the photo's; with an enabled outer pager the photo yields to it). 2: the photo is 150 points tall inside the 200-point pager, the child under the finger hangs inside the pager and a window-level hit test is asserted to reach it; the nested test's photo is the inner pager's second page, the one in view.
+
+1. **P2 — A disabled scroller is still counted as a recipient.** [TransformDragIOS.swift:95](/tmp/bsky-tt-rv/host/apple/Sources/ExactKit/IOS/TransformDragIOS.swift:95)
+
+   A `pan-x` photo inside a pager with horizontal range still rejects its pan when `pager.isScrollEnabled == false`. With no other horizontal scroller, neither gesture takes the drag. App hooks can set this property; disabling it prevents UIKit scrolling. [Apple documentation](https://developer.apple.com/documentation/uikit/uiscrollview/isscrollenabled?changes=_8%2C_8)
+
+   **Fix:** require `scroll.isScrollEnabled` before counting the scroller as a recipient, otherwise continue the intersection toward an enabled ancestor. Add disabled-pager cases both with and without an enabled outer scroller.
+
+2. **P3 — Regression fixtures use touch positions that cannot reach the photo.** [GesturePrecedenceIOSTests.swift:210](/tmp/bsky-tt-rv/host/apple/tests/ExactKitTests/GesturePrecedenceIOSTests.swift:210)
+
+   The overflowing child and touch at `y = 220` lie outside the 200-point-high pager, whose vertical overflow is hidden. Calling the handle’s predicate directly bypasses that clipping. Similarly, the nested-edge test at line 307 scrolls the sole photo, positioned at `x = 0`, entirely outside the viewport with `contentOffset.x = 300`.
+
+   **Fix:** make the handle shorter than its enclosing viewport so the overflowing child remains visible; position the nested test’s photo on the visible page. Assert that window-level hit testing reaches the intended target before checking admission.
+
+The earlier implementation findings are resolved: overflowing descendants participate, adjusted insets contribute to range, chaining extends the intersection through the receiving scroller’s owner, and an active pinch admits its companion pan. The walk correctly continues past scrollers without range on the requested axis. I found no additional RTL-specific defect; the extent calculation uses physical dimensions and both physical insets. Extracting `chains` preserves `handsOff`’s bounce update.
+
+**The round-3 tests would fail against round 2 by inspection:** the restrictive overflowing descendant, inset-only range, and restrictive outer-owner edge cases reverse the old results. They remain predicate tests; they do not establish actual pager takeover or finger-lift continuation.
+
+XCTest was not run because its build and simulator require writes unavailable in this read-only session. No files were changed.
+
+**Verdict: NOT READY.**
