@@ -33,7 +33,9 @@ extension CALayer {
     var textCast: CALayer? { value(forKey: Self.castKey) as? CALayer }
 
     /// Shows `contents` under this ink layer, or removes the cast for nil.
-    func applyTextCast(_ contents: Any?, headroom: Float, limit: String?) {
+    /// `rolling`: the transition the ink's new contents arrive with
+    /// (`NumeralRoll`), which the shadow's then arrive with too.
+    func applyTextCast(_ contents: Any?, headroom: Float, limit: String?, rolling: CAAnimation? = nil) {
         guard let contents, let superlayer else { dropTextCast(); return }
         let cast = textCast ?? TextCastLayer()
         if textCast == nil { setValue(cast, forKey: Self.castKey) }
@@ -41,6 +43,7 @@ extension CALayer {
         cast.frame = frame
         cast.contentsScale = contentsScale
         cast.contentsGravity = contentsGravity
+        if let rolling { cast.add(rolling, forKey: kCATransition) }
         cast.contents = contents
         cast.applyTextRange(headroom: headroom, limit: limit)
     }
