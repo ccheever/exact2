@@ -1,7 +1,7 @@
 // The dev menu (host apparatus, not app content): native UIKit above the
 // presenter, so it is alive even when the plan is broken — the moment a
-// reload matters most. Four fingers tapped once open the sheet; tapped
-// twice, reload. With a hardware keyboard (a simulator, an iPad): ⌘D for
+// reload matters most. Four fingers tapped once, or held, open the sheet;
+// tapped twice, reload. Each journals a line, so a trace shows it fired. With a hardware keyboard (a simulator, an iPad): ⌘D for
 // the sheet, ⌘R or ⇧⌘R to reload — the commands sit on the adapter's
 // `AppDelegate`, the responder every chain ends at, so they fire whatever
 // has focus (the Simulator's own File menu claims plain ⌘R for Record
@@ -12,8 +12,26 @@
 import UIKit
 
 final class DevMenuTarget: NSObject, UIGestureRecognizerDelegate {
-    @objc func menuTap(_ g: UIGestureRecognizer) { DevMenu.toggle() }
-    @objc func reloadTap(_ g: UIGestureRecognizer) { DevMenu.reload() }
+    @objc func menuTap(_ g: UIGestureRecognizer) {
+        DevMenu.note("dev menu: four-finger tap")
+        DevMenu.toggle()
+    }
+    @objc func menuPress(_ g: UIGestureRecognizer) {
+        guard g.state == .began else { return }
+        DevMenu.note("dev menu: four-finger press")
+        DevMenu.toggle()
+    }
+    @objc func reloadTap(_ g: UIGestureRecognizer) {
+        DevMenu.note("dev menu: four-finger double tap")
+        DevMenu.reload()
+    }
+    /// Beside whatever the app's views recognize: a row's swipe, a list's
+    /// pan, a context menu's press would otherwise win four fingers that
+    /// drift a few points on glass, and the menu never opened on a phone.
+    /// Never with each other: a hold that opened the sheet must not be a tap too.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        other.delegate !== self
+    }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive event: UIEvent) -> Bool {
         // Four fingers means direct touches, never hover/press events. A window
         // recognizer otherwise participates in UIKit's delayed-event queue even
@@ -55,21 +73,84 @@ public enum DevMenu {
         #endif
         menu.delaysTouchesEnded = false
         menu.require(toFail: reload)
-        for recognizer in [reload, menu] {
+        // Four fingers held: the trigger that survives fingers that drift
+        // past a tap's slop, or a tap another recognizer took.
+        let press = UILongPressGestureRecognizer(target: target, action: #selector(DevMenuTarget.menuPress(_:)))
+        #if !os(tvOS)
+        press.numberOfTouchesRequired = 4
+        #endif
+        press.minimumPressDuration = 0.6
+        press.allowableMovement = 40
+        press.delaysTouchesEnded = false
+        // Once four touches are held, the row under them is not pressed on release.
+        press.cancelsTouchesInView = true
+        menu.require(toFail: press)
+        reload.require(toFail: press)
+        for recognizer in [reload, menu, press] {
             recognizer.delegate = target
             recognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
             recognizer.allowedPressTypes = []
         }
         window.addGestureRecognizer(reload)
         window.addGestureRecognizer(menu)
+        window.addGestureRecognizer(press)
+    }
+
+    /// One presentation waiting for a transition to finish: replaced by a
+    /// newer one, dropped by a reload or by closing the menu.
+    nonisolated(unsafe) static var pending = 0
+    /// What that presentation is, while it waits.
+    nonisolated(unsafe) static weak var waiting: UIViewController?
+
+    /// `vc` over whatever is presented, once no presentation or dismissal
+    /// is under way there (UIKit refuses one then, silently); a few tries.
+    /// On an iPad, anchored mid-screen with no arrow (a bare action sheet is
+    /// refused there).
+    static func present(_ vc: UIViewController) {
+        pending += 1
+        let ticket = pending
+        func go(_ attempt: Int) {
+            guard ticket == pending, let c = presenter else { return }
+            if c.isBeingPresented || c.isBeingDismissed || c.presentedViewController != nil {
+                guard attempt < 8 else { waiting = nil; note("dev menu: not shown, a presentation never finished"); return }
+                waiting = vc
+                if attempt == 0 { note("dev menu: waiting for a presentation to finish") }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { go(attempt + 1) }
+                return
+            }
+            if let pop = vc.popoverPresentationController {
+                pop.sourceView = c.view
+                pop.sourceRect = CGRect(x: c.view.bounds.midX, y: c.view.bounds.midY, width: 1, height: 1)
+                pop.permittedArrowDirections = []
+            }
+            waiting = nil
+            c.present(vc, animated: true)
+        }
+        go(0)
+    }
+
+    /// A line in the session's journal, so a trace shows the gesture fired.
+    static func note(_ line: String) { session?.log(line) }
+
+    /// Where the menu and its alerts present: over whatever the root
+    /// controller has presented (a route's sheet, a UIKit sheet), never
+    /// refused for it.
+    static var presenter: UIViewController? {
+        guard var top = controller else { return nil }
+        while let next = top.presentedViewController, !next.isBeingDismissed { top = next }
+        return top
     }
 
     public static func toggle() {
-        if let s = sheet { s.dismiss(animated: true) } else { show() }
+        // A sheet still held but no longer shown (dismissed by its own
+        // action) is not open: show a new one.
+        // One still waiting to open: a second toggle cancels it.
+        if let s = sheet, waiting === s { pending += 1; waiting = nil; sheet = nil; return }
+        if let s = sheet, s.presentingViewController != nil { pending += 1; s.dismiss(animated: true) } else { show() }
     }
 
     static func show() {
-        guard let c = controller, c.presentedViewController == nil else { return }
+        guard controller != nil else { return }
         let text = info()
         let a = UIAlertController(title: "Exact", message: text, preferredStyle: .actionSheet)
         a.addAction(UIAlertAction(title: "Reload", style: .default) { _ in reload() })
@@ -80,19 +161,13 @@ public enum DevMenu {
         // LLP 1079 D5: the session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
         if session?.sampler != nil { a.addAction(UIAlertAction(title: "Save Trace", style: .default) { _ in saveTrace() }) }
         a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        // An iPad refuses a bare action sheet: anchor it mid-screen, no arrow.
-        if let pop = a.popoverPresentationController {
-            pop.sourceView = c.view
-            pop.sourceRect = CGRect(x: c.view.bounds.midX, y: c.view.bounds.midY, width: 1, height: 1)
-            pop.permittedArrowDirections = []
-        }
-        c.present(a, animated: true)
         sheet = a
+        present(a)
     }
 
     /// Save Trace (LLP 1079 D5): where it went, or why not, as an alert.
     static func saveTrace() {
-        guard let c = controller, let session else { return }
+        guard controller != nil, let session else { return }
         let message: String, saved: URL?
         switch session.saveTrace() {
         case .success(let url): message = url.path; saved = url
@@ -107,20 +182,14 @@ public enum DevMenu {
         a.addAction(UIAlertAction(title: "Copy Path", style: .default) { _ in UIPasteboard.general.string = message })
         #endif
         a.addAction(UIAlertAction(title: "OK", style: .cancel))
-        c.present(a, animated: true)
+        present(a)
     }
 
     #if !os(tvOS)
     /// The share sheet for a saved trace, anchored mid-screen on an iPad.
     static func share(_ url: URL) {
-        guard let c = controller else { return }
-        let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-        if let pop = sheet.popoverPresentationController {
-            pop.sourceView = c.view
-            pop.sourceRect = CGRect(x: c.view.bounds.midX, y: c.view.bounds.midY, width: 1, height: 1)
-            pop.permittedArrowDirections = []
-        }
-        c.present(sheet, animated: true)
+        guard controller != nil else { return }
+        present(UIActivityViewController(activityItems: [url], applicationActivities: nil))
     }
     #endif
 
@@ -128,7 +197,7 @@ public enum DevMenu {
     /// Stage 1: a device launch carries no environment): seeded with the
     /// last value, kept in defaults.
     static func openProject() {
-        guard let c = controller else { return }
+        guard controller != nil else { return }
         let a = UIAlertController(title: "Open Project", message: "The app URL the dev server printed.", preferredStyle: .alert)
         a.addTextField { f in
             f.text = UserDefaults.standard.string(forKey: "exact.dev.url")
@@ -144,13 +213,14 @@ public enum DevMenu {
             ExactApp.shared.connect(url)
         })
         a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        c.present(a, animated: true)
+        present(a)
     }
 
     /// Restart: a live connection re-fetches; else from the dev loop's plan
     /// when one is named (the watcher's own path, state carried), else from
     /// the baked plan, fresh.
     public static func reload() {
+        pending += 1
         sheet?.dismiss(animated: false)
         if ExactApp.shared.connectionStatus != nil { ExactApp.shared.reloadConnection(); return }
         guard let session else { return }

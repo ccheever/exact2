@@ -833,7 +833,7 @@ extension Agent {
                 } else if presenter.controls.radioKey(focus, name, held: held) { // x2apps survey #2
                 } else if focus.handlers.contains("press") || focus.defaultLink != nil, name == "Enter" || (name == " " && focus.props["href"] == nil) { presenter.press(focus.id) }
             }
-            return ["typed": Int(v.id), "key": key, "value": v.textArea?.text ?? v.field?.text ?? "", "delivery": "recognized"]
+            return ["typed": Int(v.id), "key": key, "value": Agent.shownValue(v.textArea?.text ?? v.field?.text ?? "", of: v), "delivery": "recognized"]
         }
         if let f = v.textArea {
             f.becomeFirstResponder()
@@ -849,7 +849,7 @@ extension Agent {
         f.becomeFirstResponder()
         f.selectAll(nil)
         f.insertText(text)
-        return ["typed": Int(v.id), "value": f.text ?? ""]
+        return ["typed": Int(v.id), "value": Agent.shownValue(f.text ?? "", of: v)]
     }
 
     /// A hardware keyboard's caret keys in a field, which UIKit performs and
