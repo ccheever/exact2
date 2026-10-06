@@ -11,6 +11,7 @@ import { bridgeReply, applyConfig, type Native } from './protocol';
 import { announceJobs } from './settings-b-outdated';
 import type { T3Client } from './client';
 import { learnRoutes } from './connection-routes-ops';
+import { liveFleetEvent, liveFleetPass } from './live-streams';
 
 export type FleetPhase = 'available' | 'connecting' | 'reconnecting' | 'connected' | 'error' | 'unsupported';
 export interface FleetEntry {
@@ -129,6 +130,7 @@ export class EnvironmentFleet {
     if (entry.phase !== 'connected') return;
     if (entry.synchronized !== entry.generation) await this.bootstrap(remote, entry);
     await this.drain(remote, entry);
+    await liveFleetPass(request => this.call(remote, entry, request), entry); // live-streams.ts: scheduled tasks and clones
   }
 
   private async call(remote: Native, entry: FleetEntry, request: Obj): Promise<Obj> {
@@ -158,6 +160,7 @@ export class EnvironmentFleet {
         const seq = num(event.seq);
         if (seq <= entry.lastEvent) continue;
         through = Math.max(through, seq);
+        if (liveFleetEvent(entry, event)) { this.revision++; continue; } // live-streams.ts
         const key = str(event.key), item = obj(event.value);
         if (num(event.generation, -1) !== entry.generation || str(event.subscriptionId) !== entry.subscriptions[key]) continue;
         if (item._transportError || item._streamEnded) { entry.synchronized = -1; continue; }

@@ -10,6 +10,7 @@ import { fileIconToken } from './timeline-files';
 import type { T3Client } from './client';
 import { decodeClientPrefs, type ClientPrefs } from './settings-core';
 import { fontStack } from './settings-appearance';
+import { collectAssistantCitations, parseAssistantCitationHref } from './diff-citations';
 
 export interface ChipView {
   id: string; href: string; kind: string; label: string; size: string; tip: string;
@@ -64,7 +65,7 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
     const record = records.get(match[5]!);
     add(contextChip(href, kind, label, record && str(record.kind) === kind ? record : undefined, attachments, threads));
   }
-  if (text.includes('](t3-citation:')) for (const match of text.matchAll(CITATION_LINK)) add(citationChip(match[1]!));
+  if (text.includes('](t3-citation:')) for (const match of collectAssistantCitations(text)) add(citationChip(match.source.slice('[Assistant quote]('.length, -1)));
   if (text.includes('](')) for (const match of text.matchAll(FILE_LINK)) {
     const href = (match[3] ?? match[4] ?? '').trim();
     if (match[1] || !href || isWebHref(href) || /^(data|javascript|mailto|tel):/i.test(href)) continue;
@@ -73,16 +74,12 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
   return chips;
 }
 
-const CITATION_LINK = /\[Assistant quote\]\((t3-citation:\/\/v1\/[^\s)]+)\)/g;
-/** AssistantCitationChip: the quote (or its comment) cut at 64 characters; "View source" opens the cited thread at the answer. */
+/** AssistantCitationChip: the quote (or its comment) cut at 64 characters; "View source" opens the cited thread at the answer.
+ * Each `[Assistant quote](t3-citation://…)` is read with the reference's parseAssistantCitationHref (diff-citations.ts). */
 function citationChip(href: string): Omit<ChipView, 'id' | 'owner'> {
-  let threadId = '', messageId = '', quote = '';
-  try {
-    const url = new URL(href), parts = url.pathname.slice(1).split('/');
-    threadId = decodeURIComponent(parts[1] ?? ''); messageId = decodeURIComponent(parts[2] ?? '');
-    quote = (url.searchParams.get('comment')?.trim() || url.searchParams.get('text') || '').replace(/\s+/g, ' ');
-  } catch { /* an unreadable citation keeps its parsed text */ }
-  return { href, kind: 'citation', label: quote.length > 64 ? `${quote.slice(0, 64)}…` : quote, size: '', tip: 'View source', detail: messageId, icon: '', target: threadId };
+  const citation = parseAssistantCitationHref(href);
+  const quote = (citation?.comment?.trim() || citation?.text || '').replace(/\s+/g, ' ');
+  return { href, kind: 'citation', label: quote.length > 64 ? `${quote.slice(0, 64)}…` : quote, size: '', tip: 'View source', detail: citation?.messageId ?? '', icon: '', target: citation?.threadId ?? '' };
 }
 const UNAVAILABLE = 'This context is no longer available.';
 function contextChip(href: string, kind: string, label: string, record: Obj | undefined, attachments: Map<string, Obj>, threads: Obj[]): Omit<ChipView, 'id' | 'owner'> {

@@ -1,13 +1,13 @@
 ---
 name: 20261005-upstream-ui-sync
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-upstream-ui-sync
+pr_url: https://github.com/ccheever/exact2/pull/149
 verified_commit: null
 ---
 
@@ -106,14 +106,21 @@ Required environment: the reference runtime at the new pin; the fixture device p
 
 ## Progress
 
-Planned.
+Implemented 2026-10-06 on `feat(example)/t3-code-upstream-ui-sync`; verification unverified.
+
+- A5: `sortWorkingThreadsBySend` in `sidebar-model.ts` (raw V2 shells through `latestRun`; tie by thread id, then environment id); `sidebar-view.ts` orders the Working shelf with it and keeps `sortByReturn` for the active shelf. Ported test in `sidebar-working.test.ts` (original title) plus the older-server fallback, the tie and the shelf split.
+- A12: `SidebarPinButton` draws `pin-off` while hovered or focused (local `focused` state from `focus=`/`blur=`; any focus, not only focus-visible), `pin` at rest; the disabled "Pinned" case keeps `pin`. Colour and aria-label unchanged.
+- A11: `localPlatformsUnavailable` in `r4-surfaces-device.ts`, on `DeviceView`/`R4Device`. The wizard's "Check simulator support" section is the shared `SimulatorSupportSection` (`device-support.contract`) at step 1 and at step 0 when the hub is on and the local host has no available platform (4 pt margin over the panel's 12 pt gap = the reference's 16). Integrations › Devices: `SimulatorSupportSettingsRow` (compact iOS / Android status, "Status for {label}…" with several connected environments, Refresh → `device.list {}`, "Checking…" while its own refresh is pending). The reveal flag lives in `device-support.ts` per client and environment and resets when the hub is off. The reveal shows at once (AnimatedHeight is a layout interpolation; unsupported), with or without reduced motion.
+- A13: `BrandAzureDevOps` is the reference's 512-box mark (nine gradients, nine paths; static ids `azdo-a`…`azdo-i`); the selfhst/icons CC BY 4.0 notice is in the Contract comment and in `LICENSE-T3` (the clone's notice file; the Licenses page lists the server's manifest only).
+- A16: the details popover layer moves from z 50 to 35, under the floating player (40) and every dialog (40 and up), over the right-panel sheets (10/11) and the click-away menus (29–31). The scale is documented at the top of `shell-details.contract`. Remaining difference: the reference puts other popovers (130) over the card; here click-away menus stay under it.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (implement) | `883aed5b0` on `d78ac86ff` | `bun test examples/t3-code` 1209 pass / 0 fail (base 1200); strict tsc clean; `contract build` 2179 slots, 42 resources, 48348 nodes; `cargo test -p t3-code-macos --lib` 10 pass; no Swift touched (no AppKit binary affected); macOS bundle build pass; five checks: build pass, test 2928 pass / 0 fail, clippy and fmt clean, caps pass, boot pass | unit tests `sidebar-working.test.ts`, `device-support.test.ts` | — |
+| 2 (live drive, macOS) | same build, reference server 1e2ecbd975 on 127.0.0.1:16180, isolated HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_*/T3CODE_HOME | drive 1 stopped at op 1: `no view matches welcome-pairing-link` (the welcome wizard had not loaded at the first op); drive 2 stopped at op 1: `tap connection-settings: view 92 is hidden or inert` (the welcome modal had loaded). Both failures are drive-script timing; no app code was involved. Two drives used (ADDENDUM 3): live acceptance recorded unverified | text records only, no screenshots | live rows unverified |
 
 ## Next action
 
-`prepare` after the three dependencies merge, then `implement`.
+`verify`: one live drive that waits for the welcome wizard (`clock +3000 real` first), pairs through it, then covers A13 (Source control), A11 (Integrations hub off/on), A16 (840 pt popover, ⌘K palette over it, Escape order). Not run: every live row; A5 and A12 live rows also need a server thread (the reference server's `--auto-bootstrap-project-from-cwd` created no project here) and a pinned thread (pin is a context-menu or ⇧⌘P action); A12 real pointer (attended); oracle pixel pairs (no desktop oracle tool in this worktree); A11 wizard and Integrations with all platforms unavailable need the fixture device proxy variant, which is not in this worktree; A16 player-over-popover needs a floating device player.

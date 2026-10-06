@@ -48,6 +48,13 @@ shape R4CodeLine
   id: string
   number: string
   runs: list<R4CodeRun>
+  // diff-review: a code line ("line"), or a saved ("note") or draft comment under its last line; line selection.
+  kind: string
+  line: number
+  selected: bool
+  entry: string
+  text: string
+  label: string
 shape R4Editor
   id: string
   label: string
@@ -74,6 +81,7 @@ shape R4Files
   previewError: string
   crumbs: list<R4Crumb>
   lines: list<R4CodeLine>
+  commentOpen: bool
   text: string
   textKey: string
   gutter: number
@@ -197,6 +205,8 @@ shape R4Device
   refreshable: bool
   // lane r6-media: the opened device and its workspace (r6-media-device.ts).
   r6: R6DeviceView
+  // 1e2ecbd975 (5318d054a5): a local host has no available platform (device-support.ts).
+  localPlatformsUnavailable: bool
 shape R4Panel
   open: bool
   kind: string

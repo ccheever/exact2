@@ -217,6 +217,32 @@ shape DiffItem
   rightSegments: list<DiffSegment>
   label: string
   gutter: number
+  // diff-review: a line's side and number for selection and comments (split: left/right), file marks, gap expansion, comment entries.
+  side: string
+  line: number
+  selected: bool
+  leftLine: number
+  rightLine: number
+  leftSelected: bool
+  rightSelected: bool
+  error: bool
+  partial: bool
+  unavailable: bool
+  expandable: bool
+  entry: string
+  text: string
+// diff-review: one row of the Diff panel's file tree (diff-tree.ts).
+shape DiffTreeRow
+  id: string
+  kind: string
+  path: string
+  name: string
+  depth: number
+  status: string
+  letter: string
+  markdown: bool
+  expanded: bool
+  selected: bool
 shape SnapshotDraft
   id: string
   name: string
@@ -231,6 +257,7 @@ shape SnapshotDraft
   referenced: bool
 shape Snapshot
   timelineReadsNeeded: bool
+  highlightPending: bool // shiki-residuals: a code text waits for its Shiki tokens
   markdownSkills: list<MarkdownSkill>
   composer: ComposerView
   // r6-polish: the AlertStack wrapper's clip to its banners (r6-polish-measure.ts alertClip).
@@ -254,6 +281,8 @@ shape Snapshot
   sidebarWidth: number
   // r12-sidebar: resolveThreadSidebarMinimumWidth at the Interface font size (r12-sidebar-width.ts).
   sidebarMinWidth: number
+  // desktop-shell-details: --workspace-controls-left, 90 beside the traffic lights, 0.75rem in full screen (r12-sidebar-width.ts).
+  controlsLeft: number
   sidebarOpen: bool
   query: string
   projectId: string
@@ -315,6 +344,11 @@ shape Snapshot
   diffAllCollapsed: bool
   diffFiles: list<DiffFile>
   diffItems: list<DiffItem>
+  diffTreeRows: list<DiffTreeRow>
+  diffTreeLabel: string
+  diffTreeFolders: bool
+  diffTreeAllOpen: bool
+  diffCommentOpen: bool
   diffLoadingLabel: string
   projects: list<Project>
   searchFirstId: string
