@@ -58,6 +58,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "paletteCommand",
             "shellView",
             "shellDetails",
+            "chatCanvas",
             "sidebarLaunchWidth",
             "prList",
             "prDetail",
