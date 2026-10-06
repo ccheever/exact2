@@ -2,6 +2,8 @@
 // models.ts/threadSettled.ts/threadSort.ts; MIT, see LICENSE-T3): status, the
 // shelf a thread lives on, the static sort, unread/woke/recede prominence and
 // the labels a row draws. Pure functions over the raw V2 thread shell.
+// 1e2ecbd975 (1302ccacbd): the Working shelf orders by the last authored send
+// (threadInbox.ts sortWorkingThreadsBySend); the active shelf keeps the return order.
 import { arr, obj, str, type Obj } from './domain';
 
 export type SidebarSection = 'pinned' | 'active' | 'working' | 'snoozed' | 'settled';
@@ -173,6 +175,23 @@ export function sortActive(threads: Obj[]): Obj[] {
 export function sortByReturn(threads: Obj[], observed?: (thread: Obj) => number | undefined): Obj[] {
   const time = (thread: Obj) => { const run = latestRun(thread); return Math.max(anchor(thread), parse(run?.requestedAt) || 0, parse(run?.completedAt) || 0, observed?.(thread) ?? 0); };
   return [...threads].sort((left, right) => time(right) - time(left) || byId(left, right));
+}
+/**
+ * sortWorkingThreadsBySend (threadInbox.ts, 1e2ecbd975 1302ccacbd): the Working
+ * shelf lists threads newest first by the last message the user sent. Runs
+ * ending and wakes do not move a row. A shell without
+ * `latestUserAuthoredMessageAt` (an older server) falls back to the latest
+ * run's request time; `null` (an agent-launched thread) leaves creation time.
+ * exact2: reads the raw V2 shell through `latestRun`; the reference's
+ * sortNewestFirst tie (thread id, then environment id) is kept.
+ */
+export function sortWorkingThreadsBySend(threads: Obj[]): Obj[] {
+  const time = (thread: Obj) => {
+    const sent = thread.latestUserAuthoredMessageAt === undefined ? latestRun(thread)?.requestedAt : thread.latestUserAuthoredMessageAt;
+    return Math.max(parse(thread.createdAt) || 0, parse(sent) || 0);
+  };
+  return [...threads].sort((left, right) => time(right) - time(left) || byId(left, right)
+    || str(left.environmentId).localeCompare(str(right.environmentId)));
 }
 /** resolveSettledThreadTimestamp: settledAt, else the latest message/run stamp, else updatedAt. */
 export function settledTimestamp(thread: Obj): string | null {
