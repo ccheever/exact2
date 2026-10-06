@@ -556,6 +556,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         started || ([primaryNavigation].compactMap { $0 } + presentedNavigations).contains { $0.transitionCoordinator?.viewController(forKey: .from) != nil }
     }
     var started: Bool { changing || interactiveTransition }
+    /// A back swipe began with the keyboard up and put it away (see willShow):
+    /// its hide is real, and the viewport follows it.
+    private var keyboardDropped = false
 
     /// For `state.navigation` (LLP 1035.002 D2): the route the root names,
     /// UIKit's stack by key, and the transition's phase — observations.
@@ -589,7 +592,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var canInvokeBack: Bool { backControl != nil }
 
     var preservesKeyboardViewport: Bool {
-        NavigationRules.freezesViewport(modalActive: presenter.modals.active, changing: changing,
+        !keyboardDropped && NavigationRules.freezesViewport(modalActive: presenter.modals.active, changing: changing,
                                         initiallyInteractive: navigation?.transitionCoordinator?.initiallyInteractive == true)
     }
 
@@ -683,7 +686,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             }
             return false
         }
-        guard let start, let view else { return true }
+        guard let start, let view else { dropKeyboard(); return true }
         var overSwipeRight = false
         var hit = view.hitTest(start, with: nil)
         if CanvasInputs.owns(hit) { return false }
@@ -692,7 +695,24 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             if current === view { break }
             hit = current.superview
         }
-        return NavigationRules.panMayBegin(startX: start.x, overSwipeRight: overSwipeRight, velocity: velocity)
+        let begins = NavigationRules.panMayBegin(startX: start.x, overSwipeRight: overSwipeRight, velocity: velocity)
+        if begins { dropKeyboard() }
+        return begins
+    }
+
+    /// One viewport holds both routes, and with the keyboard up it ends at
+    /// the keyboard's top: the route a back swipe revealed showed only what
+    /// was above the keys (a list's top half; its bottom half once the swipe
+    /// ended). The keyboard goes as the swipe is recognized, before UIKit
+    /// fixes the routes' frames for the transition, and the viewport grows
+    /// to the screen first.
+    private func dropKeyboard() {
+        guard presenter.hasKeyboardEditor || presenter.keyboardTop != nil,
+              let window = navigation?.view.window else { return }
+        keyboardDropped = true
+        window.endEditing(true)
+        presenter.session?.view?.fit()
+        navigation?.view.layoutIfNeeded()
     }
 
     func navigationController(_ navigationController: UINavigationController, willShow viewController: UIViewController, animated: Bool) {
@@ -743,6 +763,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
               navigationController.topViewController === viewController else { return }
         changing = false
         nativeMoved = true
+        keyboardDropped = false
         stopRevealing()
         defer {
             // Tree updates during UIKit's transition retain their latest
@@ -827,6 +848,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         pendingSync = false
         interactiveSource = nil
         interactiveTransition = false
+        keyboardDropped = false
         lastTransition = "idle"
         if clearFocus { presenter.cancelPendingFocus() }
     }
