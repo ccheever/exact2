@@ -80,6 +80,29 @@ ops one by one: `local` (device-only ops) and `formCommand` (errors that go to t
 a new op in an existing prefix needs neither. The `composer`, `menus` and `r5-panels`
 XCTests define their own `exactModule` and leave out `T3Module*.swift` (README recipe).
 
+## Terminal drawer
+
+Task `20261005-terminal-drawer`, 2026-10-06. ⌘J or the layout toggle (chat header, right panel
+header, surface launcher bar) opens `TerminalDrawer` (`terminal.contract`) below the chat column.
+One terminal per drawer until `20261005-terminal-layout` (toolbar: Close only; the empty state
+offers New Terminal). The spike's development harness (⌃⌥⇧T) is gone; the AppKit fixtures stay.
+
+- Client (`terminal-drawer-view.ts`): the `terminalDrawer` resource, `terminallocal:` ops (toggle,
+  new, close, exited, height), `subscribeTerminalMetadata` (labels, the known-session reconcile),
+  thread delete cleanup, and `terminalRetain` (the mounted threads' sessions). UI state is the
+  ported store (`terminal-ui-state.ts`), saved under `terminal` in `t3-code.json`.
+- Native (`T3TerminalSessions.swift`, `T3TerminalOutput.swift`, `T3Transport+Terminal.swift`):
+  `terminal.attach` is a side stream of the transport (not the inbox, not the 16-stream cap, 44 at
+  most); each chunk is acknowledged once the session's 512 KiB buffer holds it. The `t3-terminal`
+  view in session mode (props `environment`, `thread`, `terminal`, `cwd`, `worktree`, `env`,
+  `focus-request`) writes what is new, the `[terminal] …` lines, and reports an exit once.
+  `state.presentation.terminalSessions` lists every session: status, attached, retained bytes,
+  chunks/acknowledged, writes, grid.
+- A hidden mounted thread keeps its stream and buffer without a web view; its view replays the
+  buffer when it shows again (one web view at a time instead of the spike's 11).
+- Tests: `terminal-*.test.ts` (ported reference tests, shared buffer vectors),
+  `macos/tests/terminal` (`drawer.swift`), `macos/tests/transport` (`terminal-streams.swift`).
+
 ## Terminal spike
 
 **2026-10-06 theme repair and recapture:** [report and original/native screenshot pairs](.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-terminal-surface/20261006-theme-parity/attempt.md).
