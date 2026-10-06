@@ -56,29 +56,40 @@ export const commandOf = (app) => app.manifest.app?.command ?? app.name;
 /** Where `install` puts the app. */
 export const installedAt = (app) => resolve(APPLICATIONS, `${app.displayName}.app`);
 
-/** Cross bundles installed and checked beside the host bundle on this machine. */
-export function hermesSetupTargets(os = process.platform, cpu = process.arch) {
+/** The cross bundles a Mac's TypeScript builds use, each needed only for its
+ * destination (and only with Xcode). The host bundle is the one required row. */
+export function hermesCrossTargets(os = process.platform, cpu = process.arch) {
   if (os !== 'darwin') return [];
   return [
-    cpu === 'x64' ? 'x86_64-apple-ios' : 'aarch64-apple-ios-sim',
-    'aarch64-apple-tvos-sim',
+    { target: cpu === 'x64' ? 'x86_64-apple-ios' : 'aarch64-apple-ios-sim', need: 'iOS Simulator TypeScript' },
+    { target: 'aarch64-apple-ios', need: 'iOS device TypeScript' },
+    { target: 'aarch64-apple-tvos-sim', need: 'tvOS Simulator TypeScript' },
   ];
 }
 
-const hermesInstallerArguments = (check, os = process.platform, cpu = process.arch) => [
-  'run', '--manifest-path', HERMES_INSTALLER, '--', ...(check ? ['--check'] : []),
-  ...hermesSetupTargets(os, cpu).flatMap(target => ['--target', target]),
+/** The simulator bundles `setup` installs after the host's (device bundles are
+ * fetched on demand: `host/apple/build.mjs --device` names the command). */
+export const hermesSetupTargets = (os = process.platform, cpu = process.arch) =>
+  hermesCrossTargets(os, cpu).map(entry => entry.target).filter(target => target !== 'aarch64-apple-ios');
+
+// Locked always: the installer's own lock is committed, and a check must
+// neither rewrite it nor fetch crates (`--offline`); HERMES_LEAN_SYS_OFFLINE
+// only constrains the Hermes resolver, not Cargo.
+const hermesInstallerArguments = (check, targets = []) => [
+  'run', '--locked', ...(check ? ['--offline'] : []), '--manifest-path', HERMES_INSTALLER, '--',
+  ...(check ? ['--check'] : []), ...targets.flatMap(target => ['--target', target]),
 ];
 
-/** Ask the vendored resolver itself whether every bundle setup installs is valid. */
-export function checkHermesBundles(env = process.env, execute = spawnSync, os = process.platform, cpu = process.arch) {
+/** Ask the vendored resolver itself whether the host bundle (and `targets`, each
+ * validated against the host compiler) is installed and valid. */
+export function checkHermesBundles(env = process.env, execute = spawnSync, os = process.platform, cpu = process.arch, targets = []) {
   const host = hermesTarget(os, cpu);
   if (!host) return { ok: false, message: `no pinned bundle exists for ${os}/${cpu}`, fix: '' };
-  const args = hermesInstallerArguments(true, os, cpu);
+  const args = hermesInstallerArguments(true, targets);
   const result = execute('cargo', args, { cwd: ROOT, encoding: 'utf8', env: cargoEnvironment(env) });
   const stderr = result.stderr?.trim().split(/\r?\n/).filter(Boolean).at(-1);
   const message = [result.stdout?.trim(), stderr, result.error?.message].filter(Boolean).join('\n');
-  const install = ['cargo', ...hermesInstallerArguments(false, os, cpu)].join(' ');
+  const install = ['cargo', ...hermesInstallerArguments(false, targets)].join(' ');
   return { ok: result.status === 0, message: message || `cargo exited ${result.status ?? 'without a status'}`, fix: install };
 }
 
@@ -396,6 +407,12 @@ export function setup({check = false} = {}) {
     run(process.execPath, ['install', '--frozen-lockfile']);
     if (!hermesTarget()) throw new Error(`the pinned Hermes release has no host bundle for ${process.platform}/${process.arch}`);
     run('cargo', hermesInstallerArguments(false));
+    // Simulator bundles separately: a failed cross download must not undo the
+    // host install every build needs; `setup --check` reports it on its own row.
+    const cross = hermesSetupTargets();
+    if (cross.length && spawnSync('cargo', hermesInstallerArguments(false, cross), {cwd: ROOT, stdio: 'inherit', env: cargoEnvironment(process.env)}).status !== 0) {
+      console.error(`exact setup: the ${cross.join(', ')} Hermes bundles did not install; Apple simulator TypeScript builds will name the command`);
+    }
     // Every bake resolves offline and locked: the checkout's crates, and the game SDK's for a game's shell.
     run('cargo', [`+${pin.channel}`, 'fetch', '--locked', '--manifest-path', resolve(ROOT, 'Cargo.toml')]);
     console.log('cargo fetch (the game SDK lock, game/app/shells.lock)');
@@ -456,13 +473,17 @@ export function sdkReport(env = process.env) {
     const xcode = /\.app\/Contents\/Developer$/.test(developer);
     rows.push(row('Xcode', developer, 'Xcode.app', xcode, 'install Xcode, then sudo xcode-select -s /Applications/Xcode.app', 'macOS and iOS'));
   }
-  const hostTarget = hermesTarget(), targets = hermesSetupTargets();
-  const bundles = checkHermesBundles(env);
+  const host = checkHermesBundles(env);
   rows.push(row(
-    `Hermes bundles (${[hostTarget, ...targets].filter(Boolean).join(', ')})`,
-    bundles.ok ? 'verified by hermes-lean-sys' : bundles.message,
-    'the pinned Ibex release', bundles.ok, bundles.fix,
+    `Hermes bundle (${hermesTarget() ?? 'no host bundle'})`,
+    host.ok ? 'verified by hermes-lean-sys' : host.message,
+    'the pinned Ibex release', host.ok, host.fix,
   ));
+  for (const {target, need} of hermesCrossTargets()) {
+    const cross = checkHermesBundles(env, spawnSync, process.platform, process.arch, [target]);
+    rows.push(row(`Hermes bundle (${target})`, cross.ok ? 'verified by hermes-lean-sys' : 'not installed or invalid',
+      'the pinned Ibex release', cross.ok, cross.fix, need));
+  }
   return rows;
 }
 

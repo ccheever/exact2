@@ -86,7 +86,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { basename, delimiter, dirname, resolve, sep, toNamespacedPath } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { resolveApp, buildBake, bakeTarget, HERMES_INSTALLER, hermesBundle, hermesLeanSysRoots, pendingBuildInputs } from './app.mjs';
-import { checkHermesBundles } from './exact.mjs';
+import { checkHermesBundles, hermesCrossTargets, hermesSetupTargets } from './exact.mjs';
 import { useXcode } from '../host/apple/devices.mjs';
 import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, macReleaseEntitlements, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
@@ -1079,15 +1079,34 @@ test('setup check uses the installer result and preserves its missing-bundle mes
   const missing = checkHermesBundles(env, execute, 'darwin', 'arm64');
   assert.equal(missing.ok, false);
   assert.ok(missing.message.includes(missingMessage));
-  assert.deepEqual(calls[0].args.slice(-4), [
-    '--target', 'aarch64-apple-ios-sim', '--target', 'aarch64-apple-tvos-sim',
-  ]);
+  // The required check is the host bundle alone, locked and offline.
   assert.ok(calls[0].args.includes('--check'));
+  assert.ok(calls[0].args.includes('--locked'));
+  assert.ok(calls[0].args.includes('--offline'));
+  assert.ok(!calls[0].args.includes('--target'), 'cross targets are separate, optional rows');
   assert.equal(calls[0].options.env.HERMES_LEAN_SYS_OFFLINE, '1');
   assert.doesNotMatch(missing.fix, /--check/);
   const installed = checkHermesBundles(env, execute, 'darwin', 'arm64');
   assert.equal(installed.ok, true);
   assert.match(installed.message, /Verified every installed bundle/);
+});
+
+test('each Apple TypeScript destination checks its own Hermes bundle, device included', () => {
+  assert.deepEqual(hermesCrossTargets('darwin', 'arm64'), [
+    { target: 'aarch64-apple-ios-sim', need: 'iOS Simulator TypeScript' },
+    { target: 'aarch64-apple-ios', need: 'iOS device TypeScript' },
+    { target: 'aarch64-apple-tvos-sim', need: 'tvOS Simulator TypeScript' },
+  ]);
+  assert.equal(hermesCrossTargets('darwin', 'x64')[0].target, 'x86_64-apple-ios');
+  assert.deepEqual(hermesCrossTargets('linux', 'x64'), []);
+  assert.deepEqual(hermesSetupTargets('darwin', 'arm64'), ['aarch64-apple-ios-sim', 'aarch64-apple-tvos-sim']);
+  const calls = [];
+  const execute = (command, args) => { calls.push(args); return {status: 0, stdout: 'Verified', stderr: ''}; };
+  checkHermesBundles({}, execute, 'darwin', 'arm64', ['aarch64-apple-ios']);
+  assert.deepEqual(calls[0].slice(-3), ['--check', '--target', 'aarch64-apple-ios']);
+  const install = checkHermesBundles({}, execute, 'darwin', 'arm64', ['aarch64-apple-ios']).fix;
+  assert.match(install, /--locked/);
+  assert.doesNotMatch(install, /--offline|--check/);
 });
 
 test('bake receipts recognize the install-once Hermes cache and explicit installs', () => {
