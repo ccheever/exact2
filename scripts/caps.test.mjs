@@ -11,7 +11,7 @@ if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these test
 delete process.env.EXACT_APP_DIR;
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, mkdtempSync, readFileSync, realpathSync, utimesSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname, relative, resolve } from 'node:path';
@@ -20,7 +20,7 @@ import { runInNewContext } from 'node:vm';
 import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, readDevGeneration, retainDevGeneration, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp, jsonLines } from './agent.mjs';
 import { verifyBakeFiles, pendingBuildInputs } from './app.mjs';
-import { driveStore, newerThan, notBuildInput, webStore } from './agent-launch.mjs';
+import { driveStore, newerThan, notBuildInput, receiptChanges, webStore } from './agent-launch.mjs';
 import { storeBase, sweepTestStores } from './agent-test.mjs';
 import { copyAppleStaticTrees } from '../host/apple/build.mjs';
 import { developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/devices.mjs';
@@ -615,19 +615,30 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir,{recursive:true,force:true});
 }
 {
-  // A screenshot or log saved into an app is not an input, ignored by Git or not; what the
-  // bake captures, a declared shader root, a crate's files, a native module's script, a
-  // game's art and an icon the manifest names are, ignored by Git or not; an ignored file
-  // outside those (scratch/) and a saved world are not.
+  // A screenshot, log, export, shot, tool, repro or test saved into an app is not an input,
+  // ignored by Git or not; what the bake captures, a declared shader root, a crate's files
+  // (including a csv beside them), a native module's script, presentation and logic scripts,
+  // a game's art and an icon the manifest names are. An ignored file outside those
+  // (scratch/) and a saved world are not. A helper script (drive.sh) is not.
   const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-build-inputs-')));
-  for(const sub of ['shots','gen','shader-gen','data','modules/web','art','scratch']) mkdirSync(join(dir,sub),{recursive:true});
-  for(const [name,text] of [['.gitignore','/local.ts\n/gen/\n/shader-gen/\n/notes/\n/modules/\n/art/\n/icon.png\n/data/table.bin\n/scratch/\n'],['Cargo.toml','[workspace]'],['app.json','{"icons":[{"src":"icon.png"}]}'],['icon.png','png'],['app.contract','view'],['local.ts','key'],['run.log','log'],['shots/one.png','png'],['shots/notes.txt','notes'],['gen/made.rs','fn f() {}'],['shader-gen/paint.wgsl','fn main() {}'],['shader-gen/table.bin','bytes'],['data/Cargo.toml','[package]'],['data/table.bin','bytes'],['modules/web/index.js','js'],['art/strip.png','png'],['art/fox.glb','glb'],['run.world','world'],['scratch/out.bin','bytes']]) writeFileSync(join(dir,name),text);
+  for(const sub of ['shots','tools','repros','gen','shader-gen','data','modules/web','art','scratch','logic/src','assets','presentation']) mkdirSync(join(dir,sub),{recursive:true});
+  for(const [name,text] of [['.gitignore','/local.ts\n/gen/\n/shader-gen/\n/notes/\n/modules/\n/art/\n/icon.png\n/data/table.bin\n/scratch/\n'],['Cargo.toml','[workspace]'],['app.json','{"icons":[{"src":"icon.png"}]}'],['icon.png','png'],['app.contract','view'],['local.ts','key'],['run.log','log'],['shots/one.png','png'],['shots/notes.txt','notes'],['shots/exported.json','{}'],['tools/probe.mjs','mjs'],['tools/levels.ops','ops'],['repros/bug.contract','view'],['app.test.ts','test'],['app.test.contract','test'],['drive.sh','sh'],['export.csv','a,b'],['logic/build.mjs','mjs'],['logic/src/foo.test.rs','rs'],['assets/x.js','js'],['presentation/view.mjs','mjs'],['data/ledger.csv','a,b'],['gen/made.rs','fn f() {}'],['shader-gen/paint.wgsl','fn main() {}'],['shader-gen/table.bin','bytes'],['data/Cargo.toml','[package]'],['data/table.bin','bytes'],['modules/web/index.js','js'],['art/strip.png','png'],['art/fox.glb','glb'],['run.world','world'],['scratch/out.bin','bytes']]) writeFileSync(join(dir,name),text);
   const walk=()=>newerThan(0,[dir],notBuildInput(dir,[join(dir,'shader-gen')])).map(p=>relative(dir,p)).sort();
   const outside=walk();
   spawnSync('git',['init','-q'],{cwd:dir});
-  const inside=walk(),want='["Cargo.toml","app.contract","app.json","art/fox.glb","art/strip.png","data/Cargo.toml","data/table.bin","gen/made.rs","icon.png","local.ts","modules/web/index.js","shader-gen/paint.wgsl","shader-gen/table.bin"]';
+  const inside=walk(),want='["Cargo.toml","app.contract","app.json","art/fox.glb","art/strip.png","assets/x.js","data/Cargo.toml","data/ledger.csv","data/table.bin","gen/made.rs","icon.png","local.ts","logic/build.mjs","modules/web/index.js","presentation/view.mjs","shader-gen/paint.wgsl","shader-gen/table.bin"]';
   result('the staleness walk skips what an agent leaves in an app, never what a build reads',
-    JSON.stringify(inside)===want&&JSON.stringify(outside)===want.replace('"modules/web/index.js",','"modules/web/index.js","scratch/out.bin",'),JSON.stringify({inside,outside}));
+    JSON.stringify(inside)===want&&JSON.stringify(outside)===want.replace('"presentation/view.mjs",','"presentation/view.mjs","scratch/out.bin",'),JSON.stringify({inside,outside}));
+  const receipt=join(dir,'receipt.json');
+  writeFileSync(receipt,JSON.stringify({target:'aarch64-apple-darwin'}));
+  writeFileSync(join(dir,'pins.json'),'{}');
+  const built=new Date(Date.now()+10000),edited=new Date(+built+10000);
+  utimesSync(receipt,built,built);
+  for(const name of ['pins.json','app.contract','drive.sh','tools/probe.mjs','shots/exported.json']) utimesSync(join(dir,name),edited,edited);
+  const game={dir,target:join(dir,'missing-target'),manifest:{game:true},crate:()=>'game-macos'};
+  const changed=receiptChanges(receipt,game).map(p=>relative(dir,p)).sort();
+  result('a game receipt ignores pins and driver scripts, and still sees the contract',
+    JSON.stringify(changed)==='["app.contract"]',JSON.stringify(changed));
   rmSync(dir,{recursive:true,force:true});
 }
 {

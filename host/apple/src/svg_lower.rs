@@ -320,7 +320,20 @@ pub(crate) fn eligibility(
         let moves = props
             .iter()
             .any(|p| matches!(p, Property::Cx | Property::Cy));
+        // A percentage of the box (chess diary #4) is resolved by the
+        // presenter against the box as it stands; a lowered track would
+        // freeze it at one size.
+        let percent = n.style.translate_percent.x != 0.0
+            || n.style.translate_percent.y != 0.0
+            || animations.0.iter().any(|a| {
+                a.keyframes.0.iter().any(|f| {
+                    f.values
+                        .iter()
+                        .any(|(p, v)| *p == Property::Translate && (v.z != 0.0 || v.w != 0.0))
+                })
+            });
         let sampled = if paired
+            || percent
             || engine.timeline_bound(*node)
             || under_box_filter(kernel, &n)
             // A glass group ignores the opacity Core Animation plays between

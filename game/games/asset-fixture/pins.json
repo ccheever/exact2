@@ -4,13 +4,13 @@
     "60": "0x483c73a4464f6d73"
   },
   "saves": {
-    "continuation": "8024cc5922074402fdab428e2e7c76fb340b28cc08aec2620004fc81cbd440c7"
+    "continuation": "7792fcc2833d0554341c0aacccc912cffc3fb5609f8b4c9d715f2aa4da4ce9ff"
   },
   "hosts": [
     "linux"
   ],
-  "inputs": "7b0b12734ceb01fc0d6d417c073cf237190ab88807d91c2cb2664fea5505acc7",
+  "inputs": "41944440b05d5369a77a8bd7d90dee8fa8f64596980e9074f0c5a3bafac69d6d",
   "game": "asset-fixture",
   "generated": "bun game/prove.mjs asset-fixture --repin --hosts linux",
-  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
+  "at": "2c19c834853f9a169c70704b58f0ed255a8d7daa"
 }

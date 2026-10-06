@@ -193,3 +193,217 @@ fn an_html_label_names_the_text_and_the_field_name() {
         "{error}"
     );
 }
+
+#[test]
+fn a_view_if_and_a_state_as_name_the_contract_form() {
+    let view_if = "component App\n  state on = false\n  view\n    column\n      if on\n        text \"a\"\n      else\n        text \"b\"\n";
+    let error = contract::compile(view_if).unwrap_err();
+    assert_eq!(
+        (error.id.as_str(), error.message.as_str()),
+        ("syntax-stray-keyword", "`if` is an action's statement: a view chooses with `when <condition>`, and an `else` after its block at the same indent")
+    );
+    let state_as =
+        "component App\n  state draft = none as option<string>\n  view\n    text \"a\"\n";
+    let error = contract::compile(state_as).unwrap_err();
+    assert_eq!(
+        (error.id.as_str(), error.message.as_str()),
+        ("syntax-expected-newline", "a state takes no `as`: its type is inferred from its initializer and the writes to it (a `none` takes its type from a write such as `draft = some(…)`)")
+    );
+    let count_as = "component App\n  state n = 0 as number\n  view\n    text \"a\"\n";
+    let error = contract::compile(count_as).unwrap_err();
+    assert_eq!(
+        error.message,
+        "a state takes no `as`: its type is inferred from its initializer and the writes to it"
+    );
+    let derive_as = "component App\n  derive n = 2 as number\n  view\n    text \"a\"\n";
+    let error = contract::compile(derive_as).unwrap_err();
+    assert_eq!(
+        error.message,
+        "a derive takes no `as`: its type is inferred from its expression"
+    );
+}
+
+#[test]
+fn position_fixed_says_how_to_pin_a_box() {
+    let src =
+        "component App\n  view\n    column\n      text \"toast\" position=\"fixed\" bottom=0\n";
+    let error = contract::compile(src).unwrap_err();
+    assert!(
+        error
+            .message
+            .ends_with("; `fixed` is not a row (LLP 1001): pin a box to the viewport with `absolute`, directly inside a viewport-sized root that does not scroll (its content scrolls in a `scroll` beside it)"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_mutation_clause_out_of_order_names_the_order() {
+    let src = "shape Ack\n  ok: bool\nshape Card\n  id: string\n\ncomponent App\n  resource cards = board() as shape list<Card>\n  mutation changed as shape Ack refreshes cards queue\n  view\n    text \"a\"\n";
+    let error = contract::compile(src).unwrap_err();
+    assert_eq!(error.id, "syntax-expected-newline", "{error}");
+    assert!(
+        error.message.starts_with("`queue` is out of place: a mutation's clauses go `as shape T`, then `queue`, then `refreshes a, b`, then `then action`"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_runner_source_called_as_a_function_says_to_declare_it() {
+    for (call, declared) in [
+        ("exactTime().epochAtZero", "exactTime()"),
+        ("exactSurface(\"world\").score", "exactSurface(\"world\")"),
+    ] {
+        let src =
+            format!("component App\n  derive today = {call}\n  view\n    text `${{today}}`\n");
+        let error = contract::compile(&src).unwrap_err();
+        assert_eq!(error.id, "type-unknown-function", "{error}");
+        assert!(
+            error.message.ends_with(&format!("is a source the runner answers: declare `resource r = {declared} as shape S` in the root component, with a shape S of the fields you read, and read `r.field`")),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn a_logical_box_property_names_its_physical_longhands() {
+    for (attr, says) in [
+        (
+            "padding-block=8",
+            "`padding-block` is not admitted: write `padding-top` and `padding-bottom`",
+        ),
+        (
+            "margin-inline-start=4",
+            "`margin-inline-start` is not admitted: write `margin-left` in a left-to-right flow",
+        ),
+        (
+            "inset-inline=0",
+            "`inset-inline` is not admitted: write `left` and `right` in a left-to-right flow",
+        ),
+    ] {
+        let src = format!("component App\n  view\n    column {attr}\n      text \"a\"\n");
+        let error = contract::compile(&src).unwrap_err();
+        assert_eq!(error.id, "lower-unknown-attr", "{error}");
+        assert!(error.message.ends_with(says), "{error}");
+    }
+}
+
+#[test]
+fn a_maximum_of_none_and_a_pixel_text_compile() {
+    // CSS's initial maximum (LLP 1102 §3.11) and `px` on a pixel row (§3.10).
+    for src in [
+        "component App\n  view\n    column max-height=\"none\"\n      text \"a\" font-size=\"14px\" letter-spacing=\"-0.5px\"\n",
+        "component App\n  state narrow = false\n  view\n    column max-width=(narrow ? \"320px\" : \"none\")\n      text \"a\"\n",
+    ] {
+        contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
+    }
+}
+
+#[test]
+fn an_expression_continued_on_an_indented_line_is_told_to_wrap_it() {
+    let wrap = "an indented line that starts with an operator continues the line above";
+    let derive = "component App\n  state done = false\n  derive label = done\n    ? \"Done\"\n    : \"Open\"\n  view\n    text label\n";
+    let error = contract::compile(derive).unwrap_err();
+    assert_eq!(error.id, "syntax-expected-section");
+    assert!(error.message.starts_with(wrap), "{error}");
+    let top = "fn label(done: bool): string = done\n  ? \"Done\"\n  : \"Open\"\ncomponent App\n  view\n    text label(true)\n";
+    let error = contract::compile(top).unwrap_err();
+    assert_eq!(error.id, "syntax-expected-declaration");
+    assert!(error.message.starts_with(wrap), "{error}");
+    // The form it names compiles.
+    contract::compile("component App\n  state done = false\n  derive label = (done\n    ? \"Done\"\n    : \"Open\")\n  view\n    text label\n").unwrap();
+}
+
+#[test]
+fn a_ternary_broken_before_its_colon_is_told_to_wrap_it() {
+    let src = "component App\n  state done = false\n  state label = \"\"\n  action go\n    let next = done ? \"Done\"\n      : \"Open\"\n    label = next\n  view\n    text label press=go\n";
+    let error = contract::compile(src).unwrap_err();
+    assert_eq!(error.id, "syntax-expected");
+    assert!(
+        error
+            .message
+            .starts_with("the ternary's `:` is on the next line"),
+        "{error}"
+    );
+    // A missing `:` is not told it is on the next line.
+    let missing = "component App\n  state done = false\n  state label = \"\"\n  action go\n    let next = done ? \"Done\"\n    label = next\n  view\n    text label press=go\n";
+    let error = contract::compile(missing).unwrap_err();
+    assert!(!error.message.contains("next line"), "{error}");
+    contract::compile("component App\n  state done = false\n  state label = \"\"\n  action go\n    let next = (done\n      ? \"Done\"\n      : \"Open\")\n    label = next\n  view\n    text label press=go\n").unwrap();
+}
+
+#[test]
+fn a_mistaken_section_word_names_the_section() {
+    let src = "component App\n  view\n    Meter(pct=1)\ncomponent Meter\n  prop pct: number\n  view\n    text \"a\"\n";
+    let error = contract::compile(src).unwrap_err();
+    assert_eq!(
+        (error.id.as_str(), error.message.as_str()),
+        (
+            "syntax-unknown-section",
+            "unknown section `prop`: did you mean `props` (any component but the first in the file declares them)?"
+        )
+    );
+}
+
+#[test]
+fn a_stray_else_and_a_body_on_the_next_line_say_where_they_go() {
+    let deep = "component App\n  state on = false\n  view\n    column\n      when on\n        text \"a\"\n        else\n          text \"b\"\n";
+    let error = contract::compile(deep).unwrap_err();
+    assert!(
+        error.message.ends_with(
+            "an `else` sits at its `when`'s indentation, on the line after the `when`'s block"
+        ),
+        "{error}"
+    );
+    let body = "fn label(done: bool): string =\n  done ? \"Done\" : \"Open\"\ncomponent App\n  view\n    text label(true)\n";
+    let error = contract::compile(body).unwrap_err();
+    assert_eq!(error.id, "syntax-expected-expression");
+    assert!(
+        error
+            .message
+            .starts_with("a fn's expression starts on its `=` line"),
+        "{error}"
+    );
+    let derive = "component App\n  state done = false\n  derive label =\n    done ? \"Done\" : \"Open\"\n  view\n    text label\n";
+    let error = contract::compile(derive).unwrap_err();
+    assert!(
+        error
+            .message
+            .starts_with("a derive's expression starts on its `=` line"),
+        "{error}"
+    );
+    contract::compile("fn label(done: bool): string = (done\n  ? \"Done\"\n  : \"Open\")\ncomponent App\n  view\n    text label(true)\n").unwrap();
+}
+
+#[test]
+fn flex_none_beside_another_error_is_not_refused() {
+    let src = "component App\n  state done = false\n  state text = \"\"\n  action toggle(v: bool)\n    done = v\n  action commit\n    text = \"\"\n  view\n    column\n      input type=\"checkbox\" checked=done change=toggle aria-label=\"Done\" flex=\"none\"\n      textarea value=text change=commit aria-label=\"Text\"\n";
+    let Err(errors) =
+        contract::compile_path_source_all(std::path::Path::new("app.contract"), src, false)
+    else {
+        panic!("the arity error refuses this app")
+    };
+    assert!(
+        errors.iter().all(|e| !e.message.contains("`flex")),
+        "{errors:?}"
+    );
+    assert!(
+        errors.iter().any(|e| e.id == "analyze-handler-arity"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn a_shape_named_like_a_built_in_says_so() {
+    let error =
+        contract::compile("shape Geometry\n  x: number\ncomponent App\n  view\n    text \"a\"\n")
+            .unwrap_err();
+    assert_eq!(
+        error.message,
+        "`Geometry` is a shape the compiler declares; name the app's shape another way"
+    );
+    let error = contract::compile(
+        "shape A\n  x: number\nshape A\n  y: number\ncomponent App\n  view\n    text \"a\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(error.message, "shape `A` declared twice");
+}

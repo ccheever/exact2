@@ -363,6 +363,18 @@ Reply:
   else. Several frame tasks can commit at one virtual instant
   (`commit.rs:164`), so a "virtual frame count" would be ill-defined, and no
   frame was presented.
+- **A live window** (2026-10-04, the platformer's diary R11: a game's 60 fps
+  had no measure under the driver): `{"op":"perf","frames":true,"live":ms}`
+  lends the page's clock to the wall for `ms`. Each animation frame advances
+  the runner to the wall's time, a game world draws on its own frame loop with
+  its perf armed, and a sampler of the window's own measures what was
+  presented; the reply is the one above plus `live: {ms, from, to}` (the
+  clock it moved, which the driver's follows) and each world's `perf`. The
+  web's wasm target has it (`frames.js` `liveFrames`, `gpu-glue.js` `live`);
+  the JS target, Apple and Linux still answer `virtual`, and the driver says
+  so. The world ticks on the wall inside the window, so its hash afterwards is
+  not a seeked run's, and headless Chrome's frames are its own clock's, not a
+  display's (`game/bench/feel.mjs` measures a headed one).
 - A host that cannot observe presentation answers `{"unavailable": true}`.
 
 **A late frame is also one journal line**, appended by the host through
@@ -552,7 +564,13 @@ and the embedded map, and `agent.mjs trace` read it back with no app running.
 - Under `EXACT_AGENT_TIMING=platform` it read real frames, `seq` joined
   through the trailer.
 - The Save Trace menu items were built on both platforms but not clicked by
-  hand.
+  hand. (2026-10-05: on iOS it was, on a simulator. A phone's trace leaves
+  it two ways: the saved alert's **Share…** (AirDrop to the Mac, or Files),
+  and `bun scripts/agent.mjs trace --phone <name>` over the cable, which
+  copies `tmp/trace-latest.json`, the last trace under a fixed name, with
+  `devicectl` as a phone's screenshots are copied, into the app's
+  `target/traces/` and reads it (a simulator's from its container, which
+  `devicectl` cannot copy). Neither has been run on a phone.)
 - `BorderParityMacTests.testEveryCaseMatchesChromeOnScreen` fails the same
   way at the base commit; it is not this change's.
 
@@ -650,8 +668,13 @@ four times a second, a 7 ms main-thread stall under any gesture.
   `ExactSession.changesNothing` now names that predicate once: no ops, no
   error, no `controls`, no canvas images, and motion, spatial, frame tasks,
   the canvas and the owed draw unchanged.
-- The timer path (`scheduleClock` → `applyTick`) uses it too. An idle tick
-  only records its deadline and arms the next timer.
+- The timer path (`scheduleClock` → `applyUnlessEmpty`) uses it too. An idle
+  tick only records its deadline and arms the next timer. So does a scroll
+  event (2026-10-05): a `scroll=` handler whose writes show nowhere committed
+  an empty batch every frame of a fling, each a ~4.5 ms pass. Other events
+  still apply an empty batch, which reconciles a native control that changed
+  itself before its handler ran, and seeks native animations to the agent's
+  clock (`code-2026-10-05-ios-fling-pass.astra.md`).
 - `controls` (LLP 1069.011 §9) is a batch flag the Apple projection sets when
   it suppresses a control's viewless contents: a native button's face, a
   select's options. Such a change puts no op on any view, so without the flag
@@ -676,3 +699,24 @@ four times a second, a 7 ms main-thread stall under any gesture.
   same.
 - A deferred GPU module drains its queued surface work when it loads. A
   skipped tick still reports its transactions to the frame sampler.
+
+## Amendment: a turn past its frame's target is late (2026-10-05)
+
+Missed callbacks only catch the main thread when it delays the display link
+itself. A main-thread turn that began before a frame's target and ended after
+it still commits too late for that frame: the render server shows the last
+frame again, while the next callback can arrive on time. On iOS and macOS the sampler
+now watches the main run loop's turns while it runs (`afterWaiting` first,
+`beforeWaiting` last, in the common modes, so a scroll's tracking turns
+count). It records how far the worst such turn ran past the target as each
+record's `overrun` (ms). A turn that is still running when the next callback
+comes (several callbacks in one turn) has overrun the earlier target by the
+callback's time at least, and the turn that installs the observers is timed
+from then. A record with an overrun is late even when `missed` is 0, and its
+journal line says "main X ms past the target" before its `seq` and `apply`.
+A segment that stops drops an overrun it has not sampled, and the agent's
+clock taking over stops the segment. `lifetime.overruns` counts them, `covers[]` adds `turns`, and Save
+Trace keeps `overrun` beside the other proxies. `agent.mjs perf frames` and
+`trace` print both. Turns are a proxy: the deadline that counts is the render
+server's, a little after the target, so an overrun of under a millisecond may
+still have made the frame. Test: `FrameSamplerTests`.

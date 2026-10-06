@@ -62,6 +62,8 @@ impl<D: DataSource> Host<D> {
                     .map_err(|e| format!("layout: {e:?}"))?;
                 // @ref LLP 1043.000 §3 D4 — geometry can move without a frame change.
                 self.runner.report_flow_skipped(&receipt.flow_skipped);
+                self.runner
+                    .report_fragment_skipped(&receipt.fragment_skipped);
                 self.runner.moved(&receipt.changed);
                 self.record_layout(&receipt);
             }
@@ -101,6 +103,33 @@ impl<D: DataSource> Host<D> {
         self.stickies = now;
     }
 
+    /// @ref LLP 1093 D7 — each box's fragments and each container's columns,
+    /// when they changed: the presenter's copy of the kernel's record.
+    fn emit_fragments(&mut self, batch: &mut Batch) {
+        let kernel = self.runner.kernel();
+        let keys = kernel.fragmented();
+        if keys.is_empty() && self.fragments.is_empty() {
+            return;
+        }
+        let mut now = IdMap::default();
+        for key in keys {
+            let Some(node) = kernel.node_by_key(key) else {
+                continue;
+            };
+            let record = crate::batch::fragments_json(kernel.fragments(key), kernel.columns(key));
+            if self.fragments.get(&node.id) != Some(&record) {
+                batch.fragments(node.id, &record);
+            }
+            now.insert(node.id, record);
+        }
+        for id in self.fragments.keys() {
+            if !now.contains_key(id) && kernel.node(*id).is_some() {
+                batch.fragments(*id, "");
+            }
+        }
+        self.fragments = now;
+    }
+
     /// LLP 1083.000 D4: publish ranks independently of geometry, including zero.
     pub(super) fn emit_ranks(&mut self, batch: &mut Batch) {
         for (id, placed) in self.runner.kernel().paint_order() {
@@ -113,6 +142,7 @@ impl<D: DataSource> Host<D> {
     /// The parent-relative frames and scroll content sizes that changed since
     /// the presenter last heard them.
     fn emit_layout(&mut self, batch: &mut Batch) -> Result<(), String> {
+        self.judge_list_moves();
         // Preserve publication order without a tree insertion for each touch.
         let mut pending: Vec<_> = std::mem::take(&mut self.pending_layout)
             .into_iter()
@@ -181,6 +211,7 @@ impl<D: DataSource> Host<D> {
         }
         self.snap_layout(batch);
         self.emit_sticky(batch);
+        self.emit_fragments(batch);
         self.emit_ranks(batch);
         // Layout/receipt work may change the live window. Motion-only ticks and
         // stale feedback never traverse the tree to collect this metadata.

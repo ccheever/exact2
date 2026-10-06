@@ -602,6 +602,7 @@ impl<'a> Replay<'a> {
                                 || !(actions.motion)(n.key, &picture.action_identity)
                                 || !p.translate.0.is_finite()
                                 || !p.translate.1.is_finite()
+                                || p.translate_percent != (0., 0.)
                                 || p.scale != 1.
                                 || p.rotate != 0.
                                 || p.layout != Presented::IDENTITY.layout
@@ -616,8 +617,9 @@ impl<'a> Replay<'a> {
                             let (x, y, w, h) = paint_rect(f.frame, offset);
                             let (ox, oy) = node.style.transform_origin.resolve(w, h);
                             let (cx, cy) = (x + ox, y + oy);
+                            let (tx, ty) = p.translate_at(w, h);
                             transform = parent.pre_concat(
-                                Transform::from_translate(cx + p.translate.0, cy + p.translate.1)
+                                Transform::from_translate(cx + tx, cy + ty)
                                     .pre_rotate(p.rotate)
                                     .pre_scale(p.scale, p.scale)
                                     .pre_translate(-cx, -cy),

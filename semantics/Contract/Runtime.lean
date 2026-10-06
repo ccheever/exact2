@@ -303,7 +303,7 @@ structure VNode where
   /-- The names bound where the element stands. -/
   locals : Locals
   /-- The form control it is, when not a text field (`select`, or an
-  `input` whose literal `type` is `checkbox`, `range`, `date`, …): its
+  `input` whose literal `type` is `checkbox`, `radio`, `range`, `date`, …): its
   payloads follow HTML's rules, which the semantics leaves out. -/
   control : Option String := .none
   /-- A `list` whose `virtualized` is literally `true`: the runner shows
@@ -354,7 +354,7 @@ def elementControl (tag : String) (props : List (String × Expr)) : Option Strin
   else if tag == "input" then
     match lookupField "type" props with
     | .some (.str t) =>
-      if ["checkbox", "file", "range", "date", "time", "datetime-local"].contains t.toLower
+      if ["checkbox", "radio", "file", "range", "date", "time", "datetime-local"].contains t.toLower
       then Option.some t else Option.none
     | _ => Option.none
   else Option.none
@@ -459,6 +459,13 @@ structure Timer where
   frame : Bool := false
   base : F64 := 0
   k : Nat := 1
+  /-- A gated task's gate and key (LLP 1092 D7); `none` for `mount`. -/
+  gate : Option Expr := .none
+  key : Option Expr := .none
+  /-- Whether its gate holds; an idle timer's `next` is infinite (D8). -/
+  armed : Bool := true
+  /-- The key it was armed with, as `rowKey` reads it. -/
+  armedKey : Option Value := .none
   deriving Inhabited
 
 /-- The timer after it fires: spent, at its next virtual frame, or one
@@ -467,6 +474,10 @@ def Timer.fired (tm : Timer) : Timer :=
   if tm.once then { tm with next := F64.posInf }
   else if tm.frame then { tm with k := tm.k + 1, next := virtualFrame tm.base (tm.k + 1) }
   else { tm with next := tm.next + tm.interval }
+
+/-- What a refused queued send saw: the slots, and the derives and
+resources settled against them (LLP 1092 D3). -/
+abbrev Basis := List (String × Value) × Settled
 
 structure Config where
   slots : List (String × Value)
@@ -481,6 +492,15 @@ structure Config where
   /-- The `then`s armed: each mutation answered in a commit that stood,
   whose `then` runs at the next clock advance, due at the commit's time. -/
   armed : List (String × F64) := []
+  /-- The sends that wait their turn, oldest first: each a `queue`
+  mutation, its source and its send-time arguments (LLP 1092 D2). -/
+  queued : List (String × String × List Value) := []
+  /-- The `queue` mutations whose head an advance does not ask until a
+  commit changes what its refusal saw (LLP 1092 D3). -/
+  stalled : List (String × Basis) := []
+  /-- Each `queue` mutation's armed `next`, due at the time of the commit
+  after which it was free (the runner's `next_due`, LLP 1092 D3). -/
+  nexts : List (String × F64) := []
   deriving Inhabited
 
 /-- A step's outcome, as a host sees it. -/
@@ -536,6 +556,188 @@ def armThens (p : Program) (armed : List (String × F64))
       armed.filter (·.1 != m) ++ [(m, now)]
     else armed) armed
 
+/-! ## Gated tasks and queued sends (LLP 1092) -/
+
+/-- Two keys the same, as the runner's `key_text` compares them. -/
+def keySame : Option Value → Option Value → Bool
+  | .none, .none => true
+  | .some a, .some b => Value.same a b
+  | _, _ => false
+
+/-- Whether a gate holds: no gate (`key=` alone) always does; a value
+that is not `true` is false. -/
+def gateOn (env : Env) : Option Expr → Result Bool
+  | .none => .ok true
+  | .some g => eval fuel env false [] g >>= fun v =>
+    .ok (match v with
+      | .bool true => true
+      | _ => false)
+
+/-- A timer's key as `rowKey` reads it: none when unkeyed; a key that is
+no key refuses (the runner's `TaskKey`). -/
+def gateKey (env : Env) : Option Expr → Result (Option Value)
+  | .none => .ok .none
+  | .some k => eval fuel env false [] k >>= fun v => rowKey v >>= fun kv => .ok (.some kv)
+
+/-- One timer after a commit (D8): a false gate drops it (an infinite
+deadline); a gate turned true, or a changed key, arms it from the commit's
+time — a frame task's virtual frames start again there (the runner's
+`gate_step`); anything else leaves it as it was. -/
+def gateTimer (env : Env) (tm : Timer) : Result Timer :=
+  match tm.gate, tm.key with
+  | .none, .none => .ok tm
+  | g, k =>
+    gateOn env g >>= fun on =>
+    if !on then .ok { tm with armed := false, armedKey := .none, next := F64.posInf } else
+    gateKey env k >>= fun key =>
+    .ok (if tm.armed && keySame key tm.armedKey then tm
+      else if tm.frame then
+        { tm with armed := true, armedKey := key, base := env.now, k := 1,
+                  next := virtualFrame env.now 1 }
+      else { tm with armed := true, armedKey := key, next := env.now + tm.interval })
+
+theorem gateTimer_fields {env : Env} {tm tm' : Timer} (h : gateTimer env tm = .ok tm') :
+    tm'.action = tm.action ∧ tm'.gate = tm.gate ∧ tm'.key = tm.key := by
+  unfold gateTimer at h
+  split at h
+  · cases h; exact ⟨rfl, rfl, rfl⟩
+  · simp only [bind, Except.bind] at h
+    split at h
+    · cases h
+    · split at h
+      · cases h; exact ⟨rfl, rfl, rfl⟩
+      · split at h
+        · cases h
+        · cases h
+          split
+          · exact ⟨rfl, rfl, rfl⟩
+          · split <;> exact ⟨rfl, rfl, rfl⟩
+
+theorem gateTimer_action {env : Env} {tm tm' : Timer} (h : gateTimer env tm = .ok tm') :
+    tm'.action = tm.action :=
+  (gateTimer_fields h).1
+
+/-- D8's step over a commit's settled state, at its time. -/
+def gateStep (p : Program) (slots : List (String × Value)) (st : Settled) (now : F64)
+    (timers : List Timer) : Result (List Timer) :=
+  timers.mapM (gateTimer { prog := p, slots, derives := st.derives, resources := st.resources, now })
+
+theorem mapM_gateTimer_actions {env : Env} :
+    ∀ {ts ts' : List Timer}, ts.mapM (gateTimer env) = .ok ts' → ts'.map (·.action) = ts.map (·.action)
+  | [], ts', h => by cases h; rfl
+  | t :: ts, ts', h => by
+    simp only [List.mapM_cons, bind, Except.bind] at h
+    cases ht : gateTimer env t with
+    | error e => rw [ht] at h; cases h
+    | ok t' =>
+      rw [ht] at h
+      cases hs : ts.mapM (gateTimer env) with
+      | error e => rw [hs] at h; cases h
+      | ok ts₂ =>
+        rw [hs] at h; cases h
+        simp only [List.map_cons, gateTimer_action ht, mapM_gateTimer_actions hs]
+
+theorem mapM_gateTimer_mem {env : Env} :
+    ∀ {ts ts' : List Timer}, ts.mapM (gateTimer env) = .ok ts' → ∀ tm' ∈ ts', ∃ tm ∈ ts,
+      tm'.action = tm.action ∧ tm'.gate = tm.gate ∧ tm'.key = tm.key
+  | [], ts', h, _, hm => by cases h; cases hm
+  | t :: ts, ts', h, tm', hm => by
+    simp only [List.mapM_cons, bind, Except.bind] at h
+    cases ht : gateTimer env t with
+    | error e => rw [ht] at h; cases h
+    | ok t' =>
+      rw [ht] at h
+      cases hs : ts.mapM (gateTimer env) with
+      | error e => rw [hs] at h; cases h
+      | ok ts₂ =>
+        rw [hs] at h; cases h
+        rcases List.mem_cons.mp hm with rfl | hm
+        · exact ⟨t, List.mem_cons_self .., gateTimer_fields ht⟩
+        · obtain ⟨tm, h₁, h₂⟩ := mapM_gateTimer_mem hs tm' hm
+          exact ⟨tm, List.mem_cons_of_mem _ h₁, h₂⟩
+
+/-- The gate step keeps every timer, its gate and its key; it moves only
+whether it is armed and its deadline. -/
+theorem gateStep_mem {p slots st now ts ts'} (h : gateStep p slots st now ts = .ok ts') :
+    ∀ tm' ∈ ts', ∃ tm ∈ ts, tm'.action = tm.action ∧ tm'.gate = tm.gate ∧ tm'.key = tm.key :=
+  mapM_gateTimer_mem h
+
+/-- The gate step keeps every timer's action. -/
+theorem gateStep_actions {p slots st now ts ts'} (h : gateStep p slots st now ts = .ok ts') :
+    ts'.map (·.action) = ts.map (·.action) :=
+  mapM_gateTimer_actions h
+
+/-- A timer after a step whose timers keep their actions runs one of theirs. -/
+theorem action_mem_of_map {ts ts' : List Timer} (h : ts'.map (·.action) = ts.map (·.action))
+    {tm} (hm : tm ∈ ts') : ∃ tm₀ ∈ ts, tm₀.action = tm.action := by
+  have : tm.action ∈ ts.map (·.action) := h ▸ List.mem_map_of_mem hm
+  simpa using this
+
+def sameBinds (a b : List (String × Value)) : Bool :=
+  a.length == b.length && (a.zip b).all fun ((x, v), (y, w)) => x == y && Value.same v w
+
+/-- Whether a slot, a derive or a resource differs from what `b` saw. -/
+def Config.moved (c : Config) (b : Basis) : Bool :=
+  !(sameBinds b.1 c.slots && sameBinds b.2.derives c.settled.derives &&
+    sameBinds b.2.resources c.settled.resources)
+
+/-- After a commit that stood: the stalls its change lets go (D3). -/
+def Config.unstall (c : Config) : Config :=
+  { c with stalled := c.stalled.filter fun (_, b) => !c.moved b }
+
+/-- Whether `m` is a `queue` mutation of `p`. -/
+def isQueue (p : Program) (m : String) : Bool :=
+  p.mutations.any fun md => md.name == m && md.queue
+
+/-- Which of an action's sends are asked in its commit and which wait
+(LLP 1092 D2): a send of a `queue` mutation is asked only when nothing of
+it waits, it is not stalled, and no send of it came earlier in the commit;
+otherwise it joins its queue with its arguments. Free is the runner's
+`idle`: neither its `then` nor its `next` armed, and not stalled. -/
+def splitSends (p : Program) (c : Config) (sends : List (String × String × List Value)) :
+    List (String × String × List Value) × List (String × String × List Value) :=
+  sends.foldl (fun (acc : List (String × String × List Value) × List (String × String × List Value)) s =>
+    if isQueue p s.1 && (acc.1.any (·.1 == s.1) || acc.2.any (·.1 == s.1) ||
+        c.queued.any (·.1 == s.1) || c.stalled.any (·.1 == s.1) ||
+        c.armed.any (·.1 == s.1) || c.nexts.any (·.1 == s.1))
+    then (acc.1, acc.2 ++ [s]) else (acc.1 ++ [s], acc.2)) ([], [])
+
+theorem splitSends_go_sub {p : Program} {c : Config} :
+    ∀ (l : List (String × String × List Value)) acc s, s ∈ (l.foldl (fun (acc : List (String × String × List Value) × List (String × String × List Value)) s =>
+      if isQueue p s.1 && (acc.1.any (·.1 == s.1) || acc.2.any (·.1 == s.1) ||
+          c.queued.any (·.1 == s.1) || c.stalled.any (·.1 == s.1) ||
+          c.armed.any (·.1 == s.1) || c.nexts.any (·.1 == s.1))
+      then (acc.1, acc.2 ++ [s]) else (acc.1 ++ [s], acc.2)) acc).1 → s ∈ acc.1 ∨ s ∈ l
+  | [], _, _, h => .inl h
+  | x :: l, acc, s, h => by
+    rw [List.foldl_cons] at h
+    rcases splitSends_go_sub l _ s h with h | h
+    · split at h
+      · exact .inl h
+      · rcases List.mem_append.mp h with h | h
+        · exact .inl h
+        · simp only [List.mem_singleton] at h; exact .inr (h ▸ List.mem_cons_self ..)
+    · exact .inr (List.mem_cons_of_mem _ h)
+
+/-- A send asked now is one of the action's. -/
+theorem splitSends_sub {p : Program} {c : Config} {l : List (String × String × List Value)} {s}
+    (h : s ∈ (splitSends p c l).1) : s ∈ l :=
+  (splitSends_go_sub l _ s h).resolve_left (by simp)
+
+@[simp] theorem splitSends_nil {p : Program} {c : Config} : splitSends p c [] = ([], []) := rfl
+
+/-- The scan after every commit concludes (the runner's `arm_next`): each
+`queue` mutation, in declaration order, with a send waiting, no stall, no
+`then` armed and no `next` armed yet, has its `next` due now. -/
+def Config.armNexts (p : Program) (c : Config) : Config :=
+  { c with nexts := p.mutations.foldl (fun ns md =>
+      if md.queue && c.queued.any (·.1 == md.name) && !c.stalled.any (·.1 == md.name) &&
+          !c.armed.any (·.1 == md.name) && !ns.any (·.1 == md.name)
+      then ns ++ [(md.name, c.now)] else ns) c.nexts }
+
+/-- At most this many sends wait per mutation (the runner's `QUEUE_BOUND`). -/
+def queueBound : Nat := 64
+
 /-- Run an action as one commit. `rows` are the rows in force where the
 event arrived (none for a timer). -/
 def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : List Value)
@@ -554,8 +756,13 @@ def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : Li
     match exec fuel env ls a.body {} with
     | .error e => refuse e
     | .ok fx =>
+      -- A queue's send waits its turn unless it may be asked now (LLP 1092 D2).
+      let split := splitSends p c fx.sends
+      let queued := c.queued ++ split.2
+      if split.2.any (fun s => (queued.filter (·.1 == s.1)).length > queueBound) then
+        refuse (.refused "a queue is full") else
       -- Sends ask their source now; an answer lands in the mutation's slot.
-      let answered : Result (List (String × Value)) := fx.sends.mapM fun (m, src, vs) => do
+      let answered : Result (List (String × Value)) := split.1.mapM fun (m, src, vs) => do
         let v ← o.ask src vs
         let ty := ((p.mutations.find? (·.name == m)).map (·.ty)).getD .unknown
         if !conforms p v ty then throw (.refused s!"mutation `{m}` answered with the wrong shape")
@@ -572,13 +779,69 @@ def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : Li
         let store := applyRowWrites p c.store rows fx.rowWrites
         match update p o slots store c.now c.settled fx.refreshes with
         | .error e => refuse e
-        | .ok (st, .ok (view, live)) =>
-          ({ c with slots, settled := st, store := live, view,
-                    commands := c.commands ++ fx.commands,
-                    armed := armThens p c.armed fx.sends c.now }, .ok)
-        | .ok (st, .error e) =>
-          ({ c with slots, settled := st, store, poisoned := true,
-                    commands := c.commands ++ fx.commands }, .poisoned e)
+        | .ok (st, r) =>
+          -- D8's gate step, after settlement and inside the commit: a
+          -- refusal there refuses it, before the view is touched.
+          match gateStep p slots st c.now c.timers with
+          | .error e => refuse e
+          | .ok timers =>
+            match r with
+            | .ok (view, live) =>
+              (({ c with slots, settled := st, store := live, view, timers,
+                         commands := c.commands ++ fx.commands, queued,
+                         armed := armThens p c.armed split.1 c.now }.unstall).armNexts p, .ok)
+            | .error e =>
+              ({ c with slots, settled := st, store, poisoned := true,
+                        commands := c.commands ++ fx.commands, queued := [], stalled := [],
+                        nexts := [] }, .poisoned e)
+
+/-- The armed `next` due earliest by `t` (ties by declaration order): the
+mutation and its due time (the runner's `due_next`). -/
+def dueNext (p : Program) (nexts : List (String × F64)) (t : F64) : Option (String × F64) :=
+  p.mutations.foldl (fun best m =>
+    if m.queue then
+      match nexts.find? (·.1 == m.name) with
+      | .some (_, w) =>
+        if w ≤ t then
+          match best with
+          | .none => Option.some (m.name, w)
+          | .some (_, b) => if w < b then Option.some (m.name, w) else best
+        else best
+      | .none => best
+    else best) Option.none
+
+/-- A `next` commit (D3): `m`'s oldest waiting send, asked as an action's
+send is. Its own ask's refusal drops it (it could never be asked); any
+other refusal keeps it and stalls `m` until a commit changes the state.
+A landed answer arms `m`'s `then`; every outcome ends with the scan. -/
+def nextCommit (p : Program) (o : Oracle) (c : Config) (m : String) : Config × Outcome :=
+  if c.poisoned then (c, .refused (.refused "poisoned")) else
+  match c.queued.find? (·.1 == m) with
+  | .none => (c, .ok)
+  | .some (_, src, vs) =>
+    let c₀ := { c with queued := c.queued.eraseP (·.1 == m) }
+    let ty := ((p.mutations.find? (·.name == m)).map (·.ty)).getD .unknown
+    match o.ask src vs with
+    | .error e => (c₀.armNexts p, .refused e)
+    | .ok v =>
+      if !conforms p v ty then
+        (c₀.armNexts p, .refused (.refused s!"mutation `{m}` answered with the wrong shape")) else
+      let stall (e : Err) : Config × Outcome :=
+        ({ c with stalled := c.stalled ++ [(m, (c.slots, c.settled))] }.armNexts p, .refused e)
+      let slots := setSlot c.slots m (.some v)
+      if !routerValid p slots then stall (.refused "an invalid router value") else
+      match update p o slots c.store c.now c.settled [] with
+      | .error e => stall e
+      | .ok (st, r) =>
+        match gateStep p slots st c.now c.timers with
+        | .error e => stall e
+        | .ok timers =>
+          match r with
+          | .ok (view, live) =>
+            (({ c₀ with slots, settled := st, store := live, view, timers,
+                         armed := armThens p c.armed [(m, src, vs)] c.now }.unstall).armNexts p, .ok)
+          | .error e => ({ c₀ with slots, settled := st, poisoned := true, queued := [], stalled := [],
+                                    nexts := [] }, .poisoned e)
 
 /-- The root slots at boot, in declaration order (an initializer reads the
 slots before it), then the mutations' (`none`). A late slot holds `()`
@@ -604,11 +867,15 @@ def startTimers (p : Program) (slots : List (String × Value)) : Result (List Ti
   p.tasks.mapM fun t => do
     -- A frame task's first virtual frame follows boot (at 0); its `ms`
     -- is a placeholder, never read.
+    -- A gated task starts idle; boot's gate step arms it (LLP 1092 D8).
+    let gated := t.gate.isSome || t.key.isSome
     if t.kind == .frame then
-      return { action := t.action, interval := 0, once := false, next := virtualFrame 0 1,
-               frame := true, base := 0, k := 1 }
+      return { action := t.action, interval := 0, once := false,
+               next := if gated then F64.posInf else virtualFrame 0 1, frame := true, base := 0, k := 1,
+               gate := t.gate, key := t.key, armed := !gated }
     let ms ← (← eval fuel { prog := p, slots } false [] t.ms).asNum
-    pure { action := t.action, interval := ms, once := t.kind == .after, next := ms }
+    pure { action := t.action, interval := ms, once := t.kind == .after,
+           next := if gated then F64.posInf else ms, gate := t.gate, key := t.key, armed := !gated }
 
 /-- The late slots, in declaration order, against the settled values. -/
 def lateSlots (p : Program) (st : Settled) (slots : List (String × Value)) :
@@ -639,6 +906,9 @@ def boot (p : Program) (o : Oracle) : Config × Outcome :=
       match lateSlots p st slots with
       | .error e => (empty, .refused e)
       | .ok slots =>
+      match gateStep p slots st 0 timers with
+      | .error e => (empty, .refused e)
+      | .ok timers =>
       let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 }
       match render fuel { env, store := [] } [] p.view [] with
       | .ok (view, live) =>
@@ -699,11 +969,36 @@ def dueThen (p : Program) (armed : List (String × F64)) (t : F64) :
       else best
     | _, _ => best) Option.none
 
+/-- What the clock runs besides a timer: a `queue` mutation's `next`, or a
+mutation's `then`. -/
+inductive Clock where
+  | next (m : String) (w : F64)
+  | andThen (m : String) (w : F64) (a : String)
+
+/-- The armed `then` the clock runs by `t`, when it is due no later than
+a timer due at `timer`. -/
+def thenPick (p : Program) (c : Config) (t : F64) (timer : Option F64) : Option Clock :=
+  match dueThen p c.armed t with
+  | .some (m, w, a) => if timer.all (w ≤ ·) then Option.some (.andThen m w a) else Option.none
+  | .none => Option.none
+
+/-- What the clock runs next by `t`, before a timer due at `timer` (the
+runner's `advance`): a `next` due before any armed `then` and no later than
+the timer; else a `then` due no later than the timer; else nothing. -/
+def clockPick (p : Program) (c : Config) (t : F64) (timer : Option F64) : Option Clock :=
+  match dueNext p c.nexts t with
+  | .some (m, w) =>
+    if timer.all (w ≤ ·) && (dueThen p c.armed t).all (fun d => w < d.2.1)
+    then Option.some (.next m w) else thenPick p c t timer
+  | .none => thenPick p c t timer
+
 /-- Move the clock to `t`, firing every timer due by then in order of due
 time (ties by declaration order), each at its own due time. An armed
 `then` runs, as its own commit, before any timer due at or after its
-time (the answer landed first). A refusal stops the advance there, with
-the clock at the refusing timer's due time. -/
+time (the answer landed first). A `queue` mutation's armed `next` runs
+before a `then` due at or after its time and before a timer due after it
+(LLP 1092 D3; the runner's `advance`). A refusal stops the advance there,
+with the clock at the refusing timer's due time. -/
 def advance (p : Program) (o : Oracle) (c : Config) (t : F64) : Config × Outcome :=
   let due (c : Config) : Option (Timer × Nat) :=
     (c.timers.zipIdx).foldl (fun best (tm, i) =>
@@ -712,13 +1007,11 @@ def advance (p : Program) (o : Oracle) (c : Config) (t : F64) : Config × Outcom
         | .none => Option.some (tm, i)
         | .some (b, j) => if tm.next < b.next then Option.some (tm, i) else Option.some (b, j)
       else best) Option.none
-  let pick (c : Config) : Option (String × F64 × String) :=
-    match dueThen p c.armed t, due c with
-    | .some (m, w, a), .some (tm, _) => if w ≤ tm.next then Option.some (m, w, a) else Option.none
-    | th, _ => th
+  let pick (c : Config) : Option Clock := clockPick p c t ((due c).map (·.1.next))
   let finish (c : Config) : Config × Outcome := ({ c with now := if t > c.now then t else c.now }, .ok)
   -- At most `timerFireLimit` fires per advance (the runner's
-  -- `TIMER_FIRE_LIMIT`), `then`s counted; one more due is a refusal.
+  -- `TIMER_FIRE_LIMIT`), `then`s and queued sends counted; one more due is
+  -- a refusal.
   let rec go : Nat → Config → Config × Outcome
     | 0, c =>
       match pick c, due c with
@@ -727,11 +1020,16 @@ def advance (p : Program) (o : Oracle) (c : Config) (t : F64) : Config × Outcom
     | n + 1, c =>
       if c.poisoned then (c, .refused (.refused "poisoned")) else
       match pick c with
-      | .some (m, w, a) =>
+      | .some (.next m w) =>
+        let c := { c with nexts := c.nexts.filter (·.1 != m), now := if c.now < w then w else c.now }
+        match nextCommit p o c m with
+        | (c, .ok) => go n c
+        | (c, out) => (c, out)
+      | .some (.andThen m w a) =>
         let c := { c with armed := c.armed.filter (·.1 != m), now := if c.now < w then w else c.now }
         match runAction p o c a [] [] with
         | (c, .ok) => go n c
-        | (c, out) => (c, out)
+        | (c, out) => (c.armNexts p, out)
       | .none =>
       match due c with
       | .none => finish c

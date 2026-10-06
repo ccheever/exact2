@@ -330,12 +330,22 @@ function flush(module = gpu) {
   if (module && (module !== gpu || !terminalDevice) && !module.gpu_flush()) console.error("exact gpu:", module.gpu_error());
 }
 
+// An HDR surface's headroom (LLP 1100 D12b). The web has no headroom query:
+// 4 is near BT.2408's 203 cd/m² white under a 1000 cd/m² peak, and the
+// browser clips at the panel's own.
+function headroom(el) {
+  const limit = getComputedStyle(el).getPropertyValue("dynamic-range-limit").trim();
+  if (limit === "standard" || !matchMedia("(dynamic-range: high)").matches) return 1;
+  return limit === "constrained" ? 2 : 4;
+}
+
 function render(entry, now) {
   if (entry.terminal || (hidden && !exact.now) || recoveringDevice || recoveryTimer) return;
   const { w, h, s } = size(entry.el);
   const pw = Math.max(1, Math.round(w * s)), ph = Math.max(1, Math.round(h * s));
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
   supplyChildren(entry);
+  if (entry.hdr) gpu.gpu_headroom(entry.id, headroom(entry.host ?? entry.el));
   const r = gpu.gpu_render(entry.id, w, h, s, clockFor(now));
   if (r < 2) {
     exact.drawCallback?.(frameRaw, clockFor(now), frameGeneration, entry.view);
@@ -363,6 +373,7 @@ function render(entry, now) {
 // lattice (pace.js): a world drawn at the raw timestamp judders by the
 // timestamp's own jitter. The agent's clock (exact.now) bypasses this in clockFor.
 const pace = pacer();
+let liveWindow = false; // `perf frames live` (frames.js liveFrames): the world draws on its own frames at the lent clock
 let frameAt = null; // the last paced frame time: a render outside the frame loop redraws at it, never ahead of it
 let sentPeriod = 0, frameGeneration = 0, frameRaw = 0;
 function frame(now) {
@@ -382,8 +393,9 @@ function frame(now) {
   flush();
   if (more) globalThis.exact.frames?.activity(); // a development page's sampler watches a canvas in motion (LLP 1079 D3)
   // Under the agent's clock a frame is asked for by `clock`, never by the
-  // last frame: a surface that wants more renders again when time moves.
-  if (more && !exact.now) schedule();
+  // last frame: a surface that wants more renders again when time moves —
+  // except in a live window (`perf frames live`), which runs this loop.
+  if (more && (!exact.now || liveWindow)) schedule();
 }
 
 function schedule() { if ((!hidden || exact.now) && raf === null) raf = requestAnimationFrame(frame); }
@@ -410,6 +422,7 @@ function attach(entry) {
   entry.observer = new ResizeObserver(() => { if (entry.id && !entry.terminal) { render(entry, frameAt ?? performance.now()); flush(); } });
   entry.observer.observe(entry.el);
   entry.wantsInput = gpu.gpu_wants_input(entry.id);
+  entry.hdr = gpu.gpu_high_dynamic_range?.(entry.id) === true;
   if (entry.wantsInput) listen(entry);
   reportRestore(entry);
   messages(entry); schedule();
@@ -921,6 +934,18 @@ const api = {
     }
   },
   layout() { for (const entry of surfaces.values()) if (entry.id && !entry.terminal) { supplyChildren(entry); placeChildren(entry); } schedule(); },
+  /// A live window opens (`perf frames live`, frames.js): each world leaves the seek for its own frame loop
+  /// at the page's lent clock, its perf rings emptied and armed; closed, the seek returns and each world's perf is the reply.
+  live(on) {
+    liveWindow = on; gpu?.gpu_seekable(!on);
+    const worlds = [];
+    for (const entry of surfaces.values()) if (entry.id && !entry.terminal) {
+      const perf = agent(entry.view, { op: "state", ...(on ? { perf_reset: true } : { perf: true }) })?.world?.perf;
+      if (!on && perf) worlds.push({ canvas: entry.view, perf });
+    }
+    schedule();
+    return worlds;
+  },
   /// Time moved (the agent's `clock`): render what wants a frame, once.
   schedule() { for (const entry of surfaces.values()) if (entry.id && !entry.terminal && entry.wants) { entry.wants = false; gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.()); } schedule(); },
 };

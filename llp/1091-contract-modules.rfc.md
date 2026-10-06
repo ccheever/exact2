@@ -437,6 +437,20 @@ stage 1 lands, and stage 2 waits on them.
 - r2 (2026-10-04): the round-1 reviews (`llp/reviews/rfc-2026-10-04-1091.{astra,grok}.md`,
   both SOUND WITH CHANGES), disposed below; stage 1 built against this text.
 - r3 (2026-10-04): stage 2 as built (§5) and the code review (§10).
+- r4 (2026-10-05): the code review's second round (§11).
+- r5 (2026-10-05): the code review's third round (§12).
+- r6 (2026-10-05): the code review's fourth round (§13).
+- r7 (2026-10-05): the code review's fifth round (§14).
+- r8 (2026-10-05): round 6; the bake compiles in place (§15).
+- r9 (2026-10-05): round 7 (§16).
+- r10 (2026-10-05): round 8 (§17).
+- r11 (2026-10-05): round 9 (§18).
+- r12 (2026-10-05): round 10 (§19).
+- r13 (2026-10-05): round 11 (§20).
+- r14 (2026-10-05): round 12 (§22).
+- r15 (2026-10-05): round 13 (§23).
+- r16 (2026-10-05): round 14 (§24).
+- r17 (2026-10-05): round 15, the last authorized (§25).
 
 ## 9. Review dispositions (round 1)
 
@@ -594,4 +608,266 @@ source-graph comparison, not general Lean semantic equivalence.
 The advisory `cargo run -p contract-difftest -- quick` exits successfully with
 "nothing changed" for this deploy-only commit; it therefore adds no claim of
 executed Lean corpus coverage.
+
+## 11. Code review round 2 dispositions
+
+A delta review of the fixes (`llp/reviews/code-2026-10-05-1091-r2.{astra,grok}.md`), both UNSOUND,
+both read at `a51d6ecab`. Every finding is taken, with cases in `scope_review.rs`; every plan in the
+repository stays byte-identical. Separately, `bun scripts/smoke.mjs deploy` passed on caltrain
+(the whole delivery path through the snapshot, the materialized install and its closure check).
+
+| Finding | Fix |
+|---|---|
+| Grok 1 / Astra 1: a local binding hid an imported `fn` of its name, and an unimported library `fn` reached a binding's calls | A call resolves as the type checker reads it: this file's `fn` or shape, then a binding, then the roster. Another file's `fn` or shape named like one of a file's bindings is renamed, so the type checker cannot reach it past the binding; a handler `press=pick(1)` with a bound `pick` keeps it |
+| Grok 2 / Astra 4: a computed token claimed the name, hiding a literal one; parentheses reset between template parts | A computed token never claims the name; parentheses and quotes carry across parts |
+| Grok 3: keywords matched case-insensitively | Case-sensitive, as the motion grammar reads them |
+| Astra 3: a keyword whose slot is full (`linear 1s linear`) is the name; a quoted name | The shorthand's keyword slots are tracked per animation; a quoted word is a name |
+| Astra 5: a backtick `clock(Name)` template was not rewritten | A template with no interpolation is a literal |
+| Astra 7: `pending`, `failed`, `t`, `path` were refused as another file's names | Compiler intrinsics are never refused; another file's `fn path` is renamed when a file calls the router's `path` without it |
+| Astra 6: the bake dropped an `exports` entry that is a link inside the package | The bake stages every `.contract` file of the package (and its manifest) by the path the package offers it at |
+| Astra 2: one library under two names became two copies in the stage | The bake refuses it by name: one directory is one package |
+| Grok 4: alike fonts had to list faces in one order | Faces compare as a set |
+
+## 12. Code review round 3 dispositions
+
+The delta review of round 2's fixes (`llp/reviews/code-2026-10-05-1091-r3.{astra,grok}.md`), both
+UNSOUND, both confirming every round-2 input fixed. Every finding is taken, with cases in
+`scope_review.rs`; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1 / Grok 1: round 2's handler exception kept any whole-attribute call of a bound name, so a binding beat an imported `fn` | The exception is gone: an attribute's call resolves as any call does, as the type checker reads it (a handler's bound head is only kept when no `fn` or shape of the name is in scope, which is when the checker binds it too) |
+| Astra 2 / Grok 2: a bare number fills the count and `none` the fill mode | The shorthand reader now mirrors `motion`'s `Animations::grammar` step for step: its split, its time, easing, count, direction, fill and play slots, its `is_name` |
+| Grok 3: another file's binding renamed a `fn t` or `fn pending`, so its own calls left the intrinsic | Calls of `pending` and `failed`, and of `t` where no binding is, are never renamed: the type checker reads them first |
+| Astra 4: a root shape named like a roster function captured a library's roster call | A declaration named like a compiler call is renamed in any file, the root included, when another file calls the name without declaring or naming it |
+| Astra 3 / Astra 5 / Grok 4: copying package files into the stage split identities (an export that links inside the package), broke relative uses from a linked entry, dropped hidden directories, and staged a linked directory under one name | The bake no longer copies packages: it links `node_modules/<name>` in the stage to each package's directory, so the staged compile reads the same files by the same paths as the original; two names for one directory are two links to one package |
+| Astra 6: creating a missing export target did not rebuild the wasm loop | A target that fails to resolve is in `consulted`, so its creation is a change |
+
+## 13. Code review round 4 dispositions
+
+The delta review of round 3's fixes (`llp/reviews/code-2026-10-05-1091-r4.{astra,grok}.md`), both
+UNSOUND, both confirming every round-3 input fixed. Every finding is taken, with cases in
+`scope_review.rs` where the compiler is concerned; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 2: a computed easing function (`steps(${n}, …)`) filled no slot | A part with a computed value fills what its literal text says: an easing function, or a time by its unit; never the name |
+| Astra 3: per-token trimming shifted the rename's offsets (a tab, or a wide space, which could panic) | Animations are trimmed and split at spaces alone, as `motion` splits them; offsets are the split's |
+| Grok 1: `inf`, `infinity` and `nan` are numbers to `motion` | Numbers parse as Rust parses them, as `motion` does |
+| Astra 6 / Grok 2: any binding named `t` stopped the strings intrinsic | Only an action, prop or inject of the name does, as the type checker reads it |
+| Astra 4: an imported style of a roster name shielded a root shape | Only a use that names a shape or `fn` counts |
+| Astra 1: a package inside the app, reached both by path and by name, was two files in the stage | Its stage link points at its staged copy, the one the relative path reaches |
+| Grok 3: linking needs a privilege Windows may not grant | Without it, the stage copies the package's Contract files and manifest |
+| Astra 5: the TypeScript module producer of `host/web/dev.mjs` watched no package; its compiler-input watcher skipped `node_modules` | Both watch the package sources `contract sources` lists |
+| Astra 7 / Grok 4: a missing directory crashed the JS loop's watcher | Only existing directories inside a package or `node_modules` are watched for a missing file |
+| Astra 8: installing a missing package did not rebuild the wasm session | Where an install would put its manifest is watched |
+| Grok 5: a package's dot directories did not live-reload | A package watcher skips only its `node_modules` |
+
+## 14. Code review round 5 dispositions
+
+The last round Charlie allowed (`llp/reviews/code-2026-10-05-1091-r5.{astra,grok}.md`), both
+UNSOUND. Astra 1 was a regression of round 4's own fix; every finding is taken, with compiler cases
+in `scope_review.rs` and the bake's cases driven end to end on macOS. No sixth round was run: what
+round 5's fixes themselves introduce is unreviewed.
+
+| Finding | Fix |
+|---|---|
+| Astra 1: round 4 linked a package installed under the app's own `node_modules` to itself in the stage | Only a package the capture copied (in the app, outside its `node_modules`) is linked to the staged copy; an installed one is linked where it lives. Driven: an app whose library is a real directory in its `node_modules` bakes and runs |
+| Astra 2 / Grok 1: Windows' copy fallback made one declaration two again | No copy: a junction, which needs no privilege, else a refusal that names the package |
+| Astra 3 / Grok 2: `t(…)` was decided by the component's bindings, not the innermost one | Each binding records whether it is an action, prop or inject; the innermost `t` decides. Bindings enter scope in the checker's order (props and injects, each state, then the rest); a state initializer naming an action is the checker's refusal (`type-initializer-scope`) |
+| Astra 7: a third time made `motion` refuse a shorthand the rename then made valid | The reader refuses exactly where `motion` does (a third time, a second name, a word that fills nothing), and a refused shorthand is not rewritten |
+| Astra 4: a failed TypeScript generation installed no package watcher | The producer re-reads the graph after every generation, failed or not |
+| Astra 5: a linked package whose manifest refused was not watched | A consulted manifest's directory is watched as a package |
+| Astra 6 / Grok 3: a missing package was looked for at four ancestors; a fresh app with no `node_modules` did not see its install | Every ancestor is recorded; the JS loop watches the directory where a missing `node_modules` would be made |
+
+## 15. Code review round 6 dispositions
+
+Charlie authorized up to ten more rounds after round 5 ("let's get this right"). Round 6
+(`llp/reviews/code-2026-10-05-1091-r6.{astra,grok}.md`): Astra UNSOUND, Grok SOUND WITH CHANGES.
+Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1: a package re-exporting another split a declaration in the stage (a staged copy and its original); Grok 2: the Windows junction command split on `&` | Structural: **the TypeScript bake compiles the app's Contract where it lives**, as the web build does, and checks the capture after the compile, so the plan is built from the bytes captured or the bake is refused. The stage holds the TypeScript alone; the package links, the staged-copy rule, relocation and the Windows junction are deleted. This supersedes §5's and §12–§14's staging |
+| Astra 2: `canvas surface=chart()` named a function | A `surface` call's head is the drawing module's; only its arguments are rewritten |
+| Grok 1: a task named `t` hid a prop `t` | Tasks are not bindings (the checker's scope holds none) |
+| Astra 7: 256 times overflowed a `u8` | The count saturates |
+| Astra 4: relinking an install to another directory did not rebuild the wasm session | The install's own `package.json` path is watched as well as its real one |
+| Astra 3: a watch root that is a link stopped the TypeScript producer | Package roots are watched at their real paths; one that cannot be watched is said, not a stop |
+| Astra 5: the producer missed an install where no `node_modules` was | It watches the directory where that `node_modules` would be made |
+| Astra 6: Completion Storm's build scripts did not track used files | They call `contract::rerun_if_changed` |
+
+## 16. Code review round 7 dispositions
+
+Round 7 (`llp/reviews/code-2026-10-05-1091-r7.{astra,grok}.md`): both UNSOUND, both confirming
+round 6's inputs fixed. Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1 / Grok 1: round 6's `surface` exception also kept a component argument's or another element's `surface=f()` head | Only on `canvas`, the one tag that owns `surface` |
+| Astra 2: the bake's recheck compared package names and roots, not their bytes | The bake reads every Contract source and consulted manifest the compile reads, before and after, and refuses on any difference |
+| Grok 2: the bake still refused two versions of one package, a rule of the links | Gone with them |
+| Astra 3: a link retargeted at a twin (same time and length) did not rebuild the wasm session | Its stamp has the file's inode and device |
+| Astra 4: retargeting an exported link inside a package went unseen | The export's offered path is watched; the TypeScript watcher reads a link as its target and the target's metadata |
+| Astra 5: a nearer install than the one resolved went unseen | Every nearer candidate is watched even when a farther one resolves |
+| Grok 3: the TypeScript producer's missing-`node_modules` watch assumed `/` | Either separator |
+| Found while verifying: the nearer candidates reached `build.rs` as `rerun-if-changed` paths that did not exist, so Cargo reran every build and the driver called it stale | `contract::rerun_if_changed` lists only paths that exist (a failed build reruns its script anyway); the dev loops still watch the candidates. Driven: a second macOS build is a no-op (1.8 s) |
+
+## 17. Code review round 8 dispositions
+
+Round 8 (`llp/reviews/code-2026-10-05-1091-r8.{astra,grok}.md`): both UNSOUND. Both found that
+round 7's nearer-install candidates broke deploy: the closure check `realpath`ed them and threw, so
+deploying `markdown` or `llp` (whose `@exact/reading` is hoisted) failed on main. Every finding is
+taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1 / Grok 1: deploy's closure check threw on a consulted path that does not exist | It checks only consulted paths that exist (a missing one is where resolution found nothing); `scripts/deploy-paths.test.mjs`, which had required the throw, now requires the opposite |
+| Astra 2: component arguments went through the style rows' `class`, `animation` and timeline rewriting | A component argument is a value: only its expression is rewritten |
+| Astra 3: a generated name (`val__ui`) could be an action's in its own file | A generated name avoids every binding in every file |
+| Astra 4: dropping missing paths from Cargo lost a nearer install | Cargo watches the `package.json` and lockfile beside a nearer `node_modules`, which an install edits |
+| Astra 5: a relative use through a link was watched only by its target | Watched by the path written too |
+| Astra 6 / Grok 2: a link retargeted at an older file, or an install link retargeted, went unseen by the JS loop and the TypeScript producer | A package's events are edits whatever their time; both loops watch an install that is a link as one entry of its directory |
+| Astra 7 / Grok 3: the TypeScript producer's graph filter assumed `/` | Path tests by `path.relative`, separators either way |
+| Astra 8 / Grok 4: off Unix, a stamp had no file identity | It carries the file's creation time |
+
+## 18. Code review round 9 dispositions
+
+Round 9 (`llp/reviews/code-2026-10-05-1091-r9.{astra,grok}.md`): Astra UNSOUND, Grok SOUND WITH
+CHANGES (round 8 fixed but for one Cargo case, no new bug from its fixes). Every plan stays
+byte-identical.
+
+| Finding | Disposition |
+|---|---|
+| Astra 1: with a computed part, a literal keyword that names keyframes was read as its keyword | Taken: with a computed part, a literal naming keyframes this file sees is the name |
+| Astra 2: a compiler-declared type (`PointerEvent`) was refused when another file had a `fn` of its name | Taken: the compiler's types (read from the checker's declarations of an empty file) are no file's name |
+| Astra 3: a library shape named `path` took its own file's router `path()` once renamed | Taken: a call of `path` whose name in scope is a shape, or nothing, is the router's, as the checker reads it |
+| Astra 5: a Windows copy that kept its times defeated the wasm session's stamp | Taken, for every platform: a used file's stamp is a fingerprint of its bytes |
+| Astra 6 / Grok 2: an app's own link retargeted at an older file was dropped by the JS loop | Taken: freshness is the entry's own time (`lstat`) |
+| Astra 7: a Contract source in a dot directory of the app was not watched | Taken: both loops watch every source the compile read |
+| Astra 8: a linked `node_modules` directory retargeted went unseen | Taken: every link on the way to a consulted path is one watched directory entry |
+| Astra 4 / Grok 1: a Rust build does not see a package installed nearer than the one it resolved | **Declined.** Cargo can only watch files, or directories by recursive scan; the directory a nearer install would make (`apps/node_modules`, `apps/markdown/node_modules`) does not exist and its parent is a tree of other apps or the app itself, so a recursive watch would rebuild on every unrelated edit. Installing a package is a dependency change, and `cargo build` after it rebuilds the plan once any input it watches changes; the dev loops, which can watch one directory entry, do see it. Recorded in QUEUE |
+
+## 19. Code review round 10 dispositions
+
+Round 10 (`llp/reviews/code-2026-10-05-1091-r10.{astra,grok}.md`): both UNSOUND. Both found that
+round 9's rule for a computed part in an `animation` (a literal naming keyframes is the name) was
+wrong. Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1 / Grok 1: round 9 renamed the first literal naming keyframes beside a computed part, though `motion` may read it as a keyword | Round 9's rule is gone. The reader reads as `motion` does with a computed part filling nothing; a computed part whose text says its slot (`steps(${n}, …)`, `${d}ms`) fills it. Where a part's slot is unknown and a keyword beside it is also renamed keyframes, no reading is right for every value, so the compile is refused (`contract-animation-ambiguous`), naming the fix: quote the name, or name the keyframes otherwise |
+| Astra 2 / Grok 2: a type annotation followed a renamed `fn` of its name (`PointerEvent`), and bare `action` was not exempt | A type is a shape: a written type is renamed only to a shape this file sees; else a compiler type or `action` stays; else another file's name is refused |
+| Astra 3: a route's `pages=source()` head was read as a `fn` | It names a data source, as a resource does; only its arguments are rewritten |
+| Astra 4: a content fingerprint misses a link retargeted at a byte-identical file whose relative uses differ | The stamp is the bytes and, on Unix, the inode |
+| Astra 5 / Grok 3: the TypeScript producer did not descend into a dot directory holding a source | Its watch descends into any directory on the way to a source |
+| Astra 6: the JS loop dropped a link in a dot directory | It watches every path resolution looked at, as written, and the directories on the way to them |
+
+## 20. Code review round 11 dispositions
+
+Round 11 (`llp/reviews/code-2026-10-05-1091-r11.{astra,grok}.md`): both UNSOUND, both finding the
+edges of round 10's fixes. Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1 / Grok 1: round 10's ambiguity guard refused keywords whose slot was settled (`linear ${d}`), and resolved them through `use` | **Rounds 9–10's computed-part rules are replaced by an exact reading.** Every reading `motion` would accept is tried, each computed part as each kind of value it could be (a part whose text says its kind is that kind). A literal is renamed when it is the name in every reading, left when in none, and refused (`contract-animation-ambiguous`) only when it is the name in some but not all *and* is keyframes another file renamed. No keyword is resolved through `use` |
+| Astra 2: a written type beside a same-named `fn` could reach another file's shape | A written type naming another file's shape this file does not see is refused, even with a `fn` of the name |
+| Grok 2: another file's `shape action` took every bare `action` type | A declaration named `action` is always renamed |
+| Astra 3 / Grok 3: the JS loop missed a hidden link (the consulted path kept its `/./`; Windows separators) | Consulted paths drop `.` segments; the directory test takes either separator |
+| Astra 4: the TypeScript producer missed a hidden import created later | It scans every path resolution looked at |
+| Astra 5: a root file retargeted at a twin went unseen by the wasm session | The root is a used file by the path it is opened at |
+| Astra 6: off Unix, a stamp had no file identity | Every stamp hashes the file's canonical path, on every platform |
+
+*Follow-up (2026-10-05, acae0e3f6):* with the root a used file, its stamp's time made an identical re-save a change, and exact-web's identical-save test failed; used files now compare by fingerprint (bytes, canonical path, file identity), not time.
+
+## 21. The lines a file lacks (2026-10-04, branch `fix/polish7`)
+
+D1 refused the first name a file reached without a `use`, with `use X
+from "…"`: the 19 multi-file apps in the x2apps set each took a compile
+per name to migrate. As built, with no change to D1's rule:
+
+- **Every file at once.** `rescope` records each reference to a name only
+  another file declares (`Scope::missing`) and goes on; the loader refuses
+  them together, one `contract-use-missing` a file, at its first such
+  reference, every other one a related location.
+- **The exact lines.** Each refusal names the lines the file lacks: the
+  `use` it already has for the declaring file, extended with the names
+  (`change line 4 to use Snapshot, noEdit from "./shapes.contract"`), or a
+  new line whose specifier is the one another file uses for a package or
+  `exact:` module, else the relative path inside the same root (D9).
+- **What is not mechanical is said, not written.** A name two other files
+  declare (which one is meant), a generated name (`Card__ui`: write `Card`
+  and name it), a file no specifier reaches from here.
+- **`contract fmt --uses <root.contract>`** writes those lines in every file
+  of the program (an existing line keeps its indentation and trailing
+  comment; a new one follows the last `use`, else the opening comments),
+  and prints what it wrote and what is left. `bun exact.mjs update` runs it
+  for an app outside the repository.
+
+Measured on scratch copies of the x2apps apps that stopped compiling: 17
+of 20 compile after it; the other three stop at refusals that are not
+scope (a `fn indexOf` that now shadows the roster's, LLP 1088 §9.1's note;
+an `alertdialog` and a surface attribute LLP 1021 and its siblings
+refuse). Mail, recipes, flashcards and feed pass their web tests after it.
+
+## 22. Code review round 12 dispositions
+
+Round 12 (`llp/reviews/code-2026-10-05-1091-r12.{astra,grok}.md`): both UNSOUND, with three findings
+between them. Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Grok 1 / Astra 2: past three unknown computed parts, round 11 called every literal ambiguous, refusing names `motion` always reads as names (quoted ones too) | The reading is exact at any length: the slots each prefix can leave filled, forward from the start and back from the end, decide for each literal whether some accepted reading names it and whether some does not. No cutoff |
+| Astra 1: an empty interpolation was made to fill a slot, so a full shorthand had no reading and its name went unrenamed | An unknown computed part may also be empty, filling nothing |
+| Astra 3 / Grok 2: a consulted path kept `..`, so the watchers, which fold it, missed a hidden link | Consulted paths fold `.` and `..` as written, as a watcher names the file |
+
+## 23. Code review round 13 dispositions
+
+Round 13 (`llp/reviews/code-2026-10-05-1091-r13.{astra,grok}.md`), the first to cover §21's batching
+and `contract fmt --uses`: both UNSOUND. Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Grok 1: a computed part glued to text (`${x}ease`) was read as a time by its `s`; Astra 2: a quoted computed part (`'${name}'`) was read as any kind | A computed part's text settles only what it must: quoted is a name, a function's is an easing; any other may be any kind, and only a value alone may also be empty |
+| Grok 2 / Astra 4: a written type naming another file's shape refused at once, ending §21's batch, so `fmt --uses` wrote nothing | It is recorded with the file's other missing names; only a type beside a same-named `fn` (not mechanical) is refused at once, saying so |
+| Astra 1: `fmt --uses` copied a package name another file used, which reached another install from here | A proposed specifier is resolved from the file it goes in and kept only if it reaches the declaring file |
+| Astra 5: `fmt --uses` wrote a `use` back to a file that uses this one | A name whose file uses this one is said, not written: naming it would cycle |
+| Astra 3: folding `..` past a link named a path that need not exist | A consulted path is recorded folded and as written |
+
+## 24. Code review round 14 dispositions
+
+Round 14 (`llp/reviews/code-2026-10-05-1091-r14.{astra,grok}.md`): Astra UNSOUND, Grok SOUND WITH
+CHANGES. Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1: a computed value holding a comma splits the shorthand (`spin 1s ${sep} pulse 1s`), which the reader did not model, so neither name was renamed | A computed part may also end the animation and begin another; every literal that is always a name is renamed, more than one per shorthand where there are several |
+| Astra 2: `use pending as identity` brought the call back to the intrinsic's spelling | A declaration spelled like an intrinsic the checker reads first (`pending`, `failed`, `t`) is always renamed, as `action` is |
+| Astra 3 / Grok 1: `fmt --uses` wrote two new `use` lines that cycle together | The cycle test walks the uses on disk and every use the other fixes would add |
+| Astra 4: a fixed `use` would also bring a declaration of the name in another namespace that this file declares | Said, not written: naming it would also bring a {kind} this file declares |
+| Grok 3: a `fn` beside another file's shape of its name refused at once, ending the batch | Its refusal is reported with the file's missing names; the batch goes on |
+| Grok 2: a folded consulted path leaving the root could name a file outside the snapshot | A folded path outside the using file's root is not recorded |
+| Astra 5: the TypeScript producer skipped a Contract source under a skipped directory (`target/`) | Its watch descends into any directory on the way to a source the compile read |
+
+## 25. Code review round 15 dispositions, and where the reviews stopped
+
+Round 15 (`llp/reviews/code-2026-10-05-1091-r15.{astra,grok}.md`), the last Charlie authorized: both
+UNSOUND. Every finding is taken; every plan stays byte-identical. **These fixes were not
+reviewed**: a sixteenth round was not authorized.
+
+| Finding | Fix |
+|---|---|
+| Astra 3 / Grok 1: round 14 renamed every `fn t`, though the checker calls a program's `fn t` before the strings intrinsic (`types/src/lib.rs`), so a file's own `t(…)` went to the intrinsic | `t` is renamed like any name; a call of `t` is the intrinsic only when no `fn t` is in this file's scope and no action, prop or inject of the name is the innermost binding; another file's `fn t` is renamed when this file calls `t` without naming it |
+| Astra 4: an aliased `shape path` became the router's `path()` | A shape spelled `path` is always renamed |
+| Astra 1: a computed comma in `animation-name` left the literal after it unrenamed | In `animation-name` every literal is a name |
+| Astra 2: a computed `, ease` begins the next animation and fills its easing | A computed part may end one animation and fill a slot of the next |
+| Astra 6 / Grok 2: a fixed `use` could bring a declaration another `use` already brings | Said, not written |
+| Grok 3: the cycle test counted edges no fix would write | Only edges with one declarer, no clash and a reaching specifier count |
+| Astra 7: a bare `animation-timeline=Name` another file declares was not among the missing names | Recorded with them, unless a binding of the name is in scope |
+| Astra 5: the TypeScript producer skipped a Contract source under an asset directory | Its watch descends to any source the compile read |
+
+Fifteen rounds of code review (§10–§25) took the findings from thirteen to five or six a round,
+all in two areas after round 8: renaming keyframes named in `animation` text beside computed values,
+and the dev loops' and `fmt --uses`' edges. No finding after round 8 changed a plan in this
+repository.
 

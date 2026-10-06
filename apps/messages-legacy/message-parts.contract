@@ -146,7 +146,7 @@ component MessageBody
         text-align="left"
         opacity=(selecting ? 0: 1)
       when selecting
-        textarea id="selected-message-text"
+        textarea appearance="none" id="selected-message-text"
           testId="selected-message-text"
           readonly=true
           value=body

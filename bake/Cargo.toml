@@ -18,6 +18,7 @@ path = "src/main.rs"
 
 [dependencies]
 contract = { path = "../contract/cli" }
+exact-color = { path = "../color" }
 exact-kernel = { path = "../kernel" }
 exact-plan = { path = "../plan" }
 exact-runner = { path = "../runner" }

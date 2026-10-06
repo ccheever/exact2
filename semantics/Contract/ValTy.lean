@@ -103,6 +103,12 @@ theorem unify_le : ∀ {a b u : Ty}, unify a b = .some u → le a u = true ∧ l
     case record s' => obtain ⟨rfl, rfl⟩ := h; simp [le]
     case unknown => subst h; simp [le]
 
+/-- A list literal's items met in turn (`Ty::unify`, item by item, LLP
+1088 §9.1): `?` for `[]`. -/
+def unifyAll : List Ty → Option Ty
+  | [] => .some .unknown
+  | t :: ts => (unifyAll ts).bind (unify t)
+
 theorem compat_option {a b : Ty} (h : compat (.option a) (.option b) = true) : compat a b = true := by
   simp only [compat, unify, Option.isSome_map] at h; exact h
 

@@ -19,7 +19,7 @@ extension NodeView {
         // A native button's children are its face, not views (LLP 1069.011 D5),
         // read from the kernel, current on its first batch (LLP 1069.011.000 D1).
         if isNativeButton { return face?.title ?? "" }
-        if isParagraph { return inlineText.filter(\.paints).map(\.text).joined() }
+        if isParagraph { return visibleParagraphText }
         // accname: an `aria-hidden` child names nothing (habits F16: a tab's icon glyph).
         let children = container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["accessibilityElementsHidden"] != "true" }
         return children.map(\.accessibleText).filter { !$0.isEmpty }.joined(separator: " ")
@@ -70,19 +70,21 @@ extension NodeView {
     }
     /// The ARIA states AppKit has no property for, under the attribute
     /// names browsers serve them by: WebKit's `AXInvalid` (onboarding F22),
-    /// Chromium's `AXHasPopup` and `AXPopupValue` (spreadsheet F20). A
+    /// Chromium's `AXHasPopup` and `AXPopupValue` (spreadsheet F20), WebKit's
+    /// `AXARIACurrent` (Depot: a navigation link's `aria-current`). A
     /// `false` (or absent) state serves none.
     func ariaAttribute(_ name: String) -> Any? {
         switch name {
         case "AXInvalid": return props["accessibilityInvalid"].flatMap { ["", "false"].contains($0) ? nil : $0 }
         case "AXHasPopup": return props["accessibilityHasPopup"].flatMap { ["", "false"].contains($0) ? nil : true }
         case "AXPopupValue": return props["accessibilityHasPopup"].flatMap { ["", "false"].contains($0) ? nil : $0 == "true" ? "menu" : $0 }
+        case "AXARIACurrent": return props["accessibilityCurrent"].flatMap { ["", "false"].contains($0) ? nil : $0 }
         default: return nil
         }
     }
-    static let ariaAttributes = ["AXInvalid", "AXHasPopup", "AXPopupValue"]
+    static let ariaAttributes = ["AXInvalid", "AXHasPopup", "AXPopupValue", "AXARIACurrent"]
     var accessibilityVisible: Bool {
-        guard paragraphOwner.window != nil, !inert else { return false }
+        guard paragraphOwner.window != nil, !inert, accessibilityExposed else { return false }
         #if os(macOS)
         var ancestor: NSView? = paragraphOwner
         #else
@@ -113,7 +115,7 @@ extension NodeView {
         // An `input`'s `aria-label` names its field, as a text area's names it.
         if let field, field.accessibilityLabel() != authoredLabel { field.setAccessibilityLabel(authoredLabel) }
         #else
-        // UIKit has no property for `aria-required`, `aria-invalid` or `aria-haspopup`.
+        // UIKit has no property for `aria-required`, `aria-invalid`, `aria-haspopup` or `aria-current`.
         let target: UIView = field ?? presenter?.controls.controls[id] ?? textArea as UIView? ?? self
         if target.accessibilityHint != description { target.accessibilityHint = description }
         #endif

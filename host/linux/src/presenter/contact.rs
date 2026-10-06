@@ -6,15 +6,20 @@ use exact_motion::{HoldEnd, HoldStart, Value, VelocityTracker};
 #[derive(Clone, Copy)]
 pub(super) enum Candidate {
     Arrange(exact_runner::ReorderBinding),
+    /// A grip in a list with a `reorderGroup` (LLP 1094 D6).
+    Group(exact_runner::ReorderBinding),
     Swipe(NodeKey),
     Pan(NodeKey),
     Transform(TransformDragBinding),
-    Height { handle: NodeKey, target: NodeKey },
+    Height {
+        handle: NodeKey,
+        target: NodeKey,
+    },
 }
 impl Candidate {
     fn node(&self) -> NodeKey {
         match *self {
-            Candidate::Arrange(b) => b.handle,
+            Candidate::Arrange(b) | Candidate::Group(b) => b.handle,
             Candidate::Transform(b) => b.handle,
             Candidate::Height { handle, .. } => handle,
             Candidate::Swipe(key) | Candidate::Pan(key) => key,
@@ -25,7 +30,8 @@ impl Candidate {
         match self {
             Candidate::Arrange(_) | Candidate::Height { .. } => dy.abs() > dx.abs(),
             Candidate::Swipe(_) => dx.abs() > dy.abs(),
-            Candidate::Transform(_) | Candidate::Pan(_) => true,
+            // A grouped row lifts in any direction (LLP 1094 D6).
+            Candidate::Transform(_) | Candidate::Pan(_) | Candidate::Group(_) => true,
         }
     }
 }
@@ -59,6 +65,8 @@ pub(super) struct Contact {
     position: (f32, f32),
     last_ms: f64,
     pub(super) hold: Option<Hold>,
+    /// A grouped row lifted: its ghost follows (`group.rs`).
+    group: bool,
     panning: bool,
     /// Every sample since down, for a pan's release velocity (LLP 1057 §10.6).
     pan_velocity: VelocityTracker,
@@ -95,6 +103,9 @@ impl<D: DataSource> Presenter<D> {
                     .kernel()
                     .node_by_key(contact.hit)
                     .is_some_and(|n| self.input_surface(n.id) == Some(canvas));
+        }
+        if contact.group {
+            return self.group_live();
         }
         if let Some(retained) = &contact.retained {
             return self.retained_contact_live(retained)
@@ -299,6 +310,7 @@ impl<D: DataSource> Presenter<D> {
                     position: (x, y),
                     last_ms: now_ms,
                     hold: None,
+                    group: false,
                     retained: Some(retained),
                     press: None,
                     canvas: None,
@@ -344,6 +356,7 @@ impl<D: DataSource> Presenter<D> {
                 position: (x, y),
                 last_ms: now_ms,
                 hold: None,
+                group: false,
                 panning: false,
                 pan_velocity: VelocityTracker::new(),
                 retained: None,
@@ -375,6 +388,7 @@ impl<D: DataSource> Presenter<D> {
             position: (x, y),
             last_ms: now_ms,
             hold: None,
+            group: false,
             panning: false,
             pan_velocity,
             retained: None,
@@ -438,6 +452,7 @@ impl<D: DataSource> Presenter<D> {
             y as f64 - contact.origin.1 as f64,
         );
         if contact.hold.is_none()
+            && !contact.group
             && !contact.panning
             && dx.abs().max(dy.abs()) > exact_motion::gesture::SLOP
         {
@@ -487,6 +502,15 @@ impl<D: DataSource> Presenter<D> {
             return Ok(false);
         }
         contact.position = (x, y);
+        if contact.group {
+            let moved = self.move_group((x, y), now_ms);
+            if self.group_live() {
+                self.contact = Some(contact);
+            } else {
+                let _ = self.end_group(false, now_ms);
+            }
+            return moved;
+        }
         if contact.hold.is_none() {
             let dx = x as f64 - contact.origin.0 as f64;
             let dy = y as f64 - contact.origin.1 as f64;
@@ -498,6 +522,24 @@ impl<D: DataSource> Presenter<D> {
                 if let Some((key, _)) = contact.press.take() {
                     self.host.press_feedback(key, false, now_ms);
                 }
+            }
+            if let Some(Candidate::Group(binding)) = contact.candidate {
+                return match self.begin_group(binding, contact.origin, now_ms) {
+                    Ok(true) => {
+                        contact.group = true;
+                        let moved = self.move_group((x, y), now_ms);
+                        self.contact = Some(contact);
+                        moved
+                    }
+                    Ok(false) => {
+                        self.set_collection_interaction(None);
+                        Ok(false)
+                    }
+                    Err(error) => {
+                        self.set_collection_interaction(None);
+                        Err(error)
+                    }
+                };
             }
             let begin = match contact.candidate {
                 Some(Candidate::Arrange(binding)) if dy.abs() > dx.abs() => {
@@ -618,11 +660,15 @@ impl<D: DataSource> Presenter<D> {
             self.host.press_feedback(key, false, now_ms);
             self.dirty = true;
         }
-        let arranged = contact
-            .hold
-            .as_ref()
-            .is_some_and(|h| matches!(h.kind, HeldKind::Arrange(_)));
-        let result = if let Some(held) = contact.hold {
+        let arranged = contact.group
+            || contact
+                .hold
+                .as_ref()
+                .is_some_and(|h| matches!(h.kind, HeldKind::Arrange(_)));
+        let result = if contact.group {
+            // Up anywhere drops on the sticky target (LLP 1094 D8).
+            self.end_group(true, now_ms)
+        } else if let Some(held) = contact.hold {
             if !accepted {
                 self.end_contact(&held, HoldEnd::Cancel, now_ms)
                     .map(|_| false)
@@ -745,15 +791,19 @@ impl<D: DataSource> Presenter<D> {
         let mut result = contact.hold.as_ref().map_or(Ok(()), |held| {
             self.end_contact(held, HoldEnd::Cancel, now_ms)
         });
+        if contact.group {
+            result = self.end_group(false, now_ms).map(|_| ());
+        }
         if let (true, Some(Candidate::Pan(key))) = (contact.panning, contact.candidate) {
             if let Some(error) = self.release_pan(key, (0., 0.), now_ms) {
                 result = result.and(Err(error));
             }
         }
-        if !contact
-            .hold
-            .as_ref()
-            .is_some_and(|h| matches!(h.kind, HeldKind::Arrange(_)))
+        if !contact.group
+            && !contact
+                .hold
+                .as_ref()
+                .is_some_and(|h| matches!(h.kind, HeldKind::Arrange(_)))
         {
             self.set_collection_interaction(None);
         }

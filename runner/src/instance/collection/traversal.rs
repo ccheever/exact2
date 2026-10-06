@@ -96,6 +96,40 @@ impl Tree {
             out.extend(collection.mounted.iter().map(|r| (r.wrapper, r.epoch)));
         }
     }
+    /// Each mounted list's view, data generation and whether it runs along
+    /// x, with no snapshot: what a host compares between layouts to know
+    /// whose rows its data moved.
+    pub fn collection_data(&self) -> Vec<(ViewId, u64, bool)> {
+        if !self.has_collections {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        let mut stack: Vec<_> = self.children.iter().collect();
+        while let Some(child) = stack.pop() {
+            match child {
+                Child::Node(node) => {
+                    if let Some(collection) = &node.collection {
+                        out.push((
+                            collection.view,
+                            collection.data_generation,
+                            collection.axis == super::ListAxis::Horizontal,
+                        ));
+                        collection.add_children(&mut stack);
+                    }
+                    stack.extend(node.children.iter());
+                }
+                Child::Region(region) => match &region.active {
+                    Active::Arm { roots, .. } => stack.extend(roots.iter()),
+                    Active::Rows { rows } => {
+                        for row in rows {
+                            stack.extend(row.roots.iter());
+                        }
+                    }
+                },
+            }
+        }
+        out
+    }
     fn collections_with(&self, rows: usize) -> Vec<CollectionSnapshot> {
         if !self.has_collections {
             return Vec::new();

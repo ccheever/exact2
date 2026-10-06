@@ -1047,7 +1047,7 @@ fn repeated(region: RegionsId, key: &Value, ident: &str) -> String {
 
 /// One canonical key text: strings, finite numbers (`-0` is `0`, matching the
 /// VM's equality), bools. NaN is not a key.
-fn key_text(v: &Value) -> Option<String> {
+pub(crate) fn key_text(v: &Value) -> Option<String> {
     let mut text = String::new();
     key_text_into(v, &mut text).then_some(text)
 }

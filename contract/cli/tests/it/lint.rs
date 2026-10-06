@@ -340,6 +340,51 @@ fn conditional_pixel_lengths_compile_and_update() {
 }
 
 #[test]
+fn a_bound_string_on_a_number_row_is_refused_as_its_literal_is() {
+    let app = |node: &str| {
+        format!("component A\n  state size = 16\n  state label = \"2\"\n  action grow\n    size = 20\n  view\n    column\n      {node}\n")
+    };
+    // No native host reads text on these rows; a browser would apply it.
+    for (node, name) in [
+        ("text \"a\" opacity=`${size / 20}`", "opacity"),
+        ("column flex-grow=label", "flex-grow"),
+        ("text \"a\" z-index=label", "z-index"),
+        ("text \"a\" font-weight=`${size}0`", "font-weight"),
+        ("view column-count=label", "column-count"),
+        ("view column-rule-width=`${size}px`", "column-rule-width"),
+    ] {
+        let e = contract::compile(&app(node)).unwrap_err();
+        assert_eq!(e.id, "lower-attr-type", "{node}: {e}");
+        assert!(
+            e.message.contains(&format!("`{name}` takes a number")),
+            "{node}: {e}"
+        );
+    }
+    // A pixel row reads `<n>px` where it binds, as the browser does.
+    let mut runner = exact_runner::Runner::boot(
+        contract::compile(&app(
+            "text \"a\" testId=\"t\" font-size=`${size}px` letter-spacing=`${size / 16}px`",
+        ))
+        .unwrap(),
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    for expected in [16.0, 20.0] {
+        let key = runner.kernel().find_by_test_id("t")[0];
+        let style = &runner.kernel().node_by_key(key).unwrap().style;
+        assert_eq!(
+            (style.font_size, style.letter_spacing),
+            (expected, expected / 16.0)
+        );
+        runner.act("grow", vec![]).unwrap();
+    }
+    assert!(!runner.is_poisoned());
+}
+
+#[test]
 fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
     let app = |state: &str, node: &str| {
         format!("shape Todo\n  title: string\ncomponent A\n  state draft = \"\"\n{state}  view\n    column\n      {node}\n")
@@ -359,9 +404,10 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
         // inherited row has.
         (app("", "view alt=\"x\""), "lower-attr-tag", "`alt` belongs to `image`, not `view`; another element's accessible name is `aria-label`"),
         (app("", "view background-color=\"inherit\""), "lower-attr-value", "`background-color=\"inherit\"`: `background-color` does not inherit, and exact2 inherits only the rows CSS inherits; write the value"),
-        (app("", "text \"a\" color=\"bleu\""), "lower-attr-value", "`color=\"bleu\"` is not a valid `color`: a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, `lab()`, `oklch()`, a named colour, `transparent`, `light-dark(a, b)` of two, a role (`\"secondary-label\"`, `\"CanvasText\"`: LLP 1095), or `platform-color(ios <name>Color, …, <fallback>)` written whole as a string literal"),
+        (app("", "text \"a\" color=\"bleu\""), "lower-attr-value", "`color=\"bleu\"` is not a valid `color`: a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `transparent`, or one in its own space: `color(display-p3 1 0 0)`, `oklch()`, `oklab()`, `lab()`, `lch()` (LLP 1100) — `light-dark(a, b)` of two, a role (`\"secondary-label\"`, `\"CanvasText\"`: LLP 1095), or `platform-color(ios <name>Color, …, <fallback>)` written whole as a string literal"),
         (app("", "text \"a\" color=`platform-color(ios ${draft}Color, #000)`"), "lower-platform-color-literal", "`color`: write `platform-color(…)` whole, as a string literal (a branch of `?:` or `match` may be one); it is never built from a template, a concatenation or data, so the platform colours a plan names are fixed when it compiles (LLP 1095 D3)"),
-        (app("", "text \"a\" font-size=\"14px\""), "lower-attr-value", "`font-size=\"14px\"` is not a valid `font-size`: expected number; write `font-size=14` (a number is pixels)"),
+        // `14px` on a pixel row is CSS's (LLP 1102 §3.10); a negative font size is not.
+        (app("", "text \"a\" font-size=\"-2px\""), "lower-attr-value", "`font-size=\"-2px\"` is not a valid `font-size`: expected a nonnegative length"),
         (app("", "text \"a\" width=10px"), "syntax-unquoted-length", "`width=10px` needs quotes: a value with a unit is a string, `width=\"10px\"` (a bare number is pixels)"),
         (app("", "text \"a\" className=\"x\""), "lower-unknown-attr", "`text` has no attribute `className`; `class` names a `style` declared in this file, as in `class=Card`"),
         (

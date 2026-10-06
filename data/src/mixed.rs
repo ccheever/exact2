@@ -507,14 +507,22 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
         self.route_answer(rust, answer)
     }
 
-    /// The turn's `console` lines a main member produced, for the host's
-    /// logs; a worker child keeps its own.
+    /// Envelope lines plus each member's journal (LLP 1012, LLP 1097 D8).
+    /// The JavaScript child's trait path carries its storage journal; a
+    /// worker child keeps its own and is not a member here.
     pub fn take_logs(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.logs)
+        let mut lines = std::mem::take(&mut self.logs);
+        lines.extend(DataSource::take_logs(&mut self.javascript));
+        lines.extend(DataSource::take_logs(&mut self.rust));
+        lines
     }
 }
 
 impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
+    fn take_logs(&mut self) -> Vec<String> {
+        Mixed::take_logs(self)
+    }
+
     fn placement(&self) -> Placement {
         if self.sets.is_empty() {
             Placement::Main
@@ -577,6 +585,10 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
     }
 
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
+        // Background work is the JavaScript child's (LLP 1097 D5).
+        if token == exact_runner::BACKGROUND {
+            return self.javascript.dispatch(token, store);
+        }
         if let Some((set, _)) = self.recorded.get(&token) {
             let set = *set;
             if self.sets[set].busy {
@@ -645,7 +657,7 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
     /// end it. The running turn is judged by key and by the calls recorded
     /// here, never by its own token, which a forwarder above can't translate
     /// once dispatched. Each child hears what is in flight in its own tokens.
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
+    fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
         let tokens: HashSet<u64> = in_flight.iter().filter_map(|f| f.continuation).collect();
         self.recorded.retain(|token, _| tokens.contains(token));
         self.continuations.retain(|token, _| tokens.contains(token));
@@ -710,11 +722,15 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
                     Some(InFlight { continuation, ..*f })
                 })
                 .collect();
-            if rust {
-                self.rust.forgotten(&view);
-            } else {
-                self.javascript.forgotten(&view);
-            }
+            let grants = self.child_grants(rust);
+            let mut local = store.clone();
+            local.with_grants(&grants, |scoped| {
+                if rust {
+                    self.rust.forgotten(scoped, &view);
+                } else {
+                    self.javascript.forgotten(scoped, &view);
+                }
+            });
         }
     }
 
@@ -838,7 +854,26 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         self.rust.configure_storage(data, cache, temporary)
     }
 
+    fn background(&mut self, store: &Store) -> Option<exact_runner::Request> {
+        self.javascript.background(store)
+    }
+
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<exact_runner::Request>, DataError> {
+        self.javascript.background_landed(store, outcome)
+    }
+
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        self.javascript.background_state()
+    }
+
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+        if token == exact_runner::BACKGROUND {
+            return self.javascript.continuation(token);
+        }
         let (rust, child) = self.continuations.remove(&token)?;
         if rust {
             self.rust.continuation(child)

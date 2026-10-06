@@ -123,7 +123,7 @@ export async function phoneBridge() {
 }
 
 
-/** Every phone this Mac knows (devicectl): { id, udid, name, model, os, reachable }. */
+/** Every phone this Mac knows (devicectl, which lists simulators too): { id, udid, name, model, os, reachable, simulated }. */
 export function phones() {
   const out = resolve(mkdtempSync(resolve(tmpdir(), 'exact-devices-')), 'devices.json');
   const r = read('xcrun', ['devicectl', 'list', 'devices', '--json-output', out]);
@@ -131,14 +131,15 @@ export function phones() {
   const list = JSON.parse(readFileSync(out, 'utf8')).result.devices.map((d) => ({
     id: d.identifier, udid: d.hardwareProperties?.udid, name: d.deviceProperties?.name, model: d.hardwareProperties?.marketingName,
     os: d.deviceProperties?.osVersionNumber, reachable: d.connectionProperties?.tunnelState !== 'unavailable', paired: d.connectionProperties?.pairingState === 'paired',
+    simulated: d.hardwareProperties?.reality === 'simulated',
   }));
   rmSync(resolve(out, '..'), { recursive: true, force: true });
   return list;
 }
 
-/** The phone to use: `pick` (a udid or a name; EXACT_PHONE by default), else a reachable phone, else the one phone this Mac knows — the bundle is built and signed for it either way; installing needs it connected (`reachable`). */
+/** The phone to use: `pick` (a udid or a name; EXACT_PHONE by default), else a reachable phone, else the one phone this Mac knows — the bundle is built and signed for it either way; installing needs it connected (`reachable`). Unpicked, a simulator devicectl lists is no phone. */
 export function phone(pick = process.env.EXACT_PHONE) {
-  const all = phones();
+  const named = phones(), all = pick ? named : named.filter((d) => !d.simulated);
   const dev = pick ? all.find((d) => d.udid === pick || d.id === pick || d.name === pick) : all.find((d) => d.reachable) ?? (all.length === 1 ? all[0] : null);
   if (!dev) throw new Error(pick ? `no phone ${pick} (xcrun devicectl list devices)` : `no phone is known to this Mac (${all.length ? all.map((d) => `${d.name}, not connected`).join('; ') : 'xcrun devicectl list devices shows none'}): plug one in, unlock it, and trust this Mac`);
   return dev;
@@ -179,14 +180,28 @@ export function developmentLaunchEnvironment(args, environment = process.env) {
   return { ...environment, EXACT_DEV_PLAN: url.href };
 }
 
-/** A development profile on this Mac covering the phone and the bundle id (the team's wildcard or the id itself), unexpired; EXACT_PROFILE names one. */
-export function profile(udid, bundle) {
-  if (process.env.EXACT_PROFILE) return decodeProfile(process.env.EXACT_PROFILE);
+/** Whether a profile allows every entitlement in `required` (a grant's
+ * signing entitlements, LLP 1069.008.000 D4). */
+export const allows = (p, required = []) => !!p && required.every((name) => p.entitlements.includes(name));
+
+/** What a profile that lacks a grant's entitlement needs, said once. */
+const missing = (bundle, required, why) => new Error(`grant-device-profile: ${required.join(', ')} ${required.length > 1 ? 'are' : 'is'} needed by this app's grants, and ${why} (a team wildcard never allows HealthKit). In the Apple Developer portal, register the App ID ${bundle} with that capability, make a development profile for it that includes this phone, and install it (or name it with EXACT_PROFILE).`);
+
+/** A development profile on this Mac covering the phone and the bundle id (the team's wildcard or the id itself), unexpired; EXACT_PROFILE names one.
+ * With `required` (a grant's signing entitlements), only one that allows them all, which is one for the id itself. */
+export function profile(udid, bundle, required = []) {
+  if (process.env.EXACT_PROFILE) {
+    const named = decodeProfile(process.env.EXACT_PROFILE);
+    if (!allows(named, required)) throw missing(bundle, required, `EXACT_PROFILE (${named.name}) does not allow ${required.length > 1 ? 'them' : 'it'}`);
+    return named;
+  }
   const dirs = ['Library/Developer/Xcode/UserData/Provisioning Profiles', 'Library/MobileDevice/Provisioning Profiles'].map((d) => resolve(homedir(), d)).filter(existsSync);
-  const found = dirs.flatMap((d) => readdirSync(d).filter((f) => f.endsWith('.mobileprovision')).map((f) => decodeProfile(resolve(d, f))))
+  const covering = dirs.flatMap((d) => readdirSync(d).filter((f) => f.endsWith('.mobileprovision')).map((f) => decodeProfile(resolve(d, f))))
     .filter((p) => p.dev && p.expires > new Date() && p.devices.includes(udid) && (p.appId === `${p.team}.*` || p.appId === `${p.team}.${bundle}`))
     .sort((a, b) => b.expires - a.expires);
-  if (!found.length) throw new Error(`no development provisioning profile on this Mac covers ${bundle} on this phone (${udid}); run any app on it from Xcode once with team signing, or name one with EXACT_PROFILE`);
+  if (!covering.length) throw new Error(`no development provisioning profile on this Mac covers ${bundle} on this phone (${udid}); run any app on it from Xcode once with team signing, or name one with EXACT_PROFILE`);
+  const found = covering.filter((p) => allows(p, required));
+  if (!found.length) throw missing(bundle, required, `no development profile on this Mac for ${bundle} on this phone allows ${required.length > 1 ? 'them' : 'it'}`);
   return found[0];
 }
 
@@ -197,7 +212,10 @@ function decodeProfile(path) {
   const team = /<key>TeamIdentifier<\/key>\s*<array>\s*<string>([^<]*)<\/string>/.exec(xml)?.[1];
   const devices = [...(/<key>ProvisionedDevices<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(xml)?.[1] ?? '').matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]);
   const expires = /<key>ExpirationDate<\/key>\s*<date>([^<]*)<\/date>/.exec(xml)?.[1];
-  return { path, name: str('Name'), team, appId: str('application-identifier'), devices, dev: /<key>get-task-allow<\/key>\s*<true\/>/.test(xml), expires: new Date(expires ?? 0) };
+  // The keys of its Entitlements whose value is not `false`: what it allows.
+  const allowed = /<key>Entitlements<\/key>\s*<dict>([\s\S]*?)<\/dict>/.exec(xml)?.[1] ?? '';
+  const entitlements = [...allowed.matchAll(/<key>([^<]+)<\/key>\s*(<false\/>)?/g)].filter((m) => !m[2]).map((m) => m[1]);
+  return { path, name: str('Name'), team, appId: str('application-identifier'), devices, dev: /<key>get-task-allow<\/key>\s*<true\/>/.test(xml), expires: new Date(expires ?? 0), entitlements };
 }
 
 /** The Apple Development identity (its SHA-1) for a team, from the keychain; EXACT_IDENTITY names one. */

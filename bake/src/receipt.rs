@@ -531,8 +531,9 @@ fn artifact_graph(
     // tier), deferred templates and branches included, each by the rule its
     // host loads it by: the Canvas 2D GPU module for a `Canvas`, the SVG
     // island module where `svg_islands` holds, the video arm for a `Video`,
-    // the web arm for a `WebView`. A build whose plan is fixed leaves out
-    // the rest.
+    // the web arm for a `WebView`, and the sound arm for a declared sound
+    // (LLP 1096 D8: a `sound` declaration is not a node). A build whose plan
+    // is fixed leaves out the rest.
     let makes = |wanted: exact_kernel::NodeType| {
         plan.nodes
             .iter()
@@ -543,12 +544,22 @@ fn artifact_graph(
         ("svg", exact_runner::svg_islands(plan)),
         ("video", makes(exact_kernel::NodeType::Video)),
         ("web", makes(exact_kernel::NodeType::WebView)),
+        ("sound", !plan.sounds.is_empty()),
     ]
     .into_iter()
     .filter_map(|(module, reached)| reached.then_some(module))
     .collect();
+    // LLP 1098 D8: a node that binds `mediaTitle` (`metadata=`) claims the
+    // media session, which iOS shows only for a playback session.
+    let media_session = plan.nodes.iter().any(|node| {
+        node.bindings.iter().any(|b| {
+            let b = plan.binding(b);
+            b.kind == exact_plan::BindingKind::Prop
+                && b.id == exact_kernel::PropId::MediaTitle as u16
+        })
+    });
     Ok(
-        json!({"version":1,"sources":sources,"surfaceCalls":calls,"loads":loads,"artifacts":artifacts}),
+        json!({"version":1,"sources":sources,"surfaceCalls":calls,"loads":loads,"mediaSession":media_session,"artifacts":artifacts}),
     )
 }
 
@@ -674,6 +685,59 @@ mod tests {
         source_map("development", &app, &out, &other, &other.encode());
         assert!(!map.exists(), "a map for other nodes is never written");
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// LLP 1096 D8: a declared sound is not a node, so the plan's `sounds`
+    /// table is what says a fixed build carries the sound arm.
+    #[test]
+    fn a_plan_with_a_sound_loads_the_sound_arm() {
+        let without = exact_plan::builder::PlanBuilder::new(0, 0)
+            .finish()
+            .unwrap();
+        let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+        b.sound("assets/kick.wav", 4_800, 48_000, 1, "00");
+        let with = b.finish().unwrap();
+        for (plan, loads) in [(without, json!([])), (with, json!(["sound"]))] {
+            let graph = artifact_graph(&plan, &json!({}), &[], "aarch64-apple-darwin").unwrap();
+            assert_eq!(graph["loads"], loads);
+        }
+    }
+
+    /// LLP 1098 D8: the receipt says whether a node claims the media session.
+    #[test]
+    fn a_plan_with_metadata_claims_the_media_session() {
+        for (prop, claims) in [
+            (exact_kernel::PropId::Src, false),
+            (exact_kernel::PropId::MediaTitle, true),
+        ] {
+            let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+            let expr = b.constant(&exact_plan::Value::str("Episode 1"));
+            let bindings = [exact_plan::BindingsRow {
+                kind: exact_plan::BindingKind::Prop,
+                id: prop as u16,
+                expr,
+            }];
+            b.node(
+                exact_kernel::NodeType::Video as u8,
+                None,
+                None,
+                0,
+                &bindings,
+                &[],
+                None,
+            );
+            let graph = artifact_graph(
+                &b.finish().unwrap(),
+                &json!({}),
+                &[],
+                "aarch64-apple-darwin",
+            )
+            .unwrap();
+            assert_eq!(
+                (graph["loads"].clone(), graph["mediaSession"].clone()),
+                (json!(["video"]), json!(claims))
+            );
+        }
     }
 
     #[test]

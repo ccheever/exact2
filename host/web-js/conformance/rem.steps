@@ -1,0 +1,6 @@
+# #136: `em` follows a bound parent font size, `rem` the root font size, on both pages.
+type size 20
+tap flip
+prefer root-font-size 20
+type size 12
+tap flip

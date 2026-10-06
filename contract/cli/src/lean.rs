@@ -476,8 +476,11 @@ impl Emitter<'_> {
                     Some((a, _)) => format!(".some {}", string(a)),
                     None => ".none".into(),
                 };
+                // `queue` (LLP 1092 D1) only where declared: the embedding
+                // of every other program is as it was.
+                let queue = if m.queue { ", queue := true" } else { "" };
                 format!(
-                    "{{ name := {}, ty := {}, refreshes := [{}], andThen := {then} }}",
+                    "{{ name := {}, ty := {}, refreshes := [{}], andThen := {then}{queue} }}",
                     string(&m.name),
                     ty(&ct.mutations[i]),
                     refreshes.join(", ")
@@ -524,8 +527,16 @@ impl Emitter<'_> {
                 TaskKind::After => ".after",
                 TaskKind::Frame => ".frame",
             };
+            // A gated task's gate and key (LLP 1092 D12), as D9 lowers them.
+            let mut gate = String::new();
+            if let Some(g) = &t.gate {
+                gate += &format!(", gate := .some ({})", self.expr(g)?);
+            }
+            if let Some(k) = &t.key {
+                gate += &format!(", key := .some ({})", self.expr(k)?);
+            }
             tasks.push(format!(
-                "{{ name := {}, kind := {kind}, ms := {}, action := {} }}",
+                "{{ name := {}, kind := {kind}, ms := {}, action := {}{gate} }}",
                 string(&t.name),
                 self.expr(&t.timer.0)?,
                 string(&t.timer.1)
@@ -572,7 +583,13 @@ impl Emitter<'_> {
             Expr::Str(s, _) => format!("(.str {})", string(s)),
             Expr::Bool(b, _) => format!("(.bool {b})"),
             Expr::None(_) => ".none".into(),
-            Expr::EmptyList(_) => ".emptyList".into(),
+            Expr::List(items, _) => {
+                let items = items
+                    .iter()
+                    .map(|x| self.expr(x))
+                    .collect::<Result<Vec<_>, _>>()?;
+                format!("(.list [{}])", items.join(", "))
+            }
             Expr::Some(inner, _) => format!("(.some {})", self.expr(inner)?),
             Expr::Template(parts, _) => {
                 let ps = parts
@@ -803,7 +820,7 @@ impl Emitter<'_> {
         let mut props = Vec::new();
         let mut handlers = Vec::new();
         for a in attrs {
-            match contract_lower::tags::attr(&a.name) {
+            match contract_lower::tags::attr_valued(&a.name, &a.value) {
                 Some(contract_lower::tags::AttrTarget::Handler(event)) => {
                     let (action, args): (&str, &[Expr]) = match &a.value {
                         Expr::Ident(action, _) => (action, &[]),

@@ -88,12 +88,101 @@ pub struct ReorderWrapper {
     pub offset: f64,
 }
 /// Bounded before/after snapshot; no presentation samples or N-key export.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ReorderFrame {
     /// Action eligibility is consumed; finish remains required.
     pub terminal: bool,
     /// Surviving mounted wrappers only.
     pub wrappers: Vec<ReorderWrapper>,
+    /// Where the session stands (LLP 1094 D4, D8).
+    pub phase: ReorderPhase,
+    /// How a drop's hold ended, once it has (LLP 1094 D8).
+    pub ending: Option<ReorderEnding>,
+    /// The list a drop lands in: the source's own until another grouped
+    /// list takes the dragged row's centre (LLP 1094 D7).
+    pub target: Option<NodeKey>,
+    /// The mounted wrapper that now holds the dragged row, in whichever
+    /// grouped list holds it: where a ghost lands (LLP 1094 D6, D8).
+    pub row: Option<NodeKey>,
+}
+
+/// Where a reorder session stands (LLP 1094 D4, D8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReorderPhase {
+    /// The preview follows the contact (or the keys).
+    #[default]
+    Active,
+    /// Dropped; the action's move has not shown yet. Both previews stay,
+    /// the pin is kept, and Escape does nothing.
+    Holding,
+    /// Cancelled before a drop: the previews close and no action ran.
+    Cancelling,
+    /// The drop showed, or its hold ended: the previews closed, and the
+    /// host's return runs until `finish_reorder`.
+    Settling,
+}
+
+impl ReorderPhase {
+    /// The name hosts and `state.reorder` read.
+    pub fn name(self) -> &'static str {
+        match self {
+            ReorderPhase::Active => "active",
+            ReorderPhase::Holding => "holding",
+            ReorderPhase::Cancelling => "cancelling",
+            ReorderPhase::Settling => "settling",
+        }
+    }
+}
+
+/// How a drop's hold ended (LLP 1094 D8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReorderEnding {
+    /// The row is in a grouped list: where it was dropped, or where the
+    /// action put it instead. A ghost springs onto it.
+    Landed,
+    /// The row is in no grouped list: a ghost fades.
+    Gone,
+    /// A second passed on the session clock: a ghost springs onto wherever
+    /// the row is now.
+    Timeout,
+}
+
+impl ReorderEnding {
+    /// The name hosts and `state.reorder` read.
+    pub fn name(self) -> &'static str {
+        match self {
+            ReorderEnding::Landed => "landed",
+            ReorderEnding::Gone => "gone",
+            ReorderEnding::Timeout => "timeout",
+        }
+    }
+}
+
+/// One keyboard or custom-action move (LLP 1094 D9): the gap one row up or
+/// down, or the same index in the previous or next grouped list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReorderStep {
+    /// One row earlier (Up, "Move earlier").
+    Earlier,
+    /// One row later (Down, "Move later").
+    Later,
+    /// The previous grouped list in tree order (Left).
+    PreviousList,
+    /// The next grouped list in tree order (Right).
+    NextList,
+}
+
+impl ReorderStep {
+    /// From DOM's key name: the four arrows.
+    pub fn from_key(key: &str) -> Option<ReorderStep> {
+        Some(match key {
+            "ArrowUp" => ReorderStep::Earlier,
+            "ArrowDown" => ReorderStep::Later,
+            "ArrowLeft" => ReorderStep::PreviousList,
+            "ArrowRight" => ReorderStep::NextList,
+            _ => return None,
+        })
+    }
 }
 
 impl ReorderGeometry {

@@ -136,7 +136,7 @@ impl Cx<'_, '_> {
                     return err(
                         "type-let-reassign",
                         format!(
-                            "`{target}` is the `let` on line {}, and a local is never reassigned: give the new value its own `let`, or make `{target}` a `state`",
+                            "`{target}` is the `let` on line {}, and a local is never reassigned: choose its value where it is bound, `let {target} = cond ? this : that`; or give the new value its own `let`, or make `{target}` a `state`",
                             at.line
                         ),
                         *span,
@@ -184,6 +184,10 @@ impl Cx<'_, '_> {
                     if let Some((Ref::Prop(_), Ty::Action(params))) = scope.lookup(name) {
                         return calls::prop_args(name, params, args, scope, shapes, *span);
                     }
+                }
+                // Refused as ambiguous (LLP 1089 D1): not a host command's too.
+                if shapes.ambiguous.contains(span) {
+                    return Ok(());
                 }
                 return checks::check_command(name, args, scope, shapes, &c.name, *span);
             }
@@ -304,7 +308,8 @@ fn names<'e>(e: &'e Expr, bound: &mut Vec<&'e str>, out: &mut Vec<(&'e str, Span
                 out.push((n, *span));
             }
         }
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::EmptyList(_) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+        Expr::List(items, _) => items.iter().for_each(|x| names(x, bound, out)),
         Expr::Template(parts, _) => {
             for p in parts {
                 if let TemplatePart::Expr(x) = p {

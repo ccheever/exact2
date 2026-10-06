@@ -143,14 +143,20 @@ pub type TimelineRows = (
 );
 
 /// The animatable rows of one style, as engine values. CSS's own property
-/// vocabulary: `translate` (two lengths), `scale`, `rotate` (degrees),
+/// vocabulary: `translate` (two lengths, then two percentages of the box),
+/// `scale`, `rotate` (degrees),
 /// `opacity`. Height is intentionally absent: only an explicitly registered
 /// owner is adopted through [`Kernel::height_motion_sync`], including at boot.
 pub fn targets(style: &StyleProps) -> [(Property, Value); 4] {
     [
         (
             Property::Translate,
-            Value::new(style.translate.x as f64, style.translate.y as f64),
+            Value::four(
+                style.translate.x as f64,
+                style.translate.y as f64,
+                style.translate_percent.x as f64,
+                style.translate_percent.y as f64,
+            ),
         ),
         (Property::Scale, Value::scalar(style.scale as f64)),
         (Property::Rotate, Value::scalar(style.rotate as f64)),
@@ -205,9 +211,27 @@ fn paint_bit(property: Property) -> u16 {
         .map_or(0, |i| 1 << i)
 }
 
-fn color(c: ColorValue, dark: bool) -> Value {
+fn color(c: ColorValue, dark: bool) -> Option<Value> {
+    // LLP 1100 D3: a profile's colour is never interpolated; it flips discretely.
+    if matches!(c, ColorValue::Profiled(_)) {
+        return None;
+    }
+    // LLP 1100 D2: a wide colour moves in Oklab, unclipped.
+    if let ColorValue::Wide(id) = c {
+        if let Some(w) = crate::style::wide::wide(id) {
+            let half = w.half(dark);
+            let linear = half.linear_srgb();
+            // Moving stores signed 1/2048ths. A color outside that range
+            // must change discretely, never flatten at the storage ceiling.
+            if linear.iter().any(|v| !(-16.0..=15.999).contains(v)) {
+                return None;
+            }
+            let [l, a, b] = exact_color::MixSpace::Oklab.from_linear_srgb(linear);
+            return Some(Value::oklab(l, a, b, half.alpha));
+        }
+    }
     let c = c.resolve(dark);
-    Value::rgba8(c.r(), c.g(), c.b(), c.a())
+    Some(Value::rgba8(c.r(), c.g(), c.b(), c.a()))
 }
 
 /// A node's paint targets under an appearance (LLP 1055.000 D6, LLP 1062
@@ -253,39 +277,34 @@ pub fn color_targets(
     }
     let text = node.text_color();
     let paint = |id: StyleId| match node.computed(id) {
-        crate::style::RowValue::Paint(crate::svg::Paint::Color(c)) => Some(color(*c, dark)),
-        crate::style::RowValue::Paint(crate::svg::Paint::CurrentColor) => Some(color(text, dark)),
+        crate::style::RowValue::Paint(crate::svg::Paint::Color(c)) => color(*c, dark),
+        crate::style::RowValue::Paint(crate::svg::Paint::CurrentColor) => color(text, dark),
         _ => None,
     };
     let [top, right, bottom, left] = s.border_colors(text);
     // @ref LLP 1077 D4 — the engine moves the list's first shadow; the
     // rest change at once (declared in LLP 1001).
     let first = s.box_shadow.0.first();
-    let shadow = first.map_or(crate::style::Color::TRANSPARENT, |f| f.color.resolve(dark));
-    let alpha = shadow.a() as f64 / 255.0;
-    let unit = |c: u8| c as f64 / 255.0;
+    let shadow = first.map_or(ColorValue::Fixed(crate::style::Color::TRANSPARENT), |f| {
+        f.color
+    });
     wanted
         .into_iter()
         .map(|p| {
             let value = match p {
-                Property::Color => Some(color(text, dark)),
-                Property::BackgroundColor => Some(color(s.background_color.unwrap_or(text), dark)),
+                Property::Color => color(text, dark),
+                Property::BackgroundColor => color(s.background_color.unwrap_or(text), dark),
                 Property::Fill => paint(StyleId::Fill),
                 Property::Stroke => paint(StyleId::Stroke),
-                Property::BorderTopColor => Some(color(top, dark)),
-                Property::BorderRightColor => Some(color(right, dark)),
-                Property::BorderBottomColor => Some(color(bottom, dark)),
-                Property::BorderLeftColor => Some(color(left, dark)),
-                Property::TintColor => Some(color(s.tint_color.unwrap_or(text), dark)),
+                Property::BorderTopColor => color(top, dark),
+                Property::BorderRightColor => color(right, dark),
+                Property::BorderBottomColor => color(bottom, dark),
+                Property::BorderLeftColor => color(left, dark),
+                Property::TintColor => color(s.tint_color.unwrap_or(text), dark),
                 Property::BoxShadow => Some(first.map_or(Value::ZERO, |f| {
                     Value::four(f.offset.x as f64, f.offset.y as f64, f.blur as f64, 0.0)
                 })),
-                _ => Some(Value::rgba(
-                    unit(shadow.r()),
-                    unit(shadow.g()),
-                    unit(shadow.b()),
-                    alpha,
-                )),
+                _ => color(shadow, dark),
             };
             (p, value)
         })

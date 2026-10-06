@@ -56,8 +56,11 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     }
     required init?(coder: NSCoder) { nil }
     private var backdropTap: UITapGestureRecognizer?
+    /// Each appearance, the first and one after a cancelled interactive dismissal.
+    var appeared: (() -> Void)?
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        appeared?()
         guard backdropTap == nil, let container = presentationController?.containerView else { return }
         let tap = UITapGestureRecognizer(target: self, action: #selector(tappedBackdrop))
         tap.delegate = self
@@ -123,6 +126,10 @@ private final class Presentation {
     var geometry: [UInt32: (node: NodeView, ops: [BatchOp.Kind: BatchOp])] = [:]
     var presenting = true
     var animated = false
+    /// Samples where a zoom lands while the route's nodes are still mapped:
+    /// run as a Close destroys the route (`prepare`), so the zoom back starts
+    /// from the photo as it is then, zoomed or panned.
+    var sampleLanding: (() -> Void)?
     var alreadyDismissed = false
 
     init(host: ModalHost, route: NodeView, navigation: UIViewController,
@@ -142,6 +149,32 @@ private final class Presentation {
     }
 }
 
+/// A zoom's last alignment answer (`ModalHost.present`), and whether the
+/// zoom now running is the person's interactive dismissal, which lands
+/// unaligned.
+final class ZoomLanding {
+    var rect: CGRect?
+    private(set) var interactive = false
+    /// `interactiveDismissShouldBegin`'s answer, passed through: an accepted
+    /// dismissal lands unaligned until the route appears again.
+    func dismissal(begins: Bool) -> Bool {
+        if begins { interactive = true }
+        return begins
+    }
+    /// The route appeared: first, or again after the finger cancelled.
+    func appeared() { interactive = false }
+    /// What `alignmentRectProvider` answers for a resolved rect: none while an
+    /// interactive dismissal runs. UIKit follows the finger with the whole
+    /// route and, given an alignment rect, re-bases the content onto it at
+    /// lift-off: a visible jump and a held frame (a plain UIKit fixture does
+    /// the same). Unaligned, the release carries the drag on in one motion,
+    /// the route cross-fading into its source.
+    func answer(_ resolved: CGRect?) -> CGRect? {
+        if let resolved { rect = resolved }
+        return interactive ? nil : rect
+    }
+}
+
 final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     unowned let presenter: Presenter
     private var layers: [Presentation] = []
@@ -150,6 +183,8 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     private var retiring: [Presentation] = []
     private var dismissing: Presentation?
     private var closing = false
+    /// The fullscreen controller hidden until its zoom starts (`present`).
+    private weak var zoomGuard: UIViewController?
     private var refusedRoute: UInt32?
     var active: Bool { !layers.isEmpty || !retiring.isEmpty || closing }
     var inTransition: Bool {
@@ -197,6 +232,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             $0.op == .destroy && $0.id == layer.route.id
         }) {
             let controller = layer.controller
+            layer.sampleLanding?()
             controller.freeze()
             controller.retiringRoot = layer.route
             controller.retiringNavigation = presenter.navigation.preserveModalContent(in: controller)
@@ -255,6 +291,30 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         }
     }
 
+    /// The image a zoom's end shows: the node itself, or the first image
+    /// among its authored descendants (each node's children are in its
+    /// `container`), depth first.
+    static func zoomImage(_ node: NodeView) -> NodeView? {
+        if node.kind == "image" { return node }
+        for child in node.container.subviews.compactMap({ $0 as? NodeView }) {
+            if let image = zoomImage(child) { return image }
+        }
+        return nil
+    }
+
+    /// Where a zoom lands, in the zoomed controller's view: the target's box,
+    /// or for an image the image as drawn (its `object-fit` in its content
+    /// box, clipped there), sized from its own pixels or, before they land,
+    /// `fallbackNatural`.
+    static func zoomAlignment(target: NodeView, fallbackNatural: CGSize?, in zoomed: UIView) -> CGRect {
+        let box = target.convert(target.bounds, to: zoomed)
+        guard let image = zoomImage(target),
+              let natural = image.raster?.image.naturalSize ?? fallbackNatural, natural.width > 0, natural.height > 0 else { return box }
+        let content = image.contentBox()
+        let drawn = RasterGeometry.rect(natural: natural, content: content, fit: image.style["object_fit"]?.string ?? "fill")
+        return image.convert(drawn.intersection(content), to: zoomed)
+    }
+
     func canPresent(from parent: UIViewController, route: NodeView) -> Bool {
         guard parent.presentedViewController == nil else {
             if refusedRoute != route.id {
@@ -280,9 +340,35 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         let controller = layer.controller
         if #available(iOS 18.0, tvOS 18.0, *), layer.kind == "fullscreen", route.props["navigationSource"] != nil {
             let options = UIViewController.Transition.ZoomOptions()
+            let landing = ZoomLanding()
             options.interactiveDismissShouldBegin = { [weak self, weak route] context in
                 guard let self, let route, context.willBegin else { return false }
-                return !self.refusesDismissal(of: route)
+                return landing.dismissal(begins: !self.refusesDismissal(of: route))
+            }
+            controller.appeared = landing.appeared
+            // Where the source lands: the presented route's own element with
+            // the source's id, when it has one; for an image, the image as it
+            // is drawn (`object-fit`), so the zoom morphs photo into photo
+            // rather than the whole route into the thumbnail with two photos
+            // cross-fading (LLP 1035.001, the zoom's alignment).
+            // The last answer, for the zoom back after a Close: by then the
+            // route's nodes have left the presenter's map (`release`) though
+            // UIKit still shows them. `prepare` samples it just before.
+            let resolve: (UIView, NodeView?) -> CGRect? = { [weak self, weak route] zoomed, sourceView in
+                guard let self, let route, let name = route.props["navigationSource"],
+                      let target = presenter.views.values.filter({
+                          $0.props["id"] == name && $0.window != nil && $0.isDescendant(of: route)
+                      }).min(by: { $0.id < $1.id }) else { return nil }
+                // Before the viewer's own pixels land, the source's image (the
+                // view UIKit zooms from) is the same photo.
+                let source = sourceView.flatMap(Self.zoomImage)
+                return Self.zoomAlignment(target: target, fallbackNatural: source?.raster?.image.naturalSize, in: zoomed)
+            }
+            options.alignmentRectProvider = { context in
+                landing.answer(context.zoomedViewController.viewIfLoaded.flatMap { resolve($0, context.sourceView as? NodeView) })
+            }
+            layer.sampleLanding = { [weak controller] in
+                if let zoomed = controller?.viewIfLoaded, let rect = resolve(zoomed, nil) { landing.rect = rect }
             }
             controller.preferredTransition = .zoom(options: options, sourceViewProvider: { [weak self, weak route, weak preceding] _ in
                 guard let self, let route, let preceding,
@@ -293,13 +379,22 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                         ($0 === preceding || $0.isDescendant(of: preceding))
                 }.min(by: { $0.id < $1.id })
             })
+            // Hidden until UIKit's zoom has it: on a device a frame could be
+            // drawn with the presented view in place at full size before the
+            // zoom took it over (one frame of the whole destination, then the
+            // presenting screen again, then the zoom).
+            controller.view.alpha = 0
+            zoomGuard = controller
         }
         layers.append(layer)
         controller.isModalInPresentation = refusesDismissal(of: route)
         controller.loadViewIfNeeded()
         presenter.navigation.move(to: controller) { controller.view.addSubview(presenter.viewport) }
         controller.presentationController?.delegate = self
-        owner.present(controller, animated: !ExactEnv.agentFreezes) { [weak self, weak layer] in
+        let guarded = zoomGuard === controller
+        zoomGuard = nil
+        owner.present(controller, animated: !ExactEnv.agentFreezes) { [weak self, weak layer, weak controller] in
+            if guarded { UIView.performWithoutAnimation { controller?.view.alpha = 1 } }
             guard let self, let layer else { return }
             layer.presenting = false
             DispatchQueue.main.async { [weak self, weak layer] in
@@ -315,6 +410,14 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                 presenter.syncModal()
                 drainRetired()
             }
+        }
+        if guarded {
+            // Shown as the transition starts, in the block UIKit runs with
+            // its first frame; at once if there is no coordinator or it
+            // refuses the block; and in any case when the presentation ends.
+            let show = { UIView.performWithoutAnimation { controller.view.alpha = 1 } }
+            let taken = controller.transitionCoordinator?.animate(alongsideTransition: { _ in show() }, completion: { _ in show() }) ?? false
+            if !taken { show() }
         }
         fit()
     }

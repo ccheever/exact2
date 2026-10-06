@@ -239,6 +239,12 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneDidBecomeActive(_ scene: UIScene) {
         for (_, session) in sessions { session.becameActive() }
     }
+    /// Leaving with a session's storage still landing: a background task
+    /// holds the app until it lands (LLP 1097 D10).
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        storageHold = StorageHold.backgroundTask { sessions.contains { $0.1.storageOperations > 0 } }
+    }
+    var storageHold: StorageHold?
 }
 
 UIApplicationMain(CommandLine.argc, CommandLine.unsafeArgv, nil, NSStringFromClass(AppDelegate.self))

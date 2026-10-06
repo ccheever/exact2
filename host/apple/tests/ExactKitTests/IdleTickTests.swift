@@ -1,7 +1,7 @@
 import XCTest
 @testable import ExactKit
 
-/// A timer's batch that changes nothing only moves the clock: it does not
+/// A timer's (or a scroll event's) batch that changes nothing only moves the clock: it does not
 /// reach `apply`, as fills and list feedback already skip theirs, and the
 /// next timer is armed for its deadline. A batch with ops, an error, a
 /// control's viewless contents (`controls`, LLP 1069.011 §9) or new motion
@@ -14,7 +14,7 @@ final class IdleTickTests: XCTestCase {
         let due = session.now() + 250
         var idle = Batch(ops: [], timers: true, motion: false, clock: nil, error: nil, timerDueMs: due, pending: false)
         XCTAssertTrue(session.changesNothing(idle))
-        session.applyTick(idle)
+        session.applyUnlessEmpty(idle)
         XCTAssertEqual(session.appliedBatches, before, "an idle tick does not reach apply")
         XCTAssertEqual(session.timerDue, due, "its deadline is kept")
         if !ExactEnv.agentMode {
@@ -24,7 +24,7 @@ final class IdleTickTests: XCTestCase {
         // A later deadline re-arms; no deadline invalidates what was armed.
         let armed = session.clockTimer
         idle.timerDueMs = due + 250
-        session.applyTick(idle)
+        session.applyUnlessEmpty(idle)
         if !ExactEnv.agentMode {
             XCTAssertEqual(session.clockDue, due + 250)
             XCTAssertEqual(armed?.isValid, false, "the earlier timer is replaced")
@@ -32,11 +32,21 @@ final class IdleTickTests: XCTestCase {
         let later = session.clockTimer
         if !ExactEnv.agentMode { XCTAssertEqual(later?.isValid, true, "the successor is armed") }
         idle.timerDueMs = nil
-        session.applyTick(idle)
+        session.applyUnlessEmpty(idle)
         XCTAssertEqual(session.appliedBatches, before)
         XCTAssertNil(session.clockTimer)
         XCTAssertNil(session.clockDue)
         XCTAssertNotEqual(later?.isValid, true, "and invalidated")
+        // A scroll event's batch is no timer's (`timers` false): the same.
+        let scrolled = Batch(ops: [], timers: false, motion: false, clock: nil, error: nil, timerDueMs: due)
+        session.applyUnlessEmpty(scrolled)
+        XCTAssertEqual(session.appliedBatches, before, "an empty scroll event does not reach apply")
+        XCTAssertEqual(session.timerDue, due)
+        // Any other event's empty batch still applies: the pass reconciles a
+        // native control that changed itself first, and seeks native
+        // animations to the agent's clock.
+        session.apply(scrolled)
+        XCTAssertEqual(session.appliedBatches, before + 1, "an ordinary empty batch reaches apply")
         // Each of these is news: the tick applies.
         var controls = Batch(ops: [], timers: true, motion: false, clock: nil, error: nil, timerDueMs: due)
         controls.controls = true
@@ -46,7 +56,7 @@ final class IdleTickTests: XCTestCase {
         for batch in [controls, failed, moving, ops] {
             XCTAssertFalse(session.changesNothing(batch))
             let count = session.appliedBatches
-            session.applyTick(batch)
+            session.applyUnlessEmpty(batch)
             XCTAssertEqual(session.appliedBatches, count + 1)
         }
     }

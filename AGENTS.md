@@ -91,13 +91,24 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   contract-difftest -- quick` before landing. It checks the semantics on what you changed,
   takes about 10 s warm, and is advice, not a check (`semantics/README.md`, "Using it day to
   day"; `contract verify <app>` is the app author's version).
+- The gate tests only `default-members`. Of the hosts it holds the web host
+  (`exact-web`) and the Apple host's Rust (`exact-apple`; its tests that drive a real
+  socket through URLSession, wait on the wall clock or launch Bun, Swift or a nested
+  cargo build are `async lane:`, and its Swift is the XCTests). The
+  others (`exact-web-js`, `exact-web-capabilities`, `exact-linux`, `exact-windows`,
+  `exact-render`, …), `js/`, `gpu/` and most apps are
+  not tested by it (one is compiled when a member depends on it, and its tests still do
+  not run), and the async lane reports them only after the push. When you touch one, or
+  what its tests read, run its tests before landing: `cargo test -p exact-linux --lib
+  --tests --no-fail-fast`, or `--bins` for a bin-only crate such as `exact-web-js`.
+  Advice, not a check.
 - Verify by running, never by grepping. Fix loops get three rounds, then stop and say so.
 - To see a change work, drive the app: `bun scripts/agent.mjs <web|macos|ios|linux> tree
   "tap change-station" "type station-search Palo" "clock +60000" state logs "screenshot
   out.png"` — the ten operations of LLP 1012 and LLP 1079 (`perf`: a subtree's work by
   plan site, `perf <target> during "<op>" …` for the difference a drive made, and
-  `perf frames`; a development build's ⌥⇧T, Save Trace or `SIGUSR1` writes a trace
-  that `bun scripts/agent.mjs trace <file>` reads), the same on every host, with the clock
+  `perf frames`, `perf frames live <ms>` for a game's frame pacing; a development build's ⌥⇧T, Save Trace or `SIGUSR1` writes a trace
+  that `bun scripts/agent.mjs trace <file>` reads, `trace --phone` a phone's), the same on every host, with the clock
   in your hands (`clock settle` instead of waiting; `"screenshot out.png over 600 every
   50"` films motion on it as a contact sheet, `.apng` to play). The driver refuses a
   build older than its sources and names the rebuild (LLP 1012.001.000). `bun scripts/smoke.mjs
@@ -107,6 +118,17 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   anywhere, macOS included. `host-dev` compiles incrementally unless the shell
   exports `CARGO_INCREMENTAL=0`, which a hand-run cargo obeys (a touched kernel
   line is then 17 s, not 6) and `build.mjs` overrides, saying so.
+- The terminal host (LLP 1101): `cargo build --profile host-dev -p harness-terminal`,
+  then `./target/host-dev/harness` runs the coding harness in this terminal (inline;
+  `--fullscreen` for the alternate screen), or `exact-terminal <entry.contract>` any
+  terminal entry. With operations it runs headless (`--size 80x24 type prompt "hi" key
+  Enter until "…" print`); headless, the frames go into a terminal emulator (`vt100`)
+  and `print`, `screenshot` read its screen (`print --all` the scrollback, `document`
+  the whole laid-out document). Develop it in `host-dev`: a debug build lays out a long
+  document hundreds of times slower. `exact-terminal` is in `default-members`
+  (`tests/screen.rs` drives inline mode through the emulator); `harness-data` is not,
+  so when you touch the harness run `cargo test -p harness-data`.
+  `examples/replay.rs` replays a recorded session through the same emulator.
 - Delivery (LLP 1030.000): `bun scripts/deploy.mjs <app> [--origin <dir>]` prints the
   classifier's table (a dry run); `--yes` publishes the web root and signed bundles per stream through
   `scripts/origin.mjs`; `keygen <id>` makes a signing key (the private half never enters
@@ -126,8 +148,12 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   (`~/.cache/exact/apple-modules`, `host/apple/modules.mjs`), and, into a
   `target/` that has compiled nothing, the registry crates another build
   compiled, which Cargo then accepts or not by its own fingerprints
-  (`~/.cache/exact/apple-crates`, `host/apple/crates.mjs`). Deleting either
-  directory only costs the next first build its time.
+  (`~/.cache/exact/apple-crates`, `host/apple/crates.mjs`). A development web
+  build takes the compiler and the leaf wasm modules the same way
+  (`~/.cache/exact/web-modules`, `host/web-js/module.mjs`; `bun
+  host/web-js/module.mjs --prebuild` warms a builder for its checkout's
+  sources). Deleting any of these directories only costs the next first build
+  its time.
 - Never `git stash`. Kill only PIDs you recorded. Agents remove apparatus freely and add
   none without a human saying so.
 - Optional capability is a separate artifact loaded on demand (the GPU module) or another

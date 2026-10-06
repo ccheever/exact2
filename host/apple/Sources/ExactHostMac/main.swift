@@ -176,6 +176,16 @@ if let path = ExactEnv.environment["EXACT_HOST_CONTROL"] {
 
 final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// A quit with a session's storage still landing waits for it, five
+    /// seconds at most (LLP 1097 D10).
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let hold = StorageHold(bound: 5, pending: { sessions.contains { $0.1.storageOperations > 0 } },
+                               begin: { _ in }, end: { NSApp.reply(toApplicationShouldTerminate: true) })
+        guard hold.hold() else { return .terminateNow }
+        quitting = hold
+        return .terminateLater
+    }
+    var quitting: StorageHold?
     func windowDidBecomeKey(_ notification: Notification) { agentReady() }
     func windowDidChangeOcclusionState(_ notification: Notification) { for (_, s) in sessions { s.occlusionChanged() } }
 }

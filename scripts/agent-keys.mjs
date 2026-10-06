@@ -35,6 +35,10 @@ export function withHeldModifiers(method, event, heldKeys) {
  * `+`). `text` is what the key types: nothing with Control or Meta held, a
  * shortcut's (chat F3, kanban F27 in the x2apps diaries).
  */
+const PUNCTUATION = { '-': 'Minus', '_': 'Minus', '=': 'Equal', '+': 'Equal', '[': 'BracketLeft', '{': 'BracketLeft', ']': 'BracketRight', '}': 'BracketRight',
+  '\\': 'Backslash', '|': 'Backslash', ';': 'Semicolon', ':': 'Semicolon', "'": 'Quote', '"': 'Quote', '`': 'Backquote', '~': 'Backquote',
+  ',': 'Comma', '<': 'Comma', '.': 'Period', '>': 'Period', '/': 'Slash', '?': 'Slash',
+  '!': 'Digit1', '@': 'Digit2', '#': 'Digit3', '$': 'Digit4', '%': 'Digit5', '^': 'Digit6', '&': 'Digit7', '*': 'Digit8', '(': 'Digit9', ')': 'Digit0' };
 export function cdpKey(chord) {
   const held = new Set();
   let code = chord, key, vk, location = 0;
@@ -51,7 +55,9 @@ export function cdpKey(chord) {
   // A key by its `key` name works as on every other target (pomodoro F5): a
   // letter or digit on its US key, punctuation on its own, a named key.
   else if (/^[a-zA-Z0-9]$/.test(code)) { key = code; vk = code.toUpperCase().charCodeAt(0); code = /\d/.test(code) ? `Digit${code}` : `Key${code.toUpperCase()}`; }
-  else if (code.length === 1 && code !== ' ') { key = code; vk = 0; code = { '-': 'Minus', '=': 'Equal', '[': 'BracketLeft', ']': 'BracketRight', '\\': 'Backslash', ';': 'Semicolon', "'": 'Quote', '`': 'Backquote', ',': 'Comma', '.': 'Period', '/': 'Slash' }[code] ?? ''; }
+  // Shifted punctuation is the physical key under it, as Linux's driver_key
+  // and Apple's KeyCodes.codeName name it (b6 review C2): `!` is Digit1.
+  else if (code.length === 1 && code !== ' ') { key = code; vk = 0; code = PUNCTUATION[code] ?? ''; }
   else {
     const special = { ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], ArrowLeft: ['ArrowLeft', 37], ArrowRight: ['ArrowRight', 39], Space: [' ', 32], ' ': [' ', 32], Enter: ['Enter', 13], Escape: ['Escape', 27], Tab: ['Tab', 9], Backspace: ['Backspace', 8], Delete: ['Delete', 46], Home: ['Home', 36], End: ['End', 35], PageUp: ['PageUp', 33], PageDown: ['PageDown', 34] }[code];
     if (!special) throw new Error(`key: unsupported key ${code}`);
@@ -62,6 +68,51 @@ export function cdpKey(chord) {
   const modifiers = (held.has('Alt') ? 1 : 0) | (held.has('Control') ? 2 : 0) | (held.has('Meta') ? 4 : 0) | (held.has('Shift') ? 8 : 0);
   const text = held.has('Control') || held.has('Meta') ? undefined : key === 'Enter' ? '\r' : key.length === 1 ? key : undefined;
   return { code, key, vk, modifiers, text, location };
+}
+
+/** The chord a real paste sends: ⌘V on macOS, Ctrl+V elsewhere. */
+export function pasteChord() {
+  return process.platform === 'darwin' ? 'Meta+v' : 'Control+v';
+}
+
+/** `type <id> copy|cut|paste`. Paste sends [`pasteChord`] first and lands
+ * the clipboard event only when that keydown was not prevented (drums: skipping
+ * the chord hid a `key` handler whose preventDefault blocked a real paste).
+ * Copy and cut stay the clipboard event. `keyDown`/`keyUp` default to CDP. */
+export async function deliverClipboard({ id, opts, evaluate, ask, call, keyDown, keyUp, insertText }) {
+  const f = await ask({ op: 'focus', id, select: false });
+  if (f.error) throw new Error(f.error);
+  // Firefox builds a synthetic paste's clipboardData from its own `dataType`
+  // and `data` and ignores `clipboardData`, so its paste carried no text.
+  const send = async () => {
+    const heard = await evaluate(`(() => { const el = document.activeElement?.closest?.('[data-view]') ? document.activeElement : exact.views.get(${id}), dt = new DataTransfer(); if (${JSON.stringify(opts.clipboard)} === 'paste') dt.setData('text/plain', ${JSON.stringify(opts.text ?? '')}); const ev = new ClipboardEvent(${JSON.stringify(opts.clipboard)}, { clipboardData: dt, ...(${JSON.stringify(opts.clipboard)} === 'paste' ? { dataType: 'text/plain', data: ${JSON.stringify(opts.text ?? '')} } : {}), bubbles: true, cancelable: true }); el.dispatchEvent(ev); return { editable: el.matches('input, textarea, [contenteditable]'), prevented: ev.defaultPrevented }; })()`);
+    if (opts.clipboard === 'paste' && heard.editable && !heard.prevented) await (insertText ?? (text => call('Input.insertText', { text })))(opts.text ?? '');
+  };
+  if (opts.clipboard !== 'paste') { await send(); return; }
+  const chord = cdpKey(pasteChord());
+  const down = keyDown ?? (() => call('Input.dispatchKeyEvent', { type: 'keyDown', key: chord.key, code: chord.code, windowsVirtualKeyCode: chord.vk, modifiers: chord.modifiers, location: chord.location }));
+  const up = keyUp ?? (() => call('Input.dispatchKeyEvent', { type: 'keyUp', key: chord.key, code: chord.code, windowsVirtualKeyCode: chord.vk, modifiers: chord.modifiers, location: chord.location }));
+  // The keydown itself is kept and read once its dispatch is over, so every
+  // listener's preventDefault counts: the target's key handler (the contract's
+  // stopPropagation marks the event, host/web/glue.js, host/web-js/rt.js) and
+  // a button's `aria-keyshortcuts`, whose capture listener stops the event
+  // before any later listener would see it (input-glue.js).
+  // The chord is also the browser's own paste where it is one (Ctrl+V in Chrome
+  // off the Mac, WebKit's paste: command, Firefox): a trusted paste of the real
+  // clipboard, which the app would hear beside the driver's (WebKit heard two,
+  // Firefox only the empty one). It is stopped before any listener; the driver's
+  // paste carries the text.
+  await evaluate(`(() => { window.__exactPasteKey = null; addEventListener('keydown', window.__exactPasteHear = (e) => { window.__exactPasteKey = e; }, true); addEventListener('paste', window.__exactPasteMute = (e) => { if (e.isTrusted) { e.preventDefault(); e.stopImmediatePropagation(); } }, true); })()`);
+  let held = false;
+  try {
+    await down();
+    held = true;
+    if (await evaluate('window.__exactPasteKey?.defaultPrevented !== true')) await send();
+  } finally {
+    // A throw from the paste event must still release the chord.
+    if (held) await up().catch(() => {});
+    await evaluate(`(() => { removeEventListener('keydown', window.__exactPasteHear, true); removeEventListener('paste', window.__exactPasteMute, true); window.__exactPasteHear = window.__exactPasteMute = window.__exactPasteKey = null; })()`).catch(() => {});
+  }
 }
 
 /** Browser-owned key release carries device identity, never a canvas lookup. */
@@ -160,6 +211,30 @@ export function mouseContact() {
       return r;
     },
   };
+}
+
+/** The CLI `type` line. Key, copy and cut stay whitespace-split.
+ * Typed text and a paste's text keep their tail: real newlines stay, and `\\n` `\\t` `\\r`
+ * `\\\\` decode, as does a JSON string around the tail. `hello for 100`
+ * stays text (notes: a newline was flattened to a space). */
+export function typeCommand(line) {
+  const body = String(line).trim().replace(/^type(?:\s+|$)/, '');
+  const matched = /^(?:"((?:[^"\\]|\\.)*)"|(\S+))(?:\s+([\s\S]*))?$/.exec(body);
+  if (!matched) throw new Error('type needs a target');
+  const target = matched[1] != null ? JSON.parse(`"${matched[1]}"`) : matched[2];
+  const rest = matched[3] ?? '';
+  const head = /^\S+/.exec(rest)?.[0];
+  // A paste's text is a tail as typed text is: its newlines are the clipboard's.
+  const pasted = /^paste\s+([\s\S]*\S[\s\S]*)$/.exec(rest);
+  if (pasted) return [target, { clipboard: 'paste', text: decodeTypeText(pasted[1]) }];
+  if (head === 'key' || head === 'copy' || head === 'cut' || head === 'paste') return typeArguments([target, ...rest.trim().split(/\s+/)]);
+  return [target, decodeTypeText(rest)];
+}
+function decodeTypeText(text) {
+  if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
+    try { return JSON.parse(text); } catch { /* a quote in the text, not a JSON string */ }
+  }
+  return text.replace(/\\([ntr\\])/g, (_, c) => ({ n: '\n', t: '\t', r: '\r', '\\': '\\' }[c]));
 }
 
 export function typeArguments(args) {

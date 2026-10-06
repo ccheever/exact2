@@ -14,10 +14,10 @@ fn markdown_is_a_markup_prop_that_can_be_markdown() {
     assert!(constant.has(Capability::Markdown));
     assert_eq!(constant.to_string(), "markdown");
     // Another constant selects nothing; a computed one might be Markdown.
-    let other = used("component A\n  view\n    text \"**b**\" markup=\"plain\"\n");
+    let other = used("component A\n  view\n    text \"**b**\" markup=\"none\"\n");
     assert_eq!(other, Uses::NONE);
     let computed = used(
-        "component A\n  state rich = true\n  view\n    text \"**b**\" markup=(rich ? \"markdown\" : \"plain\")\n",
+        "component A\n  state rich = true\n  view\n    text \"**b**\" markup=(rich ? \"markdown\" : \"none\")\n",
     );
     assert!(computed.has(Capability::Markdown));
 }

@@ -56,6 +56,21 @@ impl Parser {
             let below = self.last;
             let a = self.expr()?;
             let below = below.max(self.last);
+            // A ternary broken over lines outside brackets (authoring bench): the
+            // next line starts with its `:`.
+            let next = self.tokens[self.pos..]
+                .iter()
+                .find(|t| !matches!(t.kind, TokenKind::Newline | TokenKind::Indent));
+            if matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Indent)
+                && matches!(next.map(|t| &t.kind), Some(TokenKind::Punct(":")))
+            {
+                return self.err(
+                    "syntax-expected",
+                    "the ternary's `:` is on the next line, and a line ends an expression \
+                     outside brackets: wrap the whole ternary in parentheses, as in \
+                     `let label = (done\n      ? \"Done\"\n      : \"Open\")`",
+                );
+            }
             self.expect_punct(":")?;
             let b = self.expr()?;
             let span = cond.span();
@@ -163,20 +178,36 @@ impl Parser {
                 self.expect_punct(")")?;
                 Ok(e)
             }
-            // `[]` is the empty list; `[a, b]` is not a Contract expression
-            // (LLP 1017.003 D4): a list with items comes from a source, a
-            // shape field, or `map`/`filter`.
+            // `[a, b]`, `[]` (LLP 1088 §9.1). Items may span lines (the
+            // lexer counts bracket depth), and a trailing comma is kept, as
+            // in JavaScript.
             TokenKind::Punct("[") => {
+                let (mut items, mut deepest) = (Vec::new(), 0);
+                while !self.at_punct("]") {
+                    // `[...xs, x]`: the web's spread.
+                    if self.at_punct(".") {
+                        return self.err(
+                            "syntax-refused-idiom",
+                            "Contract has no spread: write `concat(xs, [x])` for `[...xs, x]`, the web's `xs.concat([x])`",
+                        );
+                    }
+                    items.push(self.expr()?);
+                    deepest = deepest.max(self.last);
+                    if !self.eat_punct(",") {
+                        break;
+                    }
+                }
                 if !self.eat_punct("]") {
                     return self.err(
                         "syntax-expected",
                         format!(
-                            "expected `]`, found {}; `[]` is the empty list, and Contract has no list literal with items yet (LLP 1088 §9's follow-up): a list comes from the data module, a shape field, or `map`/`filter`",
+                            "expected `,` or `]` in a list, found {}",
                             describe(self.peek_kind())
                         ),
                     );
                 }
-                Ok(Expr::EmptyList(span))
+                self.built(deepest, span)?;
+                Ok(Expr::List(items, span))
             }
             // `none(value=1)`: a reserved word names no shape (LLP 1088 D5).
             TokenKind::Ident(w)
@@ -341,7 +372,7 @@ impl Parser {
                 let Some(decoded) = next.and_then(escaped) else {
                     return Err(SyntaxError {
                         id: "syntax-bad-escape",
-                        message: "unknown escape".into(),
+                        message: crate::lexer::bad_escape(next),
                         span: Span {
                             source_id: span.source_id,
                             ..Span::point(span.line, span.col + 1 + pos as u32)

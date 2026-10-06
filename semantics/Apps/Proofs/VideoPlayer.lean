@@ -21,7 +21,7 @@ theorem paused_bool : ∀ c, Reachable videoPlayer c → SlotIn "paused" IsBool 
       -- `toggle` writes `not paused`, a bool whatever it read.
       intro v hv _
       rcases hv with ⟨-, rfl⟩ | ⟨-, rfl⟩ <;> simp
-  refine Reachable.slotIn ?_ (fun c _ a _ _ _ _ _ _ _ _ _ => keeps c a _ _) (fun c a _ _ => keeps c a _ _)
+  refine Reachable.slotIn (by decide) ?_ (fun c _ a _ _ _ _ _ _ _ _ _ => keeps c a _ _) (fun c a _ _ => keeps c a _ _)
   rintro v (⟨st, hst, hn, -, hv⟩ | ⟨m, hm, -⟩ | ⟨hr, -⟩)
   · simp only [videoPlayer, List.mem_cons, List.mem_nil_iff, or_false] at hst
     rcases hst with rfl | rfl | rfl <;> simp at hn

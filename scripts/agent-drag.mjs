@@ -2,6 +2,31 @@
 // the viewport, and the route to the touch runner (`host/apple/touches.mjs`)
 // or to the carrier's own contact phases. `agent.mjs` calls it from `tap`.
 import { DRAG_BOUNDS } from '../host/apple/touches.mjs';
+import { layoutArgs } from './agent-inspect.mjs';
+
+/** A drag's `during` op is a read or the clock, not a second finger (drums R8).
+ * A filmed screenshot (`over … every`) loops on the clock. The test parser
+ * checks the same set. */
+export function duringAllowed(op) {
+  const w = String(op).trim().split(/\s+/);
+  return ['tree', 'layout', 'state', 'logs', 'screenshot', 'clock'].includes(w[0]) && !(w[0] === 'screenshot' && w[2] === 'over');
+}
+
+/** Run one allowed `during` op on the session. The reply is the op's. */
+export async function duringOp(s, op) {
+  if (!duringAllowed(op)) throw new Error(`tap … drag … during: ${JSON.stringify(op)} is not a read or the clock`);
+  const args = String(op).trim().split(/\s+/), word = args[0];
+  if (word === 'clock') return s.clock(args.slice(1).join(' ') || 'settle');
+  if (word === 'logs') return s.logs();
+  if (word === 'tree') return args[1] === '--ax' ? s.tree(args[2], { ax: true }) : s.tree(args[1], args[2] === 'under' ? args[3] : undefined);
+  if (word === 'layout') return s.layout(...layoutArgs(args.slice(1)));
+  if (word === 'screenshot') return s.screenshot(args[1] ?? 'screenshot.png', args[3] === 'save' ? args[2] : args[2] === 'window', args[3]);
+  return s.state(args[1], args[2] === 'under' ? args[3] : undefined, args[2] === 'pose', args[2] === 'busy', {
+    ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}),
+    ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}),
+    ...(args.includes('resources') ? { resources: true } : {}),
+  });
+}
 
 /**
  * `tap <target> drag …` (LLP 1080.000 §11): one whole gesture from `from`
@@ -15,7 +40,10 @@ import { DRAG_BOUNDS } from '../host/apple/touches.mjs';
  * refused where the carrier refuses them.
  */
 export async function dragTap({ s, carrier, node, target, host, timing, tapRefusal, scrolled }, opts) {
-  const { dx, dy, from, mouse = false, press = 0, over = 250, hold = 0, during = [] } = opts, drag = { dx, dy, press, over, hold, during }, said = { dx, dy, press, over, hold, ...(mouse ? { mouse } : {}) };
+  // `drag to B [at x y]` (LLP 1094 D12): the delta from both boxes at the press, to B's middle or to (x, y) from its
+  // top left; B unmounted or off screen is refused by name. An autoscrolling drag is `drag dx dy hold ms`.
+  if (opts.to !== undefined) opts = { ...opts, ...await toward(s, node, opts) };
+  const { dx, dy, from, mouse = false, press = 0, over = 250, hold = 0, during = [] } = opts, drag = { dx, dy, press, over, hold, during }, said = { dx, dy, press, over, hold, ...(mouse ? { mouse } : {}), ...(opts.to !== undefined ? { to: opts.to } : {}) };
   // `mouse` (files diary F10): the left button, where the carrier's contact
   // is otherwise a finger (the web's); a desktop host's contact is the mouse.
   if (mouse && (carrier.touches || ['ios', 'host-ios'].includes(host))) throw new Error('drag: mouse is a desktop pointer\'s; an iOS contact is a finger');
@@ -63,7 +91,10 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
       const { phase: _, ...refused } = down;
       return s.tagged({ ...refused, drag: said, reason: `${down.reason ?? 'no held contact'}; a real drag is --touch platform's (LLP 1080.000 §11)` });
     }
-    if (press) await phase('hold', { ms: press });
+    // press and hold seek the virtual clock (platformer R7). `virtual` tells
+    // web and macOS to skip the wall sleep; Linux already seeks and reports `clock`.
+    const seek = timing !== 'platform' ? { virtual: true } : {};
+    if (press) await phase('hold', { ms: press, ...seek });
     if (moves) await phase('move', { dx, dy, ms: over });
     // The ops run where the finger has moved to, each bounded by the gesture's own bound.
     for (const op of during) {
@@ -73,7 +104,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
       running.catch(() => {});
       try { done.push(await Promise.race([running, late])); } finally { clearTimeout(timer); }
     }
-    if (hold) await phase('hold', { ms: hold });
+    if (hold) await phase('hold', { ms: hold, ...seek });
     up = await phase('up');
   } catch (error) {
     // Never leave the finger down: cancel, else lift (AppKit has no cancel). If neither is confirmed the contact stays recorded, and says so.
@@ -88,4 +119,17 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     throw error;
   }
   return s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing });
+}
+
+/** `drag to`'s delta: from the start (`from`, else the middle) to B's middle, or `at` from B's top left. */
+async function toward(s, node, { to, at, from }) {
+  if (at !== undefined && !(Array.isArray(at) && at.length === 2 && at.every(Number.isFinite))) throw new Error('drag to: at takes two finite numbers, an offset from the target\'s box');
+  const end = await s.find(to, false);
+  if (!end) throw new Error(`drag to: ${to} is not mounted`);
+  const layout = await s.layout(), a = layout.nodes.find((n) => n.id === node.id), b = layout.nodes.find((n) => n.id === end.id), vp = layout.viewport;
+  if (!a) throw new Error(`view ${node.id} has no box on screen`);
+  if (!b || (vp && (b.x + b.w <= 0 || b.y + b.h <= 0 || b.x >= vp.w || b.y >= vp.h))) throw new Error(`drag to: ${to} is off screen; drag dx dy hold ms scrolls a list or a board toward it`);
+  const start = from ? [a.x + from[0], a.y + from[1]] : [a.x + a.w / 2, a.y + a.h / 2];
+  const point = at ? [b.x + at[0], b.y + at[1]] : [b.x + b.w / 2, b.y + b.h / 2];
+  return { dx: point[0] - start[0], dy: point[1] - start[1] };
 }

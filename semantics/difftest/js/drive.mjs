@@ -88,8 +88,8 @@ function runtime(dir) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   for (const f of readdirSync(webJs)) if (f.endsWith('.js')) cpSync(resolve(webJs, f), resolve(dir, f));
-  for (const f of ['frames.js', 'motion-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js', 'presence-glue.js', 'native-glue.js',
-    'geometry-glue.js', 'media-glue.js', 'collection-glue.js', 'image-glue.js', 'navigation.js', 'canvas2d-glue.js', 'auth-glue.js', 'storage-environment.js', 'http-body.js', 'grant-admission.js'])
+  for (const f of ['frames.js', 'motion-glue.js', 'group-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js', 'presence-glue.js', 'native-glue.js',
+    'geometry-glue.js', 'resize-glue.js', 'collection-glue.js', 'image-glue.js', 'media-glue.js', 'navigation.js', 'canvas2d-glue.js', 'auth-glue.js', 'storage-environment.js', 'http-body.js', 'grant-admission.js'])
     cpSync(resolve(web, f), resolve(dir, f));
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(webJs, 'admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
   writeFileSync(resolve(dir, 'draw.js'), 'export const drawer = null;\n');
@@ -98,8 +98,8 @@ function runtime(dir) {
   writeFileSync(resolve(dir, 'entry.js'), [
     "import app from './app.js';",
     "import names, { types } from './names.js';",
-    "import { data, journal, clock, advance, Hosts, inflight } from './rt.js';",
-    'globalThis.__drive = { app, names, types, data, journal, clock, advance, Hosts, inflight };',
+    "import { data, journal, clock, advance, Hosts, inflight, Mutations } from './rt.js';",
+    'globalThis.__drive = { app, names, types, data, journal, clock, advance, Hosts, inflight, Mutations };',
   ].join('\n'));
 }
 
@@ -127,7 +127,7 @@ async function drive(code, c, hostSources) {
   });
   ctx.globalThis = ctx; ctx.self = ctx; ctx.window = ctx;
   vm.runInContext(code, ctx, { filename: 'app.js' });
-  const { app, names, types, data, journal, clock, advance, Hosts } = ctx.__drive;
+  const { app, names, types, data, journal, clock, advance, Hosts, Mutations } = ctx.__drive;
   const notes = [];
   // The runner's transcript answers every call; one it never made is a divergence.
   const answers = new Map(c.answers.map(([source, args, answer]) => [source + key(decode(args)), answer]));
@@ -180,6 +180,8 @@ async function drive(code, c, hostSources) {
       try { v = state[g][i](); } catch (e) { notes.push(`# js: ${['slot', 'derive', 'resource'][g]} ${name}: ${e.message}`); return; }
       out.push(`${['slot', 'derive', 'resource'][g]} ${name} ${typed(v, types[g][i])}`);
     }));
+    // Each queue's waiting sends (LLP 1092 D12), in declaration order, as observe.rs writes them.
+    for (const m of Mutations) if (m.queue) out.push(`queued ${m.name} ${m.wait?.length ?? 0}`);
     out.push(...commands); commands = [];
     walk(root, e => {
       const id = e.getAttribute('data-testid');
@@ -207,9 +209,9 @@ async function drive(code, c, hostSources) {
       const e = find(id);
       // What a browser can deliver, as the runner holds a host to it
       // (runner/src/runner/control.rs): a select reports one of its enabled
-      // options, a checkbox no text.
+      // options, a checkbox or a radio no text.
       const options = e?.localName === 'select' ? e.getElementsByTagName('option') : null;
-      const deliverable = e && e.type !== 'checkbox' && datetime(e, text)
+      const deliverable = e && e.type !== 'checkbox' && e.type !== 'radio' && datetime(e, text)
         && (!options || options.some(o => !o.hasAttribute('disabled') && (o.getAttribute('value') ?? o.textContent) === text));
       if (!deliverable || !e.$listeners?.change?.length) refused = true; else { e.value = text; fire(e, 'change'); }
     } else {

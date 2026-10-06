@@ -42,6 +42,36 @@ pub(super) fn arguments(
     })
 }
 
+/// The game Rust newer than `.shells/surfaces.json`, when some is: the
+/// declaration is the last GPU build's, so it may predate an `Options` edit
+/// (the platformer's diary, R4). Content-stable writes keep an unchanged
+/// declaration's time, so newer Rust only says it may be stale.
+pub(super) fn newer_rust(app_root: &Path) -> Option<std::path::PathBuf> {
+    fn newest(dir: &Path, best: &mut Option<(std::time::SystemTime, std::path::PathBuf)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                newest(&path, best);
+            } else if path.extension().is_some_and(|e| e == "rs") || path.ends_with("Cargo.toml") {
+                if let Ok(at) = entry.metadata().and_then(|m| m.modified()) {
+                    if best.as_ref().is_none_or(|(t, _)| at > *t) {
+                        *best = Some((at, path));
+                    }
+                }
+            }
+        }
+    }
+    let declared = std::fs::metadata(app_root.join(".shells/surfaces.json"))
+        .and_then(|m| m.modified())
+        .ok()?;
+    let mut best = None;
+    newest(&app_root.join("logic"), &mut best);
+    best.filter(|(at, _)| *at > declared).map(|(_, path)| path)
+}
+
 /// Surface records are runner-owned and default before the module loads.
 pub(super) fn shape(plan: &Plan) -> Result<(), BakeError> {
     use exact_runner::surface_record::{surface_name, SOURCE};

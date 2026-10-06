@@ -1,0 +1,18 @@
+# The coding-agent harness as a terminal app (LLP 1101): the terminal host
+# over the harness's data module, inline by default (settled transcript in
+# the terminal's own scrollback, the live tail redrawn below it).
+[package]
+name = "harness-terminal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The coding-agent harness in the terminal"
+publish = false
+
+[[bin]]
+name = "harness"
+path = "src/main.rs"
+
+[dependencies]
+exact-terminal = { path = "../../../host/terminal" }
+harness-data = { path = "../data" }

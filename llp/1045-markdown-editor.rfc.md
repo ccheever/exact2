@@ -232,7 +232,11 @@ Reader navigation accepts parsed `http`, `https`, `mailto`, and `tel` targets.
 Other schemes render as inert labels; their canonical source and editable
 destination stay intact. The web resolves relative links against the document
 base before checking the protocol. Native readers have no document base, so
-relative destinations remain inert there.
+relative destinations remain inert there; an absolute path (`/note/3`) needs
+none and is a location in the app, followed through the navigation root when
+it names a declared route, as the web's same-document link is (LLP 1038 §7;
+amended 2026-10-04 for the notes diary, whose `[Ideas](/note/3)` was inert on
+macOS).
 
 **Landed 2026-09-21 (slice 2, first form).** The kernel carries `markup` and
 `Paragraph.markup`; `exact-markdown::pieces` flattens a source into display
@@ -242,8 +246,21 @@ run painters draw, through `exact_markup_pieces` on Apple and a JSON prop on
 the web — one function for measure and paint. Flattening advances through
 sorted style, hidden and replacement ranges, collecting cut boundaries only
 from ranges intersecting each block. Block decoration that runs
-cannot express (code backgrounds, real quote bars, hanging indents) is owed
-to a later form that carries paragraph attributes. Measured in
+cannot express (code backgrounds, real quote bars) is owed to a later form
+that carries paragraph attributes. **Hanging indents landed 2026-10-04**
+(the notes diary) as the one paragraph attribute pieces carry: a list item's
+pieces hold its head indent, 40 px per level as the UA sheet's
+`padding-inline-start` on `<ul>`/`<ol>`, and its marker (disc, circle,
+square by depth; the source's number; a task box) is a piece that hangs
+before it, its end at the indent, as an outside marker sits. The web makes
+the item a block padded by the indent with the marker in a 40 px box pulled
+back by a negative `text-indent`; Apple and Linux start each line at the
+indent, the first less the marker's shaped width, in the code that both
+measures and paints (`LineInsets`, `shaping::line_insets`). Chrome's own
+`<ul>` is the oracle (TextParityMacTests). Linux reads through `markup` from
+the same date, and follows a reader's links as Apple does: a path naming a
+route navigates, `http`/`https`/`mailto`/`tel` would leave the app and,
+with no browser on the host, are logged. Measured in
 `apps/markdown-stress` ("One markup node" against "Render ALL blocks", same
 generated document, three rounds, medians, agent acknowledgement times, an
 M4 Pro at 60 Hz): iOS simulator 256 KiB — 8,805 nodes → 61, mode switch to

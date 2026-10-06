@@ -83,6 +83,13 @@ and this one does not. Read them first.
   UIKit one — the same package shape, run on a simulator — with `swift/` what the
   two share: the bridge, CoreText, the agent's clock, the GPU module's ABI. LLP
   1008 (§9 for iOS).
+- `host/terminal/` — `exact-terminal`, the terminal host (LLP 1101, accepted
+  2026-10-06; built as LLP 1101.000/.001 record): a terminal entry laid out in
+  `ch`/`lh` cells and painted into a cell grid from the kernel tree — inline,
+  settled transcript entries printed once into the terminal's own scrollback
+  and retired, the live tail diffed in place; or full screen. Its own escape
+  writer, `vte` for input, `rustix` for the tty; headless under the agent's
+  verbs. Apps: `apps/harness` (a coding agent) and `apps/todo`.
 - `host/linux/` — `exact-linux`, the Linux host and the first that paints: the
   runner and kernel natively, cosmic-text measuring and painting from one
   paragraph cache, `exact-motion` as the executor, and the kernel tree drawn

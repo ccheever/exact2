@@ -1,0 +1,16 @@
+mediasession episode seekforward
+mediasession episode seekforward 10
+mediasession episode seekbackward
+mediasession episode seekto 600
+mediasession episode nexttrack
+mediasession episode stop
+mediasession trailer nexttrack
+mediasession plain nexttrack
+tap dropEpisode
+mediasession trailer nexttrack
+mediasession trailer seekforward
+tap dropTrailer
+tap restore
+tap playTrailer
+clock +200
+mediasession trailer nexttrack

@@ -5,15 +5,26 @@
 const pressesByKey = el => !el.matches("button, a[href], input, select, textarea, summary")
   && (el.exactHandlers ?? el.dataset.exactOn?.split(" "))?.includes("press") === true;
 const shortcutKeys = new Set(["Enter", "Tab", "Escape", "Backspace", "Delete", "Insert", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
+/** A shortcut's key when `e.key` is one character outside ASCII and the Latin script (ㅠ on KeyB under Korean 2-Set,
+ * Russian, Greek): what its physical key (`code`) types on a US layout, with Shift, as web apps match (the macOS host
+ * asks the Mac's ASCII-capable layout instead; the web has only `code`). A Latin character is the key wherever it is
+ * (AZERTY, Dvorak, German's ö), so no chord fires twice; so are Option's characters (the macOS host's rule). */
+const usCodes = "Backquote Digit1 Digit2 Digit3 Digit4 Digit5 Digit6 Digit7 Digit8 Digit9 Digit0 Minus Equal BracketLeft BracketRight Backslash Semicolon Quote Comma Period Slash".split(" ");
+const physicalKey = e => {
+  if (e.altKey || typeof e.key !== "string" || [...e.key].length !== 1 || !/[^\x00-\x7f]/.test(e.key) || /\p{Script=Latin}/u.test(e.key)) return null;
+  if (/^Key[A-Z]$/.test(e.code)) return e.code.slice(3).toLowerCase();
+  const at = usCodes.indexOf(e.code);
+  return at < 0 ? null : (e.shiftKey ? "~!@#$%^&*()_+{}|:\"<>?" : "`1234567890-=[]\\;',./")[at];
+};
 /** The modifiers an event holds, as a chord prefix (a pointer record's last field; glue.js's press writes the same). */
 const modifiers = e => (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "");
-/** The `PointerEvent` line of `e` at `el`: the point from its content box in its own CSS px (a scale undone), the buttons, pressure, device, id and modifiers. */
+/** The `PointerEvent` line of `e` at `el`: the point from its content box in its own CSS px (a scale undone), the buttons, pressure, device, id, the viewport point (LLP 1094 D11) and modifiers. */
 function pointerLine(el, e, lifted = false) {
   const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
   const sx = el.offsetWidth ? r.width / el.offsetWidth : 1, sy = el.offsetHeight ? r.height / el.offsetHeight : 1;
   const left = parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft), top = parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop);
   const type = e.pointerType === "pen" || e.pointerType === "touch" ? e.pointerType : "mouse";
-  return `${(e.clientX - r.left) / (sx || 1) - left},${(e.clientY - r.top) / (sy || 1) - top},${lifted ? 0 : e.buttons},${lifted ? 0 : Math.min(1, Math.max(0, e.pressure || 0))},${type},${e.pointerId ?? 1},${modifiers(e)}`;
+  return `${(e.clientX - r.left) / (sx || 1) - left},${(e.clientY - r.top) / (sy || 1) - top},${lifted ? 0 : e.buttons},${lifted ? 0 : Math.min(1, Math.max(0, e.pressure || 0))},${type},${e.pointerId ?? 1},${e.clientX},${e.clientY},${modifiers(e)}`;
 }
 export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false, log = () => {}, documents = null }) {
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
@@ -29,7 +40,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const press = a.exactHandlers?.includes("press");
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey
       || (a.target && a.target !== "_self") || a.hasAttribute("download")) { if (press) event.stopPropagation(); return; }
-    const url = new URL(a.href), to = url.pathname + url.search, here = to === location.pathname + location.search;
+    const url = new URL(a.href), to = url.pathname + url.search, here = to === location.pathname + location.search || to === globalThis.history?.state?.url;
     const { wasm, writeIn, navigate } = globalThis.exact;
     if (url.origin !== location.origin || (here && url.hash) || wasm.exact_route_match(writeIn(to)) !== 1) return;
     const nav = root.firstElementChild;
@@ -41,6 +52,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   document.addEventListener("keydown", (event) => {
     if (event.isComposing || !ready() || event.defaultPrevented) return;
     const editing = event.composedPath().some(el => el?.isContentEditable || el?.matches?.("input, textarea, [role=textbox], [role=searchbox], [role=combobox]"));
+    const physical = physicalKey(event);
     const matches = (chord) => {
       const parts = chord.split("+");
       let key;
@@ -55,7 +67,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         && [...modifiers].every(m => ["Meta", "Control", "Alt", "Shift"].includes(m))
         && event.metaKey === modifiers.has("Meta") && event.ctrlKey === modifiers.has("Control")
         && event.altKey === modifiers.has("Alt") && event.shiftKey === modifiers.has("Shift")
-        && event.key.toLowerCase() === key.toLowerCase();
+        && (event.key?.toLowerCase() === key.toLowerCase() || physical === key.toLowerCase());
     };
     // Nothing behind the frontmost modal — a modal `dialog`, or the last
     // shown `aria-modal` view (gallery F22) — and never Enter or Space while

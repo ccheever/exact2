@@ -48,11 +48,14 @@
 
 #![deny(missing_docs)]
 
+mod background;
 mod crypto;
+mod door;
 mod engine;
 mod native;
 mod paired;
 mod pure;
+mod source;
 mod storage;
 mod turns;
 mod watch;
@@ -65,19 +68,20 @@ pub use exact_runner::Placement;
 pub use native::{Changed, LaterHandler, NativeModule, NativeReply};
 pub use paired::Paired;
 
+use door::{c_string, host_door};
 use engine::{Engine, HostFn};
 use exact_plan::{Plan, Value};
 use exact_runner::{
-    Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Request, Response,
-    Store, Target, Work,
+    Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Request, Store, Target,
+    Work,
 };
 use serde_json::Value as Json;
 use std::collections::HashMap;
-use std::ffi::{c_char, c_void, CStr};
+use std::ffi::c_void;
 use std::sync::Arc;
 use std::time::Instant;
 use watch::{Watch, Watched};
-use wire::{canvas_image, canvas_measure, outcome_to_json, request_from_json};
+use wire::outcome_to_json;
 
 type NativeFactory = fn(&str) -> Box<dyn NativeModule>;
 
@@ -110,10 +114,10 @@ pub const BYTECODE_VERSION: u32 = if PRELUDE.len() >= 12 {
     0
 };
 
-/// Receipt identity of this Windows executor's pinned lean engine and compiler.
-/// The producer compares its accepted install before compiling app bytecode.
-/// Other platforms and the explicit refusing stub do not use this identity.
-pub const ENGINE_INPUTS: Option<&str> = option_env!("EXACT_JS_ENGINE_INPUTS");
+/// Receipt-bound archive identity of this executor's pinned lean engine.
+/// The producer compares its selected Ibex bundle before compiling app bytecode.
+/// The explicit refusing stub has no identity.
+pub const ENGINE_INPUTS: Option<&str> = hermes_lean_sys::LEAN_ENGINE_DIGEST;
 
 /// One source's signature, from the plan.
 struct Sig {
@@ -140,16 +144,11 @@ struct Parked {
     last: bool,
 }
 
-/// The ticket of an answer that has not begun: it arrived while another
-/// answer's storage turn was open, and waits for it to end (see `begin`).
-const DEFERRED: u64 = u64::MAX;
 /// The ticket of an answer that awaits another answer's work (a fetch it
 /// shares, a queue behind another's storage): it waits while the module has
 /// work outstanding, and is asked again after each delivery (LLP
 /// 1027.003.000 §13, the module-wide rule; hn-reader F7).
 const WAITING: u64 = u64::MAX - 1;
-/// Deferred answers' continuation tokens, clear of the prelude's call ids.
-const FIRST_DEFERRED_TOKEN: u64 = 1 << 53;
 
 /// What the host door reaches during one call: the store the seam handed
 /// `answer` or `parse` (none at bake — an empty store that refuses writes),
@@ -184,6 +183,11 @@ struct HostState {
     documents: bool,
     /// The bake's module ([`Module::inspect`]): storage refuses as `bake`.
     baking: bool,
+    /// The runtime's own journal lines since the last take (LLP 1097 D8).
+    journal: Vec<String>,
+    /// Delivering between answers (a background round, a let-go call's
+    /// steps): there is no store, and storage is not refused as at bake.
+    between_answers: bool,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
@@ -211,13 +215,10 @@ pub struct Module {
     /// Stream answers (LLP 1016.000): each message is mapped by the call's
     /// `exactStream`, never resumed; forgetting the ticket ends the call.
     streams: Vec<(Key, Parked)>,
-    /// Deferred answers whose dispatch was held, oldest first.
-    held: std::collections::VecDeque<u64>,
     /// Answers waiting on another answer's work whose dispatch was held.
     waiters: Vec<u64>,
     /// Deliveries and new answers so far: what a waiting answer waits for.
     progress: u64,
-    next_deferred: u64,
     budget_ms: f64,
     max_heap: u32,
     logs: Vec<String>,
@@ -228,6 +229,11 @@ pub struct Module {
     /// The agent's launch seed, when the agent drives this process (LLP
     /// 1069.005 D2b); a built worker instance takes its template's.
     agent_seed: Option<u64>,
+    /// Runs inline, on the runner's thread (LLP 1097 D6): storage an answer
+    /// did not await moves to the background. An instance a worker owner
+    /// builds runs one turn to its end, and keeps its answers waiting.
+    main_thread: bool,
+    background: background::Background,
 }
 
 impl std::fmt::Debug for Module {
@@ -240,168 +246,6 @@ impl std::fmt::Debug for Module {
             .field("parked", &self.parked.len())
             .finish()
     }
-}
-
-/// The one door from the module into Rust (`__exact_host` in the prelude).
-///
-/// # Safety
-/// Called by the shim on the engine's thread with `ctx` the `HostState` the
-/// engine was created with, and `a`/`b` NUL-terminated for the call.
-unsafe extern "C" fn host_door(
-    ctx: *mut c_void,
-    op: u32,
-    a: *const c_char,
-    b: *const c_char,
-    out: *mut *mut c_char,
-) -> i32 {
-    let state = &mut *(ctx as *mut HostState);
-    let a = CStr::from_ptr(a).to_string_lossy();
-    let b = CStr::from_ptr(b).to_string_lossy();
-    let reply: Result<Option<String>, String> = match op {
-        1 => match a.parse::<u64>() {
-            Ok(ticket) => match request_from_json(&b) {
-                Ok(request) => {
-                    state.requests.push((ticket, request));
-                    Ok(None)
-                }
-                Err(e) => Err(format!("fetch: {e}")),
-            },
-            Err(_) => Err("fetch: a ticket that is not a number".into()),
-        },
-        2 => Ok(state.store.and_then(|s| (*s).get(&a).map(str::to_string))),
-        3 => match state.store {
-            Some(s) => (*s)
-                .set(&a, &b)
-                .map(|_| None)
-                .map_err(|e| format!("store.set: {e:?}")),
-            None => Err("store.set: no store at bake".into()),
-        },
-        4 => match state.store {
-            Some(s) => (*s)
-                .forget(&a)
-                .map(|_| None)
-                .map_err(|e| format!("store.forget: {e:?}")),
-            None => Err("store.forget: no store at bake".into()),
-        },
-        // Storage's availability, as the prelude's refusal code (kanban
-        // F28): none at bake; none for a drive that names no scratch store;
-        // none where the host configured no directories.
-        5 => match state.store {
-            Some(store) => {
-                // A read even at bake: the build compiles no answer that tried.
-                (*store).observe_external_read();
-                if state.baking {
-                    Err("bake".into())
-                } else {
-                    // `a` is the path a file operation names: a document
-                    // needs no app storage, as for a Rust source.
-                    let document = state.documents && a.starts_with("doc:/");
-                    Ok((!state.storage && !document).then(|| {
-                        if state.agent.is_some() {
-                            "agent"
-                        } else {
-                            "unsupported"
-                        }
-                        .into()
-                    }))
-                }
-            }
-            None => Err("bake".into()),
-        },
-        6 => {
-            if a == "kind" {
-                // A native executor can always link a module; no read.
-                Ok(Some("native".into()))
-            } else if a == "available" {
-                // Only a linked, configured module: `native.available` is false
-                // at bake, in agent mode, and when the app links none. Whether
-                // there is one is the device's fact, not the build's: an answer
-                // that asks is not compiled, and the host asks it again.
-                if let Some(store) = state.store {
-                    (*store).observe_external_read();
-                }
-                Ok((state.native.is_some() || state.hosted).then(|| "native".into()))
-            } else if a == "watch" {
-                // The answer watches a device topic; its announcement asks
-                // the answer again (LLP 1016.002).
-                if let Some(store) = state.store {
-                    (*store).observe_topic(&b);
-                }
-                Ok(None)
-            } else if a == "later" {
-                Ok(state.later.then(|| "later".into()))
-            } else {
-                if let Some(store) = state.store {
-                    (*store).observe_external_read();
-                }
-                match (&mut state.native, state.store) {
-                    (Some(module), Some(_)) => serde_json::from_str(&b)
-                        .map_err(|error| error.to_string())
-                        .and_then(|request| module.call(&request))
-                        .map(|reply| Some(reply.to_string())),
-                    // The host's app module, on this thread (LLP 1067.000 D9).
-                    (None, Some(_)) if state.hosted => match &state.hosted_call {
-                        Some(call) => call(b.as_bytes())
-                            .map(|reply| Some(String::from_utf8_lossy(&reply).into_owned())),
-                        None => Err("the app's module answers no native.call".into()),
-                    },
-                    _ => Err(
-                        "native storage is unavailable during bake or in an unconfigured host"
-                            .into(),
-                    ),
-                }
-            }
-        }
-        7 => pure::call(&a, &b).map(Some),
-        // The answer drew secure randomness (LLP 1069.005 D2): the device's,
-        // so bake compiles none of it. No store (an in-process query): no mark.
-        8 => {
-            if let Some(store) = state.store {
-                (*store).observe_entropy();
-            }
-            Ok(None)
-        }
-        9 => canvas_measure(state.canvas.as_ref(), &a).map(Some),
-        // Under the agent, `b` bytes of its repeatable stream as hex; else
-        // nothing, and the draw is the OS's (LLP 1069.005 D2b).
-        11 => Ok(state.agent.as_mut().map(|stream| {
-            let mut bytes = vec![0; b.parse::<usize>().unwrap_or(0).min(65_536)];
-            stream.fill(&mut bytes);
-            crypto::hex(&bytes)
-        })),
-        10 => Ok(canvas_image(state.canvas.as_ref(), &a)),
-        12 => Ok(crypto::auth_callback(state, &a)),
-        other => Err(format!("__exact_host: no op {other}")),
-    };
-    *out = std::ptr::null_mut();
-    match reply {
-        Ok(None) => 0,
-        Ok(Some(text)) => {
-            *out = c_string(&text);
-            0
-        }
-        Err(text) => {
-            *out = c_string(&text);
-            1
-        }
-    }
-}
-
-/// A malloc'd copy the shim frees.
-fn c_string(text: &str) -> *mut c_char {
-    let bytes = text.as_bytes();
-    // SAFETY: malloc'd with room for the NUL; the shim `free`s it.
-    unsafe {
-        let p = libc_malloc(bytes.len() + 1) as *mut u8;
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len());
-        *p.add(bytes.len()) = 0;
-        p as *mut c_char
-    }
-}
-
-extern "C" {
-    #[link_name = "malloc"]
-    fn libc_malloc(size: usize) -> *mut c_void;
 }
 
 /// One step of a call as the prelude reports it.
@@ -437,16 +281,16 @@ impl Module {
             sigs: HashMap::new(),
             parked: Vec::new(),
             streams: Vec::new(),
-            held: std::collections::VecDeque::new(),
             waiters: Vec::new(),
             progress: 0,
-            next_deferred: FIRST_DEFERRED_TOKEN,
             budget_ms: DEFAULT_BUDGET_MS,
             max_heap: DEFAULT_MAX_HEAP,
             logs: Vec::new(),
             overruns: 0,
             canvas_surfaces: Vec::new(),
             agent_seed: None,
+            main_thread: true,
+            background: Default::default(),
         };
         module.with_agent_seed(exact_data::crypto::AgentStream::agent_seed())
     }
@@ -506,6 +350,9 @@ impl Module {
         let native_slot = template.native_slot.clone();
         Box::new(move || {
             let mut module = Module::new(bytecode, app_id, grants).with_agent_seed(agent_seed);
+            // Before `activate`, which loads: a worker's answers wait for
+            // their storage (LLP 1097 D6).
+            module.main_thread = false;
             // The template's interrupt reaches the instance on its owner, and
             // its native handle finds the instance's long-call handler.
             module.watch = watch;
@@ -606,17 +453,38 @@ impl Module {
     }
 
     fn load_engine(&mut self) -> Result<Watched, String> {
+        self.load_engine_with_prelude(PRELUDE)
+    }
+
+    fn load_engine_with_prelude(&mut self, prelude: &[u8]) -> Result<Watched, String> {
+        let io = exact_runner::io_grants(&self.grants);
+        self.host.documents = storage::reaches_documents(&io);
+        // The bindings Context must precede the engine and outlive its
+        // adapter. Module declares `engine` before `storage`, and unload takes
+        // the engine first, preserving that order on every path.
+        self.storage = Some(storage::Session::open(&io)?);
         let ctx = &mut *self.host as *mut HostState as *mut c_void;
         let host: HostFn = host_door;
         let bytes: engine::BytesFn = crypto::bytes_door;
-        let engine =
-            Engine::new(self.max_heap, host, bytes, ctx).map_err(|e| format!("exact-js: {e}"))?;
+        let engine = Engine::new(
+            self.max_heap,
+            host,
+            bytes,
+            ctx,
+            &self.storage.as_ref().expect("Context was created").context,
+        )
+        .map_err(|e| format!("exact-js: {e}"))?;
         // Reachable before anything runs in it: module initialization is
         // application code too.
         let mut engine = Watched::new(engine, self.watch.clone());
         engine
-            .load(PRELUDE)
+            .load(prelude)
             .map_err(|e| format!("exact-js: the prelude did not load: {e}"))?;
+        if self.main_thread {
+            engine
+                .call("__exact_main_thread", ["", "", ""])
+                .map_err(|e| format!("exact-js: the prelude did not load: {e}"))?;
+        }
         self.host.storage = self.directories.is_some();
         if let Some(paths) = &self.directories {
             if let Some(factory) = self.native_factory {
@@ -642,14 +510,13 @@ impl Module {
                     }));
                 self.host.native = Some(native);
             }
+            self.storage
+                .as_ref()
+                .expect("Context was created")
+                .configure(paths)?;
         }
-        let io = exact_runner::io_grants(&self.grants);
-        self.host.documents = storage::reaches_documents(&io);
         if self.directories.is_some() || (self.host.documents && !self.host.baking) {
-            self.storage = Some(storage::Session::open(self.directories.as_ref(), &io)?);
-            // Retain the borrowed queue even if adapter initialization fails;
-            // the local engine must be destroyed before its storage context.
-            engine.install_storage(&self.storage.as_ref().unwrap().context)?;
+            engine.install_storage()?;
         }
         // The host's app module, when the app links no native module of its
         // own: present in agent mode too, where it substitutes its input
@@ -659,6 +526,9 @@ impl Module {
             self.host.later = true;
             self.host.hosted_call = self.native_slot.hosted_call();
         }
+        engine
+            .harden()
+            .map_err(|e| format!("exact-js: hardening failed: {e}"))?;
         engine
             .load(&self.bytecode)
             .map_err(|e| format!("exact-js: the module did not load: {e}"))?;
@@ -673,8 +543,13 @@ impl Module {
 
     /// Drop the runtime; answers are `Unavailable` until the next
     /// [`Module::load`], and every answer in flight is forgotten. Already-started
-    /// external effects may finish; unloading does not wait for them.
+    /// external effects may finish; unloading waits only for the module's
+    /// own storage, a second at most.
     pub fn unload(&mut self) {
+        // A dev restart or a reload replaces the module: what it started
+        // and did not await is finished first, within a second (LLP 1097
+        // D10). A worker's answers waited for theirs.
+        self.finish_background(std::time::Duration::from_secs(1));
         if let Some(mut engine) = self.engine.take() {
             self.logs.extend(engine.take_log());
         }
@@ -686,6 +561,7 @@ impl Module {
         self.native_slot.set(None);
         self.parked.clear();
         self.host.requests.clear();
+        self.background = Default::default();
     }
 
     /// Whether an engine is up.
@@ -757,8 +633,13 @@ impl Module {
         })
     }
 
-    /// Dispatch a decoded reply, restoring captured strings before shape checking.
-    fn step(sig: &Sig, engine: &mut Engine, source: &str, decoded: exact_js_value::Reply) -> Step {
+    fn step(
+        sig: &Sig,
+        engine: &mut Engine,
+        source: &str,
+        decoded: exact_js_value::Reply,
+        baking: bool,
+    ) -> Step {
         let exact_js_value::Reply {
             fields: mut reply,
             mut value,
@@ -797,6 +678,11 @@ impl Module {
                 Step::Done(Err(match reply.get("kind").and_then(Json::as_str) {
                     Some("UnknownSource") => DataError::UnknownSource(message),
                     Some("BadArguments") => DataError::BadArguments(message),
+                    Some("Unavailable")
+                        if baking && reply.get("code").and_then(Json::as_str) == Some("bake") =>
+                    {
+                        DataError::DeferredAtBake(message)
+                    }
                     _ => DataError::Unavailable(message),
                 }))
             }
@@ -806,7 +692,6 @@ impl Module {
         }
     }
 
-    /// The request the prelude recorded for `ticket`, if `fetch` was called.
     fn take_request(&mut self, ticket: u64) -> Option<Request> {
         let pos = self.host.requests.iter().position(|(t, _)| *t == ticket)?;
         Some(self.host.requests.remove(pos).1)
@@ -833,29 +718,9 @@ impl Module {
                 "exact-js: the engine is not loaded".into(),
             ));
         }
-        // One storage turn at a time, as the browser's worker runs them (its
-        // `tail`) and as a worker placement's owner does: an answer that
-        // arrives while another is between storage steps waits for that turn
-        // to end before its JavaScript starts. Otherwise work an app chains
-        // behind the open turn's promise (a serialized database, say) would
-        // run inside the wrong answer, and this one would be pending on
-        // nothing. Its continuation is held at dispatch and released by the
-        // commit that ends the turn.
-        if self.turn_open() && self.sigs.contains_key(source) {
-            let token = self.next_deferred;
-            self.next_deferred += 1;
-            self.parked.push((
-                Module::key(target, source, args),
-                Parked {
-                    call: token,
-                    ticket: DEFERRED,
-                    work_taken: false,
-                    progress: self.progress,
-                    last: false,
-                },
-            ));
-            return Ok(Answer::Later(Request::continuation(token)));
-        }
+        // No answer waits for another to begin (LLP 1097 D4.5): answers
+        // interleave at their awaits, as two async calls do on the web, and
+        // storage keeps the order it was issued in (the prelude's queue).
         let Some(sig) = self.sigs.get(source) else {
             return Err(DataError::UnknownSource(source.to_string()));
         };
@@ -900,7 +765,7 @@ impl Module {
                     .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
                 reply = Module::decode_reply(sig, engine, source, &text)?;
             }
-            Ok(Module::step(sig, engine, source, reply))
+            Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
@@ -908,42 +773,70 @@ impl Module {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
         if result.is_err() && self.watch.take() {
+            // After the store is cleared, so a let-go step is not this
+            // answer's write (LLP 1097; a934686a0).
+            self.finish_let_go();
             return Err(DataError::Unavailable(format!(
                 "`{source}` was interrupted"
             )));
         }
         if took_ms > self.budget_ms {
             self.overruns += 1;
+            self.finish_let_go();
             return Err(DataError::Unavailable(format!(
                 "`{source}` took {took_ms:.1} ms, over the {} ms budget",
                 self.budget_ms
             )));
         }
-        match result? {
-            Step::Done(r) => r.map(Answer::Now),
-            Step::Pending { call, ticket } => {
+        let answer = match result {
+            Err(e) => Err(e),
+            Ok(Step::Done(r)) => r.map(Answer::Now),
+            Ok(Step::Pending { call, ticket }) => {
                 let request = if ticket == 0 || ticket == WAITING {
                     Request::continuation(call)
                 } else {
-                    self.take_request(ticket).ok_or_else(|| {
-                        DataError::Unavailable(format!("`{source}` awaits a fetch it never made"))
-                    })?
+                    let Some(request) = self.take_request(ticket) else {
+                        self.finish_let_go();
+                        return Err(DataError::Unavailable(format!(
+                            "`{source}` awaits a fetch it never made"
+                        )));
+                    };
+                    request
                 };
                 let key = Module::key(target, source, args);
-                let replaced: Vec<u64> = self
-                    .parked
-                    .iter()
-                    .chain(&self.streams)
-                    .filter(|(k, _)| *k == key)
-                    .map(|(_, parked)| parked.call)
-                    .collect();
-                self.parked.retain(|(k, _)| *k != key);
-                self.streams.retain(|(k, _)| *k != key);
-                self.forget_calls(replaced);
+                // A new call replaces one parked on its key. Not a targeted
+                // continuation's: the runner names which of two is in flight
+                // by its token (`forgotten`) or drops the new one (`discard`),
+                // and the call it would replace may be the one the runner
+                // keeps (files F18: a re-read dropped by a refused pass).
+                let replaced = if target.is_none() || request.continuation.is_none() {
+                    let replaced: Vec<u64> = self
+                        .parked
+                        .iter()
+                        .chain(&self.streams)
+                        .filter(|(k, _)| *k == key)
+                        .map(|(_, parked)| parked.call)
+                        .collect();
+                    self.parked.retain(|(k, _)| *k != key);
+                    self.streams.retain(|(k, _)| *k != key);
+                    replaced
+                } else {
+                    Vec::new()
+                };
+                // Park first. The let-go delivery below bumps progress after
+                // that, so an answer waiting on the discarded call is asked
+                // again (files F18). Delivering first parks it at the new
+                // progress, and nothing asks it again.
                 self.park(key, call, ticket, &request);
+                self.forget_calls(replaced);
                 Ok(Answer::Later(request))
             }
-        }
+        };
+        // A let-go call's operation may now be the one in flight. Deliver it
+        // with no store, so its file writes land and its Store writes do not
+        // (LLP 1097; a934686a0). Not while this answer's store is installed.
+        self.finish_let_go();
+        answer
     }
 
     /// Continue an answer: fulfil its fetch, drain, settle.
@@ -976,14 +869,8 @@ impl Module {
             if let Outcome::Failed { message, .. } = &outcome {
                 return Err(DataError::Unavailable(message.clone()));
             }
-        } else if ticket != DEFERRED {
+        } else {
             self.progress += 1; // a delivery: what a waiting answer waits for
-        }
-        if ticket == DEFERRED {
-            if let Outcome::Failed { message, .. } = &outcome {
-                return Err(DataError::Unavailable(message.clone()));
-            }
-            return self.begin(Some(store), target, source, args);
         }
         let outcome_text = outcome_to_json(&outcome).to_string();
         self.host.store = Some(store as *mut Store);
@@ -1022,7 +909,7 @@ impl Module {
                 return Err(DataError::UnknownSource(source.to_string()));
             };
             let reply = Module::decode_reply(sig, engine, source, &text)?;
-            Ok(Module::step(sig, engine, source, reply))
+            Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
@@ -1030,31 +917,44 @@ impl Module {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
         if result.is_err() && self.watch.take() {
+            self.finish_let_go();
             return Err(DataError::Unavailable(format!(
                 "`{source}` was interrupted"
             )));
         }
         if took_ms > self.budget_ms {
             self.overruns += 1;
+            self.finish_let_go();
             return Err(DataError::Unavailable(format!(
                 "`{source}` took {took_ms:.1} ms, over the {} ms budget",
                 self.budget_ms
             )));
         }
-        match result? {
-            Step::Done(r) => r.map(Answer::Now),
-            Step::Pending { call, ticket } => {
+        let answer = match result {
+            Err(e) => Err(e),
+            Ok(Step::Done(r)) => r.map(Answer::Now),
+            Ok(Step::Pending { call, ticket }) => {
                 let request = if ticket == 0 || ticket == WAITING {
                     Request::continuation(call)
                 } else {
-                    self.take_request(ticket).ok_or_else(|| {
-                        DataError::Unavailable(format!("`{source}` awaits a fetch it never made"))
-                    })?
+                    let Some(request) = self.take_request(ticket) else {
+                        self.finish_let_go();
+                        return Err(DataError::Unavailable(format!(
+                            "`{source}` awaits a fetch it never made"
+                        )));
+                    };
+                    request
                 };
                 self.park(key, call, ticket, &request);
                 Ok(Answer::Later(request))
             }
-        }
+        };
+        // After the park, so a waiter records this progress and the let-go
+        // delivery is a later one it is asked again for (files F18). No
+        // store: the let-go call's file writes land and its Store writes do
+        // not (LLP 1097; a934686a0).
+        self.finish_let_go();
+        answer
     }
 
     /// Park a call on the request it waits for. A stream's call is not
@@ -1104,7 +1004,7 @@ impl Module {
                 return Err(DataError::UnknownSource(source.to_string()));
             };
             let reply = Module::decode_reply(sig, engine, source, &text)?;
-            Ok(Module::step(sig, engine, source, reply))
+            Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
         if ended {
@@ -1134,352 +1034,32 @@ impl Module {
     }
 }
 
-impl DataSource for Module {
-    fn configure_storage(
-        &mut self,
-        data: std::path::PathBuf,
-        cache: std::path::PathBuf,
-        temporary: std::path::PathBuf,
-    ) -> Result<(), DataError> {
-        if self.is_loaded() {
-            return Err(DataError::Unavailable(
-                "configure storage before loading the module".into(),
-            ));
-        }
-        self.directories = Some(storage::Directories {
-            data,
-            cache,
-            temporary,
-        });
-        Ok(())
-    }
-
-    fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
-        let _ = store;
-        let deferred = self
-            .parked
-            .iter()
-            .any(|(_, p)| p.call == token && p.ticket == DEFERRED);
-        if self
-            .parked
-            .iter()
-            .any(|(_, p)| p.call == token && p.ticket == WAITING)
-        {
-            return self.wake(token).unwrap_or_else(|| {
-                self.waiters.push(token);
-                Dispatch::Held
-            });
-        }
-        if !deferred {
-            return match self.continuation(token) {
-                Some(work) => Dispatch::Run(Work::Now(work)),
-                None => Dispatch::Missing,
-            };
-        }
-        if self.turn_open() {
-            self.held.push_back(token);
-            return Dispatch::Held;
-        }
-        Module::deferred_work()
-    }
-
-    fn release(&mut self, store: &Store) -> Vec<(u64, Dispatch)> {
-        let _ = store;
-        // Waiting answers whose wait may be over are asked again.
-        let mut released = Vec::new();
-        for token in std::mem::take(&mut self.waiters) {
-            match self.wake(token) {
-                Some(work) => released.push((token, work)),
-                None if self.parked.iter().any(|(_, p)| p.call == token) => {
-                    self.waiters.push(token)
-                }
-                None => {}
-            }
-        }
-        // Once the open turn has ended, the oldest held answer begins; the
-        // rest wait for the turn it may open in turn.
-        while !self.turn_open() {
-            let Some(token) = self.held.pop_front() else {
-                break;
-            };
-            if self
-                .parked
-                .iter()
-                .any(|(_, p)| p.call == token && p.ticket == DEFERRED)
-            {
-                released.push((token, Module::deferred_work()));
-                break;
-            }
-        }
-        released
-    }
-
-    fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
-        if self
-            .parked
-            .iter()
-            .any(|(_, p)| p.call == token && p.ticket == DEFERRED)
-        {
-            // The owner-thread and test paths run turns in order already.
-            return Some(Box::new(|| {
-                Outcome::Response(Response {
-                    status: 200,
-                    headers: Vec::new(),
-                    body: Vec::new(),
-                })
-            }));
-        }
-        // An owner thread runs one turn to its end, so another answer's
-        // work cannot land while this one waits for it (LLP 1027.002).
-        if self
-            .parked
-            .iter()
-            .any(|(_, p)| p.call == token && p.ticket == WAITING)
-        {
-            return Some(Box::new(|| {
-                Outcome::Failed {
-                kind: exact_runner::FailureKind::Unsupported,
-                message: "the answer awaits work another answer started (a shared fetch or storage queue), which a worker-placed source cannot wait for; make each answer's own fetch, or share the resolved value rather than the promise".into(),
-            }
-            }));
-        }
-        let (_, parked) = self
-            .parked
-            .iter_mut()
-            .find(|(_, p)| p.call == token && p.ticket == 0 && !p.work_taken)?;
-        let work = self.storage.as_ref()?.continuation();
-        parked.work_taken = true;
-        Some(work)
-    }
-
-    fn activate(&mut self) -> Result<(), DataError> {
-        self.load().map_err(DataError::Unavailable)
-    }
-
-    fn activate_for_validation(&mut self) -> Result<(), DataError> {
-        // A replacement may inherit directory paths from a direct consumer.
-        // Validation gets neither those capabilities nor an existing adapter;
-        // its disposable engine can only record ordinary host requests.
-        self.unload();
-        self.directories = None;
-        self.activate()
-    }
-
-    fn replacement(&self, plan: &[u8], receipt: &str, module: Vec<u8>) -> Result<Self, DataError> {
-        Paired::decode(receipt, plan, module, self.app_id(), self.grants())
-            .map(|pair| {
-                let mut module = pair.module;
-                module.directories = self.directories.clone();
-                module.native_factory = self.native_factory;
-                module
-            })
-            .map_err(DataError::Unavailable)
-    }
-
-    fn app_id(&self) -> &str {
-        &self.app_id
-    }
-
-    fn grants(&self) -> &str {
-        &self.grants
-    }
-
-    fn revision(&self) -> Option<&str> {
-        Some(
-            self.revision
-                .get_or_init(|| paired::revision_of(&self.bytecode)),
-        )
-    }
-
-    /// A `Later` answer the runner dropped before handing it out — a refused
-    /// pass, or a re-read whose reply's refresh asks again — is dropped here
-    /// too. Left parked, a deferred call shares its key with the call still
-    /// in flight, and `resume`, which finds a call by key, gave it that
-    /// call's storage step: the read's turn never ended, and every answer
-    /// held behind it waited forever (files diary F18: a mutation refreshing
-    /// a folder's preview mid-walk, behind a composer, whose `forgotten`
-    /// cannot name a dispatched call's token).
-    fn discard(&mut self, token: u64) {
-        let Some(at) = self.parked.iter().position(|(_, p)| p.call == token) else {
-            return;
-        };
-        let (_, parked) = self.parked.remove(at);
-        self.held.retain(|held| *held != token);
-        self.waiters.retain(|waiter| *waiter != token);
-        if parked.ticket != DEFERRED {
-            self.forget_calls(vec![parked.call]);
-        }
-    }
-
-    /// Calls whose requests the runner let go are dropped, here and in the
-    /// prelude with the fetches they wait on (LLP 1016 D5).
-    /// A re-ask with equal arguments (a `refresh`) shares its key with the
-    /// call it replaced; only the continuation token tells them apart, so a
-    /// call whose token is not the one in flight goes too (minesweeper F10:
-    /// a read replaced by its own refresh kept its turn open forever, and the
-    /// refresh, deferred behind it, never ran).
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
-        let keep: HashMap<Key, Option<u64>> = in_flight
-            .iter()
-            .map(|f| {
-                (
-                    Module::key(Some(f.target), f.source, f.args),
-                    f.continuation,
-                )
-            })
-            .collect();
-        let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.parked)
-            .into_iter()
-            .partition(|(key, parked)| {
-                key.0.is_some()
-                    && !matches!(keep.get(key), Some(None))
-                    && keep.get(key) != Some(&Some(parked.call))
-            });
-        self.parked = kept;
-        let (ended, open): (Vec<_>, Vec<_>) = std::mem::take(&mut self.streams)
-            .into_iter()
-            .partition(|(key, _)| key.0.is_some() && !keep.contains_key(key));
-        self.streams = open;
-        self.forget_calls(
-            gone.into_iter()
-                .chain(ended)
-                .map(|(_, parked)| parked.call)
-                .collect(),
-        );
-    }
-
-    /// Stops the running call, or the next one to start, from any thread:
-    /// at module initialization too, and on a worker's owner thread.
-    fn interrupt(&self) -> Option<Interrupt> {
-        let watch = self.watch.clone();
-        Some(Interrupt::new(move || watch.trigger()))
-    }
-
-    fn native(&self) -> Option<exact_runner::Native> {
-        Some(self.native_slot.clone())
-    }
-
-    /// Not before the host loads it (LLP 1027 D4): the runner boots
-    /// store-reading resources from their kept answers meanwhile.
-    fn ready(&self) -> bool {
-        self.is_loaded()
-    }
-
-    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
-        self.canvas_surfaces.clone()
-    }
-
-    /// Canvas 2D (LLP 1056 D1): the module's `draw` through the TypeScript
-    /// recorder, synchronously in this turn (native `main` placement).
-    fn draw(
-        &mut self,
-        request: &exact_runner::DrawRequest<'_>,
-        ctx: &exact_runner::exact_canvas::Context2d,
-    ) -> exact_runner::Drawn {
-        self.host.canvas = Some(ctx.env());
-        let reply = match self.engine.as_mut() {
-            None => Err("the module is not loaded".to_string()),
-            Some(engine) => engine.call("__exact_draw", [&request.json(), "", ""]),
-        };
-        self.host.canvas = None;
-        exact_runner::Drawn::Now(match reply {
-            Ok(json) => exact_runner::DrawReply::from_seam(&json),
-            Err(e) => exact_runner::DrawReply {
-                error: Some(e),
-                ..Default::default()
-            },
-        })
-    }
-
-    fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
-        if let Some(engine) = self.engine.as_mut() {
-            let json = serde_json::to_string(retired).unwrap_or_default();
-            let _ = engine.call("__exact_retire", [&json, "", ""]);
-        }
-    }
-
-    /// The seam's signatures, from the plan's `sources` table (LLP 1027 D2).
-    fn bind(&mut self, plan: &Plan) {
-        self.plan = Some(plan.clone());
-        self.sigs.clear();
-        for row in &plan.sources {
-            let start = row.params.start as usize;
-            let end = start + row.params.len as usize;
-            let params = plan
-                .source_params
-                .get(start..end)
-                .map(|rows| {
-                    rows.iter()
-                        .map(|p| Shape::from_plan(plan, p.ty))
-                        .collect::<Result<Vec<_>, _>>()
-                })
-                .unwrap_or_else(|| Err("a source's parameters run past the table".into()));
-            let result = Shape::from_plan(plan, row.ty);
-            if let (Ok(params), Ok(result)) = (params, result) {
-                self.sigs
-                    .insert(plan.str(row.name).to_string(), Sig { params, result });
-            }
-        }
-    }
-
-    /// The bake's path and the in-process path: no store, and an answer that
-    /// awaits a fetch cannot be given now.
-    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
-        match self.begin(None, None, source, args)? {
-            Answer::Now(v) => Ok(v),
-            Answer::Later(_) => {
-                self.parked
-                    .retain(|(k, _)| *k != Module::key(None, source, args));
-                Err(DataError::Unavailable(format!(
-                    "`{source}` fetches, and there is no host to run it here"
-                )))
-            }
-        }
-    }
-
-    fn answer(
-        &mut self,
-        store: &mut Store,
-        source: &str,
-        args: &[Value],
-    ) -> Result<Answer, DataError> {
-        self.begin(Some(store), None, source, args)
-    }
-
-    fn parse(
-        &mut self,
-        store: &mut Store,
-        source: &str,
-        args: &[Value],
-        outcome: Outcome,
-    ) -> Result<Answer, DataError> {
-        self.resume(store, None, source, args, outcome)
-    }
-
-    fn answer_for(
-        &mut self,
-        target: Target,
-        store: &mut Store,
-        source: &str,
-        args: &[Value],
-    ) -> Result<Answer, DataError> {
-        self.begin(Some(store), Some(target), source, args)
-    }
-
-    fn parse_for(
-        &mut self,
-        target: Target,
-        store: &mut Store,
-        source: &str,
-        args: &[Value],
-        outcome: Outcome,
-    ) -> Result<Answer, DataError> {
-        self.resume(store, Some(target), source, args, outcome)
-    }
-}
-
 impl Drop for Module {
     fn drop(&mut self) {
         self.unload();
+    }
+}
+
+#[cfg(all(test, exact_js_engine))]
+mod bootstrap_tests {
+    use super::Module;
+
+    #[test]
+    fn hardening_refuses_a_reachable_abort_hook_handoff() {
+        let mut module = Module::new(
+            include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+            "test.pure",
+            "",
+        );
+        let error = match module.load_engine_with_prelude(include_bytes!(concat!(
+            env!("OUT_DIR"),
+            "/prelude-with-abort-hook.hbc"
+        ))) {
+            Ok(_) => panic!("a reachable abort hook handoff must refuse hardening"),
+            Err(error) => error,
+        };
+        assert!(error.contains("refusing to harden"), "{error}");
+        assert!(error.contains("abort hooks global"), "{error}");
+        assert!(error.contains("__exact_ibex2_abort_hooks"), "{error}");
     }
 }

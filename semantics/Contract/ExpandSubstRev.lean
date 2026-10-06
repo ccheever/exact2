@@ -47,7 +47,7 @@ theorem subst_eq_arrow {s : Subst} (hn : MapNoArrow s) {a : Expr} {ps' : List St
   | str => simp only [substExpr] at h; cases h
   | bool => simp only [substExpr] at h; cases h
   | none => simp only [substExpr] at h; cases h
-  | emptyList => simp only [substExpr] at h; cases h
+  | list => simp only [substExpr] at h; cases h
   | some => simp only [substExpr] at h; cases h
   | template => simp only [substExpr] at h; cases h
   | member => simp only [substExpr] at h; cases h
@@ -124,10 +124,13 @@ theorem sbE {e₁ e₂ : Env} (hs : Same e₁ e₂) {inFn Lf t v} (h : EvalR e�
     | var x => exact sb_var hd hf he hA
     | none => exact .none
     | _ => contra_e
-  | hd@(.emptyList) => by
+  | hd@(.list h1) => by
     cases e with
     | var x => exact sb_var hd hf he hA
-    | emptyList => exact .emptyList
+    | list items =>
+      simp only [substExpr] at he; injection he with he1
+      exact .list (sbL hs h1 hf he1 hm hn (by simpa [fv] using hA)
+        (by simpa [Plain] using hp) (by simpa [callHeads] using hh))
     | _ => contra_e
   | hd@(.some h1) => by
     cases e with

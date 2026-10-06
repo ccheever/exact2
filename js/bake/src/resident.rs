@@ -23,7 +23,7 @@ impl Producer {
         let stage = Scratch::new(&std::env::temp_dir())?;
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let standard = |tool: &Path, name: &str| {
-            tool.canonicalize().ok() == super::hermes::package_tool(&root, name).canonicalize().ok()
+            tool.canonicalize().ok() == super::package_tool(&root, name).canonicalize().ok()
                 && tool.exists()
         };
         let compiler = if standard(&tools.tsc, "tsc") && standard(&tools.rolldown, "rolldown") {
@@ -146,14 +146,15 @@ async function compile() {
   // Generated output is not a captured input. Remove it before resolution,
   // so an app's ./app.js import follows the same TS substitution as one-shot.
   rmSync(resolve(stage,'app.js'),{force:true});
-  const { configure, check, assertCapturedModule } = await import(resolve(stage,'__exact_config.mjs'));
+  const { configure, check, assertCapturedModule, ambientRefusals } = await import(resolve(stage,'__exact_config.mjs'));
   configure(stage, true);
   const checking=check(stage,tsc,libraries).then(()=>null,error=>error);
   let failed;
   try {
   const bundle=await rolldown({cwd:stage,input:resolve(stage,'__exact_entry.ts'),platform:'neutral',
     tsconfig:config,
-    plugins:[{name:'captured-sources',load(id){assertCapturedModule(stage,id);return null;}}]});
+    plugins:[{name:'captured-sources',load(id){assertCapturedModule(stage,id);return null;},
+      transform(code,id){const why=ambientRefusals(stage,id,code,(c,o)=>this.parse(c,o));if(why.length)throw new Error(why.join('\n'));return null;}}]});
   try { await bundle.write({file:resolve(stage,'app.js'),format:'iife',name:'exact'}); }
   finally { await bundle.close(); }
   process.stdout.write('{"phase":"bundled"}\n');

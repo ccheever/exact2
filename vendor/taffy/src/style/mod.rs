@@ -26,7 +26,7 @@ pub use self::dimension::{
 use crate::sys::DefaultCheapStr;
 
 #[cfg(feature = "block_layout")]
-pub use self::block::{BlockContainerStyle, BlockItemStyle, TextAlign};
+pub use self::block::{BlockContainerStyle, BlockItemStyle, Multicol, TextAlign};
 #[cfg(feature = "flexbox")]
 pub use self::flex::{FlexDirection, FlexWrap, FlexboxContainerStyle, FlexboxItemStyle};
 #[cfg(feature = "float_layout")]
@@ -712,6 +712,9 @@ pub struct Style<S: CheapCloneStr = DefaultCheapStr> {
     /// How items elements should aligned in the inline axis
     #[cfg(feature = "block_layout")]
     pub text_align: TextAlign,
+    /// EXACT PATCH 27: a multi-column container's columns
+    #[cfg(feature = "block_layout")]
+    pub multicol: Option<Multicol>,
 
     // Flexbox container properties
     /// Which direction does the main axis flow in?
@@ -825,6 +828,8 @@ impl<S: CheapCloneStr> Style<S> {
         // Block
         #[cfg(feature = "block_layout")]
         text_align: TextAlign::Auto,
+        #[cfg(feature = "block_layout")]
+        multicol: None,
         // Flexbox
         #[cfg(feature = "flexbox")]
         flex_direction: FlexDirection::Row,
@@ -1045,6 +1050,11 @@ impl<S: CheapCloneStr> BlockContainerStyle for Style<S> {
     fn align_content(&self) -> Option<AlignContent> {
         self.align_content
     }
+
+    #[inline(always)]
+    fn multicol(&self) -> Option<Multicol> {
+        self.multicol
+    }
 }
 
 #[cfg(feature = "block_layout")]
@@ -1057,6 +1067,11 @@ impl<T: BlockContainerStyle> BlockContainerStyle for &'_ T {
     #[inline(always)]
     fn align_content(&self) -> Option<AlignContent> {
         (*self).align_content()
+    }
+
+    #[inline(always)]
+    fn multicol(&self) -> Option<Multicol> {
+        (*self).multicol()
     }
 }
 
@@ -1496,6 +1511,8 @@ mod tests {
             gap: Size::zero(),
             #[cfg(feature = "block_layout")]
             text_align: Default::default(),
+            #[cfg(feature = "block_layout")]
+            multicol: None,
             #[cfg(feature = "flexbox")]
             flex_grow: 0.0,
             #[cfg(feature = "flexbox")]

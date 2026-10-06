@@ -70,8 +70,10 @@ fn scene_frame(p: &Presenter<NoData>, dark: bool, backend: Box<dyn Backend>) -> 
         page: (0.0, 0.0),
         images: &BTreeMap::new(),
         focus: None,
+        selection: None,
         pointer: None,
         controls: &BTreeMap::new(),
+        chosen: &BTreeMap::new(),
         menu: None,
     };
     let mut painter = Painter::new(p.text().clone(), 1.0, backend);
@@ -122,8 +124,8 @@ fn styled_paragraph_metrics_and_cpu_gpu_glyph_batches_agree() {
         assert_eq!(spec.runs[1].size, 18.0);
         let mut light = Vec::new();
         let mut dark = Vec::new();
-        text_palette(kernel, &node, false, &mut light);
-        text_palette(kernel, &node, true, &mut dark);
+        text_palette(kernel, &node, false, None, &mut light);
+        text_palette(kernel, &node, true, None, &mut dark);
         assert_eq!(light.len(), canonical.len());
         assert_eq!(dark.len(), canonical.len());
         let leaf = kernel.node(light[1].source).unwrap();
@@ -245,8 +247,10 @@ fn styled_paragraph_pixels_on_real_gpu_when_available() {
         page: (0.0, 0.0),
         images: &BTreeMap::new(),
         focus: None,
+        selection: None,
         pointer: None,
         controls: &BTreeMap::new(),
+        chosen: &BTreeMap::new(),
         menu: None,
     };
     for (dark, colors) in [

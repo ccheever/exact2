@@ -83,6 +83,49 @@ export function K(a, pc) {
   return a;
 }
 
+// ---------------------------------------------------------------- lists (LLP 1088 §9.1)
+// `concat`, `split`, and `slice`, `includes` and `indexOf` over a list, on the caller's budget as `join` is: each takes
+// the caller's `$s` and traps where the sum passes the bound, before it builds (`vm.rs`, `list_call`), leaving its own
+// steps in `ST`, which the caller adds to its `$s` (code.rs); a list it builds is `K`'s. Over text, `slice`, `includes`
+// and `indexOf` take no step.
+/** The list steps the last of them took. */
+export let ST = 0;
+const step = (s, n, pc) => { ST = n; if (s + n > 65536) throw new Trap("IterationLimit", pc); };
+/** `concat(xs, ys)`: one step an item. */
+export function x_concat(a, b, s, pc) { step(s, a.length + b.length, pc); return K(a.concat(b), pc); }
+/** `slice(v, start, end?)`: the compiler writes an omitted `end` as `Number.MAX_VALUE`, which clamps as `undefined`
+ * does; text's result is made well formed once (LLP 1088 D2); a list's takes a step an item it keeps. */
+export function x_slice(v, a, b, s, pc) {
+  if (typeof v === "string") { ST = 0; return v.slice(a, b).toWellFormed(); }
+  const r = v.slice(a, b);
+  step(s, r.length, pc);
+  return K(r, pc);
+}
+/** `includes(v, x)`: a substring of text, or a list's item by SameValueZero (NaN is NaN), a step an item scanned. */
+export function x_includes(v, x, s, pc) {
+  if (typeof v === "string") { ST = 0; return v.includes(x); }
+  let i = 0;
+  while (i < v.length && v[i] !== x && (x === x || v[i] === v[i])) i++;
+  step(s, i < v.length ? i + 1 : v.length, pc);
+  return i < v.length;
+}
+/** `indexOf(v, x)`: text's first match in UTF-16 code units, or a list's item by IsStrictlyEqual (NaN is never found),
+ * a step an item scanned; -1 for none. */
+export function x_indexOf(v, x, s, pc) {
+  if (typeof v === "string") { ST = 0; return v.indexOf(x); }
+  const i = v.indexOf(x);
+  step(s, i < 0 ? v.length : i + 1, pc);
+  return i;
+}
+/** `split(t, sep)`: a step a piece; an empty `sep` splits into code units, each made well formed (LLP 1088 D2), and
+ * steps before it splits, as the runner counts first. */
+export function x_split(t, sep, s, pc) {
+  if (sep === "") { step(s, t.length, pc); return K(t.split("").map(u => u.toWellFormed()), pc); }
+  const r = t.split(sep);
+  step(s, r.length, pc);
+  return K(r, pc);
+}
+
 // ---------------------------------------------------------------- strings (`Opcode::Concat`, the roster's builders)
 /** `a + b` (`Opcode::Concat`). */
 export function cc(a, b, pc) { return str(a + b, pc); }

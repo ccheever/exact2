@@ -303,6 +303,18 @@ fn state_initializers_refuse_later_names_and_leaked_locals() {
         assert_eq!(error.id, id, "{source}");
         assert_eq!(error.span.line, line, "{source}");
     }
+    // The survey diary: a mutation and an action of one name. The message
+    // says the kinds share their names.
+    let source = "shape Ok\n  ok: bool\ncomponent App\n  mutation exported as shape Ok\n  action exported\n    exported = none\n  view\n    text \"value\"\n";
+    let error = contract::compile(source).unwrap_err();
+    assert_eq!(error.id, "type-duplicate-name", "{error}");
+    assert!(error.message.contains("first on line 4"), "{error}");
+    assert!(
+        error
+            .message
+            .contains("mutations and actions share one set of names"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -676,6 +688,45 @@ fn the_iframe_fixture_lowers_and_records_its_events() {
     assert_eq!(r.slot("received"), Some(&Value::str("deck-ready")));
 }
 
+/// HTML `<img>`'s `load` and `error` (LLP 1011 §2): `load` carries nothing,
+/// `error` the reason the host gives; `load` stays an `iframe`'s and an
+/// `image`'s.
+#[test]
+fn an_image_hears_its_load_and_its_error() {
+    let src = r#"component App
+  state shown = "loading"
+  action mark(value: string)
+    shown = value
+  action broke(which: string, message: string)
+    shown = `${which}: ${message}`
+  view
+    image "https://example.com/icon.png" width=48 height=48 load=mark("loaded") error=broke("icon") testId="icon"
+"#;
+    let mut r = Runner::boot(
+        contract::compile(src).unwrap(),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let id = r.kernel().find_by_test_id("icon")[0];
+    let id = r.kernel().node_by_key(id).unwrap().id;
+    assert_eq!(r.handlers_of(id), vec![EventKind::Load, EventKind::Error]);
+    r.dispatch(id, Event::Load).unwrap();
+    assert_eq!(r.slot("shown"), Some(&Value::str("loaded")));
+    r.dispatch(id, Event::Media(EventKind::Error, "HTTP 404".into()))
+        .unwrap();
+    assert_eq!(r.slot("shown"), Some(&Value::str("icon: HTTP 404")));
+    let e = contract::compile(&src.replace("image \"https://example.com/icon.png\"", "view"))
+        .unwrap_err();
+    assert_eq!(e.id, "lower-attr-tag", "{e}");
+    assert!(
+        e.message.contains("`iframe`, `image` or a native module"),
+        "{e}"
+    );
+}
+
 #[test]
 fn contextmenu_and_double_click_keep_their_authored_arguments_and_do_not_take_a_press() {
     let src = r#"component App
@@ -786,7 +837,9 @@ fn content_sized_composer_grows_wraps_and_stops_at_its_maximum() {
         ),
     )
     .unwrap();
-    assert_eq!(height(&mut r), 88.0);
+    // `max-height` bounds the content box; the field's sheet adds its
+    // padding and border outside it (LLP 1104 D2).
+    assert_eq!(height(&mut r), 88.0 + 14.0);
     assert_eq!(
         r.kernel().node_by_key(fixed).unwrap().frame.height,
         fixed_height

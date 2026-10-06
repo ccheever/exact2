@@ -37,10 +37,15 @@ pub(crate) fn check_component(
         .chain(c.mutations.iter().map(|m| (&m.name, m.span)))
         .chain(c.actions.iter().map(|a| (&a.name, a.span)))
     {
-        if seen.insert(name.clone(), span).is_some() {
+        if let Some(first) = seen.insert(name.clone(), span) {
+            // The survey diary's `mutation exported` and `action exported`:
+            // say that the kinds share one set of names.
             sink.push(TypeError {
                 id: "type-duplicate-name",
-                message: format!("`{name}` declared twice"),
+                message: format!(
+                    "`{name}` is declared twice in `{}` (first on line {}): its props, injects, states, derives, resources, mutations and actions share one set of names; rename one",
+                    c.name, first.line
+                ),
                 span,
             });
         }
@@ -344,17 +349,7 @@ pub(crate) fn check_component(
         }
     }
     check_view(&c.view, &scope, shapes, sink);
-    for t in &c.tasks {
-        match infer(&t.timer.0, &scope, shapes) {
-            Ok(Ty::Number) => {}
-            Ok(_) => sink.push(TypeError {
-                id: "type-timer",
-                message: "a task needs a number of milliseconds".into(),
-                span: t.timer.2,
-            }),
-            Err(e) => sink.push(e),
-        }
-    }
+    super::tasks::check_tasks(c, &scope, shapes, sink);
     ct
 }
 
@@ -456,6 +451,10 @@ fn refine_params_from_view(
                 // checked (LLP 1069.001 D4); a text field's, its text.
                 let control = contract_syntax::input_control(tag, attrs);
                 let checkbox = control == Some("checkbox");
+                // A text field's `select` is HTML's, its selection the
+                // `InputEvent` (x2apps codeedit #2); the Markdown editor's
+                // carries its formats.
+                let field = contract_syntax::payload_control(tag, attrs) == Some("field");
                 // A file input's `change` carries the picked files (LLP
                 // 1069.002 D3); its `cancel`, nothing.
                 let file = control == Some("file");
@@ -516,8 +515,15 @@ fn refine_params_from_view(
                             | "volumechange"
                             | "error"
                             | "canplay"
+                            | "seekbackward"
+                            | "seekforward"
+                            | "seekto"
+                            | "previoustrack"
+                            | "nexttrack"
+                            | "stop"
                             | "navigate"
                             | "cancel"
+                            | "resize"
                     ) {
                         let (name, args): (&str, &[Expr]) = match &a.value {
                             Expr::Ident(n, _) => (n, &[]),
@@ -568,8 +574,11 @@ fn refine_params_from_view(
                                 }
                                 "timeupdate" | "durationchange" => vec![Ty::Number],
                                 "hover" => vec![Ty::Bool],
+                                "select" if field => vec![Ty::Record("InputEvent".into())],
                                 "select" => vec![Ty::Record("MarkdownSelection".into())],
-                                "scroll" | "panrelease" => vec![Ty::Number, Ty::Number],
+                                "scroll" | "panrelease" | "resize" => {
+                                    vec![Ty::Number, Ty::Number]
+                                }
                                 _ => vec![],
                             };
                             // Then the event's record, when the action
@@ -703,11 +712,8 @@ fn derive_order(c: &Component) -> Vec<usize> {
                     names(x, out)
                 }
             }),
-            Expr::Number(..)
-            | Expr::Str(..)
-            | Expr::Bool(..)
-            | Expr::None(_)
-            | Expr::EmptyList(_) => {}
+            Expr::List(items, _) => items.iter().for_each(|x| names(x, out)),
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
         }
     }
     fn visit(i: usize, reads: &[Vec<usize>], seen: &mut [bool], order: &mut Vec<usize>) {
@@ -745,7 +751,8 @@ fn derive_order(c: &Component) -> Vec<usize> {
 /// as a `list<?>`.
 fn empty_list_in(e: &Expr) -> Option<Span> {
     match e {
-        Expr::EmptyList(span) => Some(*span),
+        Expr::List(items, span) if items.is_empty() => Some(*span),
+        Expr::List(items, _) => items.iter().find_map(empty_list_in),
         Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) | Expr::Ident(..) => {
             None
         }
@@ -875,17 +882,13 @@ fn member_path(e: &Expr, name: &str) -> Option<String> {
 fn walk_exprs(e: &Expr, f: &mut dyn FnMut(&Expr)) {
     f(e);
     match e {
-        Expr::Number(..)
-        | Expr::Str(..)
-        | Expr::Bool(..)
-        | Expr::None(..)
-        | Expr::EmptyList(..)
-        | Expr::Ident(..) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) | Expr::Ident(..) => {}
         Expr::Template(parts, _) => parts.iter().for_each(|p| {
             if let TemplatePart::Expr(x) = p {
                 walk_exprs(x, f)
             }
         }),
+        Expr::List(items, _) => items.iter().for_each(|a| walk_exprs(a, f)),
         Expr::Some(x, _)
         | Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
@@ -943,11 +946,8 @@ fn first_free(
             Expr::Ident(name, span) => {
                 (!bound.contains(name) && hit(name)).then(|| (name.clone(), *span))
             }
-            Expr::Number(..)
-            | Expr::Str(..)
-            | Expr::Bool(..)
-            | Expr::None(..)
-            | Expr::EmptyList(..) => None,
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) => None,
+            Expr::List(items, _) => items.iter().find_map(|a| walk(a, calls, hit, bound)),
             Expr::Template(parts, _) => parts.iter().find_map(|p| match p {
                 TemplatePart::Expr(x) => walk(x, calls, hit, bound),
                 _ => None,

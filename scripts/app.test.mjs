@@ -83,14 +83,23 @@ test.skipIf(!process.env.EXACT_ASSET_BAKE_TEST)('creating optional asset roots r
 
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { basename, delimiter, dirname, resolve, sep } from 'node:path';
+import { basename, delimiter, dirname, resolve, sep, toNamespacedPath } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
-import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
-import { hermesIos } from './app.mjs';
+import { resolveApp, buildBake, bakeTarget, HERMES_INSTALLER, hermesBundle, hermesLeanSysRoots, pendingBuildInputs } from './app.mjs';
+import { checkHermesBundles, hermesCrossTargets, hermesSetupTargets } from './exact.mjs';
 import { useXcode } from '../host/apple/devices.mjs';
-import { HERMES_IOS_ARCHIVES, provisionHermesIos } from '../host/apple/hermes.mjs';
 import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, macReleaseEntitlements, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
+
+test('the driver grammar names an unquoted mediasession action beside pinch', () => {
+  const source = readFileSync(new URL('./agent.mjs', import.meta.url), 'utf8');
+  const header = source.split('\n').slice(0, 16).join('\n');
+  const form = 'pinch <scale> [at <x> <y>] | mediasession <action> [seconds]';
+  assert.ok(header.includes(form), header);
+  const usage = spawnSync(process.execPath, [resolve(import.meta.dir, 'agent.mjs')], { encoding: 'utf8' });
+  assert.equal(usage.status, 2, usage.stderr);
+  assert.ok(usage.stderr.includes(form), usage.stderr);
+});
 
 // Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
 test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('native bakes stay fresh and retain unit source and environment evidence', () => {
@@ -184,7 +193,7 @@ async function fixture(body) {
     return resolve(root, dir);
   };
   try {
-    for (const path of ['scripts/app.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','game/app/shells.mjs','game/.cargo/config.toml']) {
+    for (const path of ['scripts/app.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','game/app/shells.mjs','game/.cargo/config.toml']) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
     const { resolveApp: localResolveApp, cargoReproducibilityFlags: flags } = await import(resolve(root,'scripts/app.mjs'));
@@ -1028,6 +1037,7 @@ test('a build env keeps the pinned toolchain and the checked Bun ahead of ambien
   const pinned = /^channel\s*=\s*"([^"]+)"/m.exec(readFileSync(resolve(import.meta.dir, '../rust-toolchain.toml'), 'utf8'))[1];
   const previous = process.env.RUSTUP_TOOLCHAIN;
   try {
+    assert.equal(process.env.HERMES_LEAN_SYS_OFFLINE, '1');
     process.env.RUSTUP_TOOLCHAIN = 'stable'; // What `mise exec` exports.
     assert.equal(developmentBuildEnv().RUSTUP_TOOLCHAIN, undefined);
     for (const same of [pinned, `${pinned}-aarch64-apple-darwin`]) {
@@ -1041,37 +1051,70 @@ test('a build env keeps the pinned toolchain and the checked Bun ahead of ambien
     assert.ok(Bun.which('cargo', {PATH:env.PATH}), 'the build inherits Cargo after spreading Windows Path');
     assert.equal(Object.keys(env).filter(key => key.toLowerCase() === 'path').length, 1);
     assert.equal(env.EXACT_UPDATE_TRUST, process.env.EXACT_UPDATE_TRUST ?? 'development');
+    assert.equal(env.HERMES_LEAN_SYS_OFFLINE, '1');
   } finally { if (previous === undefined) delete process.env.RUSTUP_TOOLCHAIN; else process.env.RUSTUP_TOOLCHAIN = previous; }
 });
 
-// @ref LLP 1036.001 D5 — no CMake build here: the refusals and the no-op paths.
-test('lean iOS Hermes provisions into its per-pin cache, only from the pinned pristine source', () => {
+test('iOS Hermes preflight selects the pinned digest and exact installer command', () => {
   const home = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-hermes-home-')));
   try {
-    const env = { ...process.env, HOME: home }; delete env.EXACT_HERMES_IOS_DIR;
-    const { pin, root, cached } = hermesIos(env);
-    assert.equal(cached, true);
-    assert.equal(root, resolve(home, '.cache/exact/hermes', `${pin.slice(0, 12)}-lean-ios`));
-    // Without CMake, one message says what to install, before anything is fetched (shop F19).
-    assert.throws(() => provisionHermesIos('ios-simulator', { ...env, PATH: '/usr/bin:/bin' }), /needs CMake, which is not installed\. Install it \(brew install cmake\)/);
-    assert.equal(existsSync(resolve(home, '.cache/exact/hermes/hermes-src')), false);
-    // A stand-in CMake: the source at another commit is refused before any build.
-    const bin = resolve(home, 'bin'); mkdirSync(bin);
-    writeFileSync(resolve(bin, 'cmake'), '#!/bin/sh\nexit 0\n'); chmodSync(resolve(bin, 'cmake'), 0o755);
-    env.PATH = `${bin}:${env.PATH}`;
-    const source = resolve(home, '.cache/exact/hermes/hermes-src');
-    spawnSync('git', ['init', '-q', source]);
-    spawnSync('git', ['-C', source, '-c', 'user.name=t', '-c', 'user.email=t@t.invalid', 'commit', '-q', '--allow-empty', '-m', 'other']);
-    assert.throws(() => provisionHermesIos('ios-simulator', env), new RegExp(`is at [0-9a-f]{40}; js/build.rs pins ${pin}`));
-    // Complete archives are used as they are; the source is not consulted.
-    for (const archive of HERMES_IOS_ARCHIVES) { mkdirSync(dirname(resolve(root, 'ios', archive)), { recursive: true }); writeFileSync(resolve(root, 'ios', archive), ''); }
-    provisionHermesIos('ios', env);
-    // Archives an override names are provisioned elsewhere; js/build.rs refuses missing ones.
-    const elsewhere = resolve(home, 'elsewhere');
-    assert.deepEqual(hermesIos({ ...env, EXACT_HERMES_IOS_DIR: elsewhere }), { pin, root: elsewhere, cached: false });
-    provisionHermesIos('ios-simulator', { ...env, EXACT_HERMES_IOS_DIR: elsewhere });
-    assert.equal(existsSync(elsewhere), false);
+    const env = { HOME: home };
+    const simulator = hermesBundle('aarch64-apple-ios-sim', env);
+    const intelSimulator = hermesBundle('x86_64-apple-ios', env);
+    assert.equal(simulator.installed, false);
+    assert.equal(simulator.root, intelSimulator.root, 'both simulator triples select the universal bundle');
+    assert.equal(simulator.fix, `cargo run --manifest-path ${HERMES_INSTALLER} -- --target aarch64-apple-ios-sim`);
   } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('setup check uses the installer result and preserves its missing-bundle message', () => {
+  const calls = [], missingMessage = 'Hermes bundle installation or check failed: install with cargo run --manifest-path installer -- --target aarch64-apple-darwin';
+  const execute = (command, args, options) => {
+    calls.push({command, args, options});
+    return calls.length === 1
+      ? {status: 1, stdout: 'Checking pinned Hermes bundles', stderr: missingMessage}
+      : {status: 0, stdout: 'Verified every installed bundle', stderr: ''};
+  };
+  const env = {HOME:'/empty-cargo-home', CARGO_HOME:'/empty-cargo-home'};
+  const missing = checkHermesBundles(env, execute, 'darwin', 'arm64');
+  assert.equal(missing.ok, false);
+  assert.ok(missing.message.includes(missingMessage));
+  // The required check is the host bundle alone, locked and offline.
+  assert.ok(calls[0].args.includes('--check'));
+  assert.ok(calls[0].args.includes('--locked'));
+  assert.ok(calls[0].args.includes('--offline'));
+  assert.ok(!calls[0].args.includes('--target'), 'cross targets are separate, optional rows');
+  assert.equal(calls[0].options.env.HERMES_LEAN_SYS_OFFLINE, '1');
+  assert.doesNotMatch(missing.fix, /--check/);
+  const installed = checkHermesBundles(env, execute, 'darwin', 'arm64');
+  assert.equal(installed.ok, true);
+  assert.match(installed.message, /Verified every installed bundle/);
+});
+
+test('each Apple TypeScript destination checks its own Hermes bundle, device included', () => {
+  assert.deepEqual(hermesCrossTargets('darwin', 'arm64'), [
+    { target: 'aarch64-apple-ios-sim', need: 'iOS Simulator TypeScript' },
+    { target: 'aarch64-apple-ios', need: 'iOS device TypeScript' },
+    { target: 'aarch64-apple-tvos-sim', need: 'tvOS Simulator TypeScript' },
+  ]);
+  assert.equal(hermesCrossTargets('darwin', 'x64')[0].target, 'x86_64-apple-ios');
+  assert.deepEqual(hermesCrossTargets('linux', 'x64'), []);
+  assert.deepEqual(hermesSetupTargets('darwin', 'arm64'), ['aarch64-apple-ios-sim', 'aarch64-apple-tvos-sim']);
+  const calls = [];
+  const execute = (command, args) => { calls.push(args); return {status: 0, stdout: 'Verified', stderr: ''}; };
+  checkHermesBundles({}, execute, 'darwin', 'arm64', ['aarch64-apple-ios']);
+  assert.deepEqual(calls[0].slice(-3), ['--check', '--target', 'aarch64-apple-ios']);
+  const install = checkHermesBundles({}, execute, 'darwin', 'arm64', ['aarch64-apple-ios']).fix;
+  assert.match(install, /--locked/);
+  assert.doesNotMatch(install, /--offline|--check/);
+});
+
+test('bake receipts recognize the install-once Hermes cache and explicit installs', () => {
+  const home = resolve(tmpdir(), 'exact-hermes-receipt-home');
+  const receiptRoots = path => [...new Set(process.platform === 'win32' ? [path, toNamespacedPath(path)] : [path])];
+  assert.deepEqual(hermesLeanSysRoots({ HOME: home }), receiptRoots(resolve(home, '.cargo/hermes-lean-sys')));
+  const selected = resolve(home, 'selected engine');
+  assert.deepEqual(hermesLeanSysRoots({ HERMES_LEAN_SYS_DIR: selected }), receiptRoots(selected));
 });
 
 // Real actool: separate compiles into the same bundle silently replace Assets.car.
@@ -1171,6 +1214,30 @@ test('locked metadata fetches a missing git checkout without rewriting the lock'
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
+test('`appTransportSecurity` writes ATS for web content only; absent, no key (#106)', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const ats = { appTransportSecurity: { allowsArbitraryLoadsInWebContent: true } };
+  const app = (host) => ({ id: 'com.example.fixture', displayName: 'Fixture', manifest: { host } });
+  const flat = (plist) => plist.replace(/>\s+</g, '><');
+  const web = /<key>NSAppTransportSecurity<\/key><dict><key>NSAllowsArbitraryLoadsInWebContent<\/key><true\/><\/dict>/;
+  assert.match(flat(macInfoPlist(app({ macos: ats }))), web);
+  assert.match(flat(infoPlist(app({ ios: ats }))), web);
+  // Beside the dev client's local networking, one dictionary with both keys.
+  assert.match(flat(infoPlist(app({ ios: { ...ats, localNetworking: true } }))), /<key>NSAppTransportSecurity<\/key><dict><key>NSAllowsArbitraryLoadsInWebContent<\/key><true\/><key>NSAllowsLocalNetworking<\/key><true\/><\/dict>/);
+  assert.match(flat(infoPlist(app({ ios: { localNetworking: true } }))), /<key>NSAppTransportSecurity<\/key><dict><key>NSAllowsLocalNetworking<\/key><true\/><\/dict>/);
+  // Absent or false, on tvOS (no WebKit), and one platform's field never reaches the other's plist.
+  assert.doesNotMatch(infoPlist(app({ ios: ats }), false, { tv: true }), /NSAppTransportSecurity/);
+  for (const plist of [macInfoPlist(app({})), macInfoPlist(app({ ios: ats })), infoPlist(app({ macos: ats })), macInfoPlist(app({ macos: { appTransportSecurity: { allowsArbitraryLoadsInWebContent: false } } }))]) assert.doesNotMatch(plist, /NSAppTransportSecurity/);
+  // A typed field, not a pass-through: any other key fails the manifest.
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ats-'));
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'F', app: { id: 'com.example.f', name: 'F' }, host: { macos: { appTransportSecurity: { NSAllowsArbitraryLoads: true } } } }));
+    assert.throws(() => readManifest(dir, 'f'), /host\.macos\.appTransportSecurity/);
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'F', app: { id: 'com.example.f', name: 'F' }, host: { macos: ats, ios: ats } }));
+    assert.equal(readManifest(dir, 'f').host.macos.appTransportSecurity.allowsArbitraryLoadsInWebContent, true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 1069.010 D4)', async () => {
   const { readManifest } = await import('./app.mjs');
   const app = (manifest) => ({ id: 'com.example.fixture', displayName: 'Fixture', name: 'fixture', manifest: { host: {}, ...manifest } });
@@ -1256,13 +1323,36 @@ test('web remapping preserves game floating-point determinism on both web toolch
 test('simulator signing gives each app and embedded host a distinct Keychain identity', async () => {
   const {entitlements} = await import('../host/apple/build.mjs');
   const app = {id:'com.exact.test',manifest:{host:{ios:{}}}};
-  const sim = entitlements(app), host = entitlements({...app,id:app.id+'.host'});
-  assert.match(sim, /<key>application-identifier<\/key><string>com.exact.test<\/string>/);
-  assert.match(host, /<key>application-identifier<\/key><string>com.exact.test.host<\/string>/);
+  const simulator = {simulator:true};
+  const sim = entitlements(app, null, true, null, simulator), host = entitlements({...app,id:app.id+'.host'}, null, true, null, simulator);
+  // A Team ID's ten characters before the id (LLP 1069.008.000 D3), the bare id it had kept as a Keychain group.
+  assert.match(sim, /<key>application-identifier<\/key><string>SIMULATORX.com.exact.test<\/string>/);
+  assert.match(sim, /<key>keychain-access-groups<\/key><array><string>SIMULATORX.com.exact.test<\/string><string>com.exact.test<\/string><\/array>/);
+  assert.match(host, /<key>application-identifier<\/key><string>SIMULATORX.com.exact.test.host<\/string>/);
   assert.doesNotMatch(sim, /com.apple.developer.team-identifier/);
   const device = entitlements(app, 'TEAM', false);
   assert.match(device, /TEAM.com.exact.test/);
+  assert.doesNotMatch(device, /keychain-access-groups|SIMULATORX/);
   assert.match(device, /<key>get-task-allow<\/key><false\/>/);
+});
+
+test('a HealthKit grant signs with its entitlement, tvOS drops it, and a device build takes only a profile that allows it', async () => {
+  // LLP 1069.008.000 D2, D4, D5.
+  const {entitlements, tvReach} = await import('../host/apple/build.mjs');
+  const {allows} = await import('../host/apple/devices.mjs');
+  const app = {id:'com.exact.test',manifest:{host:{ios:{}}}};
+  const health = 'com.apple.developer.healthkit';
+  const reach = {base:'en', locales:['en'], entitlements:[health], tvOmits:['NSHealthShareUsageDescription','NSHealthUpdateUsageDescription',health],
+    usage:{NSHealthShareUsageDescription:{en:'Reads.'}, NSHealthUpdateUsageDescription:{en:'Reads.'}, NSMicrophoneUsageDescription:{en:'Hears.'}}};
+  for (const plist of [entitlements(app, null, true, reach, {simulator:true}), entitlements(app, 'TEAM', true, reach)]) assert.match(plist, /<key>com.apple.developer.healthkit<\/key><true\/>/);
+  const tv = tvReach(reach);
+  assert.deepEqual(tv.entitlements, []);
+  assert.deepEqual(Object.keys(tv.usage), ['NSMicrophoneUsageDescription']);
+  assert.doesNotMatch(entitlements(app, null, true, tv, {simulator:true}), /healthkit/);
+  assert.equal(tvReach({usage:{A:{en:'x'}}}).usage.A.en, 'x', 'nothing to omit leaves reach alone');
+  const wildcard = {entitlements:['application-identifier','get-task-allow','keychain-access-groups']}, explicit = {entitlements:[...wildcard.entitlements, health]};
+  assert.ok(allows(wildcard, []) && allows(explicit, [health]));
+  assert.ok(!allows(wildcard, [health]) && !allows(null, []));
 });
 
 test('setup accepts both official Binaryen release tags and package-manager version output', async () => {

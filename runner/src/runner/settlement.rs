@@ -9,6 +9,7 @@ use exact_plan::{ResourcesRow, TypeKind, Value};
 
 /// What the published derives were computed against: an input equal to
 /// its value here has not changed since the last successful settlement.
+#[derive(Clone)]
 pub(super) struct Settled {
     slots: Vec<Value>,
     now_ms: f64,
@@ -72,9 +73,12 @@ impl<D: DataSource> Runner<D> {
         let result = if self.poisoned {
             Err(RunnerError::Poisoned)
         } else {
-            self.settle(false).and_then(|_| self.update())
+            self.settle(false)
+                .and_then(|_| self.gate_step())
+                .and_then(|_| self.update())
         };
         self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         result
     }
@@ -155,9 +159,7 @@ impl<D: DataSource> Runner<D> {
         if self.conforms(value, row.ty) {
             Ok(())
         } else {
-            Err(RunnerError::Shape {
-                resource: self.plan.str(row.name).to_string(),
-            })
+            Err(self.shape(self.plan.str(row.name).to_string(), value, row.ty))
         }
     }
 
@@ -583,7 +585,7 @@ impl<D: DataSource> Runner<D> {
                                     progress = true;
                                     continue;
                                 }
-                                answer => answer?,
+                                answer => answer,
                             };
                             force.retain(|forced| *forced != i);
                             if self.store.reads() > reads_before {
@@ -596,7 +598,23 @@ impl<D: DataSource> Runner<D> {
                             // last one did; its reply's parse may add more.
                             self.watching[i] = self.store.take_topics();
                             match answer {
-                                Answer::Now(v) => {
+                                Err(RunnerError::Data {
+                                    error: DataError::DeferredAtBake(_),
+                                    ..
+                                }) => {
+                                    // Storage belongs to the launched app. A bake has no
+                                    // request to dispatch: activation asks this source again.
+                                    let Some(value) = self.placeholder(i, &row, &resources) else {
+                                        return Err(self.unanswerable(i));
+                                    };
+                                    self.stale[i] = true;
+                                    pending_res[i] = true;
+                                    awaiting[i] = true;
+                                    placeholder = true;
+                                    Held::new(value)
+                                }
+                                Err(error) => return Err(error),
+                                Ok(Answer::Now(v)) => {
                                     // A re-read shows the source's answer and
                                     // leaves a request in flight to land.
                                     if (pending_res[i] || self.streaming(i)) && !reread {
@@ -610,7 +628,7 @@ impl<D: DataSource> Runner<D> {
                                     self.keep_answer(i, &args, &v);
                                     Held::new(v)
                                 }
-                                Answer::Later(request) if reread => {
+                                Ok(Answer::Later(request)) if reread => {
                                     // Nothing newer to show before the write
                                     // lands; the reply's refresh asks the host.
                                     // A source that parks calls hears what is
@@ -622,7 +640,7 @@ impl<D: DataSource> Runner<D> {
                                     value_args = state.args.clone();
                                     state.value.clone()
                                 }
-                                Answer::Later(request) => {
+                                Ok(Answer::Later(request)) => {
                                     // The host will run it. Meanwhile the resource
                                     // keeps the value it had — its last answer, or
                                     // its compiled boot value (LLP 1016 D3).

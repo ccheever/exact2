@@ -39,9 +39,15 @@ extension NodeView {
     var paragraphText: String {
         props["text"] ?? inlineText.lazy.filter(\.paints).map(\.text).joined()
     }
+    /// What is spoken: hidden inline runs are omitted. `paragraphText` stays
+    /// the source, which selection still reads.
+    var visibleParagraphText: String {
+        guard !inlineText.isEmpty else { return paragraphText }
+        return inlineText.filter { $0.paints && !$0.run(dark: drawsDark).hidden }.map(\.text).joined()
+    }
     func updateTextAccessibility() {
         guard isParagraph else { return }
-        let label = props["accessibilityLabel"] ?? paragraphText
+        let label = props["accessibilityLabel"] ?? visibleParagraphText
         #if os(macOS)
         setAccessibilityElement(true)
         if let level = Int(props["accessibilityHeadingLevel"] ?? ""), (1...6).contains(level) {
@@ -72,7 +78,7 @@ extension NodeView {
         return paragraph.selectionRects(NSRange(location: lo, length: hi - lo), align: spec.align, in: contentBox(), dirty: bounds)
     }
     func textAccessibilityChildren() -> [Any]? {
-        let interactive = inlineText.filter { !($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil }
+        let interactive = inlineText.filter { !$0.run(dark: drawsDark).hidden && (!($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil) }
         guard !interactive.isEmpty else { return nil }
         let text = paragraphText as NSString
         let children: [Any] = interactive.map { InlineAccessibility(owner: self, run: $0, text: text) }
@@ -80,7 +86,7 @@ extension NodeView {
         return children
         #else
         let paragraph = UIAccessibilityElement(accessibilityContainer: self)
-        paragraph.accessibilityLabel = props["accessibilityLabel"] ?? (text as String)
+        paragraph.accessibilityLabel = props["accessibilityLabel"] ?? visibleParagraphText
         paragraph.accessibilityLanguage = presenter?.documentLanguage
         paragraph.accessibilityTraits = .staticText
         paragraph.accessibilityFrameInContainerSpace = contentBox()

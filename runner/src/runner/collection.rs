@@ -11,6 +11,13 @@ impl<D: DataSource> Runner<D> {
             .map(Tree::collections)
             .unwrap_or_default()
     }
+    /// Each mounted list's view, data generation and axis ([`Tree::collection_data`]).
+    pub fn collection_data(&self) -> Vec<(ViewId, u64, bool)> {
+        self.tree
+            .as_ref()
+            .map(Tree::collection_data)
+            .unwrap_or_default()
+    }
     /// One list's entry of [`Runner::collections`].
     pub fn collection(&self, view: ViewId) -> Option<CollectionSnapshot> {
         self.tree.as_ref().and_then(|tree| tree.collection(view))

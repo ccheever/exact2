@@ -944,6 +944,10 @@ fn fingerprint(spec: &Spec) -> u64 {
         run.line_height.map(f32::to_bits).hash(&mut h);
         run.letter_spacing.to_bits().hash(&mut h);
         run.font_variant_numeric.hash(&mut h);
+        run.indent.to_bits().hash(&mut h);
+        run.hang.hash(&mut h);
+        run.mark.hash(&mut h);
+        run.href.hash(&mut h);
     }
     h.finish()
 }
@@ -975,6 +979,7 @@ pub(super) fn capacities(paragraph: &Paragraph) -> usize {
     }
     let mut bytes = paragraph.source.accessible_capacity_bytes
         + vector(&paragraph.baselines)
+        + vector(&paragraph.bottoms)
         + vector(&paragraph.layouts)
         + paragraph.flow.as_ref().map_or(0, |f| f.capacity_bytes());
     for layouts in paragraph.layouts.iter() {

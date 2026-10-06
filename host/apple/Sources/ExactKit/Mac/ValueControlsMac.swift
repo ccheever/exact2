@@ -1,8 +1,8 @@
 // @ref LLP 1069.001 D5 — the controls that carry a value, projected onto
 // AppKit as the checkbox is: `select` is an `NSPopUpButton`, its items read
 // from the kernel. Contract owns the value: the control moves at once,
-// reports HTML's `input` then `change`, and shows the committed value after
-// the action (D4).
+// reports HTML's `input` then `change`, and shows the bound value when it
+// changes, keeping the person's choice until then (D4, amended 2026-10-04).
 #if os(macOS)
 import AppKit
 
@@ -55,7 +55,12 @@ extension ControlHost {
     /// value shown again, which an action that refused leaves unchanged.
     func chose(_ id: UInt32, _ value: String) {
         guard presenter.views[id] != nil else { return }
+        let before = presenter.selectOptions?(id)
         presenter.controlValue(id, value, input: true, change: true)
+        // The bound value is shown when it changes, as the web build's select:
+        // an action that wrote none leaves the person's choice showing (LLP
+        // 1069.001 D4, amended 2026-10-04).
+        guard presenter.selectOptions?(id) != before else { return }
         menus.removeValue(forKey: id)
         if let owner = presenter.views[id], let control = controls[id] {
             configureValue(control, owner, accent: nil)
@@ -81,6 +86,7 @@ extension ControlHost {
             guard picker.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
             return typeDate(picker, node, value)
         }
+        if kinds[node.id] == "radio" { return typeRadio(node, value) } // x2apps survey #2
         // A checkbox (or `switch`) takes `true` or `false`, and is clicked when that differs, as on the web.
         if kinds[node.id] == "checkbox" || kinds[node.id] == "switch", let control = controls[node.id] {
             guard value == "true" || value == "false" else { return ["error": "checkbox \(node.id) takes true or false, not \"\(value)\""] }
@@ -94,7 +100,7 @@ extension ControlHost {
         popup.menu?.cancelTracking()
         if let index = popup.menu?.items.firstIndex(where: { $0.representedObject as? String == chosen }) { popup.selectItem(at: index) }
         chose(node.id, chosen)
-        return ["typed": Int(node.id), "value": menus[node.id]?.chosenValue ?? "", "delivery": "host-activation", "native": "control"]
+        return ["typed": Int(node.id), "value": popup.selectedItem?.representedObject as? String ?? "", "delivery": "host-activation", "native": "control"]
     }
 
     func valueObservation(_ control: NSControl) -> [String: Any]? {

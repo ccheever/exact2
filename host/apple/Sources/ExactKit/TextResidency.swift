@@ -15,6 +15,9 @@ enum TextMetricKey {
     }
     private static func fields(_ r: Run, _ h: inout Hasher) {
         fields(r.size, r.weight, r.family, r.italic, r.lineHeight, r.letterSpacing, r.numeric, &h)
+        // Only an expanded Markdown run has these; a plain run hashes as
+        // its request's does (LLP 1045 D4).
+        if r.indent != 0 || r.hang { h.combine(r.indent); h.combine(r.hang) }
     }
     private static func fields(_ r: ExactTextRun, _ h: inout Hasher) {
         fields(CGFloat(r.font_size), Int(r.font_weight), Int(r.font_family), r.italic != 0,
@@ -123,6 +126,7 @@ final class TextIdentity: Hashable {
 /// pointer. Width and paint keys then share that owned identity and its Strings.
 struct TextPaint: Hashable {
     struct Inline: Hashable {
+        let hidden: Bool
         let color: [Double]?
         let decoration: String
         let href: String
@@ -136,7 +140,7 @@ struct TextPaint: Hashable {
     init(_ spec: Spec) {
         color = spec.color
         ellipsis = spec.ellipsis
-        runs = spec.runs.map { Inline(color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background,
+        runs = spec.runs.map { Inline(hidden: $0.hidden, color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background,
                                       shadow: $0.shadow, stroke: $0.stroke) }
     }
     func applying(to identity: TextIdentity) -> Spec {
@@ -144,6 +148,7 @@ struct TextPaint: Hashable {
         spec.color = color
         spec.ellipsis = ellipsis
         for i in spec.runs.indices {
+            spec.runs[i].hidden = runs[i].hidden
             spec.runs[i].color = runs[i].color
             spec.runs[i].decoration = runs[i].decoration
             spec.runs[i].href = runs[i].href
@@ -204,6 +209,8 @@ final class TextShape {
     // Unicode opportunities belong to this immutable source, never a width.
     // Filled lazily by the session's TextEngine; raster workers do not use it.
     var lineBreakBoundaries: [Int]?
+    /// Where each line starts (`lineInsets`), made once from this source.
+    var insets: LineInsets?
     private(set) var flow: TextFlowSource?
     private(set) var prepareCount = 0
     func preparedFlow() -> TextFlowSource {

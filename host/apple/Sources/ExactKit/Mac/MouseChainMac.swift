@@ -15,7 +15,7 @@ protocol MouseRecognizer: AnyObject {
 }
 extension MouseReorder: MouseRecognizer {
     var armed: NodeView? { candidate }
-    var engaged: Bool { hold != nil }
+    var engaged: Bool { hold != nil || grouped }
     func arm(_ node: NodeView, event: NSEvent) { down(node, event: event) }
 }
 extension MouseTransformDrag: MouseRecognizer {
@@ -123,6 +123,7 @@ extension NodeView {
         while let view = next {
             if let node = view as? NodeView, !node.disabled, node.wantsPointer {
                 presenter.pointerHeld = node.id
+                presenter.pointerSource = self
                 if node.handlers.contains("pointerdown") { presenter.pointer(node.id, .down, node.pointerSample(event)) }
                 return
             }
@@ -131,16 +132,19 @@ extension NodeView {
     }
     /// `pointerup` for the node the button went down on.
     func pointerReleased(_ event: NSEvent?) {
-        presenter?.flushHoverMove()
-        guard let presenter, let held = presenter.pointerHeld else { return }
+        holdPresenter?.flushHoverMove()
+        guard let presenter = holdPresenter, let held = presenter.pointerHeld else { return }
         presenter.pointerHeld = nil
+        let source = presenter.pointerSource
+        presenter.pointerSource = nil
+        defer { source?.releaseHold() }
         if let node = presenter.views[held], node.handlers.contains("pointerup") { presenter.pointer(held, .up, node.pointerSample(event, lifted: true)) }
     }
     /// A drag of the held pointer: its node's `pointermove`. AppKit
     /// coalesces drags to one a frame.
     func pointerDragged(_ event: NSEvent) {
         // A drag a view passes up its superviews is one move.
-        guard let presenter, presenter.pointerDrag !== event, let held = presenter.pointerHeld,
+        guard let presenter = holdPresenter, presenter.pointerDrag !== event, let held = presenter.pointerHeld,
               let node = presenter.views[held], node.handlers.contains("pointermove") else { return }
         presenter.pointerDrag = event
         presenter.pointer(held, .move, node.pointerSample(event))
@@ -160,6 +164,15 @@ extension NodeView {
         }
         guard view === self else { return }
         presenter.hoverMoved(id, pointerSample(event))
+    }
+    /// The presenter this view's held button reports to. AppKit sends the
+    /// drags and the up to the view the button went down on even after it
+    /// leaves the tree, a `when` having removed the child of the held node
+    /// the press landed on (a board square's piece, the chess diary via
+    /// fix/syntax6): the hold is the node's, as on the web, so the gone view
+    /// keeps reaching its presenter until the button comes up.
+    var holdPresenter: Presenter? {
+        presenter ?? (objc_getAssociatedObject(self, &holdKey) as? HoldBox)?.presenter
     }
     var wantsPointer: Bool { handlers.contains("pointerdown") || handlers.contains("pointerup") || handlers.contains("pointermove") }
     /// The record of `event` (the current one when nil) as this node sees it:
@@ -182,8 +195,10 @@ extension NodeView {
         }
         if lifted { buttons = 0 }
         let pressure = lifted || buttons == 0 ? 0 : pen ? Double(e?.pressure ?? 0) : 0.5
+        let client = e.flatMap { presenter?.client($0.locationInWindow) } ?? .zero
         return PointerSample(x: Double(point.x - box.minX), y: Double(point.y - box.minY), buttons: buttons,
-                             pressure: pressure, type: pen ? "pen" : "mouse", id: pen ? 2 : 1, held: KeyCodes.held(e?.modifierFlags ?? []))
+                             pressure: pressure, type: pen ? "pen" : "mouse", id: pen ? 2 : 1,
+                             clientX: Double(client.x), clientY: Double(client.y), held: KeyCodes.held(e?.modifierFlags ?? []))
     }
     func dispatchDblclick(_ node: NodeView?) {
         guard let node, let presenter = node.presenter, presenter.views[node.id] === node, !node.disabled else { return }
@@ -191,6 +206,12 @@ extension NodeView {
     }
 }
 extension Presenter {
+    /// A window point from the viewport's top-left, the page scroll applied:
+    /// DOM's `clientX`/`clientY`, `frame()`'s space (LLP 1094 D11).
+    func client(_ windowPoint: NSPoint) -> NSPoint {
+        let clip = viewport.contentView, p = clip.convert(windowPoint, from: nil)
+        return NSPoint(x: p.x - clip.bounds.minX, y: p.y - clip.bounds.minY)
+    }
     /// Keep each node's latest free move and send them at the next display
     /// frame: a pointer crossing two `pointermove` nodes in one frame leaves
     /// each its own last move.
@@ -215,5 +236,125 @@ extension Presenter {
         hoverMoves = []
         for (id, sample) in moves where views[id] != nil { pointer(id, .move, sample) }
     }
+    /// A batch or a scroll moved what lies under a resting pointer: at the
+    /// next display frame the pointer is hit-tested where it rests and its
+    /// hover follows, as a browser's does after layout or a scroll (the
+    /// boundary events of a synthetic mouse move; #139). AppKit's tracking
+    /// areas report only a pointer that moves. One hit-test a frame, and
+    /// none while a button is down or the pointer is outside the window.
+    func followPointer() {
+        guard followLink?.isPaused != false, restingPointer() != nil else { return }
+        if let followLink { followLink.isPaused = false; return }
+        // One link, paused between hit-tests: a fling asks every frame.
+        let link = viewport.displayLink(target: followTarget, selector: #selector(PumpTarget.tick(_:)))
+        // A presenter released with a hit-test pending leaves no link firing.
+        followTarget.fire = { [weak self, weak link] _ in
+            guard let self else { link?.invalidate(); return }
+            self.hoverUnderPointer()
+        }
+        link.add(to: .main, forMode: .common)
+        followLink = link
+    }
+    /// Whether a hit-test waits for the next frame.
+    var followPending: Bool { followLink?.isPaused == false }
+    /// The pointer in window points while it rests over this window's
+    /// content with no button down: the agent's under the agent (never the
+    /// system cursor, which the drive does not own), else the cursor, and
+    /// only where no other window covers it when `frontmost` is asked.
+    func restingPointer(frontmost: Bool = false) -> NSPoint? {
+        guard pointerHeld == nil, pointerSource == nil, let window = viewport.window, let content = window.contentView else { return nil }
+        let p: NSPoint
+        if let agentPointer { p = agentPointer } else {
+            guard !ExactEnv.agentMode, window.isVisible, NSEvent.pressedMouseButtons == 0 else { return nil }
+            p = window.mouseLocationOutsideOfEventStream
+            if frontmost, NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0) != window.windowNumber { return nil }
+        }
+        return content.bounds.contains(content.convert(p, from: nil)) ? p : nil
+    }
+    /// The frame's hit-test: the nearest node with a `hover` handler under
+    /// the resting pointer enters and the one hovered leaves, the path a
+    /// tracking area's move takes (`mouseMoved`); nothing while the node
+    /// hovered is still on the hit's path (an outer node hovered over an
+    /// inner one keeps it: the inner's hover-revealed content must not
+    /// flicker frame to frame), or the pointer has gone.
+    func hoverUnderPointer() {
+        followLink?.isPaused = true
+        guard let p = restingPointer(frontmost: true), let content = viewport.window?.contentView else { return }
+        let hit = content.hitTest(content.superview?.convert(p, from: nil) ?? p)
+        var under: [NodeView] = []
+        var leaf: NodeView?
+        var view = hit?.isDescendant(of: viewport) == true ? hit : nil
+        while let v = view {
+            if let n = v as? NodeView, !n.inert {
+                if leaf == nil { leaf = n }
+                if n.handlers.contains("hover") { under.append(n) }
+            }
+            view = v.superview
+        }
+        // A text's inline run with a `hover` handler is hovered as a move over it is.
+        let run = leaf.flatMap { n in n.inlineText.contains { $0.handlers.contains("hover") } ? n.inlineTarget(at: n.local(p), handler: "hover") : nil }
+        hoverInline(run?.id)
+        if run != nil { return }
+        if let h = hovered, under.contains(where: { $0 === h }) { return }
+        if let node = under.first { hover(node, true) } else if let h = hovered { hover(h, false) }
+    }
+}
+extension NodeView {
+    /// AppKit sends the held button's drags and up only to the view it went
+    /// down on, and only while that view is in its window: one taken out
+    /// leaves the hold deaf. So the view the button went down on stays,
+    /// transparent, until the button comes up, when a batch removes it (a `when`
+    /// dropping the piece a board square was pressed on), and the held node
+    /// keeps hearing its moves and its up, as on the web (`holdPresenter`).
+    /// Removing it then is AppKit's `removeFromSuperview`, the one way the
+    /// presenter takes a view out.
+    override func removeFromSuperview() {
+        if let presenter = holdPresenter, presenter.pointerHeld != nil, presenter.pointerSource === self, superview != nil {
+            // Transparent, not hidden: AppKit sends a hidden view no drags either.
+            let box = holdBox(presenter)
+            if !box.hid { box.hid = true; box.alpha = alphaValue; alphaValue = 0 }
+            return
+        }
+        super.removeFromSuperview()
+    }
+    private func holdBox(_ presenter: Presenter) -> HoldBox {
+        if let box = objc_getAssociatedObject(self, &holdKey) as? HoldBox { return box }
+        let box = HoldBox(presenter)
+        objc_setAssociatedObject(self, &holdKey, box, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return box
+    }
+    /// Leaving the tree while it is the source of a hold (`forget`).
+    func keepHold() {
+        guard let presenter, presenter.pointerHeld != nil, presenter.pointerSource === self else { return }
+        _ = holdBox(presenter)
+    }
+    /// A batch that removed the held source puts it in a parent again (a
+    /// move, or a reorder among its siblings): it is not leaving the tree, so
+    /// it goes there now, shown — still in the window, it still hears the
+    /// hold (b6 review B8).
+    func rejoinUnderHold() {
+        guard let box = objc_getAssociatedObject(self, &holdKey) as? HoldBox, box.hid else { return }
+        box.hid = false
+        alphaValue = box.alpha
+        super.removeFromSuperview()
+    }
+    /// The button came up: a source a batch removed under the hold goes now,
+    /// and one the tree still has shows again.
+    func releaseHold() {
+        guard let box = objc_getAssociatedObject(self, &holdKey) as? HoldBox else { return }
+        objc_setAssociatedObject(self, &holdKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        guard box.hid else { return }
+        alphaValue = box.alpha
+        if presenter?.views[id] !== self { super.removeFromSuperview() }
+    }
+}
+private var holdKey: UInt8 = 0
+private final class HoldBox {
+    weak var presenter: Presenter?
+    /// The batch removed the view under the hold: it stayed, transparent,
+    /// its own opacity kept here.
+    var hid = false
+    var alpha: CGFloat = 1
+    init(_ presenter: Presenter) { self.presenter = presenter }
 }
 #endif

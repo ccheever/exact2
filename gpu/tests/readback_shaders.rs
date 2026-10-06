@@ -98,6 +98,7 @@ fn missing_sources_refuse_readback_but_headless_bind_input_and_save_work() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     assert!(module.readback(id, &frame).is_none());
     assert!(module

@@ -4,8 +4,7 @@
 //!
 //! The host owns the buffers: `exact_in(len)` resizes input and returns its
 //! address; each call returns the output length, read via `exact_out()`.
-//! Text measurement and the plan font catalog call registered host functions
-//! the other way ([`crate::measure`]).
+//! Measurement, line boxes and the font catalog call host functions ([`crate::measure`]).
 //!
 //! Every export takes a runtime handle (LLP 1031 D2): `exact_create` returns
 //! a never-reused `u32` from the thread-local [`Registry`], never a pointer.
@@ -17,7 +16,7 @@
 
 use crate::host::{Host, PlanBytes};
 use crate::measure::{install_fonts, CallbackMeasurer, FontsFn, MeasureFn};
-use crate::store::{endow, snapshot_of, Platform};
+use crate::store::{endow_bound, snapshot_of, Platform};
 use exact_kernel::{MonospaceMeasurer, TextMeasurer};
 use exact_runner::{
     DataSource, Event, FailureKind, Outcome, SurfaceOutcome, SurfaceRequest, MAX_HOST_WORK_BYTES,
@@ -33,10 +32,11 @@ use std::rc::Rc;
 pub struct Hooks {
     /// Measures a paragraph; `None` for the monospace reference measurer.
     pub measure: Option<MeasureFn>,
-    /// Passed back to `measure`.
+    /// Passed back to `measure` and `lines`.
     pub ctx: *mut c_void,
-    /// Called on the executor's thread when a reply is queued; `None` and
-    /// replies wait for the next `exact_pump`.
+    /// A paragraph's line boxes (LLP 1093 D6); `None` keeps paragraphs whole.
+    pub lines: Option<crate::measure::LinesFn>,
+    /// Called on the executor's thread when a reply is queued; `None`: replies wait for `exact_pump`.
     pub wake: Option<crate::executor::WakeFn>,
     /// Passed back to `wake`.
     pub wake_ctx: *mut c_void,
@@ -50,6 +50,7 @@ impl Hooks {
         Hooks {
             measure: None,
             ctx: std::ptr::null_mut(),
+            lines: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
@@ -234,6 +235,11 @@ impl<D: DataSource> Bridge<D> {
             let mut presenter = crate::batch::Batch::new();
             Self::auth_forgotten(h, &mut presenter);
             for r in h.take_requests() {
+                // A deadline the auth and surface paths can't keep: the executor refuses it, fencing ordered work.
+                if r.request.timeout_refusal().is_some() {
+                    Self::run_dispatch(h, x, parked, r, exact_runner::Dispatch::Missing);
+                    continue;
+                }
                 if r.request.is_auth() {
                     Self::auth_arm(h, x, &mut presenter, &r);
                     continue;
@@ -249,10 +255,9 @@ impl<D: DataSource> Bridge<D> {
                 let dispatch = match r.request.continuation {
                     Some(token) => h.dispatch_work(token),
                     None if r.request.is_native() => h.native_work(&r.request),
-                    None => {
-                        Self::run_dispatch(h, x, parked, r, exact_runner::Dispatch::Missing);
-                        continue;
-                    }
+                    // @ref LLP 1103 D1 — a driver fault fails it before transport.
+                    None => (h.runner_mut().fault_dispatch(&r))
+                        .unwrap_or(exact_runner::Dispatch::Missing),
                 };
                 Self::run_dispatch(h, x, parked, r, dispatch);
             }
@@ -451,7 +456,7 @@ impl<D: DataSource> Bridge<D> {
             exact_runner::delivery::refuse_analysis(compat).map_err(str::to_string)?;
         }
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
-            Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx)),
+            Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx, hooks.lines)),
             None => Box::new(MonospaceMeasurer::default()),
         };
         // The app's bindings, once (LLP 1016 D6; LLP 1018 D6): the secrets it
@@ -459,10 +464,8 @@ impl<D: DataSource> Bridge<D> {
         // frame is a returning user's; the executor thread takes the same
         // bindings for its requests. Build beside any running host: the dev
         // menu may use this fresh-state path to reload the baked plan.
-        let (bindings, unbound) = match endow(data.grants()) {
-            Ok(b) => (Some(b), None),
-            Err(e) => (None, Some(e)),
-        };
+        // A fresh named drive empties leftover secrets before that read.
+        let (bindings, unbound) = endow_bound(data.grants(), data.app_id(), true);
         let snapshot = snapshot_of(bindings.as_ref());
         let secrets = bindings.as_ref().map(Platform::of);
         let fonts = self.fonts;
@@ -722,16 +725,13 @@ impl<D: DataSource> Bridge<D> {
         // or runner refusal must not turn a reload into an empty window.
         let carried = carried.or_else(|| self.host.as_ref().map(Host::carry));
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
-            Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx)),
+            Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx, hooks.lines)),
             None => Box::new(MonospaceMeasurer::default()),
         };
         // A reload carries the running store (`Carried::store`). A fresh
         // session takes the granted platform snapshot before its first query,
         // just like boot_fresh; neither path releases effects until commit.
-        let (bindings, unbound) = match endow(data.grants()) {
-            Ok(b) => (Some(b), None),
-            Err(e) => (None, Some(e)),
-        };
+        let (bindings, unbound) = endow_bound(data.grants(), data.app_id(), carried.is_none());
         let snapshot = if carried.is_none() {
             snapshot_of(bindings.as_ref())
         } else {
@@ -855,7 +855,9 @@ impl<D: DataSource> Bridge<D> {
     /// bytes, UTF-8).
     /// Kind 14 is navigate: one UTF-8 location at the navigation root (LLP 1038 D8).
     /// Kind 23 is a text field's `input`; 24 and 25 a checkbox's `change`
-    /// and `input`, the payload `true` or `false` (LLP 1069.001 D4).
+    /// and `input`, the payload `true` or `false` (LLP 1069.001 D4); 40 and
+    /// 41 a text field's `input` and `change` with its selection, 42 its
+    /// `select` (`start,end,direction,text`; x2apps codeedit #2).
     pub fn dispatch(&mut self, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
@@ -904,8 +906,11 @@ impl<D: DataSource> Bridge<D> {
             // selection and pan release (LLP 1057 §10.6), the pointer's down,
             // up and move with its record (LLP 1005 §3; LLP 1056 §3 stage 3),
             // the clipboard's three, a text's selectionchange, and
-            // beforeunload, wheel and drop (`Event::of_host_kind`).
-            10 | 13 | 19 | 20 | 21 | 28..=38 => match Event::of_host_kind(kind, &payload) {
+            // beforeunload, wheel and drop, and a text field's `input`,
+            // `change` and `select` with its selection (x2apps codeedit #2)
+            // (`Event::of_host_kind`).
+            10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=42 => match Event::of_host_kind(kind, &payload)
+            {
                 Ok(event) => event,
                 Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
             },
@@ -1471,6 +1476,8 @@ mod colors;
 #[path = "abi/commands.rs"]
 mod commands;
 mod exports;
+pub use exports::gesture_constant;
+mod group;
 mod preferences;
 pub(crate) mod segments;
 
@@ -1488,11 +1495,3 @@ mod collection_tests;
 
 #[path = "abi_collections.rs"]
 mod collections;
-
-/// `exact_gesture_constant`: a threshold by index, NaN past the end.
-pub fn gesture_constant(which: u32) -> f64 {
-    exact_motion::gesture::CONSTANTS
-        .get(which as usize)
-        .copied()
-        .unwrap_or(f64::NAN)
-}

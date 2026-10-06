@@ -33,12 +33,16 @@ pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, SegmentVar};
 pub use exact_motion::color::css::link_wide as link_wide_colors;
 mod viewport;
 pub use viewport::ViewportUnit;
+pub mod cells;
+mod color_parse;
+pub mod profiled;
 pub mod relative;
 pub mod roles;
 mod shadow;
 pub mod space;
 pub(crate) mod stroke;
 pub mod symbols;
+pub mod wide;
 pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow};
 
 /// Largest explicit grid Taffy lays out on one axis.
@@ -362,6 +366,10 @@ impl StyleValue {
         t.eq_ignore_ascii_case("unset")
             || (t.eq_ignore_ascii_case("inherit") && StyleMask::INHERITED.has(style))
             || (t.eq_ignore_ascii_case("currentcolor") && style == StyleId::TextColor)
+            // @ref LLP 1034 §8: a bound `normal` follows the surrounding
+            // scheme, as leaving the row off does (CSS's own `normal` means
+            // the page's schemes, which no host here has).
+            || (t.eq_ignore_ascii_case("normal") && style == StyleId::ColorScheme)
     }
 
     pub(crate) fn line_height(&self, style: StyleId) -> Result<LineHeight, StyleValueError> {
@@ -483,6 +491,14 @@ impl StyleValue {
             StyleValue::Percent(p) if (*p as f32).is_finite() => Ok(Dimension::Percent(*p as f32)),
             StyleValue::Auto if admits_auto => Ok(Dimension::Auto),
             StyleValue::Auto => Err(StyleValueError::AutoNotAdmitted { style }),
+            // CSS's initial maximum, the unbounded one `auto` already names here (LLP 1102 §3.11).
+            StyleValue::Text(t)
+                if matches!(style, StyleId::MaxWidth | StyleId::MaxHeight)
+                    && t.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])
+                        .eq_ignore_ascii_case("none") =>
+            {
+                Ok(Dimension::Auto)
+            }
             StyleValue::Text(t) => match env::parse(t) {
                 Err(refusal) => Err(StyleValueError::BadEnv { style, refusal }),
                 Ok(parsed) => Ok(parsed),
@@ -573,17 +589,55 @@ impl StyleValue {
     pub(crate) fn vec2(&self, style: StyleId) -> Result<Vec2, StyleValueError> {
         match self {
             StyleValue::Vec2(x, y) if x.is_finite() && y.is_finite() => Ok(Vec2 { x: *x, y: *y }),
-            StyleValue::Text(t) if style == StyleId::Translate => {
-                parse_translate(t).ok_or(StyleValueError::WrongKind {
-                    style,
-                    expected: "one or two pixel lengths (unitless zero allowed)",
-                })
+            // @ref LLP 1077 D8 — the one `translate` text sets its lengths,
+            // its percentages (chess diary #4) and its z, each row its part.
+            StyleValue::Text(t)
+                if style == StyleId::Translate || style == StyleId::TranslatePercent =>
+            {
+                space::translate(t)
+                    .map(|(px, pct)| if style == StyleId::Translate { px } else { pct })
+                    .ok_or(StyleValueError::WrongKind {
+                        style,
+                        expected: "one or two lengths in px or percentages of the box (unitless zero allowed)",
+                    })
             }
             _ => Err(StyleValueError::WrongKind {
                 style,
                 expected: "vec2",
             }),
         }
+    }
+}
+
+/// Whether `set_dynamic` reads any text on row `style` besides the CSS-wide
+/// keywords [`StyleValue::unsets`] clears a row with. A number row with no
+/// text arm (`opacity`, `flex-grow`, `z-index`, `font-weight`) refuses every
+/// computed string, where a browser applies one (`opacity: 0.5`), so the
+/// compiler refuses a string-typed binding of such a row as it refuses the
+/// literal (LLP 1017 P1a). The rows listed are those whose conversion has a
+/// text arm: `rem`/`em` and `px` lengths ([`relative`]), SVG's stroke
+/// lengths, and the CSS forms [`StyleValue::f32`] reads.
+pub fn takes_text(style: StyleId) -> bool {
+    use crate::generated::StyleCodec;
+    use StyleId::*;
+    match style.codec() {
+        StyleCodec::F32 => {
+            relative::admits_relative(style)
+                || matches!(
+                    style,
+                    StrokeWidth
+                        | StrokeDashoffset
+                        | Rotate
+                        | TranslateZ
+                        | Perspective
+                        | SymbolValue
+                        | TextStrokeWidth
+                        | BackdropBlur
+                        | ShapeMargin
+                )
+        }
+        StyleCodec::U16 | StyleCodec::U32 | StyleCodec::I32 => false,
+        _ => true,
     }
 }
 
@@ -643,30 +697,6 @@ fn parse_pixel_length(token: &str) -> Option<f32> {
     Some(value as f32)
 }
 
-// Fixed 2D CSS subset for Contract text authoring. `none` is deliberately not
-// zero: CSS gives those different containing-block/stacking semantics. Percent,
-// calc and a third axis need a richer row, not a lossy conversion to this Vec2.
-fn parse_translate(text: &str) -> Option<Vec2> {
-    // CSS whitespace is TAB, LF, FF, CR and SPACE; ASCII VT is not included.
-    let mut parts = text
-        .split(['\t', '\n', '\u{c}', '\r', ' '])
-        .filter(|s| !s.is_empty());
-    let x = parse_pixel_length(parts.next()?)?;
-    let y = match parts.next() {
-        Some(s) => parse_pixel_length(s)?,
-        None => 0.0,
-    };
-    // A third length is `translate`'s z, its own row (LLP 1077 D8).
-    if parts
-        .next()
-        .is_some_and(|z| parse_pixel_length(z).is_none())
-        || parts.next().is_some()
-    {
-        return None;
-    }
-    Some(Vec2 { x, y })
-}
-
 /// A colour as authored, which may not be a single colour yet.
 ///
 /// The deferred-value shape `Dimension` already has: the row stores what was
@@ -688,6 +718,15 @@ pub enum ColorValue {
     Role(u8),
     /// A `platform-color()` (LLP 1095 D3), by id into the interned table.
     Platform(u16),
+    /// A colour in its own space, or a `light-dark()` with one (LLP 1100
+    /// D2), by id into `style::wide`.
+    Wide(u16),
+    /// A paint-motion frame (LLP 1100 D2): extended linear sRGB in
+    /// 1/2048ths and 8-bit alpha. Never authored; not interned.
+    Moving([i16; 3], u8),
+    /// A colour in a profile's space (LLP 1100 D3), by id into
+    /// `style::profiled`.
+    Profiled(u16),
 }
 
 impl Default for ColorValue {
@@ -714,21 +753,43 @@ impl ColorValue {
                 }
             }
             ColorValue::Fixed(c) => c,
-            ColorValue::Role(_) | ColorValue::Platform(_) => Color::TRANSPARENT,
+            ColorValue::Role(_)
+            | ColorValue::Platform(_)
+            | ColorValue::Wide(_)
+            | ColorValue::Moving(..)
+            | ColorValue::Profiled(_) => Color::TRANSPARENT,
         }
     }
 
     /// Whether this depends on the appearance: a pair or a reference — what
     /// a host asks before deciding whether an appearance change is anything to it.
     pub fn is_scheme_aware(self) -> bool {
-        !matches!(self, ColorValue::Fixed(_))
+        match self {
+            ColorValue::Fixed(_) | ColorValue::Moving(..) | ColorValue::Profiled(_) => false,
+            ColorValue::Wide(id) => wide::wide(id).is_some_and(|w| w.dark.is_some()),
+            _ => true,
+        }
     }
 
-    /// A colour that is more than one colour: a role (LLP 1095 D2, which
-    /// takes in WebKit's `-apple-system-*` names, LLP 1077 D13), a
-    /// `platform-color()` (D3), or `light-dark(<color>, <color>)`, CSS's own
-    /// spelling. Whitespace is free; anything else is not this, and falls
-    /// through to the plain colour parse.
+    /// A moving frame from extended linear sRGB and alpha, held to ±16.
+    pub fn moving(linear: [f64; 3], alpha: f64) -> ColorValue {
+        let q = |v: f64| (v.clamp(-16.0, 15.999) * 2048.0).round() as i16;
+        ColorValue::Moving(linear.map(q), (alpha.clamp(0.0, 1.0) * 255.0).round() as u8)
+    }
+
+    /// A moving frame's extended linear sRGB and alpha.
+    pub fn moving_linear(self) -> Option<([f64; 3], f64)> {
+        match self {
+            ColorValue::Moving(c, a) => {
+                Some((c.map(|v| f64::from(v) / 2048.0), f64::from(a) / 255.0))
+            }
+            _ => None,
+        }
+    }
+
+    /// A role (LLP 1095 D2), a `platform-color()` (D3), a colour in a
+    /// profile's or its own space (LLP 1100), or `light-dark(<color>,
+    /// <color>)`. Anything else falls through to the plain colour parse.
     pub fn parse_light_dark(text: &str) -> Option<ColorValue> {
         if let Some(role) = roles::role(text) {
             return Some(ColorValue::Role(role));
@@ -736,24 +797,21 @@ impl ColorValue {
         if text.trim_start().starts_with("platform-color(") {
             return roles::parse_platform(text);
         }
-        ColorValue::parse_pair(text)
+        if text
+            .trim_start()
+            .to_ascii_lowercase()
+            .starts_with("color(--")
+        {
+            return profiled::parse_profiled(text);
+        }
+        ColorValue::parse_pair(text).or_else(|| wide::parse_wide(text))
     }
 
-    /// `light-dark(<color>, <color>)` alone (LLP 1034): a reference is not
-    /// valid inside one (LLP 1095 D1).
-    pub fn parse_pair(text: &str) -> Option<ColorValue> {
+    /// `light-dark()` of two legacy colours; a reference is not valid inside
+    /// one (LLP 1095 D1).
+    pub(crate) fn parse_pair(text: &str) -> Option<ColorValue> {
         let inner = text.trim().strip_prefix("light-dark(")?.strip_suffix(')')?;
-        // The comma between the two colours, not one inside an `rgb()`.
-        let mut depth = 0;
-        let comma = inner.find(|c| {
-            match c {
-                '(' => depth += 1,
-                ')' => depth -= 1,
-                ',' if depth == 0 => return true,
-                _ => {}
-            }
-            false
-        })?;
+        let comma = top_level_comma(inner)?;
         Some(ColorValue::LightDark(
             Color::parse(&inner[..comma])?,
             Color::parse(&inner[comma + 1..])?,
@@ -761,54 +819,23 @@ impl ColorValue {
     }
 }
 
+/// The comma between two colours, not one inside an `rgb()`.
+pub(crate) fn top_level_comma(inner: &str) -> Option<usize> {
+    let mut depth = 0;
+    inner.find(|c| {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => return true,
+            _ => {}
+        }
+        false
+    })
+}
+
 impl From<Color> for ColorValue {
     fn from(c: Color) -> ColorValue {
         ColorValue::Fixed(c)
-    }
-}
-
-impl Color {
-    /// A CSS colour, by the one parser every reader shares
-    /// ([`exact_motion::color::css`]): hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`,
-    /// `hwb()`, a named colour or `transparent` (any ASCII case, whitespace
-    /// around it free), and the wide forms (`lab()`, `oklch()`, `color()`…)
-    /// clipped to sRGB once a host links them ([`link_wide_colors`]). The web
-    /// hands the same text to the browser, so a colour that paints there
-    /// paints on every host (feed F13). `currentColor` is not a colour here:
-    /// a row that takes it says so ([`StyleValue::keyword_color`]).
-    pub fn parse(text: &str) -> Option<Color> {
-        use exact_motion::color::css::{self, Parsed};
-        let c = match css::parse(text)? {
-            Parsed::Color(c) | Parsed::Wide(c, _) => c,
-            Parsed::Current => return None,
-        };
-        Some(Color::rgba(c.r, c.g, c.b, (c.a * 255.0).round() as u8))
-    }
-
-    /// Parse CSS hex notation: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`.
-    pub fn parse_hex(text: &str) -> Option<Color> {
-        let hex = text.strip_prefix('#')?;
-        let digit = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
-        let bytes = hex.as_bytes();
-        let (r, g, b, a) = match bytes.len() {
-            3 | 4 => {
-                let mut v = [0u8; 4];
-                for (i, c) in bytes.iter().enumerate() {
-                    let d = digit(*c)?;
-                    v[i] = d * 17;
-                }
-                (v[0], v[1], v[2], if bytes.len() == 4 { v[3] } else { 255 })
-            }
-            6 | 8 => {
-                let mut v = [0u8; 4];
-                for (i, pair) in bytes.chunks(2).enumerate() {
-                    v[i] = digit(pair[0])? * 16 + digit(pair[1])?;
-                }
-                (v[0], v[1], v[2], if bytes.len() == 8 { v[3] } else { 255 })
-            }
-            _ => return None,
-        };
-        Some(Color::rgba(r, g, b, a))
     }
 }
 
@@ -1281,7 +1308,7 @@ impl StyleProps {
             bottom: self.padding_bottom.to_lp(env),
             left: self.padding_left.to_lp(env),
         };
-        let [top, right, bottom, left] = self.border_widths();
+        let [top, right, bottom, left] = self.border_widths_in(env);
         s.border = taffy::geometry::Rect {
             top: length(top),
             right: length(right),
@@ -1363,6 +1390,7 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
         Direction::Rtl => taffy::style::Direction::Rtl,
     };
     s.justify_items = justify_items(arena.style(slot).justify_items, direction);
+    s.multicol = crate::fragment::taffy_multicol(arena, slot);
     // A root with `width: auto` fills what it is offered, as a `<div>` fills
     // the body: CSS's block rule, which Taffy does not apply to a root.
     // Height stays auto — as tall as its content, the page a viewport scrolls.
@@ -1386,8 +1414,9 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
             s.aspect_ratio_content_box = true;
         }
     }
-    // A native tab bar fills the tablist's box. Its measured height supplies
-    // the automatic minimum, so even a short authored row reserves the bar.
+    // A native tab bar fills the tablist's box, a segmented control its
+    // content box. Its measured height supplies the automatic minimum, so
+    // even a short authored row reserves the control.
     // An explicit CSS min-height still owns that constraint; no natural ratio
     // or preferred width is inferred from this container measurement.
     if !arena.node_type(slot).is_replaced()

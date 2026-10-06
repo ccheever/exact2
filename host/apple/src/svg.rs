@@ -1003,13 +1003,36 @@ fn paint_json(paint: Option<&ShapePaint>, s: &mut String) {
         return server_json(server, paint.opacity, s);
     }
     let a = |alpha: u8| ((alpha as f32) * paint.opacity).round() as u8;
-    // @ref LLP 1095 D1 — a reference paints what the presenter reported
-    // for each appearance (else its fallback pair); a new report rebuilds
-    // the scene, so the scene follows the platform's colour.
-    let color = match paint.color {
-        c @ (ColorValue::Role(_) | ColorValue::Platform(_)) => {
-            ColorValue::LightDark(c.resolve(false), c.resolve(true))
+    if let ColorValue::Profiled(id) = paint.color {
+        if let Some(p) = exact_kernel::style::profiled::profiled(id) {
+            return crate::style::push_profiled(s, &p, paint.opacity);
         }
+    }
+    // LLP 1100 D2: a colour in its own space paints in that space.
+    if let ColorValue::Wide(id) = paint.color {
+        if let Some(w) = exact_kernel::style::wide::wide(id) {
+            s.push_str("{\"cs\":[");
+            let faded = |mut h: exact_color::Wide| {
+                h.alpha *= f64::from(paint.opacity);
+                h
+            };
+            crate::style::push_wide(s, faded(w.light));
+            if let Some(d) = w.dark {
+                s.push(',');
+                crate::style::push_wide(s, faded(d));
+            }
+            s.push_str("]}");
+            return;
+        }
+    }
+    // LLP 1095 D1: a reference paints what the presenter reported; a new
+    // report rebuilds the scene.
+    let color = match paint.color {
+        c @ (ColorValue::Role(_)
+        | ColorValue::Platform(_)
+        | ColorValue::Wide(_)
+        | ColorValue::Moving(..)
+        | ColorValue::Profiled(_)) => ColorValue::LightDark(c.resolve(false), c.resolve(true)),
         c => c,
     };
     match color {
@@ -1030,7 +1053,11 @@ fn paint_json(paint: Option<&ShapePaint>, s: &mut String) {
                 a(d.a())
             );
         }
-        ColorValue::Role(_) | ColorValue::Platform(_) => s.push_str("null"),
+        ColorValue::Role(_)
+        | ColorValue::Platform(_)
+        | ColorValue::Wide(_)
+        | ColorValue::Moving(..)
+        | ColorValue::Profiled(_) => s.push_str("null"),
     }
 }
 

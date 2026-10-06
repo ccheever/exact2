@@ -97,7 +97,7 @@ fn literal(e: &Expr) -> Option<String> {
         Expr::Str(s, _) => quote(s),
         Expr::Bool(b, _) => b.to_string(),
         Expr::None(_) => "none".into(),
-        Expr::EmptyList(_) => "[]".into(),
+        Expr::List(items, _) if items.is_empty() => "[]".into(),
         _ => return None,
     })
 }
@@ -166,6 +166,15 @@ pub fn test_case(
             Step::ExpectTree {
                 target, present, ..
             } => Item::Expect(Expect::Tree(target.clone(), *present)),
+            // The voice table is not in Lean (LLP 1096 D11): its commands
+            // are, and those are compared; a step that reads the table is
+            // the runner's tests' and conformance's.
+            Step::ExpectSound { .. } => continue,
+            // The media session is the host's (LLP 1098 D12): an assertion on
+            // it has no oracle, and a test that only asserts it still runs.
+            // Its `tap` form is not a press, so it reaches `other` and the
+            // test is skipped by name.
+            Step::ExpectMediaSession { .. } | Step::ExpectMediaSessionAction { .. } => continue,
             other => {
                 return Err(format!(
                     "{file}: test {:?}: a step the differential run does not deliver: {other:?}",

@@ -102,6 +102,11 @@ final class GpuModule {
 
     let wantsInput: WantsFn?
     let input: BindFn?
+    typealias HeadroomFn = @convention(c) (UInt32, Float) -> Void
+    /// An HDR surface (LLP 1100 D12b): whether a canvas is one, and the
+    /// headroom it draws to.
+    var highDynamicRange: WantsFn?
+    var headroom: HeadroomFn?
     typealias RestoreFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int, UInt32) -> Bool
     typealias AssetFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int) -> Bool
     var assets: WantsFn?
@@ -274,6 +279,8 @@ final class GpuModule {
         module.carry = sym("gpu_carry", WantsFn.self); module.restore = sym("gpu_restore", RestoreFn.self)
         sym("gpu_seekable", SeekableFn.self)?(ExactEnv.agentFreezes)
         module.starved = sym("gpu_starved", WantsFn.self)
+        module.highDynamicRange = sym("gpu_high_dynamic_range", WantsFn.self)
+        module.headroom = sym("gpu_headroom", HeadroomFn.self)
         module.landed = sym("gpu_landed", WantsFn.self)
         if module.starved != nil { sym("gpu_on_acquire", OnAcquireFn.self)?(gpuAcquired) }
         module.seen = sym("gpu_seen", WantsFn.self)

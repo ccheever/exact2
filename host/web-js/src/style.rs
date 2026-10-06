@@ -16,9 +16,9 @@ use exact_runner::bridge;
 use exact_runner::vm::instructions;
 use exact_web::host::template::{self, Parts};
 
-/// A canvas's explicit bitmap size (LLP 1056 D6 r3) as the attributes
-/// canvas2d.js reads, as the runner reads the node's props; a dynamic one is
-/// refused.
+/// A canvas's explicit bitmap size (LLP 1056 D6 r3) and getContext settings
+/// (LLP 1100 D12a) as the attributes canvas2d.js reads, as the runner reads
+/// the node's props; a dynamic one is refused.
 pub fn canvas_bitmap(
     plan: &Plan,
     row: &exact_plan::NodesRow,
@@ -29,14 +29,19 @@ pub fn canvas_bitmap(
             _ if b.kind != BindingKind::Prop => continue,
             id if id == PropId::BitmapWidth as u16 => "data-bitmap-width",
             id if id == PropId::BitmapHeight as u16 => "data-bitmap-height",
+            id if id == PropId::ColorSpace as u16 => "data-color-space",
+            id if id == PropId::ColorType as u16 => "data-color-type",
             _ => continue,
         };
-        match literal(plan, plan.code(b.expr)) {
-            Some(exact_plan::Value::Number(n)) => {
-                attrs.push((name.into(), (n.max(0.0) as u32).to_string()))
-            }
-            _ => return Err("a dynamic canvas bitmap size is not in the JS target".into()),
-        }
+        let value = match literal(plan, plan.code(b.expr)) {
+            Some(exact_plan::Value::Number(n)) => Some((n.max(0.0) as u32).to_string()),
+            Some(v) if name.starts_with("data-color") => v.as_str().map(str::to_string),
+            _ => None,
+        };
+        let Some(value) = value else {
+            return Err("a dynamic canvas bitmap size or setting is not in the JS target".into());
+        };
+        attrs.push((name.into(), value));
     }
     Ok(attrs)
 }
@@ -544,6 +549,13 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         // @ref LLP 1077 D1 — Apple's curve as the web's stand-in. A bound
         // radius is not rescaled here, as css.rs scales a static one: a
         // dynamic `-apple-continuous` reaches less far on the web.
+        // @ref LLP 1034 §8 — `light` and `dark`; a bound `normal` follows
+        // the surrounding scheme (the property removed), as the kernel unsets
+        // it; anything else is no value it takes.
+        StyleId::ColorScheme => vec![with(
+            "color-scheme",
+            "v=>v===\"light\"||v===\"dark\"?v:null",
+        )],
         StyleId::CornerShape => vec![with(
             "corner-shape",
             "v=>v==null?v:v.replace(/-apple-continuous/gi,\"superellipse(1.6)\")",
@@ -732,6 +744,23 @@ pub(crate) mod tests {
             String::from_utf8_lossy(&out.stderr)
         );
         serde_json::from_slice(&out.stdout).unwrap()
+    }
+
+    /// LLP 1034 §8: a bound `color-scheme` writes `light` or `dark`, and a
+    /// bound `normal` (or anything else) removes the property, so the node
+    /// follows its parent's scheme as the kernel's unset row does.
+    #[test]
+    fn a_bound_color_scheme_is_light_dark_or_removed() {
+        let writes = style_writes(StyleId::ColorScheme as u16, false).unwrap();
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0].name, "color-scheme");
+        assert_eq!(
+            run(
+                writes[0].map.unwrap(),
+                &["light", "dark", "normal", "light dark"]
+            ),
+            serde_json::json!(["light", "dark", null, null])
+        );
     }
 
     #[test]

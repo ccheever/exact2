@@ -24,7 +24,7 @@ has loaded, no event — a gesture, a tap, a payload of any shape, a clock
 move — makes `ready` anything but `true`. -/
 theorem ready_stays {o c} (ev : Event) (h : lookup "ready" c.slots = .some (.bool true)) :
     SlotIn "ready" (· = .bool true) (ev.step photoEditor o c).1.slots :=
-  ev.step_slotIn (fun _ _ _ _ _ => keeps_ready) fun v hv => by rw [h] at hv; cases hv; rfl
+  ev.step_slotIn (by decide) (fun _ _ _ _ _ => keeps_ready) fun v hv => by rw [h] at hv; cases hv; rfl
 
 /-- **Rotating touches nothing but the turns.** -/
 theorem rotate_only_turns {o c args rows c' out x} (hx : x ≠ "turns")

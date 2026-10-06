@@ -124,4 +124,34 @@ export function createFrameSampler({ origin, log, gather, covers, target }) {
   activity(); // a page already animating is measured from the start
   return sampler;
 }
-globalThis.exact = Object.assign(globalThis.exact ?? {}, { createFrameSampler });
+
+let windowSampler = null;
+/** `{"op":"perf","frames":true,"live":ms}` (D4's live window; the platformer's
+ * diary, R11): under the agent's clock no frame is presented, so for `ms` of
+ * wall time the clock is lent to the wall. Each animation frame advances the
+ * runner to the wall's time (`advance`); a GPU canvas draws on its own frame
+ * loop with its perf armed (`gpu.live`); a sampler of the window's own
+ * measures what was presented. The reply is D4's, with `live` (the window and
+ * the clock it moved) and each world's perf. The world ticks on the wall in
+ * the window, so its hash afterwards is not a seeked run's; headless Chrome's
+ * frames are its own clock's, not a display's. */
+async function liveFrames({ ms, late, origin, log, clock, advance, gpu }) {
+  if (windowSampler?.open) throw new Error('perf frames live: a live window is already open');
+  windowSampler ??= createFrameSampler({ origin, log, covers: ['canvas'], target: 'wasm', gather: async () => ({}) });
+  const sampler = windowSampler, outer = globalThis.exact.frames, from = clock(), w0 = performance.now();
+  sampler.open = true; sampler.reset(); globalThis.exact.frames = sampler;
+  gpu?.live?.(true);
+  let worlds = [];
+  try {
+    await new Promise((done, fail) => {
+      const step = () => { try {
+        const elapsed = Math.min(performance.now() - w0, ms);
+        advance(from + elapsed); sampler.activity();
+        if (elapsed < ms) requestAnimationFrame(step); else done();
+      } catch (e) { fail(e); } };
+      requestAnimationFrame(step);
+    });
+  } finally { worlds = gpu?.live?.(false) ?? []; globalThis.exact.frames = outer; sampler.open = false; }
+  return { ...sampler.reply(late ?? 20), live: { ms, from, to: clock() }, ...(worlds.length ? { world: worlds } : {}) };
+}
+globalThis.exact = Object.assign(globalThis.exact ?? {}, { createFrameSampler, liveFrames });

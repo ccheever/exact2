@@ -1,0 +1,89 @@
+// Todo — a terminal app (LLP 1101): written for the terminal from the first
+// line, in the same vocabulary as every other surface, lengths in cells
+// (`ch` a column, `lh` a row). Terminal-only to start (LLP 1101 Q9).
+
+shape Todo
+  id: string
+  title: string
+  done: bool
+
+component Todos
+  state todos = [
+    Todo(id="1", title="Read LLP 1101", done=true),
+    Todo(id="2", title="Write the terminal host", done=false),
+    Todo(id="3", title="Drive it headless with the agent's verbs", done=false),
+  ]
+  state draft = ""
+  state next = 4
+  state filter = "all"
+  derive shown = filter == "all" ? todos : filter(todos, t => filter == "done" ? t.done : not t.done)
+  derive left = length(filter(todos, t => not t.done))
+
+  action write(value)
+    draft = value
+  action add
+    todos = draft == "" ? todos : concat(todos, [Todo(id=toString(next), title=draft, done=false)])
+    next = next + 1
+    draft = ""
+  action toggle(id: string)
+    todos = map(todos, t => t.id == id ? Todo(t, done=not t.done) : t)
+  action clearDone
+    todos = filter(todos, t => not t.done)
+  action showAll
+    filter = "all"
+  action showActive
+    filter = "active"
+  action showDone
+    filter = "done"
+
+  view
+    column width="100%" height="100%" color="light-dark(#1a1a1a, #d0d0d0)"
+      row height="1lh" padding="0 1ch" background-color="#1e3a5f" color="#ffffff"
+        text "Todo" font-weight=700
+        text `${left} left` margin-left="auto"
+      row gap="2ch" padding="1lh 1ch 0"
+        button press=showAll aria-keyshortcuts="1" testId="filter-all"
+          text "1 All" font-weight=(filter == "all" ? 700 : 400)
+            text-decoration-line=(filter == "all" ? "underline" : "none")
+        button press=showActive aria-keyshortcuts="2" testId="filter-active"
+          text "2 Active" font-weight=(filter == "active" ? 700 : 400)
+            text-decoration-line=(filter == "active" ? "underline" : "none")
+        button press=showDone aria-keyshortcuts="3" testId="filter-done"
+          text "3 Done" font-weight=(filter == "done" ? 700 : 400)
+            text-decoration-line=(filter == "done" ? "underline" : "none")
+      column flex-grow=1
+        min-height=0
+        margin="1lh 1ch 0"
+        border="1px solid #5f87af"
+        border-radius=4
+        padding="0 1ch"
+        scroll flex=1 min-height=0 testId="list"
+          each t in shown key = t.id
+            button press=toggle(t.id)
+              testId=`item-${t.id}`
+              display="flex"
+              gap="1ch"
+              width="100%"
+              text-align="start"
+              text (t.done ? "[x]" : "[ ]") color=(t.done ? "#5fa85f" : "inherit")
+              text t.title flex-grow=1
+                text-overflow="ellipsis"
+                white-space="nowrap"
+                text-decoration-line=(t.done ? "line-through" : "none")
+                font-weight=(t.done ? 300 : 400)
+      row height="1lh" padding="0 1ch" gap="1ch" margin-top="1lh"
+        text "+" font-weight=700 color="#5fa85f"
+        input value=draft
+          input=write
+          submit=add
+          placeholder="New task, then Enter"
+          aria-keyshortcuts="n"
+          flex-grow=1
+          testId="new-item"
+      row height="1lh" padding="0 1ch" gap="2ch" color="#808080"
+        text "tab move · enter toggle · n new · 1/2/3 filter" flex-shrink=1
+          min-width=0
+          white-space="nowrap"
+          text-overflow="ellipsis"
+        button press=clearDone aria-keyshortcuts="x" testId="clear-done" margin-left="auto"
+          text "x clear done"

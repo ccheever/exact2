@@ -260,6 +260,29 @@ the consumer. Unblocks native cell highlight, separators, dynamic type and
 VoiceOver rows in a settings screen without a module. Take: none offered;
 waived by Charlie's approval. No sidebar styles, no virtualized grouped list,
 no grouped swipe actions.
+**Expanded (Charlie, 2026-10-06, via the lead: "Recs seem good. Approve and
+push"):** hooks on every platform and what the agent sees of them (LLP
+1075.003.000.001). The changes:
+- app and window scopes;
+- a frame clock and timers on the session clock;
+- `input(text)` on an authored field;
+- Linux and Windows hooks: an overlay the hook replaces whole, and input it
+  only observes;
+- development-only diagnostics (`log`, `count`, `measure`, spans, `publish`)
+  and Exact's own timing of each call;
+- owned regions and parts in `tree`;
+- a crash breadcrumb;
+- per-platform hook words checked by the delivery classifier.
+
+`perf hooks` is a form of `perf`. Tapping a part is a form of `tap`, by real
+platform input only. Neither is a new operation. The consumers are the Signal
+Clone and `apps/native-fixture`. The ruling admits three pieces of
+apparatus: `exact.mjs hook <word>`, `EXACT_HOOKS=off` and the template's
+`AGENTS.md` hooks section. Take: none offered; waived by Charlie's approval.
+Still refused: claiming input on a painting host (a gesture arena), a tap that
+runs hook code by name, a hook that writes Contract state or dispatches, a
+node-scoped frame ticket, diagnostics collected in production, and JavaScript
+above the data seam on native. Android stays below, named but not built.
 
 ## Surfaces
 
@@ -285,6 +308,21 @@ Unblocks Caltrain on an Apple TV. watchOS, which has no UIKit, stays out. A
 platform with its own UI stack (Amazon's Vega OS) is a host outside this
 repository, on the plan, runner and agent seams; its RFC is owed. The take is
 waived.
+
+**Admitted (Charlie, 2026-10-06: "this is pretty great. commit and push this
+and document that TUI is now an officially supported platform for Exact2";
+LLP 1101, 1101.000, 1101.001):** the terminal is an officially supported,
+in-tree surface. `host/terminal` (`exact-terminal`) runs a terminal entry —
+its own root `.contract`, compiled under the terminal profile (lengths in
+`ch`/`lh`, the schema's `terminal` admission) — inline (settled transcript
+entries printed once into the terminal's own scrollback, the live tail
+redrawn; selection, copy and tmux stay the terminal's) or full screen.
+Unblocks apps authored for the terminal: the coding harness
+(`apps/harness`, real models through OpenRouter, Anthropic, OpenAI and
+Ollama) and the todo fixture (`apps/todo`). A terminal entry is a separate
+application root on a separate medium, not a platform override (LLP 1101
+D9, §Authoring models). No take was named; the ruling stands as its own
+waiver until Charlie names one.
 
 - **Windows.** A working Direct2D host exists in the old repo. It is real work, and it
   doubles the native matrix. **Admitted (Charlie, 2026-10-04):** "make an exact2
@@ -312,7 +350,8 @@ change can break.
   no app-ABI generator.
 - **Platform-suffixed route overrides** (`.native.tsx`, `.mac.tsx`, ...). One route, one
   file. If a platform needs different behavior, that is a branch inside the component or
-  a bug in the presenter.
+  a bug in the presenter. A terminal entry (LLP 1101) is a separate application root on
+  a separate medium, not a platform override; GUI surfaces still have one source.
 
 ## Features carried over as "no"
 
@@ -483,7 +522,10 @@ its parent. Take: none offered; waived by Charlie's approval.
 **Expanded (LLP 1089; waived by the orchestrator under Charlie's 2026-10-04
 delegation, "make decisions without me"):** a call anywhere a statement may
 stand, to an action of the same component, an `action` prop, or an injected
-action, expanded into that commit; a host command keeps its name. Consumers:
+action, expanded into that commit; a host command keeps its name, and a
+call naming both a host command and an action in its component's scope is
+refused (`syntax-call-ambiguous`, amended 2026-10-05 with Charlie's approval:
+a new host command must never silently rebind an app's call). Consumers:
 Files' four copies of "open" (F27) and the spreadsheet's close-the-editor and
 move copies (F21); Mail's swipe (F18) is the tail call, once the docs say so.
 Take: none offered. Still refused: recursion, a return value, and an action
@@ -498,6 +540,19 @@ the web. Gestures are in as follow-and-release: the platform recognizes, the
 engine holds a value and springs it back with the release velocity. The seekable
 clock is in, and it is the reason motion is testable: an agent advances time to
 `settle_time()` and reads; it never waits.
+
+**Expanded (Charlie, 2026-10-05, via the lead: approved LLP 1099's design,
+"move to code"):** `spring()` takes UIKit's parameterisations: duration and
+damping ratio, duration and bounce, response, and a labelled `velocity` and an
+end time on the physical spring, each lowered to the spring UIKit builds and
+cut where Core Animation cuts it. One implementation in `exact-motion`; the
+web plays its frames. Unblocks porting UIKit apps' springs by their own
+numbers (the Signal clone's menu, reply icon and photo viewer, now
+hand-sampled `linear()` curves). Take: the clone's hand-sampled curves are
+deleted when stage 1 lands. A take off the doing-list, or a waiver in
+Charlie's words, is still to be recorded here. Still out: SwiftUI's own
+spring evaluator, vector initial velocities, and per-iOS-version behaviour
+(LLP 1099 pins iOS 27.0).
 
 Moved off this list 2026-08-28 (LLP 1002 D6): **delegation to CSS on the web** — it
 unblocks a web host that ships zero motion bytes and a parity corpus with the
@@ -640,7 +695,8 @@ names them. `press-scale` stays as a declared non-CSS host-feedback row (LLP
 highlight is (a shrink is feedback, not motion).
 - **`runOnJS` and the escape hatch / runtime graph admission** — never existed here.
 
-**Tooling** — no Design Mode, no Guide system, no devtools UI, no TUI host, no blog/CMS.
+**Tooling** — no Design Mode, no Guide system, no devtools UI, no blog/CMS. (The
+TUI host came off on 2026-10-06: §Surfaces.)
 
 **Agent API** — 10 operations, not 90:
 

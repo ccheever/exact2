@@ -23,6 +23,8 @@ impl DataSource for Keeps {
 
 const APP: &str = r#"component App
   state text = ""
+  state commits = 0
+  state saved = ""
   state focuses = 0
   state blurs = 0
   state submits = 0
@@ -32,6 +34,9 @@ const APP: &str = r#"component App
   mutation kept as shape bool
   action edit(value)
     text = value
+  action committed(value)
+    commits = commits + 1
+    saved = value
   action focused
     focuses = focuses + 1
   action blurred
@@ -52,8 +57,9 @@ const APP: &str = r#"component App
     focus("entry")
   view
     column width=400 height=400 key=outer
+      text `${commits}:${saved}` testId="commits" height=20
       text outerKeys testId="outer" height=20
-      input value=text input=edit submit=sent focus=focused blur=blurred key=keyed testId="field" id="entry" height=32
+      input value=text input=edit change=committed submit=sent focus=focused blur=blurred key=keyed testId="field" id="entry" height=32
       button "Focus" press=goField testId="go-field" height=32
       button "Other" press=pressed testId="other" height=32
       box opacity=0 width=200 height=40
@@ -568,4 +574,184 @@ fn tabindex_makes_tab_stops_and_tab_walks_them() {
     );
     p.focus = None;
     assert_eq!(tab(&mut p, true), "disabled", "and Shift-Tab the last");
+}
+
+#[test]
+fn agent_typing_commits_only_on_enter_or_blur() {
+    let mut p = boot();
+    let field = id(&p, "field");
+    let committed = |p: &Presenter<Keeps>| {
+        p.host()
+            .kernel()
+            .node(id(p, "commits"))
+            .unwrap()
+            .props
+            .str(PropId::Text)
+            .unwrap()
+            .to_owned()
+    };
+    p.type_text(field, "first").unwrap();
+    p.type_text(field, "second").unwrap();
+    assert_eq!(committed(&p), "0:");
+    assert_eq!(
+        p.host()
+            .kernel()
+            .node(field)
+            .unwrap()
+            .props
+            .str(PropId::Value),
+        Some("second")
+    );
+    p.type_key(field, "Enter", "Enter", true, false).unwrap();
+    assert_eq!(committed(&p), "1:second");
+    p.type_key(field, "Enter", "Enter", false, false).unwrap();
+    p.tap(id(&p, "other")).unwrap();
+    assert_eq!(
+        committed(&p),
+        "1:second",
+        "blur after Enter does not commit twice"
+    );
+    p.type_text(field, "third").unwrap();
+    assert_eq!(committed(&p), "1:second");
+    p.tap(id(&p, "other")).unwrap();
+    assert_eq!(committed(&p), "2:third");
+}
+
+#[test]
+fn an_unbound_field_holds_its_typed_text_until_its_bound_value_changes() {
+    // LLP 1069.001 D4: an unbound control holds its own state; the web
+    // build writes a field's `value` only when the bound value changes.
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(
+            r#"component App
+  state saved = ""
+  state kept = "kept"
+  state loud = ""
+  action save(next: string)
+    saved = next
+  action refuse(next: string)
+    saved = saved
+  action shout(next: string)
+    loud = next + "!"
+  action swap()
+    kept = kept == "kept" ? "other" : "kept"
+  view
+    column
+      input change=save testId="free"
+      input value="x" change=save testId="literal"
+      button "swap" press=swap testId="swap"
+      input value=kept input=refuse testId="refused"
+      input value=loud input=shout testId="loud"
+"#,
+        )
+        .unwrap()
+        .encode(),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let saved = |p: &Presenter<Keeps>| p.host().runner().slot("saved").cloned();
+    let free = id(&p, "free");
+    let reply = p.type_text(free, "ab").unwrap();
+    assert!(reply.contains("\"value\":\"ab\""), "{reply}");
+    // Hardware keys edit the typed text, not the empty prop, and show it
+    // with no handler to hear them.
+    p.dirty = false;
+    p.key(Some('c'), false, 0.);
+    assert!(p.dirty);
+    assert_eq!(p.field_text(free), "abc");
+    p.key(None, true, 0.);
+    assert_eq!(p.field_text(free), "ab");
+    let tree = crate::agent::handle(&mut p, r#"{"op":"tree","target":"free","shallow":true}"#);
+    assert!(
+        tree.contains(r#""value":"ab""#),
+        "the agent's tree shows it: {tree}"
+    );
+    p.type_key(free, "Enter", "Enter", true, false).unwrap();
+    assert_eq!(
+        saved(&p),
+        Some(Value::str("ab")),
+        "change commits the typed text"
+    );
+    p.type_key(free, "Enter", "Enter", false, false).unwrap();
+    // A bound value its action did not write keeps the typed text, as the
+    // web's element does; one it wrote is shown.
+    let refused = id(&p, "refused");
+    p.type_text(refused, "mine").unwrap();
+    assert_eq!(p.field_text(refused), "mine");
+    // Its bound value changing replaces it, and coming back does not bring it back.
+    p.tap(id(&p, "swap")).unwrap();
+    assert_eq!(p.field_text(refused), "other");
+    p.tap(id(&p, "swap")).unwrap();
+    assert_eq!(p.field_text(refused), "kept");
+    // Two commits before the presenter looks: the one between still counts.
+    p.type_text(refused, "again").unwrap();
+    let swap = id(&p, "swap");
+    p.host_mut()
+        .dispatch_at(swap, exact_runner::Event::Press, 0.);
+    p.host_mut()
+        .dispatch_at(swap, exact_runner::Event::Press, 0.);
+    p.after_commit();
+    assert_eq!(p.field_text(refused), "kept");
+    // A key after a commit that replaced the typed text edits what shows.
+    p.type_text(refused, "mine").unwrap();
+    p.host_mut()
+        .dispatch_at(swap, exact_runner::Event::Press, 0.);
+    p.key(Some('q'), false, 0.);
+    assert_eq!(p.field_text(refused), "otherq");
+    let literal = id(&p, "literal");
+    p.type_text(literal, "y").unwrap();
+    assert_eq!(p.field_text(literal), "y", "a literal value is a default");
+    p.type_key(literal, "Enter", "Enter", true, false).unwrap();
+    assert_eq!(saved(&p), Some(Value::str("y")));
+    let loud = id(&p, "loud");
+    p.type_text(loud, "hi").unwrap();
+    assert_eq!(p.field_text(loud), "hi!");
+}
+
+#[test]
+fn a_reload_forgets_unbound_controls_own_state() {
+    // A restart replaces the tree and its runner reuses view ids: an unbound
+    // checkbox's own state, or a field's typed text, is not the new tree's
+    // (LLP 1069.001 D4; `Presenter::replaced`).
+    let src = r#"component App
+  view
+    column
+      input type="checkbox" testId="box"
+      input testId="free"
+"#;
+    let plan = contract::compile(src).unwrap().encode();
+    let (mut p, error) = Presenter::boot_with(
+        &plan,
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let (box_id, free) = (id(&p, "box"), id(&p, "free"));
+    p.tap(box_id).unwrap();
+    assert_eq!(p.controls.get(&box_id), Some(&true));
+    p.type_text(free, "draft").unwrap();
+    assert_eq!(p.field_text(free), "draft");
+    assert_eq!(p.edited, Some(free));
+    p.reload(&plan, Keeps).unwrap();
+    assert_eq!(
+        p.edited, None,
+        "the old field's edit is not the new one's to commit"
+    );
+    assert!(p.fields.is_empty());
+    let (box_id, free) = (id(&p, "box"), id(&p, "free"));
+    assert_eq!(
+        p.controls.get(&box_id),
+        None,
+        "the checkbox starts unchecked again"
+    );
+    assert_eq!(p.field_text(free), "");
 }

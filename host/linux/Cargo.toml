@@ -22,6 +22,7 @@ crate-type = ["rlib"]
 [dependencies]
 exact-canvas = { path = "../../canvas" }
 exact-data = { path = "../../data" }
+exact-color = { path = "../../color" }
 exact-kernel = { path = "../../kernel" }
 exact-textflow = { path = "../../textflow" }
 exact-motion = { path = "../../motion" }
@@ -31,11 +32,14 @@ exact-raster = { path = "../raster" }
 # here beside the tiny-skia this host already has.
 exact-svg-raster = { path = "../svg-raster" }
 exact-route = { path = "../../route" }
+# A `markup="markdown"` text's pieces (LLP 1045 D4): the painter links Rust,
+# so the reader expands its source here, as Apple's archive does.
+exact-markdown = { path = "../../markdown" }
 exact-runner = { path = "../../runner" }
 # The executor for a request that leaves the process (LLP 1016 D2): ibex2's
 # standard library for a Rust consumer (ibex LLP 0068) — rustls off Apple
 # (its OQ2) — from the sibling checkout, as the Apple host takes it.
-ibex2 = { path = "../../vendor/ibex2", default-features = false }
+ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false }
 sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

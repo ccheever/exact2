@@ -58,6 +58,7 @@ fn strict_calls(e: &Expr, is_fn: &dyn Fn(&str) -> bool, out: &mut Vec<Expr>) {
                 strict_calls(a, is_fn, out);
             }
         }
+        Expr::List(items, _) => items.iter().for_each(|a| strict_calls(a, is_fn, out)),
         Expr::Binary(BinOp::And | BinOp::Or, a, _, _) => strict_calls(a, is_fn, out),
         Expr::Binary(_, a, b, _) => {
             strict_calls(a, is_fn, out);
@@ -95,12 +96,7 @@ fn strict_calls(e: &Expr, is_fn: &dyn Fn(&str) -> bool, out: &mut Vec<Expr>) {
                 }
             }
         }
-        Expr::Ident(..)
-        | Expr::Number(..)
-        | Expr::Str(..)
-        | Expr::Bool(..)
-        | Expr::None(_)
-        | Expr::EmptyList(_) => {}
+        Expr::Ident(..) | Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
     }
 }
 
@@ -132,7 +128,7 @@ fn free(e: &Expr) -> Vec<String> {
 fn names(e: &Expr, out: &mut Vec<String>) {
     match e {
         Expr::Ident(n, _) => out.push(n.clone()),
-        Expr::Call(_, args, _) => args.iter().for_each(|a| names(a, out)),
+        Expr::Call(_, args, _) | Expr::List(args, _) => args.iter().for_each(|a| names(a, out)),
         Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
         | Expr::Typed(x, _, _)
@@ -167,7 +163,7 @@ fn names(e: &Expr, out: &mut Vec<String>) {
                 names(x, out);
             }
         }),
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::EmptyList(_) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
     }
 }
 
@@ -237,7 +233,7 @@ fn replace(e: Expr, key: &str, free: &[String], with: &str) -> Expr {
 /// of `free`.
 fn each_child(e: &Expr, free: &[String], f: &mut dyn FnMut(&Expr)) {
     match e {
-        Expr::Call(_, args, _) => args.iter().for_each(f),
+        Expr::Call(_, args, _) | Expr::List(args, _) => args.iter().for_each(f),
         Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
         | Expr::Typed(x, _, _)
@@ -283,12 +279,7 @@ fn each_child(e: &Expr, free: &[String], f: &mut dyn FnMut(&Expr)) {
                 f(x);
             }
         }),
-        Expr::Ident(..)
-        | Expr::Number(..)
-        | Expr::Str(..)
-        | Expr::Bool(..)
-        | Expr::None(_)
-        | Expr::EmptyList(_) => {}
+        Expr::Ident(..) | Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
     }
 }
 
@@ -297,6 +288,7 @@ fn map_children(e: Expr, f: &mut dyn FnMut(Expr) -> Expr) -> Expr {
     let mut b = |x: Box<Expr>| Box::new(f(*x));
     match e {
         Expr::Call(n, args, s) => Expr::Call(n, args.into_iter().map(&mut *f).collect(), s),
+        Expr::List(items, s) => Expr::List(items.into_iter().map(&mut *f).collect(), s),
         Expr::Member(x, field, s) => Expr::Member(b(x), field, s),
         Expr::NamedArg(n, x, s) => Expr::NamedArg(n, b(x), s),
         Expr::Typed(x, t, s) => Expr::Typed(b(x), t, s),

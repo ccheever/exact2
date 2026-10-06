@@ -185,8 +185,8 @@ fn strings_compare_and_cut_as_the_web_does() {
 
 /// Two strings or two numbers: mixed operands and bools stay refused, and
 /// `slice` takes two or three arguments; an action named `slice` keeps its
-/// own arity (a scoped action is found before the roster), and `slice` on a
-/// list names LLP 1088 §9.
+/// own arity (a scoped action is found before the roster), and `slice` of a
+/// list is a list (LLP 1088 §9.1).
 #[test]
 fn string_order_and_slice_are_typed() {
     let src = corpus("strings.contract");
@@ -207,7 +207,7 @@ fn string_order_and_slice_are_typed() {
             "slice(expr, 1)",
             "slice(expr)",
             "type-arity",
-            "`slice` takes 2 to 3 argument(s), given 1; expected `slice(string, number, number?)`",
+            "`slice` takes 2 to 3 argument(s), given 1; expected `slice(string | list, number, number?)`",
         ),
         (
             "slice(expr, 1)",
@@ -229,10 +229,8 @@ fn string_order_and_slice_are_typed() {
     }
     contract::compile("component App\n  state n = 0\n  action slice(by: number)\n    n = n + by\n  view\n    button \"s\" press=slice(1)\n")
         .unwrap();
-    let e = contract::compile(
-        "component App\n  state xs = []\n  derive ys = slice(xs, 1)\n  view\n    text \"a\"\n",
+    contract::compile(
+        "component App\n  state xs = [\"a\", \"b\"]\n  derive ys = slice(xs, 1)\n  view\n    text join(ys, \",\")\n",
     )
-    .unwrap_err();
-    assert_eq!(e.id, "type-refused-idiom", "{e}");
-    assert!(e.message.contains("LLP 1088 §9"), "{e}");
+    .unwrap();
 }

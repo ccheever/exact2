@@ -118,6 +118,8 @@ final class FlatLeaves {
         return true
     }
     func isFlat(_ id: UInt32) -> Bool { leaves[id] != nil }
+    /// The node a flat leaf's children op placed it in.
+    func parent(of id: UInt32) -> UInt32? { leaves[id]?.parent }
     /// `id`'s children moved to another container view (a material or a
     /// glass group came or went): its leaves follow at the next flush.
     func containerChanged(_ id: UInt32) { if order[id] != nil { dirty.insert(id) } }
@@ -219,7 +221,8 @@ final class FlatLeaves {
         let radius = radii.max() ?? 0
         let oneRadius = radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
             && radius <= min(bounds.width, bounds.height) / 2 + 0.01
-        if fill != nil, !oneRadius { promote(leaf.id, style: leaf.style); return }
+        // An HDR fill needs its own layer's range (LLP 1100 D8): promote it.
+        if fill != nil, !oneRadius || ColorRange.isHDR(fill) { promote(leaf.id, style: leaf.style); return }
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
         for (v, mask) in zip(radii, masks) where v > 0 { corners.insert(mask) }

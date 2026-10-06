@@ -36,8 +36,8 @@ import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
 import { allowHostArgs, developmentGate, installBrowserOrigins, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, unwatchFile, watch, watchFile } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, unwatchFile, watch, watchFile } from 'node:fs';
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { gpuModules, shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
 import { webDist, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
@@ -414,7 +414,13 @@ function watchModuleSources(directory, ignore, changed) {
           if (ignore(name)) continue;
           if (++entries > 4096) throw new Error('module watcher source graph exceeds 4096 entries');
           const path = resolve(directory, name), stat = lstatSync(path, { bigint: true });
-          if (stat.isSymbolicLink()) { state.push([name,'symlink']); continue; }
+          // A link is what it leads to: retargeting it is an edit.
+          if (stat.isSymbolicLink()) {
+            let target = '';
+            try { const to = statSync(path, { bigint: true }); target = `${readlinkSync(path)}:${metadata(to)}:${to.dev}:${to.ino}`; } catch { target = 'dangling'; }
+            state.push([name, `symlink:${target}`]);
+            continue;
+          }
           if (stat.isDirectory()) { walk(path,name+'/',depth+1); continue; }
           if (!/\.(ts|contract|json)$/.test(name)) continue;
           if (!stat.isFile()) { state.push([name,'not-regular']); continue; }
@@ -457,6 +463,49 @@ function watchModuleSources(directory, ignore, changed) {
   return { get error(){return refusal;}, close(){closed=true;clearInterval(poll);directoryWatch.close();for(const file of files.values())file.watch.close();files.clear();} };
 }
 let moduleWatch = null, moduleTimer = null, moduleRun = 0, moduleStage = null, moduleSaved = 0;
+/** The Contract sources the app reads from packages (LLP 1091 D10), and
+ * the directories to watch for them: each package's root, and the nearest
+ * existing directory of a file resolution looked for and did not find. */
+function contractGraph() {
+  const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'sources', resolve(app.dir, 'app.contract')], { cwd: root, env: toolingEnv, encoding: 'utf8' });
+  const nearest = (path) => { while (!existsSync(path) && dirname(path) !== path) path = dirname(path); return path; };
+  try {
+    const graph = JSON.parse(r.stdout);
+    const files = new Set([...graph.sources.filter(s => s.origin === 'package').map(s => s.path), ...graph.consulted]);
+    // A file looked for and not found: its nearest existing directory, but
+    // only inside a package or a node_modules — never the app or above it.
+    // A consulted manifest's directory is a package even when resolution
+    // then refused it.
+    // Either separator: `contract sources` prints the platform's paths.
+    const under = (d, root) => { const r = relative(root, d); return r === '' || (!r.startsWith('..') && !isAbsolute(r)); };
+    const inside = d => graph.packages.some(p => under(d, p.root)) || /(^|[\\/])node_modules([\\/]|$)/.test(d)
+      || graph.consulted.some(c => basename(c) === 'package.json' && dirname(c) === d);
+    // Watched where they really are: a watch root that is a link is refused.
+    const real = d => { try { return realpathSync(d); } catch { return d; } };
+    const dirs = new Set([...graph.packages.map(p => p.root), ...graph.consulted.map(c => nearest(dirname(c))).filter(inside)].map(real));
+    // One entry of a directory: where a node_modules not made yet would be
+    // (its making is an install), and an install that is a link (its
+    // retargeting is an edit no file inside sees).
+    const shallow = new Map();
+    for (const c of graph.consulted) {
+      const match = [...c.matchAll(/[\\/]node_modules[\\/]/g)].pop();
+      if (match) {
+        const parent = c.slice(0, match.index);
+        if (!existsSync(resolve(parent, 'node_modules')) && existsSync(parent)) shallow.set(`${parent}\0node_modules`, [parent, 'node_modules']);
+      }
+      // Every link on the way to it — the install, a linked node_modules,
+      // a linked scope — is one entry of its directory.
+      for (let dir = dirname(c); dirname(dir) !== dir; dir = dirname(dir)) {
+        try { if (lstatSync(dir).isSymbolicLink()) shallow.set(`${dirname(dir)}\0${basename(dir)}`, [dirname(dir), basename(dir)]); } catch {}
+      }
+    }
+    // Every source and every path resolution looked at: a hidden import not
+    // made yet, or a link whose target is elsewhere, is scanned by its path.
+    const sources = new Set([...graph.sources.filter(s => isAbsolute(s.path)).map(s => s.path), ...graph.consulted]);
+    return { files, dirs, shallow: [...shallow.values()], sources };
+  } catch { return { files: new Set(), dirs: new Set(), shallow: [], sources: new Set() }; }
+}
+
 function startModuleCompiler() {
   const built = spawnSync('cargo', ['build', '-q', '--release', '-p', 'exact-js-bake'], { cwd: root, env: toolingEnv, stdio: 'inherit' });
   if (built.status !== 0) throw new Error('the module producer did not build');
@@ -506,6 +555,8 @@ function startModuleCompiler() {
         push(announcement());
       } catch (error) { console.error(error.message); push({ error: error.message }); }
       finally {
+        // A failed generation still names the packages to watch for its fix.
+        watchPackages();
         if (request) rmSync(request.stage, { recursive: true, force: true });
         active = null; moduleStage = null;
         if (request && request.id !== moduleRun) produce();
@@ -525,12 +576,44 @@ function startModuleCompiler() {
     if (rebuildOn.typescript === "save") moduleTimer = setImmediate(produce);
   };
   // The declarations the producer writes beside app.ts are its output, not a source.
-  const watches = [watchModuleSources(app.dir, name => name === 'app.contract.d.ts' || skipped.test(name) || /(^|\/)\./.test(name)
-    || assetTrees.some(([tree]) => resolve(app.dir,name) === tree || resolve(app.dir,name).startsWith(tree+'/')), moduleChanged)];
+  // A Contract source the compile read is an input even in a dot directory.
+  const contractSources = new Set(contractGraph().sources);
+  // A source, or a directory on the way to one: the scan descends into it.
+  const contractInput = path => contractSources.has(path) || [...contractSources].some(s => s.startsWith(path + '/') || s.startsWith(path + '\\'));
+  const watches = [watchModuleSources(app.dir, name => name === 'app.contract.d.ts' || (skipped.test(name) && !contractInput(resolve(app.dir, name)))
+    || (/(^|\/)\./.test(name) && !contractInput(resolve(app.dir, name)))
+    || (assetTrees.some(([tree]) => resolve(app.dir,name) === tree || resolve(app.dir,name).startsWith(tree+'/')) && !contractInput(resolve(app.dir, name))), moduleChanged)];
   // Directories the manifest mounts beside app.ts (typescript.sources) are sources too.
   for (const path of Object.values(app.manifest.typescript?.sources ?? {})) {
     watches.push(watchModuleSources(realpathSync(resolve(app.dir, path)), name => skipped.test(name) || /(^|\/)\./.test(name), moduleChanged));
   }
+  // And the Contract packages it uses, wherever installed (a package's own
+  // dot directories are its sources too; only its node_modules is not).
+  const packageDirs = new Set();
+  const watchPackages = () => {
+    const graph = contractGraph();
+    for (const source of graph.sources) contractSources.add(source);
+    for (const dir of graph.dirs) {
+      if (packageDirs.has(dir) || !existsSync(dir)) continue;
+      packageDirs.add(dir);
+      // A package that cannot be watched is said, never a stop to the producer.
+      try {
+        const handle = watchModuleSources(dir, name => /(^|\/)node_modules(\/|$)/.test(name), moduleChanged);
+        if (handle.error) { console.error(`cannot watch ${dir}: ${handle.error.message}`); handle.close(); }
+        else watches.push(handle);
+      } catch (error) { console.error(`cannot watch ${dir}: ${error.message}`); }
+    }
+    for (const [dir, entry] of graph.shallow) {
+      const key = `shallow:${dir}:${entry}`;
+      if (packageDirs.has(key)) continue;
+      packageDirs.add(key);
+      try {
+        const handle = watch(dir, (_event, name) => { if (String(name) === entry) moduleChanged(); });
+        watches.push({ error: null, close: () => handle.close() });
+      } catch (error) { console.error(`cannot watch ${dir}: ${error.message}`); }
+    }
+  };
+  watchPackages();
   moduleWatch = { get error() { return watches.find(w => w.error)?.error ?? null; }, close() { for (const w of watches) w.close(); } };
   if (moduleWatch.error) { console.error(moduleWatch.error.message); push({error:moduleWatch.error.message}); }
 
@@ -819,7 +902,11 @@ let optionalRootsSeen = optionalRoots();
 function watchCompilerInputs() {
   // Poll declared file metadata: saves and replacement survive directory-event
   // coalescing. Only open-ended source discovery needs a directory watch.
-  const files=new Set([...builtReceipts.flatMap(r=>r.binary.inputs.map(f=>f.path)),...rustInputFiles,...gpuInputs,...appInputs,...failedInputs].filter(p=>!skipped.test(p)&&!p.includes('/.cargo/')));
+  // A Contract package's files are inputs wherever they are installed,
+  // node_modules included (LLP 1091 D10).
+  const contract=contractGraph();
+  const outside=p=>skipped.test(p)&&!contract.files.has(p);
+  const files=new Set([...builtReceipts.flatMap(r=>r.binary.inputs.map(f=>f.path)),...rustInputFiles,...gpuInputs,...appInputs,...failedInputs,...contract.files].filter(p=>!outside(p)&&!p.includes('/.cargo/')));
   for(const receipt of builtReceipts)for(const missing of receipt.binary.missing)files.add(missing);
   files.add(resolve(app.dir,'app.json'));
   compilerInputFiles = files;
@@ -830,7 +917,7 @@ function watchCompilerInputs() {
   const targets=new Set([...files,...directories]);
   for(const [path,handle] of watched)if(!targets.has(path)){handle.close();watched.delete(path);}
   for(const target of targets) {
-    if(skipped.test(target)||target.includes('/.cargo/')||watched.has(target))continue;
+    if(outside(target)||target.includes('/.cargo/')||watched.has(target))continue;
     const file=files.has(target),dir=file?resolve(target,'..'):target;
     const changedPath=name=>{
       if(file)name=target.slice(target.lastIndexOf('/')+1);

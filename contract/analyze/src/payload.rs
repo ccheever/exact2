@@ -16,6 +16,7 @@ fn payload(event: &str, control: Option<&str>) -> Vec<(&'static str, &'static st
         ("change" | "input", Some("checkbox")) => {
             one("checked", "bool", "the checkbox's new `checked`")
         }
+        ("change" | "input", Some("radio")) => one("value", "string", "the radio's `value`"),
         ("change" | "input", Some("range")) => one("value", "number", "the range's new `value`"),
         ("change" | "input", Some("file")) => one("files", "list<Picked>", "the picked `files`"),
         ("change" | "input", Some("select")) => one("value", "string", "the select's new `value`"),
@@ -26,9 +27,11 @@ fn payload(event: &str, control: Option<&str>) -> Vec<(&'static str, &'static st
         ("hover", _) => one("hovered", "bool", "whether the pointer is over, `hovered`"),
         ("timeupdate", _) => one("currentTime", "number", "the media's `currentTime`"),
         ("durationchange", _) => one("duration", "number", "the media's `duration`"),
+        ("select", Some("field")) => one("event", "InputEvent", "the field's `InputEvent`"),
         ("select", _) => one("selection", "MarkdownSelection", "the editor's `selection`"),
         ("navigate", _) => one("location", "string", "the location"),
         ("scroll", _) => numbers(&["scrollLeft", "scrollTop"]),
+        ("resize", _) => numbers(&["width", "height"]),
         ("pan", _) => numbers(&["dx", "dy"]),
         ("panrelease", _) => numbers(&["vx", "vy"]),
         ("heightrelease", _) => numbers(&["height", "velocity"]),

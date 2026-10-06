@@ -82,6 +82,8 @@ def unsupportedTy (name : String) (ts : List Ty) : Option Ty :=
   if name = "formatTime" ∨ name = "formatDate" then
     match ts with | [.number, .number, .string] => .some .string | _ => .none
   else if name = "formatNumber" then match ts with | [.number, .string] => .some .string | _ => .none
+  else if name = "toFixed" ∨ name = "formatDecimal" then
+    match ts with | [.number, .number] => .some .string | _ => .none
   else if name = "t" then
     match ts with
     | .string :: .string :: rest => if rest.all (· == .string) then .some .string else .none
@@ -89,6 +91,8 @@ def unsupportedTy (name : String) (ts : List Ty) : Option Ty :=
   else if name = "frame" ∨ name = "measure" then
     match ts with | [.string] => .some (.record "Geometry") | _ => .none
   else if name = "toLowerCase" then match ts with | [.string] => .some .string | _ => .none
+  else if name = "elementFromPoint" then
+    match ts with | [.number, .number] => .some (.option .string) | _ => .none
   else .none
 
 /-- The router's verbs and reads (LLP 1038, `Contract.Route`), at the
@@ -128,11 +132,15 @@ def rosterTy (name : String) (ts : List Ty) : Option Ty :=
   else if name = "toString" then
     match ts with | [t] => if t.displayable then .some .string else .none | _ => .none
   else if name = "floor" then match ts with | [.number] => .some .number | _ => .none
+  else if name = "ceil" ∨ name = "round" then match ts with | [.number] => .some .number | _ => .none
+  else if name = "parseNumber" then match ts with | [.string] => .some (.option .number) | _ => .none
+  else if name = "calendarDiff" then
+    match ts with | [.string, .string, .string] => .some (.option .number) | _ => .none
   else if name = "max" ∨ name = "min" then
     match ts with | [.number, .number] => .some .number | _ => .none
   else if name = "first" then match ts with | [.list a] => .some (.option a) | _ => .none
   else if name = "at" then match ts with | [.list a, .number] => .some (.option a) | _ => .none
-  else if name = "includes" ∨ name = "startsWith" ∨ name = "endsWith" then
+  else if name = "startsWith" ∨ name = "endsWith" then
     match ts with | [.string, .string] => .some .bool | _ => .none
   else if name = "trim" ∨ name = "encodeURIComponent" then
     match ts with | [.string] => .some .string | _ => .none
@@ -142,9 +150,31 @@ def rosterTy (name : String) (ts : List Ty) : Option Ty :=
       if (a.displayable || decide (a = .unknown)) && s.le .string then .some .string else .none
     | _ => .none
   else if name = "slice" then
-    match ts with | [.string, .number, .number] => .some .string | _ => .none
+    match ts with
+    | [.string, .number, .number] => .some .string
+    | [.list a, .number, .number] => .some (.list a)
+    | _ => .none
   else if name = "replaceAll" then
     match ts with | [.string, .string, .string] => .some .string | _ => .none
+  /- LLP 1088 §9.1: `includes` finds text in text or, by SameValueZero, a
+  string, number or bool in a list; `concat` joins two lists of one item
+  type. -/
+  else if name = "includes" then
+    match ts with
+    | [.string, .string] => .some .bool
+    | [.list a, x] => match Ty.unify a x with | .some u => if u.displayable then .some .bool else .none | .none => .none
+    | _ => .none
+  else if name = "concat" then
+    match ts with | [.list a, .list b] => (Ty.unify a b).map .list | _ => .none
+  /- LLP 1088 §9.1 (2026-10-04 note): `indexOf` takes what `includes` takes
+  and answers a position; `split` cuts text into a list of text. -/
+  else if name = "indexOf" then
+    match ts with
+    | [.string, .string] => .some .number
+    | [.list a, x] => match Ty.unify a x with | .some u => if u.displayable then .some .number else .none | .none => .none
+    | _ => .none
+  else if name = "split" then
+    match ts with | [.string, .string] => .some (.list .string) | _ => .none
   else routerTy name ts
 
 /-- A binary operator's result on operands of these types (`infer`'s
@@ -234,7 +264,8 @@ inductive HasTy (p : Program) (G : Scope) : Scope → Expr → Ty → Prop
   | str : HasTy p G Γ (.str s) .string
   | bool : HasTy p G Γ (.bool b) .bool
   | none : HasTy p G Γ .none (.option .unknown)
-  | emptyList : HasTy p G Γ .emptyList (.list .unknown)
+  /-- `[a, b]`: the items' types meet (`[]` is a `list<?>`). -/
+  | list : ListTy p G Γ items ts → Ty.unifyAll ts = .some t → HasTy p G Γ (.list items) (.list t)
   | some : HasTy p G Γ e t → HasTy p G Γ (.some e) (.option t)
   /-- Each part a number, bool or string. -/
   | template : ListTy p G Γ parts ts → (∀ t ∈ ts, t.displayable = true) →
@@ -430,6 +461,9 @@ structure WellTyped (p : Program) : Prop where
   /-- A task's interval is a number literal (the compiler's
   `lower-timer-literal`). -/
   taskLiterals : ∀ t ∈ p.tasks, ∃ b, t.ms = .num b
+  /-- A gated task's gate and key are well typed (the compiler's
+  `type-task-gate`, `type-task-key`; LLP 1092 D9). -/
+  taskGates : ∀ t ∈ p.tasks, ∀ e ∈ t.gate.toList ++ t.key.toList, ∃ u, HasTy p (compScope p) [] e u
   /-- A mutation's `then` names an action that takes no parameters: the
   clock runs it with none. -/
   thenActions : ∀ m ∈ p.mutations, ∀ a, m.andThen = .some a →

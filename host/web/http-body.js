@@ -134,6 +134,7 @@ export async function waitForInflight(waiting, deadline) {
 }
 
 import { admitsNetwork, grantError, scopedGrantSet } from './grant-admission.js';
+import { faultMessage, takeFault } from './faults.js';
 
 // Network and page-module requests share admission and the byte ceiling.
 // Called after the enclosing batch, so even an immediate refusal cannot re-enter it.
@@ -167,20 +168,35 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   let decodedBody;
   try { if (body) decodedBody = Uint8Array.from(atob(body), c => c.charCodeAt(0)); }
   catch (error) { return failed(4, `invalid request body: ${error}`); }
+  // A deadline for the whole exchange (Request::timeout_ms): kind 10 when it
+  // passes (9 is an auth session's delivery, glue.js).
+  if (op.timeoutMs !== undefined && (!Number.isInteger(op.timeoutMs) || op.timeoutMs < 1 || op.timeoutMs > 3600000)) return failed(2, 'a request timeout must be 1 to 3600000 ms');
+  const deadline = op.timeoutMs === undefined ? null : AbortSignal.timeout(op.timeoutMs);
   controllers.add(controller);
-  const init = { method, headers, redirect: 'follow', cache: cache === 'reload' ? 'reload' : 'default', signal: controller.signal };
+  const signal = deadline ? AbortSignal.any([controller.signal, deadline]) : controller.signal;
+  const init = { method, headers, redirect: 'follow', cache: cache === 'reload' ? 'reload' : 'default', signal };
   if (decodedBody) init.body = decodedBody;
   if (op.stream && !headers.some(([k]) => k.toLowerCase() === 'accept')) init.headers = [...headers, ['accept', 'text/event-stream']];
   try {
-    const response = await (!asset && moduleLoader?.claim?.(url, init) || fetch(asset ? localAssetURL(url) : url, init));
+    const early = !asset && moduleLoader?.claim?.(url, init);
+    // @ref LLP 1103 D1, D2 — a driver fault is a refused connection, never sent; a GET
+    // `fetchEarly` already sent (before the fault was armed) is not one it decides.
+    if (!early && !asset && !op.stream && takeFault(url)) return failed(1, faultMessage(url));
+    const response = await (early || fetch(asset ? localAssetURL(url) : url, init));
+    // A redirect that left the grants names where it led (podcast F5): the
+    // browser followed it, and the response's URL is the last hop's.
     if (response.url && (asset
       ? new URL(response.url).origin !== location.origin
-      : !admitsNetwork(effective, response.url, 'fetch'))) return failed(2, 'outside the app\'s grants (net.fetch)');
+      : !admitsNetwork(effective, response.url, 'fetch'))) return failed(2, `outside the app's grants (net.fetch): redirected to ${new URL(response.url).origin}`);
     // A stream reads its body as events; anything else is its one answer.
     if (op.stream && response.ok && response.body && /^text\/event-stream\s*(;|$)/i.test(response.headers.get('content-type') ?? ''))
       return await readEvents(response, op.maxResponseBytes ?? 1024 * 1024, message, controller);
     return { kind: 0, status: response.status, headers: [...response.headers].map(([k, v]) => `${k}: ${v}`).join('\n'), body: await boundedHttpBody(response, op.maxResponseBytes) };
-  } catch (error) { return failed(controller.signal.aborted ? 4 : 1, error); }
+  } catch (error) {
+    // Whichever ended it first: the combined signal keeps the first reason.
+    if (deadline && signal.aborted && signal.reason === deadline.reason) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
+    return failed(controller.signal.aborted ? 4 : 1, error);
+  }
   finally { controllers.delete(controller); }
 }
 

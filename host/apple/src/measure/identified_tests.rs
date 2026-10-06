@@ -27,7 +27,7 @@ extern "C" fn foreign(ctx: *mut c_void, request: *const CRequest) -> CMetrics {
     })
 }
 fn callback(state: &RefCell<Foreign>) -> CallbackMeasurer {
-    CallbackMeasurer::new(foreign, std::ptr::from_ref(state).cast_mut().cast())
+    CallbackMeasurer::new(foreign, std::ptr::from_ref(state).cast_mut().cast(), None)
 }
 fn fixture(text: &str) -> Kernel {
     let mut k = Kernel::new(Box::new(MonospaceMeasurer::default()));
@@ -515,7 +515,7 @@ fn exclusions_cross_the_c_callback_and_bypass_identified_memo() {
     let k = fixture("source");
     let runs = [run("source")];
 
-    let mut callback = CallbackMeasurer::new(measured, std::ptr::null_mut());
+    let mut callback = CallbackMeasurer::new(measured, std::ptr::null_mut(), None);
     for x in [10., 20., 30.] {
         let shapes = [exact_kernel::FlowShape::Polygon(
             vec![(x, 0.), (100., 0.), (50., 80.)].into(),

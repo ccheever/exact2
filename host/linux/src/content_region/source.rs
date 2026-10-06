@@ -138,7 +138,11 @@ impl Capture<'_> {
                 link,
             });
             self.palette.push(RunPaint {
-                color: rgba(node.text_color().resolve(self.dark)),
+                color: if crate::paint::paints(self.kernel, node.id, None) {
+                    rgba(node.text_color().resolve(self.dark))
+                } else {
+                    [0, 0, 0, 0]
+                },
                 source: node.id,
             });
             self.colors.push(node.text_color());

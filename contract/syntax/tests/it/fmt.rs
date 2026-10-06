@@ -220,12 +220,12 @@ fn an_empty_list_is_spelled_without_a_space() {
         let file = contract_syntax::parse(src).unwrap();
         let c = &file.components[0];
         (
-            matches!(c.states[1].expr, contract_syntax::Expr::EmptyList(_)),
+            matches!(&c.states[1].expr, contract_syntax::Expr::List(items, _) if items.is_empty()),
             matches!(
                 &c.derives[0].expr,
                 contract_syntax::Expr::Ternary(_, a, b, _)
-                    if matches!(**a, contract_syntax::Expr::EmptyList(_))
-                        && matches!(**b, contract_syntax::Expr::EmptyList(_))
+                    if matches!(&**a, contract_syntax::Expr::List(items, _) if items.is_empty())
+                        && matches!(&**b, contract_syntax::Expr::List(items, _) if items.is_empty())
             ),
         )
     };

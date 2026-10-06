@@ -3,6 +3,9 @@ use super::*;
 use crate::presenter::PainterChoice;
 use exact_runner::{DataError, Value};
 
+// The clipboard, keys, modifiers and mouse contacts.
+mod input;
+
 #[derive(Default)]
 struct NoData;
 impl DataSource for NoData {
@@ -147,6 +150,71 @@ fn tree_answers_its_target() {
     ] {
         assert!(handle(&mut p, refused).contains("\"error\""), "{refused}");
     }
+}
+
+/// #134: a password field's value is never agent output — the `type`
+/// reply and the tree show a fixed mark, whatever its length, for a bound
+/// field and for typed text no binding replaced; the app's state keeps it.
+#[test]
+fn a_password_value_is_masked_in_every_reply() {
+    let plan = contract::compile(
+        "component App\n  state secret = \"\"\n  action onInput(v: string)\n    secret = v\n  view\n    column width=300\n      input type=\"password\" value=secret input=onInput testId=\"bound\" height=24\n      input type=\"password\" testId=\"loose\" height=24\n      input type=\"password\" testId=\"empty\" height=24\n",
+    )
+    .unwrap();
+    let bytes = contract::bake(plan, NoData).unwrap().encode();
+    let (mut p, _) = Presenter::boot_with(
+        &bytes,
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let tree: serde_json::Value =
+        serde_json::from_str(&handle(&mut p, r#"{"op":"tree"}"#)).unwrap();
+    let id = |name: &str| {
+        tree["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["props"]["testId"] == name)
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap()
+    };
+    let (bound, loose, empty) = (id("bound"), id("loose"), id("empty"));
+    for field in [bound, loose] {
+        let reply = handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{field},"text":"hunter2"}}"#),
+        );
+        assert!(reply.contains(r#""value":"•••""#), "{reply}");
+    }
+    let tree = handle(&mut p, r#"{"op":"tree"}"#);
+    assert!(!tree.contains("hunter2"), "{tree}");
+    let value = |id: u64| -> serde_json::Value {
+        let tree: serde_json::Value = serde_json::from_str(&tree).unwrap();
+        tree["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == id)
+            .unwrap()["props"]["value"]
+            .clone()
+    };
+    assert_eq!(value(bound), "•••");
+    assert_eq!(value(loose), "•••");
+    // An empty field shows that it is empty.
+    assert!(value(empty).is_null() || value(empty) == "", "{tree}");
+    // `layout <field>`'s runner half too.
+    let node = handle(&mut p, &format!(r#"{{"op":"node","id":{bound}}}"#));
+    assert!(
+        node.contains(r#""value":"•••""#) && !node.contains("hunter2"),
+        "{node}"
+    );
+    let state = handle(&mut p, r#"{"op":"state"}"#);
+    assert!(state.contains(r#""secret":"hunter2""#), "{state}");
 }
 
 /// LLP 1061 D5: `prefer` sets what `exactViewport()` answers and the
@@ -646,9 +714,30 @@ fn resize_input_uses_presenter_and_paints_before_ack() {
     }
 }
 
+/// The driver's `close` (the window's close button, `beforeunload`): the
+/// Linux presenter closes no window, and says so rather than doing nothing.
+#[test]
+fn close_is_refused_by_name() {
+    let plan = contract::compile("component App\n  view\n    text \"a\"\n").unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (390.0, 844.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let reply = handle(&mut p, r#"{"op":"tap","close":true}"#);
+    assert!(
+        reply.contains("unsupported: the Linux presenter closes no window"),
+        "{reply}"
+    );
+}
+
 #[test]
 fn a_hover_never_presses_and_a_key_is_never_text() {
-    let plan = contract::compile("component App\n  state hot = false\n  state presses = 0\n  state text = \"kept\"\n  state lastKey = \"\"\n  action hovered(value)\n    hot = value\n  action pressed\n    presses = presses + 1\n  action edit(value)\n    text = value\n  action keyed(value)\n    lastKey = value\n  view\n    column width=300 height=300\n      box hover=hovered press=pressed testId=\"hot\" width=200 height=60\n      box testId=\"away\" width=200 height=60\n      input value=text change=edit key=keyed testId=\"field\" height=32\n      text `${hot} ${presses} ${text} ${lastKey}` testId=\"log\" height=20\n").unwrap();
+    let plan = contract::compile("component App\n  state hot = false\n  state presses = 0\n  state text = \"kept\"\n  state lastKey = \"\"\n  action hovered(value)\n    hot = value\n  action pressed\n    presses = presses + 1\n  action edit(value)\n    text = value\n  action keyed(value)\n    lastKey = value\n  view\n    column width=300 height=300\n      box hover=hovered press=pressed testId=\"hot\" width=200 height=60\n      box testId=\"away\" width=200 height=60\n      input value=text input=edit key=keyed testId=\"field\" height=32\n      text `${hot} ${presses} ${text} ${lastKey}` testId=\"log\" height=20\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
         NoData,
@@ -694,11 +783,48 @@ fn a_hover_never_presses_and_a_key_is_never_text() {
     );
 }
 
+/// #139: the pointer rests while a timer removes the row above the hovered
+/// one; the next frame's hover follows the layout, as the web's does —
+/// `hover` out of the row that slid away, into the one that slid under it.
+#[test]
+fn a_resting_pointer_hovers_what_the_layout_moves_under_it() {
+    let plan = contract::compile("component App\n  state rows = [\"a\", \"b\", \"c\"]\n  state hovered = \"\"\n  state armed = false\n  task drop when armed\n    after(3000, removeFirst)\n  action hov(id: string, on: bool)\n    hovered = on ? id : (hovered == id ? \"\" : hovered)\n  action arm\n    armed = true\n  action removeFirst\n    rows = slice(rows, 1)\n    armed = false\n  view\n    column width=300 height=300\n      text `${hovered}` testId=\"log\" height=20\n      each r in rows key=r\n        box hover=hov(r) press=arm testId=`row-${r}` width=200 height=60\n").unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let id = |p: &Presenter<NoData>, test_id: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+    };
+    let log = |p: &Presenter<NoData>| {
+        let k = p.host().kernel();
+        let node = k.node_by_key(k.find_by_test_id("log")[0]).unwrap();
+        node.props
+            .str(exact_kernel::PropId::Text)
+            .unwrap()
+            .to_string()
+    };
+    let b = id(&p, "row-b");
+    handle(&mut p, &format!(r#"{{"op":"tap","id":{b}}}"#));
+    handle(&mut p, &format!(r#"{{"op":"tap","id":{b},"hover":true}}"#));
+    assert_eq!(log(&p), "b");
+    // The clock's commit removes row a; the frame after it is hit-tested.
+    handle(&mut p, r#"{"op":"clock","to":3100}"#);
+    assert_eq!(log(&p), "c", "row c slid under the resting pointer");
+}
+
 #[test]
 fn a_target_out_of_view_is_revealed_and_a_control_takes_a_value() {
     // ledger F7, shop F11: a scroller's row and a row below the fold
     // scroll into view; kanban F17: a checkbox and a select by label.
-    let plan = contract::compile("component App\n  state on = false\n  state pick = \"a\"\n  action set(value: bool)\n    on = value\n  action choose(value: string)\n    pick = value\n  view\n    column width=300\n      input type=\"checkbox\" checked=on change=set testId=\"agree\"\n      select value=pick change=choose testId=\"pick\"\n        option \"Alpha\" value=\"a\"\n        option \"Beta\" value=\"b\"\n      text `${on} ${pick}` testId=\"log\" height=20\n      scroll testId=\"inner\" height=100\n        box height=400\n        box testId=\"deep\" width=50 height=20\n      box testId=\"auto\" height=100 overflow-y=\"auto\"\n        box height=400\n        box testId=\"autodeep\" width=50 height=20\n      box height=900\n      box testId=\"far\" width=50 height=20\n").unwrap();
+    let plan = contract::compile("component App\n  state on = false\n  state pick = \"a\"\n  state due = \"\"\n  state noted = \"\"\n  action set(value: bool)\n    on = value\n  action choose(value: string)\n    pick = value\n  action note(value: string)\n    noted = value\n  action level(value: number)\n    noted = `${value}`\n  view\n    column width=300\n      input type=\"date\" value=due change=note testId=\"due\"\n      input type=\"range\" value=10 change=level testId=\"level\"\n      input type=\"checkbox\" checked=on change=set testId=\"agree\"\n      select value=pick change=choose testId=\"pick\"\n        option \"Alpha\" value=\"a\"\n        option \"Beta\" value=\"b\"\n      text `${on} ${pick}` testId=\"log\" height=20\n      scroll testId=\"inner\" height=100\n        box height=400\n        box testId=\"deep\" width=50 height=20\n      box testId=\"auto\" height=100 overflow-y=\"auto\"\n        box height=400\n        box testId=\"autodeep\" width=50 height=20\n      box height=900\n      box testId=\"far\" width=50 height=20\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
         NoData,
@@ -754,6 +880,24 @@ fn a_target_out_of_view_is_revealed_and_a_control_takes_a_value() {
         &format!(r#"{{"op":"type","id":{agree},"text":"yes"}}"#),
     );
     assert!(reply.contains("takes true or false"), "{reply}");
+    // A date keeps the choice while its bound value is unchanged, as the
+    // web build's input does (kanban2 #5: an action that only sent).
+    let due = id(&p, "due");
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{due},"text":"2026-06-01"}}"#),
+    );
+    assert!(reply.contains("\"value\":\"2026-06-01\""), "{reply}");
+    assert_eq!(p.chosen.get(&due), Some(&("2026-06-01".into(), "".into())));
+    // So does a range (LLP 1069.001 D4, amended 2026-10-04): its action
+    // wrote something else, and the thumb stays at 70, not 10.
+    let level = id(&p, "level");
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{level},"text":"70"}}"#),
+    );
+    assert!(reply.contains("\"value\":\"70\""), "{reply}");
+    assert_eq!(p.chosen.get(&level), Some(&("70".into(), "10".into())));
     for target in [deep, autodeep, far] {
         let reply = handle(&mut p, &format!(r#"{{"op":"reveal","id":{target}}}"#));
         assert!(reply.contains("\"scrolled\":true"), "{reply}");
@@ -844,86 +988,15 @@ fn land_runs_an_answers_then_and_no_timer() {
 
 /// Spreadsheet F6: `type <id> paste|copy|cut` delivers the clipboard's
 /// event at the target, the nearest node with a handler hearing it.
-#[test]
-fn the_clipboard_events_reach_the_nearest_handler() {
-    let plan = contract::compile("component App\n  state log = \"\"\n  action pasted(at: string, e: ClipboardEvent)\n    log = `${log}${at}:${e.text};`\n  action copied\n    log = `${log}copy;`\n  action seen\n    log = log\n  view\n    column width=300 paste=pasted(\"grid\") copy=copied testId=\"grid\"\n      box testId=\"cell\" width=50 height=20 focus=seen\n      text log testId=\"log\" height=20\n").unwrap();
-    let (mut p, boot_error) = Presenter::boot_with(
-        &plan.encode(),
-        NoData,
-        (300.0, 300.0),
-        1.0,
-        std::path::PathBuf::new(),
-        PainterChoice::Cpu,
-    )
-    .unwrap();
-    assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
-        let k = p.host().kernel();
-        k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
-    };
-    let (cell, log) = (id(&p, "cell"), id(&p, "log"));
-    let reply = handle(
-        &mut p,
-        &format!(r#"{{"op":"type","id":{cell},"clipboard":"paste","text":"a\tb"}}"#),
-    );
-    assert!(reply.contains("\"clipboard\":\"paste\""), "{reply}");
-    handle(
-        &mut p,
-        &format!(r#"{{"op":"type","id":{cell},"clipboard":"copy"}}"#),
-    );
-    let k = p.host().kernel();
-    assert_eq!(
-        k.node(log).unwrap().props.str(exact_kernel::PropId::Text),
-        Some("grid:a\tb;copy;")
-    );
-    let reply = handle(
-        &mut p,
-        &format!(r#"{{"op":"type","id":{log},"clipboard":"cut"}}"#),
-    );
-    assert!(reply.contains("no cut handler"), "{reply}");
-}
-
-/// Gallery F20: `tap <id> modifiers Shift+Meta` presses with the keys held,
-/// which the action's `MouseEvent` reports; the keys are released after.
-#[test]
-fn a_tap_holds_its_modifiers_for_the_press() {
-    let plan = contract::compile("component App\n  state log = \"\"\n  action pick(e: MouseEvent)\n    log = `${log}${e.shiftKey}${e.metaKey}${e.altKey};`\n  view\n    column width=300\n      button press=pick testId=\"b\" width=50 height=20\n      text log testId=\"log\" height=20\n").unwrap();
-    let (mut p, boot_error) = Presenter::boot_with(
-        &plan.encode(),
-        NoData,
-        (300.0, 300.0),
-        1.0,
-        std::path::PathBuf::new(),
-        PainterChoice::Cpu,
-    )
-    .unwrap();
-    assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
-        let k = p.host().kernel();
-        k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
-    };
-    let (b, log) = (id(&p, "b"), id(&p, "log"));
-    handle(
-        &mut p,
-        &format!(r#"{{"op":"tap","id":{b},"modifiers":"Shift+Meta"}}"#),
-    );
-    handle(&mut p, &format!(r#"{{"op":"tap","id":{b}}}"#));
-    let k = p.host().kernel();
-    assert_eq!(
-        k.node(log).unwrap().props.str(exact_kernel::PropId::Text),
-        Some("truetruefalse;falsefalsefalse;")
-    );
-    let reply = handle(
-        &mut p,
-        &format!(r#"{{"op":"tap","id":{b},"modifiers":"Hyper"}}"#),
-    );
-    assert!(reply.contains("error"), "{reply}");
-}
-
-/// A request that answers long after the drive moves on.
+/// Answers `save()` at once with 1 and leaves two storage operations to
+/// the background (LLP 1097 D5), each round 30 ms on the I/O worker.
 #[derive(Default)]
-struct Stalled;
-impl DataSource for Stalled {
+struct Saving {
+    left: u64,
+    out: bool,
+    done: u64,
+}
+impl DataSource for Saving {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
         Err(DataError::UnknownSource(source.into()))
     }
@@ -933,32 +1006,57 @@ impl DataSource for Stalled {
         _: &str,
         _: &[Value],
     ) -> Result<exact_runner::Answer, DataError> {
-        Ok(exact_runner::Answer::Later(
-            exact_runner::Request::continuation(1),
+        self.left += 2;
+        Ok(exact_runner::Answer::Now(Value::Number(1.0)))
+    }
+    fn dispatch(&mut self, token: u64, _: &exact_runner::Store) -> exact_runner::Dispatch {
+        assert_eq!(token, exact_runner::BACKGROUND);
+        exact_runner::Dispatch::Run(exact_runner::Work::Now(Box::new(|| {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            exact_runner::Outcome::Storage(Vec::new())
+        })))
+    }
+    fn background(&mut self, _: &exact_runner::Store) -> Option<exact_runner::Request> {
+        if self.out || self.left == 0 {
+            return None;
+        }
+        self.out = true;
+        Some(exact_runner::Request::continuation(
+            exact_runner::BACKGROUND,
         ))
     }
-    fn dispatch(&mut self, _: u64, _: &exact_runner::Store) -> exact_runner::Dispatch {
-        exact_runner::Dispatch::Run(exact_runner::Work::Later(Box::new(|reply| {
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(30));
-                reply.send(exact_runner::Outcome::Storage(b"1".to_vec()));
-            });
-        })))
+    fn background_landed(
+        &mut self,
+        _: &exact_runner::Store,
+        _: exact_runner::Outcome,
+    ) -> Result<Option<exact_runner::Request>, DataError> {
+        self.out = false;
+        self.left -= 1;
+        self.done += 1;
+        Ok(None)
+    }
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        Some(exact_runner::BackgroundState {
+            queued: self.left.saturating_sub(1),
+            in_flight: self.left.min(1),
+            done: self.done,
+            ..Default::default()
+        })
     }
 }
 
-/// A jump waits for no request with no timer due before it, and its reply
-/// names what it left in flight, as the web hosts' do (calendar F10, workout
-/// F6); `clock settle` waits for it and says `requests` past its bound.
+/// LLP 1097 D9: `clock +N` does not wait for background storage and says
+/// how much is left beside `inflight`, a number; `clock settle` waits for
+/// it, and `state.background` counts what landed.
 #[test]
-fn a_jump_names_the_requests_it_left_in_flight() {
+fn clock_settle_waits_for_background_storage_and_a_jump_names_it() {
     let plan = contract::compile(
-        "component App\n  resource item = item() as shape number\n  view\n    text `${item}` testId=\"log\"\n",
+        "component App\n  resource item = save() as shape number else save()\n  view\n    text toString(item) testId=\"item\" height=20\n",
     )
     .unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        Stalled,
+        Saving::default(),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -967,50 +1065,36 @@ fn a_jump_names_the_requests_it_left_in_flight() {
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
     let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
-    let reply = json(handle(&mut p, r#"{"op":"clock","to":100}"#));
-    assert_eq!(reply["clock"], 100, "{reply}");
-    assert_eq!(reply["inflight"], 1, "{reply}");
-    let reply = json(clock_within(
-        &mut p,
-        r#"{"op":"clock","settle":true}"#,
-        std::time::Duration::from_millis(100),
-    ));
-    assert_eq!(reply["settled"], false, "{reply}");
-    assert_eq!(reply["reason"], "requests", "{reply}");
+    let jump = json(handle(&mut p, r#"{"op":"clock","to":10}"#));
+    assert!(jump["inflight"].is_u64(), "{jump}");
+    assert!(jump["background"].as_u64().is_some_and(|n| n > 0), "{jump}");
+    let settled = json(handle(&mut p, r#"{"op":"clock","settle":true}"#));
+    assert_eq!(settled["settled"], true, "{settled}");
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert_eq!(state["background"]["done"], 4, "{state}");
+    assert_eq!(state["background"]["inFlight"], 0, "{state}");
+    assert_eq!(state["pending"], serde_json::json!([]), "{state}");
 }
 
-/// Review A1: a drag's contact with `mouse` holds the left button through its
-/// phases. Every phase says `mouse`, which a contact takes (a click's `mouse`
-/// form stays the click's), and the box hears the press and the release.
+/// LLP 1097 D10: an orderly exit pumps the module's storage to its end
+/// first, within its bound.
 #[test]
-fn a_mouse_contact_goes_down_holds_and_lifts() {
-    let plan = contract::compile("component App\n  state log = \"\"\n  action at(kind: string, e: PointerEvent)\n    log = `${log}${kind}:${e.pointerType};`\n  view\n    column width=300\n      box testId=\"pad\" width=200 height=100 touch-action=\"none\" pointerdown=at(\"down\") pointerup=at(\"up\")\n      text log testId=\"log\" height=20\n").unwrap();
-    let (mut p, boot_error) = Presenter::boot_with(
+fn an_orderly_exit_finishes_background_storage() {
+    let plan = contract::compile(
+        "component App\n  resource item = save() as shape number else save()\n  view\n    text toString(item) testId=\"item\" height=20\n",
+    )
+    .unwrap();
+    let (mut p, _) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        Saving::default(),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
         PainterChoice::Cpu,
     )
     .unwrap();
-    assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
-        let k = p.host().kernel();
-        k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
-    };
-    let (pad, log) = (id(&p, "pad"), id(&p, "log"));
-    for line in [
-        format!(r#"{{"op":"tap","phase":"down","id":{pad},"x":20,"y":20,"mouse":true}}"#),
-        r#"{"op":"tap","phase":"hold","ms":32,"mouse":true}"#.to_string(),
-        r#"{"op":"tap","phase":"up","mouse":true}"#.to_string(),
-    ] {
-        let reply = handle(&mut p, &line);
-        assert!(!reply.contains("\"error\""), "{line}: {reply}");
-    }
-    let k = p.host().kernel();
-    assert_eq!(
-        k.node(log).unwrap().props.str(exact_kernel::PropId::Text),
-        Some("down:mouse;up:mouse;")
-    );
+    assert!(p.host().runner().background_operations() > 0);
+    crate::teardown::finish(&mut p, crate::teardown::EXIT_BOUND);
+    assert_eq!(p.host().runner().background_operations(), 0);
+    assert!(!p.host().runner().has_pending());
 }

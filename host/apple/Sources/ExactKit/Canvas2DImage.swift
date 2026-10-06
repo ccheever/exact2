@@ -48,10 +48,7 @@ extension Canvas2DReplayer {
             bytes[i * 4] = UInt8(v >> 24); bytes[i * 4 + 1] = UInt8((v >> 16) & 0xff)
             bytes[i * 4 + 2] = UInt8((v >> 8) & 0xff); bytes[i * 4 + 3] = UInt8(v & 0xff)
         }
-        guard let provider = CGDataProvider(data: Data(bytes) as CFData),
-              let image = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4, space: canvas2DSRGB,
-                                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: provider,
-                                  decode: nil, shouldInterpolate: false, intent: .defaultIntent) else { return }
+        guard let image = space.image(bytes, width: w, height: h) else { return }
         c.saveGState()
         c.resetClip()
         c.concatenate(c.ctm.inverted())
@@ -234,6 +231,7 @@ final class Canvas2DHost: Canvas2DEnv {
         // The draw asked for the next frame: it animates.
         job.animating = (payload["animating"] as? NSNumber)?.boolValue == true || Canvas2DHost.recordAlways
         job.stretch = (payload["stretch"] as? NSNumber)?.boolValue == true
+        job.space = Canvas2DSpace(p3: (payload["p3"] as? NSNumber)?.boolValue == true, float16: (payload["float16"] as? NSNumber)?.boolValue == true)
         lock.lock()
         let joined = waiting[id]?.absorb(job) ?? false
         if !joined { waiting[id] = job }
@@ -263,6 +261,7 @@ final class Canvas2DHost: Canvas2DEnv {
         if job.fresh {
             replayers[id] = nil
             let t = Canvas2DReplayer(trackingWidth: job.w, height: job.h, scale: job.scale, lifetime: job.lifetime, generation: job.generation)
+            t.space = job.space
             kept[id] = Canvas2DKept(t)
         }
         guard let k = kept[id], k.tracker.lifetime == job.lifetime, k.tracker.generation == job.generation else {
@@ -282,8 +281,10 @@ final class Canvas2DHost: Canvas2DEnv {
         if job.fresh { gpus[id] = nil; undrawn.insert(id) }
         if undrawn.contains(id), !lists.isEmpty {
             undrawn.remove(id)
-            if Canvas2DGpuModule.mode == .always || job.animating, let m = Canvas2DGpuModule.shared,
-               let g = Canvas2DGpuCanvas(module: m, width: job.w, height: job.h, scale: job.scale, lifetime: job.lifetime, generation: job.generation) {
+            // The module's surfaces are 8-bit: a `float16` canvas stays with Core Graphics.
+            if Canvas2DGpuModule.mode == .always || job.animating, !job.space.float16, let m = Canvas2DGpuModule.shared,
+               let g = Canvas2DGpuCanvas(module: m, width: job.w, height: job.h, scale: job.scale, lifetime: job.lifetime, generation: job.generation,
+                                         p3: job.space.p3) {
                 gpus[id] = g
                 replayers[id] = nil
             }
@@ -311,12 +312,12 @@ final class Canvas2DHost: Canvas2DEnv {
         // The policy (LLP 1056 §8.4): recorded while it animates, from a
         // cover, drawing nothing a recording draws differently, within the
         // bound, at the display's own scale.
-        let record = job.animating && !job.stretch && k.start != nil && !k.refused && k.bounded && job.w > 0 && job.h > 0
+        let record = job.animating && !job.stretch && !job.space.float16 && k.start != nil && !k.refused && k.bounded && job.w > 0 && job.h > 0
         var contents: Any?, recording: Canvas2DRecordLayer.Frame?
         if record, let start = k.start {
             replayers[id] = nil
             k.recording = true
-            recording = .init(lists: k.lists, start: start, env: env, width: job.w, height: job.h, scale: job.scale)
+            recording = .init(lists: k.lists, start: start, env: env, width: job.w, height: job.h, scale: job.scale, space: job.space)
         } else {
             let r: Canvas2DReplayer
             if let existing = replayers[id], !k.recording {
@@ -326,7 +327,7 @@ final class Canvas2DHost: Canvas2DEnv {
             } else {
                 // A new bitmap: from the kept lists when it was recorded (or
                 // it is fresh), which carry every list since their start.
-                r = Canvas2DReplayer(width: job.w, height: job.h, scale: job.scale, lifetime: job.lifetime, generation: job.generation)
+                r = Canvas2DReplayer(width: job.w, height: job.h, scale: job.scale, lifetime: job.lifetime, generation: job.generation, space: job.space)
                 r.env = env
                 if let start = k.start {
                     r.restore(start)
@@ -409,6 +410,7 @@ private final class Canvas2DJob {
     var animating = false
     /// An explicit bitmap, stretched to the box.
     var stretch = false
+    var space = Canvas2DSpace.srgb8
     init(fresh: Bool, w: Int, h: Int, scale: Double, lifetime: UInt64, generation: UInt32, lists: [Data?],
          images: [String: CGImage], fonts: [Canvas2DFont: CTFont], seq: Int) {
         self.fresh = fresh; self.w = w; self.h = h; self.scale = scale; self.lifetime = lifetime
@@ -429,6 +431,7 @@ private final class Canvas2DJob {
         seq = later.seq
         animating = later.animating
         stretch = later.stretch
+        space = later.space
         return true
     }
 }

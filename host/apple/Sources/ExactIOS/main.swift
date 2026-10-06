@@ -126,6 +126,10 @@ func agentReady() {
 let launchColor = UIColor(named: "ExactLaunch") ?? .white
 
 final class Controller: UIViewController {
+    #if os(tvOS)
+    // The session's view decides where focus returns (`ExactView`).
+    override var preferredFocusEnvironments: [any UIFocusEnvironment] { [exactView] }
+    #endif
     // tvOS has no pointer lock.
     #if !os(tvOS)
     override var prefersPointerLocked: Bool { ExactPointerLock.preferred }
@@ -255,6 +259,13 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneDidBecomeActive(_ scene: UIScene) {
         ExactIOS.session.becameActive()
     }
+    /// Leaving with storage still landing that an answer started: a
+    /// background task holds the app until it lands, or the system's time
+    /// runs out (LLP 1097 D10).
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        storageHold = StorageHold.backgroundTask { ExactIOS.session.storageOperations > 0 }
+    }
+    var storageHold: StorageHold?
 }
 
 ExactEnv.stamp("main")

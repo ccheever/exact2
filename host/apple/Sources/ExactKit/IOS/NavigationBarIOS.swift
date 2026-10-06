@@ -161,7 +161,12 @@ struct BadgeFace: Equatable {
         light = colours(false); dark = colours(true)
         corners = box.cornerSizes(in: CGRect(x: 0, y: 0, width: size, height: size))
     }
-    var source: String { "\(text)|\(symbol ?? "")|\(light)|\(dark)|\(corners)|\(size)" }
+    // Joined by hand: interpolating an array goes through reflection, and
+    // every batch builds each route's source.
+    var source: String {
+        let rgba = { (c: [[Double]]) in c.map { $0.map { String($0) }.joined(separator: ",") }.joined(separator: ";") }
+        return "\(text)|\(symbol ?? "")|\(rgba(light))|\(rgba(dark))|\(corners.map { "\($0.width)x\($0.height)" }.joined(separator: ","))|\(size)"
+    }
 
     var image: UIImage {
         let light = draw(self.light).withRenderingMode(.alwaysOriginal)
@@ -202,6 +207,10 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
     }
 
     func navigationController(_ nav: UINavigationController, didShow controller: UIViewController, animated: Bool) {
+        // Restoring a hidden bar changes the route's safe area. Lay out its
+        // container before reporting that cover to the kernel.
+        nav.view.setNeedsLayout()
+        nav.view.layoutIfNeeded()
         host?.navigationController(nav, didShow: controller, animated: animated)
         app?.navigationController?(nav, didShow: controller, animated: animated)
     }
@@ -252,11 +261,29 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
 /// controller rather than in it.
 final class TitleSegments: NSObject {
     let control = UISegmentedControl()
+    /// What it was last sized for: its titles and the traits that size text.
+    private(set) var sized: (titles: [String], traits: [AnyHashable])?
     let press: SegmentPress
     init(host: NavigationHost) {
         press = SegmentPress(host: host)
         super.init()
         control.addTarget(press, action: #selector(SegmentPress.changed(_:)), for: .valueChanged)
+        // Sized again when text size or weight changes, no batch needed.
+        MainActor.assumeIsolated {
+            control.registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self]) { [weak self] (_: UISegmentedControl, _: UITraitCollection) in
+                if let titles = self?.sized?.titles { self?.fit(titles) }
+            }
+        }
+    }
+    /// Sized for `titles` unless it already is: sizing lays it out, and
+    /// every batch projects every tab's routes.
+    func fit(_ titles: [String]) {
+        let t = control.traitCollection
+        let traits: [AnyHashable] = [t.preferredContentSizeCategory, t.legibilityWeight.rawValue]
+        guard sized?.titles != titles || sized?.traits != traits else { return }
+        sized = (titles, traits)
+        control.sizeToFit()
+        control.frame.size.width = max(control.frame.width, CGFloat(titles.count) * 90)
     }
 }
 private var titleSegmentsKey: UInt8 = 0
@@ -305,9 +332,35 @@ final class NavigationStack {
 
 extension NavigationHost {
     /// Whether a stack's bar shows: the stack's choice, except under the
-    /// agent, where the authored header paints (LLP 1075.003 §3.4).
+    /// agent's own chrome, where the authored header paints (LLP 1075.003
+    /// §3.4).
     func barShows(_ nav: UINavigationController) -> Bool {
-        !ExactEnv.agentMode && stacks[ObjectIdentifier(nav)]?.showsBar == true
+        !ExactEnv.authoredChrome && stacks[ObjectIdentifier(nav)]?.showsBar == true
+    }
+
+    /// The agent's tap on an authored control a native bar stands for, under
+    /// `--chrome platform`: a tab the tab bar shows, or a control in the
+    /// header a shown bar replaces (its items, its back button). Pressed as
+    /// its item presses it (host activation: the agent names the node, UIKit
+    /// owns its pixels); nil when no bar shows `node`.
+    func activateChrome(_ node: NodeView) -> [String: Any]? {
+        guard !ExactEnv.authoredChrome else { return nil }
+        let id = Int(node.id)
+        if tabBarShows, let root = container, let tabs = NavigationTabs.of(root, presenter), tabs.tabs.contains(where: { $0 === node }) {
+            guard !node.disabled else { return ["error": "tab #\(id) is disabled"] }
+            presenter.press(node.id)
+            return ["tapped": id, "pressed": id, "delivery": "host-activation", "native": "tab-bar-item"]
+        }
+        let shown = controllers.values.filter { c in
+            guard let nav = c.navigationController, nav.topViewController === c, barShows(nav) else { return false }
+            return c.viewIfLoaded?.window != nil
+        }
+        guard shown.contains(where: { c in
+            c.barPresses.contains { $0.id == node.id } || c.lifted.map { node === $0 || node.isDescendant(of: $0) } == true
+        }) else { return nil }
+        guard node.handlers.contains("press"), !node.disabled else { return ["error": "bar item #\(id) is disabled or presses nothing"] }
+        presenter.press(node.id)
+        return ["tapped": id, "pressed": id, "delivery": "host-activation", "native": "bar-button-item"]
     }
 
     /// A navigation controller for a stack whose first route is `first`:
@@ -360,6 +413,9 @@ extension NavigationHost {
     /// the stack out (LLP 1075.003 §3.2, §3.5 "projected defaults").
     func prepareRoutes(_ routes: [RouteController], in nav: UINavigationController) {
         hookNavigation(nav)
+        #if os(iOS)
+        presenter.menus.focus.watch(nav.navigationBar) // a bar item's menu (MenuFocusIOS), every stack, rebuilt or not
+        #endif
         projectBack(routes, in: nav)
         followTablist(routes, in: nav)
         for (index, c) in routes.enumerated() {
@@ -370,7 +426,7 @@ extension NavigationHost {
             let canGoBack = index > 0 && canInvokeBack
             let scroll = contentScroll(of: c)
             let dataset = c.node.props["dataset"]
-            let source = "\(shape.map { "\($0.header.id)|\($0.title)|\($0.level)|\($0.leading.map(\.source))|\($0.trailing.map(\.source))|\($0.group?.source ?? "")" } ?? "-")|\(canGoBack)"
+            let source = "\(shape.map { "\($0.header.id)|\($0.title)|\($0.level)|\($0.leading.map(\.source).joined(separator: "\u{1F}"))|\($0.trailing.map(\.source).joined(separator: "\u{1F}"))|\($0.group?.source ?? "")" } ?? "-")|\(canGoBack)"
             // The hook runs again after anything Exact wrote to the item (the
             // Back control the route above gives it, too) and when the route
             // moves to another stack (a root whose tabs changed).
@@ -449,8 +505,7 @@ extension NavigationHost {
         let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? UISegmentedControl.noSegment
         if control.selectedSegmentIndex != selected { control.selectedSegmentIndex = selected }
         control.accessibilityIdentifier = list?.props["testId"]
-        control.sizeToFit()
-        control.frame.size.width = max(control.frame.width, CGFloat(titles.count) * 90)
+        segments.fit(titles)
         if c.navigationItem.titleView !== control { c.navigationItem.titleView = control }
     }
 
@@ -640,7 +695,7 @@ extension NavigationHost {
     /// Whether a native container shows its bars, so the session's view
     /// takes the whole of its own (ExactViewIOS `fit`).
     var wantsWholeView: Bool {
-        (tabOwner != nil && !ExactEnv.agentMode) || allNavigations.contains(where: barShows)
+        (tabOwner != nil && !ExactEnv.authoredChrome) || allNavigations.contains(where: barShows)
     }
 
     /// What Exact's containers cover of each route — its controller's safe
@@ -694,7 +749,7 @@ extension NavigationHost {
             if edges != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[c.node.id] = .edges(edges) }
         }
         // The tablist whose place the tab bar takes takes no room.
-        if let list = adoptedTablist, tabOwner != nil, !ExactEnv.agentMode { wanted[list] = .whole }
+        if let list = adoptedTablist, tabOwner != nil, !ExactEnv.authoredChrome { wanted[list] = .whole }
         for (id, cover) in wanted where covers[id] != cover { changes.append((id, cover)) }
         for id in covers.keys where wanted[id] == nil && presenter.views[id] != nil { changes.append((id, nil)) }
         covers = wanted

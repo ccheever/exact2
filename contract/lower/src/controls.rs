@@ -94,7 +94,7 @@ pub(crate) fn control(
     if tag == "select" {
         if let Some(a) = attrs
             .iter()
-            .find(|a| matches!(a.name.as_str(), "type" | "checked"))
+            .find(|a| matches!(a.name.as_str(), "type" | "checked" | "name"))
         {
             return err(
                 "lower-attr-tag",
@@ -108,10 +108,21 @@ pub(crate) fn control(
         return Ok(Some("select"));
     }
     if tag != "input" {
-        if let Some(a) = attrs.iter().find(|a| a.name == "checked") {
+        if let Some(a) = attrs
+            .iter()
+            .find(|a| matches!(a.name.as_str(), "checked" | "name"))
+        {
             return err(
                 "lower-attr-tag",
-                format!("`checked` belongs to `input type=\"checkbox\"`, not `{tag}`"),
+                format!(
+                    "`{}` belongs to `input type=\"{}\"`, not `{tag}`",
+                    a.name,
+                    if a.name == "name" {
+                        "radio"
+                    } else {
+                        "checkbox"
+                    }
+                ),
                 a.span,
             );
         }
@@ -136,11 +147,20 @@ pub(crate) fn control(
         }
     }
     let control = contract_syntax::input_control(tag, attrs);
-    if control != Some("checkbox") {
+    if !matches!(control, Some("checkbox" | "radio")) {
         if let Some(a) = attrs.iter().find(|a| a.name == "checked") {
             return err(
                 "lower-attr-tag",
-                "`checked` belongs to `input type=\"checkbox\"`; a text field's is `value`",
+                "`checked` belongs to `input type=\"checkbox\"` and `\"radio\"`; a text field's is `value`",
+                a.span,
+            );
+        }
+    }
+    if control != Some("radio") {
+        if let Some(a) = attrs.iter().find(|a| a.name == "name") {
+            return err(
+                "lower-attr-tag",
+                "`name` groups `input type=\"radio\"`s: the radios of one name are exclusive",
                 a.span,
             );
         }
@@ -262,6 +282,19 @@ pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
             fixed_props: &[(PropId::AccessibilityRole, "checkbox")],
             positional: None,
         },
+        // A radio (x2apps survey #2): the margins Chrome's UA sheet gives
+        // `input[type=radio]` (`3px 3px 0px 5px`) and ARIA's role.
+        "radio" => Tag {
+            node_type: NodeType::Control,
+            fixed_styles: &[
+                (StyleId::MarginTop, "3"),
+                (StyleId::MarginRight, "3"),
+                (StyleId::MarginBottom, "0"),
+                (StyleId::MarginLeft, "5"),
+            ],
+            fixed_props: &[(PropId::AccessibilityRole, "radio")],
+            positional: None,
+        },
         // A range: Chrome's UA margin (`2px`) and ARIA's role.
         "range" => Tag {
             node_type: NodeType::Control,
@@ -291,14 +324,26 @@ pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
 /// 1069.001 D4: the props are strings on the wire, typed per control).
 /// `None` when nothing needs rewriting.
 pub(crate) fn range_attrs(
+    tag: &str,
     control: Option<&str>,
     attrs: &[contract_syntax::Attr],
 ) -> Option<Vec<contract_syntax::Attr>> {
-    let numeric = |a: &contract_syntax::Attr| {
-        matches!(a.name.as_str(), "value" | "min" | "max" | "step")
-            && !matches!(a.value, Expr::Str(..))
+    // A number field's bounds take numbers as a range's do (LLP 1102 §3.12). Its
+    // `value` stays its text: the field edits text, and `1.` is on the way to `1.5`.
+    let number = control.is_none()
+        && tag == "input"
+        && attrs
+            .iter()
+            .any(|a| a.name == "type" && matches!(&a.value, Expr::Str(t, _) if t == "number"));
+    let names: &[&str] = match control {
+        Some("range") => &["value", "min", "max", "step"],
+        None if number => &["min", "max", "step"],
+        _ => return None,
     };
-    if control != Some("range") || !attrs.iter().any(numeric) {
+    let numeric = |a: &contract_syntax::Attr| {
+        names.contains(&a.name.as_str()) && !matches!(a.value, Expr::Str(..))
+    };
+    if !attrs.iter().any(numeric) {
         return None;
     }
     Some(
@@ -495,6 +540,7 @@ const NATIVE_ROWS: &[StyleId] = &[
     StyleId::Opacity,
     StyleId::Visibility,
     StyleId::Translate,
+    StyleId::TranslatePercent,
     StyleId::TranslateZ,
     StyleId::Scale,
     StyleId::Rotate,
@@ -652,7 +698,7 @@ impl Lowerer<'_> {
                 },
                 _ => {}
             }
-            match crate::tags::attr(name) {
+            match crate::tags::attr_valued(name, &a.value) {
                 Some(crate::tags::AttrTarget::Styles(rows)) => {
                     if rows.iter().any(|r| !NATIVE_ROWS.contains(r)) {
                         return refuse(

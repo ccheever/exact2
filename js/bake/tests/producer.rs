@@ -139,7 +139,10 @@ fn producer_bakes_the_bytecode_keeps_sources_untouched_and_refuses_bad_candidate
         Some(&Value::str("new: 1")),
         "same arguments must not reuse old logic's answer"
     );
-    assert_eq!(changed.data().take_logs(), ["message called"]);
+    assert!(changed
+        .journal()
+        .any(|line| line.ends_with("message called")));
+    assert!(changed.data().take_logs().is_empty());
     let mut same = paired(&second);
     same.module.load().unwrap();
     let mut reloaded = Runner::boot_carrying(
@@ -435,7 +438,7 @@ fn storage_types_are_checked_by_the_actual_bake_without_granting_bake_io() {
     f.write("app.ts", &source);
     let baked = f.bake();
     assert!(baked.declarations.contains(include_str!(
-        "../../../vendor/ibex2/src/bindings/storage.d.ts"
+        "../../../vendor/ibex/crates/ibex2/src/bindings/storage.d.ts"
     )));
     let candidate = paired(&baked);
     let live = Runner::boot(
@@ -458,6 +461,105 @@ fn storage_types_are_checked_by_the_actual_bake_without_granting_bake_io() {
         .err()
         .expect("wrong storage parameters must fail tsc");
     assert!(error.contains("error TS"), "{error}");
+    // A source that lets the bake's refusal (`code: 'bake'`) through is the
+    // device's to answer, as on the web build: no compiled value, the
+    // placeholder until a launch asks it (kanban2 #5: the native build
+    // stopped here).
+    f.write(
+        "app.ts",
+        &SOURCE.replace(
+            "message: ([count]) => { console.log('message called'); return prefix + count; }",
+            "message: async ([count], store, storage) => { await storage.fs.readFile(storage.fs.directories.data + '/note'); return prefix + count; }",
+        ),
+    );
+    let baked = f.bake();
+    let plan = paired(&baked).plan;
+    let row = &plan.resources[0];
+    assert!(row.initial.len == 0 && row.reader);
+}
+
+#[test]
+fn bake_defers_uncaught_storage_but_keeps_source_errors_fatal() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    let original =
+        "message: ([count]) => { console.log('message called'); return prefix + count; }";
+    let storage = "await storage.sqlite.open('app:/data/notes.db')";
+    let source = SOURCE.replace(
+        original,
+        &format!(
+            "message: async ([count], store, storage) => {{ {storage}; return prefix + count; }}"
+        ),
+    );
+    f.write("app.ts", &source);
+    let baked = f.bake();
+    let candidate = paired(&baked);
+    assert_eq!(candidate.plan.resources[0].initial.len, 0);
+    let mut live = Runner::boot(
+        candidate.plan,
+        candidate.module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("")));
+    assert!(
+        live.take_requests().is_empty(),
+        "bake deferral creates no fabricated request"
+    );
+    live.data().load().unwrap();
+    let error = live.data_ready().unwrap_err();
+    assert!(
+        format!("{error:?}").contains("Unavailable"),
+        "runtime storage refusal remains a failure: {error:?}"
+    );
+    f.write(
+        "app.contract",
+        &CONTRACT.replace("as shape string", "as shape string else fallback()"),
+    );
+    f.write(
+        "app.ts",
+        &source.replace(
+            "const sources: Sources = {",
+            "const sources: Sources = { fallback: () => 'loading',",
+        ),
+    );
+    let fallback = f.bake();
+    let candidate = paired(&fallback);
+    let live = Runner::boot(
+        candidate.plan,
+        candidate.module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("loading")));
+    f.write("app.ts", &source.replace("const sources: Sources = {", &format!("const sources: Sources = {{ fallback: async (_, store, storage) => {{ {storage}; return 'loading'; }},")));
+    let error = bake(&f.0, &Tools::default())
+        .err()
+        .expect("a storage-dependent placeholder cannot answer at bake");
+    assert!(error.contains("placeholder answers later"), "{error}");
+    f.write("app.contract", CONTRACT);
+    for body in [
+        "throw new Error('ordinary bug');".to_string(),
+        format!("try {{ {storage}; }} catch (_) {{}} throw new Error('ordinary bug');"),
+    ] {
+        f.write(
+            "app.ts",
+            &SOURCE.replace(
+                original,
+                &format!("message: async ([count], store, storage) => {{ {body} }}"),
+            ),
+        );
+        let error = bake(&f.0, &Tools::default())
+            .err()
+            .expect("ordinary source bugs must refuse baking");
+        assert!(error.contains("ordinary bug"), "{error}");
+    }
 }
 
 #[test]
@@ -935,5 +1037,64 @@ fn a_slow_first_frame_source_bakes_whatever_the_wall_clock() {
     assert!(
         live.resource("message").is_some(),
         "the slow source's first frame is baked"
+    );
+}
+
+/// The clock in the app's own code is refused at build, by file and line,
+/// in both compilers, so a Bun test (no guard there) cannot hide it from a
+/// device that refuses it on first use (LLP 1027.000).
+#[test]
+fn the_clock_in_a_data_module_is_refused_at_build_by_file_and_line() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    f.write(
+        "logic.ts",
+        "export const prefix = 'old: ';\nexport const stamp = () => Date.now();\n",
+    );
+    let error = bake(&f.0, &Tools::default())
+        .err()
+        .expect("Date.now() refused");
+    assert!(
+        error.contains("logic.ts:2:28: Date.now() is unavailable in data sources; pass time or a random seed as an argument"),
+        "{error}"
+    );
+    let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
+    assert!(producer
+        .bake(&f.0, None)
+        .err()
+        .unwrap()
+        .contains("logic.ts:2:28: Date.now()"));
+    // Through a global object, past `!`, after a CR line break.
+    f.write("logic.ts", "export const prefix = 'old: ';\rexport const a = () => globalThis.Date.now();\nexport const b = () => Date.now!();\nexport const c = () => window.setTimeout(() => {}, 1);\n");
+    let error = producer.bake(&f.0, None).err().unwrap();
+    assert!(error.contains("logic.ts:2:24: Date.now()"), "{error}");
+    assert!(error.contains("logic.ts:3:24: Date.now()"), "{error}");
+    assert!(
+        error.contains(
+            "logic.ts:4:24: setTimeout() is unavailable in data sources: there are no timers"
+        ),
+        "{error}"
+    );
+    // An angle-bracket assertion, a `declare`d class and a type-only
+    // namespace are erased: the global runs.
+    f.write("logic.ts", "export const prefix = 'old: ';\ndeclare class Date { static now(): number }\nnamespace Math { export type R = number }\nexport const a = () => (<any>Date).now() + Math.random();\n");
+    let error = producer.bake(&f.0, None).err().unwrap();
+    assert!(error.contains("logic.ts:4:24: Date.now()"), "{error}");
+    assert!(error.contains("logic.ts:4:44: Math.random()"), "{error}");
+    // An explicit date, a member named `now` elsewhere, a comment, and a
+    // `Date` or `performance` the module binds itself are fine.
+    f.write("logic.ts", "export const prefix = 'old: ';\n// Date.now() is refused\nexport const epoch = new Date(0).getTime() + ({ now: () => 1 }).now();\nexport const stamp = (performance: { now(): number }) => performance.now();\n");
+    assert!(
+        producer.bake(&f.0, None).is_ok(),
+        "{:?}",
+        producer.bake(&f.0, None).err()
+    );
+    f.write("logic.ts", "export const prefix = 'old: ';\nnamespace Date { export function now() { return 1; } }\nexport const local = () => Date.now();\n");
+    assert!(
+        producer.bake(&f.0, None).is_ok(),
+        "{:?}",
+        producer.bake(&f.0, None).err()
     );
 }

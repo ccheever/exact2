@@ -1,6 +1,8 @@
 //! `map`, `filter` and `join` (LLP 1017.003 D4): the roster's list
 //! operations, typed here because a callback is not a value the roster
-//! table can describe.
+//! table can describe; and `concat`, `slice`, `includes` and `indexOf`
+//! (LLP 1088 §9.1), whose types follow their first argument's: a list's
+//! item type, or text for all but `concat`, the web's same-named methods.
 
 use crate::{checks, err, infer, Ref, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span};
@@ -8,7 +10,112 @@ use exact_plan::Stdlib;
 
 /// Whether `f` is one of them.
 pub(crate) fn is_list_op(f: Stdlib) -> bool {
-    matches!(f, Stdlib::Map | Stdlib::Filter | Stdlib::Join)
+    matches!(
+        f,
+        Stdlib::Map
+            | Stdlib::Filter
+            | Stdlib::Join
+            | Stdlib::Concat
+            | Stdlib::Slice
+            | Stdlib::Includes
+            | Stdlib::IndexOf
+    )
+}
+
+/// `concat(list<T>, list<T>)`, `slice(string | list<T>, number, number?)`
+/// and `includes(string, string)` or `includes(list<T>, T)` with `T` a
+/// string, number or bool, `indexOf` likewise: the web compares an object
+/// by identity, so they take what `==` and `join` take of a list's items.
+fn infer_built(
+    f: Stdlib,
+    args: &[Expr],
+    span: Span,
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Result<Ty, TypeError> {
+    let name = f.name();
+    let params: &[&str] = match f {
+        Stdlib::Concat => &["list", "list"],
+        Stdlib::Slice => &["string | list", "number", "number?"],
+        _ => &["string | list", "string | item"],
+    };
+    let required = params.iter().filter(|p| !p.ends_with('?')).count();
+    if !(required..=params.len()).contains(&args.len()) {
+        return err(
+            "type-arity",
+            checks::call_arity(name, args.len(), params),
+            span,
+        );
+    }
+    let first = infer(&args[0], scope, shapes)?;
+    let argument = |i: usize, want: &str, given: &Ty| {
+        err(
+            "type-argument",
+            format!(
+                "argument {} of `{name}` expects `{want}`, given `{given}`",
+                i + 1
+            ),
+            args[i].span(),
+        )
+    };
+    match f {
+        Stdlib::Concat => {
+            let second = infer(&args[1], scope, shapes)?;
+            match (&first, &second) {
+                (Ty::Unknown, _) | (_, Ty::Unknown) => Ok(Ty::Unknown),
+                (Ty::List(_), Ty::List(_)) => first.unify(&second).ok_or_else(|| TypeError {
+                    id: "type-argument",
+                    message: format!(
+                        "`concat` joins two lists of one item type, given `{first}` and `{second}`"
+                    ),
+                    span: args[1].span(),
+                }),
+                (Ty::String, _) => err(
+                    "type-argument",
+                    "`concat` joins two lists; text joins with `+` or a template, `${a}${b}`",
+                    span,
+                ),
+                (Ty::List(_), other) => argument(1, &first.to_string(), other),
+                (other, _) => argument(0, "list", other),
+            }
+        }
+        Stdlib::Slice => {
+            for (i, arg) in args.iter().enumerate().skip(1) {
+                let t = infer(arg, scope, shapes)?;
+                if t != Ty::Number {
+                    return argument(i, "number", &t);
+                }
+            }
+            match first {
+                Ty::String | Ty::List(_) => Ok(first),
+                other => argument(0, "string | list", &other),
+            }
+        }
+        _ => {
+            let second = infer(&args[1], scope, shapes)?;
+            let found = if f == Stdlib::IndexOf {
+                Ty::Number
+            } else {
+                Ty::Bool
+            };
+            match &first {
+                Ty::String if second == Ty::String => Ok(found),
+                Ty::String => argument(1, "string", &second),
+                Ty::List(item) => match item.unify(&second) {
+                    Some(Ty::String | Ty::Number | Ty::Bool) => Ok(found),
+                    Some(other) => err(
+                        "type-argument",
+                        format!(
+                            "`{name}` finds a string, number or bool in a list, given `{other}`: test a field, `length(filter(xs, x => x.id == id)) > 0`"
+                        ),
+                        args[1].span(),
+                    ),
+                    None => argument(1, &item.to_string(), &second),
+                },
+                other => argument(0, "string | list", other),
+            }
+        }
+    }
 }
 
 /// The type of `f(args)`.
@@ -19,6 +126,12 @@ pub(crate) fn infer_call(
     scope: &Scope,
     shapes: &Shapes,
 ) -> Result<Ty, TypeError> {
+    if matches!(
+        f,
+        Stdlib::Concat | Stdlib::Slice | Stdlib::Includes | Stdlib::IndexOf
+    ) {
+        return infer_built(f, args, span, scope, shapes);
+    }
     let name = f.name();
     let [list, second] = args else {
         let signature = if f == Stdlib::Join {

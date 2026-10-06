@@ -59,6 +59,7 @@ pub mod host;
 pub mod image;
 #[cfg(target_os = "linux")]
 pub mod input;
+mod media_session;
 pub mod navigation;
 pub mod paint;
 pub mod picker;
@@ -66,6 +67,7 @@ mod placement;
 pub mod presenter;
 pub mod raster;
 mod surfaces;
+pub mod teardown;
 pub mod text;
 #[cfg(any(target_os = "android", test))]
 #[path = "canvas/travel.rs"]

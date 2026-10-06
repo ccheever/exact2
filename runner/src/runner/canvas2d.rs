@@ -41,6 +41,18 @@ pub struct Geometry {
     pub scale: f64,
     /// An explicit bitmap size, when the author set one.
     pub bitmap: Option<(u32, u32)>,
+    /// Its getContext settings ([`Runner::canvas_settings`]).
+    pub settings: Settings,
+}
+
+/// A canvas's `color-space` and `color-type`, HTML's getContext settings
+/// (LLP 1100 D12a). A change is a new generation, as a new context would be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Settings {
+    /// `display-p3`: colours and pixels are Display P3.
+    pub p3: bool,
+    /// `float16`: the bitmap is half floats (8 bytes a pixel).
+    pub float16: bool,
 }
 
 /// The backing store a geometry implies: what a generation is keyed by.
@@ -53,6 +65,7 @@ struct Backing {
     height: f64,
     scale: f64,
     stretch: bool,
+    settings: Settings,
 }
 
 impl Backing {
@@ -65,6 +78,7 @@ impl Backing {
                 height: h as f64,
                 scale: 1.0,
                 stretch: true,
+                settings: g.settings,
             },
             None => Backing {
                 pixel_width: (g.width * g.scale).round().max(0.0) as u32,
@@ -73,12 +87,15 @@ impl Backing {
                 height: g.height,
                 scale: g.scale,
                 stretch: false,
+                settings: g.settings,
             },
         }
     }
 
     fn bytes(self) -> u64 {
-        self.pixel_width as u64 * self.pixel_height as u64 * 4
+        self.pixel_width as u64
+            * self.pixel_height as u64
+            * if self.settings.float16 { 8 } else { 4 }
     }
 
     fn empty(self) -> bool {
@@ -145,6 +162,8 @@ pub struct DrawRequest<'a> {
     pub current_color: Option<Rgba>,
     /// The canvas node's `direction` is `rtl`.
     pub rtl: bool,
+    /// The canvas is `display-p3` (LLP 1100 D12a).
+    pub p3: bool,
 }
 
 impl DrawRequest<'_> {
@@ -204,6 +223,9 @@ impl DrawRequest<'_> {
                 c.b,
                 crate::agent::num(c.a)
             );
+        }
+        if self.p3 {
+            s.push_str(",\"colorSpace\":\"display-p3\"");
         }
         let _ = write!(s, ",\"rtl\":{}}}", self.rtl);
         s
@@ -279,6 +301,8 @@ pub struct CanvasList {
     /// The draw asked for the next frame: the canvas animates (a host may
     /// present it differently, LLP 1056 §8.4).
     pub animating: bool,
+    /// The bitmap's getContext settings.
+    pub settings: Settings,
 }
 
 static LIFETIMES: AtomicU64 = AtomicU64::new(1);
@@ -549,6 +573,7 @@ impl CanvasEngine for Canvases {
             b.pixel_width == next.pixel_width
                 && b.pixel_height == next.pixel_height
                 && b.stretch == next.stretch
+                && b.settings == next.settings
                 && (b.stretch || b.scale == next.scale)
         });
         r.refused = refusal;
@@ -646,6 +671,7 @@ impl CanvasEngine for Canvases {
                     stretch: b.stretch,
                     lists: Vec::new(),
                     animating: false,
+                    settings: b.settings,
                 });
             }
             let Some(b) = r.backing else { continue };
@@ -694,6 +720,7 @@ impl CanvasEngine for Canvases {
                 images: self.images.clone(),
                 current_color,
                 rtl,
+                p3: b.settings.p3,
             });
             let request = DrawRequest {
                 canvas: lifetime,
@@ -705,6 +732,7 @@ impl CanvasEngine for Canvases {
                 frame,
                 current_color,
                 rtl,
+                p3: b.settings.p3,
             };
             match draw(&request, &ctx) {
                 Drawn::Now(reply) => {
@@ -791,6 +819,7 @@ impl CanvasEngine for Canvases {
             stretch: b.stretch,
             lists: reply.lists,
             animating: r.wants_frame,
+            settings: b.settings,
         };
         let surface = r.surface.clone();
         if !out.lists.is_empty() {
@@ -842,15 +871,17 @@ impl CanvasEngine for Canvases {
                 Some(b) => {
                     let _ = write!(
                         s,
-                        ",\"width\":{},\"height\":{},\"scale\":{},\"stretch\":{}",
+                        ",\"width\":{},\"height\":{},\"scale\":{},\"stretch\":{},\"colorSpace\":\"{}\",\"colorType\":\"{}\"",
                         b.pixel_width,
                         b.pixel_height,
                         crate::agent::num(b.scale),
-                        b.stretch
+                        b.stretch,
+                        if b.settings.p3 { "display-p3" } else { "srgb" },
+                        if b.settings.float16 { "float16" } else { "unorm8" }
                     );
                 }
                 None => {
-                    s.push_str(",\"width\":null,\"height\":null,\"scale\":null,\"stretch\":false")
+                    s.push_str(",\"width\":null,\"height\":null,\"scale\":null,\"stretch\":false,\"colorSpace\":null,\"colorType\":null")
                 }
             }
             s.push_str(",\"lastDraw\":");
@@ -987,6 +1018,23 @@ impl<D: DataSource> Runner<D> {
         (w.is_some() || h.is_some()).then(|| (w.unwrap_or(300), h.unwrap_or(150)))
     }
 
+    /// A canvas's getContext settings (LLP 1100 D12a); an unknown value is the
+    /// default, as in HTML. A host that shows only sRGB has only sRGB canvases (D10).
+    pub fn canvas_settings(&self, view: ViewId) -> Settings {
+        let Some(node) = self.kernel.node(view) else {
+            return Settings::default();
+        };
+        let text = |id| match node.props.get(id) {
+            Some(exact_kernel::PropValue::Str(v)) => Some(v.to_string()),
+            _ => None,
+        };
+        Settings {
+            p3: text(exact_kernel::PropId::ColorSpace).as_deref() == Some("display-p3")
+                && !exact_kernel::style::wide::limited(),
+            float16: text(exact_kernel::PropId::ColorType).as_deref() == Some("float16"),
+        }
+    }
+
     /// A native host's geometry for every 2D canvas, from the kernel's
     /// layout in this turn (LLP 1056 D4): the content box, the device
     /// `scale`, and an explicit bitmap size ([`Runner::canvas_bitmap`]).
@@ -997,6 +1045,7 @@ impl<D: DataSource> Runner<D> {
             };
             let (_, _, w, h) = exact_kernel::svg::scene::content_box(&node);
             let bitmap = self.canvas_bitmap(view);
+            let settings = self.canvas_settings(view);
             self.set_canvas_geometry(
                 view,
                 Geometry {
@@ -1004,6 +1053,7 @@ impl<D: DataSource> Runner<D> {
                     height: h as f64,
                     scale,
                     bitmap,
+                    settings,
                 },
             );
         }

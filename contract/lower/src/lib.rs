@@ -21,10 +21,13 @@
 
 mod class;
 mod collection;
+mod color_profile;
 mod contain;
 pub mod controls;
 pub mod dataset;
+mod error;
 pub mod expr;
+mod fields;
 mod fonts;
 mod grouped;
 mod handlers;
@@ -36,21 +39,26 @@ mod native;
 mod routes;
 mod shorthands;
 mod sites;
+mod sounds;
 mod stmts;
 mod strings;
 mod svg;
 pub mod tags;
+mod timers;
 mod values;
 pub mod vocab;
 
 pub use dataset::{data_words, hook_words};
+pub use error::LowerError;
+pub(crate) use error::{err, err_one};
+pub use fields::Profile;
 pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
 pub use sites::{Declared, NodeSite, Origin, Sites};
 
 use contract_analyze::Analysis;
-use contract_syntax::{Attr, Expr, File, FnDecl, Node, Owner, Span, TaskKind};
+use contract_syntax::{Attr, Expr, File, FnDecl, Node, Owner, Span};
 use contract_types::{Checked, Ref, Scope, Ty, Types};
 use exact_kernel::{NodeType, StyleId};
 use exact_plan::asm::Asm;
@@ -61,44 +69,6 @@ use exact_plan::{
 };
 use std::collections::BTreeMap;
 use std::path::Path;
-
-/// A typed rejection.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LowerError {
-    /// Stable id.
-    pub id: &'static str,
-    /// What went wrong.
-    pub message: String,
-    /// Where.
-    pub span: Span,
-}
-
-impl std::fmt::Display for LowerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} [{}] {}", self.span, self.id, self.message)
-    }
-}
-
-/// One refusal, as the plural result lowering returns.
-fn err_one(id: &'static str, message: impl Into<String>, span: Span) -> Vec<LowerError> {
-    vec![LowerError {
-        id,
-        message: message.into(),
-        span,
-    }]
-}
-
-pub(crate) fn err<T>(
-    id: &'static str,
-    message: impl Into<String>,
-    span: Span,
-) -> Result<T, LowerError> {
-    Err(LowerError {
-        id,
-        message: message.into(),
-        span,
-    })
-}
 
 /// The compiler identity a plan carries: the crate version folded with the
 /// configuration digest (there is no configuration yet).
@@ -114,6 +84,8 @@ pub fn compiler_identity() -> u64 {
 pub(crate) struct Lowerer<'a> {
     pub b: PlanBuilder,
     sites: Option<Sites>,
+    /// The surface the plan is for: a text field's sheet differs.
+    profile: Profile,
     pub types: &'a Types,
     pub root: &'a contract_syntax::Component,
     pub ty_ids: BTreeMap<String, TypesId>,
@@ -194,19 +166,21 @@ pub fn lower(
     _analysis: &Analysis,
     asset_root: Option<&Path>,
 ) -> Result<Plan, LowerError> {
-    lower_with_sites(checked, _analysis, asset_root, false)
+    lower_with_sites(checked, _analysis, asset_root, false, Profile::Web)
         .map(|(plan, _)| plan)
         .map_err(|mut all| all.swap_remove(0))
 }
 
 /// Lower, reporting every independent refusal: each element and each of its
 /// attributes is lowered whatever its siblings' fate (at most
-/// [`MAX_REFUSALS`]). `mapped` also returns the development source sites.
+/// [`MAX_REFUSALS`]). `mapped` also returns the development source sites;
+/// `profile` is the surface the plan is for.
 pub fn lower_all(
     checked: &Checked<'_>,
     analysis: &Analysis,
     asset_root: Option<&Path>,
     mapped: bool,
+    profile: Profile,
 ) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
     if mapped && checked.expanded.instances.is_empty() {
         return Err(vec![LowerError {
@@ -215,7 +189,7 @@ pub fn lower_all(
             span: checked.expanded.root.span,
         }]);
     }
-    lower_with_sites(checked, analysis, asset_root, mapped)
+    lower_with_sites(checked, analysis, asset_root, mapped, profile)
 }
 
 fn lower_with_sites(
@@ -223,6 +197,7 @@ fn lower_with_sites(
     _analysis: &Analysis,
     asset_root: Option<&Path>,
     capture_sites: bool,
+    profile: Profile,
 ) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
     // Keep the exact expansion whose root and row slots inference checked.
     let Checked {
@@ -241,6 +216,7 @@ fn lower_with_sites(
     let mut l = Lowerer {
         b: PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, compiler_identity()),
         sites: capture_sites.then(|| Sites::declared(ex)),
+        profile,
         types,
         root,
         ty_ids: BTreeMap::new(),
@@ -275,6 +251,7 @@ fn lower_with_sites(
         texts_used: Default::default(),
     };
     l.declare_fonts(file, asset_root)?;
+    l.declare_sounds(file, asset_root)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
@@ -312,6 +289,7 @@ fn lower_with_sites(
     }
     let refused = l.declare_keyframes(file);
     l.errors.extend(refused);
+    let _profiles = l.declare_color_profiles(file);
     // Shapes first, in declaration order, so type ids are stable.
     for s in &file.shapes {
         l.ty_id(&Ty::Record(s.name.clone()))?;
@@ -466,41 +444,15 @@ fn lower_with_sites(
         l.b.set_action_body(l.actions[i], code);
     }
     for (i, m) in root.mutations.iter().enumerate() {
+        if m.queue {
+            l.b.set_mutation_queue(l.mutations[i]);
+        }
         if let Some((name, _)) = &m.then {
             let action = l.actions[root.actions.iter().position(|a| &a.name == name).unwrap()];
             l.b.set_mutation_then(l.mutations[i], action);
         }
     }
-    for t in &root.tasks {
-        let action = l.actions[root
-            .actions
-            .iter()
-            .position(|a| a.name == t.timer.1)
-            .unwrap()];
-        let word = match t.kind {
-            TaskKind::Every => "every",
-            TaskKind::After => "after",
-            TaskKind::Frame => {
-                l.b.frame_timer(action);
-                continue;
-            }
-        };
-        let Expr::Number(ms, _) = &t.timer.0 else {
-            return Err(err_one(
-                "lower-timer-literal",
-                format!("`{word}` needs a literal number of milliseconds"),
-                t.timer.2,
-            ));
-        };
-        if !(ms.is_finite() && ms.fract() == 0.0 && *ms >= 1.0 && *ms <= u32::MAX as f64) {
-            return Err(err_one(
-                "lower-timer-interval",
-                format!("`{word}` needs a whole number of milliseconds, at least 1; given {ms}"),
-                t.timer.2,
-            ));
-        }
-        l.b.timer(*ms as u32, action, t.kind == TaskKind::After);
-    }
+    l.timers(&root.tasks, &scope)?;
     // The view, inlined (by `expand`, above).
     let view = &root.view;
     if view.len() != 1 {
@@ -708,9 +660,18 @@ impl<'a> Lowerer<'a> {
                 {
                     grouped::native_rows(&mut sheet);
                 }
+                // @ref LLP 1104 D2, D3 — a text field's sheet, under its classes.
+                let dressed = fields::sheet(
+                    tag,
+                    expanded.iter().flatten().chain(attrs),
+                    *span,
+                    &mut sheet,
+                    self.profile,
+                )?;
                 let class_len = expanded.as_ref().map_or(0, Vec::len) + sheet.len();
                 let expanded = match &mut expanded {
                     Some(rows) => {
+                        fields::over_sheet(rows, &sheet);
                         rows.splice(0..0, sheet.iter().cloned());
                         rows.extend(attrs.iter().filter(|a| a.name != "class").cloned());
                         rows.as_slice()
@@ -729,6 +690,17 @@ impl<'a> Lowerer<'a> {
                     svg::coerce_lengths(tag, svg::in_svg(self.svg_depth > 0, parent_tag), expanded);
                 let expanded = lengths.as_deref().unwrap_or(expanded);
                 self.check_svg(tag, parent_tag, expanded, *span)?;
+                // @ref LLP 1034 §8 — an inline run paints in its paragraph's
+                // scheme: no host gives a run an appearance of its own.
+                if tag == "text" && parent_tag == Some("text") {
+                    if let Some(a) = expanded.iter().find(|a| a.name == "color-scheme") {
+                        return Err(LowerError {
+                            id: "lower-attr-tag",
+                            message: "`color-scheme` on an inline `text` run: a run paints in its paragraph's scheme (LLP 1034 §8); set it on the paragraph or a box above".into(),
+                            span: a.span,
+                        });
+                    }
+                }
                 // @ref LLP 1055.000 D4 — an `svg` inside an `svg` is a viewport.
                 // Inside an `svg`, `svg` is a viewport and `text` is SVG text
                 // (LLP 1055.000 D4, D11).
@@ -749,6 +721,7 @@ impl<'a> Lowerer<'a> {
                 let expanded = canonical_type.as_deref().unwrap_or(expanded);
                 let control = controls::control(tag, expanded)?;
                 let t = control.map_or(t.clone(), |kind| controls::tag(kind, t.clone()));
+                let t = if dressed { fields::tag(t) } else { t };
                 let face = (control == Some("button"))
                     .then(|| grouped::unsheet(children))
                     .flatten();
@@ -758,7 +731,7 @@ impl<'a> Lowerer<'a> {
                 }
                 controls::check_nesting(tag, parent_tag, *span)?;
                 self.check_menu_shapes(tag, expanded, children, *span)?;
-                let numeric = controls::range_attrs(control, expanded);
+                let numeric = controls::range_attrs(tag, control, expanded);
                 let expanded = numeric.as_deref().unwrap_or(expanded);
                 // @ref LLP 1084 D1, D3 — a grouped list's sheet, before its
                 // author's rows, and its sections' shape.
@@ -773,7 +746,7 @@ impl<'a> Lowerer<'a> {
                     None => (expanded, children),
                 };
                 tags::validate_list(tag, expanded, *span)?;
-                self.check_collection(tag, expanded, children, *span)?;
+                self.check_collection(tag, expanded, children, *span, scope)?;
                 // A row list is a flex item of its column like any carousel;
                 // CSS's own fix keeps its spacers' extent from widening that
                 // column: `min-width: 0`, unless the author set one (LLP 1070
@@ -794,6 +767,7 @@ impl<'a> Lowerer<'a> {
                     attrs
                 });
                 let expanded = row_list.as_deref().unwrap_or(expanded);
+                media::check_session(tag, expanded)?;
                 let audio = media::audio_rows(tag, expanded, *span)?;
                 let expanded = audio.as_deref().unwrap_or(expanded);
                 // @ref LLP 1074 T1 — a box that contains its absolutely positioned
@@ -928,7 +902,12 @@ impl<'a> Lowerer<'a> {
                 for a in &own {
                     self.errors.extend(native::refused(tag, a));
                 }
+                let flex = tags::flex_container(tag, expanded);
                 for (index, a) in expanded.iter().enumerate() {
+                    if let Some(e) = flex.and_then(|f| tags::multicol_on_flex(f, a).err()) {
+                        self.errors.push(e);
+                        continue;
+                    }
                     if native::leftover(tag, a)
                         || refused.contains(&a.name.as_str())
                         || dataset::word(&a.name).is_some()
@@ -937,7 +916,7 @@ impl<'a> Lowerer<'a> {
                     }
                     if let Err(e) = self.attr(
                         tag,
-                        contract_syntax::input_control(tag, attrs),
+                        contract_syntax::payload_control(tag, attrs),
                         a,
                         scope,
                         locals,
@@ -1218,7 +1197,7 @@ impl<'a> Lowerer<'a> {
         surface: &mut Option<exact_plan::SurfacesId>,
         font: &[FontUse],
     ) -> Result<(), LowerError> {
-        let Some(mut target) = tags::attr(&a.name) else {
+        let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));
         };
         // HTML's global `title` on any element but `head`: advisory text, the
@@ -1231,6 +1210,7 @@ impl<'a> Lowerer<'a> {
         if (tag != "iframe"
             && matches!(a.name.as_str(), "sandbox" | "load" | "message")
             && !(tag == "canvas" && a.name == "message")
+            && !(tag == "image" && a.name == "load")
             && !module)
             || (!matches!(tag, "iframe" | "video" | "audio") && a.name == "src")
         {
@@ -1239,10 +1219,10 @@ impl<'a> Lowerer<'a> {
                 format!(
                     "`{}` belongs to {}, not `{tag}`",
                     a.name,
-                    if a.name == "message" {
-                        "`iframe` or `canvas`"
-                    } else {
-                        "`iframe`"
+                    match a.name.as_str() {
+                        "message" => "`iframe` or `canvas`",
+                        "load" => "`iframe`, `image` or a native module",
+                        _ => "`iframe`",
                     }
                 ),
                 a.span,
@@ -1328,6 +1308,21 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
+        // @ref LLP 1045 D3 — `none` or `markdown`, styling a `text`'s or a
+        // `textarea`'s own string; another word did nothing (notes #1).
+        if a.name == "markup" {
+            if !matches!(tag, "text" | "textarea") {
+                let message = format!("`markup` belongs to `text` (the reader) or `textarea` (the editor), not `{tag}`");
+                return err("lower-attr-tag", message, a.span);
+            }
+            if matches!(&a.value, Expr::Str(s, _) if s != "markdown" && s != "none") {
+                return err(
+                    "lower-attr-value",
+                    "`markup` is \"markdown\" or \"none\"",
+                    a.span,
+                );
+            }
+        }
         if tag != "list" && matches!(a.name.as_str(), "reachstart" | "reachend") {
             return err(
                 "lower-attr-tag",
@@ -1345,10 +1340,10 @@ impl<'a> Lowerer<'a> {
                     let value = values::flex_component(&a.value, index)?;
                     let component = Attr { value, ..a.clone() };
                     let (code, ty) = self.typed_code(&component.value, scope, locals)?;
-                    values::check_style_value(&component, &[row], &ty, font)?;
                     if index < 2 && matches!(ty, Ty::String) {
-                        return err("lower-attr-type", "a computed `flex` must be a number; write a literal CSS shorthand or a choice of literal shorthands", a.span);
+                        return err("lower-attr-type", "a computed `flex` must be a number, a literal CSS shorthand or a choice of literal shorthands; for a computed basis write the longhands, as in `flex-grow=1 flex-shrink=1 flex-basis=w`", a.span);
                     }
+                    values::check_style_value(&component, &[row], &ty, font)?;
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
                         id: row as u16,
@@ -1469,6 +1464,7 @@ impl<'a> Lowerer<'a> {
             tags::AttrTarget::Handler(event) => {
                 self.handler(tag, event, control, a, scope, locals, handlers)?;
             }
+            tags::AttrTarget::MediaMetadata => self.media_metadata(a, scope, locals, bindings)?,
         }
         Ok(())
     }

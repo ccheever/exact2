@@ -71,7 +71,7 @@ function checks(sha) {
   const glue = [...new Bun.Glob('host/web/**/*.test.mjs').scanSync({ cwd: WT, onlyFiles: true })].sort().map(file => `./${file}`);
   return [
     ['build', 'cargo', ['build', ...workspace, '--all-targets', '--keep-going']],
-    ['test', 'cargo', ['test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast']],
+    ['test', 'env', ['EXACT_PURE_CHROME_REQUIRED=1', 'cargo', 'test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast']],
     ...(lane.length ? [['lane', 'cargo', ['test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast', '--', '--ignored', ...lane]]] : []),
     ['clippy', 'cargo', ['clippy', ...workspace, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
     ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],
@@ -197,7 +197,7 @@ async function check(sha) {
   mkdirSync(dir, { recursive: true });
   prune();
   git(['checkout', '--detach', '--force', sha], WT);
-  const env = { ...process.env };
+  const env = { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' };
   delete env.EXACT_UPDATE_TRUST; delete env.CARGO_TARGET_DIR; delete env.EXACT_WEB_BROWSER;
   const installed = spawnSync('bun', ['install', '--frozen-lockfile'], { cwd: WT, env, encoding: 'utf8' });
   const result = { sha, subject: git(['log', '-1', '--format=%s', sha]), checks: {}, failures: [] };

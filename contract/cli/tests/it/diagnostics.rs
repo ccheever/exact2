@@ -339,7 +339,7 @@ fn unknown_types_list_named_choices_at_the_original_import() {
         .unwrap();
     let expected = contract::compile_path(&root).unwrap_err();
     assert_eq!(expected.id, "type-unknown");
-    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `ClipboardEvent`, `Contact`, `DragEvent`, `Geometry`, `KeyboardEvent`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ScrollEvent`, `Selection`, `WheelEvent`, `Wrapper`, `Zulu`");
+    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `ClipboardEvent`, `Contact`, `DOMRectReadOnly`, `DragEvent`, `Geometry`, `InputEvent`, `KeyboardEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`, `Wrapper`, `Zulu`");
     let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
     same_error(&errors[0], &expected);
     assert_eq!(errors[0]["file"], model.to_str().unwrap());
@@ -361,15 +361,15 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     for prefix in ["", "shape string\n", "shape Later\n  value: number\n"] {
         let root = app.write("app.contract", &format!("{prefix}{body}"));
         let error = contract::compile_path(&root).unwrap_err();
-        // `ClipboardEvent`, `DragEvent`, `KeyboardEvent`, `MarkdownSelection`,
-        // `MouseEvent`, `Picked`, `PointerEvent`, `ScrollEvent`, `Selection` and
+        // `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `KeyboardEvent`, `MarkdownSelection`,
+        // `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection` and
         // `WheelEvent` are the clipboard, `drop`, `key`, `select`, `press`,
-        // file `change`, pointer, scroll, `selectionchange` and wheel payloads
+        // file `change`, pointer, `reorderdrop`, scroll, `selectionchange` and wheel payloads
         // every file can name, and `Geometry` what `frame` and `measure` answer.
         let extra = if prefix.contains("Later") {
-            ", `ClipboardEvent`, `DragEvent`, `Geometry`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"
+            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Geometry`, `InputEvent`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"
         } else {
-            ", `ClipboardEvent`, `DragEvent`, `Geometry`, `KeyboardEvent`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"
+            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Geometry`, `InputEvent`, `KeyboardEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"
         };
         assert_eq!(error.id, "type-unknown");
         assert_eq!(
@@ -380,7 +380,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     let root = app.write("app.contract", &format!("routes nav\n  home \"/\"\n{body}"));
     let error = contract::compile_path(&root).unwrap_err();
     assert_eq!(error.id, "type-unknown");
-    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `ClipboardEvent`, `DragEvent`, `Entry`, `Geometry`, `KeyboardEvent`, `MarkdownSelection`, `MouseEvent`, `Params`, `Picked`, `PointerEvent`, `Router`, `ScrollEvent`, `Selection`, `Tab`, `WheelEvent`"));
+    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Entry`, `Geometry`, `InputEvent`, `KeyboardEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Params`, `Picked`, `PointerEvent`, `ReorderEvent`, `Router`, `ScrollEvent`, `Selection`, `Tab`, `WheelEvent`"));
     // Field resolution has already seen later declarations, even when it fails
     // while resolving the first shape's fields.
     let root = app.write("app.contract", "shape First\n  value: Ltaer\nshape Later\n  value: string\ncomponent App\n  view\n    text \"hello\"\n");
@@ -388,7 +388,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     assert_eq!(error.id, "type-unknown");
     assert!(error
         .message
-        .ends_with("`First`, `Geometry`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"));
+        .ends_with("`First`, `Geometry`, `InputEvent`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"));
 }
 
 #[test]
@@ -1388,12 +1388,12 @@ fn refusals_from_the_app_diaries_name_the_fix() {
     says(
         "shape Task\n  id: string\n  done: bool\ncomponent App\n  resource tasks = loadTasks() as shape list<Task>\n  action flipTask(id: string)\n    refresh tasks\n  view\n    column\n      each t in tasks key=t.id\n        input type=\"checkbox\" checked=t.done change=flipTask(t.id)\n",
         "analyze-handler-arity",
-        "`change=flipTask(t.id)` calls `flipTask` with `t.id` and then the checkbox's new `checked` (bool); declare `action flipTask(id: string, checked: bool)`",
+        "`change=flipTask(t.id)` calls `flipTask` with `t.id` and then the checkbox's new `checked` (bool); declare `action flipTask(id: string, checked: bool)`, or `action flipTask(id: string, checked: bool, event: InputEvent)` for its `InputEvent`",
     );
     says(
         "component App\n  state q = \"\"\n  action setQ\n    q = \"\"\n  view\n    input value=q input=setQ\n",
         "analyze-handler-arity",
-        "`input=setQ` calls `setQ` with the field's new `value` (string); declare `action setQ(value: string)`",
+        "`input=setQ` calls `setQ` with the field's new `value` (string); declare `action setQ(value: string)`, or `action setQ(value: string, event: InputEvent)` for its `InputEvent`",
     );
     says(
         "component App\n  state n = 0\n  action save(id: string, extra: number)\n    n = 1\n  view\n    button \"s\" press=save(\"a\")\n",
@@ -1415,35 +1415,19 @@ fn refusals_from_the_app_diaries_name_the_fix() {
         refused(&format!("component App\n  state s = \"a\"\n  state xs = []\n  action go\n    xs = {call}\n  view\n    text s\n"))
     };
     for (call, says) in [
-        (
-            "push(xs, s)",
-            "building a list in a view waits on LLP 1088 §9",
-        ),
-        (
-            "concat(xs, xs)",
-            "building a list in a view waits on LLP 1088 §9",
-        ),
-        (
-            "slice(xs, 1)",
-            "building a list in a view waits on LLP 1088 §9",
-        ),
-        ("split(s, \",\")", "split the text there"),
+        ("push(xs, s)", "as in `xs = concat(xs, [x])`"),
         (
             "replace(s, \"a\", \"b\")",
             "write `replaceAll(s, find, with)`",
         ),
-        ("indexOf(s, \"a\")", "`includes(s, t)`"),
         ("substring(s, 1)", "write `slice(s, start, end)`"),
         ("padStart(s, 2, \"0\")", "LLP 1088 D2 defers it"),
         ("toUpperCase(s)", "`text-transform=\"uppercase\"`"),
-        ("parseInt(s)", "Contract does not parse numbers from text"),
-        ("Number(s)", "Contract does not parse numbers from text"),
+        ("parseInt(s)", "write `parseNumber(s)` for `parseInt`"),
+        ("Number(s)", "`none` for anything else"),
     ] {
         let (id, message) = idiom(call);
         assert_eq!(id, "type-refused-idiom", "{call}: {message}");
         assert!(message.contains(says), "{call}: {message}");
     }
-    let e = contract::compile("component App\n  view\n    text toString(length([1, 2]))\n")
-        .unwrap_err();
-    assert!(e.message.contains("LLP 1088 §9's follow-up"), "{e}");
 }

@@ -288,6 +288,7 @@ impl Collection {
         mounted.token = token;
         mounted.epoch = advance(&mut self.next_epoch)?;
         mounted.preview_target = None;
+        mounted.preview_hidden = false;
         mounted.published = (usize::MAX, usize::MAX);
         u.renewed.push(mounted.wrapper);
         views(&mounted.row.roots, &mut u.renewed);

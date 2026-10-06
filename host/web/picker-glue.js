@@ -95,8 +95,10 @@ globalThis.exact.picker = function install(host) {
     }
     host.dispatch(id, 26, lines.join('\n'));
   }
-  // `saveFile` (LLP 1069.010 D3): the `app:/` file's bytes, from the store.
-  async function appBytes(from) {
+  // `saveFile` (LLP 1069.010 D3): the `app:/` file's bytes, from the store,
+  // or the `text=` itself, as UTF-8.
+  async function appBytes(from, text) {
+    if (text != null) return new TextEncoder().encode(text);
     const s = await fileStore(host.appId);
     if (!s) throw new Error('this page has no app files');
     return new Uint8Array(await s.readFile(from));
@@ -110,7 +112,7 @@ globalThis.exact.picker = function install(host) {
     async save(r, chosen) {
       if (!r.present) return host.dispatch(r.view, 27, '');
       let bytes;
-      try { bytes = await appBytes(r.from); } catch (e) { return unsaved(r.view, `saveFile: refused: ${e.message ?? e}`); }
+      try { bytes = await appBytes(r.from, r.text); } catch (e) { return unsaved(r.view, `saveFile: refused: ${e.message ?? e}`); }
       if (!chosen) {
         const url = URL.createObjectURL(new Blob([bytes])), a = document.createElement('a');
         a.href = url; a.download = r.suggestedName; a.click();
@@ -128,7 +130,7 @@ globalThis.exact.picker = function install(host) {
     async answerSave(r, path) {
       if (r.answered === 'cancel') { unsaved(r.node, 'saveFile: cancelled'); return {}; }
       let bytes;
-      try { bytes = await appBytes(r.request.from); } catch (e) { unsaved(r.node, `saveFile: refused: ${e.message ?? e}`); return { error: `saveFile: ${e.message ?? e}` }; }
+      try { bytes = await appBytes(r.request.from, r.request.text); } catch (e) { unsaved(r.node, `saveFile: refused: ${e.message ?? e}`); return { error: `saveFile: ${e.message ?? e}` }; }
       let raw = '';
       for (let i = 0; i < bytes.length; i += 0x8000) raw += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
       saved(r.node, String(path).trim().split(/[\\/]/).filter(Boolean).pop());

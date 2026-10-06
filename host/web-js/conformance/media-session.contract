@@ -1,0 +1,51 @@
+// data: video-player
+// Synthetic conformance plan: the media session (LLP 1098 §5). Two
+// claimants and a non-claimant: the owner by mount (the later in the
+// document of one commit), the metadata and an artwork the page resolves,
+// the offered actions; the six landing in state with and without seconds;
+// a non-owner's and an unhandled action refused; unmounting the owner hands
+// the session on, the last unmount clears it; then, on the pages, the owner
+// by play. Linux records the session and has no player, so it takes every
+// step but the play. (No slot shares a name with Video Player's: the wasm
+// page carries its first world into this plan by slot name.)
+component Session
+  state trailerOn = true
+  state episodeOn = true
+  state trailerHeld = true
+  state seek = 0
+  state heard = ""
+  state episode = 1
+  action skipBy(sign: number, d: MediaSessionActionDetails)
+    seek = seek + sign * d.seekOffset
+    heard = d.action
+  action seekAt(d: MediaSessionActionDetails)
+    seek = d.seekTime
+    heard = `${d.action} ${d.fastSeek}`
+  action next(d: MediaSessionActionDetails)
+    episode = episode + 1
+    heard = d.action
+  action halt(d: MediaSessionActionDetails)
+    heard = d.action
+  action trailerNext
+    heard = "trailer next"
+  action dropEpisode
+    episodeOn = false
+  action dropTrailer
+    trailerOn = false
+  action restore
+    trailerOn = true
+    episodeOn = true
+  action playTrailer
+    trailerHeld = false
+  view
+    column testId="root" gap=4 padding=8 height="100%" box-sizing="border-box" background-color="#ffffff" color="#000000"
+      when trailerOn
+        video "assets/motion.mp4" testId="trailer" width=160 height=90 muted=true playsinline=true paused=trailerHeld controls=false metadata=MediaMetadata(title="Trailer", artist="", album="", artwork="") nexttrack=trailerNext
+      when episodeOn
+        audio "assets/motion.mp4" testId="episode" metadata=MediaMetadata(title=`Episode ${episode}`, artist="Show", album="Season 1", artwork="assets/art.png") seekbackwardOffset=15 seekforwardOffset=30 seekbackward=skipBy(-1) seekforward=skipBy(1) seekto=seekAt nexttrack=next stop=halt
+      audio "assets/motion.mp4" testId="plain"
+      text `seek ${seek} heard ${heard} episode ${episode}` testId="seen"
+      button "drop episode" press=dropEpisode testId="dropEpisode"
+      button "drop trailer" press=dropTrailer testId="dropTrailer"
+      button "restore" press=restore testId="restore"
+      button "play trailer" press=playTrailer testId="playTrailer"

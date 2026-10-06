@@ -207,6 +207,11 @@ impl Core {
         let ordered = r.request.is_ordered();
         let mut state = self.shared.state.lock().unwrap();
         let admitted = (|| {
+            // A deadline on work that cannot take one (a stream, a
+            // continuation, native work) is refused here, before any path.
+            if let Some(why) = r.request.timeout_refusal() {
+                return Err(why);
+            }
             let (lane, charge, limit) = reservation(&r.request)?;
             if self.disabled {
                 return Err("native executor worker limit reached");
@@ -842,16 +847,38 @@ fn execute(
             |work| work(),
         );
     }
+    // Work beside a plain request is a driver fault's failure (LLP 1103 D1):
+    // it runs instead of the transport, so the request never goes out.
+    if let Some(work) = work {
+        return work();
+    }
     let b = match bindings {
         Ok(b) => b,
         Err(unbound) => return failed(FailureKind::Refused, unbound),
     };
+    if let Some(why) = request.timeout_refusal() {
+        return failed(FailureKind::Refused, why);
+    }
     let limit = match request.http {
         HttpScheduling::Ordered => MAX_BODY,
         HttpScheduling::Independent { max_response_bytes } => max_response_bytes as usize,
     };
+    let timeout = request.timeout_ms;
     let mut req = fetch_request(request, forced);
     req.max_body = Some(limit);
+    // The platform's idle timeout (URLSession's, 60 s by default) follows
+    // the deadline a second later: it never ends a request before the
+    // deadline does (so the reply says Timeout, not a network error), and a
+    // deadline over 60 s is not cut short by it.
+    req.timeout = timeout.map(|ms| std::time::Duration::from_millis(u64::from(ms) + 1_000));
+    // The whole exchange, headers and body, ends by the deadline: the
+    // platform's idle timeout alone would let a server that trickles bytes
+    // hold the ordered lane for as long as it likes.
+    let deadline = match timeout.map(|ms| Deadline::arm(ms, abort)).transpose() {
+        Ok(deadline) => deadline,
+        // A deadline that cannot be kept is refused, never silently none.
+        Err(why) => return failed(FailureKind::Refused, why),
+    };
     let result = b
         .fetch
         .stream(req, &abort.signal())
@@ -863,7 +890,49 @@ fn execute(
             headers: r.headers.entries().to_vec(),
             body: r.body,
         }),
+        Err(_) if deadline.as_ref().is_some_and(Deadline::passed) => failed(
+            FailureKind::Timeout,
+            format!("the request timed out after {} ms", timeout.unwrap_or(0)),
+        ),
         Err(e) => fetch_failure(e, abort),
+    }
+}
+
+/// A request's deadline: a thread that aborts the request when it passes,
+/// and ends at once when the request finishes first (the sender drops).
+struct Deadline {
+    passed: Arc<std::sync::atomic::AtomicBool>,
+    _done: std::sync::mpsc::Sender<()>,
+}
+
+impl Deadline {
+    fn arm(ms: u32, abort: &AbortController) -> Result<Deadline, String> {
+        let (done, wait) = std::sync::mpsc::channel::<()>();
+        let passed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (flag, abort) = (passed.clone(), abort.clone());
+        std::thread::Builder::new()
+            .name("exact-fetch-deadline".into())
+            .spawn(move || {
+                // A request the caller already aborted (a newer answer, an
+                // unload) stays Aborted: the deadline did not end it.
+                if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+                    wait.recv_timeout(std::time::Duration::from_millis(ms.into()))
+                {
+                    if !abort.signal().aborted() {
+                        flag.store(true, Ordering::Release);
+                        abort.abort();
+                    }
+                }
+            })
+            .map_err(|e| format!("the request's deadline could not be armed: {e}"))?;
+        Ok(Deadline {
+            passed,
+            _done: done,
+        })
+    }
+
+    fn passed(&self) -> bool {
+        self.passed.load(Ordering::Acquire)
     }
 }
 
@@ -904,6 +973,11 @@ fn fetch_failure(e: ibex2::boundary::HostError, abort: &AbortController) -> Outc
         ibex2::boundary::HostError::Denied { capability } => failed(
             FailureKind::Refused,
             format!("outside the app's grants ({capability})"),
+        ),
+        // The origin a redirect led to, which the grants lack (podcast F5).
+        ibex2::boundary::HostError::DeniedRedirect { capability, origin } => failed(
+            FailureKind::Refused,
+            format!("outside the app's grants ({capability}): redirected to {origin}"),
         ),
         e => failed(
             FailureKind::Network,

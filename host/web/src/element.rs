@@ -787,6 +787,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Type => "type",
             PropId::InputMode => "inputmode",
             PropId::EnterKeyHint => "enterkeyhint",
+            PropId::Autocomplete => "autocomplete",
             PropId::Autocapitalize => "autocapitalize",
             PropId::Autocorrect => "autocorrect",
             PropId::Spellcheck => "spellcheck",
@@ -815,6 +816,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             // LLP 1053.000.000 D1: written, read by no rule, drawn nowhere.
             PropId::GlassGroup => "glassGroup",
             PropId::RetainFocus => "retainFocus",
+            // tvOS's focus guide; a browser's Tab order is sequential.
+            PropId::FocusGuide => continue,
             PropId::SwipeIndicator => "swipeIndicator",
             PropId::Href if text.is_empty() => continue,
             PropId::Href => "href",
@@ -859,10 +862,19 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::PreventsDisplaySleepDuringVideoPlayback => {
                 "preventsDisplaySleepDuringVideoPlayback"
             }
+            // @ref LLP 1098 D6 — the media session's, which media-glue.js reads.
+            PropId::MediaTitle => "mediaTitle",
+            PropId::MediaArtist => "mediaArtist",
+            PropId::MediaAlbum => "mediaAlbum",
+            PropId::MediaArtwork => "mediaArtwork",
+            PropId::SeekbackwardOffset => "seekbackwardOffset",
+            PropId::SeekforwardOffset => "seekforwardOffset",
 
             PropId::Sandbox => "sandbox",
             PropId::SemanticTag => continue,
             PropId::Checked => "checked",
+            // A radio's group (x2apps survey #2): the browser's own exclusivity and arrows.
+            PropId::Name => "name",
             PropId::Rows => "rows",
             PropId::Maxlength => "maxlength",
             // A file input's own attributes (LLP 1069.002 D1), so the
@@ -876,6 +888,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Popover => "popover",
             PropId::Popovertarget => "popovertarget",
             PropId::Popovertargetaction => "popovertargetaction",
+            // LLP 1021 §5.1: the context menu's popover and its preview row,
+            // which the glue opens on `contextmenu` (glue.js).
+            PropId::ContextPopover => "contextpopover",
+            PropId::ContextPreview => "data-context-preview",
             PropId::Commandfor => "commandfor",
             PropId::Command => "command",
             PropId::AccessibilityChecked => "aria-checked",
@@ -892,6 +908,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::TabIndex => "tabindex",
             PropId::AccessibilityRequired => "aria-required",
             PropId::AccessibilityHasPopup => "aria-haspopup",
+            PropId::AccessibilityCurrent => "aria-current",
             // HTML's global `title`: the browser's own tooltip (studio diary R24).
             PropId::Title => "title",
             // SVG 2 attributes by their exact (case-sensitive) names (LLP 1055 D1).
@@ -1020,6 +1037,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     let implicit = match (element(node), out.get("type").map(String::as_str)) {
         ("button", _) => Some("button"),
         ("input", Some("checkbox")) => Some("checkbox"),
+        ("input", Some("radio")) => Some("radio"),
         ("a", _) if out.contains_key("href") => Some("link"),
         _ => None,
     };
@@ -1050,7 +1068,9 @@ mod name_tests {
             .map(|(css, _)| css)
             .expect("page stylesheet");
         assert!(page.contains("select { display: block; }"));
-        assert!(page.contains("input[type=\"checkbox\"] { box-sizing: border-box; }"));
+        assert!(page.contains(
+            "input[type=\"checkbox\"], input[type=\"radio\"] { box-sizing: border-box; }"
+        ));
         let mut file_appearance_restored = false;
         for rule in stylesheet.split('}') {
             let Some((selectors, declarations)) = rule.rsplit_once('{') else {

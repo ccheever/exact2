@@ -71,10 +71,14 @@ final class ClipMacTests: XCTestCase {
         p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view", "style": ["display": "flex"]],
-            ["op": "create", "id": 2, "kind": "view", "style": ["z_index": 5.0]],
+            // `z-index: 5` reaches a host as its paint rank, twice the index (LLP 1083.000 D4).
+            ["op": "create", "id": 2, "kind": "view", "style": [:]],
+            ["op": "rank", "id": 2, "rank": 10],
             ["op": "create", "id": 3, "kind": "button", "handlers": ["press"], "style": ["position_type": "absolute"]],
             ["op": "create", "id": 4, "kind": "view", "style": [:]],
             ["op": "children", "id": 2, "ids": [3]],
+            // LLP 1083: the kernel sends paint rank separately from style.
+            ["op": "rank", "id": 2, "rank": 10],
             ["op": "children", "id": 1, "ids": [2, 4]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
@@ -87,7 +91,7 @@ final class ClipMacTests: XCTestCase {
         XCTAssertTrue(at(100, 140) === popup, "below the bar, over the content after it")
         XCTAssertTrue(at(100, 45) === popup)
         XCTAssertTrue(at(300, 140) === p.views[4], "beside the popup, the content")
-        bar.applyStyle(["z_index": 5.0, "overflow_x": "hidden", "overflow_y": "hidden"])
+        bar.applyStyle(["overflow_x": "hidden", "overflow_y": "hidden"])
         XCTAssertTrue(at(100, 140) === p.views[4], "a clipped popup is not hit beyond the clip")
     }
 

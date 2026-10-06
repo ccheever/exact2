@@ -88,7 +88,7 @@ theorem literal_displays : ∀ {parts : List Expr} {s : String}, literalParts pa
     | cons h1 h2 h3 =>
       cases h1; simp [Value.display] at h2; subst h2
       rw [join_cons, ih1 _ h3]
-  | .num _ :: _, _, h | .bool _ :: _, _, h | .none :: _, _, h | .emptyList :: _, _, h
+  | .num _ :: _, _, h | .bool _ :: _, _, h | .none :: _, _, h | .list _ :: _, _, h
   | .some _ :: _, _, h | .template _ :: _, _, h | .var _ :: _, _, h | .member _ _ :: _, _, h
   | .call _ _ :: _, _, h | .record _ _ _ :: _, _, h | .unary _ _ :: _, _, h | .binary _ _ _ :: _, _, h
   | .ternary _ _ _ :: _, _, h | .matchOpt _ _ _ _ :: _, _, h | .arrow _ _ :: _, _, h

@@ -139,6 +139,9 @@ fn encode_outcome(w: &mut Writer, outcome: &Outcome) {
                 FailureKind::Refused => 2,
                 FailureKind::Unsupported => 3,
                 FailureKind::Aborted => 4,
+                // Additive, as tags 5–8 were; a Rust module never asks for a
+                // deadline across this seam (below), so it never sees one.
+                FailureKind::Timeout => 9,
             });
             w.string(message);
         }
@@ -177,6 +180,7 @@ fn read_outcome(r: &mut Reader<'_>) -> Result<Outcome, String> {
         2 => FailureKind::Refused,
         3 => FailureKind::Unsupported,
         4 => FailureKind::Aborted,
+        9 => FailureKind::Timeout,
         _ => return Err("invalid outcome tag".into()),
     };
     Ok(Outcome::Failed {
@@ -197,6 +201,14 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 )),
             );
         }
+        // The request encoding has no deadline: refused rather than dropped,
+        // so a Rust module's timeout never silently becomes none.
+        Ok(Answer::Later(r)) if r.timeout_ms.is_some() => encode_result(
+            w,
+            Err(DataError::Unavailable(
+                "a request timeout cannot cross the Rust module seam".into(),
+            )),
+        ),
         Ok(Answer::Now(v)) => {
             w.u8(0);
             v.encode(w);
@@ -271,7 +283,9 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
             let (tag, message) = match e {
                 DataError::UnknownSource(s) => (2, s),
                 DataError::BadArguments(s) => (3, s),
-                DataError::Unavailable(s) | DataError::Interface(s) => (4, s),
+                DataError::Unavailable(s)
+                | DataError::Interface(s)
+                | DataError::DeferredAtBake(s) => (4, s),
             };
             w.u8(tag);
             w.string(&message);
@@ -284,6 +298,7 @@ fn read_result(r: &mut Reader<'_>) -> Result<Result<Answer, DataError>, String> 
         0 => Ok(Answer::Now(Value::decode(r).map_err(error)?)),
         1 | 6 | 9 => Ok(Answer::Later(Request {
             stream: tag == 9,
+            timeout_ms: None,
             http: if tag != 1 {
                 let limit = r.u32().map_err(error)?;
                 if limit == 0 || limit > 64 << 20 {

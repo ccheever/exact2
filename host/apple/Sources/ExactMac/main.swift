@@ -305,12 +305,15 @@ let session = firstWindow.session
 let view = firstWindow.view
 let window = firstWindow.window
 window.center()
-if !agentMode && !smoke && !windowConfig.isEmpty,
-   let identity = ExactEnv.appMetadata["CFBundleIdentifier"] as? String {
-    let frameName = identity + ".main"
-    window.setFrameUsingName(frameName)
-    window.setFrameAutosaveName(frameName)
-}
+/// The frame the window was left at (its autosave). AppKit keeps the content
+/// rect when `.fullSizeContentView` or a toolbar goes in, so a frame restored
+/// only before the window's chrome lost the titlebar's height at every launch
+/// (#113). It is restored before boot, so the plan boots near its size, and
+/// again once the window has its final style (`finishLaunching`), which is
+/// when the name goes on: setting it saves the current frame.
+let frameName = !agentMode && !smoke && !windowConfig.isEmpty
+    ? (ExactEnv.appMetadata["CFBundleIdentifier"] as? String).map { $0 + ".main" } : nil
+if let frameName { window.setFrameUsingName(frameName) }
 // Agent-driven apps run side by side (every session's smoke launches one):
 // centred, each would cover the last and starve its Metal layer of drawables.
 // Spread them by pid so no window is fully hidden.
@@ -402,15 +405,22 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// ⌘Q asks each window's app first (`beforeunload`, studio diary R17):
     /// the first that keeps itself open comes forward with whatever it asks
     /// and the quit stops there; once answered, its `close()` closes it, and
-    /// the last window closing ends the app. No `.terminateLater`: nothing
-    /// is held while the app asks (LLP 1069.010 D7).
+    /// the last window closing ends the app. Nothing is held while the app
+    /// asks (LLP 1069.010 D7); a quit with storage still landing that an
+    /// answer started is held until it lands, five seconds at most (LLP
+    /// 1097 D10).
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         for w in windows where !w.closing && !w.session.beforeUnload() {
             w.front()
             return .terminateCancel
         }
-        return .terminateNow
+        let hold = StorageHold(bound: 5, pending: { windows.contains { $0.session.storageOperations > 0 } },
+                               begin: { _ in }, end: { NSApp.reply(toApplicationShouldTerminate: true) })
+        guard hold.hold() else { return .terminateNow }
+        quitting = hold
+        return .terminateLater
     }
+    var quitting: StorageHold?
     func applicationDidFinishLaunching(_ notification: Notification) {
         ExactEnv.stamp("didFinishLaunching")
         finishLaunching()
@@ -509,6 +519,13 @@ func finishLaunching() {
     let rustMs = session.rustMs
     let applyMs = session.applyMs
     let bootMs = session.bootMs
+    // Its final style, then the frame it was left at — before a document
+    // routed below can bring the window forward.
+    firstWindow.coverChrome()
+    if let frameName {
+        window.setFrameUsingName(frameName)
+        window.setFrameAutosaveName(frameName)
+    }
     // Becoming key can synchronously announce readiness. Initialize the guard
     // before ordering the window, not afterward (two stdin readers otherwise).
     if !launchDocuments.isEmpty {

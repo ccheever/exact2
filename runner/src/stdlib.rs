@@ -120,7 +120,9 @@ fn call_value(
         // @ref LLP 1051.000 D1/D2 — an action's reads, through the linked
         // geometry. The compiler admits them nowhere else, and a host refuses
         // a plan that reads geometry it doesn't link (LLP 1047 D6).
-        Stdlib::Frame | Stdlib::Measure => return geometry?.read(plan, f, args),
+        Stdlib::Frame | Stdlib::Measure | Stdlib::ElementFromPoint => {
+            return geometry?.read(plan, f, args)
+        }
         // @ref LLP 1038 D3/D9 — pure verbs and typed reads over the plan shapes.
         Stdlib::Open
         | Stdlib::Push
@@ -156,6 +158,11 @@ fn call_value(
             Value::Bool(args.first()?.as_str()?.starts_with(args.get(1)?.as_str()?))
         }
         Stdlib::EndsWith => Value::Bool(args.first()?.as_str()?.ends_with(args.get(1)?.as_str()?)),
+        // `String.prototype.indexOf` (LLP 1088 §9.1); a list's is the VM's.
+        Stdlib::IndexOf => Value::Number(crate::strings::index_of(
+            args.first()?.as_str()?,
+            args.get(1)?.as_str()?,
+        )),
         Stdlib::Trim => {
             let v = args.first()?;
             let s = v.as_str()?;
@@ -172,7 +179,9 @@ fn call_value(
             _ => return None,
         },
         // @ref LLP 1054.000.003 D8 — the linked capability, or a trap.
-        Stdlib::FormatDate | Stdlib::FormatNumber => return format?(f, args),
+        Stdlib::FormatDate | Stdlib::FormatNumber | Stdlib::ToFixed | Stdlib::FormatDecimal => {
+            return format?(f, args)
+        }
         Stdlib::Length => Value::Number(match args.first()? {
             Value::List(items) => items.len() as f64,
             // The web's String.length (and `maxlength`): UTF-16 code units.
@@ -212,9 +221,29 @@ fn call_value(
             _ => return None,
         },
         // @ref LLP 1017.003 D5 — opcodes with a callback body, never a
-        // call; `join` is the VM's, which bounds the string it makes.
-        Stdlib::Map | Stdlib::Filter | Stdlib::Join => return None,
+        // call; `join` is the VM's, which bounds the string it makes, and so
+        // are `concat` and `split` (LLP 1088 §9.1), which build a list.
+        Stdlib::Map | Stdlib::Filter | Stdlib::Join | Stdlib::Concat | Stdlib::Split => {
+            return None
+        }
         Stdlib::Floor => Value::Number(num(0)?.floor()),
+        // @ref LLP 1102 §3.1, §3.2, §3.4 — `Math.ceil`, `Math.round`, a strict
+        // `Number()`, and an age's calendar count.
+        Stdlib::Ceil => Value::Number(num(0)?.ceil()),
+        Stdlib::Round => Value::Number(js_round(num(0)?)),
+        Stdlib::ParseNumber => parse_number(args.first()?.as_str()?)
+            .map_or(Value::Option(None), |n| Value::some(Value::Number(n))),
+        Stdlib::CalendarDiff => {
+            let months = match args.get(2)?.as_str()? {
+                "years" => false,
+                "months" => true,
+                _ => return None,
+            };
+            calendar_diff(args.first()?.as_str()?, args.get(1)?.as_str()?, months)
+                .map_or(Value::Option(None), |n| {
+                    Value::some(Value::Number(n as f64))
+                })
+        }
         Stdlib::Max => Value::Number(num(0)?.max(num(1)?)),
         Stdlib::Min => Value::Number(num(0)?.min(num(1)?)),
         Stdlib::T => unreachable!("interpolation is bounded by call"),
@@ -353,6 +382,181 @@ pub fn assembled(build: impl FnOnce(&mut String)) -> Value {
             Value::str(&s)
         }
     })
+}
+
+/// `Math.round` (ECMA-262): the integer nearest `x`, a tie toward +∞, and -0
+/// for a negative `x` that rounds to zero; NaN and the infinities are their
+/// own. `x - floor(x)` is exact for a finite double (below 2^52 the two share
+/// the grid; above it `x` is already an integer), so the tie test is too.
+/// Not `f64::round`, which breaks a tie away from zero. @ref LLP 1102 §3.2
+pub fn js_round(x: f64) -> f64 {
+    if !x.is_finite() {
+        return x;
+    }
+    let f = x.floor();
+    let r = if x - f >= 0.5 { f + 1.0 } else { f };
+    if r == 0.0 && x.is_sign_negative() {
+        -0.0
+    } else {
+        r
+    }
+}
+
+/// `parseNumber(text)` (LLP 1102 §3.1): `trim`'s whitespace around an
+/// optional sign, digits with an optional fraction or a fraction alone, and
+/// an optional decimal exponent; the correctly rounded double (`exact_num`,
+/// as `Number()` reads it), or `None` for any other text, for a result past
+/// the largest finite, and for a nonzero numeral that rounds to zero.
+pub fn parse_number(text: &str) -> Option<f64> {
+    let t = text.trim_matches(is_js_space);
+    let b = t.as_bytes();
+    let mut i = usize::from(matches!(b.first(), Some(b'+' | b'-')));
+    let digits = |i: &mut usize| {
+        let start = *i;
+        while b.get(*i).is_some_and(u8::is_ascii_digit) {
+            *i += 1;
+        }
+        *i - start
+    };
+    let whole = digits(&mut i);
+    let mut fraction = 0;
+    if b.get(i) == Some(&b'.') {
+        i += 1;
+        fraction = digits(&mut i);
+    }
+    if whole + fraction == 0 {
+        return None;
+    }
+    let mantissa_end = i;
+    if matches!(b.get(i), Some(b'e' | b'E')) {
+        i += 1;
+        if matches!(b.get(i), Some(b'+' | b'-')) {
+            i += 1;
+        }
+        if digits(&mut i) == 0 {
+            return None;
+        }
+    }
+    if i != b.len() {
+        return None;
+    }
+    // `exact_num` stops an exponent at 65,536 as std does, which a numeral
+    // of more digits than that can outrun (`0.`, 65,535 zeros, `1e655360`
+    // is past the largest finite), so a long one is read short first.
+    let n = if whole + fraction <= SHORT_DIGITS {
+        exact_num::parse_f64(t).ok()?
+    } else {
+        exact_num::parse_f64(&short_numeral(b, mantissa_end)).ok()?
+    };
+    let nonzero = b[..mantissa_end].iter().any(|c| (b'1'..=b'9').contains(c));
+    (n.is_finite() && (n != 0.0 || !nonzero)).then_some(n)
+}
+
+/// More significant digits than a halfway point between two doubles has
+/// (767): the rest only break a tie, as one sticky digit does.
+const SHORT_DIGITS: usize = 800;
+
+/// A numeral `parse_number` admitted, of the same value to the double it
+/// rounds to: its first `SHORT_DIGITS` significant digits, a `1` after them
+/// for any nonzero rest, and the exponent that keeps their place; past
+/// `10^±400`, `1e±400`, which overflows or underflows as the numeral does.
+fn short_numeral(b: &[u8], mantissa_end: usize) -> String {
+    let (sign, mantissa) = match b.first() {
+        Some(&c @ (b'+' | b'-')) => (c == b'-', &b[1..mantissa_end]),
+        _ => (false, &b[..mantissa_end]),
+    };
+    let point = mantissa
+        .iter()
+        .position(|&c| c == b'.')
+        .unwrap_or(mantissa.len());
+    let digits: Vec<u8> = mantissa
+        .iter()
+        .copied()
+        .filter(u8::is_ascii_digit)
+        .collect();
+    let mut out = String::from(if sign { "-" } else { "" });
+    let (Some(lead), Some(last)) = (
+        digits.iter().position(|&c| c != b'0'),
+        digits.iter().rposition(|&c| c != b'0'),
+    ) else {
+        out.push('0');
+        return out;
+    };
+    let rest = &b[(mantissa_end + 1).min(b.len())..];
+    let (negative, rest) = match rest.first() {
+        Some(&c @ (b'+' | b'-')) => (c == b'-', &rest[1..]),
+        _ => (false, rest),
+    };
+    // Saturated far past any reach a numeral within `MAX_STRING` has.
+    let exponent = rest
+        .iter()
+        .fold(0i64, |e, &c| (e * 10 + i64::from(c - b'0')).min(1 << 50));
+    let exponent = if negative { -exponent } else { exponent };
+    // The value is `0.D × 10^place`, `D` the significant digits.
+    let place = point as i64 - lead as i64 + exponent;
+    if !(-400..=400).contains(&place) {
+        out.push_str(if place > 0 { "1e400" } else { "1e-400" });
+        return out;
+    }
+    let significant = &digits[lead..=last];
+    let kept = &significant[..significant.len().min(SHORT_DIGITS)];
+    out.extend(kept.iter().map(|&c| char::from(c)));
+    let mut written = kept.len() as i64;
+    if kept.len() < significant.len() {
+        out.push('1');
+        written += 1;
+    }
+    out.push('e');
+    push_number((place - written) as f64, &mut out);
+    out
+}
+
+/// A `YYYY-MM-DD` date (years 0 through 9999, a real day of the month).
+fn iso_date(s: &str) -> Option<(i64, i64, i64)> {
+    let b = s.as_bytes();
+    if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
+        return None;
+    }
+    let num = |r: std::ops::Range<usize>| {
+        b[r.clone()]
+            .iter()
+            .all(u8::is_ascii_digit)
+            .then(|| s[r].parse::<i64>().ok())?
+    };
+    let (y, m, d) = (num(0..4)?, num(5..7)?, num(8..10)?);
+    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    ((1..=12).contains(&m) && d >= 1 && d <= days[m as usize - 1]).then_some((y, m, d))
+}
+
+/// `calendarDiff(from, to, unit)` (LLP 1102 §3.4): the whole years or months
+/// from `from` to `to`, counted as an age is — a period completes when the
+/// later date's month and day (for months, its day) reach the earlier
+/// date's — and negated when `to` is earlier, as `Temporal.PlainDate.prototype
+/// .until` counts with `largestUnit` years or months. `None` for a date that
+/// is not `YYYY-MM-DD`.
+pub fn calendar_diff(from: &str, to: &str, months: bool) -> Option<i64> {
+    let (a, b) = (iso_date(from)?, iso_date(to)?);
+    let (early, late, sign) = if b < a { (b, a, -1) } else { (a, b, 1) };
+    let n = if months {
+        (late.0 - early.0) * 12 + (late.1 - early.1) - i64::from(late.2 < early.2)
+    } else {
+        (late.0 - early.0) - i64::from((late.1, late.2) < (early.1, early.2))
+    };
+    Some(sign * n)
 }
 
 /// ECMA-262's WhiteSpace and LineTerminator: what `String.prototype.trim`
@@ -746,5 +950,95 @@ mod tests {
             panic!("trim answers a string");
         };
         assert!(Value::same_str(&s, &out));
+    }
+
+    /// LLP 1102 §3.1–§3.4: the same cases as host/web/tests/js-runtime.test.mjs's
+    /// over roster.js, whose oracle is `Number`, `Math.round` and `Math.ceil`.
+    #[test]
+    fn number_and_date_reads_are_javascript_s() {
+        let bits = |x: Option<f64>| x.map(f64::to_bits);
+        for (text, want) in [
+            (" 12.5 ", Some(12.5)),
+            ("-3", Some(-3.0)),
+            ("+.5", Some(0.5)),
+            ("5.", Some(5.0)),
+            ("5.e3", Some(5000.0)),
+            ("1E-2", Some(0.01)),
+            ("00012", Some(12.0)),
+            ("-0", Some(-0.0)),
+            ("0e999999999999", Some(0.0)),
+            ("\u{a0}\t7\n", Some(7.0)),
+            ("\u{feff}8", Some(8.0)),
+            ("9007199254740993", Some(9007199254740992.0)),
+            ("1.7976931348623157e308", Some(f64::MAX)),
+            ("2.4703282292062328e-324", Some(5e-324)),
+            ("1.7976931348623159e308", None),
+            ("2.4703282292062327e-324", None),
+            ("1e-400", None),
+            ("1e999999999999", None),
+            ("", None),
+            (".", None),
+            ("+", None),
+            ("1e", None),
+            ("1e+", None),
+            (".e1", None),
+            ("12px", None),
+            ("0x1F", None),
+            ("1_000", None),
+            ("Infinity", None),
+            ("NaN", None),
+            ("1 2", None),
+            ("1,5", None),
+            ("\u{85}9", None),
+            ("\u{661}", None),
+            // Past `exact_num`'s exponent reach: read short.
+            (&format!("0.{}1e655360", "0".repeat(65_535)), None),
+            (&format!("0.{}1e70300", "0".repeat(70_000)), Some(1e299)),
+            (
+                &format!("-{}e-65630", "1".repeat(65_536)),
+                Some(-1.1111111111111112e-95),
+            ),
+            (&format!("{}e-1000", "0".repeat(70_000)), Some(0.0)),
+            (&format!("1{}", "0".repeat(400)), None),
+            (&format!("1{}e-655360", "0".repeat(65_535)), None),
+        ] {
+            assert_eq!(bits(parse_number(text)), bits(want), "{text:?}");
+        }
+        for (x, want) in [
+            (2.5, 3.0),
+            (-2.5, -2.0),
+            (-1.5, -1.0),
+            (0.49999999999999994, 0.0),
+            (-0.4, -0.0),
+            (-0.5, -0.0),
+            (-0.0, -0.0),
+            (4503599627370495.5, 4503599627370496.0),
+            (-4503599627370495.5, -4503599627370495.0),
+            (f64::INFINITY, f64::INFINITY),
+        ] {
+            assert_eq!(js_round(x).to_bits(), f64::to_bits(want), "round({x})");
+        }
+        assert!(js_round(f64::NAN).is_nan());
+        for (from, to, years, months) in [
+            ("1990-06-15", "2026-06-14", Some(35), Some(431)),
+            ("1990-06-15", "2026-06-15", Some(36), Some(432)),
+            ("2024-02-29", "2025-02-28", Some(0), Some(11)),
+            ("2024-02-29", "2025-03-01", Some(1), Some(12)),
+            ("2024-01-31", "2024-02-29", Some(0), Some(0)),
+            ("2024-01-31", "2024-03-01", Some(0), Some(1)),
+            ("2026-06-14", "1990-06-15", Some(-35), Some(-431)),
+            ("2024-03-01", "2024-01-31", Some(0), Some(-1)),
+            ("2024-05-05", "2024-05-05", Some(0), Some(0)),
+            // A reversed zero is +0 on the JS target too (`n && sign * n`).
+            ("2024-02-29", "2024-01-31", Some(0), Some(0)),
+            ("0000-02-29", "9999-12-31", Some(9999), Some(119_998)),
+            ("2025-02-29", "2026-01-01", None, None),
+            ("2024-13-01", "2026-01-01", None, None),
+            ("2024-1-01", "2026-01-01", None, None),
+            ("2024-01-01", " 2026-01-01", None, None),
+        ] {
+            assert_eq!(calendar_diff(from, to, false), years, "years {from} {to}");
+            assert_eq!(calendar_diff(from, to, true), months, "months {from} {to}");
+        }
     }
 }

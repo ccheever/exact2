@@ -71,22 +71,79 @@ fn main() -> ExitCode {
             .packages
             .iter()
             .map(|package| package.root.display().to_string())
-            .chain(
-                graph
-                    .consulted
-                    .iter()
-                    .filter_map(|manifest| manifest.parent().map(|dir| dir.display().to_string())),
-            )
+            // The nearest directory that exists, for a file looked for and
+            // not found — but only inside a package or a `node_modules`: never
+            // the app (already watched) or a directory above it.
+            .chain(graph.consulted.iter().filter_map(|consulted| {
+                let dir = consulted.ancestors().skip(1).find(|dir| dir.is_dir())?;
+                // A consulted manifest's directory is a package even when
+                // resolution then refused it.
+                let manifest =
+                    consulted.ends_with("package.json") && consulted.parent() == Some(dir);
+                let inside = manifest
+                    || graph.packages.iter().any(|p| dir.starts_with(&p.root))
+                    || dir.components().any(|c| c.as_os_str() == "node_modules");
+                inside.then(|| dir.display().to_string())
+            }))
             .collect();
         roots.sort();
         roots.dedup();
-        let json = format!(
-            "{{\"packages\":[{}]}}\n",
-            roots
-                .iter()
+        // Where a `node_modules` that is not there yet would be made: the
+        // loop watches these directories (not their trees) for its creation.
+        // Entries to watch in a directory without its tree: a `node_modules`
+        // not made yet (an install makes it), and an install that is a link
+        // (retargeting it is an edit no file inside sees).
+        let mut shallow: Vec<(String, String)> = Vec::new();
+        for consulted in &graph.consulted {
+            if let Some(modules) = consulted
+                .ancestors()
+                .find(|a| a.file_name().is_some_and(|n| n == "node_modules"))
+            {
+                if let Some(parent) = modules.parent().filter(|p| !modules.exists() && p.is_dir()) {
+                    shallow.push((parent.display().to_string(), "node_modules".into()));
+                }
+            }
+            // Every link on the way to it — the install, a linked
+            // node_modules, a linked scope — is one entry of its directory.
+            for dir in consulted.ancestors().skip(1) {
+                let link = std::fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_symlink());
+                if let (true, Some(parent), Some(name)) = (link, dir.parent(), dir.file_name()) {
+                    shallow.push((
+                        parent.display().to_string(),
+                        name.to_string_lossy().into_owned(),
+                    ));
+                }
+            }
+        }
+        shallow.sort();
+        shallow.dedup();
+        let list = |dirs: &[String]| {
+            dirs.iter()
                 .map(|r| format!("{r:?}"))
                 .collect::<Vec<_>>()
                 .join(",")
+        };
+        let pairs = shallow
+            .iter()
+            .map(|(dir, name)| format!("[{dir:?},{name:?}]"))
+            .collect::<Vec<_>>()
+            .join(",");
+        // Every source by path: one in a dot directory the app's watcher
+        // would otherwise skip is still an input.
+        // And every path resolution looked at, as written: a link in a dot
+        // directory is watched by its own path.
+        let sources: Vec<String> = graph
+            .sources
+            .iter()
+            .filter(|s| s.path.is_absolute())
+            .map(|s| s.path.display().to_string())
+            .chain(graph.consulted.iter().map(|c| c.display().to_string()))
+            .collect();
+        let json = format!(
+            "{{\"packages\":[{}],\"shallow\":[{}],\"sources\":[{}]}}\n",
+            list(&roots),
+            pairs,
+            list(&sources)
         );
         let _ = std::fs::create_dir_all(out);
         let _ = std::fs::write(std::path::Path::new(out).join("dev-sources.json"), json);
@@ -205,6 +262,20 @@ fn main() -> ExitCode {
                 let _ = std::fs::remove_file(dir.join("notify.flag"));
                 if u.has(Capability::Notifications) {
                     let _ = std::fs::write(dir.join("notify.flag"), "");
+                }
+                // A declared sound or a sound command (sounds.js, LLP 1096
+                // D5): the flag holds the table, `[src, frames, rate]` each.
+                let _ = std::fs::remove_file(dir.join("sounds.flag"));
+                if exact_runner::uses::runs_sounds(&plan) {
+                    let table: Vec<_> = plan
+                        .sounds
+                        .iter()
+                        .map(|r| serde_json::json!([plan.str(r.src), r.frames, r.rate]))
+                        .collect();
+                    let _ = std::fs::write(
+                        dir.join("sounds.flag"),
+                        serde_json::json!(table).to_string(),
+                    );
                 }
             }
             // Every portable symbol role, which symbols.js loads when a bound

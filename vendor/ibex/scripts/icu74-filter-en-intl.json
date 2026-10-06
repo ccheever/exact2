@@ -1,0 +1,163 @@
+{
+  "strategy": "additive",
+  "localeFilter": {
+    "filterType": "locale",
+    "includelist": ["en", "en_US", "en_US_POSIX"],
+    "includeChildren": false,
+    "includeScripts": false
+  },
+  "featureFilters": {
+    "normalization": {
+      "includelist": ["nfkc"]
+    },
+    "coll_ucadata": "include",
+    "coll_tree": "include",
+    "curr_supplemental": "include",
+    "curr_tree": "include",
+    "locales_tree": "include",
+    "unit_tree": "include",
+    "zone_tree": "include",
+    "misc": {
+      "includelist": [
+        "keyTypeData",
+        "langInfo",
+        "metaZones",
+        "numberingSystems",
+        "pluralRanges",
+        "plurals",
+        "supplementalData",
+        "timezoneTypes",
+        "units",
+        "zoneinfo64"
+      ]
+    }
+  },
+  "resourceFilters": [
+    {
+      "categories": ["locales_tree"],
+      "rules": [
+        "+/NumberElements/default",
+        "+/NumberElements/latn",
+        "+/calendar/gregorian"
+      ]
+    },
+    {
+      "categories": ["curr_tree"],
+      "rules": [
+        "+/"
+      ]
+    },
+    {
+      "categories": ["curr_supplemental"],
+      "rules": [
+        "+/"
+      ]
+    },
+    {
+      "categories": ["unit_tree", "zone_tree"],
+      "rules": [
+        "+/"
+      ]
+    },
+    {
+      "categories": ["misc"],
+      "files": {
+        "includelist": ["keyTypeData"]
+      },
+      "rules": [
+        "+/keyMap/calendar",
+        "+/keyMap/hours",
+        "+/keyMap/numbers",
+        "+/typeMap/calendar/gregorian",
+        "+/typeMap/hours/h11",
+        "+/typeMap/hours/h12",
+        "+/typeMap/hours/h23",
+        "+/typeMap/hours/h24",
+        "+/typeMap/numbers/latn"
+      ]
+    },
+    {
+      "categories": ["misc"],
+      "files": {
+        "includelist": ["langInfo"]
+      },
+      "rules": [
+        "+/likely"
+      ]
+    },
+    {
+      "categories": ["misc"],
+      "files": {
+        "includelist": ["metaZones", "timezoneTypes"]
+      },
+      "rules": [
+        "+/"
+      ]
+    },
+    {
+      "categories": ["misc"],
+      "files": {
+        "includelist": ["numberingSystems"]
+      },
+      "rules": [
+        "+/numberingSystems/latn"
+      ]
+    },
+    {
+      "categories": ["misc"],
+      "files": {
+        "includelist": ["pluralRanges"]
+      },
+      "rules": [
+        "+/locales/en",
+        "+/rules/set04"
+      ]
+    },
+    {
+      "categories": ["misc"],
+      "files": {
+        "includelist": ["plurals"]
+      },
+      "rules": [
+        "+/locales/en",
+        "+/locales/root",
+        "+/rules/set0",
+        "+/rules/set3"
+      ]
+    },
+    {
+      "categories": ["misc"],
+      "files": {
+        "includelist": ["supplementalData"]
+      },
+      "rules": [
+        "+/calendarPreferenceData",
+        "+/idValidity/region/macroregion",
+        "+/timeData/001",
+        "+/timeData/US",
+        "+/weekData"
+      ]
+    },
+    {
+      "categories": ["misc"],
+      "files": {
+        "includelist": ["units"]
+      },
+      "rules": [
+        "+/convertUnits/hour",
+        "+/convertUnits/meter",
+        "+/convertUnits/second",
+        "+/unitQuantities"
+      ]
+    },
+    {
+      "categories": ["misc"],
+      "files": {
+        "includelist": ["zoneinfo64"]
+      },
+      "rules": [
+        "+/"
+      ]
+    }
+  ]
+}

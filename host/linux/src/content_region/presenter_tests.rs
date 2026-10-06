@@ -40,7 +40,7 @@ const APP: &str = r#"component App
         text "replace again"
       button press=hide testId="hide" height=20
         text "hide"
-      input value=draft change=edit testId="input" height=32
+      input value=draft input=edit testId="input" height=32
       text `${count}` testId="count" height=24
       when showing
         view id="owner" width=400 height=200 overflow-x="hidden" overflow-y="hidden"
@@ -96,6 +96,9 @@ fn non_cpu_region_refuses_before_plan_font_or_device_work() {
 fn retained_pointer_eligibility_changes_only_when_its_picture_is_acknowledged() {
     let _service = crate::content_region::test_service();
     for initial_hit in [true, false] {
+        // The first pass's region retires in the background; the second
+        // admits only once it has (`test_wait_idle`).
+        crate::content_region::test_wait_idle();
         let (old, new) = if initial_hit {
             ("auto", "none")
         } else {

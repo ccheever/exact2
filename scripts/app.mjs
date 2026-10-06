@@ -31,6 +31,7 @@ import { BINARYEN } from '../host/web/stages.mjs';
 
 import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
+import { throwContractErrors } from './contract-diagnosis.mjs';
 import { filesystem } from './filesystem.mjs';
 import { startSweep } from './sweep.mjs';
 import { installProblems } from './install-page.mjs';
@@ -49,7 +50,10 @@ export function cargoOnPath(env = process.env, home = homedir()) {
   env.PATH = [rustup, ...dirs].join(delimiter);
   return true;
 }
-cargoOnPath();
+cargoOnPath(); process.env.HERMES_LEAN_SYS_OFFLINE = '1';
+
+/** Every Cargo process Exact starts refuses implicit Hermes acquisition. */
+export function cargoEnvironment(env = process.env) { return { ...env, HERMES_LEAN_SYS_OFFLINE: '1' }; }
 
 // @ref llp/1046.006.000-render-hooks.rfc.md#d5-shaders-that-live-with-the-game
 /** Explicit source roots, relative to app.json. Only packaged names reach a host. */
@@ -211,7 +215,7 @@ export function outsideWorkspaceProblems(workspace) {
 /** Resolve a binding lock, fetching its missing sources once without updating it. */
 export function lockedMetadata(workspace, noDeps = false, env = process.env) {
   const args = ['metadata', '--locked', '--offline', ...(noDeps ? ['--no-deps'] : []), '--format-version', '1'];
-  const options = { cwd: workspace, env, encoding: 'utf8', maxBuffer: 1 << 26 };
+  const options = { cwd: workspace, env: cargoEnvironment(env), encoding: 'utf8', maxBuffer: 1 << 26 };
   let result = spawnSync('cargo', args, options);
   if (result.status !== 0 && /--offline was specified|attempting to make an HTTP request|in the offline mode|offline mode \(via `--offline`\)/.test(result.stderr ?? '')) {
     console.error(`${workspace}: fetching missing locked Cargo sources (cargo fetch --locked)`);
@@ -231,7 +235,7 @@ function checkOutsideLock(workspace) {
   const lock = resolve(workspace, 'Cargo.lock'), root = resolve(ROOT, 'Cargo.lock');
   if (result.status !== 0 && existsSync(lock) && existsSync(root) && readFileSync(lock).equals(readFileSync(root))) {
     console.error(`${workspace}: resolving the Cargo.lock \`exact new\` copied from exact2 (cargo metadata)`);
-    const options = { cwd: workspace, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' };
+    const options = { cwd: workspace, env: cargoEnvironment(), stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' };
     const offline = spawnSync('cargo', ['metadata', '--offline', '--format-version', '1'], options);
     const resolved = offline.status === 0 ? offline : spawnSync('cargo', ['metadata', '--format-version', '1'], options);
     if (resolved.status !== 0) throw new Error(`cargo metadata in ${workspace}:\n${resolved.stderr}`);
@@ -292,15 +296,15 @@ export function webToolchainEnv(env) {
   const library = resolve(sysroot.stdout.trim(), 'lib/rustlib/src/rust/library');
   const marker = resolve(library, '.exact-fetched');
   if (!existsSync(marker)) {
-    const offline = spawnSync('cargo', ['metadata', '--offline', '--locked', '--format-version', '1', '--manifest-path', resolve(library, 'Cargo.toml')], { env: { ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN }, encoding: 'utf8', maxBuffer: 1 << 26 });
+    const offline = spawnSync('cargo', ['metadata', '--offline', '--locked', '--format-version', '1', '--manifest-path', resolve(library, 'Cargo.toml')], { env: cargoEnvironment({ ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN }), encoding: 'utf8', maxBuffer: 1 << 26 });
     let ready = offline.status === 0;
     if (!ready) {
       console.error(`${WEB_TOOLCHAIN}: std's sources are not fetched; fetching them once (cargo fetch --manifest-path …/library/Cargo.toml)`);
-      ready = spawnSync('cargo', ['fetch', '--locked', '--manifest-path', resolve(library, 'Cargo.toml')], { env: { ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN }, stdio: ['ignore', 'inherit', 'inherit'] }).status === 0;
+      ready = spawnSync('cargo', ['fetch', '--locked', '--manifest-path', resolve(library, 'Cargo.toml')], { env: cargoEnvironment({ ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN }), stdio: ['ignore', 'inherit', 'inherit'] }).status === 0;
     }
     if (ready) try { writeFileSync(marker, ''); } catch { /* a read-only toolchain checks again next time */ }
   }
-  return { ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN, EXACT_WEB_SIZE: [...WEB_STD, ...WEB_RUSTFLAGS].join(' ') };
+  return cargoEnvironment({ ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN, EXACT_WEB_SIZE: [...WEB_STD, ...WEB_RUSTFLAGS].join(' ') });
 }
 
 // A Bun older than package.json's pin is refused before anything builds.
@@ -328,9 +332,9 @@ if (existsSync(resolve(binaryenBin, process.platform === 'win32' ? 'wasm-opt.exe
 // Groups preserve capability-based shipping; none of these imports enters boot.
 const WEB_HOST_GROUPS = {
   base: ['glue.js', 'navigation.js', 'textflow-glue.js', 'timer-glue.js', 'input-glue.js',
-    'http-body.js', 'grant-admission.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'document-glue.js',
-    'motion-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js', 'picker-glue.js',
-    'documents-glue.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'notify-glue.js'],
+    'http-body.js', 'grant-admission.js', 'faults.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'document-glue.js',
+    'motion-glue.js', 'group-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js', 'picker-glue.js',
+    'documents-glue.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'resize-glue.js', 'notify-glue.js', 'sound-glue.js'],
   module: ['module-glue.js', 'module-worker.js', 'module-prelude.js'],
   storage: ['storage-request.js', 'storage.js', 'storage-environment.js', 'storage-fs.js', 'storage-sqlite.js',
     'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
@@ -504,7 +508,7 @@ export function resolveApp(nameOrCrate) {
     // always use their generated workspace below and need no Cargo process here.
     if (declared.length) workspace = declared[0];
     else if (outside) {
-      const located = spawnSync('cargo', ['locate-project', '--workspace', '--message-format', 'plain'], {cwd:dir, encoding:'utf8'});
+      const located = spawnSync('cargo', ['locate-project', '--workspace', '--message-format', 'plain'], {cwd:dir, env:cargoEnvironment(), encoding:'utf8'});
       workspace = located.status === 0 && located.stdout?.trim() ? realpathSync(dirname(located.stdout.trim())) : dir;
     }
     // EXACT_APP_DIR may name an app of this repo; only another workspace is checked.
@@ -711,7 +715,7 @@ let ignoredToolchain = null;
 /** Developer entrypoints explicitly bake unsigned-update permission. Direct Cargo/contract bakes default to production; release callers can select it here too.
  * The Rust build scripts spawn `bun`: the one that ran this script's version check leads the child's PATH. */
 export function developmentBuildEnv() {
-  const env = { ...process.env, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' };
+  const env = cargoEnvironment({ ...process.env, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' });
   const toolchain = env.RUSTUP_TOOLCHAIN;
   if (toolchain && PINNED_RUST && toolchain !== PINNED_RUST && !toolchain.startsWith(`${PINNED_RUST}-`)) {
     if (ignoredToolchain !== toolchain) process.stderr.write(`ignoring RUSTUP_TOOLCHAIN=${toolchain}: rust-toolchain.toml pins ${PINNED_RUST}\n`);
@@ -830,6 +834,7 @@ const under = (root, path) => {
 };
 const orderedBuild = (rows) => rows.sort((a, b) => Buffer.compare(Buffer.from(canonicalBuild(a)), Buffer.from(canonicalBuild(b))));
 function buildCommand(command, args, app, env, stderr = 'pipe') {
+  if (command === 'cargo') env = cargoEnvironment(env);
   let result = spawnSync(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
   // An offline Cargo that lacks a source it needs (a new workspace, a new
   // lock entry) fetches the lock's sources once and tries again, instead of
@@ -840,23 +845,7 @@ function buildCommand(command, args, app, env, stderr = 'pipe') {
     if (fetched.status === 0) result = spawnSync(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
   }
   if (result.error || result.status !== 0) {
-    // A host crate's build script compiles the Contract and panics on its
-    // first error, somewhere in cargo's output. Ask the compiler for all of
-    // them and say those alone, last (LLP 1054 L9); only on a failure.
-    const source = resolve(app.dir, 'app.contract');
-    if (command === 'cargo' && existsSync(source)) {
-      const scratch = resolve(tmpdir(), `exact-contract-check-${process.pid}.plan`);
-      const checked = spawnSync('cargo', ['run', '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract', '--', 'build', source, '-o', scratch],
-        { cwd: ROOT, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
-      rmSync(scratch, { force: true });
-      const found = (checked.stderr ?? '').split('\n').filter((line) => /\.contract:\d+:\d+ \[[a-z0-9-]+\]/.test(line))
-        .map((line) => line.replace(/^(\/\S+?\.contract)/, (file) => relative(process.cwd(), file) || file));
-      if (checked.status !== 0 && found.length) {
-        const error = new Error(`${app.name}: the Contract does not compile:\n  ${[...new Set(found)].join('\n  ')}`);
-        error.stack = error.message; error.contract = true;
-        throw error;
-      }
-    }
+    if (command === 'cargo') throwContractErrors(app, args, result, ROOT);
     throw new Error(`${command} ${args.join(' ')} failed: ${result.error?.message ?? result.stderr ?? `exit ${result.signal ?? result.status} (see diagnostics above)`}\n${(result.stdout ?? '').slice(-4000)}`);
   }
   return result;
@@ -867,22 +856,37 @@ function buildCommand(command, args, app, env, stderr = 'pipe') {
 export function contractLast(build) {
   try { return build(); } catch (error) { if (!error?.contract) throw error; console.error(error.message); process.exit(1); }
 }
-/** The lean iOS Hermes archives js/build.rs links: EXACT_HERMES_IOS_DIR's, or
- * the per-pin cache every checkout shares, which host/apple/build.mjs fills
- * (`cached`). The pin is js/hermes.rs's HERMES_PIN. @ref LLP 1036.001 D5 */
-export function hermesIos(env = process.env) {
-  const pin = /const HERMES_PIN: &str = "([0-9a-f]{40})";/.exec(readFileSync(resolve(ROOT, 'js/hermes.rs'), 'utf8'))?.[1];
-  if (!pin) throw new Error('js/hermes.rs names no HERMES_PIN');
-  if (env.EXACT_HERMES_IOS_DIR) return { pin, root: resolve(env.EXACT_HERMES_IOS_DIR), cached: false };
-  return { pin, root: resolve(env.HOME ?? homedir(), '.cache/exact/hermes', `${pin.slice(0, 12)}-lean-ios`), cached: true };
+export const HERMES_INSTALLER = resolve(ROOT, 'vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml');
+/** Rust's host triple; cross targets such as iOS are named by their build. */
+export function hermesTarget(os = process.platform, cpu = process.arch) {
+  const arch = cpu === 'arm64' ? 'aarch64' : cpu === 'x64' ? 'x86_64' : null;
+  const suffix = os === 'darwin' ? 'apple-darwin' : os === 'linux' ? 'unknown-linux-gnu' : os === 'win32' && arch === 'x86_64' ? 'pc-windows-msvc' : null;
+  return arch && suffix ? `${arch}-${suffix}` : null;
 }
-/** Classification roots for the validated Windows install's Cargo inputs.
- * Rust emits canonical paths; an override may reach that install through a junction. */
-export function hermesWindowsRoots(env = process.env) {
-  if (process.platform !== 'win32') return [];
-  const requested = resolve(env.EXACT_HERMES_DIR ?? resolve(env.LOCALAPPDATA ?? '', 'Exact/hermes', `${hermesIos(env).pin.slice(0,12)}-lean-windows-x64-icu76-intl1`));
+
+/** The selected digest-addressed bundle; acquisition is installer-only. */
+export function hermesBundle(target = hermesTarget(), env = process.env) {
+  if (!target) throw new Error(`no pinned Hermes bundle target for ${process.platform}/${process.arch}`);
+  const support = readFileSync(resolve(ROOT, 'vendor/ibex/crates/hermes-lean-sys/build_support.rs'), 'utf8'), tag = /RELEASE_TAG: &str = "([^"]+)"/.exec(support)?.[1];
+  const blocks = [...support.matchAll(/BundlePin \{([\s\S]*?)\n    \}/g)].map(match => match[1]);
+  const block = blocks.find(value => new RegExp(`target:\\s*"${target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`).test(value));
+  const digest = /sha256:\s*"([0-9a-f]{64})"/.exec(block ?? '')?.[1];
+  if (!tag || !digest) throw new Error(`hermes-lean-sys has no pinned bundle for ${target}`);
+  const cache = resolve(env.CARGO_HOME ?? resolve(env.HOME ?? homedir(), '.cargo'), 'hermes-lean-sys'), root = resolve(env.HERMES_LEAN_SYS_DIR ?? resolve(cache, tag, digest));
+  const host = target === hermesTarget();
+  const lean = resolve(root, 'lib', target.endsWith('-windows-msvc') ? 'hermesvmlean_a.lib' : 'libhermesvmlean_a.a'), hermesc = resolve(root, 'bin', target.endsWith('-windows-msvc') ? 'hermesc.exe' : 'hermesc');
+  const required = [resolve(root, 'include'), lean, resolve(root, 'hermes-input-receipt.json'), ...(host ? [hermesc] : [])];
+  const missing = required.filter(path => !existsSync(path));
+  return { target, tag, digest, root, lean, hermesc, installed: missing.length === 0, missing, fix: `cargo run --manifest-path ${HERMES_INSTALLER} -- --target ${target}` };
+}
+/** Classification roots for Ibex's verified install-once Hermes bundles.
+ * The digest directory remains part of the receipt name, so a bundle update
+ * necessarily changes the bake identity. */
+export function hermesLeanSysRoots(env = process.env) {
+  const requested = resolve(env.HERMES_LEAN_SYS_DIR
+    ?? resolve(env.CARGO_HOME ?? resolve(env.HOME ?? homedir(), '.cargo'), 'hermes-lean-sys'));
   const roots = [requested, ...(existsSync(requested) ? [realpathSync.native(requested)] : [])];
-  return [...new Set(roots.flatMap(path => [path,toNamespacedPath(path)]))];
+  return [...new Set(roots.flatMap(path => process.platform === 'win32' ? [path,toNamespacedPath(path)] : [path]))];
 }
 /** The profile a development native build compiles with (Cargo.toml): an
  * Apple app through host/apple/build.mjs, the Linux host by `linuxBuild`.
@@ -1061,9 +1065,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const replaced = new Set(['app.plan','compat.json','artifacts.json'].map((n) => resolve(rootOutput,n)));
   const packages = [...graph.roles.keys()].map((id) => graph.packages.get(id));
   const locations = packages.map((p) => ({ path: dirname(p.manifest_path), name:`crate:${p.name}@${p.version}` })).sort((a,b) => b.path.length-a.path.length);
-  const hermes = hermesIos(env).root;
-  const windowsHermesc = process.platform === 'win32' && env.EXACT_HERMESC ? resolve(env.EXACT_HERMESC) : null;
-  const windowsRoots = hermesWindowsRoots(env);
+  const hermesLeanRoots = hermesLeanSysRoots(env);
   // The longest root a path is under is the first of its own ancestors, itself included, that is one: what
   // `find` over the roots longest first answers, without a path comparison per root for each of 3,700 inputs
   // (0.2 s of every build). Of two roots at one path the first stands, as it did.
@@ -1076,10 +1078,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     if (made) return `generated:${made.pkg.name}:${made.role}/${relative(made.path,path)}`;
     const pkg = rootOf(locatedAt, path);
     if (pkg) return `${pkg.name}/${relative(pkg.path,path)}`;
-    if (under(hermes,path)) return `hermes-ios/${relative(hermes,path)}`; // wherever the archives live
-    const windowsRoot = windowsRoots.find(root => under(root,path));
-    if (windowsRoot) return `hermes-windows/${relative(windowsRoot,path)}`;
-    if (windowsHermesc && [windowsHermesc,toNamespacedPath(windowsHermesc)].includes(path)) return 'hermes-windows/compiler-override.exe';
+    const hermesLeanRoot = hermesLeanRoots.find(root => under(root,path));
+    if (hermesLeanRoot) return `hermes-lean-sys/${relative(hermesLeanRoot,path)}`;
     if (under(app.dir,path)) return `app/${relative(app.dir,path)}`;
     if (under(ROOT,path)) return `exact/${relative(ROOT,path)}`;
     if (under(graph.metadata.workspace_root,path)) return `workspace/${relative(graph.metadata.workspace_root,path)}`;
@@ -1172,7 +1172,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     if (existsSync(resolve(app.dir, 'app.ts'))) {
       // The TS producer is a build dependency, outside the runtime Cargo graph.
       // Its canonical API declaration still determines the accepted app module.
-      add(resolve(ROOT, 'vendor/ibex2/src/bindings/storage.d.ts'));
+      add(resolve(ROOT, 'vendor/ibex/crates/ibex2/src/bindings/storage.d.ts'));
       for (const path of Object.values(webHostFiles('module'))) add(resolve(ROOT, path));
     }
     if (existsSync(resolve(app.dir, 'app.ts')) || /^\s*(?:fs\.|sqlite\.)/m.test(compat.inputs.grantCeiling ?? '')) {

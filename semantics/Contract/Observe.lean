@@ -9,6 +9,7 @@ state in exactly this form; the two texts are compared line by line.
   `slot <name> <value>`    each root slot, declaration order, mutations last
   `derive <name> <value>`  each derive, declaration order
   `resource <name> <value>`
+  `queued <name> <count>`   each `queue` mutation's waiting sends
   `command <name> <value>…` each command the step's commit issued
   `view <testId> <text>`   each element with a `testId`, in preorder, but
                            none inside a virtualized `list`: the runner
@@ -90,6 +91,8 @@ def lines (p : Program) (label : String) (c : Config) (out : Outcome) (commandsB
       "derive " ++ d.name ++ " " ++ value v) ++
     (p.resources.filterMap fun r => (lookup r.name c.settled.resources).map fun v =>
       "resource " ++ r.name ++ " " ++ value v) ++
+    ((p.mutations.filter (·.queue)).map fun m =>
+      "queued " ++ m.name ++ " " ++ toString ((c.queued.filter (·.1 == m.name)).length)) ++
     ((c.commands.drop commandsBefore).map fun (n, vs) =>
       "command " ++ n ++ String.join (vs.map (" " ++ value ·))) ++
     viewLines c.view

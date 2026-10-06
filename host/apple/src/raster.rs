@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-/// Metadata-only C demand. Variant 1 is EXIF-transformed, sRGB RGBA8, first frame.
+/// Metadata-only C demand. `variant` is one of `exact_raster::variant`'s storage
+/// formats (LLP 1100 D7); every one is EXIF-transformed, first frame.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 #[allow(missing_docs)]
@@ -21,6 +22,7 @@ pub struct RasterDemand {
     pub natural_width: u32,
     pub natural_height: u32,
     pub priority: u32,
+    pub variant: u32,
     pub encoded_bytes: u64,
     pub header_bytes: u64,
     pub stride: u64,
@@ -39,6 +41,7 @@ pub struct RasterWork {
     pub charge: u64,
     pub width: u32,
     pub height: u32,
+    pub variant: u32,
 }
 
 /// A pinned lease and a borrowed native payload. Keep the lease while using it.
@@ -200,7 +203,7 @@ pub fn request(id: u64, d: RasterDemand) -> u64 {
                 width: d.width,
                 height: d.height,
             },
-            variant: 1,
+            variant: d.variant,
         },
         metadata: Metadata {
             natural: PixelSize {
@@ -296,6 +299,7 @@ pub fn next_decode(timeout_ms: u32) -> RasterWork {
         charge: charge_id,
         width: key.pixels.width,
         height: key.pixels.height,
+        variant: key.variant,
     };
     h.permits.insert(permit_id, permit);
     work

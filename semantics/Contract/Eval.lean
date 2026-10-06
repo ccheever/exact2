@@ -60,6 +60,35 @@ def fieldIndex (env : Env) (s field : String) : Option Nat :=
 
 end Env
 
+/-- `includes`: text in text, or by SameValueZero a string, number or bool
+in a list (LLP 1088 §9.1), as JavaScript's `includes` of each. -/
+def includesOf : Value → Value → Result Value
+  | .str a, .str b => .ok (.bool (Str.includes a b))
+  | .list xs, x => .ok (.bool (xs.any (Value.sameValueZero · x)))
+  | _, _ => .error (.type "`includes` of arguments it does not take")
+
+/-- `slice`: text's code units (LLP 1088 D2), or a list's items (§9.1),
+each index clamped as JavaScript's `slice` clamps it. -/
+def sliceOf : Value → F64 → F64 → Result Value
+  | .str s, a, b => .ok (.str (Str.slice s a b))
+  | .list xs, a, b =>
+    let f := Str.clampIndex a xs.length
+    .ok (.list ((xs.drop f).take (Str.clampIndex b xs.length - f)))
+  | _, _, _ => .error (.type "`slice` of arguments it does not take")
+
+/-- A position as `indexOf` answers it: `-1` for none. -/
+def positionOf : Option Nat → F64
+  | .some i => F64.ofNat i
+  | .none => -(F64.ofNat 1)
+
+/-- `indexOf`: text in text, in UTF-16 code units, or by IsStrictlyEqual a
+string, number or bool in a list (LLP 1088 §9.1), as JavaScript's
+`indexOf` of each. -/
+def indexOfOf : Value → Value → Result Value
+  | .str a, .str b => .ok (.num (positionOf (Str.indexOf a b)))
+  | .list xs, x => .ok (.num (positionOf (xs.findIdx? (Value.strictEq · x))))
+  | _, _ => .error (.type "`indexOf` of arguments it does not take")
+
 /-- A format entry on evaluated arguments. A style the compiler would have
 refused is refused as unsupported. -/
 def formatting (f : String) (args : List Value) : Result Value :=
@@ -67,7 +96,17 @@ def formatting (f : String) (args : List Value) : Result Value :=
   | "formatTime", [.num e, .num o, .str "short"] => .ok (.str (Format.formatTime e o))
   | "formatDate", [.num e, .num o, .str "medium"] => .ok (.str (Format.formatDate e o false))
   | "formatDate", [.num e, .num o, .str "month-year"] => .ok (.str (Format.formatDate e o true))
+  | "formatDate", [.num e, .num o, .str "iso"] => .ok (.str (Format.formatIsoDate e o))
   | "formatNumber", [.num n, .str "compact"] => .ok (.str (Format.compact n))
+  -- LLP 1102 §3.2: `digits` a whole-number literal the compiler admitted.
+  | "toFixed", [.num x, .num d] =>
+    match Format.digitsOf d 100 with
+    | .some k => .ok (.str (Format.toFixed x k))
+    | .none => .error (.unsupported "`toFixed` of digits it does not take")
+  | "formatDecimal", [.num x, .num d] =>
+    match Format.digitsOf d 20 with
+    | .some k => .ok (.str (Format.formatDecimal x k))
+    | .none => .error (.unsupported "`formatDecimal` of digits it does not take")
   | f, _ => .error (.unsupported s!"roster entry `{f}` of arguments it does not take")
 
 /-- The name/value pairs of a `t` call: one list (the VM's) or the
@@ -91,7 +130,7 @@ def text (tables : Format.Tables) (args : List Value) : Result Value :=
   | _ => .error (.unsupported "`t` of arguments it does not take")
 
 theorem formatting_str {f args v} (h : formatting f args = .ok v) : ∃ s, v = .str s := by
-  unfold formatting at h; split at h <;> simp at h <;> exact ⟨_, h.symm⟩
+  unfold formatting at h; split at h <;> (try split at h) <;> simp at h <;> exact ⟨_, h.symm⟩
 
 theorem text_str {tables args v} (h : text tables args = .ok v) : ∃ s, v = .str s := by
   unfold text at h; split at h
@@ -99,7 +138,7 @@ theorem text_str {tables args v} (h : text tables args = .ok v) : ∃ s, v = .st
   · simp at h
 
 theorem formatting_err {f args e} (h : formatting f args = .error e) : ∃ w, e = .unsupported w := by
-  unfold formatting at h; split at h <;> simp at h; exact ⟨_, h.symm⟩
+  unfold formatting at h; split at h <;> (try split at h) <;> simp at h <;> exact ⟨_, h.symm⟩
 
 theorem text_err {tables args e} (h : text tables args = .error e) :
     (∃ w, e = .refused w) ∨ ∃ w, e = .unsupported w := by
@@ -128,7 +167,7 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
     if 0 ≤ j && j < len then
       .ok (match xs[j.toNat]? with | .some v => .some v | .none => .none)
     else .ok .none
-  | "includes", [.str a, .str b] => .ok (.bool (Str.includes a b))
+  | "includes", [a, b] => includesOf a b
   | "startsWith", [.str a, .str b] => .ok (.bool (Str.startsWith a b))
   | "endsWith", [.str a, .str b] => .ok (.bool (Str.endsWith a b))
   | "trim", [.str s] => .ok (.str (Str.trim s))
@@ -166,16 +205,35 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
       .ok (.str (sep.intercalate parts))
   -- LLP 1088 D2: over UTF-16 code units, well formed. `toLowerCase` is
   -- left out (its case tables are Unicode's).
-  | "slice", [.str s, .num a, .num b] => .ok (.str (Str.slice s a b))
+  | "slice", [v, .num a, .num b] => sliceOf v a b
   | "replaceAll", [.str s, .str find, .str w] => .ok (.str (Str.replaceAll s find w))
+  -- LLP 1088 §9.1: JavaScript's `Array.prototype.concat`.
+  | "concat", [.list xs, .list ys] => .ok (.list (xs ++ ys))
+  -- LLP 1088 §9.1 (2026-10-04 note): `indexOf` and `split` as JavaScript's.
+  | "indexOf", [a, b] => indexOfOf a b
+  | "split", [.str s, .str sep] => .ok (.list ((Str.split s sep).map .str))
   -- Formatting and localized text (`Contract.Format`).
   | "formatTime", vs => formatting "formatTime" vs
   | "formatDate", vs => formatting "formatDate" vs
   | "formatNumber", vs => formatting "formatNumber" vs
   | "t", vs => text env.prog.strings vs
+  -- LLP 1102 §3.2: `round` is JavaScript's `Math.round`, a half up.
+  | "ceil", [.num x] => .ok (.num x.ceil)
+  | "round", [.num x] => .ok (.num x.jsRound)
+  -- LLP 1102 §3.1, §3.4: a number or a date difference read from text.
+  | "parseNumber", [.str s] => .ok (match Str.parseNumber s with | .some n => .some (.num n) | .none => .none)
+  | "calendarDiff", [.str a, .str b, .str u] =>
+    if u = "years" ∨ u = "months" then
+      .ok (match Str.calendarDiff a b (u = "months") with
+        | .some n => .some (.num (if n < 0 then -(F64.ofNat n.natAbs) else F64.ofNat n.natAbs))
+        | .none => .none)
+    else .error (.unsupported "`calendarDiff` of a unit it does not take")
+  | "toFixed", vs => formatting "toFixed" vs
+  | "formatDecimal", vs => formatting "formatDecimal" vs
   | "length", _ | "isEmpty", _ | "floor", _ | "max", _ | "min", _ | "first", _ | "at", _
   | "includes", _ | "startsWith", _ | "endsWith", _ | "trim", _ | "join", _
-  | "encodeURIComponent", _ | "slice", _ | "replaceAll", _ =>
+  | "encodeURIComponent", _ | "slice", _ | "replaceAll", _ | "concat", _ | "indexOf", _
+  | "split", _ | "ceil", _ | "round", _ | "parseNumber", _ | "calendarDiff", _ =>
     .error (.type s!"`{f}` of arguments it does not take")
   | f, _ => .error (.unsupported s!"roster entry `{f}`")
 
@@ -237,7 +295,7 @@ def eval : Nat → Env → Bool → Locals → Expr → Result Value
   | .str s => .ok (.str s)
   | .bool b => .ok (.bool b)
   | .none => .ok .none
-  | .emptyList => .ok (.list [])
+  | .list items => do .ok (.list (← evalList fuel env inFn ls items))
   | .some e => do .ok (.some (← eval fuel env inFn ls e))
   | .template parts => do
     let ss ← evalDisplays fuel env inFn ls parts

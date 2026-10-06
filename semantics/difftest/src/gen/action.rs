@@ -1,6 +1,7 @@
 //! Action bodies: assignments (the same slot written twice, slots read
 //! after a write, which still sees the starting value), `let`, `if`/`else`,
-//! `match` on an option, `send`, and calls of the root's earlier actions
+//! `match` on an option, `send`, the voice table's commands, and calls of
+//! the root's earlier actions
 //! (LLP 1089 D9: action *i* calls actions *j < i*, so no call cycles):
 //! anywhere among the statements, and in bodies that only call
 //! ([`Gen::dispatch`]). A program whose statement calls the compiler
@@ -9,8 +10,9 @@
 use super::ty::Ty;
 use super::{Env, Gen};
 
-/// Longest a string-holding slot may print before a write resets it, so a
-/// self-concatenating action cannot grow a slot past the runner's limits.
+/// Longest a slot holding a string or a list may print before a write resets
+/// it, so a self-concatenating action cannot grow a slot past the runner's
+/// limits.
 const GROWTH_CAP: usize = 200;
 
 /// What a body may write.
@@ -78,6 +80,7 @@ impl Gen<'_> {
                 0
             },
             if w.nav { 3 } else { 0 },
+            1,
         ];
         match self.rng.weighted(&weights) {
             0 => {
@@ -125,6 +128,7 @@ impl Gen<'_> {
             }
             5 => self.call_action(env, &pad, out),
             6 => out.push_str(&self.nav_stmt(env, &pad)),
+            7 => self.sound(env, d, &pad, out),
             _ => {
                 let unsent = self.unsent();
                 let m = self.rng.pick(&unsent).clone();
@@ -137,6 +141,27 @@ impl Gen<'_> {
                     m.source,
                     args.join(", ")
                 ));
+            }
+        }
+    }
+
+    /// One of the voice table's commands (LLP 1096 D11): commands to the
+    /// semantics, compared as issued. The source is computed (a program here
+    /// declares no sound, and a literal must name one), so the runner drops
+    /// the voice; the gain is computed too, inside 0–1.
+    fn sound(&mut self, env: &Env, d: usize, pad: &str, out: &mut String) {
+        match self.rng.below(3) {
+            0 => {
+                let src = self.expr(env, &Ty::Str, d, false);
+                let gain = self.expr(env, &Ty::Num, d, false);
+                out.push_str(&format!(
+                    "{pad}playSound(`${{{src}}}`, gain=min(1, max(0, {gain})))\n"
+                ));
+            }
+            1 => out.push_str(&format!("{pad}stopSounds()\n")),
+            _ => {
+                let group = self.expr(env, &Ty::Str, d, false);
+                out.push_str(&format!("{pad}stopSounds(group={group})\n"));
             }
         }
     }
@@ -194,7 +219,7 @@ impl Gen<'_> {
     fn unsent(&self) -> Vec<super::Mutation> {
         self.mutations
             .iter()
-            .filter(|m| !self.sent.contains(&m.name))
+            .filter(|m| m.queue || !self.sent.contains(&m.name))
             .cloned()
             .collect()
     }
@@ -205,8 +230,9 @@ impl Gen<'_> {
         let then = self.then == Some(self.callable);
         (0..self.callable)
             .filter(|&j| {
-                self.sends[j].iter().all(|m| !self.sent.contains(m))
-                    && !(then && !self.sends[j].is_empty())
+                self.sends[j].iter().all(|m| {
+                    !self.sent.contains(m) || self.mutations.iter().any(|q| &q.name == m && q.queue)
+                }) && !(then && !self.sends[j].is_empty())
             })
             .collect()
     }
@@ -220,16 +246,11 @@ impl Gen<'_> {
         }
     }
 
-    /// `slot = …`. A value holding a string is bound first and reset to a
+    /// `slot = …`. A value that can grow is bound first and reset to a
     /// literal when it prints longer than [`GROWTH_CAP`].
     fn assign(&mut self, env: &Env, slot: &str, t: &Ty, d: usize, pad: &str, out: &mut String) {
-        if !self.holds_str(t) {
+        if !self.grows(t) {
             let e = self.expr(env, t, d, true);
-            out.push_str(&format!("{pad}{slot} = {e}\n"));
-            return;
-        }
-        if !self.makeable(env, t, false) {
-            let e = self.lit(t, true);
             out.push_str(&format!("{pad}{slot} = {e}\n"));
             return;
         }

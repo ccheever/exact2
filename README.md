@@ -9,17 +9,19 @@ agent can build it, run it, see it, and test it on every one of them.**
 >
 > ```text
 > Clone https://github.com/ccheever/exact2 and follow its README to make a new Exact
-> app with `exact new`: a todo list where I can add items, check them off, delete them,
+> app with `exact new`. Run `bun scripts/exact.mjs setup` once first. Make a todo
+> list where I can add items, check them off, delete them,
 > and see how many are left. Put the view in Contract and keep the list in `app.ts`.
 > Write an `app.test.contract`, pass it on web, macOS, and the iOS Simulator with
 > `scripts/agent.mjs`, then open the app for me on all three.
 > ```
 >
-> A fresh agent given this prompt on a clean clone (2026-10-04, Hermes already in the
+> A fresh agent given the earlier version of this prompt on a clean clone (2026-10-04, Hermes already in the
 > machine cache, Cargo's cache warm) finished in about 57 minutes, and its tests passed
 > on all three platforms. About 25 of those minutes were the first macOS and iOS builds,
 > roughly 13 minutes each; later builds take a minute or two. On a machine that has
-> never built Hermes, that build comes first and adds time.
+> lacked Hermes, its source build came first and added time. Current setup downloads and
+> verifies the pinned host/iOS bundles once instead; ordinary builds stay offline.
 
 <table>
   <tr>
@@ -202,24 +204,36 @@ Linux host.
 - **Google Chrome.** The agent drives the web through headless Chrome. Set `CHROME` to
   use another Chromium.
 - **Xcode**, for the macOS and iOS hosts.
-- **Hermes**, only for TypeScript apps on native hosts. Builds find it in the machine
-  cache (`~/.cache/exact/hermes-macos`) or in an [expo/ibex](https://github.com/expo/ibex)
-  checkout beside this repository; `setup --check` says which, or that neither is there.
-  To build it: `git clone https://github.com/expo/ibex ../ibex && (cd ../ibex && ./scripts/build-hermes.sh --vanilla)`.
-  iOS also needs **CMake** (`brew install cmake`): the first iOS build fetches the
-  pinned Hermes source and builds its lean VM once for the machine.
-  On Windows x64, use an x64 Visual Studio developer shell with PowerShell 7,
-  CMake and Ninja, then run `pwsh -File js/build-windows.ps1 -Jobs 2`. This builds
-  Exact's pinned lean VM and static ICU into a separate, verified local cache;
-  existing installs are preserved. See the [Windows TypeScript setup and limits](docs/reference.md#windows-typescript).
+- **Hermes**, only for TypeScript apps on native hosts. Exact consumes Ibex's
+  pinned, attested `260318099.0.4` release bundle; ordinary Cargo builds are
+  offline and never download or compile an engine. Install it once for each
+  target before building (for this Mac, use `aarch64-apple-darwin`):
+
+  ```sh
+  cargo run --manifest-path vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml -- --target <triple>
+  ```
+
+  The installer verifies the bundle and publishes it under
+  `~/.cargo/hermes-lean-sys/`. The v4 set supports macOS, Linux, Windows, iOS
+  devices and the universal iOS Simulator, plus tvOS devices and arm64 tvOS
+  Simulators. Linux and Windows select Ibex's English `intl` tier; Apple keeps
+  Hermes's OS-backed Intl.
+  `HERMES_LEAN_SYS_DIR` is only an explicit development
+  override, not normal setup.
 
 To install the pinned Bun beside any existing installation:
 `curl -fsSL https://bun.sh/install | BUN_INSTALL=~/.bun-1.4.2 bash -s bun-v1.4.2`.
 Use `~/.bun-1.4.2/bin/bun` for the commands below if it is not on your PATH.
 `bun scripts/exact.mjs setup` installs the declared stable and web nightly Rust
-toolchains, their components/targets, matching wasm-bindgen, pinned Binaryen and
-Bun dependencies. It keeps Binaryen in `~/.cache/exact/binaryen`; builds find it
-automatically. `setup --check` checks the installed tools without installing them.
+toolchains, their components/targets (the nightly's clippy lints a game's web bake),
+matching wasm-bindgen, pinned Binaryen and Bun dependencies, installs the pinned
+Hermes host bundle and the iOS/tvOS bundles this Mac builds, and fetches the crates
+of exact2's lock and the game SDK's (`game/app/shells.lock`), since every bake
+resolves offline. It keeps Binaryen in `~/.cache/exact/binaryen`; builds find it
+automatically. `setup --check` invokes Ibex's installer in its offline check mode for
+that same target set. The resolver authenticates the canonical receipts, archives,
+compiler and host/target HBC pairing without installing anything; its exit status and
+diagnostic are the check's result.
 
 ### 2. Run Caltrain in the browser
 
@@ -284,7 +298,8 @@ bun exact.mjs ios --run                     # an iOS Simulator
 `apple/` host crates. Its `AGENTS.md` (and `CLAUDE.md`) tells a coding agent where the
 guides are and lists the app's commands, including `bun exact.mjs contract …` for the
 compiler and `contract vocab` for every tag and property Contract accepts. Before any of
-it, `bun scripts/exact.mjs setup --check` names everything this machine is missing. It has its own Cargo workspace, which uses your exact2 checkout
+it, run `bun scripts/exact.mjs setup` once; `setup --check` names everything this machine
+is missing without changing it. It has its own Cargo workspace, which uses your exact2 checkout
 by path. To drive it from exact2, point `EXACT_APP_DIR` at it:
 
 ```sh

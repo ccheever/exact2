@@ -35,15 +35,21 @@ mod arrange;
 mod arrange_geometry;
 mod clock;
 mod collection;
+mod commands;
 mod contact;
 mod control;
 mod delivery;
 mod display_frame;
 mod events;
+mod field;
+#[cfg(test)]
+mod field_tests;
+mod group;
 mod painter;
 mod pan_release;
 mod picker;
 mod pointer;
+mod radio;
 #[cfg(test)]
 mod save_tests;
 mod svg_hit;
@@ -61,9 +67,11 @@ mod height_drag;
 #[cfg(test)]
 mod height_drag_tests;
 mod images;
+mod links;
 mod preferences;
 mod retained_action;
 mod reveal;
+mod shortcuts;
 #[cfg(target_os = "android")]
 pub(crate) mod still;
 mod swipe;
@@ -82,6 +90,10 @@ mod swipe_tests;
 #[cfg(test)]
 #[path = "presenter/events_tests.rs"]
 mod events_tests;
+
+#[cfg(test)]
+#[path = "presenter/visibility_tests.rs"]
+mod visibility_tests;
 
 use painter::{cpu_info, open_backend};
 pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
@@ -115,18 +127,31 @@ pub struct Presenter<D: DataSource> {
     /// The text field typed into since it took the focus: its `change`
     /// fires on blur or Enter, HTML's commit (LLP 1069.001 D4).
     pub(crate) edited: Option<ViewId>,
+    /// Each text field's selection (x2apps codeedit #2), kept for the value
+    /// it indexes, focused or not: the next key there edits at it.
+    pub(crate) fields: BTreeMap<ViewId, field::FieldMark>,
     /// The modifier keys held, each side a bit (Shift, Control, Alt, Meta,
     /// left then right): a `key` event's flags (`KeyboardEvent.shiftKey`…).
     pub(crate) held: u8,
+    /// The keys whose down a shortcut took at a world's canvas: their up
+    /// belongs to no handler and no world (b6 review B1).
+    pub(crate) shortcut_keys: std::collections::BTreeSet<String>,
     /// Unbound checkboxes' own states, as a browser keeps an uncontrolled
     /// control's (LLP 1069.001 D4); a bound one draws its `checked`.
     pub(crate) controls: BTreeMap<ViewId, bool>,
+    /// A date's, range's or select's choice, or a field's typed text, since
+    /// its bound value last changed, beside that bound value
+    /// (`paint::control::choice`, `field_text`).
+    pub(crate) chosen: BTreeMap<ViewId, (String, String)>,
     /// The select whose menu is open (LLP 1069.001 D7).
     pub(crate) menu: Option<ViewId>,
     autofocus_processed: std::collections::BTreeSet<ViewId>,
     pointer: Option<(f32, f32)>,
     /// The nodes with a `hover` handler under the pointer, innermost first.
     hovered: Vec<ViewId>,
+    /// Where the pointer last moved for hover (`hover_at`): a frame that
+    /// moves content under it hovers again there (`follow_pointer`).
+    hover_point: Option<(f32, f32)>,
     /// The node holding the pointer's `pointerdown` until it lifts.
     pointer_held: Option<exact_kernel::NodeKey>,
     /// The held pointer's buttons as DOM counts them: 1 primary, 2
@@ -165,6 +190,7 @@ pub struct Presenter<D: DataSource> {
     contact: Option<contact::Contact>,
     retained_motion: Option<retained_action::MotionPermit>,
     arrange: Option<arrange::State>,
+    group: Option<group::State>,
     transform_geometry: transform_geometry::State,
     /// The update store, once the app opened one (LLP 1026 D9; `app.rs`).
     updates: Option<Box<dyn crate::delivery::Store>>,
@@ -341,6 +367,7 @@ impl<D: DataSource> Presenter<D> {
             retained_motion: None,
             transform_geometry: Default::default(),
             arrange: None,
+            group: None,
             brush: Painter::new(text.clone(), scale, backend),
             text,
             viewport,
@@ -352,12 +379,16 @@ impl<D: DataSource> Presenter<D> {
             hosts: 0,
             focus: None,
             edited: None,
+            fields: BTreeMap::new(),
             held: 0,
+            shortcut_keys: Default::default(),
             controls: BTreeMap::new(),
+            chosen: BTreeMap::new(),
             menu: None,
             autofocus_processed: Default::default(),
             pointer: None,
             hovered: Vec::new(),
+            hover_point: None,
             pointer_held: None,
             pointer_buttons: 0,
             control_contact: None,
@@ -394,88 +425,6 @@ impl<D: DataSource> Presenter<D> {
             return Err(HostError::Asset(reason));
         }
         Ok((p, error.or(e)))
-    }
-
-    /// Run the last commits' commands (LLP 1005 §3): delivery belongs to the
-    /// store (LLP 1030 D7); `setScheme` chooses this painter's `light-dark()`
-    /// appearance (LLP 1034 D2); anything else is named.
-    pub fn run_commands(&mut self, mut data: impl FnMut() -> D) {
-        for c in std::mem::take(&mut self.commands) {
-            match c.name.as_str() {
-                "deliveryCheck" => {
-                    if !self.check_update() {
-                        eprintln!("exact update: no store, or a check is already running");
-                    }
-                }
-                "deliveryActivate" => self.pending_update = true,
-                // The app's chosen appearance is what a `light-dark()` colour
-                // resolves to here (LLP 1034 D2); `system` is no override.
-                "setScheme" => self.app_scheme(match c.args.first() {
-                    Some(v) if v.as_str() == Some("dark") => Some(true),
-                    Some(v) if v.as_str() == Some("light") => Some(false),
-                    _ => None,
-                }),
-                // No haptic engine here (LLP 1077 D14): nothing to feel.
-                "haptic" => {}
-                // Outside a `key` event (`key_event` takes a key's), nothing to prevent or stop.
-                "preventDefault" | "stopPropagation" => {}
-                // No share sheet here: refused into the journal, or held for
-                // the agent like every host (LLP 1069.003 D6).
-                "share" => {
-                    let share = exact_runner::share::Share::from_args(&c.args);
-                    let runner = self.host.runner_mut();
-                    exact_runner::share::arm(runner, share, c.source, self.agent, false);
-                }
-                // No notification centre here: refused, or listed for the agent.
-                "showNotification" | "closeNotification" => self.notify(&c.name, &c.args),
-                "blur" => self.blur_command(&c.args),
-                "focus" => self.focus_command(&c.args),
-                // An element's, by its id (minesweeper F3); a row's is the runner's.
-                "scrollIntoView" => self.scroll_element_into_view(&c.args),
-                // The inverse of `message=`: text into the named surface's
-                // canvas, stamped now and delivered in order with its input.
-                "postMessage" => {
-                    let arg = |i: usize| c.args.get(i).and_then(exact_plan::Value::as_str);
-                    let (text, name) = (arg(0).unwrap_or_default(), arg(1).unwrap_or_default());
-                    let event = serde_json::json!({"t":"message","text":text,"at":self.host.now()});
-                    if !self.surfaces.post(name, event) {
-                        self.host.log(format!(
-                            "postMessage: dropped: {} posts already wait for surface \"{name}\"",
-                            crate::surfaces::POST_BOUND
-                        ));
-                    }
-                }
-                // @ref LLP 1069.002 D8 — refused with `cancel`; the agent's
-                // substitute answers (D9).
-                "showPicker" => match c.args.first().and_then(exact_plan::Value::as_str) {
-                    Some(id) => self.show_picker(id),
-                    _ => eprintln!("exact: showPicker requires an element id"),
-                },
-                // @ref LLP 1069.010 D3 — no save panel here: refused with
-                // `cancel`, or held for the agent like every host.
-                "saveFile" => self.save_file(&c.args),
-                // @ref LLP 1069.010 D2 — no picker here either: refused with
-                // `cancel`, or held for the agent.
-                name @ ("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
-                    self.document_picker(name, &c.args)
-                }
-                // No clipboard, text selection, browser, editor, dev menu or
-                // window to close here: known, and named so.
-                name @ ("copyText" | "selectText" | "openURL" | "format" | "reload" | "close") => {
-                    eprintln!("exact: {name} unsupported on the headless/DRM host")
-                }
-                other => eprintln!("exact: unknown command {other}"),
-            }
-        }
-        if self.pending_update {
-            self.pending_update = false;
-            match self.activate_update(data()) {
-                Ok(true) => {}
-                Ok(false) => eprintln!("exact update: nothing is staged"),
-                Err(HostError::PreparingModule) => self.pending_update = true,
-                Err(e) => eprintln!("exact update: activate: {e}"),
-            }
-        }
     }
 
     /// The dev loop's restart: boot the new plan with state carried; every
@@ -551,7 +500,8 @@ impl<D: DataSource> Presenter<D> {
         self.retained_motion = None;
         self.transform_geometry = Default::default();
         self.arrange = None;
-        self.brush.arrange_lift = None;
+        self.group = None;
+        self.brush.lift = Default::default();
         self.page = (0.0, 0.0);
         self.images.reset();
         self.restore_focus(kept);
@@ -703,7 +653,8 @@ impl<D: DataSource> Presenter<D> {
         self.queue_collections();
         let refined = crate::traced(c"exact refine collections", || self.refine_collections());
         let geometry = self.refresh_transform_geometry();
-        error.or(refined).or(geometry)
+        let resized = self.deliver_resizes();
+        error.or(refined).or(geometry).or(resized)
     }
 
     // Collection feedback calls this directly: never recurse through refinement.
@@ -725,8 +676,15 @@ impl<D: DataSource> Presenter<D> {
             self.executor.resume_ordered();
         }
         self.cancel_removed_controls();
+        self.forget_replaced_choices();
         let admitted = self.host.grants();
         for r in self.host.take_requests() {
+            // A deadline the surface and auth paths can't keep: the executor
+            // refuses it at admission, fencing later ordered work.
+            if r.request.timeout_refusal().is_some() {
+                self.run_dispatch(r, exact_runner::Dispatch::Missing);
+                continue;
+            }
             if r.request.surface.is_some() {
                 self.surfaces.enqueue(r, &admitted);
                 continue;
@@ -742,10 +700,9 @@ impl<D: DataSource> Presenter<D> {
             let dispatch = match r.request.continuation {
                 Some(token) => self.host.dispatch_work(token),
                 None if r.request.is_native() => self.host.native_work(&r.request),
-                None => {
-                    self.run_dispatch(r, exact_runner::Dispatch::Missing);
-                    continue;
-                }
+                // @ref LLP 1103 D1 — a driver fault fails it before transport.
+                None => (self.host.runner_mut().fault_dispatch(&r))
+                    .unwrap_or(exact_runner::Dispatch::Missing),
             };
             self.run_dispatch(r, dispatch);
         }
@@ -1106,6 +1063,7 @@ impl<D: DataSource> Presenter<D> {
             .rev()
             .filter(|b| {
                 b.contains(x, y)
+                    && crate::paint::hits(self.host.kernel(), b, x, y)
                     && !self.host.route_visibility(b.id).1
                     && self.display.allows(self.host.kernel(), b.id)
             })
@@ -1125,7 +1083,7 @@ impl<D: DataSource> Presenter<D> {
         let b = self
             .box_of(id)
             .ok_or_else(|| format!("no view {id} on screen"))?;
-        let (x, y) = b.center();
+        let (x, y) = crate::paint::tap_point(self.host.kernel(), &b).unwrap_or_else(|| b.center());
         let mut hit = self.hit(x, y);
         while hit.is_some() && hit != Some(id) {
             hit = hit.and_then(|n| self.host.kernel().node(n).and_then(|n| n.parent));
@@ -1389,7 +1347,19 @@ impl<D: DataSource> Presenter<D> {
 
     /// Another host took over: it is measured as the last was, and counted.
     pub(crate) fn replaced(&mut self) {
-        self.brush.paint_epoch = None; // A new kernel may have the same epoch.
+        // A new kernel may have the same epoch.
+        self.brush.paint_epoch = None;
+        // A new runner reuses view ids and node keys: an unbound control's
+        // own state, a choice or typed text (LLP 1069.001 D4), an edit to
+        // commit, a caret, an open menu, a hover or a held pointer is not
+        // its tree's, as Apple's reset and the web's rebuilt page have it.
+        self.chosen.clear();
+        self.controls.clear();
+        self.edited = None;
+        self.fields.clear();
+        self.menu = None;
+        self.hovered.clear();
+        self.pointer_held = None;
         self.hosts += 1;
         self.measure();
     }

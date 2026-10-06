@@ -2,6 +2,7 @@
 
 **Type:** RFC
 **Status:** Accepted (Charlie, 2026-09-29: "Yeah add the every frame task"); implemented (runner, compiler, JS target, wasm web, Apple, Linux)
+**Amended by:** [1075.003.000.001](1075.003.000.001-hooks-on-every-platform-and-what-the-agent-sees.rfc.md) §2.4 (Accepted design, 2026-10-06): an agent seek also stops at a host's hook instants. A host's frame interest commits nothing and does not count against `TimerFireLimit`
 **Systems:** Contract syntax and lowering (`task … every(frame, a)`), Plan (`timers.frame`), Runner (`Runner::frame`, virtual frames on a seek), JS web target (`host/web-js/rt.js`, a `requestAnimationFrame` loop), wasm web, Apple and Linux hosts (their display links call `frame`), Agent API (the seekable clock's virtual display)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-29

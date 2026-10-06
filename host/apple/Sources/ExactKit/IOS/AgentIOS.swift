@@ -367,6 +367,8 @@ extension Agent {
         }
         node["scroll"] = scroll
         node["clip"] = clip
+        // CSS `visibility: hidden` with nothing of it showing, or a hidden run (e28279b3b keeps the view).
+        if hiddenBy == nil, !host.accessibilityExposed || presenter.inlineText(UInt32(id))?.hidden == true { hiddenBy = "visibility" }
         var visible: [String: Any] = ["hidden": hiddenBy != nil, "inert": inertBy != nil, "inViewport": b.intersects(CGRect(origin: .zero, size: vp.bounds.size)), "clipped": clipped]
         if let hiddenBy { visible["hiddenBy"] = hiddenBy }
         if let inertBy { visible["inertBy"] = inertBy }
@@ -439,7 +441,10 @@ extension Agent {
         if let reply = touchForm(req) { return reply }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
-           let node = view(req), node.isDescendant(of: presenter.viewport), !presenter.groupedLists.draws(node.id) {
+           let node = view(req), node.isDescendant(of: presenter.viewport), !presenter.groupedLists.draws(node.id),
+           // A swipe action's control sits past its row's edge until a swipe
+           // reveals it; its tap is the action's (below), wherever it sits.
+           !presenter.swipeActions.ownsAction(node.id) {
             guard let point = tapPoint(req, node: node) else {
                 return ["error": "tap #\(req["id"] ?? node.id): no visible text fragment; scroll it into view first"]
             }
@@ -450,7 +455,7 @@ extension Agent {
         if let reply = canvasTap(req) { return reply }
         if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
-            guard node.window != nil, !node.inert, !node.disabled else { return ["error": "inline node #\(id) is unavailable"] }
+            guard node.window != nil, !node.inert, !node.disabled, !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
             if req["hover"] as? Bool == true {
                 presenter.hoverInline(run.handlers.contains("hover") ? id : nil)
                 return ["tapped": Int(id), "hover": true]
@@ -497,11 +502,22 @@ extension Agent {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "segmented-control"]
                 : ["error": "native segment #\(id) is unavailable"]
         }
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           let reply = presenter.navigation.activateChrome(node) {
+            return reply
+        }
         if let id = req["id"] as? Int, presenter.swipeActions.ownsAction(UInt32(id)),
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil {
             guard let button = presenter.swipeActions.actionView(UInt32(id)), let window = button.window,
                   let source = presenter.views[UInt32(id)], !source.disabled else {
-                return ["error": "native swipe action #\(id) is not revealed or cannot be uniquely resolved"]
+                // Not revealed: the action as assistive technology performs
+                // it, as the web's tap scrolls the row to it (splitter rough
+                // 12). A real swipe is `tap <row> drag …` (`--touch platform`).
+                if presenter.views[UInt32(id)]?.disabled == false, presenter.swipeActions.perform(UInt32(id)) == true {
+                    return ["tapped": id, "pressed": id, "delivery": "host-activation", "native": "swipe-action", "revealed": false]
+                }
+                return ["error": "native swipe action #\(id) is not offered: disabled, hidden or inert, or its name is not unique"]
             }
             let b = box(button), point = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: window)
             guard let hit = window.hitTest(point, with: nil), hit === button || hit.isDescendant(of: button) else { return ["error": "native swipe action #\(id) is occluded"] }
@@ -517,7 +533,7 @@ extension Agent {
             return ["tapped": id, "wheel": wheel]
         }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
-        let b = box(v)
+        let b = v.tapBox(box(v))
         // The middle of the box as seen — through a surface's placement when
         // there is one (LLP 1014 D5) — as a point in the window.
         let vp = presenter.viewport
@@ -540,8 +556,16 @@ extension Agent {
             let event = req["contextmenu"] as? Bool == true ? "contextmenu" : "dblclick"
             var next: UIView? = hit
             while let node = next {
-                if let target = node as? NodeView, target.handlers.contains(event), !target.disabled {
-                    if event == "contextmenu" { presenter.contextmenu(target.id) } else { presenter.dblclick(target.id) }
+                // A context menu's popover (LLP 1021 §5.1) answers it too: the
+                // node's own action first, then the popover opens painted.
+                if let target = node as? NodeView, !target.disabled, target.handlers.contains(event)
+                    || (event == "contextmenu" && target.props["contextPopover"]?.isEmpty == false) {
+                    if event == "contextmenu" {
+                        let handled = target.handlers.contains(event)
+                        if handled { presenter.contextmenu(target.id) }
+                        // A node with only a popover that cannot open it is not the target.
+                        if !presenter.menus.agentContext(target) && !handled { next = node.superview; continue }
+                    } else { presenter.dblclick(target.id) }
                     return ["tapped": Int(target.id), "event": event, "injected": true, "at": at]
                 }
                 next = node.superview
@@ -587,6 +611,12 @@ extension Agent {
         // whatever had it (a field, and the keyboard with it) lets go.
         // An SVG element under the finger takes the press (LLP 1055.000 D17).
         let element = (n as? NodeView).flatMap { $0.kind == "svg" && !$0.inert ? presenter.svg.target($0.id, at: $0.local(p)) : nil }
+        // A Markdown run's link under the finger is the press, as `touchesEnded` follows it.
+        if element == nil, let node = n as? NodeView, node.inlineActivationTarget(at: node.local(p)) == nil,
+           let href = node.inlineLink(at: node.local(p)) {
+            presenter.session?.follow(href)
+            return ["tapped": Int(v.id), "at": at, "followed": href]
+        }
         let action = element == nil ? (n as? NodeView)?.activationTarget(at: p) : nil
         var f: UIView? = n
         var took = false
@@ -681,13 +711,49 @@ extension Agent {
         }
     }
 
+    /// A key typed at a world's canvas, or a node in one, takes the keyboard's route first, as
+    /// any other key the agent types here does: the shortcuts, then the
+    /// canvas's `key` handlers and its ancestors'. One that takes it ends it
+    /// there, as on the web and macOS (the platformer's diary, R8). Nil: the
+    /// world has it (`canvasType`).
+    func canvasRouted(_ v: NodeView, _ req: [String: Any]) -> [String: Any]? {
+        let phase = req["phase"] as? String
+        // A chord is its modifiers and its key (b6 review B6): `Shift+F24`
+        // or `Control+v` meets the shortcuts with what it holds.
+        guard phase == nil || phase == "down", let chord = req["key"] as? String else { return nil }
+        let (held, key) = KeyCodes.split(chord)
+        guard let device = KeyCodes.device(key), !KeyCodes.modifier(device.code), v.inputCanvas != nil else { return nil }
+        if !v.isFirstResponder { _ = v.becomeFirstResponder() }
+        var reply: [String: Any] = ["typed": Int(v.id), "key": chord, "delivery": "recognized"]
+        if let phase { reply["phase"] = phase }
+        // The down was taken; its up belongs to no world.
+        let taken = { [self] () -> [String: Any] in
+            if phase == "down", let token = req["releaseKey"] as? String { keyReleases[token] = { ["phase": "up", "delivery": "recognized"] } }
+            return reply
+        }
+        #if os(iOS)
+        if let node = presenter.shortcut(key: device.key, held: held, focus: v) {
+            presenter.press(node.id)
+            reply["shortcut"] = Int(node.id)
+            return taken()
+        }
+        #endif
+        return presenter.keyDown(at: v.isFirstResponder ? v : nil, device.key, held: held) ? taken() : nil
+    }
+
     /// Set an input's text as typing does: the field focused, all selected,
     /// the text inserted — the field sends one change with the new value.
     func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
-        if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
+        if session.canvases.wantsInput(v.id) {
+            if let routed = canvasRouted(v, req) { return routed }
+            // The world hears the key a chord names, not the chord's string.
+            var bare = req
+            if let chord = req["key"] as? String { bare["key"] = KeyCodes.split(chord).key }
+            return canvasType(v, bare)
+        }
         if v.isSurfaceControl, let key = req["key"] as? String, let code = KeyCodes.device(key)?.code, ["Space", "Enter", "NumpadEnter"].contains(code) {
             let phase = req["phase"] as? String
             guard phase == nil || phase == "down" || phase == "up" else { return ["error":"key: not a phase: \(phase!)"] }
@@ -714,6 +780,7 @@ extension Agent {
         if let key = req["key"] as? String, let device = KeyCodes.device(key), let canvas = v.inputCanvas,
            v.forwardsCanvasKey(device.code) {
             guard v.becomeFirstResponder() else { return ["error": "view takes no focus"] }
+            if let routed = canvasRouted(v, req) { return routed }
             let phase = req["phase"] as? String
             guard phase == nil || phase == "down" || phase == "up" else { return ["error":"key: not a phase: \(phase!)"] }
             for step in phase.map({ [$0] }) ?? ["down", "up"] {
@@ -736,7 +803,10 @@ extension Agent {
             // A chord's modifiers ride with its key; with Control or Command
             // held a key types nothing, as a keyboard's shortcut does not.
             let (held, bare) = KeyCodes.split(key)
-            let name = KeyCodes.device(bare)?.key ?? (bare == "Space" ? " " : bare)
+            // The same names as the web. A letter keeps the case the driver
+            // named (`P` is "P"); an unknown name is refused, not inserted.
+            guard let device = KeyCodes.device(bare) else { return ["error": "key: unsupported key \(bare)"] }
+            let name = bare.count == 1 && bare != " " ? bare : device.key
             let types = name.count == 1 && !held.contains("Control+") && !held.contains("Meta+")
             if let f = v.textArea { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
             else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
@@ -752,15 +822,18 @@ extension Agent {
             #endif
             if req["phase"] as? String != "up", !presenter.keyDown(at: focus, name, held: held), let focus {
                 if let f = focus.textArea {
-                    if name == "Enter" { f.insertText("\n") } else if name == "Backspace" { f.deleteBackward() } else if types { f.insertText(name) }
+                    if name == "Enter" { f.insertText("\n") } else if name == "Backspace" { f.deleteBackward() }
+                    else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }
                     pendingTextReveal = f as? TextArea
                 } else if let f = focus.field as? TextField {
                     f.heard = name
-                    if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = focus.textFieldShouldReturn(f) } else if types { f.insertText(name) }
+                    if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = focus.textFieldShouldReturn(f) }
+                    else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }
                     f.heard = nil
-                } else if focus.handlers.contains("press"), name == "Enter" || name == " " { presenter.press(focus.id) }
+                } else if presenter.controls.radioKey(focus, name, held: held) { // x2apps survey #2
+                } else if focus.handlers.contains("press") || focus.defaultLink != nil, name == "Enter" || (name == " " && focus.props["href"] == nil) { presenter.press(focus.id) }
             }
-            return ["typed": Int(v.id), "key": key, "value": v.textArea?.text ?? v.field?.text ?? "", "delivery": "recognized"]
+            return ["typed": Int(v.id), "key": key, "value": Agent.shownValue(v.textArea?.text ?? v.field?.text ?? "", of: v), "delivery": "recognized"]
         }
         if let f = v.textArea {
             f.becomeFirstResponder()
@@ -776,7 +849,29 @@ extension Agent {
         f.becomeFirstResponder()
         f.selectAll(nil)
         f.insertText(text)
-        return ["typed": Int(v.id), "value": f.text ?? ""]
+        return ["typed": Int(v.id), "value": Agent.shownValue(f.text ?? "", of: v)]
+    }
+
+    /// A hardware keyboard's caret keys in a field, which UIKit performs and
+    /// a driver's key does not: ArrowLeft and ArrowRight move the caret (or
+    /// collapse a selection to that side), Delete removes what follows it —
+    /// through `deleteBackward`, as Backspace does, so the field hears one
+    /// edit. The web's names and defaults (`type <field> key Delete`).
+    static func caretKey(_ name: String, in field: UIKeyInput & UITextInput) -> Bool {
+        guard ["ArrowLeft", "ArrowRight", "Delete"].contains(name), let range = field.selectedTextRange else { return false }
+        if name == "Delete" {
+            if range.isEmpty {
+                guard let next = field.position(from: range.end, offset: 1) else { return true }
+                field.selectedTextRange = field.textRange(from: next, to: next)
+            }
+            field.deleteBackward()
+            return true
+        }
+        let left = name == "ArrowLeft"
+        let edge = left ? range.start : range.end
+        let to = range.isEmpty ? field.position(from: edge, offset: left ? -1 : 1) ?? edge : edge
+        field.selectedTextRange = field.textRange(from: to, to: to)
+        return true
     }
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {

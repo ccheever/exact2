@@ -18,13 +18,31 @@ include!(concat!(env!("OUT_DIR"), "/vocab.rs"));
 pub const CONTEXTUAL: &[(&str, &str)] = &[
     ("sandbox", "`iframe`"),
     ("src", "`iframe` or `video`"),
-    ("load", "`iframe` or a native module"),
+    ("load", "`iframe`, `image` or a native module"),
     ("message", "`iframe`, `canvas` or a native module"),
     ("document", "`scroll`"),
     ("reachstart", "`list`"),
     ("reachend", "`list`"),
     ("text-transform", "any tag but `input` and `textarea`"),
     ("selectionchange", "`text`"),
+    ("name", "`input type=\"radio\"`"),
+    ("markup", "`text` or `textarea`"),
+    // @ref LLP 1098 D1, D2 — the media session's, `media::check_session`.
+    ("metadata", "`audio` or `video`"),
+    ("seekbackward", "an `audio` or `video` with `metadata=`"),
+    ("seekforward", "an `audio` or `video` with `metadata=`"),
+    ("seekto", "an `audio` or `video` with `metadata=`"),
+    ("previoustrack", "an `audio` or `video` with `metadata=`"),
+    ("nexttrack", "an `audio` or `video` with `metadata=`"),
+    ("stop", "an `audio` or `video` with `metadata=`"),
+    (
+        "seekbackwardOffset",
+        "an `audio` or `video` with `metadata=`",
+    ),
+    (
+        "seekforwardOffset",
+        "an `audio` or `video` with `metadata=`",
+    ),
 ];
 
 /// The open set of tags: a hyphenated name is a native module.
@@ -109,7 +127,11 @@ pub fn default(row: StyleId) -> Option<&'static str> {
 pub fn open_set(name: &str) -> Option<&'static str> {
     if name.starts_with("data-") {
         Some(DATA_NOTE)
-    } else if crate::native::is_module_tag(name) && crate::lint::fragmentation(name).is_none() {
+    } else if crate::native::is_module_tag(name)
+        && crate::lint::fragmentation(name).is_none()
+        // An `aria-*` name is an attribute ARIA has or does not, never a module.
+        && !name.starts_with("aria-")
+    {
         Some(MODULE_NOTE)
     } else {
         None

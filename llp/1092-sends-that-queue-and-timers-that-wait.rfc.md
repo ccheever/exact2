@@ -1,7 +1,7 @@
 # LLP 1092: Sends that queue and timers that wait
 
 **Type:** RFC
-**Status:** Accepted (r4, by the orchestrator under Charlie's delegation after three review rounds; Grok 4.7 only — Codex budget exhausted; round-3 findings folded unreviewed — the implementation review checks them). Every review is Grok 4.7 (xhigh), one family: r1 with two scopes, semantics (`llp/reviews/1092-r1.grok-a.md`, READY WITH CHANGES) and implementation (`llp/reviews/1092-r1.grok-b.md`, NOT READY); r2 a delta review (`llp/reviews/1092-r2.grok.md`, NOT READY); r3 the final delta review (`llp/reviews/1092-r3.grok.md`, NOT READY, three MATERIAL), whose fixes r4 folds as given (§9). The orchestrator decided r1's open questions under Charlie's 2026-10-04 delegation (§8); the `rules/DEFERRED.md` waiver is recorded in its own commit (`3555dc4e6`).
+**Status:** Accepted (r4); stages 1–3 built 2026-10-04 ("As built", §6). Accepted (r4, by the orchestrator under Charlie's delegation after three review rounds; Grok 4.7 only — Codex budget exhausted; round-3 findings folded unreviewed — the implementation review checks them). Every review is Grok 4.7 (xhigh), one family: r1 with two scopes, semantics (`llp/reviews/1092-r1.grok-a.md`, READY WITH CHANGES) and implementation (`llp/reviews/1092-r1.grok-b.md`, NOT READY); r2 a delta review (`llp/reviews/1092-r2.grok.md`, NOT READY); r3 the final delta review (`llp/reviews/1092-r3.grok.md`, NOT READY, three MATERIAL), whose fixes r4 folds as given (§9). The orchestrator decided r1's open questions under Charlie's 2026-10-04 delegation (§8); the `rules/DEFERRED.md` waiver is recorded in its own commit (`3555dc4e6`).
 **Systems:** Contract compiler, Plan (`mutations`, `timers`), Runner (`commit.rs`, `admission.rs`, `lists.rs`, `runner.rs`, `agent.rs`, new `queue.rs` and `gates.rs`), JS target (`rt.js`, `agent.js`, `emit.rs`, new `schedule.js`), conformance, Lean and difftest, docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-05
@@ -609,6 +609,81 @@ Each commit passes the five checks.
    `perf during "clock +60000"`.
 3. **Stage 3, 2026-10-06: D12.** A slipped proof lands as a restriction
    named in `semantics/README.md` with a `QUEUE.md` line; no `sorry`.
+
+### As built (stages 1–3, 2026-10-04)
+
+- **Stage 1** (`220d614fe`). As D1–D6. `queue.rs` holds the queues, `next_due`,
+  the stall (with the slots, derives and resources its refusal saw, a `Basis`)
+  and the scan, which runs after every commit concludes and on
+  `release_refused`'s early return; `run_next` is the `next` commit. Beyond the
+  text:
+  - `land_then` (an agent input's end) runs due `next`s as well as `then`s:
+    they are due at now and are not timers.
+  - A `next` refused by its own ask that leaves nothing waiting or in flight
+    commits again (`a refused queued send`), so the view hears `pending` end,
+    as after a failed reply.
+  - `frame()` keeps the prelude's refusal in `Advanced.error` and still fires
+    the armed frame tasks.
+  - The JS target's answer now lands before the action's own writes, as the
+    runner's does (a send answered now and an assignment of its slot in one
+    action: the assignment wins). That was a divergence for every mutation;
+    `queue.contract` found it.
+  - The journal lines: `wrote next (1 waiting)`, `wrote queued send refused:
+    …`, `wrote next refused (…); waits for a change`, `forgot 2 waiting sends
+    (wrote)`. A reload's line is the new runner's, from `Carried.forgot_waiting`.
+  - `has_timers` counts a queue mutation.
+- **Stage 2** (`eadd390a7`). As D7–D11. Beyond the text:
+  - Plan `timers` also gains `name`, for the agent's `state.tasks`.
+  - A settlement that stood has already published its caches and handed out
+    its resources' requests when the gate step runs, so a commit's checkpoint
+    also keeps what a settlement publishes (`Published`, taken only for a plan
+    with a gated task) and lets go the requests it handed out.
+  - The gate step reads the commit's own sends as pending, as the settled
+    derives did (settlement's flags follow tickets, handed out after the step).
+  - A task that starts at neither `mount` nor a gate is `syntax-task-start`.
+  - The JS target keeps `clock.timers` in plan order (`i`), so ties break as
+    the runner's do, and a frame task armed or dropped by a frame task's own
+    commit fires only if it was armed at the frame's start.
+  - Lean's checker types gates and keys too (`taskGate`, `WellTyped.taskGates`).
+- **Stage 3** (`908ce0f23`). As D12, with the restrictions in
+  `semantics/README.md` ("Queued sends and gated tasks") and a `QUEUE.md`
+  line: the one-slot invariants are stated for slots that are not a queue
+  mutation's; Lean's `pending` of a waiting queue is false; the
+  component-level semantics refuses both, so `difftest expansion` leaves them
+  out. `nextCommit_sound`, the drain branch of `advance_sound`, boot's gate
+  step and the frame lemmas are proved; no `sorry`.
+- **Tests.** `contract/cli/tests/it/queue.rs` (§5's queue list, the stall by
+  settlement and by `TaskKey`, a gate refusal on a reply's commit and on a
+  commit made again), `time.rs` (§5's timer list, D9's refusals whole),
+  `contract/corpus/rejects.txt`, `host/web/tests/js-runtime.test.mjs` (a queue
+  with no `then` asked by `drive()` alone; a gate refusal rolled back, timers
+  included). Conformance: `queue.contract` and `gates.contract`, every step
+  equal on wasm and JS, and on Linux up to the step where it stops (an advance
+  refused by a queued send's own ask); the whole `--synthetic --build` run has
+  one failure, `bootpress`'s RealWorld type check, unrelated.
+- **Difftest.** `quick` agrees; `corpus` 254 of 256 agree (2 outside); `random
+  --seed 1 --count 500` 500 agree; `types --count 200`, `expansion` (corpus and
+  `--count 100`), `lowering --count 100` and `apps` agree.
+- **Plans.** Every in-repo app compiles to the same tables before and after,
+  apart from the new fields (`queue == false`, no gate or key) and the pools
+  they shift (code offsets, interned names); the digest changed.
+- **Size.** Trivia's `app.js` and `rt` chunk, brotli: 38,955 B before, 39,201
+  after unadopted (+246 B), 40,047 adopted with a gate (+846 B, `schedule.js`).
+- **Adoption** (scratch copies, never `~/projects/x2apps`):
+  - kanban2 (`aside` folded into `wrote queue`): `test web` 7/7 and `test
+    macos` 7/7, the label tap while notes save included; its journal shows
+    `wrote next (0 waiting)`.
+  - spreadsheet (`committed` folded into `edited queue`): `test web` 15/15.
+  - chat (two toast tasks, bots `when box.nextDue > 0`): `test web` 9/11, the
+    same two failures as the unadopted app on this branch; at rest over
+    `clock +60000` it commits nothing (300 commits before).
+  - trivia (`when screen == "play"`): `test web` 9/9, `test macos` 9/9, no
+    commit at rest on the menu on either host.
+  - flashcards, studio, ledger2 and chat2 use LLP 1091's modules from main
+    and do not compile on this branch's base; see the final report.
+- **Found, not fixed.** The JS target's agent jump waits for the reply of a
+  request a timer sent at the jump's last instant and runs its `then`; the
+  wasm, Linux and Apple hosts' jumps do not (`QUEUE.md`).
 
 ## 7. Considered, not taken, and deferred
 

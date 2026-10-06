@@ -82,7 +82,7 @@ pub(crate) fn resolve(
             });
     }
     if spec.starts_with("./") || spec.starts_with("../") {
-        return relative(spec, dir, from, app_root);
+        return relative(spec, dir, from, app_root, consulted);
     }
     if spec.starts_with('/') || spec.contains('\\') || spec.is_empty() {
         return Err((
@@ -109,7 +109,13 @@ pub(crate) fn resolve(
     package(spec, dir, consulted)
 }
 
-fn relative(spec: &str, dir: &Path, from: &Origin, app_root: &Path) -> Result<Resolved, Refusal> {
+fn relative(
+    spec: &str,
+    dir: &Path,
+    from: &Origin,
+    app_root: &Path,
+    consulted: &mut Vec<PathBuf>,
+) -> Result<Resolved, Refusal> {
     let Some(root) = from.root(app_root) else {
         return Err((
             "contract-use-path",
@@ -127,6 +133,22 @@ fn relative(spec: &str, dir: &Path, from: &Origin, app_root: &Path) -> Result<Re
         ));
     }
     let target = dir.join(spec);
+    // Watched by the path written (without its `.` segments, as watchers
+    // name it): creating it, or retargeting a link there, builds again.
+    // Both ways a watcher may name it: folded, as Node's `resolve` folds
+    // `..`, and as written, through any link before the `..`. A folded path
+    // that leaves the root names no file of this program (a link before the
+    // `..` led back inside), so it is not recorded.
+    let folded = lexical(&target);
+    if folded.starts_with(root) {
+        consulted.push(folded);
+    }
+    consulted.push(
+        target
+            .components()
+            .filter(|c| !matches!(c, std::path::Component::CurDir))
+            .collect(),
+    );
     let key = target.canonicalize().map_err(|e| {
         (
             "contract-use-unreadable",
@@ -148,6 +170,25 @@ fn relative(spec: &str, dir: &Path, from: &Origin, app_root: &Path) -> Result<Re
     })
 }
 
+/// `path` with its `.` and `..` segments folded as written, the way a
+/// watcher names the file (Node's `resolve`): the path to watch, not the
+/// file to read, which resolution canonicalizes.
+fn lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 fn contract_file(spec: &str, key: &Path) -> Result<(), Refusal> {
     if key.extension().and_then(|extension| extension.to_str()) == Some("contract") {
         Ok(())
@@ -157,6 +198,27 @@ fn contract_file(spec: &str, key: &Path) -> Result<(), Refusal> {
             format!("`{spec}` resolves to a file that is not `.contract`"),
         ))
     }
+}
+
+/// The nearest directory above `dir` whose `package.json` names `name` as a
+/// dependency (exact2's own packages are `workspace:*` ones). Only the
+/// message reads these, so they are not `consulted`: the dev loops watch a
+/// consulted manifest's whole directory as a package's, which for the
+/// repository root is everything. The install itself is watched (`package`).
+fn declared(dir: &Path, name: &str) -> Option<PathBuf> {
+    dir.ancestors().find_map(|root| {
+        let text = std::fs::read_to_string(root.join("package.json")).ok()?;
+        let manifest = serde_json::from_str::<serde_json::Value>(&text).ok()?;
+        [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies",
+        ]
+        .iter()
+        .any(|key| manifest[key].get(name).is_some())
+        .then(|| root.to_path_buf())
+    })
 }
 
 /// `@scope/name[/sub]` or `name[/sub]`, found in the nearest `node_modules`
@@ -177,22 +239,49 @@ fn package(spec: &str, dir: &Path, consulted: &mut Vec<PathBuf>) -> Result<Resol
     }
     let name = parts[..take].join("/");
     let sub = parts[take..].join("/");
+    // Every nearer place an install would win from, watched even when one
+    // farther up resolves: installing there changes what the name means.
+    let mut nearer = Vec::new();
     let found = dir
         .ancestors()
         .map(|a| a.join("node_modules").join(&name))
-        .find(|candidate| candidate.join("package.json").is_file())
+        .find(|candidate| {
+            let manifest = candidate.join("package.json");
+            let here = manifest.is_file();
+            if !here {
+                nearer.push(manifest);
+            }
+            here
+        })
         .ok_or_else(|| {
-            (
-                "contract-use-package",
-                format!(
+            // Where an install would put it, nearest first, watched so that
+            // installing it builds again.
+            consulted.extend(
+                dir.ancestors()
+                    .map(|a| a.join("node_modules").join(&name).join("package.json")),
+            );
+            // Declared above but never installed (a fresh checkout or
+            // worktree): the fix is the install, not adding it again.
+            let message = match declared(dir, &name) {
+                Some(root) => format!(
+                    "package `{name}` is declared in {} but not installed: run `bun install --frozen-lockfile` in {}",
+                    root.join("package.json").display(),
+                    root.display()
+                ),
+                None => format!(
                     "no package `{name}` in a `node_modules` above {}: add it to the app's `package.json` and install (`bun add {name}`, or `\"{name}\": \"file:../path\"` for a local library)",
                     dir.display()
                 ),
-            )
+            };
+            ("contract-use-package", message)
         })?;
     // The manifest is the package's, where it really is: a linked directory,
     // or Bun's `file:` install of per-file links, leads to the library's
     // own `package.json`, and the package is the directory that holds it.
+    consulted.extend(nearer);
+    // The install's own path too: relinking it to another directory changes
+    // what it resolves to without touching either directory's files.
+    consulted.push(found.join("package.json"));
     let manifest = found.join("package.json").canonicalize().map_err(|e| {
         (
             "contract-use-unreadable",
@@ -240,6 +329,9 @@ fn package(spec: &str, dir: &Path, consulted: &mut Vec<PathBuf>) -> Result<Resol
         ));
     };
     let target = found.join(relative);
+    // The export by the path the package offers it at: retargeting a link
+    // there changes the file without touching the old one.
+    consulted.push(target.clone());
     let key = target.canonicalize().map_err(|e| {
         (
             "contract-use-unreadable",

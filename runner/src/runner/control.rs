@@ -24,7 +24,7 @@ impl<D: DataSource> Runner<D> {
         let mismatch = || RunnerError::InvalidEvent { event };
         let invalid = |reason: String| RunnerError::InvalidValue { event, reason };
         match (kind, value) {
-            (None, ControlValue::Text(_))
+            (None, ControlValue::Text(_) | ControlValue::Field(..))
             | (Some(ControlKind::Checkbox | ControlKind::Switch), ControlValue::Checked(_))
             | (Some(ControlKind::File), ControlValue::Files(_)) => Ok(value.value()),
             // @ref LLP 1069.001 D4 — a select reports the chosen option's
@@ -43,6 +43,17 @@ impl<D: DataSource> Runner<D> {
                             .join(", ")
                     ))),
                 }
+            }
+            // A radio reports its own value as it becomes checked (x2apps
+            // survey #2): HTML's `value`, `on` when it has none.
+            (Some(ControlKind::Radio), ControlValue::Text(text)) => {
+                let own = self.kernel.radio_value(view);
+                if *text != own {
+                    return Err(invalid(format!(
+                        "this radio's value is {own:?}, not {text:?}: a radio reports its own"
+                    )));
+                }
+                Ok(value.value())
             }
             // A range reports a number, clamped and snapped as HTML does,
             // whatever a host sent (LLP 1069.001 D4).

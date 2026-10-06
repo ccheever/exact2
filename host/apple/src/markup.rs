@@ -37,6 +37,10 @@ pub struct CPiece {
     pub href: *const u8,
     /// Its length.
     pub href_len: usize,
+    /// CSS px: the head indent of the paragraph it is in (LLP 1045 D4).
+    pub indent: f32,
+    /// 1 for a list marker, hung before the indent with its end at it.
+    pub hang: u8,
 }
 
 /// An expansion kept alive for its handle: the pieces own the text the
@@ -99,6 +103,8 @@ pub fn pieces(text: *const u8, len: usize, out: *mut *const CPiece, count: *mut 
                 p.href.as_ptr()
             },
             href_len: p.href.len(),
+            indent: p.indent,
+            hang: u8::from(p.hang),
         })
         .collect();
     let handle = NEXT.with_borrow_mut(|n| {
@@ -360,6 +366,13 @@ mod tests {
             b"u"
         );
         free(handle);
+        free(handle);
+        // A list item's paragraph attribute crosses too (LLP 1045 D4).
+        let source = "- a";
+        let handle = pieces(source.as_ptr(), source.len(), &mut out, &mut count);
+        let flat = unsafe { std::slice::from_raw_parts(out, count) };
+        assert_eq!((flat[0].hang, flat[0].indent), (1, 40.0));
+        assert_eq!((flat[1].hang, flat[1].indent), (0, 40.0));
         free(handle);
         assert_eq!(pieces(b"\xff".as_ptr(), 1, &mut out, &mut count), 0);
         assert_eq!(count, 0);

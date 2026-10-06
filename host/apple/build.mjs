@@ -41,16 +41,15 @@ import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { closeSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { DOCUMENT_UTIS, ownDocumentType, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
+import { DOCUMENT_UTIS, ownDocumentType, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesBundle, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
-import { provisionHermesIos } from './hermes.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { appIcon, iosAssets } from './assets.mjs';
 import { keptModules } from './modules.mjs';
 import { keptCrates } from './crates.mjs';
 export { appIcon, iosAssets };
-import { deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
+import { allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => {
@@ -300,13 +299,23 @@ function openingLinks(app, platform, development) {
     ...(development ? { ExactDevelopmentURLScheme: development.scheme, ExactDevelopmentOrigins: development.origins, ExactDevelopmentToken: development.token } : {}) };
 }
 
+/** A simulator build's App ID prefix: ten characters, a Team ID's shape,
+ * which HealthKit splits the identifier by (LLP 1069.008.000 D3). */
+export const SIMULATOR_PREFIX = 'SIMULATORX';
+
 /** Device identity comes from the profile. Simulators need an app identity too:
- * Keychain's default access group is the application-identifier. */
-export const entitlements = (app, team = null, debuggable = true, reach = null) => {
+ * Keychain's default access group is the application-identifier. A
+ * simulator's is `SIMULATORX.<id>`, with the bare id it had before kept as a
+ * second Keychain group so items stored then still read and update in place
+ * (D3, measured). The grants' signing entitlements (`reach.entitlements`,
+ * D2) are each `true`. */
+export const entitlements = (app, team = null, debuggable = true, reach = null, { simulator = false } = {}) => {
   const ios = app.manifest.host?.ios ?? {};
+  const prefixed = `${SIMULATOR_PREFIX}.${app.id}`;
   const dict = {
-    'application-identifier': team ? `${team}.${app.id}` : app.id,
+    'application-identifier': team ? `${team}.${app.id}` : simulator ? prefixed : app.id,
     ...(team ? { 'com.apple.developer.team-identifier': team } : {}),
+    ...(simulator && !team ? { 'keychain-access-groups': [prefixed, app.id] } : {}),
     // A distribution profile grants no debugger; its entitlements must not ask.
     'get-task-allow': debuggable,
   };
@@ -316,7 +325,17 @@ export const entitlements = (app, team = null, debuggable = true, reach = null) 
   // (the bake's derivation from the `auth.callback` grants, LLP 1069.008).
   const all = [...new Set([...domains, ...(reach?.auth?.associatedDomains ?? [])])];
   if (all.length) dict['com.apple.developer.associated-domains'] = all;
+  for (const name of reach?.entitlements ?? []) dict[name] = true;
   return plistFile(dict);
+};
+
+/** `reach` as a tvOS build uses it: tvOS bakes the iOS plan, so the keys
+ * and entitlements of rows not on TV go (`reach.tvOmits`, LLP 1069.008.000 D5). */
+export const tvReach = (reach) => {
+  const omit = new Set(reach?.tvOmits ?? []);
+  if (!reach || !omit.size) return reach;
+  return { ...reach, usage: Object.fromEntries(Object.entries(reach.usage ?? {}).filter(([key]) => !omit.has(key))),
+    entitlements: (reach.entitlements ?? []).filter((name) => !omit.has(name)) };
 };
 
 /** The device grants' derivations (LLP 1069.008 D4), from the bake's
@@ -376,6 +395,12 @@ function wrapFramework(frameworks, loose, name, app) {
   }));
 }
 
+/** `NSAppTransportSecurity` from `host.<platform>.appTransportSecurity` and the build's own `keys`; none of either, no key. `allowsArbitraryLoadsInWebContent` relaxes ATS for web views only (an `iframe` loads `http://` from a named host, as a browser does); a module's `URLSession` stays under ATS. */
+const transportSecurity = (section, keys = {}) => {
+  const ats = { ...(section?.appTransportSecurity?.allowsArbitraryLoadsInWebContent ? { NSAllowsArbitraryLoadsInWebContent: true } : {}), ...keys };
+  return Object.keys(ats).length ? { NSAppTransportSecurity: ats } : {};
+};
+
 /** The iOS `Info.plist` from the manifest (LLP 1030 D2: one declaration; `build.mjs` consumes what it generates). The dev client's local-networking permission is `host.ios.localNetworking` (a string: the prompt); the store-required version numbers are counters bake owns, not authored. */
 export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = app.id, name = app.displayName, development = null, icon = {}, distribution = null, reach = null, tv = false } = {}) => {
   const ios = app.manifest.host?.ios ?? {};
@@ -397,11 +422,11 @@ export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = a
     UIApplicationSceneManifest: { UIApplicationSupportsMultipleScenes: false },
     ...(tv ? {} : { CADisableMinimumFrameDurationOnPhone: true }),
   };
-  if (ios.localNetworking) {
-    dict.NSAppTransportSecurity = { NSAllowsLocalNetworking: true };
-    dict.NSLocalNetworkUsageDescription = typeof ios.localNetworking === 'string' ? ios.localNetworking : 'Connects to your dev server on the local network.';
-  }
+  Object.assign(dict, transportSecurity(tv ? {} : ios, ios.localNetworking ? { NSAllowsLocalNetworking: true } : {}));
+  if (ios.localNetworking) dict.NSLocalNetworkUsageDescription = typeof ios.localNetworking === 'string' ? ios.localNetworking : 'Connects to your dev server on the local network.';
   if (ios.backgroundModes?.length) dict.UIBackgroundModes = ios.backgroundModes;
+  // @ref LLP 1096 D8 — the audio session's category, which ExactKit's one owner reads.
+  if (app.manifest.audio_session) dict.ExactAudioSession = app.manifest.audio_session;
   // The manifest's `file_handlers`, as on the Mac, opened in place from
   // Files ("Open in", LLP 1069.010 slice 4), and the non-system types they
   // name (Markdown) imported so Files can match them.
@@ -586,6 +611,7 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null 
   // Usage strings for the devices the app's grants name (LLP 1069.008).
   ...usageKeys(reach),
   ...(app.manifest.host?.macos?.window ? { ExactWindow: app.manifest.host.macos.window } : {}),
+  ...transportSecurity(app.manifest.host?.macos),
   ...(documentTypes(app).length ? { CFBundleDocumentTypes: documentTypes(app) } : {}),
   ...(exportedTypes(app).length ? { UTExportedTypeDeclarations: exportedTypes(app) } : {}),
   // Where a launch lands (LLP 1069.010 D4) is the manifest's `launch_handler`'s, with or
@@ -670,6 +696,7 @@ async function main(args) {
     built: `lib${app.crate(`gpu-${name}`).replace(/-/g, '_')}.dylib`, load: `libexact_gpu_${name.replace(/-/g, '_')}.dylib` }));
   const webLoadName = 'libexact_web.dylib';
   const videoLoadName = 'libexact_video.dylib';
+  const soundLoadName = 'libexact_sound.dylib';
   const svgLoadName = 'libexact_svg.dylib';
   const webBuildDir = mkdtempSync(resolve(tmpdir(), 'exact-webarm-'));
   cleanup.push(webBuildDir);
@@ -714,8 +741,8 @@ async function main(args) {
   let bakedPlan, paths;
   const development = cargoEnv.EXACT_UPDATE_TRUST === 'development' && args.includes('--url') ? developmentAdmission(app, launchEnv.EXACT_DEV_PLAN) : null;
   cargoEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, cargoEnv);
-  if (tv && existsSync(resolve(app.dir, 'app.ts')) && cargoEnv.EXACT_JS_ENGINE !== 'stub') throw new Error(`--tvos: ${app.name} has app.ts, and Hermes is not built for tvOS yet; set EXACT_JS_ENGINE=stub`);
-  if (ios && !tv && existsSync(resolve(app.dir, 'app.ts')) && cargoEnv.EXACT_JS_ENGINE !== 'stub') provisionHermesIos(device ? 'ios' : 'ios-simulator');
+  const hermes = ios && existsSync(resolve(app.dir, 'app.ts')) && cargoEnv.EXACT_JS_ENGINE !== 'stub' && hermesBundle(target, cargoEnv);
+  if (hermes && !hermes.installed) throw new Error(`the pinned Hermes bundle for ${target} is not installed. Install it once with:\n  ${hermes.fix}`);
   // What the bake is expected to decide (the manifest's store level). The
   // shared Swift scratch is the same whatever it decides; the composition and
   // capture directory name the Swift host's environment before the bake ends.
@@ -898,6 +925,8 @@ async function main(args) {
   } }));
   const libDir = paths.capture;
   const bakedCompat = buildReceipt.compat;
+  // What this Apple destination derives from the grants: the bake's, less what tvOS has not.
+  const appleReach = tv ? tvReach(bakedCompat.reach) : bakedCompat.reach;
   const level = bakedCompat.inputs?.store?.L;
   if (!['0', 'A'].includes(level)) throw new Error(`host/apple: unsupported baked store level ${level}`);
   const composition = level === '0' ? 'embedded' : 'updating';
@@ -941,10 +970,14 @@ async function main(args) {
   // build carries all four: a development plan or a later bundle may reach
   // one. Nothing is refused for a module left out: each loader says by name
   // that its module is absent, and a canvas then draws with Core Graphics.
+  // @ref LLP 1098 D8 — the lock screen and Control Center show only a non-mixable playback session's media, and the audio
+  // stops at the lock without the background mode: an app that claims the media session states both.
+  const iosModes = app.manifest.host?.ios?.backgroundModes ?? [];
+  if (ios && !tv && buildReceipt.graph.mediaSession && !(app.manifest.audio_session === 'playback' && iosModes.includes('audio'))) throw new Error('host/apple: a media session needs `audio_session: "playback"` and `"audio"` in `host.ios.backgroundModes` in app.json on iOS: the lock screen shows only a playback session\'s media');
   const reaches = buildReceipt.graph.loads;
   const settled = cargoProfile === 'release' && level === '0' && Array.isArray(reaches);
   const carries = (module) => !settled || reaches.includes(module);
-  const leftOut = settled ? ['canvas', 'svg', 'video', 'web'].filter((module) => !reaches.includes(module)) : [];
+  const leftOut = settled ? ['canvas', 'svg', 'video', 'web', 'sound'].filter((module) => !reaches.includes(module)) : [];
   if (leftOut.length) console.log(`host/apple: the plan cannot change (production, store level 0) and reaches no ${leftOut.join(', ')} module: left out of this build`);
   const canvasGpu = metal && carries('canvas');
   const lateCrates = fixedPlan && !embedOnly ? [...(carries('svg') ? ['exact-svg-raster'] : []), ...(canvasGpu ? ['exact-canvas-vello'] : [])] : [];
@@ -1005,8 +1038,25 @@ async function main(args) {
   const hasWeb = !tv && carries('web'), hasVideo = carries('video'), hasSvg = carries('svg');
   if (hasWeb) arms.push(arm(webArgs, resolve(root, 'host/apple/webarm/WebArm.swift'), webBuilt));
   const videoBuilt = resolve(webBuildDir, videoLoadName);
-  const videoArgs = webArgs.map(value => value === 'ExactWebArm' ? 'ExactVideoArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? resolve(root, 'host/apple/videoarm/VideoArm.swift') : value === webBuilt ? videoBuilt : value === 'WebKit' ? 'AVKit' : value);
-  if (hasVideo) arms.push(arm(videoArgs, resolve(root, 'host/apple/videoarm/VideoArm.swift'), videoBuilt));
+  // The video arm and its media session (LLP 1098 D7): both sources are its key and its inputs, with MediaPlayer.
+  const video = ['VideoArm.swift', 'NowPlaying.swift'].map(f => resolve(root, 'host/apple/videoarm', f));
+  const videoArgs = webArgs.flatMap(value => value === 'ExactWebArm' ? ['ExactVideoArm'] : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? video : value === webBuilt ? [videoBuilt] : value === 'WebKit' ? ['AVKit', '-framework', 'MediaPlayer'] : [value]);
+  if (hasVideo) arms.push(arm(videoArgs, video, videoBuilt));
+  // The sound arm (LLP 1096 D8): Swift over a C mixer, so the render thread
+  // runs no Swift. The C is compiled first to an object named by its content,
+  // and linked into the one dylib with its header imported.
+  const hasSound = carries('sound'), soundBuilt = resolve(webBuildDir, soundLoadName);
+  if (hasSound) {
+    const sound = (f) => resolve(root, 'host/apple/soundarm', f), triple = webArgs[webArgs.indexOf('-target') + 1];
+    const object = resolve(swiftBuildRoot, 'arms', `sound_render-${createHash('sha256').update(readFileSync(sound('sound_render.c'))).update(readFileSync(sound('sound_render.h'))).update(`${triple} ${sdk}`).digest('hex').slice(0, 16)}.o`);
+    if (!existsSync(object)) {
+      mkdirSync(dirname(object), { recursive: true });
+      run('xcrun', ['--sdk', sdkName, 'clang', '-c', '-O2', '-target', triple, sound('sound_render.c'), '-o', `${object}.${process.pid}.tmp`]);
+      renameSync(`${object}.${process.pid}.tmp`, object);
+    }
+    const soundArgs = [...webArgs.map(value => value === 'ExactWebArm' ? 'ExactSoundArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? sound('SoundArm.swift') : value === webBuilt ? soundBuilt : value === 'WebKit' ? 'AVFoundation' : value), '-import-objc-header', sound('sound_render.h'), object];
+    arms.push(arm(soundArgs, [sound('SoundArm.swift'), sound('sound_render.c'), sound('sound_render.h')], soundBuilt));
+  }
   // @ref LLP 1024 D3/D8.4 — the app's one module artifact, only when the app
   // has modules (the GPU gate): the host's table glue and the app's own
   // `modules/apple/*.swift`, one dylib under one load name. A release build
@@ -1093,7 +1143,7 @@ async function main(args) {
       if (ios && !device) {
         // Simulator Security reads entitlements from the Mach-O text section.
         // Device-style entitlements in its ad-hoc signature can prevent launch.
-        entitled = entitlements({...app, id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, bakedCompat.reach);
+        entitled = entitlements({...app, id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, appleReach, { simulator: true });
         const ent = resolve(linkRoot, `${p}-entitlements.plist`);
         // Written only when it differs: the early build may be reading it.
         if (!existsSync(ent) || readFileSync(ent, 'utf8') !== entitled) writeFileSync(ent, entitled);
@@ -1175,12 +1225,14 @@ async function main(args) {
     rmSync(gpuDest, { force: true });
     if (hasGpu) copyFileSync(resolve(libDir, dylib), gpuDest);
     for (const m of moduleDylibs) { rmSync(resolve(binDir, m.load), { force: true }); copyFileSync(resolve(libDir, m.built), resolve(binDir, m.load)); }
-    const loaded = [...(hasWeb ? [webLoadName] : []), ...(hasVideo ? [videoLoadName] : []), ...(hasSvg ? [svgLoadName] : [])];
+    const loaded = [...(hasWeb ? [webLoadName] : []), ...(hasVideo ? [videoLoadName] : []), ...(hasSvg ? [svgLoadName] : []), ...(hasSound ? [soundLoadName] : [])];
     const webDest = resolve(binDir, webLoadName);
     rmSync(webDest, { force: true });
     if (hasWeb) copyFileSync(webBuilt, webDest);
     rmSync(resolve(binDir, videoLoadName), { force: true });
     if (hasVideo) copyFileSync(videoBuilt, resolve(binDir, videoLoadName));
+    rmSync(resolve(binDir, soundLoadName), { force: true });
+    if (hasSound) copyFileSync(soundBuilt, resolve(binDir, soundLoadName));
     rmSync(resolve(binDir, modulesLoadName), { force: true });
     if (modulesBuilt) copyFileSync(modulesBuilt, resolve(binDir, modulesLoadName));
     rmSync(resolve(binDir, svgLoadName), { force: true });
@@ -1267,18 +1319,19 @@ async function main(args) {
   const bundle = resolve(binDir, 'ExactIOS.app');
   mkdirSync(resolve(bundle, 'Frameworks'), { recursive: true });
   copyFileSync(bin, resolve(bundle, product));
-  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: bakedCompat.reach, tv }));
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: appleReach, tv }));
   // The GPU crate's shaders (LLP 1030 D8): files the presenter registers
   // with the module before a surface is created, never strings in the dylib.
   copyAppleStaticTrees(paths.capture, bundle);
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
   // tvOS icons are layered brand assets, which actool's iPhone/iPad icon set does not make; tvOS builds have none yet.
-  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: bakedCompat.reach, icon: tv ? {} : iosAssets(app, bundle, device, { catalog: !!ipa, kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc } }), distribution: ipa ? distributionKeys() : null, tv }));
-  writeUsageStrings(bakedCompat.reach, bundle);
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: appleReach, icon: tv ? {} : iosAssets(app, bundle, device, { catalog: !!ipa, kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc } }), distribution: ipa ? distributionKeys() : null, tv }));
+  writeUsageStrings(appleReach, bundle);
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   for (const m of moduleDylibs) copyFileSync(resolve(libDir, m.built), resolve(bundle, 'Frameworks', m.load));
   if (hasWeb) copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
   if (hasVideo) copyFileSync(videoBuilt, resolve(bundle, 'Frameworks', videoLoadName));
+  if (hasSound) copyFileSync(soundBuilt, resolve(bundle, 'Frameworks', soundLoadName));
   if (modulesBuilt) copyFileSync(modulesBuilt, resolve(bundle, 'Frameworks', modulesLoadName));
   if (hasSvg) copyFileSync(svgBuilt, resolve(bundle, 'Frameworks', svgLoadName));
   if (svgFilterBuilt) copyFileSync(svgFilterBuilt, resolve(bundle, svgFilterLibraryName));
@@ -1289,8 +1342,8 @@ async function main(args) {
     mkdirSync(resolve(hostBundle, 'Frameworks'), { recursive: true });
     copyFileSync(resolve(binDir, 'ExactHostIOS'), resolve(hostBundle, 'ExactHostIOS'));
     // The sample host takes no development link: it would share the scheme.
-    writeFileSync(resolve(hostBundle, 'Info.plist'), infoPlist(app, device, { executable: 'ExactHostIOS', id: `${app.id}.host`, name: 'Host (not Exact)', reach: bakedCompat.reach }));
-    writeUsageStrings(bakedCompat.reach, hostBundle);
+    writeFileSync(resolve(hostBundle, 'Info.plist'), infoPlist(app, device, { executable: 'ExactHostIOS', id: `${app.id}.host`, name: 'Host (not Exact)', reach: appleReach }));
+    writeUsageStrings(appleReach, hostBundle);
     copyAppleStaticTrees(paths.capture, hostBundle);
     for (const f of readdirSync(resolve(bundle, 'Frameworks'))) copyFileSync(resolve(bundle, 'Frameworks', f), resolve(hostBundle, 'Frameworks', f));
     if (svgFilterBuilt) copyFileSync(svgFilterBuilt, resolve(hostBundle, svgFilterLibraryName));
@@ -1298,12 +1351,15 @@ async function main(args) {
   }
   for (const [assembled, host] of bundles) {
     const id = host ? `${app.id}.host` : app.id;
-    const signingProfile = device && !unsigned ? (host ? profile(ph.udid, id) : prof) : null;
+    // A grant's signing entitlement needs a profile that allows it, which a
+    // team wildcard never does for HealthKit (LLP 1069.008.000 D4).
+    const required = appleReach?.entitlements ?? [];
+    const signingProfile = device && !unsigned ? (host || !allows(prof, required) ? profile(ph?.udid, id, required) : prof) : null;
     const signingIdentity = signingProfile ? identity(signingProfile.team) : sha1;
     const ent = resolve(binDir, host ? 'host-entitlements.plist' : 'entitlements.plist');
     if (signingProfile) copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
     // Unsigned, the re-signer's profile decides; ask for no debugger, as a distribution profile grants none.
-    writeFileSync(ent, entitlements({ ...app, id }, signingProfile?.team, signingProfile?.dev ?? !unsigned, bakedCompat.reach));
+    writeFileSync(ent, entitlements({ ...app, id }, signingProfile?.team, signingProfile?.dev ?? !unsigned, appleReach));
     verifyBakeFiles(bakedCompat, bakedPlan, listAssets(assembled, true));
     assertAppleIdentity(app, resolve(assembled, host ? 'ExactHostIOS' : 'ExactIOS'), bakedCompat.id);
     const whole = receipt(app, { compatibilityId: bakedCompat.id, build: buildReceipt, composition,
@@ -1312,7 +1368,7 @@ async function main(args) {
       entitlements: readFileSync(ent, 'utf8'), gpu: hasGpu ? dylib : null, development: host ? null : development });
     writeFileSync(resolve(assembled, 'receipt.json'), ipa ? shippedReceipt(whole) : whole);
     if (ipa) { mkdirSync(dirname(ipa), { recursive: true }); writeFileSync(`${ipa.replace(/\.ipa$/, '')}.receipt.json`, whole); }
-    if (ipa) for (const [loose, name] of [[webLoadName, 'ExactWeb'], [videoLoadName, 'ExactVideo']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app);
+    if (ipa) for (const [loose, name] of [[webLoadName, 'ExactWeb'], [videoLoadName, 'ExactVideo'], [soundLoadName, 'ExactSound']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app);
     for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => f !== loadName && !moduleDylibs.some(m => m.load === f))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), assembled], { stdio: 'ignore' });
   }
@@ -1336,7 +1392,7 @@ async function main(args) {
       run('xcrun', ['devicectl', 'device', 'install', 'app', '--device', ph.udid, placed]);
     } else install(dev, placed, app, host);
   }
-  console.log(`host/apple: ${paths.bundle} on ${dev.name} (${timing()}); GPU: ${gpuNote}${ios && !svgFilterBuilt ? '; no SVG filter kernels (no Metal toolchain)' : ''}; web arm: ${hasWeb ? webLoadName : 'none'}${modulesBuilt ? `; modules: ${modulesLoadName} (Frameworks, signed)` : ''}`);
+  console.log(`host/apple: ${paths.bundle} on ${dev.name}${dev.udid ? ` ${dev.udid}` : ''} (${timing()}); GPU: ${gpuNote}${ios && !svgFilterBuilt ? '; no SVG filter kernels (no Metal toolchain)' : ''}; web arm: ${hasWeb ? webLoadName : 'none'}${modulesBuilt ? `; modules: ${modulesLoadName} (Frameworks, signed)` : ''}`);
   if (args.includes('--run')) {
     if (device) run('xcrun', deviceLaunchArgs(ph.udid, app.id, launchEnv));
     else {

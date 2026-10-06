@@ -81,11 +81,14 @@ final class PaintOrderIOSTests: XCTestCase {
     }
 
     #if os(iOS)
-    /// A native navigation container sits just above rank ½: over its
-    /// in-flow and positioned siblings wherever its subview place, and under
-    /// a positive `z-index` overlay, as before dense ranks. A top-layer view
-    /// (a popover, a snapshot) stays over every ranked sibling.
-    func testANavigationContainerSitsUnderAPositiveZIndexOverlay() throws {
+    /// A native navigation container takes rank ½, the positioned route
+    /// holders' rank: over its in-flow siblings, among positioned ones where
+    /// its subview place (the routes' place in the tree) puts it, and under
+    /// a positive `z-index` overlay. A top-layer view (a popover, a
+    /// snapshot) stays over every ranked sibling. Chat2 diary: a root sheet
+    /// after the routes, positioned with no `z-index`, lost its taps to the
+    /// route's collection view.
+    func testANavigationContainerPaintsAtTheRoutesPlace() throws {
         let p = fixture()
         let parent = try XCTUnwrap(p.views[1])
         // Twice the rank: 3 is positioned (½), 5 is `z-index: 30`.
@@ -95,12 +98,15 @@ final class PaintOrderIOSTests: XCTestCase {
         container.setPaintForeground(aboveAuthored: false)
         parent.container.sendSubviewToBack(container)
         p.views[2]?.setRank(1); p.views[2]?.setRank(0)
-        XCTAssertEqual(container.layer.zPosition, 0.0015, accuracy: 1e-9)
+        XCTAssertEqual(container.layer.zPosition, p.views[3]!.paintZPosition, accuracy: 1e-9)
         XCTAssertGreaterThan(container.layer.zPosition, p.views[4]!.paintZPosition, "over an in-flow sibling after it")
-        XCTAssertGreaterThan(container.layer.zPosition, p.views[3]!.paintZPosition, "and a positioned one")
-        XCTAssertTrue(NodeView.hitOrder(parent.container.subviews).dropFirst().first === container)
+        let order = { NodeView.hitOrder(parent.container.subviews) }
+        XCTAssertTrue(order()[1] === p.views[3], "under a positioned sibling after it: the root sheet")
+        XCTAssertTrue(order()[2] === container)
+        parent.container.insertSubview(container, aboveSubview: p.views[3]!)
+        XCTAssertTrue(order()[1] === container, "over a positioned sibling before it")
         XCTAssertGreaterThan(p.views[5]!.paintZPosition, container.layer.zPosition, "the overlay paints over the container")
-        XCTAssertTrue(NodeView.hitOrder(parent.container.subviews).first === p.views[5], "and takes the touch first")
+        XCTAssertTrue(order().first === p.views[5], "and takes the touch first")
         parent.container.addSubview(top)
         top.setPaintForeground()
         XCTAssertGreaterThan(top.layer.zPosition, p.views[5]!.paintZPosition)

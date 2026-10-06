@@ -396,7 +396,7 @@ pub fn svg_filters(plan: &Plan) -> bool {
 }
 
 /// Whether any code range calls a `format` entry, whether any reads
-/// geometry (`frame`, `measure`), and whether any calls `toLowerCase`: each
+/// geometry (`frame`, `measure`, `elementFromPoint`), and whether any calls `toLowerCase`: each
 /// validated body walked whole, so no call a run can reach is missed.
 fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
     let (mut format, mut geometry, mut lowercase) = (false, false, false);
@@ -404,8 +404,15 @@ fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
         for i in crate::vm::instructions(plan.code(code)).flatten() {
             if i.op == Opcode::Call {
                 match Stdlib::from_wire(i.args[0] as u8) {
-                    Some(Stdlib::FormatDate | Stdlib::FormatNumber) => format = true,
-                    Some(Stdlib::Frame | Stdlib::Measure) => geometry = true,
+                    Some(
+                        Stdlib::FormatDate
+                        | Stdlib::FormatNumber
+                        | Stdlib::ToFixed
+                        | Stdlib::FormatDecimal,
+                    ) => format = true,
+                    Some(Stdlib::Frame | Stdlib::Measure | Stdlib::ElementFromPoint) => {
+                        geometry = true
+                    }
                     Some(Stdlib::ToLowerCase) => lowercase = true,
                     _ => {}
                 }
@@ -416,6 +423,12 @@ fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
 }
 
 /// Whether any code range runs a host command named one of `names`.
+/// Whether `plan` declares a sound or runs one of the voice table's
+/// commands (LLP 1096): what links the JS target's table and its output.
+pub fn runs_sounds(plan: &Plan) -> bool {
+    !plan.sounds.is_empty() || runs_command(plan, &["playSound", "playSounds", "stopSounds"])
+}
+
 fn runs_command(plan: &Plan, names: &[&str]) -> bool {
     let mut runs = false;
     plan.each_code(&mut |code| {

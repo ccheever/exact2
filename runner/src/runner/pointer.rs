@@ -8,7 +8,8 @@
 //! DOM's `MouseEvent`s (studio diary R3, R19).
 //!
 //! The wire is one UTF-8 line every host writes the same way:
-//! `offsetX,offsetY,buttons,pressure,pointerType,pointerId`; a wheel's is
+//! `offsetX,offsetY,buttons,pressure,pointerType,pointerId,clientX,clientY`
+//! (the viewport point last, LLP 1094 D11); a wheel's is
 //! `offsetX,offsetY,deltaX,deltaY,deltaMode`; a drop's is `offsetX,offsetY`
 //! and then one `doc:` handle per line. Each may end in the modifiers held.
 
@@ -34,12 +35,17 @@ pub struct PointerEvent {
     /// The contact's id: 1 for the mouse, as browsers number it; a touch
     /// or pen gets its own for as long as it is down.
     pub pointer_id: f64,
+    /// From the viewport's left, CSS px: `frame()`'s space, so a drag built
+    /// by hand can test the pointer against the boxes (LLP 1094 D11).
+    pub client_x: f64,
+    /// From the viewport's top, CSS px.
+    pub client_y: f64,
     /// The modifier keys held, `MouseEvent`'s `shiftKey`… (gallery F20).
     pub held: super::KeyModifiers,
 }
 
 impl PointerEvent {
-    /// Decode the wire line — six fields, then optionally the modifiers
+    /// Decode the wire line — eight fields, then optionally the modifiers
     /// held as a chord prefix (`Shift+Meta`, [`KeyModifiers::held`]);
     /// `None` for a malformed one, a non-finite number, a pressure outside
     /// 0 to 1, another pointer type or a modifier DOM does not name.
@@ -53,6 +59,12 @@ impl PointerEvent {
         let (offset_x, offset_y, buttons, pressure) = (number()?, number()?, number()?, number()?);
         let pointer_type = parts.next()?;
         let pointer_id = exact_num::parse_f64(parts.next()?).ok()?;
+        let mut number = || {
+            exact_num::parse_f64(parts.next()?)
+                .ok()
+                .filter(|v| v.is_finite())
+        };
+        let (client_x, client_y) = (number()?, number()?);
         let held = super::KeyModifiers::held(parts.next().unwrap_or(""))?;
         let valid = parts.next().is_none()
             && (0.0..=1.0).contains(&pressure)
@@ -66,6 +78,8 @@ impl PointerEvent {
             pressure,
             pointer_type: pointer_type.into(),
             pointer_id,
+            client_x,
+            client_y,
             held,
         })
     }
@@ -79,6 +93,8 @@ impl PointerEvent {
             Value::Number(self.pressure),
             Value::str(&self.pointer_type),
             Value::Number(self.pointer_id),
+            Value::Number(self.client_x),
+            Value::Number(self.client_y),
             Value::Bool(self.held.shift),
             Value::Bool(self.held.ctrl),
             Value::Bool(self.held.alt),
@@ -226,29 +242,35 @@ mod tests {
 
     #[test]
     fn the_wire_line_decodes_and_refuses_what_dom_never_sends() {
-        let p = PointerEvent::parse("12.5,-3,1,0.25,pen,7").unwrap();
+        let p = PointerEvent::parse("12.5,-3,1,0.25,pen,7,40,50.5").unwrap();
         assert_eq!(
             (p.offset_x, p.offset_y, p.buttons, p.pressure),
             (12.5, -3.0, 1.0, 0.25)
         );
         assert_eq!((p.pointer_type.as_str(), p.pointer_id), ("pen", 7.0));
+        assert_eq!((p.client_x, p.client_y), (40.0, 50.5));
         for bad in [
             "",
             "1,2,1,0.5,mouse",
-            "1,2,1,1.5,mouse,1",
-            "1,NaN,1,0.5,mouse,1",
-            "1,2,1,0.5,stylus,1",
-            "1,2,1,0.5,mouse,1,Hyper",
-            "1,2,1,0.5,mouse,1,Shift,9",
+            // The six-field line: every writer is in the repo, and there is
+            // no compatibility parse (LLP 1094 D11).
+            "1,2,1,0.5,mouse,1",
+            "1,2,1,0.5,mouse,1,Shift",
+            "1,2,1,1.5,mouse,1,0,0",
+            "1,NaN,1,0.5,mouse,1,0,0",
+            "1,2,1,0.5,mouse,1,0,Infinity",
+            "1,2,1,0.5,stylus,1,0,0",
+            "1,2,1,0.5,mouse,1,0,0,Hyper",
+            "1,2,1,0.5,mouse,1,0,0,Shift,9",
         ] {
             assert!(PointerEvent::parse(bad).is_none(), "{bad}");
         }
-        let held = PointerEvent::parse("1,2,1,0.5,mouse,1,Shift+Meta")
+        let held = PointerEvent::parse("1,2,1,0.5,mouse,1,3,4,Shift+Meta")
             .unwrap()
             .held;
         assert!(held.shift && held.meta && !held.ctrl && !held.alt);
         assert!(matches!(
-            Event::pointer_payload(31, "0,0,0,0,mouse,1"),
+            Event::pointer_payload(31, "0,0,0,0,mouse,1,0,0"),
             Some(Event::Pointermove(_))
         ));
         assert!(matches!(
@@ -256,7 +278,7 @@ mod tests {
             Some(Event::Contextmenu)
         ));
         assert!(matches!(
-            Event::contextmenu_payload("40,8,2,0.5,mouse,1,Control"),
+            Event::contextmenu_payload("40,8,2,0.5,mouse,1,48,16,Control"),
             Some(Event::ContextmenuAt(p)) if p.offset_x == 40.0 && p.held.ctrl
         ));
         assert!(Event::contextmenu_payload("x").is_none());

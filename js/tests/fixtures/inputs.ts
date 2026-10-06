@@ -64,7 +64,7 @@ function answer(source: string, args: any[]): unknown {
       console.log("explicit", args[0], args[1]);
       return explicit(args[0], args[1]);
     case "explicitLater":
-      return fetch("https://fixture.exact.test/value").then(() => explicit(args[0], args[1]));
+      return fetch("https://fixture.exact.test/value").then(() => { console.log("explicitLater", args[0], args[1]); return explicit(args[0], args[1]); });
     case "utc":
       return [
         new Date(Date.UTC(2024, 1, 29, 12, 34, 56, 789)).toISOString(),

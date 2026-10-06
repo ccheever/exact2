@@ -499,6 +499,25 @@ impl Engine {
         Ok(())
     }
 
+    /// A change no author made — a list's rows moved because rows above them
+    /// were built or measured — taken with no transition: an idle property's
+    /// target and presentation both become the value, so nothing moves on
+    /// screen and nothing is left to present. A property that is running or
+    /// held is observed as an ordinary change.
+    pub fn observe_settled(&mut self, change: Change) -> Result<(), EngineError> {
+        validate_value(change.property, change.value)?;
+        let key = (change.node, change.property);
+        match self.slots.get_mut(&key) {
+            Some(slot) if slot.running().is_none() && slot.owner().is_none() => {
+                slot.set_target(change.value);
+                slot.set_presented(change.value);
+                self.played.remove(&key);
+                Ok(())
+            }
+            _ => self.observe(change),
+        }
+    }
+
     /// Move the clock to `now` and sample every running transition there.
     /// Seeking is the only operation: the result depends on `now`, never on
     /// how many calls it took to get there.
@@ -508,7 +527,13 @@ impl Engine {
         self.running.retain(|key| {
             let slot = self.slots.get_mut(key).expect("running slot");
             let sample = slot.running().expect("indexed curve").sample(now);
-            slot.set_presented(sample.value);
+            // Done presents the target in its own encoding: the curve may
+            // have run in Oklab (LLP 1100 D2).
+            slot.set_presented(if sample.done {
+                slot.target
+            } else {
+                sample.value
+            });
             if sample.done {
                 slot.set_running(None);
                 slot.set_owner(None);
@@ -698,7 +723,7 @@ mod tests {
         assert_eq!(engine.settle_time(), None);
         // A settled slot is its target alone.
         assert!(engine.slots.values().all(|slot| slot.live.is_none()));
-        assert_eq!(std::mem::size_of::<Slot>(), 40);
+        assert_eq!(std::mem::size_of::<Slot>(), 48);
 
         engine
             .set_transitions(

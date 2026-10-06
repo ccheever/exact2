@@ -22,6 +22,8 @@ mod motion;
 mod regions;
 #[path = "rows.rs"]
 mod rows;
+#[path = "timers.rs"]
+mod timers;
 use regions::root_slot;
 
 #[derive(Clone, Copy, Debug)]
@@ -328,8 +330,13 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         let memo = em.uses.rt("memo");
         let _ = write!(
             body,
-            "const d_{i}={memo}({f},{});",
-            serde_json::to_string(&type_code(plan, r.ty)).unwrap()
+            "const d_{i}={memo}({f},{}{});",
+            serde_json::to_string(&type_code(plan, r.ty)).unwrap(),
+            if site_attrs {
+                format!(",{}", serde_json::to_string(plan.str(r.name)).unwrap())
+            } else {
+                String::new()
+            }
         );
     }
     // The reserved sources facts.js answers, their declared fields filled by name.
@@ -400,13 +407,15 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             .map(|x| format!("r_{}", plan.mutation_refreshes[x.0 as usize].resource.0))
             .collect();
         let mt = em.uses.rt("mut");
+        // A queue's sends wait their turn (LLP 1092 D6; schedule.js).
         let _ = write!(
             body,
-            "const m_{i}={mt}({},s_{},[{}],{});",
+            "const m_{i}={mt}({},s_{},[{}],{}{});",
             serde_json::to_string(plan.str(m.name)).unwrap(),
             m.slot.0,
             refreshes.join(","),
-            serde_json::to_string(&type_code(plan, m.ty)).unwrap()
+            serde_json::to_string(&type_code(plan, m.ty)).unwrap(),
+            if m.queue { ",1" } else { "" }
         );
     }
     // A child's state used outside every region: initialized as the root
@@ -515,7 +524,10 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     let _ = write!(body, "{mount}($R=>{{{view}}});");
     // A plan whose actions read geometry fetches the page's reader after
     // first paint, as the wasm host does for an artifact that imports it.
-    if em.uses.names.contains("x_frame") || em.uses.names.contains("x_measure") {
+    if ["x_frame", "x_measure", "x_elementFromPoint"]
+        .iter()
+        .any(|name| em.uses.names.contains(*name))
+    {
         let geo = em.uses.rt("geo");
         let _ = write!(body, "{geo}();");
     }
@@ -559,20 +571,12 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         list("d", plan.derives.len()),
         list("r", plan.resources.len())
     );
-    for t in plan.timers.iter() {
-        if t.frame {
-            // LLP 1073: once per presented frame, virtual frames on a seek.
-            let frames = em.uses.rt("frames");
-            let _ = write!(body, "{frames}(a_{});", t.action.0);
-            continue;
-        }
-        let every = em.uses.rt("every");
-        let _ = write!(
-            body,
-            "{every}({},a_{},{});",
-            t.interval_ms, t.action.0, t.once as u8
-        );
+    // The queues read the state a stalled `next` saw (LLP 1092 D3).
+    if plan.mutations.iter().any(|m| m.queue) {
+        let queues = em.uses.rt("queues");
+        let _ = write!(body, "{queues}($state);");
     }
+    timers::timers(&mut em, &mut body)?;
     let viewport = em.parts[sites.root as usize].as_ref().and_then(|p| {
         let fit = p.props.get("viewportFit");
         let widget = p.props.get("interactiveWidget");
@@ -1140,7 +1144,17 @@ impl Em<'_> {
         self.editor(i, element, &e)?;
         for (k, b) in row.bindings.iter().enumerate() {
             let b = plan.binding(b);
-            if style::literal(plan, plan.code(b.expr)).is_some() {
+            // tvOS's focus guide has no DOM property, whether literal or bound.
+            if b.kind == BindingKind::Prop && b.id == PropId::FocusGuide as u16 {
+                continue;
+            }
+            if let Some(v) = style::literal(plan, plan.code(b.expr)) {
+                // A literal source is built into pieces too, once: left as a
+                // constant it painted nothing (notes diary's link repro).
+                if markdown && b.kind == BindingKind::Prop && b.id == PropId::Text as u16 {
+                    let source = serde_json::to_string(v.as_str().unwrap_or_default()).unwrap();
+                    self.markdown(&e, &format!("()=>{source}"));
+                }
                 continue;
             }
             let f = self
@@ -1172,6 +1186,10 @@ impl Em<'_> {
                         "{p}({e},{},{f});",
                         serde_json::to_string(&name).unwrap()
                     );
+                    // A bound context menu popover (LLP 1021 §5.1): read at the event.
+                    if prop == PropId::ContextPopover {
+                        let _ = write!(self.out, "{}({e});", self.uses.rt("cp"));
+                    }
                 }
                 BindingKind::Style => self.style_row(i, b, &parts, &e, &f)?,
             }
@@ -1187,6 +1205,12 @@ impl Em<'_> {
             self.motion = true;
             let on = self.uses.rt("onReorder");
             let _ = write!(self.out, "{on}({e},e{l});");
+        } else if self.computed_reorder(i) {
+            // A computed `reorderFor` (a board's `cards-${col.id}`, LLP 1094
+            // D1) names its list at run time, as the runner's binding does.
+            self.motion = true;
+            let on = self.uses.rt("onReorder");
+            let _ = write!(self.out, "{on}({e},null);");
         }
         self.wrap_flow(i, &e, scope)?;
         let mut edges = ["0".to_string(), "0".to_string()];
@@ -1235,10 +1259,18 @@ impl Em<'_> {
                 | EventKind::Seeked
                 | EventKind::Ratechange
                 | EventKind::Volumechange
+                // @ref LLP 1098 D6 — the media session's, through `media.js`.
+                | EventKind::Seekbackward
+                | EventKind::Seekforward
+                | EventKind::Seekto
+                | EventKind::Previoustrack
+                | EventKind::Nexttrack
+                | EventKind::Stop
                 | EventKind::Scroll
                 | EventKind::Refresh
                 | EventKind::Pan
                 | EventKind::Cancel
+                | EventKind::Resize
                 | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.
                 EventKind::Swiperight
@@ -1277,6 +1309,7 @@ impl Em<'_> {
                 EventKind::Transformgeometry => Some("onTGeom"),
                 EventKind::Transformrelease => Some("onTRelease"),
                 EventKind::Reorderdrop => Some("onDrop"),
+                EventKind::Resize => Some("onResize"),
                 _ => None,
             };
             if let Some(piece) = piece {
