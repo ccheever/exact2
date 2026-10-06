@@ -17,7 +17,9 @@ import WebKit
 /// The web view loads only `t3-terminal:` files (T3TerminalAssets), cancels every other navigation,
 /// opens no window and keeps no website data.
 final class T3TerminalView: ExactNativeInstance {
-    static let factory = ExactNativeFactory(snapshot: true) { props, events in T3TerminalView(props: props, events: events) }
+    static let factory = ExactNativeFactory(snapshot: true) { (owner: ExactModule, props: [String: String], events: ExactNativeEvents) in
+        T3TerminalView(props: props, events: events, agent: owner.context.agent)
+    }
 
     final class WebView: WKWebView {
         var focused: (() -> Void)?
@@ -70,7 +72,7 @@ final class T3TerminalView: ExactNativeInstance {
     var onData: ((String) -> Void)?
     private var disposed = false
 
-    init(props: [String: String], events: ExactNativeEvents) {
+    init(props: [String: String], events: ExactNativeEvents, agent: Bool = false) {
         self.props = props
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
@@ -93,6 +95,12 @@ final class T3TerminalView: ExactNativeInstance {
         if #available(macOS 13.3, *), Self.inspectable { web.isInspectable = true }
         web.focused = { [weak self] in self?.send(["type": "focus"]) }
         web.setAccessibilityLabel("Terminal")
+        // Under the agent the window is often behind others or on another Space; WebKit then
+        // treats the page as hidden and stops requestAnimationFrame, so output parses but never
+        // paints. The agent's pictures need the paint (WebKit SPI, guarded; a person's run keeps
+        // WebKit's own occlusion handling, as a background tab does).
+        let occlusion = Selector(("_setWindowOcclusionDetectionEnabled:"))
+        if agent, web.responds(to: occlusion) { web.perform(occlusion, with: false) }
         T3Terminals.shared.add(self)
         web.load(URLRequest(url: T3TerminalAssets.pageURL))
     }

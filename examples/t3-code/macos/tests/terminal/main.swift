@@ -78,11 +78,9 @@ final class TerminalSurfaceTests: XCTestCase {
     }
 
     private func mount(_ props: [String: String], frame: NSRect? = nil) -> T3TerminalView {
-        let view = T3TerminalView(props: props, events: ExactNativeEvents(fn: recordEvent, ctx: nil, nonce: 1))
+        // As under the agent: the test window may sit behind other windows or on another Space.
+        let view = T3TerminalView(props: props, events: ExactNativeEvents(fn: recordEvent, ctx: nil, nonce: 1), agent: true)
         view.web.frame = frame ?? container.bounds
-        // The test window may sit behind other windows or on another Space; keep the page visible.
-        let occlusion = Selector(("_setWindowOcclusionDetectionEnabled:"))
-        if view.web.responds(to: occlusion) { view.web.perform(occlusion, with: false) }
         container.addSubview(view.web)
         views.append(view)
         return view
