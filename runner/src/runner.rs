@@ -1351,8 +1351,11 @@ impl<D: DataSource> Runner<D> {
             };
         // Rows that showed stop holding their animations, and rows mounted
         // out of their port start to, before a host hears the commit.
+        let renewed = std::mem::take(&mut self.renewed);
         for view in shown.revealed {
-            if self.kernel.reveal(view) {
+            // A row bound again where it shows is heard as new (`renewed`),
+            // which starts it: only a row that stayed is named revealed.
+            if self.kernel.reveal(view) && !renewed.contains(&view) {
                 receipt.revealed.extend(self.kernel.arena().key_of(view));
             }
         }
@@ -1364,7 +1367,7 @@ impl<D: DataSource> Runner<D> {
             self.log(note);
         }
         let arena = self.kernel.arena();
-        receipt.renewed = std::mem::take(&mut self.renewed)
+        receipt.renewed = renewed
             .into_iter()
             .filter_map(|view| arena.key_of(view))
             .collect();

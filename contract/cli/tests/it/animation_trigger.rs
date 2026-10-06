@@ -1,6 +1,7 @@
 //! `animation-trigger` (LLP 1055 D13): an animation in a row a virtualized
 //! list mounted out of its port waits, held at its start, until a report
-//! puts the row in the port; `none` starts it when the row is inserted.
+//! puts the row in the port (the default); `none` starts it when the row is
+//! inserted.
 use exact_kernel::{Kernel, NodeKey};
 use exact_motion::Engine;
 use exact_plan::Value;
@@ -88,7 +89,12 @@ fn report(r: &mut Runner<Data>, offset: f64) -> Advanced {
 
 #[test]
 fn an_animation_in_a_row_mounted_ahead_waits_for_the_row_to_show() {
-    let mut r = boot(" animation-trigger=\"view\"");
+    for trigger in ["", " animation-trigger=\"view\""] {
+        waits(boot(trigger));
+    }
+}
+
+fn waits(mut r: Runner<Data>) {
     // Twice: the first report measures, the second settles the window.
     report(&mut r, 0.0);
     report(&mut r, 0.0);
@@ -136,8 +142,9 @@ fn an_animation_in_a_row_mounted_ahead_waits_for_the_row_to_show() {
 }
 
 #[test]
-fn without_the_trigger_a_row_mounted_ahead_plays_from_its_insertion() {
-    for trigger in ["", " animation-trigger=\"none\""] {
+fn with_none_a_row_mounted_ahead_plays_from_its_insertion() {
+    {
+        let trigger = " animation-trigger=\"none\"";
         let mut r = boot(trigger);
         report(&mut r, 0.0);
         report(&mut r, 0.0);
