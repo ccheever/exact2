@@ -16,7 +16,7 @@
 | §3.2 | Money: `toFixed` or a cents-based function | **Open.** Charlie wants to think more. |
 | §3.4 | `calendarDiff` | **Accepted, narrowly:** whole years and months between two ISO dates, `option<number>`. "Nice to have; let's try adding it for now." |
 | §3.3 | Source faults (`fail`, `hold`) as a failed host request | **Accepted** as recommended: a small RFC, resources first, then build. |
-| §3.15 | Text fields: visible by default, or opt in | **Visible by default.** A field draws the platform's field; `appearance="none"` keeps the bare box. Buttons keep their rule. |
+| §3.15 | Text fields: visible by default, or opt in | **Visible by default.** A field draws the platform's field; `appearance="none"` keeps the bare box. Buttons keep their rule. **Built e97afa5af** (LLP 1104: default rows, not native chrome; focus states deferred). |
 | §3.16 | The editing contract instead of write-back | **Accepted.** Docs and a recipe; no automatic write-back. |
 | §3.18 | Reorder | **Keep D8's hold; cut the landing short** when a new drag starts. |
 | §4.1, §4.2, §4.4 | Graders, new tasks and coverage, cadence | **Accepted.** Fix the two graders, add two or three tasks and the coverage checks, then one round a day. |
