@@ -563,7 +563,8 @@ A shape has no exported name in the `.d.ts`: name one by its source,
 an optional answer is `… | null`, so `NonNullable<Result<'find'>>`).
 The [human guide's data-module section](contract-for-humans.md#writing-the-data-module)
 has a complete `app.ts`: synchronous, `fetch` and SQLite sources, the grants
-each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https://…'].join('\n')`),
+each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https://…'].join('\n')`;
+`net.fetch` takes an `http` or `https` origin, `http://127.0.0.1:8080` too),
 and how to drive it with storage.
 The compiler accepting a source call does not provide its implementation. Check
 its arguments, declared result, grants, storage access, and bake-time behavior.
@@ -1105,7 +1106,8 @@ Production artifacts do not need a development source map.
 
 The driver has ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 `layout`, `logs`, `clock`, `prefer`, and `perf`. Variations are arguments, not new
-commands. Targets are `testId`s (or view ids): give every control a `testId` and
+commands; `prefer` takes CSS's media feature names (`"prefer prefers-color-scheme dark"`,
+`prefers-reduced-motion reduce`). Targets are `testId`s (or view ids): give every control a `testId` and
 drive it on every host, iOS included (`agent ios`), never by screen coordinates.
 A target no `testId` carries resolves by a view's exact accessibility label or
 text (`tap "Save draft"`); a name several views share refuses, naming them.
