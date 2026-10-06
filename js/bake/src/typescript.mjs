@@ -29,7 +29,7 @@ const timers=(api)=>api+' is unavailable in data sources: there are no timers; p
 const TIMERS=['setTimeout','setInterval','requestAnimationFrame','requestIdleCallback'];
 const GLOBALS=['globalThis','self','window','global'];
 // `x!`, `(x)` and `x?.y` as written, down to the expression they wrap.
-const bare=(node)=>{ while (node && ['TSNonNullExpression','ParenthesizedExpression','ChainExpression','TSAsExpression','TSSatisfiesExpression'].includes(node.type)) node=node.expression; return node; };
+const bare=(node)=>{ while (node && ['TSNonNullExpression','ParenthesizedExpression','ChainExpression','TSAsExpression','TSSatisfiesExpression','TSTypeAssertion'].includes(node.type)) node=node.expression; return node; };
 // The global `name`: the bare identifier, or a global object's property.
 const ambientGlobal=(node,name,local)=>{
   node=bare(node);
@@ -66,17 +66,24 @@ function bound(ast) {
     else if (p.type==='RestElement') pattern(p.argument);
     else if (p.type==='TSParameterProperty') pattern(p.parameter);
   };
-  const walk=(node)=>{
+  // Only bindings that exist at run time: a `declare` or type-only one is
+  // erased, and the global is what runs.
+  const walk=(node,typeOnly)=>{
     if (!node || typeof node!=='object') return;
-    if (Array.isArray(node)) { node.forEach(walk); return; }
+    if (Array.isArray(node)) { node.forEach(n=>walk(n,typeOnly)); return; }
+    if (node.declare) return;
     if (node.type==='VariableDeclarator') pattern(node.id);
     if (['FunctionDeclaration','FunctionExpression','ClassDeclaration','ClassExpression'].includes(node.type) && node.id) names.add(node.id.name);
     if (['FunctionDeclaration','FunctionExpression','ArrowFunctionExpression'].includes(node.type)) node.params?.forEach(pattern);
     if (node.type==='CatchClause') pattern(node.param);
-    if (['ImportSpecifier','ImportDefaultSpecifier','ImportNamespaceSpecifier'].includes(node.type)) names.add(node.local.name);
-    for (const key in node) if (key!=='parent') walk(node[key]);
+    // A namespace with a body emits a value (a type-only one is rare in a data module).
+    if (node.type==='TSModuleDeclaration' && node.id?.type==='Identifier' && node.body) names.add(node.id.name);
+    if (node.type==='TSImportEqualsDeclaration' && node.importKind!=='type') names.add(node.id.name);
+    if (node.type==='ImportDeclaration') typeOnly=node.importKind==='type';
+    if (['ImportSpecifier','ImportDefaultSpecifier','ImportNamespaceSpecifier'].includes(node.type) && !typeOnly && node.importKind!=='type') names.add(node.local.name);
+    for (const key in node) if (key!=='parent') walk(node[key],typeOnly);
   };
-  walk(ast);
+  walk(ast,false);
   return names;
 }
 /** The direct uses of the clock, randomness and timers in the captured

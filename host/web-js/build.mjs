@@ -195,13 +195,17 @@ async function typecheck() {
   // app.ts reaches, as the native bake's bundler refuses them
   // (js/bake/src/typescript.mjs `ambientRefusals`). A graph that does not
   // bundle from the capture is refused, as the native bake refuses it.
+  // Both run, and every diagnostic is reported, as the resident compiler joins them.
   const why = [];
   const { rolldown } = await import('rolldown');
-  const bundle = await rolldown({ cwd: real, input: resolve(real, '__exact_entry.ts'), platform: 'neutral', tsconfig: resolve(real, '__exact_tsconfig.json'),
-    logLevel: 'silent', plugins: [{ name: 'ambient', transform(code, id) { why.push(...ambientRefusals(real, id, code, (c, o) => this.parse(c, o))); return null; } }] });
-  try { await bundle.generate({ format: 'esm' }); } finally { await bundle.close(); }
-  if (why.length) throw new Error(why.join('\n'));
-  await check(real, resolve(libraries, 'tsc'), libraries);
+  const typed = check(real, resolve(libraries, 'tsc'), libraries).then(() => null, error => error);
+  const bundled = (async () => {
+    const bundle = await rolldown({ cwd: real, input: resolve(real, '__exact_entry.ts'), platform: 'neutral', tsconfig: resolve(real, '__exact_tsconfig.json'),
+      logLevel: 'silent', plugins: [{ name: 'ambient', transform(code, id) { why.push(...ambientRefusals(real, id, code, (c, o) => this.parse(c, o))); return null; } }] });
+    try { await bundle.generate({ format: 'esm' }); } finally { await bundle.close(); }
+  })().then(() => null, error => error);
+  const errors = [await bundled, ...why.map(line => new Error(line)), await typed].filter(Boolean);
+  if (errors.length) throw new Error(errors.map(e => e.message ?? String(e)).join('\n'));
 }
 const normalizeGrants = (label, spec, stem) => {
   const file = resolve(gen, `${stem}.grants`);
