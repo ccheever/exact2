@@ -56,18 +56,13 @@ component ThemeEditorPanel
   state sized = false
   state rw = 0
   state rh = 0
-  state atW = 0
-  state atH = 0
-  state mh = 0
   state dragging = false
   state growing = false
   derive boxW = sized ? max(280, min(rw, vw - 16)) : min(416, vw - 32)
   derive boxH = max(220, min(rh, vh - 16))
   derive capH = min(672, vh - 96)
-  derive moved = placed and (vw != atW or vh != atH)
-  derive fitH = minimized ? 41 : (sized ? boxH : (mh > 0 ? mh : capH))
   derive left = min(max(rx, 8), max(8, vw - boxW - 8))
-  derive top = moved ? min(min(max(ry, 8), max(8, vh - 48)), max(8, vh - fitH - 8)) : min(max(ry, 8), max(8, vh - 48))
+  derive top = min(max(ry, 8), max(8, vh - 48))
   action toggleMinimized
     minimized = not minimized
   // The name travels with Save (no commit on blur: a blur-time write would make Save's
@@ -81,13 +76,10 @@ component ThemeEditorPanel
     ry = (dragging ? ry : (placed ? top : frame("theme-editor").y)) + dy
     dragging = true
     placed = true
-    atW = vw
-    atH = vh
   action dropDrag(vx: number, vy: number)
     dragging = false
     rx = left
     ry = top
-    mh = frame("theme-editor").height
   // Corner grip: the top-left holds still (a parked panel converts to an explicit place first).
   action grow(dx: number, dy: number)
     rx = placed ? left : frame("theme-editor").x
@@ -97,15 +89,24 @@ component ThemeEditorPanel
     growing = true
     sized = true
     placed = true
-    atW = vw
-    atH = vh
   action dropGrow(vx: number, vy: number)
     growing = false
     rw = boxW
     rh = boxH
-    mh = boxH
+  // The window resized (the layer below tracks the viewport): the size shrinks to fit first, then the
+  // place is clamped and pulled up so the whole panel fits; the clamped values are kept, so growing the
+  // window again leaves the panel where the clamp put it (ThemeEditorPanel.tsx:336-360).
+  action windowSized(w: number, h: number)
+    let width = sized ? max(280, min(rw, w - 16)) : min(416, w - 32)
+    let height = sized and not minimized ? max(220, min(rh, h - 16)) : frame("theme-editor").height
+    rw = sized ? width : rw
+    rh = sized ? max(220, min(rh, h - 16)) : rh
+    rx = placed ? min(max(rx, 8), max(8, w - width - 8)) : rx
+    ry = placed ? min(min(max(ry, 8), max(8, h - 48)), max(8, h - height - 8)) : ry
   view
     column position="absolute" left=(placed ? left : "auto") top=(placed ? top : "auto") right=(placed ? "auto" : 16) bottom=(placed ? "auto" : 16) width=boxW height=(sized and not minimized ? boxH : "auto") max-height=(minimized ? vh : (sized ? vh - 16 : capH)) border-radius=14 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.canvas box-shadow="0 20px 25px -5px #0000001a, 0 8px 10px -6px #0000001a" box-sizing="border-box" overflow="hidden" z-index=110 role="dialog" aria-label=editor.title id="theme-editor" testId="theme-editor"
+      // Sized to the window, clipped by the panel and inert: only its resize event matters (X22, #127).
+      box position="absolute" left=0 top=0 width=vw height=vh inert=true aria-hidden=true resize=windowSized testId="theme-editor-window-tracker"
       row flex-shrink=0 align-items="center" gap=4 padding-top=8 padding-bottom=8 padding-left=12 padding-right=12 border-bottom-width=(minimized ? 0 : 1) border-bottom-style="solid" border-color=pal.divider box-sizing="border-box" touch-action="none" cursor=(dragging ? "grabbing" : "grab") pan=drag panrelease=dropDrag testId="theme-editor-header"
         row flex=1 min-width=0 gap=8 align-items="baseline"
           text editor.title font-size=14 font-weight=500 line-height="20px" color=pal.text role="heading" aria-level=2 flex-shrink=0
