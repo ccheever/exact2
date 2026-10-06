@@ -672,12 +672,10 @@ impl<D: DataSource> Presenter<D> {
         self.forget_replaced_choices();
         let admitted = self.host.grants();
         for r in self.host.take_requests() {
-            // A deadline on work that cannot take one is refused before the
-            // surface and auth paths, which skip the executor.
-            if let Some(why) = r.request.timeout_refusal() {
-                self.host
-                    .refuse_request(r.ticket, why, r.request.is_ordered());
-                self.executor.notify();
+            // A deadline the surface and auth paths can't keep: the executor
+            // refuses it at admission, fencing later ordered work.
+            if r.request.timeout_refusal().is_some() {
+                self.run_dispatch(r, exact_runner::Dispatch::Missing);
                 continue;
             }
             if r.request.surface.is_some() {

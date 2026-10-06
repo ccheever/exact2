@@ -1089,8 +1089,17 @@ test('the web build\'s deadline covers a stalled body, and keeps the caller\'s o
       const done = await fetchWith(normalized(`net.fetch ${empty.url.origin}`), empty.url.href, { exactTimeout: 2000 });
       expect([done.status, done.url, await done.text()]).toEqual([204, empty.url.href, '']);
     } finally { empty.stop(true); }
+    // A body that arrived in time stays readable after the deadline.
+    const quick = Bun.serve({ port: 0, fetch: () => new Response('in time') });
+    try {
+      const arrived = await fetchWith(normalized(`net.fetch ${quick.url.origin}`), quick.url.href, { exactTimeout: 100 });
+      await new Promise(r => setTimeout(r, 250));
+      expect(await arrived.text()).toBe('in time');
+    } finally { quick.stop(true); }
     const aborted = new AbortController(); aborted.abort();
     const own = await fetchWith(set, new Request(origin.url.href, { signal: aborted.signal }), { exactTimeout: 5000 }).catch(e => e);
     expect([own.name, own.kind]).toEqual(['FetchError', 'Network']);
+    const kept = await fetchWith(set, new Request(origin.url.href, { signal: aborted.signal }), { signal: undefined, exactTimeout: 5000 }).catch(e => e);
+    expect(kept.kind).toBe('Network');
   } finally { origin.stop(true); }
 });

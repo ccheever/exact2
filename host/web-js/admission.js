@@ -39,22 +39,31 @@ export async function fetchWith(set, input, init = {}) {
   if (!asset && !admitsNetwork(set, value, 'fetch')) throw new FetchError('Refused', refusal('net.fetch'));
   try {
     const { exactTimeout: _, ...rest } = init;
-    // The caller's signal, from `init` or the input `Request`, beside the
-    // deadline: the combined signal keeps whichever reason came first.
-    // An explicit `signal: null` clears the Request's, as `fetch` has it.
-    const own = 'signal' in rest ? rest.signal : typeof Request === 'function' && input instanceof Request ? input.signal : undefined;
-    signal = deadline ? (own ? AbortSignal.any([own, deadline.signal]) : deadline.signal) : rest.signal;
+    // The caller's signal, from `init` or the input `Request` (`null`
+    // clears the Request's, `undefined` keeps it, as `fetch` has them).
+    const own = rest.signal !== undefined ? rest.signal : typeof Request === 'function' && input instanceof Request ? input.signal : undefined;
+    // The deadline reaches the request only until its body is read: a
+    // response that arrived in time stays readable after the deadline.
+    let relay;
+    if (deadline) {
+      const ended = new AbortController();
+      relay = () => ended.abort(deadline.signal.reason);
+      deadline.signal.addEventListener('abort', relay, { once: true });
+      signal = own ? AbortSignal.any([own, ended.signal]) : ended.signal;
+    } else signal = rest.signal;
     const response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...rest, ...(signal ? { signal } : {}), redirect: 'follow' });
     // A redirect that left the grants names where it led (podcast F5), as
     // the native executor does; the browser followed it to this last hop.
     if (response.url && (asset
       ? new URL(response.url).origin !== globalThis.location?.origin
       : !admitsNetwork(set, response.url, 'fetch'))) throw new FetchError('Refused', `${refusal('net.fetch')}: redirected to ${new URL(response.url).origin}`);
-    // The deadline covers the body too, as natively: read it here, so a
-    // stalled body is this fetch's Timeout, not a later read's AbortError.
-    // Its clone is read whole; the response keeps its URL, type and null
-    // body, and its own read is served from what the clone took.
-    if (deadline) await response.clone().arrayBuffer();
+    // Its clone is read whole within the deadline, so a stalled body is this
+    // fetch's Timeout; the response keeps its URL, type and null body, and
+    // its own read is served from what the clone took.
+    if (deadline) {
+      await response.clone().arrayBuffer();
+      deadline.signal.removeEventListener('abort', relay);
+    }
     return response;
   }
   catch (error) {
