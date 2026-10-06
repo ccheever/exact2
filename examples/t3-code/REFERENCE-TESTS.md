@@ -27,13 +27,13 @@ Cases are the `describe`/`it`/`test` calls in the file (titles, `.each` counted 
 
 | Class | Files |
 | --- | --- |
-| done-equivalent | 2 |
-| port | 235 |
+| done-equivalent | 5 |
+| port | 236 |
 | swift | 90 |
 | n/a-ui | 99 |
 | n/a-server | 20 |
 | n/a-excluded | 150 |
-| later-ticket | 138 |
+| later-ticket | 134 |
 
 Classes: `done-equivalent` (the clone test has every reference title); `port` (pure logic a port
 ticket moves into a `bun:test` file with the reference titles; Notes list the conversions);
@@ -47,7 +47,7 @@ Clone modules for `port` rows come from the clone's file headers and from export
 reference test imports; a module with a different name is noted with its reference name. A
 `port` row's test is the existing clone test that imports the module.
 
-`later-ticket` rows per ticket: `20261005-settings-scoped-controls-and-theme-editor` 12, `20261005-local-primary-environment` 10, `20261005-diff-review-engine` 10, `20261005-upstream-timeline-and-markdown` 9, `20261005-this-machine-network-access` 7, `20261005-provider-settings-upkeep` 7, `20261005-terminal-layout` 7, `20261005-embedded-server-runtime` 6, `20261005-desktop-shell-details` 6, `20261005-pr-conversation-and-refresh` 6, `20261005-pr-code-tab` 5, `20261005-terminal-surface` 5, `20261005-app-activation` 4, `20261005-floating-device-player` 4, `20261005-media-actions` 4, `20261005-pr-links-previews-and-routing` 4, `20261005-managed-codex-chatgpt` 3, `20261005-ssh-password-and-remote-open` 3, `20261005-terminal-integrations` 3, `20261005-pr-writing-and-metadata` 3, `20261005-provider-sign-in-and-install` 2, `20261005-auto-balance` 2, `20261005-shiki-residuals` 2, `20261005-usage-pooled-view` 2, `20261005-server-update-banner` 2, `20261005-upstream-ui-sync` 2, `20261005-remote-scopes-and-update-commands` 1, `20261005-composer-fidelity` 1, `20261005-pr-handoffs-and-quick-actions` 1, `20261005-pr-header-actions-and-stacks` 1, `20261005-thread-commands-and-keys` 1, `20261005-environment-routes` 1, `20261005-terminal-drawer` 1, `20261005-usage-reset-and-feedback` 1.
+`later-ticket` rows per ticket: `20261005-settings-scoped-controls-and-theme-editor` 12, `20261005-local-primary-environment` 10, `20261005-diff-review-engine` 10, `20261005-upstream-timeline-and-markdown` 9, `20261005-this-machine-network-access` 7, `20261005-provider-settings-upkeep` 7, `20261005-terminal-layout` 7, `20261005-embedded-server-runtime` 6, `20261005-desktop-shell-details` 6, `20261005-pr-conversation-and-refresh` 6, `20261005-pr-code-tab` 5, `20261005-terminal-surface` 5, `20261005-app-activation` 4, `20261005-media-actions` 4, `20261005-pr-links-previews-and-routing` 4, `20261005-managed-codex-chatgpt` 3, `20261005-ssh-password-and-remote-open` 3, `20261005-terminal-integrations` 3, `20261005-pr-writing-and-metadata` 3, `20261005-provider-sign-in-and-install` 2, `20261005-auto-balance` 2, `20261005-shiki-residuals` 2, `20261005-usage-pooled-view` 2, `20261005-server-update-banner` 2, `20261005-upstream-ui-sync` 2, `20261005-remote-scopes-and-update-commands` 1, `20261005-composer-fidelity` 1, `20261005-pr-handoffs-and-quick-actions` 1, `20261005-pr-header-actions-and-stacks` 1, `20261005-thread-commands-and-keys` 1, `20261005-environment-routes` 1, `20261005-terminal-drawer` 1, `20261005-usage-reset-and-feedback` 1.
 
 Plan gaps (no clone counterpart found and no ticket owns the work):
 
@@ -264,7 +264,7 @@ mixed file.
 | `apps/web/src/components/chat/TraitsPicker.test.ts` | 17 | port | `composer-controls-view.ts` / `composer-controls.test.ts` | vite-plus/test → bun:test; branded ids → strings; cases named by `20261005-composer-fidelity` |
 | `apps/web/src/components/chat/agentSpawnSummary.test.ts` | 7 | port | `composer-controls-subagent.ts` / `composer-controls-subagent.test.ts` | vite-plus/test → bun:test |
 | `apps/web/src/components/chat/assistantCitationCommentDismissal.test.ts` | 7 | port | `r5-composer-citation.ts` / `r5-composer-citation.test.ts` | vite-plus/test → bun:test |
-| `apps/web/src/components/chat/chatCanvasLayout.test.ts` | 22 | later-ticket: 20261005-floating-device-player | — | chat lane beside the floating player |
+| `apps/web/src/components/chat/chatCanvasLayout.test.ts` | 22 | done-equivalent | `chat-canvas-layout.ts` / `chat-canvas-layout.test.ts` | every reference title present (test-map.mjs check); cases named by `20261005-floating-device-player` |
 | `apps/web/src/components/chat/composerAttachmentFiles.test.ts` | 21 | port | `r4-composer-attachments.ts` / `r4-composer-attachments.test.ts` | vite-plus/test → bun:test; branded ids → strings |
 | `apps/web/src/components/chat/composerContextUndo.test.ts` | 3 | swift | `macos/tests/composer` | chip undo in the text view |
 | `apps/web/src/components/chat/composerEventScope.test.ts` | 10 | n/a-ui | — | DOM event scopes |
@@ -284,7 +284,7 @@ mixed file.
 | `apps/web/src/components/chat/pendingDraftWork.test.ts` | 5 | port | `composer-editor-attach.ts` / `composer-editor-attach.test.ts` | vite-plus/test → bun:test |
 | `apps/web/src/components/chat/queuedMessageEdit.test.ts` | 7 | port | `composer-controls-queue.ts` / `composer-controls.test.ts` | vite-plus/test → bun:test; branded ids → strings; render cases n/a-ui; cases named by `20261005-composer-fidelity` |
 | `apps/web/src/components/chat/restingComposerControlsMeasurement.test.ts` | 5 | port | `r5-composer-measure.ts` / `r5-composer.test.ts` | vite-plus/test → bun:test; DOM measurement → widths as arguments; cases named by `20261005-composer-fidelity` |
-| `apps/web/src/components/chat/threadDetailsCardLayout.test.ts` | 12 | later-ticket: 20261005-floating-device-player | — | details card beside the player |
+| `apps/web/src/components/chat/threadDetailsCardLayout.test.ts` | 12 | done-equivalent | `thread-details-card-layout.ts` / `thread-details-card-layout.test.ts` | every reference title present (test-map.mjs check); cases named by `20261005-floating-device-player` |
 | `apps/web/src/components/chat/timelineMinimapItems.test.ts` | 4 | port | `timeline-minimap.ts` / `timeline-minimap.test.ts` | vite-plus/test → bun:test; branded ids → strings |
 | `apps/web/src/components/chat/timelineScrollAnchoring.test.tsx` | 22 | swift | `macos/tests/r9-input` | scroll anchoring (R9Input.swift); cases named by `20261005-round12-wrapup` |
 | `apps/web/src/components/chat/timelineScrollTarget.test.ts` | 10 | n/a-ui | — | DOM overscroll chaining |
@@ -353,7 +353,7 @@ mixed file.
 | `apps/web/src/components/preview/previewAutomationTarget.test.ts` | 5 | n/a-excluded | — | Browser surface |
 | `apps/web/src/components/preview/previewClickFocus.test.ts` | 9 | n/a-excluded | — | Browser surface |
 | `apps/web/src/components/preview/previewEmptyStateLogic.test.ts` | 5 | n/a-excluded | — | Browser surface |
-| `apps/web/src/components/preview/previewMiniPlayerLayout.test.ts` | 42 | later-ticket: 20261005-floating-device-player | — | floating player size and placement |
+| `apps/web/src/components/preview/previewMiniPlayerLayout.test.ts` | 42 | port | `previewMiniPlayerLayout.ts` / `previewMiniPlayerLayout.test.ts` | vite-plus/test → bun:test; 39 of 42 titles ported by floating-device-player; missing: resolvePreviewMiniPlayerSourceSize (2 cases); cases named by `20261005-floating-device-player` |
 | `apps/web/src/components/preview/previewNavigationReadiness.test.ts` | 2 | n/a-excluded | — | Browser surface |
 | `apps/web/src/components/preview/previewViewportReadiness.test.ts` | 4 | n/a-excluded | — | Browser surface |
 | `apps/web/src/components/preview/previewViewportRollback.test.ts` | 3 | n/a-excluded | — | Browser surface |
@@ -530,7 +530,7 @@ mixed file.
 | `apps/web/src/lib/terminalCloseShortcut.test.ts` | 4 | later-ticket: 20261005-terminal-layout | — | terminal close shortcut |
 | `apps/web/src/lib/terminalContext.test.ts` | 6 | later-ticket: 20261005-terminal-integrations | — | terminal context chips |
 | `apps/web/src/lib/terminalFocus.test.ts` | 4 | later-ticket: 20261005-terminal-layout | — | terminal focus owner |
-| `apps/web/src/lib/threadSort.test.ts` | 6 | port | `sidebar-model.ts` / `sidebar-extra.test.ts`, `sidebar.test.ts` | vite-plus/test → bun:test; branded ids → strings |
+| `apps/web/src/lib/threadSort.test.ts` | 6 | port | `legacy-sidebar-model.ts` / `legacy-sidebar.test.ts` | vite-plus/test → bun:test; branded ids → strings; 5 of 6 titles in legacy-sidebar.test.ts; missing only the describe "sortThreads" |
 | `apps/web/src/lib/turnDiffTree.test.ts` | 8 | port | `timeline-tree.ts` / `timeline-tree.test.ts` | vite-plus/test → bun:test |
 | `apps/web/src/lib/utils.test.ts` | 5 | port | `shell-details.ts` / `r3-shell-details.test.ts` | vite-plus/test → bun:test; file manager name |
 | `apps/web/src/lib/videoFirstFrame.test.ts` | 4 | swift | `macos/tests/attach` | first-frame poster (T3ComposerAttach.swift) |
@@ -552,7 +552,7 @@ mixed file.
 | `apps/web/src/pendingUserInput.test.ts` | 27 | port | `requests.ts` / `requests.test.ts` | vite-plus/test → bun:test |
 | `apps/web/src/pierre-icons.test.ts` | 9 | port | `timeline-files.ts` / `timeline-highlight.test.ts` | vite-plus/test → bun:test; Rust icon table `macos/src/pierre_icons.rs` holds part |
 | `apps/web/src/portDiscoveryState.test.ts` | 3 | n/a-excluded | — | Browser local-server discovery |
-| `apps/web/src/previewMiniPlayerStore.test.ts` | 7 | later-ticket: 20261005-floating-device-player | — | floating player store; cases named by `20261005-round12-wrapup` |
+| `apps/web/src/previewMiniPlayerStore.test.ts` | 7 | done-equivalent | `previewMiniPlayerStore.ts` / `previewMiniPlayerStore.test.ts` | every reference title present (test-map.mjs check); cases named by `20261005-floating-device-player`, `20261005-round12-wrapup` |
 | `apps/web/src/previewStateStore.test.ts` | 27 | n/a-excluded | — | Browser surface |
 | `apps/web/src/projectIconOptions.test.ts` | 4 | port | `settings-b-icons.ts` / `settings-b-icons.test.ts` | vite-plus/test → bun:test |
 | `apps/web/src/projectIdentity.test.ts` | 5 | port | `settings-b-icons.ts` / `settings-b-icons.test.ts` | vite-plus/test → bun:test |

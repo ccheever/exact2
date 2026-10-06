@@ -124,15 +124,19 @@ Required environment: the read-only reference checkout for the map and title che
 ## Progress
 
 Implemented 2026-10-06 on `feat(example)/t3-code-reference-logic-tests-done-areas` (rebased on
-`feat(example)/t3-code` after hot-file-split #147); verification: unverified.
+`feat(example)/t3-code` `da40e6590`, after hot-file-split #147, floating-device-player #146 and
+legacy-sidebar #143); verification: unverified.
 
 - `REFERENCE-TESTS.md`: 734 file rows (web 431, client-runtime 121, shared 76, desktop 106) plus
-  the two group rows; classes: done-equivalent 2, port 235, swift 90, n/a-ui 99, n/a-server 20,
-  n/a-excluded 150, later-ticket 138 (33 tickets). 805 lines.
+  the two group rows; classes: done-equivalent 5, port 236, swift 90, n/a-ui 99, n/a-server 20,
+  n/a-excluded 150, later-ticket 134 (32 tickets). 805 lines.
 - `done-equivalent`: `rpc/requestLatencyState.test.ts` → `request-latency.test.ts` (9/9 titles,
-  3 clone-only) and `state/projectCommands.test.ts` → `r13-threads.test.ts` (2/2, 18 clone-only).
-  The title scan found 8 reference files with any title in a clone test; the other 6 are `port`
-  rows whose notes say how many titles are present.
+  3 clone-only), `state/projectCommands.test.ts` → `r13-threads.test.ts` (2/2, 18 clone-only), and
+  the three files floating-device-player #146 ported: `chat/chatCanvasLayout` (22/22),
+  `chat/threadDetailsCardLayout` (12/12), `previewMiniPlayerStore` (7/7). `previewMiniPlayerLayout`
+  (39/42) and `lib/threadSort` (5/6, in `legacy-sidebar.test.ts`) are `port` with the missing
+  titles named. The title scan found 13 reference files with any title in a clone test; the rest are
+  `port` rows whose notes say how many titles are present.
 - Plan gaps (no clone counterpart, no owner ticket; reported to the user):
   `desktop/permissions/MacPermissionHelper`, `MacSettingsWindow`,
   `web/components/permissions/usePermissionStatus` (the reference's macOS permission helper),
@@ -154,7 +158,8 @@ Implemented 2026-10-06 on `feat(example)/t3-code-reference-logic-tests-done-area
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| 1, 2026-10-06 | base `7f692c9a1`, map commits `6fc72c125`, `eed1582be` | `test-map.mjs check`: 734 files, 736 rows, 0 unmapped, 0 duplicate, every note and ticket name present, OK; 2 done-equivalent proofs. `bun test examples/t3-code` 1200 pass 0 fail (117 files); strict tsc clean; contract build 2158 slots, 42 resources, 1984 actions; `cargo test -p t3-code-macos --lib` 10 pass; AppKit binaries 27 pass (mermaid skipped, timeline-keyboard not run); `caps` pass; five checks pass (cargo test 2928 pass 0 fail 18 ignored, clippy, fmt, boot); macOS bundle build pass | evidence branch `t3-code-evidence/reference-logic-tests-done-areas/check.log`; command: `T3_REF=<ref> T3_REPO=<repo> bun test-map.mjs check examples/t3-code/REFERENCE-TESTS.md` | U2 (commit the script) open |
+| 1, 2026-10-06 | base `7f692c9a1` (checks below), then rebased on `da40e6590` | `test-map.mjs check`: 734 files, 736 rows, 0 unmapped, 0 duplicate, every note and ticket name present, OK; 2 done-equivalent proofs (5 after the rebase). `bun test examples/t3-code` 1200 pass 0 fail (117 files); strict tsc clean; contract build 2158 slots, 42 resources, 1984 actions; `cargo test -p t3-code-macos --lib` 10 pass; AppKit binaries 27 pass (mermaid skipped, timeline-keyboard not run); `caps` pass; five checks pass (cargo test 2928 pass 0 fail 18 ignored, clippy, fmt, boot); macOS bundle build pass | evidence branch `t3-code-evidence/reference-logic-tests-done-areas/check.log`; command: `T3_REF=<ref> T3_REPO=<repo> bun test-map.mjs check examples/t3-code/REFERENCE-TESTS.md` | U2 (commit the script) open |
+| 1b, after rebase on `da40e6590` | this commit | `test-map.mjs check` OK, 5 done-equivalent proofs; `bun test examples/t3-code` 1321 pass 0 fail; strict tsc clean; contract build 2184 slots, 43 resources, 2015 actions; `cargo test -p t3-code-macos --lib` 10 pass; five checks pass (cargo test 2927 pass 0 fail 18 ignored, clippy, fmt, caps, boot); macOS bundle build pass; AppKit binaries not re-run (no Swift changed in the rebase) | `check.log` on the evidence branch | none |
 | Spot check, 2026-10-06 | map before resolution | A second agent classified 30 random files without the map. Agreed on 19; 11 disagreements. Adopted 8 (and the client-runtime twin of one): `ui/switch.test.tsx` → settings-scoped-controls-and-theme-editor (D15 mixed switch); `state/threadSubagents` → n/a-excluded (mobile only); `providerAuthReturnUrl` → managed-codex-chatgpt (that ticket ports it); `ElectronShell` → ssh-password-and-remote-open (named there); web `state/usage.test.tsx` and client-runtime `state/usage.test.ts` → usage-pooled-view; `connection/desktopLocal` → n/a-excluded (WSL secondary backends); `ProviderStatusBanner.test.ts` clone module `presentation.ts`; `workspaceBasenameLookup` → plan gap. Kept 3: `ipc/methods/sshEnvironment` in `ssh` (T3Ssh's own binary, not `transport`); `DesktopClientSettings.diagnostics` stays with local-primary-environment (U7 decides the client settings file); `ModelPickerContent` stays `port` (the clone has its picker-ready cases) with a note for its provider-setup cases. A follow-up scan of every test file a ticket names added "cases named by" notes to 51 rows | this table | none |
 
 ## Next action
