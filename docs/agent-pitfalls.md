@@ -236,6 +236,14 @@ guide's rules don't make obvious.
   safe area. Fix: put `env(safe-area-inset-top)` on the route column, not on each
   authored header. (Signal Clone, build 5.)
 
+- **After a relaunch on iOS, a form opens with old values and ignores the fresh answer.**
+  The native first frame can make the form's child from the resource's kept answer, and
+  a child's states start once, so the fresh answer does not reset them; the web JS
+  target keeps no answers, so only the native run shows it. Cause and fixes: [the agent
+  guide](contract-for-agents.md#composition-and-lifetime), the form that edits a saved
+  record (refresh the resource after each write, or key the child by the answer). (Authoring
+  bench, LLP 1087, ios19, ios22 and ios32 t7-wizard, 2026-10-05/06.)
+
 - **An empty date input can still show a date on iOS.** `input type="date" value=""`
   draws a date in the `UIDatePicker`, which has no empty state: today in a new picker,
   the last date in one whose value was cleared (`time` and `datetime-local` share the
