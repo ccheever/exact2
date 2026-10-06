@@ -1399,6 +1399,10 @@ impl<D: DataSource> Host<D> {
             }
             changed = true;
             self.row_dirty.node(key);
+            // A path's `d` is read from the engine where it is painted.
+            if p.property == Property::D {
+                continue;
+            }
             if Property::PAINT.contains(&p.property) {
                 self.present_paint(p);
                 continue;

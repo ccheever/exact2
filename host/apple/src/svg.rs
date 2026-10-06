@@ -270,8 +270,7 @@ fn scene(
 ) -> String {
     // A sampled animation's value now; a lowered one is Core Animation's,
     // so the scene carries its underlying value and the spec.
-    let presented = |key: NodeKey, p: Property| engine.sampled_value(motion_node(key), p);
-    let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &presented);
+    let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &Sampled(engine));
     let mut s = String::new();
     let _ = write!(
         s,
@@ -300,6 +299,20 @@ fn scene(
     );
     s.push('}');
     s
+}
+
+/// The engine's values as a scene presents them: a sampled animation's
+/// value now, and a path's `d` while a transition moves it (LLP 1055.000
+/// D15).
+struct Sampled<'e>(&'e Engine);
+
+impl exact_kernel::svg::scene::Present for Sampled<'_> {
+    fn value(&self, key: NodeKey, p: Property) -> Option<Value> {
+        self.0.sampled_value(motion_node(key), p)
+    }
+    fn path(&self, key: NodeKey) -> Option<exact_motion::PathValue> {
+        self.0.presented_path(motion_node(key))
+    }
 }
 
 fn affine_json(t: Affine, s: &mut String) {
