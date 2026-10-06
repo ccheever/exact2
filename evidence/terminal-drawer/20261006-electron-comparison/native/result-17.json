@@ -1,0 +1,352 @@
+[
+  {
+    "command": [
+      "tap",
+      "composer"
+    ],
+    "result": {
+      "tapped": 149,
+      "at": [
+        616,
+        271
+      ],
+      "delivery": "platform",
+      "target": "composer",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 234,
+      "incarnation": 1,
+      "clock": 38500
+    }
+  },
+  {
+    "command": [
+      "state"
+    ],
+    "result": {
+      "clock": 38500,
+      "epoch": 234,
+      "incarnation": 1,
+      "focus": {
+        "logical": 6594,
+        "editor": null,
+        "responder": "WebView",
+        "pending": null
+      },
+      "storage": {
+        "available": true,
+        "store": "terminal-review-20261006"
+      },
+      "resources": {
+        "terminalDrawer": {
+          "available": true,
+          "open": true,
+          "threadKey": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "environmentId": "0b8696ff-c9a0-486c-bc1f-be24960b906e",
+          "threadId": "44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "terminalId": "term-1",
+          "label": "Terminal 1",
+          "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo",
+          "worktree": "",
+          "env": "{\"T3CODE_PROJECT_ROOT\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\"}",
+          "height": 285,
+          "focusRequest": 11,
+          "closeTitle": "Close terminal \"Terminal 1\"?",
+          "closeBody": "This stops the running process and clears its history.",
+          "closeLabel": "Close Terminal",
+          "newLabel": "New Terminal",
+          "toggleLabel": "Toggle terminal drawer (⌘J)",
+          "sessionKey": "[\"0b8696ff-c9a0-486c-bc1f-be24960b906e\",\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\",\"term-1\"]",
+          "mounted": 1,
+          "metadata": "3 sessions",
+          "failure": ""
+        }
+      },
+      "confirmation": {
+        "confirmTitle": "Close terminal \"Terminal 1\"?",
+        "confirmBody": "This stops the running process and clears its history.",
+        "confirmDestructive": true,
+        "confirmOp": "",
+        "confirmTarget": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604|term-1",
+        "confirmValue": ""
+      }
+    }
+  },
+  {
+    "command": [
+      "type",
+      "composer",
+      "focus probe"
+    ],
+    "result": {
+      "value": "focus probe",
+      "typed": 149,
+      "target": "composer",
+      "delivery": "platform",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 236,
+      "incarnation": 1,
+      "clock": 38500
+    }
+  },
+  {
+    "command": [
+      "state"
+    ],
+    "result": {
+      "clock": 38500,
+      "epoch": 236,
+      "incarnation": 1,
+      "focus": {
+        "editor": 149,
+        "logical": 149,
+        "pending": null,
+        "responder": "TextArea"
+      },
+      "storage": {
+        "store": "terminal-review-20261006",
+        "available": true
+      },
+      "resources": {
+        "terminalDrawer": {
+          "available": true,
+          "open": true,
+          "threadKey": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "environmentId": "0b8696ff-c9a0-486c-bc1f-be24960b906e",
+          "threadId": "44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "terminalId": "term-1",
+          "label": "Terminal 1",
+          "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo",
+          "worktree": "",
+          "env": "{\"T3CODE_PROJECT_ROOT\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\"}",
+          "height": 285,
+          "focusRequest": 11,
+          "closeTitle": "Close terminal \"Terminal 1\"?",
+          "closeBody": "This stops the running process and clears its history.",
+          "closeLabel": "Close Terminal",
+          "newLabel": "New Terminal",
+          "toggleLabel": "Toggle terminal drawer (⌘J)",
+          "sessionKey": "[\"0b8696ff-c9a0-486c-bc1f-be24960b906e\",\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\",\"term-1\"]",
+          "mounted": 1,
+          "metadata": "3 sessions",
+          "failure": ""
+        }
+      },
+      "confirmation": {
+        "confirmTitle": "Close terminal \"Terminal 1\"?",
+        "confirmBody": "This stops the running process and clears its history.",
+        "confirmDestructive": true,
+        "confirmOp": "",
+        "confirmTarget": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604|term-1",
+        "confirmValue": ""
+      }
+    }
+  },
+  {
+    "command": [
+      "tap",
+      "toggle-terminal"
+    ],
+    "result": {
+      "tapped": 118,
+      "at": [
+        1221,
+        26
+      ],
+      "delivery": "platform",
+      "target": "toggle-terminal",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 238,
+      "incarnation": 1,
+      "clock": 38500
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "settle"
+    ],
+    "result": {
+      "clock": 38500,
+      "incarnation": 1,
+      "epoch": 241,
+      "settled": true
+    }
+  },
+  {
+    "command": [
+      "tap",
+      "toggle-terminal"
+    ],
+    "result": {
+      "delivery": "platform",
+      "tapped": 118,
+      "at": [
+        1221,
+        26
+      ],
+      "target": "toggle-terminal",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 242,
+      "incarnation": 1,
+      "clock": 38500
+    }
+  },
+  {
+    "command": [
+      "type",
+      "composer",
+      "focus probe"
+    ],
+    "result": {
+      "typed": 149,
+      "value": "focus probe",
+      "target": "composer",
+      "delivery": "platform",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 243,
+      "incarnation": 1,
+      "clock": 38500
+    }
+  },
+  {
+    "command": [
+      "state"
+    ],
+    "result": {
+      "clock": 38500,
+      "epoch": 243,
+      "incarnation": 1,
+      "focus": {
+        "responder": "TextArea",
+        "editor": 149,
+        "pending": null,
+        "logical": 149
+      },
+      "storage": {
+        "store": "terminal-review-20261006",
+        "available": true
+      },
+      "resources": {
+        "terminalDrawer": {
+          "available": true,
+          "open": false,
+          "threadKey": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "environmentId": "0b8696ff-c9a0-486c-bc1f-be24960b906e",
+          "threadId": "44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "terminalId": "term-1",
+          "label": "Terminal 1",
+          "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo",
+          "worktree": "",
+          "env": "{\"T3CODE_PROJECT_ROOT\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\"}",
+          "height": 285,
+          "focusRequest": 11,
+          "closeTitle": "Close terminal \"Terminal 1\"?",
+          "closeBody": "This stops the running process and clears its history.",
+          "closeLabel": "Close Terminal",
+          "newLabel": "New Terminal",
+          "toggleLabel": "Toggle terminal drawer (⌘J)",
+          "sessionKey": "[\"0b8696ff-c9a0-486c-bc1f-be24960b906e\",\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\",\"term-1\"]",
+          "mounted": 0,
+          "metadata": "3 sessions",
+          "failure": ""
+        }
+      },
+      "confirmation": {
+        "confirmTitle": "Close terminal \"Terminal 1\"?",
+        "confirmBody": "This stops the running process and clears its history.",
+        "confirmDestructive": true,
+        "confirmOp": "",
+        "confirmTarget": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604|term-1",
+        "confirmValue": ""
+      }
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "+1500 real"
+    ],
+    "result": {
+      "epoch": 251,
+      "incarnation": 1,
+      "clock": 40000,
+      "inflight": 1,
+      "real": 1514
+    }
+  },
+  {
+    "command": [
+      "state"
+    ],
+    "result": {
+      "clock": 40000,
+      "epoch": 251,
+      "incarnation": 1,
+      "focus": {
+        "pending": null,
+        "logical": 6605,
+        "editor": null,
+        "responder": "WebView"
+      },
+      "storage": {
+        "available": true,
+        "store": "terminal-review-20261006"
+      },
+      "resources": {
+        "terminalDrawer": {
+          "available": true,
+          "open": true,
+          "threadKey": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "environmentId": "0b8696ff-c9a0-486c-bc1f-be24960b906e",
+          "threadId": "44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "terminalId": "term-1",
+          "label": "Terminal 1",
+          "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo",
+          "worktree": "",
+          "env": "{\"T3CODE_PROJECT_ROOT\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\"}",
+          "height": 285,
+          "focusRequest": 12,
+          "closeTitle": "Close terminal \"Terminal 1\"?",
+          "closeBody": "This stops the running process and clears its history.",
+          "closeLabel": "Close Terminal",
+          "newLabel": "New Terminal",
+          "toggleLabel": "Toggle terminal drawer (⌘J)",
+          "sessionKey": "[\"0b8696ff-c9a0-486c-bc1f-be24960b906e\",\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\",\"term-1\"]",
+          "mounted": 1,
+          "metadata": "3 sessions",
+          "failure": ""
+        }
+      },
+      "confirmation": {
+        "confirmTitle": "Close terminal \"Terminal 1\"?",
+        "confirmBody": "This stops the running process and clears its history.",
+        "confirmDestructive": true,
+        "confirmOp": "",
+        "confirmTarget": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604|term-1",
+        "confirmValue": ""
+      }
+    }
+  },
+  {
+    "command": [
+      "screenshot",
+      "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/24-focus-typed.png",
+      true
+    ],
+    "result": {
+      "h": 840,
+      "scale": 2,
+      "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/24-focus-typed.png",
+      "window": true,
+      "clock": 40000,
+      "epoch": 251,
+      "w": 1280,
+      "incarnation": 1
+    }
+  }
+]

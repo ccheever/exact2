@@ -1,0 +1,319 @@
+[
+  {
+    "command": [
+      "tap",
+      "setting-terminal-font-size"
+    ],
+    "result": {
+      "delivery": "platform",
+      "at": [
+        1103.5,
+        446
+      ],
+      "tapped": 3684,
+      "target": "setting-terminal-font-size",
+      "scrolled": {
+        "from": [
+          1103.5,
+          914.08
+        ],
+        "to": [
+          1103.5,
+          446
+        ]
+      },
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 162,
+      "incarnation": 1,
+      "clock": 30000
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "settle"
+    ],
+    "result": {
+      "epoch": 162,
+      "incarnation": 1,
+      "settled": true,
+      "clock": 30000
+    }
+  },
+  {
+    "command": [
+      "tree"
+    ],
+    "result": {
+      "nodes": [
+        {
+          "id": 133,
+          "children": [
+            134,
+            138
+          ],
+          "focused": false,
+          "type": "View",
+          "parent": 101,
+          "handlers": [],
+          "depth": 5,
+          "props": {
+            "dataset": "{\"frame\":\"overlay\"}",
+            "hook": "t3-frame",
+            "testId": "composer-overlay"
+          }
+        },
+        {
+          "depth": 9,
+          "focused": false,
+          "children": [
+            538
+          ],
+          "parent": 136,
+          "props": {
+            "testId": "composer-dock"
+          },
+          "handlers": [],
+          "id": 137,
+          "type": "View"
+        },
+        {
+          "id": 141,
+          "focused": false,
+          "props": {
+            "testId": "composer-stash-key",
+            "accessibilityLabel": "Stash prompt",
+            "accessibilityRole": "button",
+            "accessibilityElementsHidden": true,
+            "accessibilityKeyShortcuts": "Meta+s"
+          },
+          "children": [
+            142
+          ],
+          "depth": 9,
+          "type": "Pressable",
+          "parent": 140,
+          "handlers": [
+            "press"
+          ]
+        },
+        {
+          "children": [
+            144
+          ],
+          "id": 143,
+          "focused": false,
+          "props": {
+            "testId": "composer-models-key",
+            "hook": "t3-composer-key",
+            "accessibilityRole": "button",
+            "accessibilityElementsHidden": true,
+            "dataset": "{\"anchor\":\"models\"}"
+          },
+          "type": "Pressable",
+          "depth": 9,
+          "parent": 140,
+          "handlers": [
+            "press"
+          ]
+        },
+        {
+          "children": [
+            146,
+            150
+          ],
+          "handlers": [],
+          "type": "View",
+          "parent": 139,
+          "props": {
+            "dataset": "{\"frame\":\"card\"}",
+            "hook": "t3-frame",
+            "testId": "composer-surface"
+          },
+          "depth": 8,
+          "id": 145,
+          "focused": false
+        },
+        {
+          "parent": 147,
+          "props": {
+            "accessibilityElementsHidden": true,
+            "text": "Ask for changes, send follow-ups, or attach images",
+            "testId": "composer-placeholder"
+          },
+          "handlers": [],
+          "children": [],
+          "focused": false,
+          "id": 148,
+          "type": "Text",
+          "depth": 11
+        },
+        {
+          "type": "TextInput",
+          "props": {
+            "testId": "composer",
+            "spellcheck": "false",
+            "accessibilityHint": "Ask for changes, send follow-ups, or attach images",
+            "accessibilityLabel": "Message",
+            "id": "composer",
+            "hook": "t3-composer",
+            "value": "",
+            "semanticTag": "textarea",
+            "dataset": "{\"snapshot-owner\":\"[\\\"http://127.0.0.1:16321\\\",\\\"0b8696ff-c9a0-486c-bc1f-be24960b906e\\\",\\\"75547563-31f7-4937-8c30-090c962ca1ee\\\",\\\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\\\"]\"}",
+            "autocorrect": "off"
+          },
+          "id": 149,
+          "parent": 147,
+          "focused": false,
+          "handlers": [
+            "input",
+            "focus",
+            "blur"
+          ],
+          "children": [],
+          "depth": 11
+        },
+        {
+          "handlers": [],
+          "depth": 9,
+          "type": "View",
+          "id": 150,
+          "parent": 145,
+          "children": [
+            151,
+            170,
+            187,
+            214
+          ],
+          "props": {
+            "dataset": "{\"frame\":\"toolbar\"}",
+            "hook": "t3-frame",
+            "testId": "composer-toolbar"
+          },
+          "focused": false
+        },
+        {
+          "depth": 4,
+          "parent": 100,
+          "id": 961,
+          "handlers": [],
+          "focused": false,
+          "children": [
+            1272,
+            1273,
+            1275
+          ],
+          "props": {
+            "accessibilityLabel": "Terminal drawer",
+            "testId": "terminal-drawer"
+          },
+          "type": "View"
+        },
+        {
+          "focused": false,
+          "id": 1272,
+          "children": [],
+          "type": "View",
+          "parent": 961,
+          "handlers": [
+            "pan",
+            "panrelease"
+          ],
+          "props": {
+            "testId": "terminal-drawer-resize",
+            "accessibilityLabel": "Resize terminal drawer",
+            "accessibilityRole": "separator",
+            "accessibilityOrientation": "horizontal"
+          },
+          "depth": 5
+        },
+        {
+          "handlers": [],
+          "children": [
+            1274
+          ],
+          "id": 1273,
+          "props": {
+            "testId": "terminal-drawer-surface"
+          },
+          "focused": false,
+          "type": "View",
+          "parent": 961,
+          "depth": 5
+        },
+        {
+          "handlers": [
+            "message"
+          ],
+          "parent": 1273,
+          "focused": false,
+          "depth": 6,
+          "module": {
+            "state": "ready",
+            "name": "t3-terminal"
+          },
+          "children": [],
+          "props": {
+            "testId": "terminal-view",
+            "accessibilityLabel": "Terminal 1",
+            "nativeViewProps": "{\"chords\":\"Meta+J\",\"cwd\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\",\"env\":\"{\\\"T3CODE_PROJECT_ROOT\\\":\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\\\"}\",\"environment\":\"0b8696ff-c9a0-486c-bc1f-be24960b906e\",\"focus-request\":\"9\",\"scheme\":\"light\",\"terminal\":\"term-1\",\"terminal-font\":\"\",\"terminal-font-size\":\"12\",\"terminal-theme\":\"{\\\"dark\\\":false,\\\"background\\\":{\\\"r\\\":252,\\\"g\\\":252,\\\"b\\\":252},\\\"foreground\\\":{\\\"r\\\":39,\\\"g\\\":39,\\\"b\\\":42},\\\"cursor\\\":{\\\"r\\\":38,\\\"g\\\":56,\\\"b\\\":78},\\\"selectionBackground\\\":\\\"rgba(37, 63, 99, 0.2)\\\"}\",\"thread\":\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\",\"worktree\":\"\"}",
+            "nativeViewModuleName": "t3-terminal"
+          },
+          "type": "NativeView",
+          "id": 1274
+        },
+        {
+          "handlers": [],
+          "id": 1275,
+          "props": {
+            "testId": "terminal-drawer-toolbar"
+          },
+          "children": [
+            1276
+          ],
+          "type": "View",
+          "depth": 5,
+          "parent": 961,
+          "focused": false
+        },
+        {
+          "depth": 7,
+          "children": [
+            1278
+          ],
+          "handlers": [
+            "press",
+            "hover",
+            "focus",
+            "blur"
+          ],
+          "id": 1277,
+          "type": "Pressable",
+          "focused": false,
+          "parent": 1276,
+          "props": {
+            "accessibilityLabel": "Close Terminal",
+            "accessibilityRole": "button",
+            "testId": "terminal-close"
+          }
+        },
+        {
+          "depth": 11,
+          "id": 3745,
+          "type": "View",
+          "parent": 3655,
+          "focused": false,
+          "props": {
+            "accessibilityLabel": "Terminal font preview",
+            "testId": "terminal-font-preview"
+          },
+          "children": [
+            3746
+          ],
+          "handlers": []
+        }
+      ]
+    }
+  }
+]

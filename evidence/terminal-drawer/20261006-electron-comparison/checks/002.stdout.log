@@ -1,0 +1,3 @@
+Native immediately after composer input: {'responder': 'TextArea', 'editor': 149, 'pending': None, 'logical': 149}
+Native after 1500 ms: {'pending': None, 'logical': 6605, 'editor': None, 'responder': 'WebView'}
+Electron trials retain composer: True

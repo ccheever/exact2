@@ -1,0 +1,224 @@
+[
+  {
+    "command": [
+      "tap",
+      "terminal-close"
+    ],
+    "result": {
+      "at": [
+        1257.5,
+        580.5
+      ],
+      "delivery": "platform",
+      "tapped": 1013,
+      "target": "terminal-close",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 55,
+      "incarnation": 1,
+      "clock": 17500
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "settle"
+    ],
+    "result": {
+      "incarnation": 1,
+      "settled": true,
+      "clock": 18250,
+      "epoch": 55
+    }
+  },
+  {
+    "command": [
+      "tap",
+      "app-confirm-confirm"
+    ],
+    "result": {
+      "tapped": 1047,
+      "at": [
+        832.52,
+        468.5
+      ],
+      "delivery": "platform",
+      "target": "app-confirm-confirm",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 58,
+      "incarnation": 1,
+      "clock": 18250
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "+1500 real"
+    ],
+    "result": {
+      "clock": 19750,
+      "incarnation": 1,
+      "epoch": 62,
+      "real": 1523
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "settle"
+    ],
+    "result": {
+      "clock": 19750,
+      "epoch": 62,
+      "settled": true,
+      "incarnation": 1
+    }
+  },
+  {
+    "command": [
+      "state"
+    ],
+    "result": {
+      "clock": 19750,
+      "epoch": 62,
+      "incarnation": 1,
+      "focus": {
+        "responder": "WebView",
+        "editor": null,
+        "logical": 1049,
+        "pending": null
+      },
+      "storage": {
+        "store": "terminal-review-20261006",
+        "available": true
+      },
+      "resources": {
+        "terminalDrawer": {
+          "available": true,
+          "open": true,
+          "threadKey": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "environmentId": "0b8696ff-c9a0-486c-bc1f-be24960b906e",
+          "threadId": "44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "terminalId": "term-1",
+          "label": "Terminal 1",
+          "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo",
+          "worktree": "",
+          "env": "{\"T3CODE_PROJECT_ROOT\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\"}",
+          "height": 280,
+          "focusRequest": 3,
+          "closeTitle": "Close terminal \"Terminal 1\"?",
+          "closeBody": "This stops the running process and clears its history.",
+          "closeLabel": "Close Terminal",
+          "newLabel": "New Terminal",
+          "toggleLabel": "Toggle terminal drawer (⌘J)",
+          "sessionKey": "[\"0b8696ff-c9a0-486c-bc1f-be24960b906e\",\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\",\"term-1\"]",
+          "mounted": 1,
+          "metadata": "3 sessions",
+          "failure": ""
+        }
+      },
+      "confirmation": {
+        "confirmTitle": "Close terminal \"Terminal 2\"?",
+        "confirmBody": "This stops the running process and clears its history.",
+        "confirmDestructive": true,
+        "confirmOp": "",
+        "confirmTarget": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604|term-2",
+        "confirmValue": ""
+      }
+    }
+  },
+  {
+    "command": [
+      "tree",
+      "composer"
+    ],
+    "result": {
+      "nodes": [
+        {
+          "children": [],
+          "id": 149,
+          "depth": 11,
+          "handlers": [
+            "input",
+            "focus",
+            "blur"
+          ],
+          "focused": false,
+          "type": "TextInput",
+          "props": {
+            "testId": "composer",
+            "spellcheck": "false",
+            "accessibilityHint": "Ask for changes, send follow-ups, or attach images",
+            "accessibilityLabel": "Message",
+            "id": "composer",
+            "hook": "t3-composer",
+            "value": "",
+            "semanticTag": "textarea",
+            "dataset": "{\"snapshot-owner\":\"[\\\"http://127.0.0.1:16321\\\",\\\"0b8696ff-c9a0-486c-bc1f-be24960b906e\\\",\\\"75547563-31f7-4937-8c30-090c962ca1ee\\\",\\\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\\\"]\"}",
+            "autocorrect": "off"
+          },
+          "parent": 147
+        }
+      ]
+    }
+  },
+  {
+    "command": [
+      "screenshot",
+      "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/12-confirmed-close.png",
+      true
+    ],
+    "result": {
+      "epoch": 62,
+      "scale": 2,
+      "h": 840,
+      "incarnation": 1,
+      "window": true,
+      "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/12-confirmed-close.png",
+      "w": 1280,
+      "clock": 19750
+    }
+  },
+  {
+    "command": [
+      "tap",
+      "toggle-terminal"
+    ],
+    "result": {
+      "tapped": 118,
+      "at": [
+        1221,
+        26
+      ],
+      "delivery": "platform",
+      "target": "toggle-terminal",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 63,
+      "incarnation": 1,
+      "clock": 19750
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "+1500 real"
+    ],
+    "result": {
+      "incarnation": 1,
+      "clock": 21250,
+      "epoch": 68,
+      "real": 1522
+    }
+  },
+  {
+    "command": [
+      "type",
+      "terminal-view",
+      "exit"
+    ],
+    "result": {},
+    "error": "Error: no view matches terminal-view by testId, label or text; targets here: toggle-sidebar, sidebar-brand, search-threads, filter-project, add-project, new-thread, row-69c2afd5-37d8-496c-9596-9de137203669, thread-69c2afd5-37d8-496c-9596-9de137203669, snooze-69c2afd5-37d8-496c-9596-9de137203669, settle-69c2afd5-37d8-496c-9596-9de137203669, snooze-69c2afd5-37d8-496c-9596-9de137203669-hour, snooze-69c2afd5-37d8-496c-9596-9de137203669-three-hours, …; tree lists live targets, and a virtualized list's row outside its window comes in by key: `tap <list> into <key>` (feed F10)"
+  }
+]

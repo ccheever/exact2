@@ -1,0 +1,11 @@
+{
+  "native_app": "stopped",
+  "native_server": "stopped",
+  "electron_app": "closed",
+  "ports": {
+    "16321": "closed",
+    "16322": "closed",
+    "16324": "closed"
+  },
+  "implementation_unchanged": true
+}

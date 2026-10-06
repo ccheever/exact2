@@ -1,0 +1,1099 @@
+[
+  {
+    "command": [
+      "tap",
+      "toggle-terminal"
+    ],
+    "result": {
+      "delivery": "platform",
+      "tapped": 118,
+      "at": [
+        1221,
+        26
+      ],
+      "target": "toggle-terminal",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 40,
+      "incarnation": 1,
+      "clock": 9500
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "+1500 real"
+    ],
+    "result": {
+      "epoch": 45,
+      "incarnation": 1,
+      "inflight": 1,
+      "clock": 11000,
+      "real": 1530
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "settle"
+    ],
+    "result": {
+      "epoch": 45,
+      "settled": true,
+      "incarnation": 1,
+      "clock": 11000
+    }
+  },
+  {
+    "command": [
+      "state"
+    ],
+    "result": {
+      "clock": 11000,
+      "epoch": 45,
+      "incarnation": 1,
+      "focus": {
+        "pending": null,
+        "logical": 1010,
+        "editor": null,
+        "responder": "WebView"
+      },
+      "storage": {
+        "available": true,
+        "store": "terminal-review-20261006"
+      },
+      "resources": {
+        "terminalDrawer": {
+          "available": true,
+          "open": true,
+          "threadKey": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "environmentId": "0b8696ff-c9a0-486c-bc1f-be24960b906e",
+          "threadId": "44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "terminalId": "term-2",
+          "label": "Terminal 2",
+          "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo",
+          "worktree": "",
+          "env": "{\"T3CODE_PROJECT_ROOT\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\"}",
+          "height": 280,
+          "focusRequest": 1,
+          "closeTitle": "Close terminal \"Terminal 2\"?",
+          "closeBody": "This stops the running process and clears its history.",
+          "closeLabel": "Close Terminal",
+          "newLabel": "New Terminal",
+          "toggleLabel": "Toggle terminal drawer (⌘J)",
+          "sessionKey": "[\"0b8696ff-c9a0-486c-bc1f-be24960b906e\",\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\",\"term-2\"]",
+          "mounted": 1,
+          "metadata": "4 sessions",
+          "failure": ""
+        }
+      },
+      "confirmation": {
+        "confirmTitle": "",
+        "confirmBody": "",
+        "confirmDestructive": false,
+        "confirmOp": "",
+        "confirmTarget": "",
+        "confirmValue": ""
+      }
+    }
+  },
+  {
+    "command": [
+      "screenshot",
+      "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/09-history-after-repair.png",
+      true
+    ],
+    "result": {
+      "w": 1280,
+      "window": true,
+      "h": 840,
+      "clock": 11000,
+      "incarnation": 1,
+      "scale": 2,
+      "epoch": 45,
+      "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/09-history-after-repair.png"
+    }
+  },
+  {
+    "command": [
+      "type",
+      "terminal-view",
+      "seq 1 200000; printf \"FLOOD_DONE\\n\""
+    ],
+    "result": {
+      "delivery": "native-module",
+      "typed": 1010,
+      "target": "terminal-view",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 45,
+      "incarnation": 1,
+      "clock": 11000
+    }
+  },
+  {
+    "command": [
+      "type",
+      "terminal-view",
+      {
+        "key": "Enter"
+      }
+    ],
+    "result": {
+      "delivery": "native-module",
+      "typed": 1010,
+      "key": "Enter",
+      "target": "terminal-view",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 45,
+      "incarnation": 1,
+      "clock": 11000
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "+5000 real"
+    ],
+    "result": {
+      "epoch": 45,
+      "clock": 16000,
+      "inflight": 1,
+      "incarnation": 1,
+      "real": 5030
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "settle"
+    ],
+    "result": {
+      "epoch": 45,
+      "clock": 16000,
+      "settled": true,
+      "incarnation": 1
+    }
+  },
+  {
+    "command": [
+      "state"
+    ],
+    "result": {
+      "clock": 16000,
+      "epoch": 45,
+      "incarnation": 1,
+      "focus": {
+        "responder": "WebView",
+        "pending": null,
+        "logical": 1010,
+        "editor": null
+      },
+      "storage": {
+        "store": "terminal-review-20261006",
+        "available": true
+      },
+      "resources": {
+        "terminalDrawer": {
+          "available": true,
+          "open": true,
+          "threadKey": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "environmentId": "0b8696ff-c9a0-486c-bc1f-be24960b906e",
+          "threadId": "44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "terminalId": "term-2",
+          "label": "Terminal 2",
+          "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo",
+          "worktree": "",
+          "env": "{\"T3CODE_PROJECT_ROOT\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\"}",
+          "height": 280,
+          "focusRequest": 1,
+          "closeTitle": "Close terminal \"Terminal 2\"?",
+          "closeBody": "This stops the running process and clears its history.",
+          "closeLabel": "Close Terminal",
+          "newLabel": "New Terminal",
+          "toggleLabel": "Toggle terminal drawer (⌘J)",
+          "sessionKey": "[\"0b8696ff-c9a0-486c-bc1f-be24960b906e\",\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\",\"term-2\"]",
+          "mounted": 1,
+          "metadata": "4 sessions",
+          "failure": ""
+        }
+      },
+      "confirmation": {
+        "confirmTitle": "",
+        "confirmBody": "",
+        "confirmDestructive": false,
+        "confirmOp": "",
+        "confirmTarget": "",
+        "confirmValue": ""
+      }
+    }
+  },
+  {
+    "command": [
+      "logs"
+    ],
+    "result": {
+      "line_count": 2349,
+      "dropped": 0,
+      "overflow_resync_or_invalid_json": []
+    }
+  },
+  {
+    "command": [
+      "screenshot",
+      "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/10-flood.png",
+      true
+    ],
+    "result": {
+      "clock": 16000,
+      "window": true,
+      "h": 840,
+      "w": 1280,
+      "incarnation": 1,
+      "scale": 2,
+      "epoch": 45,
+      "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/10-flood.png"
+    }
+  },
+  {
+    "command": [
+      "tap",
+      "terminal-close"
+    ],
+    "result": {
+      "delivery": "platform",
+      "at": [
+        1257.5,
+        580.5
+      ],
+      "tapped": 1013,
+      "target": "terminal-close",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 47,
+      "incarnation": 1,
+      "clock": 16000
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "settle"
+    ],
+    "result": {
+      "clock": 16750,
+      "epoch": 47,
+      "settled": true,
+      "incarnation": 1
+    }
+  },
+  {
+    "command": [
+      "tree"
+    ],
+    "result": {
+      "nodes": [
+        {
+          "props": {
+            "dataset": "{\"frame\":\"overlay\"}",
+            "hook": "t3-frame",
+            "testId": "composer-overlay"
+          },
+          "children": [
+            134,
+            138
+          ],
+          "id": 133,
+          "type": "View",
+          "handlers": [],
+          "depth": 5,
+          "focused": false,
+          "parent": 101
+        },
+        {
+          "children": [
+            538
+          ],
+          "props": {
+            "testId": "composer-dock"
+          },
+          "focused": false,
+          "id": 137,
+          "parent": 136,
+          "depth": 9,
+          "handlers": [],
+          "type": "View"
+        },
+        {
+          "parent": 140,
+          "handlers": [
+            "press"
+          ],
+          "id": 141,
+          "props": {
+            "testId": "composer-stash-key",
+            "accessibilityLabel": "Stash prompt",
+            "accessibilityRole": "button",
+            "accessibilityElementsHidden": true,
+            "accessibilityKeyShortcuts": "Meta+s"
+          },
+          "focused": false,
+          "children": [
+            142
+          ],
+          "depth": 9,
+          "type": "Pressable"
+        },
+        {
+          "type": "Pressable",
+          "handlers": [
+            "press"
+          ],
+          "id": 143,
+          "children": [
+            144
+          ],
+          "depth": 9,
+          "focused": false,
+          "props": {
+            "testId": "composer-models-key",
+            "hook": "t3-composer-key",
+            "accessibilityRole": "button",
+            "accessibilityElementsHidden": true,
+            "dataset": "{\"anchor\":\"models\"}"
+          },
+          "parent": 140
+        },
+        {
+          "type": "View",
+          "children": [
+            146,
+            150
+          ],
+          "handlers": [],
+          "props": {
+            "dataset": "{\"frame\":\"card\"}",
+            "hook": "t3-frame",
+            "testId": "composer-surface"
+          },
+          "id": 145,
+          "depth": 8,
+          "parent": 139,
+          "focused": false
+        },
+        {
+          "props": {
+            "accessibilityElementsHidden": true,
+            "text": "Ask for changes, send follow-ups, or attach images",
+            "testId": "composer-placeholder"
+          },
+          "focused": false,
+          "depth": 11,
+          "children": [],
+          "parent": 147,
+          "handlers": [],
+          "id": 148,
+          "type": "Text"
+        },
+        {
+          "parent": 147,
+          "id": 149,
+          "focused": false,
+          "type": "TextInput",
+          "depth": 11,
+          "handlers": [
+            "input",
+            "focus",
+            "blur"
+          ],
+          "props": {
+            "testId": "composer",
+            "spellcheck": "false",
+            "accessibilityHint": "Ask for changes, send follow-ups, or attach images",
+            "accessibilityLabel": "Message",
+            "id": "composer",
+            "hook": "t3-composer",
+            "value": "",
+            "semanticTag": "textarea",
+            "dataset": "{\"snapshot-owner\":\"[\\\"http://127.0.0.1:16321\\\",\\\"0b8696ff-c9a0-486c-bc1f-be24960b906e\\\",\\\"75547563-31f7-4937-8c30-090c962ca1ee\\\",\\\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\\\"]\"}",
+            "autocorrect": "off"
+          },
+          "children": []
+        },
+        {
+          "id": 150,
+          "focused": false,
+          "type": "View",
+          "depth": 9,
+          "parent": 145,
+          "props": {
+            "dataset": "{\"frame\":\"toolbar\"}",
+            "hook": "t3-frame",
+            "testId": "composer-toolbar"
+          },
+          "children": [
+            151,
+            170,
+            187,
+            214
+          ],
+          "handlers": []
+        },
+        {
+          "parent": 100,
+          "type": "View",
+          "focused": false,
+          "handlers": [],
+          "props": {
+            "accessibilityLabel": "Terminal drawer",
+            "testId": "terminal-drawer"
+          },
+          "depth": 4,
+          "id": 961,
+          "children": [
+            1008,
+            1009,
+            1011
+          ]
+        },
+        {
+          "type": "View",
+          "depth": 5,
+          "id": 1008,
+          "children": [],
+          "handlers": [
+            "pan",
+            "panrelease"
+          ],
+          "parent": 961,
+          "props": {
+            "testId": "terminal-drawer-resize",
+            "accessibilityLabel": "Resize terminal drawer",
+            "accessibilityRole": "separator",
+            "accessibilityOrientation": "horizontal"
+          },
+          "focused": false
+        },
+        {
+          "children": [
+            1010
+          ],
+          "id": 1009,
+          "parent": 961,
+          "handlers": [],
+          "depth": 5,
+          "focused": false,
+          "type": "View",
+          "props": {
+            "testId": "terminal-drawer-surface"
+          }
+        },
+        {
+          "parent": 1009,
+          "module": {
+            "name": "t3-terminal",
+            "state": "ready"
+          },
+          "focused": false,
+          "children": [],
+          "depth": 6,
+          "type": "NativeView",
+          "id": 1010,
+          "handlers": [
+            "message"
+          ],
+          "props": {
+            "testId": "terminal-view",
+            "accessibilityLabel": "Terminal 2",
+            "nativeViewProps": "{\"chords\":\"Meta+J\",\"cwd\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\",\"env\":\"{\\\"T3CODE_PROJECT_ROOT\\\":\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\\\"}\",\"environment\":\"0b8696ff-c9a0-486c-bc1f-be24960b906e\",\"focus-request\":\"1\",\"scheme\":\"dark\",\"terminal\":\"term-2\",\"terminal-font\":\"\",\"terminal-font-size\":\"13\",\"terminal-theme\":\"{\\\"dark\\\":true,\\\"background\\\":{\\\"r\\\":10,\\\"g\\\":10,\\\"b\\\":10},\\\"foreground\\\":{\\\"r\\\":245,\\\"g\\\":245,\\\"b\\\":245},\\\"cursor\\\":{\\\"r\\\":180,\\\"g\\\":203,\\\"b\\\":255},\\\"selectionBackground\\\":\\\"rgba(180, 203, 255, 0.25)\\\"}\",\"thread\":\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\",\"worktree\":\"\"}",
+            "nativeViewModuleName": "t3-terminal"
+          }
+        },
+        {
+          "props": {
+            "testId": "terminal-drawer-toolbar"
+          },
+          "focused": false,
+          "depth": 5,
+          "parent": 961,
+          "id": 1011,
+          "type": "View",
+          "children": [
+            1012
+          ],
+          "handlers": []
+        },
+        {
+          "children": [
+            1014
+          ],
+          "props": {
+            "accessibilityLabel": "Close Terminal",
+            "accessibilityRole": "button",
+            "testId": "terminal-close"
+          },
+          "type": "Pressable",
+          "parent": 1012,
+          "depth": 7,
+          "focused": true,
+          "id": 1013,
+          "handlers": [
+            "press",
+            "hover",
+            "focus",
+            "blur"
+          ]
+        },
+        {
+          "children": [
+            1020
+          ],
+          "id": 1019,
+          "type": "View",
+          "focused": false,
+          "depth": 2,
+          "props": {
+            "testId": "app-confirm-overlay"
+          },
+          "handlers": [],
+          "parent": 2
+        },
+        {
+          "props": {
+            "accessibilityLabel": "Close terminal \"Terminal 2\"?",
+            "accessibilityRole": "alertdialog",
+            "testId": "app-confirm"
+          },
+          "depth": 3,
+          "type": "View",
+          "focused": false,
+          "id": 1020,
+          "parent": 1019,
+          "handlers": [],
+          "children": [
+            1021,
+            1024
+          ]
+        },
+        {
+          "type": "Pressable",
+          "id": 1025,
+          "handlers": [
+            "press"
+          ],
+          "focused": false,
+          "props": {
+            "testId": "app-confirm-cancel",
+            "accessibilityRole": "button",
+            "accessibilityKeyShortcuts": "Escape",
+            "disabled": false
+          },
+          "depth": 5,
+          "parent": 1024,
+          "children": [
+            1026
+          ]
+        },
+        {
+          "handlers": [
+            "press"
+          ],
+          "type": "Pressable",
+          "children": [
+            1028
+          ],
+          "focused": false,
+          "id": 1027,
+          "depth": 5,
+          "props": {
+            "accessibilityRole": "button",
+            "disabled": false,
+            "testId": "app-confirm-confirm"
+          },
+          "parent": 1024
+        }
+      ]
+    }
+  },
+  {
+    "command": [
+      "screenshot",
+      "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/11-close-dialog.png",
+      true
+    ],
+    "result": {
+      "clock": 16750,
+      "window": true,
+      "w": 1280,
+      "h": 840,
+      "incarnation": 1,
+      "scale": 2,
+      "epoch": 47,
+      "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/11-close-dialog.png"
+    }
+  },
+  {
+    "command": [
+      "tap",
+      "app-confirm-cancel"
+    ],
+    "result": {
+      "tapped": 1025,
+      "at": [
+        751.35,
+        468.5
+      ],
+      "delivery": "platform",
+      "target": "app-confirm-cancel",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 49,
+      "incarnation": 1,
+      "clock": 16750
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "settle"
+    ],
+    "result": {
+      "epoch": 49,
+      "settled": true,
+      "clock": 16750,
+      "incarnation": 1
+    }
+  },
+  {
+    "command": [
+      "state"
+    ],
+    "result": {
+      "clock": 16750,
+      "epoch": 49,
+      "incarnation": 1,
+      "focus": {
+        "responder": null,
+        "logical": null,
+        "pending": null,
+        "editor": null
+      },
+      "storage": {
+        "store": "terminal-review-20261006",
+        "available": true
+      },
+      "resources": {
+        "terminalDrawer": {
+          "available": true,
+          "open": true,
+          "threadKey": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "environmentId": "0b8696ff-c9a0-486c-bc1f-be24960b906e",
+          "threadId": "44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "terminalId": "term-2",
+          "label": "Terminal 2",
+          "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo",
+          "worktree": "",
+          "env": "{\"T3CODE_PROJECT_ROOT\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\"}",
+          "height": 280,
+          "focusRequest": 1,
+          "closeTitle": "Close terminal \"Terminal 2\"?",
+          "closeBody": "This stops the running process and clears its history.",
+          "closeLabel": "Close Terminal",
+          "newLabel": "New Terminal",
+          "toggleLabel": "Toggle terminal drawer (⌘J)",
+          "sessionKey": "[\"0b8696ff-c9a0-486c-bc1f-be24960b906e\",\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\",\"term-2\"]",
+          "mounted": 1,
+          "metadata": "4 sessions",
+          "failure": ""
+        }
+      },
+      "confirmation": {
+        "confirmTitle": "Close terminal \"Terminal 2\"?",
+        "confirmBody": "This stops the running process and clears its history.",
+        "confirmDestructive": true,
+        "confirmOp": "",
+        "confirmTarget": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604|term-2",
+        "confirmValue": ""
+      }
+    }
+  },
+  {
+    "command": [
+      "tap",
+      "terminal-close"
+    ],
+    "result": {
+      "tapped": 1013,
+      "at": [
+        1257.5,
+        580.5
+      ],
+      "delivery": "platform",
+      "target": "terminal-close",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 51,
+      "incarnation": 1,
+      "clock": 16750
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "settle"
+    ],
+    "result": {
+      "clock": 17500,
+      "incarnation": 1,
+      "epoch": 51,
+      "settled": true
+    }
+  },
+  {
+    "command": [
+      "type",
+      "app-confirm-cancel",
+      {
+        "key": "Escape"
+      }
+    ],
+    "result": {
+      "key": "Escape",
+      "value": "",
+      "typed": 1035,
+      "target": "app-confirm-cancel",
+      "delivery": "platform",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 53,
+      "incarnation": 1,
+      "clock": 17500
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "settle"
+    ],
+    "result": {
+      "incarnation": 1,
+      "settled": true,
+      "clock": 17500,
+      "epoch": 53
+    }
+  },
+  {
+    "command": [
+      "state"
+    ],
+    "result": {
+      "clock": 17500,
+      "epoch": 53,
+      "incarnation": 1,
+      "focus": {
+        "logical": null,
+        "editor": null,
+        "responder": null,
+        "pending": null
+      },
+      "storage": {
+        "available": true,
+        "store": "terminal-review-20261006"
+      },
+      "resources": {
+        "terminalDrawer": {
+          "available": true,
+          "open": true,
+          "threadKey": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "environmentId": "0b8696ff-c9a0-486c-bc1f-be24960b906e",
+          "threadId": "44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "terminalId": "term-2",
+          "label": "Terminal 2",
+          "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo",
+          "worktree": "",
+          "env": "{\"T3CODE_PROJECT_ROOT\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\"}",
+          "height": 280,
+          "focusRequest": 1,
+          "closeTitle": "Close terminal \"Terminal 2\"?",
+          "closeBody": "This stops the running process and clears its history.",
+          "closeLabel": "Close Terminal",
+          "newLabel": "New Terminal",
+          "toggleLabel": "Toggle terminal drawer (⌘J)",
+          "sessionKey": "[\"0b8696ff-c9a0-486c-bc1f-be24960b906e\",\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\",\"term-2\"]",
+          "mounted": 1,
+          "metadata": "4 sessions",
+          "failure": ""
+        }
+      },
+      "confirmation": {
+        "confirmTitle": "Close terminal \"Terminal 2\"?",
+        "confirmBody": "This stops the running process and clears its history.",
+        "confirmDestructive": true,
+        "confirmOp": "",
+        "confirmTarget": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604|term-2",
+        "confirmValue": ""
+      }
+    }
+  },
+  {
+    "command": [
+      "tree"
+    ],
+    "result": {
+      "nodes": [
+        {
+          "id": 133,
+          "children": [
+            134,
+            138
+          ],
+          "parent": 101,
+          "focused": false,
+          "handlers": [],
+          "props": {
+            "dataset": "{\"frame\":\"overlay\"}",
+            "hook": "t3-frame",
+            "testId": "composer-overlay"
+          },
+          "depth": 5,
+          "type": "View"
+        },
+        {
+          "parent": 136,
+          "focused": false,
+          "handlers": [],
+          "props": {
+            "testId": "composer-dock"
+          },
+          "children": [
+            538
+          ],
+          "type": "View",
+          "depth": 9,
+          "id": 137
+        },
+        {
+          "id": 141,
+          "props": {
+            "testId": "composer-stash-key",
+            "accessibilityLabel": "Stash prompt",
+            "accessibilityRole": "button",
+            "accessibilityElementsHidden": true,
+            "accessibilityKeyShortcuts": "Meta+s"
+          },
+          "parent": 140,
+          "children": [
+            142
+          ],
+          "focused": false,
+          "depth": 9,
+          "type": "Pressable",
+          "handlers": [
+            "press"
+          ]
+        },
+        {
+          "id": 143,
+          "children": [
+            144
+          ],
+          "props": {
+            "testId": "composer-models-key",
+            "hook": "t3-composer-key",
+            "accessibilityRole": "button",
+            "accessibilityElementsHidden": true,
+            "dataset": "{\"anchor\":\"models\"}"
+          },
+          "type": "Pressable",
+          "depth": 9,
+          "focused": false,
+          "parent": 140,
+          "handlers": [
+            "press"
+          ]
+        },
+        {
+          "type": "View",
+          "handlers": [],
+          "children": [
+            146,
+            150
+          ],
+          "id": 145,
+          "depth": 8,
+          "parent": 139,
+          "props": {
+            "dataset": "{\"frame\":\"card\"}",
+            "hook": "t3-frame",
+            "testId": "composer-surface"
+          },
+          "focused": false
+        },
+        {
+          "id": 148,
+          "parent": 147,
+          "handlers": [],
+          "depth": 11,
+          "children": [],
+          "focused": false,
+          "type": "Text",
+          "props": {
+            "accessibilityElementsHidden": true,
+            "text": "Ask for changes, send follow-ups, or attach images",
+            "testId": "composer-placeholder"
+          }
+        },
+        {
+          "children": [],
+          "focused": false,
+          "parent": 147,
+          "handlers": [
+            "input",
+            "focus",
+            "blur"
+          ],
+          "depth": 11,
+          "props": {
+            "testId": "composer",
+            "spellcheck": "false",
+            "accessibilityHint": "Ask for changes, send follow-ups, or attach images",
+            "accessibilityLabel": "Message",
+            "id": "composer",
+            "hook": "t3-composer",
+            "value": "",
+            "semanticTag": "textarea",
+            "dataset": "{\"snapshot-owner\":\"[\\\"http://127.0.0.1:16321\\\",\\\"0b8696ff-c9a0-486c-bc1f-be24960b906e\\\",\\\"75547563-31f7-4937-8c30-090c962ca1ee\\\",\\\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\\\"]\"}",
+            "autocorrect": "off"
+          },
+          "id": 149,
+          "type": "TextInput"
+        },
+        {
+          "type": "View",
+          "parent": 145,
+          "handlers": [],
+          "depth": 9,
+          "id": 150,
+          "children": [
+            151,
+            170,
+            187,
+            214
+          ],
+          "props": {
+            "dataset": "{\"frame\":\"toolbar\"}",
+            "hook": "t3-frame",
+            "testId": "composer-toolbar"
+          },
+          "focused": false
+        },
+        {
+          "depth": 4,
+          "children": [
+            1008,
+            1009,
+            1011
+          ],
+          "id": 961,
+          "type": "View",
+          "handlers": [],
+          "props": {
+            "accessibilityLabel": "Terminal drawer",
+            "testId": "terminal-drawer"
+          },
+          "focused": false,
+          "parent": 100
+        },
+        {
+          "props": {
+            "testId": "terminal-drawer-resize",
+            "accessibilityLabel": "Resize terminal drawer",
+            "accessibilityRole": "separator",
+            "accessibilityOrientation": "horizontal"
+          },
+          "children": [],
+          "depth": 5,
+          "focused": false,
+          "id": 1008,
+          "handlers": [
+            "pan",
+            "panrelease"
+          ],
+          "type": "View",
+          "parent": 961
+        },
+        {
+          "depth": 5,
+          "props": {
+            "testId": "terminal-drawer-surface"
+          },
+          "id": 1009,
+          "children": [
+            1010
+          ],
+          "handlers": [],
+          "type": "View",
+          "focused": false,
+          "parent": 961
+        },
+        {
+          "type": "NativeView",
+          "depth": 6,
+          "id": 1010,
+          "children": [],
+          "module": {
+            "state": "ready",
+            "name": "t3-terminal"
+          },
+          "focused": false,
+          "props": {
+            "testId": "terminal-view",
+            "accessibilityLabel": "Terminal 2",
+            "nativeViewProps": "{\"chords\":\"Meta+J\",\"cwd\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\",\"env\":\"{\\\"T3CODE_PROJECT_ROOT\\\":\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\\\"}\",\"environment\":\"0b8696ff-c9a0-486c-bc1f-be24960b906e\",\"focus-request\":\"1\",\"scheme\":\"dark\",\"terminal\":\"term-2\",\"terminal-font\":\"\",\"terminal-font-size\":\"13\",\"terminal-theme\":\"{\\\"dark\\\":true,\\\"background\\\":{\\\"r\\\":10,\\\"g\\\":10,\\\"b\\\":10},\\\"foreground\\\":{\\\"r\\\":245,\\\"g\\\":245,\\\"b\\\":245},\\\"cursor\\\":{\\\"r\\\":180,\\\"g\\\":203,\\\"b\\\":255},\\\"selectionBackground\\\":\\\"rgba(180, 203, 255, 0.25)\\\"}\",\"thread\":\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\",\"worktree\":\"\"}",
+            "nativeViewModuleName": "t3-terminal"
+          },
+          "parent": 1009,
+          "handlers": [
+            "message"
+          ]
+        },
+        {
+          "depth": 5,
+          "props": {
+            "testId": "terminal-drawer-toolbar"
+          },
+          "children": [
+            1012
+          ],
+          "handlers": [],
+          "focused": false,
+          "id": 1011,
+          "parent": 961,
+          "type": "View"
+        },
+        {
+          "id": 1013,
+          "depth": 7,
+          "type": "Pressable",
+          "children": [
+            1014
+          ],
+          "parent": 1012,
+          "props": {
+            "accessibilityLabel": "Close Terminal",
+            "accessibilityRole": "button",
+            "testId": "terminal-close"
+          },
+          "handlers": [
+            "press",
+            "hover",
+            "focus",
+            "blur"
+          ],
+          "focused": false
+        }
+      ]
+    }
+  }
+]

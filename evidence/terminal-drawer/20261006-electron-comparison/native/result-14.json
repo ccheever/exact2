@@ -1,0 +1,395 @@
+[
+  {
+    "command": [
+      "tap",
+      "setting-terminal-font-size-menu-18"
+    ],
+    "result": {
+      "at": [
+        1103.5,
+        759
+      ],
+      "tapped": 3733,
+      "delivery": "platform",
+      "target": "setting-terminal-font-size-menu-18",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 163,
+      "incarnation": 1,
+      "clock": 30000
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "settle"
+    ],
+    "result": {
+      "settled": true,
+      "incarnation": 1,
+      "clock": 30000,
+      "epoch": 165
+    }
+  },
+  {
+    "command": [
+      "tap",
+      "close-settings"
+    ],
+    "result": {
+      "delivery": "platform",
+      "tapped": 1392,
+      "at": [
+        128,
+        820
+      ],
+      "target": "close-settings",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 166,
+      "incarnation": 1,
+      "clock": 30000
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "+1000 real"
+    ],
+    "result": {
+      "clock": 31000,
+      "epoch": 168,
+      "incarnation": 1,
+      "inflight": 1,
+      "real": 1028
+    }
+  },
+  {
+    "command": [
+      "type",
+      "terminal-view",
+      "printf \"FONT18_LIGHT\\n\"; stty size"
+    ],
+    "result": {
+      "typed": 1274,
+      "delivery": "native-module",
+      "target": "terminal-view",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 168,
+      "incarnation": 1,
+      "clock": 31000
+    }
+  },
+  {
+    "command": [
+      "type",
+      "terminal-view",
+      {
+        "key": "Enter"
+      }
+    ],
+    "result": {
+      "key": "Enter",
+      "typed": 1274,
+      "delivery": "native-module",
+      "target": "terminal-view",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 168,
+      "incarnation": 1,
+      "clock": 31000
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "+500 real"
+    ],
+    "result": {
+      "clock": 31500,
+      "epoch": 168,
+      "incarnation": 1,
+      "inflight": 1,
+      "real": 516
+    }
+  },
+  {
+    "command": [
+      "tree",
+      "terminal-view"
+    ],
+    "result": {
+      "nodes": [
+        {
+          "props": {
+            "testId": "terminal-view",
+            "accessibilityLabel": "Terminal 1",
+            "nativeViewProps": "{\"chords\":\"Meta+J\",\"cwd\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\",\"env\":\"{\\\"T3CODE_PROJECT_ROOT\\\":\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\\\"}\",\"environment\":\"0b8696ff-c9a0-486c-bc1f-be24960b906e\",\"focus-request\":\"9\",\"scheme\":\"light\",\"terminal\":\"term-1\",\"terminal-font\":\"\",\"terminal-font-size\":\"18\",\"terminal-theme\":\"{\\\"dark\\\":false,\\\"background\\\":{\\\"r\\\":252,\\\"g\\\":252,\\\"b\\\":252},\\\"foreground\\\":{\\\"r\\\":39,\\\"g\\\":39,\\\"b\\\":42},\\\"cursor\\\":{\\\"r\\\":38,\\\"g\\\":56,\\\"b\\\":78},\\\"selectionBackground\\\":\\\"rgba(37, 63, 99, 0.2)\\\"}\",\"thread\":\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\",\"worktree\":\"\"}",
+            "nativeViewModuleName": "t3-terminal"
+          },
+          "handlers": [
+            "message"
+          ],
+          "type": "NativeView",
+          "module": {
+            "name": "t3-terminal",
+            "state": "ready"
+          },
+          "parent": 1273,
+          "children": [],
+          "depth": 6,
+          "id": 1274,
+          "focused": true
+        }
+      ]
+    }
+  },
+  {
+    "command": [
+      "state"
+    ],
+    "result": {
+      "clock": 31500,
+      "epoch": 168,
+      "incarnation": 1,
+      "focus": {
+        "logical": 1274,
+        "editor": null,
+        "responder": "WebView",
+        "pending": null
+      },
+      "storage": {
+        "available": true,
+        "store": "terminal-review-20261006"
+      },
+      "resources": {
+        "terminalDrawer": {
+          "available": true,
+          "open": true,
+          "threadKey": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "environmentId": "0b8696ff-c9a0-486c-bc1f-be24960b906e",
+          "threadId": "44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "terminalId": "term-1",
+          "label": "Terminal 1",
+          "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo",
+          "worktree": "",
+          "env": "{\"T3CODE_PROJECT_ROOT\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\"}",
+          "height": 280,
+          "focusRequest": 9,
+          "closeTitle": "Close terminal \"Terminal 1\"?",
+          "closeBody": "This stops the running process and clears its history.",
+          "closeLabel": "Close Terminal",
+          "newLabel": "New Terminal",
+          "toggleLabel": "Toggle terminal drawer (⌘J)",
+          "sessionKey": "[\"0b8696ff-c9a0-486c-bc1f-be24960b906e\",\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\",\"term-1\"]",
+          "mounted": 1,
+          "metadata": "3 sessions",
+          "failure": ""
+        }
+      },
+      "confirmation": {
+        "confirmTitle": "Close terminal \"Terminal 1\"?",
+        "confirmBody": "This stops the running process and clears its history.",
+        "confirmDestructive": true,
+        "confirmOp": "",
+        "confirmTarget": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604|term-1",
+        "confirmValue": ""
+      }
+    }
+  },
+  {
+    "command": [
+      "screenshot",
+      "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/20-font18-light.png",
+      true
+    ],
+    "result": {
+      "clock": 31500,
+      "h": 840,
+      "window": true,
+      "w": 1280,
+      "incarnation": 1,
+      "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/20-font18-light.png",
+      "epoch": 168,
+      "scale": 2
+    }
+  },
+  {
+    "command": [
+      "tap",
+      "connection-settings"
+    ],
+    "result": {
+      "tapped": 93,
+      "at": [
+        24,
+        820
+      ],
+      "delivery": "platform",
+      "target": "connection-settings",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 169,
+      "incarnation": 1,
+      "clock": 31500
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "settle"
+    ],
+    "result": {
+      "incarnation": 1,
+      "settled": true,
+      "clock": 31500,
+      "epoch": 169
+    }
+  },
+  {
+    "command": [
+      "tap",
+      "settings-appearance"
+    ],
+    "result": {
+      "at": [
+        128,
+        152
+      ],
+      "delivery": "platform",
+      "tapped": 3975,
+      "target": "settings-appearance",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 170,
+      "incarnation": 1,
+      "clock": 31500
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "settle"
+    ],
+    "result": {
+      "settled": true,
+      "clock": 31500,
+      "incarnation": 1,
+      "epoch": 171
+    }
+  },
+  {
+    "command": [
+      "tap",
+      "setting-appearance-dark"
+    ],
+    "result": {
+      "at": [
+        1055.17,
+        198
+      ],
+      "delivery": "platform",
+      "tapped": 5406,
+      "target": "setting-appearance-dark",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 172,
+      "incarnation": 1,
+      "clock": 31500
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "settle"
+    ],
+    "result": {
+      "clock": 31500,
+      "settled": true,
+      "incarnation": 1,
+      "epoch": 174
+    }
+  },
+  {
+    "command": [
+      "tap",
+      "close-settings"
+    ],
+    "result": {
+      "at": [
+        128,
+        820
+      ],
+      "tapped": 4016,
+      "delivery": "platform",
+      "target": "close-settings",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 175,
+      "incarnation": 1,
+      "clock": 31500
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "+500 real"
+    ],
+    "result": {
+      "inflight": 1,
+      "epoch": 177,
+      "clock": 32000,
+      "incarnation": 1,
+      "real": 525
+    }
+  },
+  {
+    "command": [
+      "tree",
+      "terminal-view"
+    ],
+    "result": {
+      "nodes": [
+        {
+          "focused": false,
+          "module": {
+            "name": "t3-terminal",
+            "state": "ready"
+          },
+          "type": "NativeView",
+          "children": [],
+          "id": 1274,
+          "handlers": [
+            "message"
+          ],
+          "depth": 6,
+          "parent": 1273,
+          "props": {
+            "testId": "terminal-view",
+            "accessibilityLabel": "Terminal 1",
+            "nativeViewProps": "{\"chords\":\"Meta+J\",\"cwd\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\",\"env\":\"{\\\"T3CODE_PROJECT_ROOT\\\":\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\\\"}\",\"environment\":\"0b8696ff-c9a0-486c-bc1f-be24960b906e\",\"focus-request\":\"9\",\"scheme\":\"dark\",\"terminal\":\"term-1\",\"terminal-font\":\"\",\"terminal-font-size\":\"18\",\"terminal-theme\":\"{\\\"dark\\\":true,\\\"background\\\":{\\\"r\\\":10,\\\"g\\\":10,\\\"b\\\":10},\\\"foreground\\\":{\\\"r\\\":245,\\\"g\\\":245,\\\"b\\\":245},\\\"cursor\\\":{\\\"r\\\":180,\\\"g\\\":203,\\\"b\\\":255},\\\"selectionBackground\\\":\\\"rgba(180, 203, 255, 0.25)\\\"}\",\"thread\":\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\",\"worktree\":\"\"}",
+            "nativeViewModuleName": "t3-terminal"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "command": [
+      "screenshot",
+      "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/21-font18-dark.png",
+      true
+    ],
+    "result": {
+      "incarnation": 1,
+      "window": true,
+      "h": 840,
+      "epoch": 177,
+      "w": 1280,
+      "clock": 32000,
+      "scale": 2,
+      "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/21-font18-dark.png"
+    }
+  }
+]

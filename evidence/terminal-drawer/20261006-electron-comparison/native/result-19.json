@@ -1,0 +1,67 @@
+[
+  {
+    "command": [
+      "state"
+    ],
+    "result": {
+      "clock": 41000,
+      "epoch": 260,
+      "incarnation": 1,
+      "focus": {
+        "pending": null,
+        "logical": 426,
+        "responder": "NodeView",
+        "editor": null
+      },
+      "storage": {
+        "available": true,
+        "store": "terminal-review-20261006"
+      },
+      "resources": {
+        "terminalDrawer": {
+          "available": true,
+          "open": false,
+          "threadKey": "0b8696ff-c9a0-486c-bc1f-be24960b906e:e96f5db3-41a8-41ce-be69-21070a0726f3",
+          "environmentId": "0b8696ff-c9a0-486c-bc1f-be24960b906e",
+          "threadId": "e96f5db3-41a8-41ce-be69-21070a0726f3",
+          "terminalId": "",
+          "label": "",
+          "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo",
+          "worktree": "",
+          "env": "{\"T3CODE_PROJECT_ROOT\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\"}",
+          "height": 280,
+          "focusRequest": 12,
+          "closeTitle": "Close terminal \"\"?",
+          "closeBody": "This stops the running process and clears its history.",
+          "closeLabel": "Close Terminal",
+          "newLabel": "New Terminal",
+          "toggleLabel": "Toggle terminal drawer (⌘J)",
+          "sessionKey": "",
+          "mounted": 1,
+          "metadata": "3 sessions",
+          "failure": ""
+        }
+      },
+      "confirmation": {
+        "confirmTitle": "Close terminal \"Terminal 1\"?",
+        "confirmBody": "This stops the running process and clears its history.",
+        "confirmDestructive": true,
+        "confirmOp": "",
+        "confirmTarget": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604|term-1",
+        "confirmValue": ""
+      }
+    }
+  },
+  {
+    "command": [
+      "tree",
+      null,
+      {
+        "ax": true
+      }
+    ],
+    "result": {
+      "nodes": []
+    }
+  }
+]

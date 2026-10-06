@@ -1,0 +1,5 @@
+{
+  "command": "touch parity-native-proof",
+  "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo",
+  "file_exists": true
+}

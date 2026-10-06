@@ -1,0 +1,239 @@
+[
+  {
+    "command": [
+      "tap",
+      "Verify two"
+    ],
+    "result": {
+      "delivery": "platform",
+      "tapped": 446,
+      "at": [
+        127.5,
+        227
+      ],
+      "target": "Verify two",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 252,
+      "incarnation": 1,
+      "clock": 40000
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "+1000 real"
+    ],
+    "result": {
+      "epoch": 257,
+      "clock": 41000,
+      "incarnation": 1,
+      "inflight": 1,
+      "real": 1014
+    }
+  },
+  {
+    "command": [
+      "tap",
+      "row-e96f5db3-41a8-41ce-be69-21070a0726f3",
+      {
+        "contextmenu": true
+      }
+    ],
+    "result": {
+      "contextmenu": true,
+      "delivery": "platform",
+      "at": [
+        127.5,
+        224
+      ],
+      "tapped": 423,
+      "target": "row-e96f5db3-41a8-41ce-be69-21070a0726f3",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 258,
+      "incarnation": 1,
+      "clock": 41000
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "settle"
+    ],
+    "result": {
+      "incarnation": 1,
+      "epoch": 260,
+      "clock": 41000,
+      "settled": true
+    }
+  },
+  {
+    "command": [
+      "tree"
+    ],
+    "result": {
+      "nodes": [
+        {
+          "parent": 101,
+          "type": "View",
+          "depth": 5,
+          "props": {
+            "dataset": "{\"frame\":\"overlay\"}",
+            "hook": "t3-frame",
+            "testId": "composer-overlay"
+          },
+          "children": [
+            134,
+            138
+          ],
+          "handlers": [],
+          "id": 133,
+          "focused": false
+        },
+        {
+          "handlers": [],
+          "id": 137,
+          "children": [
+            538
+          ],
+          "depth": 9,
+          "focused": false,
+          "props": {
+            "testId": "composer-dock"
+          },
+          "parent": 136,
+          "type": "View"
+        },
+        {
+          "type": "Pressable",
+          "depth": 9,
+          "children": [
+            142
+          ],
+          "id": 141,
+          "props": {
+            "testId": "composer-stash-key",
+            "accessibilityLabel": "Stash prompt",
+            "accessibilityRole": "button",
+            "accessibilityElementsHidden": true,
+            "accessibilityKeyShortcuts": "Meta+s"
+          },
+          "focused": false,
+          "handlers": [
+            "press"
+          ],
+          "parent": 140
+        },
+        {
+          "id": 143,
+          "props": {
+            "testId": "composer-models-key",
+            "hook": "t3-composer-key",
+            "accessibilityRole": "button",
+            "accessibilityElementsHidden": true,
+            "dataset": "{\"anchor\":\"models\"}"
+          },
+          "handlers": [
+            "press"
+          ],
+          "children": [
+            144
+          ],
+          "type": "Pressable",
+          "depth": 9,
+          "focused": false,
+          "parent": 140
+        },
+        {
+          "props": {
+            "dataset": "{\"frame\":\"card\"}",
+            "hook": "t3-frame",
+            "testId": "composer-surface"
+          },
+          "type": "View",
+          "depth": 8,
+          "handlers": [],
+          "id": 145,
+          "children": [
+            146,
+            150
+          ],
+          "parent": 139,
+          "focused": false
+        },
+        {
+          "children": [],
+          "handlers": [],
+          "depth": 11,
+          "id": 6624,
+          "parent": 147,
+          "focused": false,
+          "props": {
+            "accessibilityElementsHidden": true,
+            "text": "Ask for changes, send follow-ups, or attach images",
+            "testId": "composer-placeholder"
+          },
+          "type": "Text"
+        },
+        {
+          "handlers": [
+            "input",
+            "focus",
+            "blur"
+          ],
+          "props": {
+            "testId": "composer",
+            "spellcheck": "false",
+            "accessibilityHint": "Ask for changes, send follow-ups, or attach images",
+            "accessibilityLabel": "Message",
+            "id": "composer",
+            "hook": "t3-composer",
+            "value": "",
+            "semanticTag": "textarea",
+            "dataset": "{\"snapshot-owner\":\"[\\\"http://127.0.0.1:16321\\\",\\\"0b8696ff-c9a0-486c-bc1f-be24960b906e\\\",\\\"75547563-31f7-4937-8c30-090c962ca1ee\\\",\\\"e96f5db3-41a8-41ce-be69-21070a0726f3\\\"]\"}",
+            "autocorrect": "off"
+          },
+          "focused": false,
+          "depth": 11,
+          "children": [],
+          "id": 149,
+          "type": "TextInput",
+          "parent": 147
+        },
+        {
+          "type": "View",
+          "parent": 145,
+          "children": [
+            151,
+            170,
+            187,
+            214
+          ],
+          "id": 150,
+          "props": {
+            "dataset": "{\"frame\":\"toolbar\"}",
+            "hook": "t3-frame",
+            "testId": "composer-toolbar"
+          },
+          "depth": 9,
+          "handlers": [],
+          "focused": false
+        },
+        {
+          "type": "View",
+          "props": {
+            "accessibilityLabel": "Terminal drawer",
+            "testId": "terminal-drawer"
+          },
+          "children": [],
+          "focused": false,
+          "depth": 4,
+          "id": 6625,
+          "handlers": [],
+          "parent": 100
+        }
+      ]
+    }
+  }
+]

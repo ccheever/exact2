@@ -1,0 +1,75 @@
+Compiling terminal
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/modules/apple/R8KeysMenus.swift:98:45: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 96 | 
+ 97 |     @objc func undo(_ sender: Any?) {
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+    |                                             `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/modules/apple/R8KeysMenus.swift:100:26: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+    |                          `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+101 |     }
+102 |     @objc func closeWindow(_ sender: Any?) {
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/macos/tests/terminal/main.swift:220:130: warning: use '#selector' instead of explicitly constructing a 'Selector'
+218 |         spin(until: { view.focused }, timeout: 5)
+219 |         let conforms = (view.web as AnyObject) as? NSTextInputClient
+220 |         print("terminal S7 web view is NSTextInputClient: \(conforms != nil); responds to setMarkedText: \(view.web.responds(to: Selector(("setMarkedText:selectedRange:replacementRange:"))))")
+    |                                                                                                                                  `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+221 |         let client = try XCTUnwrap(conforms, "WKWebView is not an NSTextInputClient at run time")
+222 |         client.setMarkedText("ㅎ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+Running terminal
+Test Suite 'terminal' started at 2026-10-06 22:29:47.522.
+Test Suite 'TerminalSurfaceTests' started at 2026-10-06 22:29:47.522.
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testCompositionCommitsOnce]' started.
+terminal S7 web view is NSTextInputClient: true; responds to setMarkedText: true
+terminal S7 composed ["d55c"]
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testCompositionCommitsOnce]' passed (0.564 seconds).
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testCostByViewCount]' started.
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/macos/tests/terminal/main.swift:329: -[TerminalVerificationterminal.TerminalSurfaceTests testCostByViewCount] : Test skipped - set T3_TERMINAL_SCALE=1
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testCostByViewCount]' skipped (0.014 seconds).
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testEvidencePictures]' started.
+terminal loopback rows ["T3 terminal harness (loopback)", "$ echo hello", "$"]
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testEvidencePictures]' passed (1.001 seconds).
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testFloodArrivesWhole]' started.
+terminal S2 flood sent 5242920 received 5242920 chunks 5 seconds 0.15 max-main-gap-ms 7 last ["flood 0081920 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "flood done 81920 lines 5242880 bytes"]
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testFloodArrivesWhole]' passed (0.282 seconds).
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testHiddenKeepsParsing]' started.
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testHiddenKeepsParsing]' passed (0.214 seconds).
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testHostPaste]' started.
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testHostPaste]' passed (0.133 seconds).
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testKeysReachThePageOrTheApp]' started.
+terminal S1 resent k code 40 flags 1048576
+terminal S1 delivery window declined ["Meta+KeyK"] palette 1 container [] resent-before 0 after 1
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testKeysReachThePageOrTheApp]' passed (0.290 seconds).
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testLoadsOfflineAndRendersHarnessBytes]' started.
+terminal S4 visibility visible grid 98x25 received 43757 last rows ["████████████████████████ truecolor", "wide: 界 面  한 국 어  emoji: 🙂 🚀  nerd: ", "link path: src/main.ts:12:3", "$"]
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testLoadsOfflineAndRendersHarnessBytes]' passed (0.311 seconds).
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testThemeChangesPreserveOutputAndResizeFont]' started.
+terminal theme light background 252,252,252 grid 98x25 text retained
+terminal theme dark background 10,10,10 grid 90x22 text retained
+terminal theme grove background 243,247,244 grid 90x22 text retained
+terminal theme custom background 18,52,86 grid 90x22 text retained
+terminal font resize 90 -> 65 cols
+Test Case '-[TerminalVerificationterminal.TerminalSurfaceTests testThemeChangesPreserveOutputAndResizeFont]' passed (0.836 seconds).
+Test Suite 'TerminalSurfaceTests' passed at 2026-10-06 22:29:51.169.
+	 Executed 9 tests, with 1 test skipped and 0 failures (0 unexpected) in 3.645 (3.646) seconds
+Test Suite 'TerminalDrawerTests' started at 2026-10-06 22:29:51.169.
+Test Case '-[TerminalVerificationterminal.TerminalDrawerTests testAMountedThreadKeepsItsSessionWithoutAViewAndAnUnmountedOneLetsGo]' started.
+Test Case '-[TerminalVerificationterminal.TerminalDrawerTests testAMountedThreadKeepsItsSessionWithoutAViewAndAnUnmountedOneLetsGo]' passed (0.355 seconds).
+Test Case '-[TerminalVerificationterminal.TerminalDrawerTests testASessionViewShowsTheBufferWritesErrorsAndReportsTheExitOnce]' started.
+Test Case '-[TerminalVerificationterminal.TerminalDrawerTests testASessionViewShowsTheBufferWritesErrorsAndReportsTheExitOnce]' passed (0.516 seconds).
+Test Case '-[TerminalVerificationterminal.TerminalDrawerTests testAttachEventsFoldAsTheReferenceReducer]' started.
+Test Case '-[TerminalVerificationterminal.TerminalDrawerTests testAttachEventsFoldAsTheReferenceReducer]' passed (0.009 seconds).
+Test Case '-[TerminalVerificationterminal.TerminalDrawerTests testOutputBufferMatchesTheSharedVectors]' started.
+Test Case '-[TerminalVerificationterminal.TerminalDrawerTests testOutputBufferMatchesTheSharedVectors]' passed (0.092 seconds).
+Test Case '-[TerminalVerificationterminal.TerminalDrawerTests testTheStatusOfShownTerminalsIsJSON]' started.
+Test Case '-[TerminalVerificationterminal.TerminalDrawerTests testTheStatusOfShownTerminalsIsJSON]' passed (0.326 seconds).
+Test Suite 'TerminalDrawerTests' passed at 2026-10-06 22:29:52.469.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 1.299 (1.300) seconds
+Test Suite 'terminal' passed at 2026-10-06 22:29:52.469.
+	 Executed 14 tests, with 1 test skipped and 0 failures (0 unexpected) in 4.944 (4.947) seconds
+Executed 14 tests, with 0 failures

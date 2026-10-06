@@ -1,0 +1,20 @@
+[
+  {
+    "command": [
+      "logs"
+    ],
+    "result": {
+      "line_count": 4096,
+      "dropped": 2165,
+      "overflow_resync_or_invalid_json": []
+    }
+  },
+  {
+    "command": [
+      "stop"
+    ],
+    "result": {
+      "closed": true
+    }
+  }
+]

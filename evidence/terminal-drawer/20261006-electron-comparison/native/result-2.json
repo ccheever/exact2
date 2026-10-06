@@ -1,0 +1,206 @@
+[
+  {
+    "command": [
+      "type",
+      "terminal-view",
+      "printf 'PARITY_NATIVE_ONE\\n'; pwd; stty size; printf '한글 테스트\\n'; touch parity-native-proof"
+    ],
+    "result": {
+      "typed": 1013,
+      "delivery": "native-module",
+      "target": "terminal-view",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 48,
+      "incarnation": 1,
+      "clock": 11000
+    }
+  },
+  {
+    "command": [
+      "type",
+      "terminal-view",
+      {
+        "key": "Enter"
+      }
+    ],
+    "result": {
+      "typed": 1013,
+      "delivery": "native-module",
+      "key": "Enter",
+      "target": "terminal-view",
+      "carrier": "macos",
+      "mode": "agent",
+      "epoch": 48,
+      "incarnation": 1,
+      "clock": 11000
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "+1800 real"
+    ],
+    "result": {
+      "incarnation": 1,
+      "clock": 12800,
+      "epoch": 48,
+      "real": 1823
+    }
+  },
+  {
+    "command": [
+      "clock",
+      "settle"
+    ],
+    "result": {
+      "incarnation": 1,
+      "settled": true,
+      "clock": 12800,
+      "epoch": 48
+    }
+  },
+  {
+    "command": [
+      "state"
+    ],
+    "result": {
+      "clock": 12800,
+      "epoch": 48,
+      "incarnation": 1,
+      "focus": {
+        "logical": 1013,
+        "editor": null,
+        "responder": "WebView",
+        "pending": null
+      },
+      "storage": {
+        "available": true,
+        "store": "terminal-review-20261006"
+      },
+      "resources": {
+        "terminalDrawer": {
+          "available": true,
+          "open": true,
+          "threadKey": "0b8696ff-c9a0-486c-bc1f-be24960b906e:44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "environmentId": "0b8696ff-c9a0-486c-bc1f-be24960b906e",
+          "threadId": "44fc5bc9-d821-4cf2-bcde-0acb6e245604",
+          "terminalId": "term-1",
+          "label": "Terminal 1",
+          "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo",
+          "worktree": "",
+          "env": "{\"T3CODE_PROJECT_ROOT\":\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/repo\"}",
+          "height": 280,
+          "focusRequest": 1,
+          "closeTitle": "Close terminal \"Terminal 1\"?",
+          "closeBody": "This stops the running process and clears its history.",
+          "closeLabel": "Close Terminal",
+          "newLabel": "New Terminal",
+          "toggleLabel": "Toggle terminal drawer (⌘J)",
+          "sessionKey": "[\"0b8696ff-c9a0-486c-bc1f-be24960b906e\",\"44fc5bc9-d821-4cf2-bcde-0acb6e245604\",\"term-1\"]",
+          "mounted": 1,
+          "metadata": "1 sessions",
+          "failure": ""
+        }
+      },
+      "confirmation": {
+        "confirmTitle": "",
+        "confirmBody": "",
+        "confirmDestructive": false,
+        "confirmOp": "",
+        "confirmTarget": "",
+        "confirmValue": ""
+      }
+    }
+  },
+  {
+    "command": [
+      "layout",
+      "terminal-view"
+    ],
+    "result": {
+      "viewport": {
+        "w": 1280,
+        "h": 840
+      },
+      "node": {
+        "id": 1013,
+        "absolute": {
+          "y": 561,
+          "w": 1018,
+          "x": 259,
+          "h": 276
+        },
+        "visible": {
+          "inert": false,
+          "inViewport": true,
+          "clipped": false,
+          "hidden": false
+        },
+        "space": {
+          "local": {
+            "h": 276,
+            "w": 1018
+          },
+          "screen": {
+            "x": 223,
+            "y": 587,
+            "h": 276,
+            "w": 1018
+          },
+          "window": {
+            "h": 276,
+            "x": 259,
+            "y": 561,
+            "w": 1018
+          },
+          "capture": {
+            "scale": 2
+          },
+          "viewport": {
+            "h": 276,
+            "w": 1018,
+            "x": 259,
+            "y": 561
+          }
+        },
+        "observed": {
+          "clock": 12800,
+          "wall": 1791292970116.663
+        }
+      }
+    }
+  },
+  {
+    "command": [
+      "screenshot",
+      "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/02-command-output.png",
+      true
+    ],
+    "result": {
+      "window": true,
+      "w": 1280,
+      "scale": 2,
+      "epoch": 48,
+      "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/native/02-command-output.png",
+      "incarnation": 1,
+      "h": 840,
+      "clock": 12800
+    }
+  },
+  {
+    "command": [
+      "tap",
+      "terminal-drawer-resize",
+      {
+        "drag": [
+          0,
+          -120
+        ],
+        "mouse": true
+      }
+    ],
+    "result": {},
+    "error": "Error: mouse cannot be combined with another input mode or an entity target"
+  }
+]
