@@ -370,7 +370,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// `aria-hidden` takes the node and its subtree off the tree, as the
     /// web's does (onboarding F16: a checkbox's visible label stayed exposed).
     override func isAccessibilityElement() -> Bool {
-        !cssVisibilityHidden && props["accessibilityElementsHidden"] != "true" && super.isAccessibilityElement()
+        accessibilityExposed && props["accessibilityElementsHidden"] != "true" && super.isAccessibilityElement()
     }
     override func accessibilityChildren() -> [Any]? {
         if props["accessibilityElementsHidden"] == "true" { return [] }
