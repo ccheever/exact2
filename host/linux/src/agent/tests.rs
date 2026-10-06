@@ -149,6 +149,71 @@ fn tree_answers_its_target() {
     }
 }
 
+/// #134: a password field's value is never agent output — the `type`
+/// reply and the tree show a fixed mark, whatever its length, for a bound
+/// field and for typed text no binding replaced; the app's state keeps it.
+#[test]
+fn a_password_value_is_masked_in_every_reply() {
+    let plan = contract::compile(
+        "component App\n  state secret = \"\"\n  action onInput(v: string)\n    secret = v\n  view\n    column width=300\n      input type=\"password\" value=secret input=onInput testId=\"bound\" height=24\n      input type=\"password\" testId=\"loose\" height=24\n      input type=\"password\" testId=\"empty\" height=24\n",
+    )
+    .unwrap();
+    let bytes = contract::bake(plan, NoData).unwrap().encode();
+    let (mut p, _) = Presenter::boot_with(
+        &bytes,
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let tree: serde_json::Value =
+        serde_json::from_str(&handle(&mut p, r#"{"op":"tree"}"#)).unwrap();
+    let id = |name: &str| {
+        tree["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["props"]["testId"] == name)
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap()
+    };
+    let (bound, loose, empty) = (id("bound"), id("loose"), id("empty"));
+    for field in [bound, loose] {
+        let reply = handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{field},"text":"hunter2"}}"#),
+        );
+        assert!(reply.contains(r#""value":"•••""#), "{reply}");
+    }
+    let tree = handle(&mut p, r#"{"op":"tree"}"#);
+    assert!(!tree.contains("hunter2"), "{tree}");
+    let value = |id: u64| -> serde_json::Value {
+        let tree: serde_json::Value = serde_json::from_str(&tree).unwrap();
+        tree["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == id)
+            .unwrap()["props"]["value"]
+            .clone()
+    };
+    assert_eq!(value(bound), "•••");
+    assert_eq!(value(loose), "•••");
+    // An empty field shows that it is empty.
+    assert!(value(empty).is_null() || value(empty) == "", "{tree}");
+    // `layout <field>`'s runner half too.
+    let node = handle(&mut p, &format!(r#"{{"op":"node","id":{bound}}}"#));
+    assert!(
+        node.contains(r#""value":"•••""#) && !node.contains("hunter2"),
+        "{node}"
+    );
+    let state = handle(&mut p, r#"{"op":"state"}"#);
+    assert!(state.contains(r#""secret":"hunter2""#), "{state}");
+}
+
 /// LLP 1061 D5: `prefer` sets what `exactViewport()` answers and the
 /// system appearance; an unknown feature is refused and nothing applies.
 #[test]

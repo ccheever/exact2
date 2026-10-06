@@ -1,0 +1,39 @@
+# The terminal host (LLP 1101, a spike): the runner and kernel natively,
+# laying out with Taffy in a fixed 8×16 cell, painting the kernel tree into a
+# grid of character cells — the kernel is the display list — written to a
+# terminal as escape sequences this crate constructs itself, or into a grid
+# with no terminal at all (headless, for screenshots and the agent).
+#
+# @ref LLP 1101 (terminal apps) / LLP 1015 (the painter host it repeats)
+[package]
+name = "exact-terminal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Terminal host: the kernel tree painted into character cells, headless or in a terminal"
+publish = false
+
+[[bin]]
+name = "exact-terminal"
+path = "src/main.rs"
+
+[dependencies]
+# The compiler, so a .contract entry runs without a build step (the spike's dev loop).
+contract = { path = "../../contract/cli" }
+exact-kernel = { path = "../../kernel" }
+exact-plan = { path = "../../plan" }
+exact-runner = { path = "../../runner" }
+exact-textflow = { path = "../../textflow" }
+# Images: PNG decoded once; base64 for the kitty and iTerm2 protocols.
+base64 = "0.22"
+png = "=0.18.1"
+# Raw mode, the window size and polling stdin (LLP 1101 D9).
+rustix = { version = "1.1", features = ["termios", "event", "stdio"] }
+unicode-segmentation = "1.13"
+unicode-width = "0.2"
+# Input bytes into CSI/OSC/key events (LLP 1101 D9).
+vte = "0.15"
+
+[dev-dependencies]
+# The writer checked against a terminal emulator (LLP 1101 §5).
+vt100 = "0.15"

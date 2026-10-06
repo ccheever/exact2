@@ -1267,8 +1267,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
         "        let provisional = relative.map(|r| crate::style::relative::provisional(id, r));"
     )
     .unwrap();
-    // `14px` on a row that reads a bare number as pixels (LLP 1102 §3.10).
-    w.push_str("        let pixels = crate::style::relative::pixels_text(id, value)?;\n        let value = provisional.as_ref().or(pixels.as_ref()).unwrap_or(value);\n");
+    // `14px` on a row that reads a bare number as pixels (LLP 1102 §3.10);
+    // a terminal's `ch`/`lh` at the fixed cell (LLP 1101 D3).
+    w.push_str("        let pixels = crate::style::relative::pixels_text(id, value)?;\n        let cells = crate::style::cells::of(id, value)?;\n        let value = provisional.as_ref().or(pixels.as_ref()).or(cells.as_ref()).unwrap_or(value);\n");
     writeln!(w, "        match id {{").unwrap();
     // Rows that convert alike share one conversion, then store by row: the
     // conversion (and its refusal) is written once per codec, not per row.

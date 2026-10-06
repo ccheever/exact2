@@ -301,14 +301,14 @@ cpSync(resolve(root, 'host/web/navigation.js'), resolve(gen, 'navigation.js'));
 // navigation.js (the guest outline and taps, the environment) or names.js
 // (every slot's type) would otherwise ride in every page's entry module.
 for (const f of ['navigation.js', 'names.js']) cpSync(resolve(gen, f), resolve(gen, 'agent-' + f));
-writeFileSync(resolve(gen, 'agent.js'), readFileSync(resolve(gen, 'agent.js'), 'utf8').replace("from './names.js'", "from './agent-names.js'").replace("from './navigation.js'", "from './agent-navigation.js'"));
+writeFileSync(resolve(gen, 'agent.js'), readFileSync(resolve(gen, 'agent.js'), 'utf8').replace("from './names.js'", "from './agent-names.js'").replace("from './navigation.js'", "from './agent-navigation.js'").replace("from '../web/faults.js'", "from './faults.js'"));
 // A source granted `auth.session` signs in through the system browser (auth.js, LLP 1069.006).
 const auth = /^\s*auth\.session\s/m.test(grants);
 if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace("'__APP_TS__'", JSON.stringify(resolve(appDir, 'app.ts')))
   .replace('__AUTH_IMPORT__', auth ? "import { install as signIn } from './auth.js';" : '')
   .replace('__AUTH_INSTALL__', auth ? `signIn(${JSON.stringify(grants)}, () => asking);` : ''));
-for (const f of ['auth-glue.js', 'storage-environment.js', 'http-body.js', 'grant-admission.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
-writeFileSync(resolve(gen, 'admission.js'), readFileSync(resolve(here, 'admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
+for (const f of ['auth-glue.js', 'storage-environment.js', 'http-body.js', 'grant-admission.js', 'faults.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
+writeFileSync(resolve(gen, 'admission.js'), readFileSync(resolve(here, 'admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'"));
 cpSync(resolve(here, 'ts-fetch.js'), resolve(gen, 'ts-fetch.js'));
 cpSync(resolve(here, 'ts-stream.js'), resolve(gen, 'ts-stream.js'));
 cpSync(resolve(here, 'auth.js'), resolve(gen, 'auth.js'));

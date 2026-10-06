@@ -255,10 +255,9 @@ impl<D: DataSource> Bridge<D> {
                 let dispatch = match r.request.continuation {
                     Some(token) => h.dispatch_work(token),
                     None if r.request.is_native() => h.native_work(&r.request),
-                    None => {
-                        Self::run_dispatch(h, x, parked, r, exact_runner::Dispatch::Missing);
-                        continue;
-                    }
+                    // @ref LLP 1103 D1 — a driver fault fails it before transport.
+                    None => (h.runner_mut().fault_dispatch(&r))
+                        .unwrap_or(exact_runner::Dispatch::Missing),
                 };
                 Self::run_dispatch(h, x, parked, r, dispatch);
             }

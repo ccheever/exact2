@@ -309,6 +309,21 @@ platform with its own UI stack (Amazon's Vega OS) is a host outside this
 repository, on the plan, runner and agent seams; its RFC is owed. The take is
 waived.
 
+**Admitted (Charlie, 2026-10-06: "this is pretty great. commit and push this
+and document that TUI is now an officially supported platform for Exact2";
+LLP 1101, 1101.000, 1101.001):** the terminal is an officially supported,
+in-tree surface. `host/terminal` (`exact-terminal`) runs a terminal entry —
+its own root `.contract`, compiled under the terminal profile (lengths in
+`ch`/`lh`, the schema's `terminal` admission) — inline (settled transcript
+entries printed once into the terminal's own scrollback, the live tail
+redrawn; selection, copy and tmux stay the terminal's) or full screen.
+Unblocks apps authored for the terminal: the coding harness
+(`apps/harness`, real models through OpenRouter, Anthropic, OpenAI and
+Ollama) and the todo fixture (`apps/todo`). A terminal entry is a separate
+application root on a separate medium, not a platform override (LLP 1101
+D9, §Authoring models). No take was named; the ruling stands as its own
+waiver until Charlie names one.
+
 - **Windows.** A working Direct2D host exists in the old repo. It is real work, and it
   doubles the native matrix. **Admitted (Charlie, 2026-10-04):** "make an exact2
   implementation for the Windows platform, including the game engine" for standalone
@@ -335,7 +350,8 @@ change can break.
   no app-ABI generator.
 - **Platform-suffixed route overrides** (`.native.tsx`, `.mac.tsx`, ...). One route, one
   file. If a platform needs different behavior, that is a branch inside the component or
-  a bug in the presenter.
+  a bug in the presenter. A terminal entry (LLP 1101) is a separate application root on
+  a separate medium, not a platform override; GUI surfaces still have one source.
 
 ## Features carried over as "no"
 
@@ -679,7 +695,8 @@ names them. `press-scale` stays as a declared non-CSS host-feedback row (LLP
 highlight is (a shrink is feedback, not motion).
 - **`runOnJS` and the escape hatch / runtime graph admission** — never existed here.
 
-**Tooling** — no Design Mode, no Guide system, no devtools UI, no TUI host, no blog/CMS.
+**Tooling** — no Design Mode, no Guide system, no devtools UI, no blog/CMS. (The
+TUI host came off on 2026-10-06: §Surfaces.)
 
 **Agent API** — 10 operations, not 90:
 

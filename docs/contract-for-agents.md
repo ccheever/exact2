@@ -289,10 +289,33 @@ at CSS.
   the web (`end > start` for `"HH:MM"` times). `slice(s, 0, -1)`,
   `replaceAll(s, find, with)` and `toLowerCase(s)` are the web's string methods.
 - Numbers have `floor`, `ceil`, `round` (JavaScript's `Math.round`: `round(-2.5)` is
-  -2), `min`, `max`, `%` and `formatNumber`. A field's text is a number through
-  `match parseNumber(s) { case some(n) => …, case none => … }`: a decimal numeral,
-  trimmed, or `none` (`"12px"`, `""`). There is no fixed-decimal format:
-  `round(v * 100) / 100` prints `1.5`, not `1.50`, so money is formatted in a source.
+  -2), `min`, `max`, `%`, `formatNumber` (`1.2K`), `toFixed` and `formatDecimal`. A
+  field's text is a number through `match parseNumber(s) { case some(n) => …, case
+  none => … }`: a decimal numeral, trimmed, or `none` (`"12px"`, `""`).
+- Money is a count of cents printed with `formatDecimal(cents, 2)`, which is
+  exact (`1234` is `"12.34"`, `-5` is `"-0.05"`). A price held as dollars
+  becomes cents with `round(price * 100)`, which is right for a price of at
+  most two decimals under a trillion (`19.99` is `1999`, though `19.99 * 100`
+  is `1998.9999999999998`); past about `3.5e13` the double cannot hold the
+  cents, and a half cent such as `1.005` has no exact binary value and
+  becomes `100`, so keep money in cents from the source when amounts can
+  have more places (tax, a split bill). `formatDecimal` of a number that is
+  not an integer prints `""`, so round first. `toFixed(x, 2)` is the web's
+  `x.toFixed(2)`, for a measured number (`toFixed(km, 1)`): it rounds the
+  binary value too (`toFixed(1.005, 2)` is `"1.00"`) and sums of dollars drift
+  (`0.1 + 0.2`), which is why money is counted in cents. Both take the digits as a whole-number literal (`toFixed` 0–100,
+  `formatDecimal` 0–20), never a variable, and print `""` for `NaN` or
+  `Infinity` (JavaScript's `toFixed` prints `"NaN"`).
+
+```contract
+component Cart
+  state cents = 1999
+  state km = 12.34
+  view
+    column
+      text `Total $${formatDecimal(cents, 2)}` testId="total"
+      text `${toFixed(km, 1)} km` testId="distance"
+```
 - Dates: `formatDate(ms, offset, "iso")` is `YYYY-MM-DD`, and `calendarDiff(from, to,
   "years")` (or `"months"`) is the whole periods between two such dates as an
   `option<number>`, counted as an age is (a Feb 29 birthday has its year on Mar 1).
@@ -573,6 +596,13 @@ each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https:/
 cleartext `http` reaches only a local host, and only with `app.json`'s
 `host.ios.localNetworking` set),
 and how to drive it with storage.
+A token, a password or a key the module keeps is a secret, not a file: grant
+`secret.keep <name>` (one line per name, `secret.keep signal.token`) and use
+`store.set(name, value)`, `store.get(name)` (a string, or `null`) and
+`store.forget(name)` in an answer (LLP 1018). It is the Keychain on Apple; on the
+web, the page's `localStorage`, readable by any script on that origin; a Linux
+launch keeps it only until the app exits for now. A drive keeps it, by default,
+only in a named `--storage` store (`EXACT_STORE=real` gives an Apple drive the Keychain).
 The compiler accepting a source call does not provide its implementation. Check
 its arguments, declared result, grants, storage access, and bake-time behavior.
 Keep generated output out of version control. Use app-local sources for domain
@@ -1216,6 +1246,29 @@ as `clock data` does: its data module activated and every request launch started
 test does not start with `clock settle`. `before data`, a launch line, skips the
 wait; what has landed then is the host's (a native app runs on real time before
 the driver connects).
+
+To test an error path, fail the fetch: `fail fetch "<url prefix>"` makes every
+later fetch whose URL starts with it fail exactly as a refused connection does
+on that host (a TypeScript source's `fetch` rejects with `FetchError` kind
+`"Network"`; a Rust source's request settles `Failed { kind: Network }`), and it
+never goes out. Leading the test it is armed before the first data load, so
+"the API is down when the screen opens" is the launch; later it is a step.
+`times N` fails only the next N; `pass fetch "<prefix>"` stops it; a counted
+fault that never fired fails the test. The app's own `catch`, error record and
+retry run, so this checks the real error handling (LLP 1103). A drive takes
+`--fail-fetch <prefix>` at open and the ops `"fail fetch <prefix> [times N]"`
+and `"pass fetch <prefix>"`; `state.faults` shows each prefix's hits.
+
+```contract-test
+test "the list shows an error, then retries and loads"
+  fail fetch "https://api.example.com/recipes"
+  expect text "error" == "Couldn't load recipes."
+  pass fetch "https://api.example.com/recipes"
+  tap "retry"
+  clock data
+  expect tree has "recipes"
+```
+
 A test whose text depends on the date names its `epoch`; without one it runs at
 the driver's 2026-01-01 UTC. The steps are `tap "id" [hover|dblclick|contextmenu]`,
 `tap "id" modifiers "Shift+Meta"` (a press with keys held),
@@ -1458,8 +1511,13 @@ name is `alt` or `aria-label`; `enterkeyhint` labels a soft keyboard's enter
 key on the web and iOS. A bare number on a length row is pixels (except
 `line-height`, where it is CSS's multiple of the font size), and the row takes
 CSS's spellings too (`font-size="14px"`, `letter-spacing="-0.5px"`,
-`padding="1.5rem"`; `stroke-width="2px"` but no `rem` there); `max-width` and
-`max-height` take `none`, CSS's initial maximum, or `auto`, and the web writes
+`padding="1.5rem"`; `stroke-width="2px"` but no `rem` there), bound or literal
+(``font-size=`${size}px` ``). A row whose value is a number and no text
+(`opacity`, `flex-grow`, `z-index`, `font-weight`, `column-count`,
+`column-rule-width`) takes a number where it is computed: a string-typed
+expression there is refused, since the native hosts read no text on it (the
+literal keywords and `px` of `column-count` and `column-rule-width` compile to
+their numbers). `max-width` and `max-height` take `none`, CSS's initial maximum, or `auto`, and the web writes
 `none` for either. A number field's (`input type="number"`, written so)
 `min`, `max` and `step` take numbers, as a range's do; its `value` is its text.
 
@@ -1480,6 +1538,14 @@ type, over the one `type` implies (iOS: `password`, `email`): `username`,
 list HTML's grammar refuses (the web's default) leaves `type`'s, and so does
 a name the platform has no type for (`country`, `impp`, `sex`), which only the
 web can act on.
+
+An `input type="password"`'s value is never agent output, on any host: `tree`,
+`layout <field>` and the `type` reply show `value="•••"` for any value that is
+not empty, whatever its length (an `expect text` on the field reads `•••`), and
+`tree --ax` marks the field `protected` where the host has one (the web's
+accessibility tree still shows one bullet a character, as Chrome exposes it).
+What the app stores (`state.slots`, its data module) is the app's own; an
+`app.test.contract` `type … append` into a filled password field is refused.
 
 `border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
 resetting omitted components to medium/none/currentcolor. Widths are px/pt,

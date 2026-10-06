@@ -33,6 +33,7 @@ pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, SegmentVar};
 pub use exact_motion::color::css::link_wide as link_wide_colors;
 mod viewport;
 pub use viewport::ViewportUnit;
+pub mod cells;
 mod color_parse;
 pub mod profiled;
 pub mod relative;
@@ -605,6 +606,38 @@ impl StyleValue {
                 expected: "vec2",
             }),
         }
+    }
+}
+
+/// Whether `set_dynamic` reads any text on row `style` besides the CSS-wide
+/// keywords [`StyleValue::unsets`] clears a row with. A number row with no
+/// text arm (`opacity`, `flex-grow`, `z-index`, `font-weight`) refuses every
+/// computed string, where a browser applies one (`opacity: 0.5`), so the
+/// compiler refuses a string-typed binding of such a row as it refuses the
+/// literal (LLP 1017 P1a). The rows listed are those whose conversion has a
+/// text arm: `rem`/`em` and `px` lengths ([`relative`]), SVG's stroke
+/// lengths, and the CSS forms [`StyleValue::f32`] reads.
+pub fn takes_text(style: StyleId) -> bool {
+    use crate::generated::StyleCodec;
+    use StyleId::*;
+    match style.codec() {
+        StyleCodec::F32 => {
+            relative::admits_relative(style)
+                || matches!(
+                    style,
+                    StrokeWidth
+                        | StrokeDashoffset
+                        | Rotate
+                        | TranslateZ
+                        | Perspective
+                        | SymbolValue
+                        | TextStrokeWidth
+                        | BackdropBlur
+                        | ShapeMargin
+                )
+        }
+        StyleCodec::U16 | StyleCodec::U32 | StyleCodec::I32 => false,
+        _ => true,
     }
 }
 
@@ -1275,7 +1308,7 @@ impl StyleProps {
             bottom: self.padding_bottom.to_lp(env),
             left: self.padding_left.to_lp(env),
         };
-        let [top, right, bottom, left] = self.border_widths();
+        let [top, right, bottom, left] = self.border_widths_in(env);
         s.border = taffy::geometry::Rect {
             top: length(top),
             right: length(right),

@@ -670,6 +670,25 @@ fn members(arena: &NodeArena, key: NodeKey) -> Result<IdSet<NodeKey>, LayoutErro
     }
     Ok(result)
 }
+/// Whether an absolutely positioned box is under `owner`: each branch walked
+/// on its own, to the region's node limit (`members`); a branch past it is
+/// taken to hold one, and nothing past it is copied.
+fn holds_absolute(arena: &NodeArena, owner: u32) -> bool {
+    arena.children(owner).iter().any(|&branch| {
+        let (mut stack, mut seen) = (vec![branch], 0);
+        while let Some(s) = stack.pop() {
+            seen += 1;
+            let children = arena.children(s);
+            if arena.style(s).position_type == crate::PositionType::Absolute
+                || seen + stack.len() + children.len() > REGION_NODES
+            {
+                return true;
+            }
+            stack.extend_from_slice(children);
+        }
+        false
+    })
+}
 fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
     let bad = || {
         LayoutError::ContentRegion(
@@ -736,9 +755,11 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
     }
     // @ref LLP 1074 T1 — a trial lays the owner out as the top of its own tree,
     // where it contains every absolutely positioned descendant; the ordinary
-    // tree agrees only if the owner is positioned there too. (The compiler
-    // positions a clipping box, which the owner is.)
-    if s.position_type == crate::PositionType::Static {
+    // tree agrees only if the owner is positioned there too, or nothing
+    // absolute is under it. The compiler positions a clipping box only when
+    // something absolute can be under it (487f14493), so a static owner holds
+    // none; one that does is refused, at registration and at each commit.
+    if s.position_type == crate::PositionType::Static && holds_absolute(arena, b.owner.index) {
         return Err(bad());
     }
     // Deliberately narrow certificate: percentages only under a direct root.

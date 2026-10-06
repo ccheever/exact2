@@ -115,6 +115,14 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   anywhere, macOS included. `host-dev` compiles incrementally unless the shell
   exports `CARGO_INCREMENTAL=0`, which a hand-run cargo obeys (a touched kernel
   line is then 17 s, not 6) and `build.mjs` overrides, saying so.
+- The terminal host (LLP 1101): `cargo build --profile host-dev -p harness-terminal`,
+  then `./target/host-dev/harness` runs the coding harness in this terminal (inline;
+  `--fullscreen` for the alternate screen), or `exact-terminal <entry.contract>` any
+  terminal entry. With operations it runs headless (`--size 80x24 type prompt "hi" key
+  Enter until "…" print`). Develop it in `host-dev`: a debug build lays out a long
+  document hundreds of times slower. It is outside `default-members`; when you touch it,
+  run `cargo test -p exact-terminal -p harness-data`. Its writer test replays through
+  `vt100`; `examples/replay.rs` replays a recorded session the same way.
 - Delivery (LLP 1030.000): `bun scripts/deploy.mjs <app> [--origin <dir>]` prints the
   classifier's table (a dry run); `--yes` publishes the web root and signed bundles per stream through
   `scripts/origin.mjs`; `keygen <id>` makes a signing key (the private half never enters

@@ -36,6 +36,9 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         Some("tags") => tags(runner),
         Some("frames") => frames(runner, request, &|_| false),
         Some("holds") => holds(runner),
+        // @ref LLP 1103 D3 — the driver's fetch faults, a form of `prefer`:
+        // the network is the environment, as `online` is (LLP 1012 §1).
+        Some("prefer") if after_key(request, "faults").is_some() => faults(runner, request),
         // The module's storage still to land (LLP 1097 D10): what a host's
         // quit or suspension waits for, cheaper than `state`.
         Some("background") => format!("{{\"operations\":{}}}", runner.background_operations()),
@@ -472,7 +475,29 @@ fn tree_rows<D: DataSource>(
     s
 }
 
-/// A node's own props by their schema names, as JSON object members.
+/// What agent output shows for a non-empty password field's value (#134):
+/// a fixed mark, whatever its length, as no reply, log or transcript should
+/// carry a secret. The app's own state still holds the value.
+pub const MASKED: &str = "•••";
+
+/// A field's value as agent output shows it: an `input type="password"`'s,
+/// when not empty, is [`MASKED`]; any other is itself (a `textarea` has no
+/// password type in HTML, and shows its text). Every host's tree and `type`
+/// reply passes its value through this.
+pub fn shown_value<'a>(props: &exact_kernel::PropList, value: &'a str) -> &'a str {
+    use exact_kernel::PropId;
+    if !value.is_empty()
+        && props.str(PropId::Type) == Some("password")
+        && props.str(PropId::SemanticTag) != Some("textarea")
+    {
+        MASKED
+    } else {
+        value
+    }
+}
+
+/// A node's own props by their schema names, as JSON object members; a
+/// password field's value is [`shown_value`]'s.
 fn props_json(node: &NodeRef<'_>, s: &mut String) {
     for (i, (id, value)) in node.props.iter().enumerate() {
         if i > 0 {
@@ -481,6 +506,9 @@ fn props_json(node: &NodeRef<'_>, s: &mut String) {
         quote(id.name(), s);
         s.push(':');
         match value {
+            PropValue::Str(t) if id == exact_kernel::PropId::Value => {
+                quote(shown_value(node.props, t), s)
+            }
             PropValue::Str(t) => quote(t, s),
             PropValue::Bool(b) => s.push_str(if *b { "true" } else { "false" }),
             PropValue::Int(i) => {
@@ -770,7 +798,13 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         media.gamut.keyword(),
         if media.high_dynamic_range { "high" } else { "standard" }
     );
-    s.push_str("},\"derives\":{");
+    s.push('}');
+    // The driver's fetch faults (LLP 1103 D3), when any are armed or spent.
+    if !runner.faults().is_empty() {
+        s.push_str(",\"faults\":");
+        s.push_str(&runner.faults().json());
+    }
+    s.push_str(",\"derives\":{");
     for (i, row) in plan.derives.iter().enumerate() {
         let name = plan.str(row.name);
         if i > 0 {
@@ -1194,6 +1228,33 @@ fn ids(ids: &[u32], out: &mut String) {
         let _ = write!(out, "{id}");
     }
     out.push(']');
+}
+
+/// `prefer` with `faults` (LLP 1103 D3): `{"fail": prefix, "times"?: n}`
+/// arms a prefix, `{"pass": prefix}` stops it failing; either way, and with
+/// neither, the reply is the session's table as `state.faults` shows it.
+fn faults<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
+    let table = runner.faults();
+    let request = after_key(request, "faults").unwrap_or("{}");
+    if let Some(prefix) = field_str(request, "fail") {
+        let times = match after_key(request, "times") {
+            None => None,
+            Some(_) => match field_num(request, "times") {
+                Some(n) if n >= 1.0 && n == n.trunc() && n <= u32::MAX as f64 => Some(n as u32),
+                _ => return error("fail fetch: `times` is a positive integer"),
+            },
+        };
+        if let Err(e) = table.arm(&prefix, times) {
+            return error(&e);
+        }
+    } else if let Some(prefix) = field_str(request, "pass") {
+        if !table.pass(&prefix) {
+            return error(&format!(
+                "pass fetch \"{prefix}\": no fault was armed for it"
+            ));
+        }
+    }
+    format!("{{\"faults\":{}}}", table.json())
 }
 
 /// The string value of a top-level `"key":"…"` field in a JSON object, with

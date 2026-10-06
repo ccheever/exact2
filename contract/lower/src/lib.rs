@@ -1366,10 +1366,10 @@ impl<'a> Lowerer<'a> {
                     let value = values::flex_component(&a.value, index)?;
                     let component = Attr { value, ..a.clone() };
                     let (code, ty) = self.typed_code(&component.value, scope, locals)?;
-                    values::check_style_value(&component, &[row], &ty, font)?;
                     if index < 2 && matches!(ty, Ty::String) {
                         return err("lower-attr-type", "a computed `flex` must be a number, a literal CSS shorthand or a choice of literal shorthands; for a computed basis write the longhands, as in `flex-grow=1 flex-shrink=1 flex-basis=w`", a.span);
                     }
+                    values::check_style_value(&component, &[row], &ty, font)?;
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
                         id: row as u16,

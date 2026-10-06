@@ -257,6 +257,13 @@ guide's rules don't make obvious.
 
 ## Actions
 
+- **A token kept in an app data file.** Exact has a secret store, and it holds
+  strings, not only keys: grant `secret.keep <name>` and use
+  `store.set`/`store.get`/`store.forget` in an answer (the Keychain on Apple,
+  `localStorage` on the web; a Linux launch forgets it at exit for now). The
+  Signal clone kept its signal-cli bearer token in a plain config file because
+  `secret.keep` read like the P-256 key store of LLP 1069.005. (2026-10-06.)
+
 - **A superseded send's fetch rejects natively and completes on the web
   build.** A newer `send x = command(…)` replaces the pending one; natively
   (and in the web's wasm module realm) its `await fetch(…)` then rejects with
