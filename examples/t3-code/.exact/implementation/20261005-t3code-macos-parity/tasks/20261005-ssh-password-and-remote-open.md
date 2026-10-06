@@ -266,3 +266,25 @@ Post-merge Bun: 1,848 pass / 1 skip / 0 fail; strict TypeScript clean; native SS
 15 pass / 0 skip; terminal assets built; boot and caps passed. The final diff against
 the feature base passes whitespace checks. The base itself contains whitespace in
 committed terminal evidence logs; those unrelated evidence files were preserved.
+
+
+Post-merge native drive on `87246167d`: rebuilt and launched the app, authenticated
+with the real password host again, opened the Files surface and read the remote README.
+Its editor menu listed local Cursor, VS Code and Zed (`merged-files-editors.png` and AX
+text). Closing the window terminated both recorded SSH children (`merged-cleanup-*.json`).
+The Files menu initially let Escape close the whole panel; a follow-up adds its own
+Escape dismissal. Markdown native context actions and actual local/unavailable-route
+UI outcomes remain unverified. Post-merge Rust app tests: 10 passed.
+
+
+Files Escape close-out: the third bounded fix/drive passed. The panel's Escape shortcut
+is disabled while its editor menu is open; the menu backdrop handles Escape. Native
+Escape closed only the menu, kept the Files surface visible, and kept focus on Choose
+editor (`files-escape-fixed.png`, `files-escape-fixed-ax.txt`). Earlier attempts that only
+added a competing shortcut or guarded the launcher's key action did not work and are
+not retained. The final bundle built successfully (`files-escape-third-build.log`).
+Closing that app ended its three SSH children (`final-cleanup-before.json`,
+`final-cleanup-after.json`). The verification container was stopped. The final source
+suite remains 1,848 pass / 1 skip; staged caps and PR-diff whitespace pass. This closes
+Files menu rendering/dismissal evidence, not the remaining local/remote editor-action,
+Markdown context-menu, oracle/IME and full concurrent prompt acceptance rows.
