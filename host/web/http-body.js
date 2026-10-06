@@ -171,8 +171,6 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   // A deadline for the whole exchange (Request::timeout_ms): kind 10 when it
   // passes (9 is an auth session's delivery, glue.js).
   if (op.timeoutMs !== undefined && (!Number.isInteger(op.timeoutMs) || op.timeoutMs < 1 || op.timeoutMs > 3600000)) return failed(2, 'a request timeout must be 1 to 3600000 ms');
-  // @ref LLP 1103 D1, D2 — a driver fault is a refused connection, never sent.
-  if (!asset && !op.stream && takeFault(url)) return failed(1, faultMessage(url));
   const deadline = op.timeoutMs === undefined ? null : AbortSignal.timeout(op.timeoutMs);
   controllers.add(controller);
   const signal = deadline ? AbortSignal.any([controller.signal, deadline]) : controller.signal;
@@ -180,7 +178,11 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   if (decodedBody) init.body = decodedBody;
   if (op.stream && !headers.some(([k]) => k.toLowerCase() === 'accept')) init.headers = [...headers, ['accept', 'text/event-stream']];
   try {
-    const response = await (!asset && moduleLoader?.claim?.(url, init) || fetch(asset ? localAssetURL(url) : url, init));
+    const early = !asset && moduleLoader?.claim?.(url, init);
+    // @ref LLP 1103 D1, D2 — a driver fault is a refused connection, never sent; a GET
+    // `fetchEarly` already sent (before the fault was armed) is not one it decides.
+    if (!early && !asset && !op.stream && takeFault(url)) return failed(1, faultMessage(url));
+    const response = await (early || fetch(asset ? localAssetURL(url) : url, init));
     // A redirect that left the grants names where it led (podcast F5): the
     // browser followed it, and the response's URL is the last hop's.
     if (response.url && (asset

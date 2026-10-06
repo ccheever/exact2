@@ -18,7 +18,7 @@ mod names;
 mod routes;
 mod sounds;
 mod steps;
-pub use steps::same_launch;
+pub use steps::{is_launch, same_launch};
 use steps::{launch_word, LAUNCH};
 
 /// A parse failure.

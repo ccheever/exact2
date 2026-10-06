@@ -514,3 +514,15 @@ fn fail_fetch_leads_as_a_launch_line_or_is_a_step_and_inherits_by_prefix() {
         assert_eq!(e.span.line, line, "{src}: {e}");
     }
 }
+
+#[test]
+fn only_a_tests_leading_fail_fetch_overrides_the_files() {
+    // A later `fail fetch` of the same prefix is a step: the file's launch
+    // line still arms it before the first data load (LLP 1103 D3).
+    let src = "fail fetch \"https://api.test/\"\n\ntest \"a\"\n  tap \"go\"\n  fail fetch \"https://api.test/\" times 1\n";
+    let json = contract::tests_json(&contract::tests(src).unwrap());
+    assert!(
+        json.starts_with("[{\"name\":\"a\",\"steps\":[{\"op\":\"fail-fetch\",\"prefix\":\"https://api.test/\",\"times\":null,\"line\":1},{\"op\":\"tap\""),
+        "{json}"
+    );
+}

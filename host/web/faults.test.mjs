@@ -81,3 +81,20 @@ test('fetchEarly starts no GET a fault will fail, and counts nothing', async () 
   expect(fetchEarly({ method: 'GET', url: 'https://api.test/recipes/1', headers: [] }, set)).toBeNull();
   expect(faultsJson()[0]).toMatchObject({ left: 1, hits: 0 });
 });
+
+test('a GET fetchEarly sent before its fault was armed is not failed by it', async () => {
+  globalThis.exact ??= {};
+  const { claim, fetchEarly } = await import(`./module-glue.js?claimed=${Date.now()}`);
+  let hits = 0;
+  const origin = Bun.serve({ port: 0, fetch() { hits++; return new Response('ok'); } });
+  const set = normalized(`net.fetch ${origin.url.origin}`);
+  try {
+    const req = { method: 'GET', url: `${origin.url}recipes/1`, headers: [] };
+    expect(fetchEarly(req, set)).toBeFunction();
+    faultOp({ fail: `${origin.url.origin}/recipes`, times: 1 }); // armed after the GET left
+    const r = await request(req, { grantSet: set, controllers: new Set(), moduleLoader: { claim } });
+    expect([r.kind, r.status]).toEqual([0, 200]);
+    expect(faultsJson()[0]).toMatchObject({ left: 1, hits: 0 });
+    expect(hits).toBe(1);
+  } finally { origin.stop(true); }
+});

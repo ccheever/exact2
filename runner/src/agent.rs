@@ -36,7 +36,9 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         Some("tags") => tags(runner),
         Some("frames") => frames(runner, request, &|_| false),
         Some("holds") => holds(runner),
-        Some("faults") => faults(runner, request),
+        // @ref LLP 1103 D3 — the driver's fetch faults, a form of `prefer`:
+        // the network is the environment, as `online` is (LLP 1012 §1).
+        Some("prefer") if after_key(request, "faults").is_some() => faults(runner, request),
         // The module's storage still to land (LLP 1097 D10): what a host's
         // quit or suspension waits for, cheaper than `state`.
         Some("background") => format!("{{\"operations\":{}}}", runner.background_operations()),
@@ -1203,11 +1205,12 @@ fn ids(ids: &[u32], out: &mut String) {
     out.push(']');
 }
 
-/// `faults` (LLP 1103 D3): `{"fail": prefix, "times"?: n}` arms a prefix,
-/// `{"pass": prefix}` stops it failing; either way, and with neither, the
-/// reply is the session's table as `state.faults` shows it.
+/// `prefer` with `faults` (LLP 1103 D3): `{"fail": prefix, "times"?: n}`
+/// arms a prefix, `{"pass": prefix}` stops it failing; either way, and with
+/// neither, the reply is the session's table as `state.faults` shows it.
 fn faults<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     let table = runner.faults();
+    let request = after_key(request, "faults").unwrap_or("{}");
     if let Some(prefix) = field_str(request, "fail") {
         let times = match after_key(request, "times") {
             None => None,

@@ -112,7 +112,7 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * the test says `before data`. A failed expect names the test, the line, and what
  * was seen. Returns `{ passed, failed, results }`.
  */
-export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, storage = 'test', touch = 'agent', chrome: bars = 'agent' } = {}) {
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent' } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
@@ -131,7 +131,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const failures = [];
     const store = base || host !== 'web' ? `${storage}${tag}.t${n}` : storage, fresh = { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
     // A test's launch lines lead its steps and override the drive's flags (habits F7).
-    const facts = { size, seed, locale, timeZone, epoch };
+    // The drive's `--fail-fetch` is every test's, with its own leading `fail fetch` lines added (LLP 1103 D3).
+    const facts = { size, seed, locale, timeZone, epoch, failFetch };
     const lines = [];
     let beforeData = false, leading = 0;
     // `fail fetch` lines that lead the steps are armed before the app's first data load (LLP 1103 D3).
@@ -198,12 +199,15 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     try {
       try { await data(); } catch (e) { failures.push(`${t.name}: waiting for the app's data before the first step: ${e.message}`); }
       // A counted fault that matched no fetch fails the test at the line that armed it (LLP 1103 D3).
+      // A table the host never made (no fetch consulted it) matched nothing either; an unreadable state is said so.
       const unfired = async (prefix) => {
         const line = armed.get(prefix);
         if (line == null) return;
         armed.delete(prefix);
-        const f = ((await s.state().catch(() => ({}))).faults ?? []).find((e) => e.prefix === prefix);
-        if (f && f.hits === 0) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} times ${f.times} matched no fetch`);
+        let state;
+        try { state = await s.state(); } catch (e) { failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)}: could not read whether it fired: ${e.message}`); return; }
+        const f = (state.faults ?? []).find((e) => e.prefix === prefix);
+        if (!f || f.hits === 0) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} times ${f?.times ?? '?'} matched no fetch`);
       };
       for (const [n, st] of (failures.length ? [] : t.steps).entries()) {
         const at = `${t.name}: line ${st.line}`;
@@ -216,12 +220,12 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             case 'fail-fetch': {
               if (n < leading) break;
               await unfired(st.prefix);
-              const r = await s.op({ op: 'faults', fail: st.prefix, ...(st.times != null ? { times: st.times } : {}) });
+              const r = await s.op({ op: 'prefer', faults: { fail: st.prefix, ...(st.times != null ? { times: st.times } : {}) } });
               if (r?.error) throw new Error(r.error);
               if (st.times != null) armed.set(st.prefix, st.line);
               break;
             }
-            case 'pass-fetch': { const r = await s.op({ op: 'faults', pass: st.prefix }); if (r?.error) throw new Error(r.error); break; }
+            case 'pass-fetch': { const r = await s.op({ op: 'prefer', faults: { pass: st.prefix } }); if (r?.error) throw new Error(r.error); break; }
             // The driver's `tap` forms (feed F10): `into` brings a virtualized list's row into view by its key.
             case 'tap': {
               const opts = st.form === 'into' ? { into: { key: st.key } }
@@ -255,7 +259,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             case 'resize': delivered(await s.resize(st.width, st.height)); input = st.line; break;
             // The window's close button (studio diary R17): a window a `beforeunload` keeps stays and the test goes on;
             // one that closed takes the session, so a step after it fails naming it.
-            case 'close': delivered(await s.closeWindow()); input = st.line; break;
+            // Counted faults are checked first: a window that closes takes the table with it.
+            case 'close': for (const prefix of [...armed.keys()]) await unfired(prefix); delivered(await s.closeWindow()); input = st.line; break;
             case 'screenshot': await s.screenshot(st.path); break;
             case 'expect-tree': {
               const tree = await s.tree();

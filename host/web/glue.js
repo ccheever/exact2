@@ -1074,7 +1074,6 @@ function agentReply(request) {
     }
     if (request.op === "perf" && request.frames) return request.live > 0 ? loadAfterPaint('./frames.js', 'liveFrames').then(live => live({ ms: request.live, late: request.late, origin: () => t0, log, clock: () => agentClock, advance: to => applyBatch(JSON.parse(readOut(wasm.exact_advance(to, 0)))), gpu: globalThis.exact.gpu })).then(tagged) : { virtual: true }; // the agent's clock presents no frame, but lends it to the wall for a live window (LLP 1079 D4)
     switch (request.op) {
-      case "faults": return loadAfterPaint('./faults.js', 'faults').then(m => tagged(m.faultOp(request))); // LLP 1103 D3
       case "state": {
         const st = ask(request);
         if (st.error) return st;
@@ -1121,7 +1120,8 @@ function agentReply(request) {
         if (request.agree) return tagged({ clock: reply.clock, viewport: reply.viewport, agreement: { unavailable: "not implemented: app drives run the JS target" } }); else if (request.native && reply.node) { delete reply.nodes; reply.node.native.subviews = { unavailable: "the DOM is the tree; layout <target> names the element" }; } // @ref LLP 1080.001 D1, D2
         return tagged(reply);
       }
-      case "prefer": { // @ref LLP 1069.000 D6 — the page group; the driver sets media through CDP. @ref LLP 1078 D7 — the fold group: an empty one re-reads the browser (the driver's CDP override), a filled one is the substitute.
+      case "prefer": { if (request.faults) return loadAfterPaint('./faults.js', 'faults').then(m => tagged(m.faultOp(request.faults))); // LLP 1103 D3: a fetch fault, a form of `prefer`
+        // @ref LLP 1069.000 D6 — the page group; the driver sets media through CDP. @ref LLP 1078 D7 — the fold group: an empty one re-reads the browser (the driver's CDP override), a filled one is the substitute.
         try { if (request.page) pageFacts.prefer(request.page); if (request.fold) preferFold(Object.keys(request.fold).length ? request.fold : null); } catch (e) { return { error: e.message }; }
         pageChanged(); foldChanged();
         return tagged({ page: { ...pageFacts.read() }, fold: foldEnv() });

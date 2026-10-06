@@ -73,7 +73,7 @@ fn a_fault_fails_the_fetches_its_prefix_matches_as_a_network_failure() {
     .unwrap();
     let reply = agent::handle(
         &r,
-        r#"{"op":"faults","fail":"https://api.test/recipes","times":1}"#,
+        r#"{"op":"prefer","faults":{"fail":"https://api.test/recipes","times":1}}"#,
     );
     assert!(reply.contains("\"left\":1"), "{reply}");
     run(&mut r);
@@ -99,9 +99,15 @@ fn a_fault_fails_the_fetches_its_prefix_matches_as_a_network_failure() {
         "{state}"
     );
     // Spent: a refresh goes out.
-    let spent = agent::handle(&r, r#"{"op":"faults","pass":"https://nothing.test/"}"#);
+    let spent = agent::handle(
+        &r,
+        r#"{"op":"prefer","faults":{"pass":"https://nothing.test/"}}"#,
+    );
     assert!(spent.contains("no fault was armed"), "{spent}");
-    let refused = agent::handle(&r, r#"{"op":"faults","fail":"https://x.test/","times":0}"#);
+    let refused = agent::handle(
+        &r,
+        r#"{"op":"prefer","faults":{"fail":"https://x.test/","times":0}}"#,
+    );
     assert!(refused.contains("positive integer"), "{refused}");
 }
 
@@ -143,4 +149,44 @@ fn a_stream_is_not_matched() {
         )),
         _ => panic!("a plain fetch is failed"),
     }
+}
+
+#[test]
+fn a_replacement_runner_carries_the_table_as_it_is() {
+    let boot = || {
+        Runner::boot(
+            contract::compile(APP).unwrap(),
+            Recipes,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    let mut r = boot();
+    r.faults().arm("https://api.test/recipes", Some(1)).unwrap();
+    r.faults().arm("https://api.test/users", None).unwrap();
+    r.faults().pass("https://api.test/users");
+    run(&mut r);
+    let carried = r.carry();
+    let mut next = Runner::boot_carrying(
+        contract::compile(APP).unwrap(),
+        Recipes,
+        Kernel::with_monospace(),
+        &carried,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(next.faults().json(), r.faults().json());
+    run(&mut next);
+    assert!(
+        !next.faults().take("https://api.test/recipes/2"),
+        "the spent count stays spent"
+    );
+    assert!(
+        !next.faults().take("https://api.test/users/2"),
+        "the passed prefix stays passed"
+    );
+    assert!(boot().carry().faults.is_none(), "no table, nothing carried");
 }

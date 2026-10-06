@@ -393,6 +393,8 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             None => error("reveal needs an id"),
         },
         Some("clock") => clock(p, line),
+        // A fetch fault (LLP 1103) is the runner's; the device facts are this presenter's.
+        Some("prefer") if line.contains("\"faults\"") => p.host().agent(line),
         Some("prefer") => prefer(p, line),
         Some("screenshot") => match field_str(line, "path") {
             Some(path) => p.screenshot(&path).unwrap_or_else(|e| error(&e)),

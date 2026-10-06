@@ -680,6 +680,7 @@ impl<D: DataSource> Runner<D> {
             now_ms: self.now_ms,
             store: self.store.snapshot(),
             forgot_waiting: self.queued(),
+            faults: (!self.faults.is_empty()).then(|| self.faults.spec()),
         }
     }
 
@@ -1042,6 +1043,9 @@ impl<D: DataSource> Runner<D> {
         runner.publish_surfaces(surfaces);
         let line = lines::boot(carried.is_some(), runner.kernel.live_count(), receipt.epoch);
         runner.log(line);
+        if let Some(spec) = carried.and_then(|c| c.faults.as_deref()) {
+            runner.faults = faults::Faults::parse(spec).unwrap_or_default();
+        }
         for (name, n) in carried
             .map(|c| c.forgot_waiting.as_slice())
             .unwrap_or_default()

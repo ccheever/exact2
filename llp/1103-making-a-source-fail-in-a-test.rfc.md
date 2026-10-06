@@ -150,7 +150,14 @@ About three and a half lane-days.
   - streams are deferred.
 
   The cost is raised.
-- r4, 2026-10-06: built (§7).
+- r4, 2026-10-06: built (§7). Astra reviewed it blind (LAND WITH FIXES); Grok's pass ended without a verdict. Folded in:
+  - an early GET sent before arming is not failed;
+  - the unfired check fails a counted fault whose table never appeared, an unreadable state, and one about to `close`;
+  - only a test's leading lines override the file's;
+  - replacement runners carry the table;
+  - `--fail-fetch` reaches `--test`;
+  - the drive request is a form of `prefer`, so the operation count is unchanged;
+  - the production claims are corrected.
 
 ## 7. As built
 
@@ -162,7 +169,7 @@ About three and a half lane-days.
   - the wasm host's `request` (`http-body.js`) returns the browser-failure kind;
   - the JS target's `fetchWith` throws `FetchError('Network')`.
 
-  `fetchEarly` only declines to start a matching GET, so each request is counted once.
+  `fetchEarly` only declines to start a matching GET, so each request is counted once. A GET `fetchEarly` already sent, before the fault was armed, is claimed and not failed.
 
 **Rules.** The longest live prefix decides. Arming again replaces an entry. `pass` keeps its hits. A count runs out and the entry stays, with `left: 0`. Every injected failure writes the journal line "fetch failed (driver fault): <url>".
 
@@ -171,12 +178,15 @@ About three and a half lane-days.
   - natively, the runner reads `EXACT_AGENT_FAIL_FETCH` under `EXACT_AGENT=1` (simulators get it through `SIMCTL_CHILD_`);
   - on the web, the page reads `?failFetch=` under `?agent`, which the history allowlist carries.
 
-  Both are one `<prefix>[\t<times>]` line per fault, and a reload's whole entry is `<prefix>\t<times>\t<left>\t<hits>\t<armed>`. Production bakes compile both readers out with `AGENT_ADMITTED`.
-- During a drive: one new wire request, `faults`, which every carrier answers (`{fail, times}`, `{pass}`, or neither to read). This is the one operation-budget exception LLP 1012 counts, and it is spelled `fail fetch …` / `pass fetch …` on the command line. `state.faults` lists the table when it is not empty, and `--fail-fetch <prefix>` arms one at open.
+  Both take one `<prefix>[\t<times>]` line per fault, and a reload's whole entry is `<prefix>\t<times>\t<left>\t<hits>\t<armed>`. A production build honors neither:
+  - a native one drops every `EXACT_AGENT_*` variable before the host or the runner reads one (LLP 1069.007 D2);
+  - a web bake compiles the reader out with `AGENT_ADMITTED`.
+- During a drive, it is a form of `prefer`, not another operation: the network is the environment, as `online` is (LLP 1012 §1 keeps ten). On the wire it is `{"op":"prefer","faults":{"fail":…,"times":…}}`, `{…{"pass":…}}`, or `{…{}}` to read; the command line spells it `fail fetch …` and `pass fetch …`. Each carrier hands it to its table: the runner on native, the page on the web. `state.faults` lists the table when it is not empty, and `--fail-fetch <prefix>` arms one at open (and for every test, with `--test`).
+- A replacement runner, from a development reload, carries the table as it is (`Carried::faults`). A JS-target development page reloads with its launch URL, as it carries no state.
 
 **Tests.**
 - `fail fetch` lines that lead a test (or sit at a file's top level) are launch facts; later ones are steps. Inheritance goes by prefix.
-- `scripts/agent-test.mjs` fails a counted fault that matched no fetch, at the line that armed it, at the test's end or before it is armed again.
+- `scripts/agent-test.mjs` fails a counted fault that matched no fetch (or whose table no fetch ever made), at the line that armed it: at the test's end, before it is armed again, or before a `close`.
 - `reload` relaunches with `state.faults` as the launch table. On the web, the page reloads with the new `failFetch`.
 
 **Verified.**

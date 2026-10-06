@@ -819,14 +819,14 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
 }
 const CLOCK_STEP_MS = 1000, CLOCK_BUDGET_MS = 3000, CLOCK_SPAN_MS = 600_000, REAL_STEP_MS = 50;
 /** The next step of a split clock: aimed at CLOCK_BUDGET_MS of wall clock from the last step's cost, growing at most 4x and never past CLOCK_SPAN_MS of world time. */
-/** `fail fetch <url-prefix> [times <n>]` and `pass fetch <url-prefix>` as the `faults` request every carrier answers (LLP 1103 D3). */
+/** `fail fetch <url-prefix> [times <n>]` and `pass fetch <url-prefix>` as the `prefer` request with `faults` every carrier answers (LLP 1103 D3): the network is the environment, so this is a form of `prefer`, not another operation (LLP 1012 §1). */
 export function faultRequest(op, args) {
   if (args[0] !== 'fetch' || !args[1]) throw new Error(`${op} fetch <url-prefix>${op === 'fail' ? ' [times <n>]' : ''}: what a matching fetch's URL starts with`);
-  if (op === 'pass') { if (args.length > 2) throw new Error('pass fetch <url-prefix> takes nothing after the prefix'); return { op: 'faults', pass: args[1] }; }
-  if (args.length === 2) return { op: 'faults', fail: args[1] };
+  if (op === 'pass') { if (args.length > 2) throw new Error('pass fetch <url-prefix> takes nothing after the prefix'); return { op: 'prefer', faults: { pass: args[1] } }; }
+  if (args.length === 2) return { op: 'prefer', faults: { fail: args[1] } };
   const times = Number(args[3]);
   if (args[2] !== 'times' || args.length !== 4 || !Number.isInteger(times) || times < 1) throw new Error('fail fetch <url-prefix> times <n>: n a positive integer');
-  return { op: 'faults', fail: args[1], times };
+  return { op: 'prefer', faults: { fail: args[1], times } };
 }
 export const clockSpan = (span, elapsedMs) => Math.max(CLOCK_STEP_MS, Math.min(span * 4, CLOCK_SPAN_MS, span * CLOCK_BUDGET_MS / Math.max(1, elapsedMs)));
 // ---------------------------------------------------------------- the eight operations

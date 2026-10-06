@@ -603,12 +603,13 @@ pub fn tests(src: &str) -> Result<Vec<TestDecl>, CompileError> {
         .tests
         .into_iter()
         .map(|mut test| {
-            // By fact: a `fail fetch` line by its prefix (LLP 1103 D3).
-            let own = |l: &Step| {
-                test.steps
-                    .iter()
-                    .any(|s| contract_syntax::same_launch(s, l))
-            };
+            // By fact, among the test's own leading launch lines: a `fail
+            // fetch` line by its prefix (LLP 1103 D3); a later one is a step.
+            let leading = test
+                .steps
+                .iter()
+                .take_while(|s| contract_syntax::is_launch(s));
+            let own = |l: &Step| leading.clone().any(|s| contract_syntax::same_launch(s, l));
             let inherited = file
                 .launch
                 .iter()

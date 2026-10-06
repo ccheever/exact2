@@ -737,6 +737,11 @@ pub(super) fn launch_word(step: &Step) -> &'static str {
     }
 }
 
+/// Whether a step is a launch line where it leads a test's steps.
+pub fn is_launch(step: &Step) -> bool {
+    !launch_word(step).is_empty()
+}
+
 /// Whether two launch lines set the same fact: `fail fetch` lines, the same
 /// prefix (several prefixes may be armed).
 pub fn same_launch(a: &Step, b: &Step) -> bool {
