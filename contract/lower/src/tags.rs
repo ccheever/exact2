@@ -384,6 +384,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "ratechange" => AttrTarget::Handler("ratechange"),
         "volumechange" => AttrTarget::Handler("volumechange"),
         "error" => AttrTarget::Handler("error"),
+        // A `video` entered or left full screen (`requestFullscreen`, the
+        // platform's own controls); the payload says which.
+        "fullscreenchange" => AttrTarget::Handler("fullscreenchange"),
         "canplay" => AttrTarget::Handler("canplay"),
         // @ref LLP 1098 D1, D2 — the media session: `metadata=` claims it,
         // the six actions by `setActionHandler`'s names, and the seconds a
@@ -935,6 +938,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "drag-timeline" => styles(&[StyleId::DragTimeline]),
         "animation-timeline" => styles(&[StyleId::AnimationTimeline]),
         "animation-range" => styles(&[StyleId::AnimationRange]),
+        // @ref LLP 1055 D13 — when a list row's animations start.
+        "animation-trigger" => styles(&[StyleId::AnimationTrigger]),
         // @ref LLP 1057.003 D4 — CSS `timeline-scope`.
         "timeline-scope" => styles(&[StyleId::TimelineScope]),
         "display" => styles(&[StyleId::Display]),
@@ -1052,6 +1057,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "dragTimeline" => "drag-timeline",
         "animationTimeline" => "animation-timeline",
         "animationRange" => "animation-range",
+        "animationTrigger" => "animation-trigger",
         "timelineScope" => "timeline-scope",
         "transformOrigin" => "transform-origin",
         "align" | "alignItems" => "align-items",

@@ -529,6 +529,14 @@ struct DeviceShared {
     /// As above, for texture views.
     texture_view_identity_factory: ResourceIdentityFactory<vk::ImageView>,
 
+    /// EXACT (EXACT-PATCHES.md, 6): views of swapchain images, one per image
+    /// and view description, and the framebuffers whose attachments are all
+    /// such views. Kept until the swapchain is released, so an animated
+    /// canvas does not make (and the driver set up and later tear down) a
+    /// view and a framebuffer every frame.
+    surface_views: Mutex<FastHashMap<SurfaceViewKey, IdentifiedTextureView>>,
+    surface_framebuffers: Mutex<FastHashMap<FramebufferKey, vk::Framebuffer>>,
+
     empty_descriptor_set_layout: vk::DescriptorSetLayout,
 
     // The `drop_guard` field must be the last field of this struct so it is dropped last.
@@ -538,6 +546,13 @@ struct DeviceShared {
 
 impl Drop for DeviceShared {
     fn drop(&mut self) {
+        // EXACT (EXACT-PATCHES.md, 6).
+        for (_, fb) in self.surface_framebuffers.lock().drain() {
+            unsafe { self.raw.destroy_framebuffer(fb, None) };
+        }
+        for (_, view) in self.surface_views.lock().drain() {
+            unsafe { self.raw.destroy_image_view(view.raw, None) };
+        }
         for &raw in self.render_passes.lock().values() {
             unsafe { self.raw.destroy_render_pass(raw, None) };
         }
@@ -820,6 +835,9 @@ pub struct Texture {
     format: wgt::TextureFormat,
     copy_size: crate::CopyExtent,
     identity: ResourceIdentity<vk::Image>,
+    /// EXACT (EXACT-PATCHES.md, 6): a swapchain image, whose views and
+    /// framebuffers the device keeps until its swapchain is released.
+    surface_image: bool,
 
     // The `drop_guard` field must be the last field of this struct so it is dropped last.
     // Do not add new fields after it.
@@ -856,6 +874,9 @@ pub struct TextureView {
     dimension: wgt::TextureViewDimension,
     texture_identity: ResourceIdentity<vk::Image>,
     view_identity: ResourceIdentity<vk::ImageView>,
+    /// EXACT (EXACT-PATCHES.md, 6): the device's view of a swapchain image,
+    /// which destroying this one leaves alone.
+    cached: bool,
 }
 
 impl crate::DynTextureView for TextureView {}
@@ -997,7 +1018,7 @@ impl<T> ResourceIdentityFactory<T> {
 /// This is used as a hashable key for resources, which
 /// is permanently unique through the lifetime of the program.
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
-struct ResourceIdentity<T> {
+pub(super) struct ResourceIdentity<T> {
     id: u64,
     _phantom: PhantomData<T>,
 }
@@ -1028,6 +1049,76 @@ impl FramebufferKey {
 struct IdentifiedTextureView {
     raw: vk::ImageView,
     identity: ResourceIdentity<vk::ImageView>,
+}
+
+/// EXACT (EXACT-PATCHES.md, 6): a view of a swapchain image, as
+/// `create_texture_view` was asked for it.
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+struct SurfaceViewKey {
+    texture_identity: ResourceIdentity<vk::Image>,
+    raw_format: vk::Format,
+    view_type: vk::ImageViewType,
+    aspect_mask: vk::ImageAspectFlags,
+    /// Base mip level, level count, base array layer, layer count.
+    range: [u32; 4],
+    usage: u32,
+}
+
+impl DeviceShared {
+    /// EXACT (EXACT-PATCHES.md, 6): the device's framebuffer for attachments
+    /// that are all swapchain-image views (see `surface_framebuffers`).
+    fn make_surface_framebuffer(
+        &self,
+        key: FramebufferKey,
+    ) -> Result<vk::Framebuffer, crate::DeviceError> {
+        use hashbrown::hash_map::Entry;
+        Ok(match self.surface_framebuffers.lock().entry(key) {
+            Entry::Occupied(e) => *e.get(),
+            Entry::Vacant(e) => {
+                let key = e.key();
+                let vk_info = vk::FramebufferCreateInfo::default()
+                    .render_pass(key.raw_pass)
+                    .width(key.extent.width)
+                    .height(key.extent.height)
+                    .layers(key.extent.depth_or_array_layers)
+                    .attachments(&key.attachment_views);
+                let raw = unsafe { self.raw.create_framebuffer(&vk_info, None) }
+                    .map_err(map_host_device_oom_err)?;
+                *e.insert(raw)
+            }
+        })
+    }
+
+    /// EXACT (EXACT-PATCHES.md, 6): destroy the views of these swapchain
+    /// images and every framebuffer drawing into one, once nothing uses them
+    /// (the swapchain is being released).
+    fn forget_surface_images(&self, images: &[ResourceIdentity<vk::Image>]) {
+        let mut views = self.surface_views.lock();
+        let gone: Vec<(SurfaceViewKey, IdentifiedTextureView)> = views
+            .iter()
+            .filter(|(k, _)| images.contains(&k.texture_identity))
+            .map(|(k, v)| (*k, *v))
+            .collect();
+        if gone.is_empty() {
+            return;
+        }
+        let gone_views: Vec<ResourceIdentity<vk::ImageView>> =
+            gone.iter().map(|(_, v)| v.identity).collect();
+        self.surface_framebuffers.lock().retain(|key, fb| {
+            let keep = !key
+                .attachment_identities
+                .iter()
+                .any(|id| gone_views.contains(id));
+            if !keep {
+                unsafe { self.raw.destroy_framebuffer(*fb, None) };
+            }
+            keep
+        });
+        for (key, view) in gone {
+            views.remove(&key);
+            unsafe { self.raw.destroy_image_view(view.raw, None) };
+        }
+    }
 }
 
 #[derive(Clone, Eq, Hash, PartialEq)]

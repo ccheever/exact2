@@ -1104,7 +1104,7 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.scrollElementIntoView(args) }
                     continue
                 }
-                if name == "fastSeek" || name == "load" {
+                if name == "fastSeek" || name == "load" || name == "requestFullscreen" {
                     app.deliver { [weak self] in self?.presenter.mediaCommand(name, args) }
                     continue
                 }

@@ -445,7 +445,7 @@ impl Resolver<'_, '_> {
                 Kind::Shape(Box::new(shape))
             }
         };
-        let clip = if style.clip_path.url().is_some() {
+        let clip = if style.rare.clip_path.url().is_some() {
             let bbox = match &kind {
                 Kind::Shape(s) => s.path.bounds(),
                 _ => self.bbox(node, &style, vp),
@@ -454,7 +454,7 @@ impl Resolver<'_, '_> {
         } else {
             None
         };
-        let mask = if style.svg_mask.url().is_some() {
+        let mask = if style.rare.svg_mask.url().is_some() {
             let bbox = match &kind {
                 Kind::Shape(s) => s.path.bounds(),
                 _ => self.bbox(node, &style, vp),

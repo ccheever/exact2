@@ -9,6 +9,8 @@ mod reorder;
 mod reorder_api;
 mod reorder_group;
 mod reuse;
+pub(crate) mod shown;
+use shown::in_collection_row;
 mod start;
 #[cfg(test)]
 mod tests;
@@ -21,7 +23,7 @@ use exact_plan::EventKind;
 use index::{MeasurementToken, SizeIndex};
 pub use into_view::{Align, IntoView, IntoViewStatus};
 pub use reorder_api::*;
-pub(super) use traversal::invalidate_typography;
+pub(super) use traversal::{collections_json, invalidate_typography};
 
 /// A collection's data update, through [`super::LISTS`] (LLP 1047.000 §9).
 pub(super) fn update_collection(
@@ -34,11 +36,6 @@ pub(super) fn update_collection(
     c.update_data(u, frames, false)
 }
 
-/// The mounted collections as a batch's JSON, through [`super::LISTS`].
-pub(super) fn collections_json(tree: &Tree) -> String {
-    snapshots_json(&tree.collections())
-}
-
 const BOOTSTRAP_ROWS: usize = 16;
 const ESTIMATED_HEIGHT: f64 = 32.0;
 /// Travel the window leads by, past its viewport of overscan.
@@ -46,22 +43,6 @@ const LEAD_SECONDS: f64 = 0.25;
 /// A mounted row farther than this many viewports from what shows retires
 /// with any report, whatever its limit.
 const FAR_VIEWPORTS: f64 = 2.0;
-
-/// Whether this scope is a virtualized list's row: an inner list's (LLP
-/// 1070), whose first rows are bounded by its own literal size.
-fn in_collection_row(plan: &Plan, frames: &[Frame]) -> bool {
-    frames.iter().filter_map(|f| f.region).any(|region| {
-        let region = plan.region(RegionsId(region));
-        region.kind == RegionKind::Each
-            && region.parent.is_some_and(|node| {
-                plan.node(node)
-                    .bindings
-                    .iter()
-                    .map(|b| plan.binding(b))
-                    .any(|b| b.kind == BindingKind::Prop && b.id == PropId::Virtualized as u16)
-            })
-    })
-}
 
 /// How far the window reaches past the viewport, before and after it: one
 /// viewport each side, and toward the side the list travels, a quarter
@@ -128,6 +109,8 @@ struct Mounted {
     /// `aria-setsize`), for hosts that select and copy across rows.
     published: (usize, usize),
     row: Row,
+    /// Mounted out of the port and not shown since ([`shown`]).
+    awaiting: bool,
 }
 #[derive(Debug)]
 pub(crate) struct Collection {
@@ -153,6 +136,7 @@ pub(crate) struct Collection {
     dups: BTreeMap<usize, u32>,
     string_keys: bool,
     mounted: Vec<Mounted>,
+    any_awaiting: bool,
     spacers: Vec<(ViewId, f64)>,
     children: Vec<ViewId>,
     revision: u64,
@@ -434,6 +418,7 @@ impl Collection {
             dups: BTreeMap::new(),
             string_keys: true,
             mounted: Vec::new(),
+            any_awaiting: false,
             spacers: Vec::new(),
             children: Vec::new(),
             revision: 0,
@@ -1081,7 +1066,7 @@ impl Collection {
         self.adopt_nested(u, &mut row, text, frames)?;
         let wrapper =
             views::row_wrapper(u, self.axis, roots_of(&row.roots), text, self.reorderable)?;
-        Ok(Mounted {
+        let mut mounted = Mounted {
             position,
             wrapper,
             epoch: advance(&mut self.next_epoch)?,
@@ -1090,7 +1075,10 @@ impl Collection {
             preview_hidden: false,
             published: (usize::MAX, usize::MAX),
             row,
-        })
+            awaiting: false,
+        };
+        self.mounted_shown(u, &mut mounted);
+        Ok(mounted)
     }
     fn create_row(
         &self,
@@ -1228,6 +1216,7 @@ impl Collection {
             return Err(InstanceError::InvalidCollectionFeedback);
         }
         if let Some(edge) = self.travel_within(u, &feedback, by_view, fill)? {
+            self.reveal_shown(u);
             return Ok((false, edge));
         }
         let changed_width = self
@@ -1323,6 +1312,7 @@ impl Collection {
         self.restore(anchor)?;
         self.settle_into_view(u.env.plan, feedback.offset);
         self.realize_window(u, frames, false, fill)?;
+        self.reveal_shown(u);
         self.settle_start(extent);
         let mut now = self.snapshot();
         // Receiving a newer sequence without changing rows/extent/correction is

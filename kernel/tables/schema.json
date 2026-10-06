@@ -1834,6 +1834,14 @@
       ],
       "default": "auto"
     },
+    "AnimationTrigger": {
+      "_comment": "@ref LLP 1055 D13: when a node's `animation`s start. view (the default): inside a row a virtualized list mounted out of its port, when that row first shows in the port (held until then as `animation-play-state: paused` holds them); anywhere else, as none. none: when the node is inserted (CSS Animations 1 \u00a73).",
+      "values": [
+        "view",
+        "none"
+      ],
+      "default": "view"
+    },
     "BackgroundAttachment": {
       "values": [
         "scroll",
@@ -2462,6 +2470,7 @@
     {
       "bit": 37,
       "field": "grid_template_columns",
+      "rare": true,
       "terminal": "admit",
       "codec": "tracks",
       "layout": true
@@ -2469,6 +2478,7 @@
     {
       "bit": 38,
       "field": "grid_template_rows",
+      "rare": true,
       "terminal": "admit",
       "codec": "tracks",
       "layout": true
@@ -2476,6 +2486,7 @@
     {
       "bit": 39,
       "field": "grid_column",
+      "rare": true,
       "terminal": "admit",
       "codec": "placement",
       "layout": true
@@ -2483,6 +2494,7 @@
     {
       "bit": 40,
       "field": "grid_row",
+      "rare": true,
       "terminal": "admit",
       "codec": "placement",
       "layout": true
@@ -2801,6 +2813,7 @@
     {
       "bit": 84,
       "field": "clip_path",
+      "rare": true,
       "codec": "clip-path"
     },
     {
@@ -2863,6 +2876,7 @@
     {
       "bit": 93,
       "field": "shape_outside",
+      "rare": true,
       "codec": "shape-outside",
       "default": "none",
       "layout": true
@@ -3047,6 +3061,7 @@
     {
       "bit": 121,
       "field": "stop_color",
+      "rare": true,
       "codec": "paint",
       "default": "black",
       "_comment": "@ref LLP 1055.000 D7: SVG 2 stop-color (a colour or currentcolor; `none` is refused) and stop-opacity, not inherited."
@@ -3054,6 +3069,7 @@
     {
       "bit": 122,
       "field": "stop_opacity",
+      "rare": true,
       "codec": "f32",
       "default": 1
     },
@@ -3114,6 +3130,7 @@
     {
       "bit": 131,
       "field": "svg_mask",
+      "rare": true,
       "codec": "marker",
       "_comment": "@ref LLP 1055.000 D10: CSS `mask` on SVG elements: none or url(#id) naming a `mask` (the CSS property is `mask`; `mask` is the row mask's own name here)."
     },
@@ -3132,6 +3149,7 @@
     {
       "bit": 134,
       "field": "flood_color",
+      "rare": true,
       "codec": "paint",
       "default": "black",
       "_comment": "@ref LLP 1055.000 D14: flood-color and flood-opacity (feFlood, feDropShadow), lighting-color, not inherited; color-interpolation-filters, inherited."
@@ -3139,12 +3157,14 @@
     {
       "bit": 135,
       "field": "flood_opacity",
+      "rare": true,
       "codec": "f32",
       "default": 1
     },
     {
       "bit": 136,
       "field": "lighting_color",
+      "rare": true,
       "codec": "paint",
       "default": "white"
     },
@@ -3183,6 +3203,7 @@
     {
       "bit": 142,
       "field": "exit_animation",
+      "rare": true,
       "codec": "animations",
       "ends": true,
       "_comment": "@ref LLP 1063: an `animation` the node plays as it leaves; the outermost removed node stays as a ghost until it ends, so every one must end. Grammar: `_animations`."
@@ -3190,6 +3211,7 @@
     {
       "bit": 143,
       "field": "layout_transition",
+      "rare": true,
       "codec": "transitions",
       "_comment": "@ref LLP 1063: how the node's laid-out origin in its parent moves when layout moves it; the last declaration naming no property governs. Grammar: `_transitions`."
     },
@@ -3219,12 +3241,14 @@
     {
       "bit": 147,
       "field": "drag_timeline",
+      "rare": true,
       "codec": "drag-timeline",
       "_comment": "@ref LLP 1057.003 D1: `none | <dashed-ident> [x | y]?`, a timeline the node's presented translate drives (a drag's held value, then its release spring); CSS scroll-timeline's shape with a drag as its source, a deviation LLP 1001 declares."
     },
     {
       "bit": 148,
       "field": "animation_timeline",
+      "rare": true,
       "codec": "animation-timeline",
       "_comment": "@ref LLP 1057.003 D1: CSS `animation-timeline`, `auto | <dashed-ident>`: the node's animations are held at the named drag timeline's progress, never played on the clock. @ref LLP 1055.002 D2: a third value, `clock(<ident>)`, keeps them on the clock from a start every animation on that clock timeline shares, a deviation LLP 1001 declares."
     },
@@ -3237,6 +3261,7 @@
     {
       "bit": 150,
       "field": "timeline_scope",
+      "rare": true,
       "codec": "timeline-scope",
       "_comment": "@ref LLP 1057.003 D4: CSS `timeline-scope`, `none | all | <dashed-ident>#`: names a timeline declared below the node (its single declaring descendant, else an inactive timeline) in scope for the node's subtree. Not inherited, as in CSS."
     },
@@ -3250,12 +3275,14 @@
     {
       "bit": 152,
       "field": "mask_image",
+      "rare": true,
       "codec": "mask-image",
       "_comment": "@ref LLP 1077 D2: CSS `mask-image`, `none` or one gradient in background-image's grammar (LLP 1066), its alpha over the border box. Not inherited."
     },
     {
       "bit": 153,
       "field": "corner_shape",
+      "rare": true,
       "codec": "corner-shape",
       "_comment": "@ref LLP 1077 D1: CSS `corner-shape`, one to four of round | squircle | square | bevel | scoop | notch | superellipse(K), plus -apple-continuous (Apple's continuous curve on every host; declared in LLP 1001). Shapes the corners `border-radius` sizes."
     },
@@ -3304,6 +3331,7 @@
     {
       "bit": 160,
       "field": "perspective_origin",
+      "rare": true,
       "codec": "transform-origin",
       "_comment": "@ref LLP 1077 D8: CSS `perspective-origin`, the vanishing point in the parent's box; initial 50% 50%."
     },
@@ -3529,6 +3557,13 @@
       "codec": "enum:ColorScheme",
       "inherited": true,
       "_comment": "@ref LLP 1034 \u00a78: CSS `color-scheme` on a subtree, `light` or `dark`: `light-dark()`, platform colours and native materials below resolve in that scheme. Initial `normal`, the surrounding scheme (the app's, or an ancestor's)."
+    },
+    {
+      "bit": 193,
+      "field": "animation_trigger",
+      "rare": true,
+      "codec": "enum:AnimationTrigger",
+      "_comment": "@ref LLP 1055 D13: `animation-trigger`, the name of CSS's scroll-triggered animations with two values of our own, `view | none`: whether the node's animations start when its list row first shows or at insertion."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand; 26 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

@@ -25,7 +25,7 @@ use exact_kernel::{
     Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId, StyleId, StyleMask,
     StyleProps, ViewId,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
@@ -44,6 +44,7 @@ mod layer;
 mod lift;
 mod native;
 pub use native::NativeKind;
+mod order;
 mod placed;
 mod presented;
 mod region;
@@ -209,7 +210,7 @@ impl BoxPaint {
                 s.border_radius_bottom_left,
             ]
             .map(|d| d.resolve(&env)),
-            corners: Some(s.corner_shape).filter(|c| !c.is_round()),
+            corners: Some(s.rare.corner_shape).filter(|c| !c.is_round()),
             clip: s.background_clip,
             widths,
             colors: colors.map(|c| rgba(c.resolve(dark))),
@@ -490,6 +491,9 @@ pub struct Painter {
     /// Retained until the kernel commits; scroll and damage paints reuse it.
     pub(crate) paint_epoch: Option<u64>,
     ranks: Rc<BTreeMap<ViewId, i64>>,
+    /// This epoch's walked nodes' potentials, and passes since a full one.
+    fresh_order: HashMap<ViewId, exact_kernel::paint_order::Potentials>,
+    rank_increments: u32,
     pub(crate) placements: BTreeMap<ViewId, crate::placement::Placement>,
     /// Each 2D canvas's latest bitmap (LLP 1056).
     pub(crate) canvases: BTreeMap<ViewId, crate::canvas2d::CanvasPaint>,
@@ -512,6 +516,8 @@ pub struct Painter {
     rows: rows::Rows,
     /// The `svg` painting now: its elements the reader animates.
     svg_layers: Vec<(ViewId, Presented)>,
+    /// How many boxes the last walk painted: the next one's room.
+    boxes_hint: usize,
 }
 
 // O(painted owners) references and numeric publication metadata, not copied
@@ -588,6 +594,8 @@ impl Painter {
             #[cfg(test)]
             rank_passes: 0,
             paint_epoch: None,
+            fresh_order: HashMap::new(),
+            rank_increments: 0,
             ranks: Rc::default(),
             accepted_text: BTreeMap::new(),
             lift: Lift::default(),
@@ -602,6 +610,7 @@ impl Painter {
             cpu_ms: None,
             flatten: None,
             rows: Default::default(),
+            boxes_hint: 0,
             svg_layers: Vec::new(),
         }
     }
@@ -758,14 +767,7 @@ impl Painter {
         self.damage.next.clear();
         self.damage.unsupported = false;
         if self.paint_epoch != Some(scene.kernel.epoch()) {
-            self.ranks = Rc::new(
-                scene
-                    .kernel
-                    .paint_order()
-                    .into_iter()
-                    .map(|(id, p)| (id, p.rank))
-                    .collect(),
-            );
+            self.refresh_ranks(scene.kernel);
             self.paint_epoch = Some(scene.kernel.epoch());
             #[cfg(test)]
             {
@@ -774,7 +776,7 @@ impl Painter {
         }
         let mut walk = Walk {
             scene,
-            boxes: Vec::new(),
+            boxes: Vec::with_capacity(self.boxes_hint),
             text: BTreeMap::new(),
             skip,
             replay,
@@ -793,6 +795,7 @@ impl Painter {
         if let Some((px, py)) = scene.pointer {
             self.backend.pointer(px, py);
         }
+        self.boxes_hint = walk.boxes.len();
         let finished = self.backend.finish();
         if self.backend.name() == "cpu" {
             self.cpu_ms = Some(started.elapsed().as_secs_f64() * 1000.);
@@ -908,11 +911,13 @@ impl Painter {
         // `opacity: 0` is the one that blanks the group. A ghost asks
         // `revealed` (LLP 1094): the wrapper's inherited hidden shows, and
         // a node that sets its own hidden does not.
-        let inherited = node.computed_style(StyleMask::INHERITED);
         let visible = paints(walk.scene.kernel, id, walk.reveal);
         walk.boxes.push(PaintedBox {
             id,
-            pointer_hit: inherited.pointer_events != exact_kernel::PointerEvents::None && visible,
+            pointer_hit: node
+                .computed_row(exact_kernel::StyleId::PointerEvents, |s| s.pointer_events)
+                != exact_kernel::PointerEvents::None
+                && visible,
             projective: None,
             affine: Some((ts, (x, y, w, h))),
             press: p.press,
@@ -943,10 +948,10 @@ impl Painter {
             self.backend.push_mask(&Shape::rect((x, y, w, h)), ts);
         }
         // @ref LLP 1043.000 §3 D7 — polygon demo ink and exclusion share an outline.
-        let path_clip = !node.style.clip_path.commands().is_empty()
+        let path_clip = !node.style.rare.clip_path.commands().is_empty()
             && self
                 .backend
-                .push_css_clip(&node.style.clip_path, ts.pre_translate(x, y));
+                .push_css_clip(&node.style.rare.clip_path, ts.pre_translate(x, y));
         self.content(walk, &node, (x, y, w, h), ts, offset, clip_rect);
         self.dark = previous;
         if path_clip {

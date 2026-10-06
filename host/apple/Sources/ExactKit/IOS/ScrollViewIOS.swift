@@ -28,6 +28,12 @@ class ScrollView: UIScrollView {
 
     var scrollsX = true
     var scrollsY = true
+    #if os(tvOS)
+    /// The offset the remote's last step scrolls to, and when it began
+    /// (`RemoteTVOS.swift`): a step pressed during that animation goes on
+    /// from there.
+    var remoteStepTarget: (offset: CGPoint, at: CFTimeInterval)?
+    #endif
     /// A pan cancels a touch in progress, as it does a custom button's; UIKit
     /// would leave a `UIControl` its touch, so a native button (LLP 1069.011
     /// D4) is named. A canvas that owns its input keeps it.
@@ -39,19 +45,28 @@ class ScrollView: UIScrollView {
             let velocity = panGestureRecognizer.velocity(in: self)
             let location = panGestureRecognizer.location(in: self)
             let translation = panGestureRecognizer.translation(in: self)
-            var view = hitTest(CGPoint(x: location.x - translation.x, y: location.y - translation.y), with: nil)
-            if CanvasInput.owns(view) { return false }
-            // CSS intersects touch-action from the hit element through the
-            // scroll container. It governs initial direction, not reversal.
-            while let current = view {
-                if let node = current as? NodeView, !node.allowsTouchPan(velocity) { return false }
-                if current === self { break }
-                view = current.superview
-            }
-            if let owner = superview as? NodeView, !owner.allowsTouchPan(velocity) { return false }
-            if handsOff(velocity) { return false }
+            if !admitsPan(velocity: velocity, translation: translation, start: CGPoint(x: location.x - translation.x, y: location.y - translation.y)) { return false }
         }
         return super.gestureRecognizerShouldBegin(gesture)
+    }
+    /// The pan's own check, apart from UIKit's: `touch-action` intersected
+    /// from the node hit at `start` through this container, then chaining.
+    /// The direction is the velocity, or the movement that crossed the slop
+    /// while UIKit has none yet, as a photo's yield reads it (LLP 1057.001
+    /// rule 2), so the drag it steps aside from is taken here.
+    func admitsPan(velocity: CGPoint, translation: CGPoint, start: CGPoint) -> Bool {
+        let direction = velocity == .zero ? translation : velocity
+        var view = hitTest(start, with: nil)
+        if CanvasInput.owns(view) { return false }
+        // CSS intersects touch-action from the hit element through the
+        // scroll container. It governs initial direction, not reversal.
+        while let current = view {
+            if let node = current as? NodeView, !node.allowsTouchPan(direction) { return false }
+            if current === self { break }
+            view = current.superview
+        }
+        if let owner = superview as? NodeView, !owner.allowsTouchPan(direction) { return false }
+        return !handsOff(direction)
     }
     /// CSS's scroll chaining at a gesture's start (LLP 1070 G1, Q4 as ruled
     /// provisionally): under `overscroll-behavior: auto`, a drag that begins
@@ -69,7 +84,15 @@ class ScrollView: UIScrollView {
         // axis this view scrolls under `none`.
         let still = { (axis: String) in owner.style["overscroll_behavior_\(axis)"]?.string == "none" }
         bounces = !(behavior == "none" || (scrollsX && still("x")) || (scrollsY && still("y")))
-        guard behavior == "auto" else { return false }
+        return chains(velocity)
+    }
+    /// `handsOff`'s answer without its side effect: whether a drag in
+    /// `velocity` begun now chains to an enclosing scroller (a descendant's
+    /// recognizer asks it, LLP 1057.001 rule 2).
+    func chains(_ velocity: CGPoint) -> Bool {
+        guard velocity != .zero, let owner = superview as? NodeView else { return false }
+        let horizontal = abs(velocity.x) > abs(velocity.y)
+        guard (owner.style[horizontal ? "overscroll_behavior_x" : "overscroll_behavior_y"]?.string ?? "auto") == "auto" else { return false }
         let i = adjustedContentInset
         let (at, low, high, scrolls) = horizontal
             ? (contentOffset.x, -i.left, contentSize.width + i.right - bounds.width, scrollsX)

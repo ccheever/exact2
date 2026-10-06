@@ -32,7 +32,8 @@ fn check_finite_names_the_row_the_row_by_row_check_names() {
             s.mask.set(StyleId::LineHeight);
         }
         if next(&mut state).is_multiple_of(4) {
-            s.grid_template_columns = GridTracks::from_tracks(vec![GridTrack::Fr(f32::INFINITY)]);
+            s.rare.grid_template_columns =
+                GridTracks::from_tracks(vec![GridTrack::Fr(f32::INFINITY)]);
             if next(&mut state).is_multiple_of(2) {
                 s.mask.set(StyleId::GridTemplateColumns);
             }
