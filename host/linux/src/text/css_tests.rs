@@ -223,6 +223,99 @@ fn ellipsis_ends_an_over_wide_nowrap_line_in_paint_only() {
     assert_ne!(visible, plain);
 }
 
+/// The ellipsized line's text glyphs' extent and its "…" glyph.
+fn cut_line(p: &Paragraph, line: usize) -> ((f32, f32), LayoutGlyph) {
+    let run = p.layout_runs().nth(line).expect("line");
+    let ellipsis = *run.glyphs.iter().find(|g| g.start == g.end).expect("…");
+    let text = run
+        .glyphs
+        .iter()
+        .filter(|g| g.start < g.end)
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |a, g| {
+            (a.0.min(g.x), a.1.max(g.x + g.w))
+        });
+    (text, ellipsis)
+}
+
+#[test]
+fn a_clamped_line_keeps_its_alignment_and_its_ellipsis_follows_it() {
+    // Blink's line truncator, which Chrome's screenshots show: the line keeps
+    // its alignment, text stays while it and "…" fit the width measured from
+    // where the aligned line starts, and "…" follows what stays, past the
+    // box's end edge if alignment put it there (Chrome clips it there).
+    let mut e = engine(INTER, "Inter");
+    let mut s = spec("first line here\nshort\nthird line", WhiteSpace::PreWrap);
+    s.line_clamp = 2;
+    s.align = TextAlign::Center;
+    let ((left, right), ellipsis) = cut_line(&e.paragraph(&s, Some(200.0)), 1);
+    assert!(
+        ((left + right) / 2.0 - 100.0).abs() < 0.5,
+        "centred: {left}..{right}"
+    );
+    assert!((ellipsis.x - right).abs() < 0.01, "follows: {}", ellipsis.x);
+    s.align = TextAlign::Right;
+    let ((_, right), ellipsis) = cut_line(&e.paragraph(&s, Some(200.0)), 1);
+    assert!((right - 200.0).abs() < 0.5, "right-aligned: {right}");
+    assert!(
+        (ellipsis.x - right).abs() < 0.01,
+        "past the edge: {}",
+        ellipsis.x
+    );
+    // A soft-wrapped clamped line keeps the space it ends in before "…".
+    let mut s = spec(
+        "The quick brown fox jumps over the lazy dog",
+        WhiteSpace::Normal,
+    );
+    s.line_clamp = 1;
+    let p = e.paragraph(&s, Some(120.0));
+    let run = p.layout_runs().next().unwrap();
+    let ellipsis = run.glyphs.iter().find(|g| g.start == g.end).unwrap();
+    let space = run
+        .glyphs
+        .iter()
+        .filter(|g| &run.text[g.start as usize..g.end as usize] == " ")
+        .map(|g| g.x + g.w)
+        .fold(0.0f32, f32::max);
+    assert!(
+        (ellipsis.x - space).abs() < 0.01,
+        "after the space: {}",
+        ellipsis.x
+    );
+}
+
+#[test]
+fn an_ltr_line_of_rtl_text_is_cut_at_its_right_end() {
+    // Under `ltr` the first strong character sets the bidi base (LLP 1001
+    // §1), but "…" takes the line box's CSS end edge, as in Chrome: Hebrew
+    // in an `ltr` box starts at the left with its logical end, and its
+    // logical start is cut at the right.
+    let mut e = engine(DEJAVU, "DejaVu Sans");
+    let text = "\u{5d6}\u{5d4}\u{5d5} \u{5de}\u{5e9}\u{5e4}\u{5d8} \u{5d0}\u{5e8}\u{5d5}\u{5da} \u{5de}\u{5d0}\u{5d5}\u{5d3} \u{5d1}\u{5e2}\u{5d1}\u{5e8}\u{5d9}\u{5ea}";
+    let s = spec(text, WhiteSpace::Nowrap);
+    let shown = e
+        .paragraph(&s, Some(100.0))
+        .ellipsized(100.0)
+        .expect("over-wide");
+    let ((left, right), ellipsis) = cut_line(&shown, 0);
+    assert!(left.abs() < 0.5, "the line starts at the left: {left}");
+    assert!(
+        (ellipsis.x - right).abs() < 0.01,
+        "… at the right end: {}",
+        ellipsis.x
+    );
+    assert!(ellipsis.x + ellipsis.w <= 100.0 + 0.01);
+    let run = shown.layout_runs().next().unwrap();
+    let last = (text.len() - "\u{5ea}".len()) as u32;
+    assert!(
+        run.glyphs.iter().any(|g| g.start == last),
+        "the logical end stays"
+    );
+    assert!(
+        !run.glyphs.iter().any(|g| g.start == 0 && g.end > 0),
+        "the logical start is cut"
+    );
+}
+
 fn digits(e: &mut TextEngine, text: &str, numeric: u8) -> f32 {
     let mut s = spec(text, WhiteSpace::Normal);
     s.runs[0].font_variant_numeric = numeric;
