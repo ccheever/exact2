@@ -108,7 +108,7 @@ component Sidebar
           SidebarTip(tip="sidebar-new-thread", hoverCard=hoverCard)
             button cursor="pointer" press=newThread width=28 height=28 padding=0 border-radius=8 border-width=0 background-color=(hoverId == "sidebar-new-thread" and data.connected ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="New thread" testId="new-thread" disabled=(busy or not data.connected or not data.sidebar.hasProjects)
               Icon(name="compose", size=16, color=(hoverId == "sidebar-new-thread" and data.connected ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#a8a8ae, #545454)"))
-      scroll id="thread-list" flex=1 min-height=0 padding-left=8 padding-right=8 padding-bottom=8 box-sizing="border-box" scroll=scrolled testId="thread-list" hook="t3-rehover" data-frame=`${data.revision}`
+      scroll id="thread-list" flex=1 min-height=0 padding-left=8 padding-right=8 padding-bottom=8 box-sizing="border-box" scroll=scrolled testId="thread-list"
         when not data.sidebar.searching
           column min-height="100%" width="100%" gap=1
             each d in data.sidebar.drafts key=d.id

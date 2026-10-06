@@ -105,7 +105,7 @@ component LegacySidebar
           Tip(label="Add project", side="right", align="center", offset=30)
             button cursor="pointer" press=addProject aria-label="Add project" testId="sidebar-add-project-trigger" disabled=(not data.connected) width=24 height=24 padding=0 border-radius=6 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
               LegacyIcon(name="folder-plus", size=14, color="light-dark(#71717b, #818181)")
-      list id="legacy-projects" reorderdrop=dropped virtualized=true estimated-item-height=120 flex=1 min-height=0 width="100%" padding-left=8 padding-right=8 box-sizing="border-box" overflow-x="hidden" aria-label="Projects" testId="legacy-project-list" hook="t3-rehover" data-frame=`${data.revision}`
+      list id="legacy-projects" reorderdrop=dropped virtualized=true estimated-item-height=120 flex=1 min-height=0 width="100%" padding-left=8 padding-right=8 box-sizing="border-box" overflow-x="hidden" aria-label="Projects" testId="legacy-project-list"
         each p in legacy.projects key=p.key
           LegacyProject(reduced=reduced, p=p, legacy=legacy, now=now, page=page, busy=busy, open=open, local=local, run=run)
       when legacy.noProjects
