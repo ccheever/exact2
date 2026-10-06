@@ -50,7 +50,7 @@ test('adding over SSH tunnels, pairs beside the focused environment and toasts',
   await runSshOp(native, 'environment-ssh-pick', 'devbox', '', true);
   expect(calls.map(call => call.op)).toEqual(['sshResolve', 'sshConnect', 'pairEnvironment']);
   expect(calls[1]).toMatchObject({ alias: 'devbox', hostname: 'devbox.lan', username: 'me', port: 2222, pair: true });
-  expect(calls[2]).toEqual({ op: 'pairEnvironment', origin: 'http://127.0.0.1:41234', credential: 'PAIRCODE123' });
+  expect(calls[2]).toEqual({ op: 'pairEnvironment', origin: 'http://127.0.0.1:41234', credential: 'PAIRCODE123', scope: 'orchestration:read orchestration:operate terminal:operate review:write relay:read' });
   calls.length = 0;
   const result = await runSshOp(native, 'environment-ssh-add', 'root@box', 'username=&port=22', false);
   expect(calls.map(call => call.op)).toEqual(['sshConnect', 'connect']);
