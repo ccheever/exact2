@@ -6,6 +6,7 @@
 import type { T3Client } from './client';
 import { ClientError, type Files, type Native } from './protocol';
 import { pushToast } from './toast';
+import { letGo } from './let-go';
 
 type Pending = { scope: string; title: string };
 const pending = new WeakMap<T3Client, Pending>();
@@ -36,7 +37,7 @@ export async function archiveCommand(client: T3Client, native: Native, storage: 
   const clicked = typeof reply.clicked === 'string' ? reply.clicked : null;
   if (clicked === 'unarchive') {
     try { await archive(client).manageArchivedThread(native, storage, 'unarchive-thread', scope); }
-    catch (error) { pushToast(client, { kind: 'error', title: 'Failed to unarchive thread', description: failure(error) }); }
+    catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to unarchive thread', description: failure(error) }); }
     return '';
   }
   if (clicked === 'delete') {
@@ -48,6 +49,6 @@ export async function archiveCommand(client: T3Client, native: Native, storage: 
 }
 async function remove(client: T3Client, native: Native, storage: Files, scope: string): Promise<string> {
   try { await archive(client).manageArchivedThread(native, storage, 'delete-archived-thread', scope); }
-  catch (error) { pushToast(client, { kind: 'error', title: 'Failed to delete thread', description: failure(error) }); }
+  catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to delete thread', description: failure(error) }); }
   return '';
 }

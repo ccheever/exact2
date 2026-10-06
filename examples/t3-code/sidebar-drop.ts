@@ -15,6 +15,7 @@ import { partition, renderedRows } from './sidebar-view';
 import { parkThread } from './sidebar-commands';
 import { wall, sidebarSession } from './sidebar-state';
 import { insertContext } from './composer-editor';
+import { letGo } from './let-go';
 
 /** A card is 78pt plus 2pt above and below; rows sit 1pt apart; drag labels are 24pt. */
 export const CARD = 83, LABEL = 24;
@@ -84,7 +85,7 @@ export async function sidebarDrop(client: T3Client, native: Native, id: string, 
     const ids = session.selection.includes(id) ? [...session.selection] : [id];
     for (const threadId of ids) {
       try { await insertContext(client, native, 'thread', threadId); }
-      catch (error) { pushToast(client, { kind: 'error', title: error instanceof Error ? error.message : 'Unable to add to chat' }); break; }
+      catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: error instanceof Error ? error.message : 'Unable to add to chat' }); break; }
     }
     return '';
   }
@@ -106,6 +107,7 @@ export async function sidebarDrop(client: T3Client, native: Native, id: string, 
       const [commandId] = await access.ids(1);
       await access.request('orchestration.dispatchCommand', { ...plan.steps[index], commandId }, true);
     } catch (error) {
+      if (letGo(error)) throw error;
       pushToast(client, { kind: 'error', title: plan.failure[index]!, description: error instanceof Error ? error.message : 'An error occurred.' });
       break;
     }

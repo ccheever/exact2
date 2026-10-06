@@ -12,6 +12,7 @@ import { pushToast } from './toast';
 import { visiblePullRequests } from './shell-pr';
 import { resolveChains } from './r4-surfaces-prs';
 import { panelState } from './r4-surfaces-panel';
+import { letGo } from './let-go';
 
 export interface ThreadReferenceCopyTarget {
   readonly kind: 'pull-request' | 'thread';
@@ -76,6 +77,7 @@ export async function copyThreadReference(client: T3Client, native: Native, pane
     if (reply.copied === false) throw new Error(`Could not copy the ${target.clipboardTarget}.`);
     pushToast(client, { kind: 'success', title: target.successTitle, description: target.value });
   } catch (error) {
+    if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', stacked: true, title: target.failureTitle, description: error instanceof Error && error.message ? error.message : 'An error occurred.' });
   }
   return '';

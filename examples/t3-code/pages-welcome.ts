@@ -16,6 +16,7 @@ import { pushToast } from './toast';
 import { wallEpoch, wallIso } from './r8-pointer-clock';
 import type { T3Client } from './client';
 import { OnboardingTerminal, resolveOnboardingProviderInstallCommand, resolveOnboardingProviderLoginCommand } from './onboarding-terminal';
+import { letGo } from './let-go';
 const terminals = new WeakMap<T3Client, Map<string, OnboardingTerminal>>();
 function setupTerminal(client: T3Client, native: Native, environmentId: string): OnboardingTerminal {
   let byEnvironment = terminals.get(client);
@@ -214,7 +215,7 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
         const result = await client.rpc(native, 'agentSessions.scan', {});
         scan.candidates = decodeCandidates(focused.environmentId, result);
         scan.truncated = result.truncated === true;
-      } catch (error) { scan.error = error instanceof Error ? error.message : 'The scan failed.'; }
+      } catch (error) { if (letGo(error)) throw error; scan.error = error instanceof Error ? error.message : 'The scan failed.'; }
     }
     state.scan = scan;
     state.picked = null;

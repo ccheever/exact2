@@ -25,10 +25,12 @@ import { legacyEnabled, legacyProjectOrder, threadSortOrder } from './legacy-sid
 import { closeThreadTerminals, detachThreadSessions, removeOrphanedWorktree, setWorktreePrompt, worktreePlan, worktreePrompt, type WorktreePrompt } from './worktree-cleanup'; // thread-commands-and-keys: G5
 import { deleteSelectedThreadEntries, getFallbackThreadIdAfterDelete } from './sidebar-delete-logic';
 import { mostRecentProjectId } from './pages-home';
+import { letGo } from './let-go';
 
 const failure = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
 const threadOf = (client: T3Client, id: string): Obj | undefined => client.shell.threads.find(thread => thread.id === id);
-const toast = (client: T3Client, title: string, error: unknown) => pushToast(client, { kind: 'error', title, description: failure(error) });
+/** The failure toast; a let-go request is rethrown instead (let-go.ts), so nothing after it runs. */
+const toast = (client: T3Client, title: string, error: unknown) => { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title, description: failure(error) }); };
 
 /** Session navigation the client exposes for the sidebar (select-thread / new-thread without a row gesture). */
 interface Navigator { openSelected?(native: Native, id: string): Promise<void>; openDraft?(native: Native, projectId: string): Promise<void> }
@@ -567,6 +569,8 @@ async function snoozeMany(client: T3Client, nativeHandle: Native, ids: string[],
     const forward = planForward(client, nativeHandle, id, batch);
     try { await snooze(client, nativeHandle, id, until); snoozed++; if (forward) await forward(); } catch (error) { failures.push(error); }
   }
+  const letGoFailure = failures.find(letGo);
+  if (letGoFailure) throw letGoFailure;
   if (failures.length) pushToast(client, { kind: 'error', title: snoozed > 0 ? `Failed to snooze ${failures.length} thread${failures.length === 1 ? '' : 's'}` : 'Failed to snooze threads', description: failure(failures[0]) });
 }
 /** The confirmation and custom snooze dialogs' confirm button. */

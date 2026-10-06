@@ -16,6 +16,7 @@ import { environmentIndicator } from './shell-details';
 import { runOnMenuWidth, workspaceLabels } from './r5-composer-menus';
 import { isScratch, openRemoteScratch, scratchChoices, scratchRootOf } from './r12-threads-scratch'; // r12-threads: No project drafts switch machine (c47f4263f9)
 import { pushToast } from './toast';
+import { letGo } from './let-go';
 
 const normalize = (value: unknown) => str(value).trim().replace(/\\/g, '/').replace(/\/+$/, '');
 /** deriveLogicalProjectKey for one grouping mode. */
@@ -81,6 +82,7 @@ export async function runOnEnvironment(client: T3Client, native: Native, environ
     // r12-threads (845ddd9354): the machine's "No project" folder is created now; a failure keeps the draft where it is.
     try { projectId = await openRemoteScratch(client, native, entry); }
     catch (error) {
+      if (letGo(error)) throw error;
       pushToast(client, { kind: 'error', title: 'Could not switch machine', description: error instanceof Error && error.message ? error.message : 'An error occurred.' });
       return { status: null, generation: -1 };
     }

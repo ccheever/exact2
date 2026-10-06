@@ -9,6 +9,7 @@ import { ClientError, type Native } from './protocol';
 import { relativeTimeLabel } from './settings-data';
 import { dxCell, dxFinish, dxHeaders, dxRow, liveCollapsed, option, telemetryPage, type DxTable } from './settings-a-telemetry';
 import { preferredEditor } from './shell-details';
+import { letGo } from './let-go';
 
 // RESOURCE_HISTORY_WINDOWS: the process history buckets per period.
 const WINDOWS: Record<string, [number, number]> = { '5m': [300000, 30000], '15m': [900000, 60000], '30m': [1800000, 120000], '1h': [3600000, 300000] };
@@ -72,7 +73,7 @@ export async function diagnosticsPage(client: T3Client, native: Native | null | 
   const window = WINDOWS[period];
   if (!window) return { ...empty, error: 'Unsupported resource history period.' };
   const access = client.restAccess(native);
-  const read = async (method: string, payload: Obj) => { try { return { value: await access.request(method, payload), error: '' }; } catch (error) { return { value: {} as Obj, error: error instanceof Error ? error.message : 'Could not load diagnostics.' }; } };
+  const read = async (method: string, payload: Obj) => { try { return { value: await access.request(method, payload), error: '' }; } catch (error) { if (letGo(error)) throw error; return { value: {} as Obj, error: error instanceof Error ? error.message : 'Could not load diagnostics.' }; } };
   const key = `${client.environmentId}|${period}|${refresh}`;
   let reads = cache.get(client);
   if (!reads || reads.key !== key) {

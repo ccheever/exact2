@@ -17,6 +17,7 @@ import { revisedUrl } from './r10-device-files-html';
 import { mediaFileReference, mediaUrlReference } from './media-reference';
 import { classifyMarkdownImageSource, isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath, mediaKindFromPath, normalizeMarkdownLinkDestination } from './media-source';
 import { encodeMediaSource, externalWebLinkHost, mediaTooltip, openMediaLink, resolveProtocolRelativeMediaUrl, showMediaMenu, type MediaActionSource } from './media-actions';
+import { letGo } from './let-go';
 
 /** A media slot as Contract draws it (media-actions.contract MediaView). */
 export type MediaView = {
@@ -54,7 +55,7 @@ async function mint(client: T3Client, native: Native | null | undefined, key: st
       const result = obj(await client.rpc(native, 'assets.createUrl', { resource }));
       const url = assetUrl(client.origin, str(result.relativeUrl));
       entry = { url, at: now, error: !url, resource };
-    } catch { entry = { url: '', at: now, error: true, resource }; }
+    } catch (error) { if (letGo(error)) throw error; entry = { url: '', at: now, error: true, resource }; }
     map.set(key, entry);
     if (map.size > 256) map.delete(map.keys().next().value!);
   }

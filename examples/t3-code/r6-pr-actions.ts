@@ -12,10 +12,11 @@
 //   "Show all".
 import type { T3Client } from './client';
 import { arr, num, obj, str, type Obj } from './domain';
-import { ClientError, type Native } from './protocol';
-import { pushToast } from './toast';
+import type { Native } from './protocol';
+import { dismissToast, pushToast } from './toast';
 import { ensureDraftThreadId, withHandoffThread } from './r7-handoff-thread'; // lane r7-handoff
 import { ACTION_FAILURE, ACTION_HINT, ACTION_SUCCESS, actionPayload, fixChecksPrompt, handoffPrompt, preparePayload, readableFailure, resolveConflictsPrompt, type MergeMethod } from './r6-pr-logic';
+import { letGo } from './let-go';
 
 type Entry = { at: number; checksAt: number; detail: Obj | null; error: string; reading: boolean };
 type State = {
@@ -83,7 +84,7 @@ export async function readDetail(client: T3Client, native: Native, reference: Ob
       if (checks && typeof checks === 'object' && Array.isArray(obj(checks).checks)) merged = { ...merged, ...obj(checks) };
     }
     entry.detail = num(merged.number) > 0 ? merged : null;
-  } catch (error) { entry.error = error instanceof Error ? error.message : String(error); }
+  } catch (error) { if (!letGo(error)) entry.error = error instanceof Error ? error.message : String(error); }
   entry.reading = false;
   state.details.set(key, entry);
   return entry.detail;
@@ -103,6 +104,7 @@ export async function performAction(client: T3Client, native: Native, reference:
   try {
     await client.rpc(native, 'pullRequests.runAction', actionPayload(reference, action, action === 'merge' ? method ?? 'merge' : undefined), true);
   } catch (error) {
+    if (letGo(error)) throw error;
     // The host's own sentence, because it is the only thing that says why.
     pushToast(client, { kind: 'error', title: ACTION_FAILURE[action]!, description: readableFailure(error instanceof Error ? error.message : '', ACTION_HINT[action]!) });
     return '';
@@ -148,7 +150,7 @@ export async function startHandoff(client: T3Client, native: Native, kind: 'conf
     : fixChecksPrompt({ number: num(detail.number), title: str(detail.title), url: str(detail.url), headBranch: str(detail.headBranch), baseBranch: str(detail.baseBranch), checks: arr(detail.checks) });
   state.handoff = kind;
   const toastKey = 'pr-handoff';
-  pushToast(client, { kind: 'loading', title: 'Preparing the pull request checkout...', key: toastKey });
+  const loading = pushToast(client, { kind: 'loading', title: 'Preparing the pull request checkout...', key: toastKey });
   try {
     const projectId = str(detail.projectId);
     if (!client.shell.projects.some(project => project.id === projectId)) {
@@ -167,7 +169,8 @@ export async function startHandoff(client: T3Client, native: Native, kind: 'conf
     let prepared: Obj;
     try { prepared = obj(await client.rpc(native, 'git.preparePullRequestThread', withHandoffThread(preparePayload(detail), threadId), true)); }
     catch (error) {
-      const description = error instanceof Error && !(error instanceof ClientError && error.kind === 'superseded') ? error.message : '';
+      if (letGo(error)) { dismissToast(client, loading); throw error; } // let-go.ts: no failure toast
+      const description = error instanceof Error ? error.message : '';
       pushToast(client, { kind: 'error', title: 'Could not prepare the pull request checkout', ...(description ? { description } : {}), key: toastKey });
       return '';
     }
