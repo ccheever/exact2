@@ -66,6 +66,15 @@ XCTests define their own `exactModule` and leave out `T3Module*.swift` (README r
 
 ## Terminal spike
 
+**2026-10-06 theme repair and recapture:** [report and original/native screenshot pairs](.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-terminal-surface/20261006-theme-parity/attempt.md).
+The harness now passes the selected stock/preset/custom terminal colors and simple/advanced
+font preferences through `terminal-theme`, `terminal-font` and `terminal-font-size`.
+The default layer screenshot reproduced as fully transparent; use
+`bun scripts/agent.mjs macos … "screenshot out.png window"` and inspect the PNG before
+calling it evidence. The new captures show real output in light/dark and custom themes.
+The comparison is against the original renderer in Chrome, not the full Electron drawer.
+The historical spike results below do not establish drawer/session parity or physical-input coverage.
+
 Task `20261005-terminal-surface`, 2026-10-06. The question: can the reference desktop's own
 terminal (Ghostty's libghostty-vt WASM and T3 Code's Canvas 2D surface,
 `apps/web/src/terminal/ghostty/`) run in this app? **Verdict: GO, if the user accepts the S2

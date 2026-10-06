@@ -256,6 +256,11 @@ its command identifiers and draft and is never retried automatically.
 
 ## Known limits and exclusions
 
+The terminal renderer's [2026-10-06 verification](.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-terminal-surface/20261006-theme-parity/attempt.md) includes light/dark,
+preset/custom theme pairs against the original renderer, font updates, and integrated app
+window captures with visible ANSI output and typed loopback text. Settings now reach the
+terminal. This is renderer evidence; the drawer and PTY session integrations below remain excluded.
+
 - Excluded or not built: the terminal drawer and Terminal surface (a hand-off's setup script
   runs on the server but its output is not shown; the `t3-terminal` view, T3 Code's own Ghostty
   emulator in a web view, exists with a development harness, ⌃⌥⇧T, `AGENT-HANDOFF.md` "Terminal

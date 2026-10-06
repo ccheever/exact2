@@ -1,9 +1,9 @@
 ---
 name: 20261005-terminal-surface
 plan: 20261005-t3code-macos-parity
-implementation: implemented
+implementation: in-progress
 verification: unverified
-delivery: none
+delivery: open
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-terminal-surface
@@ -182,6 +182,25 @@ the bundle build); the harness stays until the drawer replaces it.
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
 | 1 (implementation + spike) | `b9e4d15a8` on `da40e6590` | `bun test examples/t3-code` 1457/0 (base 1321; terminal-host + terminal-links 136); strict tsc on `app.ts` clean, on `terminal-host/src/entry.ts` (ES2023, DOM) clean; `contract build` 2189 slots, 43 resources, 48356 nodes; `cargo test -p t3-code-macos --lib` 10/0; `macos/tests/terminal` 8 (1 skipped unless `T3_TERMINAL_SCALE=1`; the scale run passes too); every other AppKit binary passes (mermaid needs a server: not run); `verify-vendor.mjs` 7 files match; `build.mjs` under `sandbox-exec` (reference and network denied) exit 0, two builds same sha256; caps pass; macOS bundle builds with the page in `Resources/assets/` | `AGENT-HANDOFF.md` "Terminal spike" (S1–S9 table, S2 numbers); drive transcripts and pictures in the PR | User: GO and S2 budget. Live: canvas paint under the agent fixed after the drive, not re-driven; attended rows unverified |
+
+## 2026-10-06 conflict, theme and evidence follow-up
+
+Merged base `eb259ef281b224520b35faad61929f8be9cf40ed` in `61b7a428c`, retaining both
+window-chrome and terminal presentation status. `b01d97a0f` connects selected appearance,
+terminal theme colors and typography, including updates while the page loads.
+
+[New evidence and limitations](../evidence/20261005-terminal-surface/20261006-theme-parity/attempt.md):
+1496 Bun tests pass; native terminal 8 pass / 1 scale skip; app Rust 10 pass;
+strict TypeScript, Contract, app build/launch and all five gates pass. Four pairs compare
+actual WKWebView output against the pinned original renderer in Chrome. All ten built-in
+theme appearance halves match source palette values. App window captures show ANSI output
+and actual key delivery to the loopback fixture. The default layer capture reproduced as
+fully transparent and is preserved as a failed artifact. Always use the window capture here.
+
+This does not close the task's full acceptance: no full Electron render pair, no physical
+IME/pointer/clipboard sweep, no fresh scaling benchmark, and no accepted GO/budget.
+The development harness still is not ThreadTerminalDrawer; PTY/session/UI integrations
+remain separate work. Verification stays unverified for those unmet criteria.
 
 ## Next action
 
