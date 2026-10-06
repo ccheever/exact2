@@ -1,12 +1,12 @@
 ---
 name: 20261005-main-fix-adoption
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-main-fix-adoption
 pr_url: null
 verified_commit: null
 ---
@@ -55,7 +55,7 @@ apply.
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged first: group 1 changes shared files that this ticket also edits (review finding: sequence it first) | pending |
+| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | #147 | Merged first: group 1 changes shared files that this ticket also edits (review finding: sequence it first) | merged into `feat(example)/t3-code` (`7f692c9a1`); this branch is rebased on it |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 
 Scheduling preference (not a prerequisite): finish before the feature tickets that edit the
@@ -84,14 +84,51 @@ Task-owned source paths: Contract and Swift files that hold the workarounds,
 
 ## Progress
 
-Planned.
+Implemented 2026-10-06 on exact2 main `c12832e82` (the feature branch at `da40e6590`, after
+hot-file-split #147, floating-device-player #146 and legacy-sidebar #143). Verification: unverified.
+One workaround per commit:
+
+| Fixed on main | Removed or adopted | Proof on the pin |
+| --- | --- | --- |
+| `pointer-events: none` on boxes, inherited, visible-overflow hit testing (`652a6c865`, `c44607c7d`) | `inert=true` on 20 overlay, tooltip, hover-card, drag-ghost, fade and probe layers → `pointer-events="none"`; the composer controls row's margin -10 / padding 10 and the footer's `- 10` | ExactKit `ClipMacTests` (in 795 tests, 0 failures); live: `layout model-picker` x 0 → -10 (outside its row) and a mouse press at (3,14) still opens the model menu, before and after |
+| `cursor` keywords (`c6136f39d`) | pointer on the shared button styles, links, sidebar and legacy-sidebar buttons; `w-resize` sidebar rail; `col-resize` right panel edge | `CollectionMacTests.testCSSCursorKeywordsReachAppKit`; real pointer: unverified (attended) |
+| `position-area` (`2c6b551ba`) | SnapShot Accessibility data and Usage unpriced popovers use `position-area="top"` | `PositionAreaTests`, `ChooserMacTests.testTheMenuPopsUpByItsPositionArea`; live: not reached (needs a SnapShot attachment / usage data) |
+| Key modifiers, `preventDefault()`, bubbling, `tabindex` (`f35b3eafc`, `8a0afbeab`, `d672f9372`) | the draft row's hidden `aria-keyshortcuts="Shift+F10"` button → its own `key` handler; the right-panel tab's native Shift+F10 monitor → the tab buttons' `key` handler | `r12-sidebar.test.ts` (Shift+F10 rows), AppKit `contextmenu` 11/0 (new pass-through test), `r12-sidebar` 3/0, `r11-upstream` 3/0; live: not reached (see attempts) |
+| Awaiting another answer's fetch (`f96641ddd`) | none: `readDetail` keeps per-answer reads because a let-go answer's replies are still dropped (#109) | `cargo test -p exact-js --test it an_answer_awaiting_another_answers_fetch` 1/0 |
+| `title` → native tooltip (`2bfebe63e`) | `title` where the reference has it: pending question toggle and Dismiss, project group settings, license Project source, device rail text-size and more-actions triggers | host `PresenterMac` sets `toolTip` from `title`; hover tooltip itself unverified (attended) |
+
+Kept: the window-level sidebar rail and edge tips (paint order under the chat column, not only
+hit testing), every workaround for #100–#141 (listed in `EXACT2-GAPS.md` "Current state on the
+pin"), the rename field's Escape monitor (#140: window shortcuts are heard before a field's key
+handler). The row keyboard context menu already existed (r12-sidebar); the handoff gap line was stale.
+
+Not run: the 840×620 size and dark appearance live, the oracle and trace-diff rows
+(desktop-oracle-and-trace will not be built), real pointer/keyboard checks (cursor shapes,
+tooltip delay, physical Shift+F10): unverified (attended).
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (2026-10-06) | `0c9a3749c` on `da40e6590` | `bun test examples/t3-code` 1321/0 (base 1321); strict tsc clean; contract build 2182 slots, 43 resources; `cargo test -p t3-code-macos --lib` 10/0; AppKit `contextmenu` 11/0, `r12-sidebar` 3/0, `r11-upstream` 3/0; ExactKit 795/0 (2 skipped); five checks pass (cargo test 2928/0, 18 ignored; clippy, fmt, caps, boot); macOS bundle builds | drive records below; PR screenshots | live draft-row and tab Shift+F10 not reached |
+
+Live drives (one BEFORE on `t3-code-evidence-base` `da40e6590`, one AFTER on this branch; same
+steps, lane server on 16120 with the fixture project added by `t3 project add`). A first pair
+stopped at the Projects step's disabled "Import 0 projects" (`serve` ignores
+`--auto-bootstrap-project-from-cwd`), and an earlier partial BEFORE drive ran about a minute
+without the drive lock before it was stopped. Records of the final pair (AFTER; BEFORE equal
+except where noted):
+
+```
+ok pair · ok no import candidates: continue without importing · wizard gone: true
+layout model-picker: {"x":-10,"y":2,"w":167.53,"h":28}      (BEFORE: "x":0, inside the padded row)
+ok mouse press model-picker at 3,14 {"tapped":186,"at":[3,14],"delivery":"platform"}
+model menu open after the edge press: true                   (BEFORE: true)
+ok hover new-thread → tooltip "New thread (⇧⌘O)" shown        (BEFORE: same)
+ok press add-project under the tooltip layer {"tapped":71,"at":[14,14]} → Add project dialog
+FAIL type a draft: view 147 is hidden or inert (the Add project dialog stayed open; drive design)
+```
 
 ## Next action
 
-`prepare` after the clone-on-main PR merges.
+Review the PR. A later attended session checks the cursors, the `title` tooltips and a physical Shift+F10 on a draft row and a right-panel tab.
