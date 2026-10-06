@@ -596,6 +596,13 @@ each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https:/
 cleartext `http` reaches only a local host, and only with `app.json`'s
 `host.ios.localNetworking` set),
 and how to drive it with storage.
+A token, a password or a key the module keeps is a secret, not a file: grant
+`secret.keep <name>` (one line per name, `secret.keep signal.token`) and use
+`store.set(name, value)`, `store.get(name)` (a string, or `null`) and
+`store.forget(name)` in an answer (LLP 1018). It is the Keychain on Apple; on the
+web, the page's `localStorage`, readable by any script on that origin; a Linux
+launch keeps it only until the app exits for now. A drive keeps it, by default,
+only in a named `--storage` store (`EXACT_STORE=real` gives an Apple drive the Keychain).
 The compiler accepting a source call does not provide its implementation. Check
 its arguments, declared result, grants, storage access, and bake-time behavior.
 Keep generated output out of version control. Use app-local sources for domain
