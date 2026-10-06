@@ -153,11 +153,15 @@ long-reply drive are in `/tmp/messages-line-clamp/verification.json`. Mixed-run
 token styling still differs from the browser's paragraph-styled ellipsis, and
 the browser fixture does not show the token on a right-aligned line; full text raster
 parity remains open. `overflow-wrap` travels through `ExactMeasureRequest`
-and the paragraph cache. Normal uses public Unicode line-break boundaries
-so CoreText's emergency word split becomes overflow; `break-word` retains
-that split. `anywhere` additionally measures min-content by composed-character
-clusters; the other modes retain the widest word. A forward cursor consumes
-line boundaries once rather than searching the whole list for every line.
+and the paragraph cache. Normal and `break-word` break at the last public
+Unicode line-break boundary whose content fits (CoreText's own opportunities
+differ); when none fits, normal lets the word overflow and `break-word`
+splits it at the last cluster that fits. `anywhere` keeps CoreText's
+breaking and measures min-content by composed-character clusters; the other
+modes measure the widest piece between those same Unicode boundaries, not
+only between spaces (2026-10-05: a URL in a chat bubble had sized its box to
+the whole URL, then overflowed it). A forward cursor consumes line
+boundaries once rather than searching the whole list for every line.
 The normal/break-word/anywhere/restored fixture agrees with the browser's
 finite-width and flex minimum behavior (`/tmp/messages-overflow-wrap/`).
 Native editing controls keep their existing UIKit/AppKit wrapping policy;
