@@ -8,8 +8,9 @@
 // tvOS requires at an app's root. A keyboard's Space presses no node here:
 // UIKit turns an unhandled Space into the remote's Play/Pause. A scroll
 // container with nothing focusable inside is a remote stop itself, as the
-// web's keyboard-focusable scrollers are (Chrome 130): the remote's moves
-// scroll it until its edge, then go on to the next stop.
+// web's keyboard-focusable scrollers are (Chrome 130): the remote's arrow
+// clicks scroll it until its edge, then go on to the next stop; a swipe on
+// the touch surface moves the focus out at once, so a long one is no trap.
 #if os(tvOS)
 import UIKit
 
@@ -28,12 +29,26 @@ extension NodeView {
         return !scroll.holdsFocusableNode
     }
 
-    /// While a focusable scroller holds the focus, a move it can take
-    /// scrolls it a step instead of leaving it.
-    override func shouldUpdateFocus(in context: UIFocusUpdateContext) -> Bool {
-        if context.previouslyFocusedItem === self, focusableScroller, scroll?.remoteStep(context.focusHeading) == true { return false }
-        return super.shouldUpdateFocus(in: context)
+    /// An arrow click's direction: the remote's press, or a keyboard's
+    /// arrow key (the Simulator sends both for one click).
+    static func arrowHeading(_ press: UIPress) -> UIFocusHeading? {
+        switch press.type {
+        case .upArrow: return .up
+        case .downArrow: return .down
+        case .leftArrow: return .left
+        case .rightArrow: return .right
+        default: break
+        }
+        switch press.key?.keyCode {
+        case .keyboardUpArrow: return .up
+        case .keyboardDownArrow: return .down
+        case .keyboardLeftArrow: return .left
+        case .keyboardRightArrow: return .right
+        default: return nil
+        }
     }
+    /// The arrow presses a scroller stepped on, whose ends it takes too.
+    static var steppedPresses = Set<ObjectIdentifier>()
 
     override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
         super.didUpdateFocus(in: context, with: coordinator)
@@ -50,8 +65,19 @@ extension NodeView {
         }
     }
 
-    /// Whether `presses` hold Select for this node; a Select going down presses it.
+    /// Whether `presses` hold Select for this node; a Select going down
+    /// presses it. On a focusable scroller, an arrow click it can take
+    /// scrolls it; at its edge the click goes on to move the focus. Swipes
+    /// are not presses: they move the focus as anywhere else.
     func remoteSelect(_ presses: Set<UIPress>, down: Bool) -> Bool {
+        if focusableScroller, let press = presses.first(where: { NodeView.arrowHeading($0) != nil }), let heading = NodeView.arrowHeading(press) {
+            // A press's end goes where its start went.
+            let key = ObjectIdentifier(press)
+            if !down { return NodeView.steppedPresses.remove(key) != nil }
+            guard scroll?.remoteStep(heading) == true else { return false }
+            NodeView.steppedPresses.insert(key)
+            return true
+        }
         guard presses.contains(where: { $0.type == .select }), !disabled, !cssVisibilityHidden, handlers.contains("press") else { return false }
         if down { presenter?.press(id) }
         return true
@@ -80,12 +106,20 @@ extension ScrollView {
     /// way; false at the edge, where the move leaves.
     func remoteStep(_ heading: UIFocusHeading) -> Bool {
         let inset = adjustedContentInset, end = maxOffset
-        var offset = contentOffset
+        let now = CACurrentMediaTime()
+        // One input is one step: the Simulator (and a keyboard) sends an
+        // arrow both as a key and as the remote's press, milliseconds apart.
+        if let last = remoteStepTarget, now - last.at < 0.06 { return true }
+        // A step's animation runs about 0.3 s; a press during it adds to its target.
+        let pending = remoteStepTarget.flatMap { now - $0.at < 0.35 ? $0.offset : nil }
+        let start = pending ?? contentOffset
+        var offset = start
         if heading.contains(.down) { offset.y = min(offset.y + bounds.height * 0.8, end.y - inset.top) }
         else if heading.contains(.up) { offset.y = max(offset.y - bounds.height * 0.8, -inset.top) }
         else if heading.contains(.right) { offset.x = min(offset.x + bounds.width * 0.8, end.x - inset.left) }
         else if heading.contains(.left) { offset.x = max(offset.x - bounds.width * 0.8, -inset.left) }
-        guard abs(offset.x - contentOffset.x) > 0.5 || abs(offset.y - contentOffset.y) > 0.5 else { return false }
+        guard abs(offset.x - start.x) > 0.5 || abs(offset.y - start.y) > 0.5 else { return false }
+        remoteStepTarget = (offset, now)
         setContentOffset(offset, animated: true)
         return true
     }

@@ -336,7 +336,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let ring = focusRing ?? CAShapeLayer()
         #if os(tvOS)
         // Across a room the ring stands clear of the content: outside the box, padded and rounded.
-        ring.path = UIBezierPath(roundedRect: bounds.insetBy(dx: -10, dy: -5), cornerRadius: 12).cgPath
+        ring.path = UIBezierPath(roundedRect: clipsToBounds ? bounds.insetBy(dx: 2, dy: 2) : bounds.insetBy(dx: -10, dy: -5), cornerRadius: 12).cgPath
         #else
         ring.path = roundedPath(in: bounds.insetBy(dx: 1.5, dy: 1.5), inset: 1.5).cgPath
         #endif
