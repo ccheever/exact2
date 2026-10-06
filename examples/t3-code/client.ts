@@ -34,7 +34,8 @@ import { sidebarCommand, sidebarLocal, sidebarSelecting, sidebarOpened, sidebarR
 import { reconnectOnLaunch, launchFocus } from './r8-pointer-reconnect';
 import { adoptSidebarPrefs } from './sidebar-state';
 import { runProviderOp, PROVIDER_OPS } from './providers';
-import { runConnectionOp, CONNECTION_OPS } from './connections';
+import { CONNECTION_OPS } from './connections';
+import { READ_OPS, WRITE_OPS, runOps, type OpOut } from './client-ops';
 import { fleet, parseFleetThreadId, focusFleetThread } from './settings-b-fleet';
 import { groupLabel } from './r6-polish-groups';
 import { adoptModelPrefs } from './settings-b-models';
@@ -57,7 +58,7 @@ import { WORKTREE_SETUP_KEY, worktreeSetupEvent } from './timeline-worktree';
 import { GIT_ACTION_KEY, gitActionEvent } from './r4-git-actions';
 import { effectiveWorktreeRules, obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThread, mergeHistory,
   readyCheckpoint, messages, type Obj, type Shell, type ThreadState } from './domain';
-import { ClientError, bridgeReply, parsePairing, activeRun, providerAvailable, modelSelection, sendPayload,
+import { ClientError, bridgeReply, activeRun, providerAvailable, modelSelection, sendPayload,
   launchPayload, applyConfig, type Native, type Files } from './protocol';
 
 const localPath = 'app:/data/t3-code.json';
@@ -108,7 +109,7 @@ export class T3Client {
   local = preferences();
   busy = false;
   private loaded = false;
-  private shellLoaded = false;
+  shellLoaded = false;
   private synchronizedGeneration = -1;
   private synchronizationEpoch = 0;
   private nextRefreshEpoch = 0;
@@ -148,7 +149,7 @@ export class T3Client {
       return result;
     } };
   }
-  private raw(native: Native, request: unknown) { return bridgeReply(native, request); }
+  raw(native: Native, request: unknown) { return bridgeReply(native, request); }
   private async call(native: Native, request: unknown, expected = this.generation, write = false): Promise<Obj> {
     if (this.generation !== expected) throw new ClientError('The connection changed. Refresh before continuing.', 'stale');
     let response;
@@ -256,7 +257,7 @@ export class T3Client {
 
   // r13-store F5: Remove forgets the focused environment's address, selection and cached threads
   // (reference ConnectionsSettings.tsx:2600-2640: the pairing, credentials and cached threads go).
-  private dropFocus(environmentId: string): void {
+  dropFocus(environmentId: string): void {
     delete this.local.selections[environmentId];
     this.origin = DEFAULT_ORIGIN; this.environmentId = ''; this.projectId = ''; this.threadId = '';
     this.shell = initialShell(); this.shellLoaded = false; this.thread = null;
@@ -264,7 +265,7 @@ export class T3Client {
     this.diffOpen = false; this.diffText = ''; this.threadEpoch++;
   }
 
-  private adoptStatus(value: Obj, generation: number): void {
+  adoptStatus(value: Obj, generation: number): void {
     if (!['disconnected', 'connecting', 'connected', 'reconnecting', 'error'].includes(str(value.state))
       || typeof value.origin !== 'string' || typeof value.environmentId !== 'string' || typeof value.message !== 'string') {
       throw new ClientError('The native bridge returned an invalid connection status. Reconnect and try again.', 'protocol');
@@ -349,7 +350,7 @@ export class T3Client {
     } finally { await read.end(); }
   }
 
-  private async synchronize(native: Native): Promise<void> {
+  async synchronize(native: Native): Promise<void> {
     // Commands and watched snapshots can both bootstrap. Only the newest one
     // may install subscriptions, even when their answer lifetimes differ.
     const epoch = ++this.synchronizationEpoch;
@@ -634,28 +635,12 @@ export class T3Client {
       native = this.ownedNative(native, () => epoch === this.commandEpoch);
     }
     let resultMessage = '';
+    const out: OpOut = { message: '', id, value }; // an area's ops hand back their message (client-ops.ts)
     try {
       await this.load(storage);
       await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, confirmQuit: quitMode(this.local) });
-      if (op === 'connect' || op === 'reconnect') {
-        const target = parsePairing(id || this.origin, value);
-        // Retry without a new credential probes a live socket instead of replacing it (T3Transport retryNow, 9333509).
-        const response = await this.raw(native, { op: op === 'reconnect' && !target.credential ? 'retry' : 'connect', ...target });
-        if (!response.ok) throw new ClientError(response.error!.message, response.error!.kind);
-        this.adoptStatus(obj(response.value), response.generation);
-        this.error = '';
-      } else if (op === 'disconnect' || op === 'forget') {
-        const focused = this.environmentId;
-        const response = await this.raw(native, { op: 'disconnect', forget: op === 'forget' });
-        if (response.ok) this.adoptStatus(obj(response.value), response.generation);
-        if (response.ok && op === 'forget' && !str(obj(response.value).origin)) this.dropFocus(focused);
-      } else if (CONNECTION_OPS.includes(op)) {
-        const focused = op === 'environment-forget' && value === this.environmentId ? value : '';
-        const result = await runConnectionOp(native, op, id, value, this.connection === 'connected', this);
-        if (result.status) this.adoptStatus(result.status, result.generation);
-        if (focused && result.status && !str(result.status.origin)) this.dropFocus(focused);
-        this.error = '';
-      } else if (op === 'draft') {
+      if (await runOps(this, READ_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
+      else if (op === 'draft') {
         if (value.length > 1_000_000) throw new ClientError('Keep a draft under 1,000,000 characters.');
         if (!setCustomAnswer(this, value)) this.local.drafts[this.draftKey] = value;
        } else if (op === 'favorite-model') {
@@ -778,9 +763,6 @@ export class T3Client {
       } else if (op === 'select-thread') {
         if (parseFleetThreadId(id)) { const focused = await focusFleetThread(this, native, id); this.adoptStatus(focused.value, focused.generation); } // settings-b: another environment
         else if (!(await sidebarSelecting(this, native, id, value))) await this.openSelected(native, id);
-      } else if (op === 'refresh') {
-        this.shellLoaded = false; this.thread = null; this.error = '';
-        await this.synchronize(native);
       } else if (op === 'history') await this.history(native);
       else if (['diff', 'checkpoint-diff', 'diff-scope', 'diff-refresh', 'diff-whitespace'].includes(op)) await this.diff(native, op, id, value, n);
       else if (op === 'answer') setCustomAnswer(this, value);
@@ -800,7 +782,8 @@ export class T3Client {
       } else if (op === 'settings-core') resultMessage = await applyCoreSetting(this, native, id, value);
       else {
         this.requireWrite();
-        if (op === 'fork-message') {
+        if (await runOps(this, WRITE_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
+        else if (op === 'fork-message') {
           const source = messages(this.thread).find(message => message.id === id && message.kind === 'assistant');
           if (!source?.runId || !source.completed) {
             throw new ClientError('Only a completed response can be forked.');
