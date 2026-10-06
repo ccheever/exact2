@@ -13,14 +13,19 @@
 //! - [`measure`] — text in cells: one wrap, for the measurer and the painter.
 //! - [`grid`] — the cells, their text and SGR forms, and the diff.
 //! - [`paint`] — the walk.
-//! - [`host`] — the runner wrapped: layout, focus, keys, the mouse.
+//! - [`host`] — the runner wrapped: layout, focus, dialogs, the mouse; keys
+//!   and paste in `keys`.
+//! - [`image`] — PNGs decoded once; kitty, iTerm2 or half-blocks.
 //! - [`term`] — raw mode, vte, the loop, restoration.
 
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod cli;
 pub mod grid;
 pub mod host;
+pub mod image;
+mod keys;
 pub mod measure;
 pub mod paint;
 pub mod term;

@@ -1,16 +1,16 @@
 //! The todo fixture (LLP 1101 Q9) driven headless as the agent drives it.
 
-use exact_terminal::host::{Host, Key};
+use exact_terminal::host::{Host, Key, Mode};
 
-fn boot() -> Host {
+fn boot() -> Host<()> {
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/todo/terminal.contract");
     let plan =
         contract::compile_path_terminal(&path).expect("the todo entry passes the terminal profile");
-    Host::boot(plan, 60, 16).expect("boots")
+    Host::boot(plan, (), Mode::Fullscreen, 60, 16).expect("boots")
 }
 
-fn screen(host: &mut Host) -> String {
+fn screen(host: &mut Host<()>) -> String {
     host.frame().grid.text()
 }
 

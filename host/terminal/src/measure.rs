@@ -99,6 +99,8 @@ pub fn wrap(
         tokens.push(Token::Word(word));
     }
     let limit = if white_space.wraps() { limit } else { None };
+    // `pre` and `pre-wrap` keep every space, leading and trailing.
+    let keeps = white_space.preserves();
     let breaks_words = paragraph.overflow_wrap != OverflowWrap::Normal
         && (!min_content || paragraph.overflow_wrap == OverflowWrap::Anywhere);
     let mut lines = vec![Line::default()];
@@ -106,13 +108,15 @@ pub fn wrap(
     for token in tokens {
         match token {
             Token::Break => {
-                trim(lines.last_mut().expect("a line"), trailing);
+                if !keeps {
+                    trim(lines.last_mut().expect("a line"), trailing);
+                }
                 lines.push(Line::default());
                 trailing = 0;
             }
             Token::Space(glyph) => {
                 let line = lines.last_mut().expect("a line");
-                if !line.glyphs.is_empty() {
+                if keeps || !line.glyphs.is_empty() {
                     line.glyphs.push(glyph);
                     trailing += 1;
                 }
@@ -121,7 +125,9 @@ pub fn wrap(
                 let width: usize = glyphs.iter().map(|g| g.cols).sum();
                 let current = lines.last().expect("a line").cols();
                 if limit.is_some_and(|max| current > 0 && current + width > max) {
-                    trim(lines.last_mut().expect("a line"), trailing);
+                    if !keeps {
+                        trim(lines.last_mut().expect("a line"), trailing);
+                    }
                     lines.push(Line::default());
                 }
                 trailing = 0;
@@ -139,7 +145,9 @@ pub fn wrap(
             }
         }
     }
-    trim(lines.last_mut().expect("a line"), trailing);
+    if !keeps {
+        trim(lines.last_mut().expect("a line"), trailing);
+    }
     let clamp = paragraph.line_clamp as usize;
     if clamp > 0 && lines.len() > clamp {
         lines.truncate(clamp);

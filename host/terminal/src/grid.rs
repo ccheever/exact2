@@ -164,6 +164,15 @@ impl Grid {
         }
     }
 
+    /// Fade everything painted so far: the backdrop under an open dialog.
+    pub fn dim(&mut self) {
+        for c in &mut self.cells {
+            c.style.faint = true;
+            c.style.reverse = false;
+        }
+        self.cursor = None;
+    }
+
     /// Set an attribute over a rectangle: reverse video for focus.
     pub fn reverse(&mut self, rect: CellRect, clip: CellRect) {
         let r = rect.intersect(clip);
@@ -186,6 +195,34 @@ impl Grid {
             }
             out.push_str(line.trim_end());
             out.push('\n');
+        }
+        out
+    }
+
+    /// One row as SGR text for the normal screen, its trailing blank cells
+    /// dropped — so a selection in the terminal copies no trailing spaces.
+    pub fn row_sgr(&self, y: usize) -> String {
+        let mut end = self.cols;
+        while end > 0 {
+            let c = self.cell(end - 1, y);
+            if c.text == " " && c.style.bg.is_none() && !c.style.reverse && !c.style.underline {
+                end -= 1;
+            } else {
+                break;
+            }
+        }
+        let mut out = String::new();
+        let mut current = None;
+        for x in 0..end {
+            let cell = self.cell(x, y);
+            if current != Some(cell.style) {
+                sgr(&mut out, cell.style);
+                current = Some(cell.style);
+            }
+            out.push_str(&cell.text);
+        }
+        if current.is_some() {
+            out.push_str("\x1b[0m");
         }
         out
     }
