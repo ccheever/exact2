@@ -613,8 +613,9 @@ lists, use `list virtualized=true` (no other tag takes it), one direct keyed
 `each`, and one flow root per row. A vertical list needs `height`, `max-height`
 or a growing `flex`, which may be computed (`max-height=(narrow ? "320px" : "640px")`).
 A percentage bounds it only against a definite containing-block height (a plain
-`column` is content-sized), and the bake flags an unbounded list only in its first
-frame, so look at the list in each layout it takes. It takes `estimated-item-height`. A horizontal one needs a
+`column` is content-sized), and the bake refuses (`bake-scroll-unbounded`) only a
+list with no bound at all, in its first 390×844 frame, so look at the list in each
+layout it takes. It takes `estimated-item-height`. A horizontal one needs a
 literal `display="flex"` and a literal positive `height`, takes
 `estimated-item-width`, and refuses wrapping, reversed or right-to-left flow, a
 nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
