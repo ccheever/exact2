@@ -18,6 +18,7 @@ import { PROVIDER_OPS } from './providers';
 import { CONNECTION_OPS } from './connections';
 import { READ_OPS, WRITE_OPS, runOps, type OpOut } from './client-ops';
 import { groupingModes, message, projectPath } from './client-shared';
+import { letGo } from './let-go';
 import { fleet } from './settings-b-fleet';
 import { groupLabel } from './r6-polish-groups';
 import { adoptModelPrefs } from './settings-b-models';
@@ -232,7 +233,7 @@ export class T3Client {
   get preferencesLoaded(): boolean { return this.loaded; }
   async savePreferences(storage: Files): Promise<void> { await this.save(storage); }
   private async save(storage: Files): Promise<void> {
-    try { await this.persist(storage); } catch { this.error = 'Could not save local drafts and preferences. Keep a copy before closing.'; }
+    try { await this.persist(storage); } catch (error) { if (!letGo(error)) this.error = 'Could not save local drafts and preferences. Keep a copy before closing.'; }
   }
 
   // r13-store F5: Remove forgets the focused environment's address, selection and cached threads
@@ -578,8 +579,9 @@ export class T3Client {
     const environmentId = this.environmentId;
     this.local.pending[environmentId] = pending;
     try { await this.persist(storage); }
-    catch {
+    catch (error) {
       delete this.local.pending[environmentId];
+      if (letGo(error)) throw error; // let-go.ts: nothing was sent, and it is not a failure
       throw new ClientError('Could not save this operation locally. Your draft is still available.');
     }
     try {
