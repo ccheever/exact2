@@ -792,6 +792,15 @@
       return Promise.reject(new TypeError("exactStream maps each event to the answer: (event) => value"));
     if (stream && call.stream) return Promise.reject(new Error("an answer streams one request"));
     if (stream && ceiling === undefined) ceiling = 1048576;
+    // A deadline for the whole exchange (headers and body), in milliseconds:
+    // the host cancels the request when it passes and the fetch rejects with
+    // a FetchError of kind "Timeout". A stream has none.
+    var timeout = init ? init.exactTimeout : undefined;
+    if (timeout !== undefined) {
+      if (!Number.isInteger(timeout) || timeout < 1 || timeout > 3600000)
+        return Promise.reject(new TypeError("exactTimeout must be an integer number of milliseconds from 1 to 3600000"));
+      if (stream) return Promise.reject(new TypeError("exactTimeout: a stream has no timeout"));
+    }
     // The web's `signal`: an aborted fetch rejects with its reason at once.
     // The host's request still runs; its reply is dropped (`__exact_fulfill`).
     var signal = init ? init.signal : undefined;
@@ -801,7 +810,7 @@
     }
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, max_response_bytes: ceiling, stream: stream ? true : undefined }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, max_response_bytes: ceiling, stream: stream ? true : undefined, timeout_ms: timeout }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
@@ -1240,8 +1249,11 @@
     var call = calls.get(Number(id));
     return call ? settle(call, final === "final") : fail(new Error("no such call"));
   };
-  // The runner let this call's request go (LLP 1016 D5): drop the call and
-  // the fetches it waits on, so nothing keeps them alive.
+  // The runner let this call's request go (LLP 1016 D5): drop the call, and
+  // reject the fetches it waits on, so its continuation runs (a `finally`
+  // clears what the call set) rather than vanishing: the runner drops the
+  // reply when it comes. The request may already be on the wire. A send
+  // that needs every reply is a `queue` mutation (LLP 1092).
   // One let go between storage steps answers "storage": its steps are
   // running and the chain behind them goes on, so the executor delivers them
   // until `__exact_let_go` says none is left, and its answer is never given
@@ -1250,14 +1262,21 @@
     var call = calls.get(Number(id));
     if (!call) return "";
     // Not a fetch another answer has since claimed: that one waits on it.
+    var dropped = [];
     for (var i = 0; i < call.tickets.length; i++) {
       var p = pending.get(call.tickets[i]);
-      if (p && p.call === call) settled(call.tickets[i]);
+      // A stream's promise never settles (LLP 1016.000), ended or let go.
+      if (p && p.call === call) { settled(call.tickets[i]); if (!p.stream) dropped.push(p); }
     }
-    if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage"; }
+    // Rejected now, run at the next drain with no answer current.
+    dropped.forEach(function (p) {
+      p.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this reply; the request may already have been sent" }));
+    });
+    var rejected = dropped.length ? " rejected" : "";
+    if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage" + rejected; }
     call.replied = true;
     calls.delete(call.id);
-    return "";
+    return rejected.trim();
   };
   global.__exact_let_go = function (failed, message) {
     var owed = false;

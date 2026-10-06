@@ -29,7 +29,10 @@
   html { -webkit-tap-highlight-color: transparent; }
   /* LLP 1019 §5: nearest real face, never browser-synthesized bold/italic. */
   #exact-root { height: 100%; font-synthesis: none; }
-  body { font: 16px system-ui, sans-serif; }
+  /* LLP 1069.000 D3: unsized text takes the root font size (16 unless the
+     reader's setting or the agent's `prefer root-font-size` says otherwise),
+     as the kernel resolves an `em` under no sized ancestor. */
+  body { font: 1rem system-ui, sans-serif; }
   button, input, textarea { all: unset; display: block; box-sizing: content-box; cursor: default; }
   select { display: block; }
   /* A link is a bare node too: the UA's link colour, underline and pointer
@@ -43,6 +46,8 @@
      weight go. The node's own style rows, inline, still win. */
   h1, h2, h3, h4, h5, h6 { margin: 0; font-size: inherit; font-weight: inherit; }
   #exact-root button:focus-visible { outline: revert; outline-offset: 2px; }
+  /* A field in its default look shows the UA's focus ring (LLP 1104 D4); a bare one (appearance="none") draws its own. */
+  #exact-root [data-fieldstyle]:focus-visible { outline: revert; outline-offset: 0; }
   /* The UA's own reset, which \`all: unset\` undid: a field shows what was
      typed, as the kernel measures it and native fields draw it (LLP 1064 D6). */
   input, textarea { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }

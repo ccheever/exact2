@@ -194,7 +194,7 @@ async function fixture(body) {
     return resolve(root, dir);
   };
   try {
-    for (const path of ['scripts/app.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','game/app/shells.mjs','game/.cargo/config.toml']) {
+    for (const path of ['scripts/app.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','game/app/shells.mjs','game/.cargo/config.toml']) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
     const { resolveApp: localResolveApp, cargoReproducibilityFlags: flags } = await import(resolve(root,'scripts/app.mjs'));
@@ -1181,6 +1181,30 @@ test('locked metadata fetches a missing git checkout without rewriting the lock'
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
+test('`appTransportSecurity` writes ATS for web content only; absent, no key (#106)', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const ats = { appTransportSecurity: { allowsArbitraryLoadsInWebContent: true } };
+  const app = (host) => ({ id: 'com.example.fixture', displayName: 'Fixture', manifest: { host } });
+  const flat = (plist) => plist.replace(/>\s+</g, '><');
+  const web = /<key>NSAppTransportSecurity<\/key><dict><key>NSAllowsArbitraryLoadsInWebContent<\/key><true\/><\/dict>/;
+  assert.match(flat(macInfoPlist(app({ macos: ats }))), web);
+  assert.match(flat(infoPlist(app({ ios: ats }))), web);
+  // Beside the dev client's local networking, one dictionary with both keys.
+  assert.match(flat(infoPlist(app({ ios: { ...ats, localNetworking: true } }))), /<key>NSAppTransportSecurity<\/key><dict><key>NSAllowsArbitraryLoadsInWebContent<\/key><true\/><key>NSAllowsLocalNetworking<\/key><true\/><\/dict>/);
+  assert.match(flat(infoPlist(app({ ios: { localNetworking: true } }))), /<key>NSAppTransportSecurity<\/key><dict><key>NSAllowsLocalNetworking<\/key><true\/><\/dict>/);
+  // Absent or false, on tvOS (no WebKit), and one platform's field never reaches the other's plist.
+  assert.doesNotMatch(infoPlist(app({ ios: ats }), false, { tv: true }), /NSAppTransportSecurity/);
+  for (const plist of [macInfoPlist(app({})), macInfoPlist(app({ ios: ats })), infoPlist(app({ macos: ats })), macInfoPlist(app({ macos: { appTransportSecurity: { allowsArbitraryLoadsInWebContent: false } } }))]) assert.doesNotMatch(plist, /NSAppTransportSecurity/);
+  // A typed field, not a pass-through: any other key fails the manifest.
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ats-'));
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'F', app: { id: 'com.example.f', name: 'F' }, host: { macos: { appTransportSecurity: { NSAllowsArbitraryLoads: true } } } }));
+    assert.throws(() => readManifest(dir, 'f'), /host\.macos\.appTransportSecurity/);
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'F', app: { id: 'com.example.f', name: 'F' }, host: { macos: ats, ios: ats } }));
+    assert.equal(readManifest(dir, 'f').host.macos.appTransportSecurity.allowsArbitraryLoadsInWebContent, true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 1069.010 D4)', async () => {
   const { readManifest } = await import('./app.mjs');
   const app = (manifest) => ({ id: 'com.example.fixture', displayName: 'Fixture', name: 'fixture', manifest: { host: {}, ...manifest } });
@@ -1266,13 +1290,36 @@ test('web remapping preserves game floating-point determinism on both web toolch
 test('simulator signing gives each app and embedded host a distinct Keychain identity', async () => {
   const {entitlements} = await import('../host/apple/build.mjs');
   const app = {id:'com.exact.test',manifest:{host:{ios:{}}}};
-  const sim = entitlements(app), host = entitlements({...app,id:app.id+'.host'});
-  assert.match(sim, /<key>application-identifier<\/key><string>com.exact.test<\/string>/);
-  assert.match(host, /<key>application-identifier<\/key><string>com.exact.test.host<\/string>/);
+  const simulator = {simulator:true};
+  const sim = entitlements(app, null, true, null, simulator), host = entitlements({...app,id:app.id+'.host'}, null, true, null, simulator);
+  // A Team ID's ten characters before the id (LLP 1069.008.000 D3), the bare id it had kept as a Keychain group.
+  assert.match(sim, /<key>application-identifier<\/key><string>SIMULATORX.com.exact.test<\/string>/);
+  assert.match(sim, /<key>keychain-access-groups<\/key><array><string>SIMULATORX.com.exact.test<\/string><string>com.exact.test<\/string><\/array>/);
+  assert.match(host, /<key>application-identifier<\/key><string>SIMULATORX.com.exact.test.host<\/string>/);
   assert.doesNotMatch(sim, /com.apple.developer.team-identifier/);
   const device = entitlements(app, 'TEAM', false);
   assert.match(device, /TEAM.com.exact.test/);
+  assert.doesNotMatch(device, /keychain-access-groups|SIMULATORX/);
   assert.match(device, /<key>get-task-allow<\/key><false\/>/);
+});
+
+test('a HealthKit grant signs with its entitlement, tvOS drops it, and a device build takes only a profile that allows it', async () => {
+  // LLP 1069.008.000 D2, D4, D5.
+  const {entitlements, tvReach} = await import('../host/apple/build.mjs');
+  const {allows} = await import('../host/apple/devices.mjs');
+  const app = {id:'com.exact.test',manifest:{host:{ios:{}}}};
+  const health = 'com.apple.developer.healthkit';
+  const reach = {base:'en', locales:['en'], entitlements:[health], tvOmits:['NSHealthShareUsageDescription','NSHealthUpdateUsageDescription',health],
+    usage:{NSHealthShareUsageDescription:{en:'Reads.'}, NSHealthUpdateUsageDescription:{en:'Reads.'}, NSMicrophoneUsageDescription:{en:'Hears.'}}};
+  for (const plist of [entitlements(app, null, true, reach, {simulator:true}), entitlements(app, 'TEAM', true, reach)]) assert.match(plist, /<key>com.apple.developer.healthkit<\/key><true\/>/);
+  const tv = tvReach(reach);
+  assert.deepEqual(tv.entitlements, []);
+  assert.deepEqual(Object.keys(tv.usage), ['NSMicrophoneUsageDescription']);
+  assert.doesNotMatch(entitlements(app, null, true, tv, {simulator:true}), /healthkit/);
+  assert.equal(tvReach({usage:{A:{en:'x'}}}).usage.A.en, 'x', 'nothing to omit leaves reach alone');
+  const wildcard = {entitlements:['application-identifier','get-task-allow','keychain-access-groups']}, explicit = {entitlements:[...wildcard.entitlements, health]};
+  assert.ok(allows(wildcard, []) && allows(explicit, [health]));
+  assert.ok(!allows(wildcard, [health]) && !allows(null, []));
 });
 
 test('setup accepts both official Binaryen release tags and package-manager version output', async () => {

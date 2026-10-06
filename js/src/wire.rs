@@ -39,6 +39,15 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
         headers,
         body: field("body").unwrap_or_default().into_bytes(),
         stream: j.get("stream").and_then(Json::as_bool).unwrap_or(false),
+        timeout_ms: match j.get("timeout_ms") {
+            None | Some(Json::Null) => None,
+            Some(value) => Some(
+                value
+                    .as_u64()
+                    .filter(|n| (1..=u64::from(exact_runner::MAX_TIMEOUT_MS)).contains(n))
+                    .ok_or("a request timeout must be 1 to 3600000 ms")? as u32,
+            ),
+        },
     })
 }
 

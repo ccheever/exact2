@@ -152,6 +152,12 @@ theorem stdlib_unsupported {env : Env} {p : Program} {name : String} {vs : List 
     subst h
     simp only [stdlib]; exact formatting_good
   rw [ite_neg hn] at h
+  by_cases hn : name = "toFixed" ∨ name = "formatDecimal"
+  · rw [ite_pos hn] at h
+    split at h <;> simp at h
+    subst h
+    rcases hn with rfl | rfl <;> simp only [stdlib] <;> exact formatting_good
+  rw [ite_neg hn] at h
   by_cases hn : name = "t"
   · subst hn; rw [ite_pos rfl] at h
     split at h <;> simp at h
@@ -449,6 +455,33 @@ theorem stdlib_good {env : Env} {p : Program} {name : String} {vs : List Value} 
     split at h <;> simp at h; subst h
     obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]
     obtain ⟨_, rfl⟩ := hw.num_inv; simp [stdlib, GoodR, ValTy]
+  rw [ite_neg hn] at h
+  by_cases hn : name = "ceil" ∨ name = "round"
+  · rw [ite_pos hn] at h
+    split at h <;> simp at h; subst h
+    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]
+    obtain ⟨_, rfl⟩ := hw.num_inv
+    rcases hn with rfl | rfl <;> simp [stdlib, GoodR, ValTy]
+  rw [ite_neg hn] at h
+  by_cases hn : name = "parseNumber"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h; subst h
+    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]
+    obtain ⟨s, rfl⟩ := hw.str_inv
+    simp only [stdlib]
+    split <;> simp [GoodR, ValTy]
+  rw [ite_neg hn] at h
+  by_cases hn : name = "calendarDiff"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h; subst h
+    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
+    obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv
+    obtain ⟨w'', ws'', rfl, hw'', hws''⟩ := hws'.cons_inv; rw [hws''.nil_inv]
+    obtain ⟨_, rfl⟩ := hw.str_inv; obtain ⟨_, rfl⟩ := hw'.str_inv; obtain ⟨u, rfl⟩ := hw''.str_inv
+    simp only [stdlib]
+    split
+    · split <;> simp [GoodR, ValTy]
+    · simp [GoodR, Legit]
   rw [ite_neg hn] at h
   by_cases hn : name = "max" ∨ name = "min"
   · rw [ite_pos hn] at h

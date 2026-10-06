@@ -45,7 +45,6 @@ final class Flight {
     /// its radius and its clip (D4.4).
     var clip: NSView?
     var frame: NSRect?
-    var saved: (radius: CGFloat, clips: Bool)?
     init(id: UInt32, source: FlightSource) { self.id = id; self.source = source }
 }
 
@@ -139,7 +138,7 @@ extension Presenter {
                     layer.addSubview(view, positioned: .above, relativeTo: clip)
                     view.frame = NSRect(origin: clip.frame.origin, size: view.frame.size)
                 }
-                if let s = f.saved { view.layer?.cornerRadius = s.radius; view.layer?.masksToBounds = s.clips }
+                restore(view, f)
                 view.applyTransform()
             }
             f.clip?.removeFromSuperview()
@@ -151,14 +150,23 @@ extension Presenter {
         slot.removeFromSuperview()
         f.clip?.removeFromSuperview()
         view.frame = f.frame ?? slot.frame
-        if let s = f.saved {
-            view.layer?.cornerRadius = s.radius
-            view.layer?.masksToBounds = s.clips
-        }
+        restore(view, f)
         view.applyTransform()
         if view.kind == "image" { view.applyImageLayer() }
         view.needsDisplay = true
         f.container.map(Self.dropEmptyLayer)
+    }
+
+    /// Its clip and corners as its style says now (`FlightsIOS.restore`): an
+    /// image flew clipped, and its interpolated radius, set on a backing
+    /// layer, clipped too; a box pass in flight left the layer's radius to
+    /// the flight, so the one it lifted with may be stale. The clip first:
+    /// the box pass puts a radius on the layer only where it clips.
+    private func restore(_ view: NodeView, _ f: Flight) {
+        view.flightLook = nil
+        view.clipsToBounds = view.overflowClips && view.clipBox == nil
+        view.layer?.masksToBounds = view.clipsToBounds
+        view.applyBoxLayer()
     }
 
     func forgetFlight(_ id: UInt32) {
@@ -217,7 +225,6 @@ extension Presenter {
             l.setPaintForeground()
             return l
         }()
-        f.saved = (view.layer?.cornerRadius ?? 0, view.layer?.masksToBounds ?? false)
         f.view = view
         f.slot = slot
         f.container = layer

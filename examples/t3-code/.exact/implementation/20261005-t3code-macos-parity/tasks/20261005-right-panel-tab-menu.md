@@ -1,13 +1,13 @@
 ---
 name: 20261005-right-panel-tab-menu
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
-verification: blocked
+implementation: implemented
+verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3code-parallel-features
-branch: daehyeon/t3code-right-panel-tab-menu
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-right-panel-tab-menu
+pr_url: https://github.com/ccheever/exact2/pull/169
 verified_commit: null
 ---
 
@@ -182,9 +182,70 @@ Development results (2026-10-06):
   integration checks, not claimed here. Editor live focus/IME, attended pointer
   menu and device-fixture relaunch remain unverified.
 
+## Wave 3 repair, 2026-10-06 (feat(example)/t3-code-right-panel-tab-menu)
+
+**Root cause of the failed verification.** The tab's `contextmenu` sent `surface-menu`; the
+module answered it with `T3ContextMenu.perform`, which pops an `NSMenu`. Under the agent the
+window is never key and has no pointer, so `popUp` tracks until real input: the request stayed
+pending (`clock settle gave up on requests still in flight at its bound (20 s native)`, BEFORE
+drive: `pending: [{name: localChanged, ticket: 342}]`), and Copy path ran only when a person
+dismissed the menu. A standalone reproduction (production `T3ContextMenu.swift` at 9670b0723 in
+an accessory app) gave no reply within 8 s.
+
+**Fix (app code only).**
+- The tab strip owns one Contract `contextPopover` (`r4-tab-menu`, r4-surfaces.contract
+  R4HeaderBar). The tab's `contextmenu` names the tab; the host presents the popover rows: an
+  `NSMenu` at the pointer on macOS (LLP 1021 §5.1), the painted popover under the agent. Each row
+  presses `surface-<action>` directly, so no native request waits on menu tracking. The rows come
+  from `tabMenuRows` over `tabContextMenuItems` (R4Tab.menu): reference order, Rename only on device
+  tabs, Copy path only on file tabs without an attachment, disabled flags as the reference.
+- `T3ContextMenu.perform` answers dismissed under the agent (as `T3Sidebar`'s menu does). This
+  keeps the Shift+F10 keyboard menu (still the module path, anchored at the focused tab) and the
+  archive/branch menus from hanging a drive.
+- Double-click rename is the title button's own `dblclick` (the agent's `tap … dblclick` reaches
+  it); the native monitor keeps the middle click and the editor's Escape/shortcut isolation.
+- Found in the live drive: typing a name and pressing Enter kept the old title, because the commit
+  read the name from earlier `surface-rename-edit` commands. The editor is now `R4TabNameField`,
+  whose own state holds the name and whose Enter/blur commit pass it (SidebarRenameField pattern).
+
+**Checks (final tree).** `bun test examples/t3-code`: 1832 pass, 1 skip, 0 fail (base 1829). Strict
+tsc: clean. Contract build: 2348 slots, 43 resources, 2284 actions. `cargo test -p t3-code-macos
+--lib`: 10 pass. AppKit `contextmenu` binary: 14 pass, 0 fail (adds the agent-dismissal case; the
+double-click case now asserts the monitor passes it on). Caps: within cap. Five checks: build,
+test (2928 pass, 0 fail), clippy, fmt, caps, boot all exit 0. macOS bundle build: pass.
+
+**Live drive (macOS 1280×840, one AFTER call at 43c0e8a31 plus one BEFORE call at 9670b0723).**
+Fixture: reference server 1e2ecbd975 on 127.0.0.1:16280, isolated HOME/XDG/T3CODE_HOME under
+`target/lane`, a three-file git repo added with `project add`, device support turned on and one
+thread created over the server's RPC (no simulator opened). The first AFTER call stopped in the
+fixture setup (a nested tree row did not appear); the second ran the flow:
+
+```
+tap panel-tab-file:util.ts contextmenu → tree tab-menu:
+  View#1641 [tab-menu]: tab-menu-copy-path, tab-menu-close, tab-menu-close-others,
+  tab-menu-close-to-right, tab-menu-close-all
+tap tab-menu-copy-path → clock settle: settled; toast "Path copied" / "util.ts"; pbpaste: util.ts
+tap panel-tab-device contextmenu → tree tab-menu: tab-menu-rename, tab-menu-close, …-close-all
+tap tab-menu-rename → editor tab-name-device open with "Device" selected (05 shot)
+type tab-name-device Bench phone; key Enter → editor closed, tab still "Device"  (fixed in c4e206795)
+tap panel-tab-diff contextmenu; tap tab-menu-close → strip: util.ts, Device, Files (diff gone)
+tap panel-tab-file:README.md contextmenu → no such tab: the fixture's third file tab never opened
+```
+
+BEFORE, same steps: `tap tab-device dblclick` opened no editor; the right-click left
+`localChanged` pending and `clock settle` gave up at its 20 s bound, with no toast.
+
+Not verified live (the one-drive rule ended the drives): the rename fix, Close others / Close to
+the right / Close all (unit-tested through `surfaceLocal`), Escape in the editor (agent keys bypass
+local monitors), relaunch persistence, per-host device tabs with real devices (unit-tested). Real
+right-click NSMenu position, middle-click and Shift+F10 at a focused tab: unverified (attended).
+Oracle and trace-diff rows: not run. Mute: deferred (X1).
+
 ## Next action
 
-Verification is `blocked` after the authorized repair pass. The prior menu timeout was traced to nested agent settling during native menu tracking, not a demonstrated product bug. Complete mounted native rename, bulk actions, clipboard/input and relaunch acceptance in an interactive host with usable isolated credential storage; keep this task active until those checks pass.
+Verification is `unverified`: the menu, Copy path, single Close and the rename editor ran live
+after the wave-3 fix; drive the rename commit and the three bulk closes once more, and the
+attended rows (real right-click menu, middle click, Shift+F10) with a person.
 
 ## Combined integration, 2026-10-06
 

@@ -106,7 +106,15 @@ impl<D: DataSource> Presenter<D> {
         ghost: bool,
         now: f64,
     ) -> Result<bool, String> {
-        // No new lift while a session holds, cancels or settles (D8).
+        // A landing ghost ends at once (LLP 1102 §3.18); no new lift while a
+        // session holds, cancels or settles (D8).
+        if self
+            .group
+            .as_ref()
+            .is_some_and(|s| matches!(s.phase, Phase::Landing { .. }))
+        {
+            self.finish_group();
+        }
         if self.group.is_some() || self.arrange.is_some() {
             return Ok(false);
         }
@@ -596,7 +604,12 @@ impl<D: DataSource> Presenter<D> {
             self.dirty = true;
             return true;
         }
-        if name != " " || self.group.is_some() {
+        // A landing ghost yields to Space's lift, which ends it (LLP 1102 §3.18).
+        let landing = self
+            .group
+            .as_ref()
+            .is_some_and(|s| matches!(s.phase, Phase::Landing { .. }));
+        if name != " " || (self.group.is_some() && !landing) {
             return false;
         }
         let Some(binding) = self.group_grip(id) else {

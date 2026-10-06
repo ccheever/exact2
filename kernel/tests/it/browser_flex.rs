@@ -381,3 +381,201 @@ fn order_lays_items_out_in_order_modified_document_order() {
     let y = |id| k.node(id).unwrap().frame.y;
     assert_eq!([y(2), y(3), y(4)], [0.0, 10.0, 20.0]);
 }
+
+/// A flex container in a column that does not stretch it is sized at
+/// fit-content, and its main size (height) is found at that width (CSS
+/// Flexbox §9.2 3E). Measured under the available width alone, a wrapping
+/// row took its items' summed bases, one line, and kept that line's height
+/// after it was laid out at the narrower fit-content width: a Signal Clone
+/// bubble's second line of text spilled out of it (2026-10-05). Chrome 154,
+/// 2026-10-05, through the web host (Contract's own CSS).
+#[test]
+fn a_fit_content_flex_item_in_a_column_is_as_tall_as_its_wrapped_lines() {
+    let column = |align: &str| {
+        vec![
+            (Display, t("flex")),
+            (FlexDirection, t("column")),
+            (AlignItems, t(align)),
+            (Width, n(200.0)),
+        ]
+    };
+    let boxed = |w: f64, h: f64| vec![(Width, n(w)), (Height, n(h))];
+    run(|case| {
+        case(
+            "align-items: flex-start, a wrapping row of two 120s",
+            column("flex-start"),
+            vec![
+                (2, 1, vec![(Display, t("flex")), (FlexWrap, t("wrap"))]),
+                (3, 2, boxed(120.0, 10.0)),
+                (4, 2, boxed(120.0, 10.0)),
+            ],
+            &[],
+            &[],
+            &[
+                (2, [0.0, 0.0, 200.0, 20.0]),
+                (3, [0.0, 0.0, 120.0, 10.0]),
+                (4, [0.0, 10.0, 120.0, 10.0]),
+            ],
+        );
+        case(
+            "align-items: flex-start, a row holding a wrapping row of two 120s",
+            column("flex-start"),
+            vec![
+                (2, 1, vec![(Display, t("flex"))]),
+                (3, 2, vec![(Display, t("flex")), (FlexWrap, t("wrap"))]),
+                (4, 3, boxed(120.0, 10.0)),
+                (5, 3, boxed(120.0, 10.0)),
+            ],
+            &[],
+            &[],
+            &[
+                (2, [0.0, 0.0, 200.0, 20.0]),
+                (3, [0.0, 0.0, 200.0, 20.0]),
+                (5, [0.0, 10.0, 120.0, 10.0]),
+            ],
+        );
+        case(
+            "a fit-content width under max-width: 0 keeps its padding (two 0-wide items, one line)",
+            column("flex-start"),
+            vec![
+                (
+                    2,
+                    1,
+                    vec![
+                        (Display, t("flex")),
+                        (FlexWrap, t("wrap")),
+                        (MaxWidth, n(0.0)),
+                        (PaddingLeft, n(10.0)),
+                        (PaddingRight, n(10.0)),
+                        (BoxSizing, t("border-box")),
+                    ],
+                ),
+                (3, 2, boxed(0.0, 10.0)),
+                (4, 2, boxed(0.0, 10.0)),
+            ],
+            &[],
+            &[],
+            &[
+                (2, [0.0, 0.0, 20.0, 10.0]),
+                (3, [10.0, 0.0, 0.0, 10.0]),
+                (4, [10.0, 0.0, 0.0, 10.0]),
+            ],
+        );
+        case(
+            "intrinsic sizes inverted by a negative margin: fit-content is the min-content 100",
+            {
+                let mut rows = column("flex-start");
+                rows[3] = (Width, n(80.0));
+                rows
+            },
+            vec![
+                (2, 1, vec![(Display, t("flex")), (FlexWrap, t("wrap"))]),
+                (
+                    3,
+                    2,
+                    vec![(Width, n(80.0)), (Height, n(10.0)), (FlexShrink, n(0.0))],
+                ),
+                (
+                    4,
+                    2,
+                    vec![(Width, n(20.0)), (Height, n(10.0)), (FlexShrink, n(0.0))],
+                ),
+                (
+                    5,
+                    2,
+                    vec![
+                        (Width, n(10.0)),
+                        (Height, n(10.0)),
+                        (FlexShrink, n(0.0)),
+                        (MarginLeft, n(-150.0)),
+                    ],
+                ),
+                (
+                    6,
+                    2,
+                    vec![(Width, n(100.0)), (Height, n(10.0)), (FlexShrink, n(0.0))],
+                ),
+            ],
+            &[],
+            &[],
+            &[
+                (2, [0.0, 0.0, 100.0, 10.0]),
+                (5, [-50.0, 0.0, 10.0, 10.0]),
+                (6, [-40.0, 0.0, 100.0, 10.0]),
+            ],
+        );
+        case(
+            "align-items: center, the same row",
+            column("center"),
+            vec![
+                (2, 1, vec![(Display, t("flex")), (FlexWrap, t("wrap"))]),
+                (3, 2, boxed(120.0, 10.0)),
+                (4, 2, boxed(120.0, 10.0)),
+            ],
+            &[],
+            &[],
+            &[(2, [0.0, 0.0, 200.0, 20.0]), (4, [0.0, 10.0, 120.0, 10.0])],
+        );
+        case(
+            "the bubble's shape: a growing row and a footer, wrapping to the end",
+            column("flex-start"),
+            vec![
+                (
+                    2,
+                    1,
+                    vec![
+                        (Display, t("flex")),
+                        (FlexWrap, t("wrap")),
+                        (ColumnGap, n(6.0)),
+                        (JustifyContent, t("flex-end")),
+                    ],
+                ),
+                (
+                    3,
+                    2,
+                    vec![(Display, t("flex")), (FlexGrow, n(1.0)), (MinWidth, n(0.0))],
+                ),
+                (5, 3, boxed(150.0, 10.0)),
+                (4, 2, boxed(80.0, 16.0)),
+            ],
+            &[],
+            &[],
+            &[
+                (2, [0.0, 0.0, 200.0, 26.0]),
+                (3, [0.0, 0.0, 200.0, 10.0]),
+                (4, [120.0, 10.0, 80.0, 16.0]),
+            ],
+        );
+    });
+}
+
+/// The same with text, against CSS's rule rather than a browser (the test
+/// measurer's monospace is no browser font): a paragraph 290 wide in one
+/// line wraps to two in the 200-wide fit-content row, and the row, and the
+/// column it sits in, are two lines tall.
+#[test]
+fn a_fit_content_row_is_as_tall_as_its_wrapped_text() {
+    for kid in ["flex", "block"] {
+        for align in ["flex-start", "center", "stretch"] {
+            let k = lay_out_with(
+                props(&vec![
+                    (Display, t("flex")),
+                    (FlexDirection, t("column")),
+                    (AlignItems, t(align)),
+                    (Width, n(200.0)),
+                ]),
+                vec![(2, 1, vec![(Display, t(kid))]), (3, 2, vec![])],
+                &[(3, "aaaa bbbb cccc dddd eeee ffff")],
+                &[],
+            );
+            for id in [2, 3] {
+                let f = k.node(id).unwrap().frame;
+                assert_eq!(
+                    [f.width, f.height],
+                    [200.0, 36.0],
+                    "{kid} in align-items {align}: #{id}"
+                );
+            }
+        }
+    }
+}

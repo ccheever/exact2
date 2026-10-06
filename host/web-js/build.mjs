@@ -148,7 +148,7 @@ if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build
 // answers is unknown, and its declarations stay its own.
 const typeChecked = ts && !opt('--data') ? typecheck().then(() => null, error => error) : null;
 async function typecheck() {
-  const { configure, check } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
+  const { configure, check, ambientRefusals } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
   const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
   const source = readFileSync(appTs, 'utf8');
   let declarations = readFileSync(resolve(gen, 'app.contract.d.ts'), 'utf8');
@@ -191,7 +191,21 @@ async function typecheck() {
   writeFileSync(resolve(stage, '__exact_paths.json'), JSON.stringify({ app: realpathSync(appDir), mounts }));
   const real = realpathSync(stage);
   configure(real);
-  await check(real, resolve(libraries, 'tsc'), libraries);
+  // The clock, randomness and timers, refused at build in the modules
+  // app.ts reaches, as the native bake's bundler refuses them
+  // (js/bake/src/typescript.mjs `ambientRefusals`). A graph that does not
+  // bundle from the capture is refused, as the native bake refuses it.
+  // Both run, and every diagnostic is reported, as the resident compiler joins them.
+  const why = [];
+  const { rolldown } = await import('rolldown');
+  const typed = check(real, resolve(libraries, 'tsc'), libraries).then(() => null, error => error);
+  const bundled = (async () => {
+    const bundle = await rolldown({ cwd: real, input: resolve(real, '__exact_entry.ts'), platform: 'neutral', tsconfig: resolve(real, '__exact_tsconfig.json'),
+      logLevel: 'silent', plugins: [{ name: 'ambient', transform(code, id) { why.push(...ambientRefusals(real, id, code, (c, o) => this.parse(c, o))); return null; } }] });
+    try { await bundle.generate({ format: 'esm' }); } finally { await bundle.close(); }
+  })().then(() => null, error => error);
+  const errors = [await bundled, ...why.map(line => new Error(line)), await typed].filter(Boolean);
+  if (errors.length) throw new Error(errors.map(e => e.message ?? String(e)).join('\n'));
 }
 const normalizeGrants = (label, spec, stem) => {
   const file = resolve(gen, `${stem}.grants`);
@@ -287,14 +301,14 @@ cpSync(resolve(root, 'host/web/navigation.js'), resolve(gen, 'navigation.js'));
 // navigation.js (the guest outline and taps, the environment) or names.js
 // (every slot's type) would otherwise ride in every page's entry module.
 for (const f of ['navigation.js', 'names.js']) cpSync(resolve(gen, f), resolve(gen, 'agent-' + f));
-writeFileSync(resolve(gen, 'agent.js'), readFileSync(resolve(gen, 'agent.js'), 'utf8').replace("from './names.js'", "from './agent-names.js'").replace("from './navigation.js'", "from './agent-navigation.js'"));
+writeFileSync(resolve(gen, 'agent.js'), readFileSync(resolve(gen, 'agent.js'), 'utf8').replace("from './names.js'", "from './agent-names.js'").replace("from './navigation.js'", "from './agent-navigation.js'").replace("from '../web/faults.js'", "from './faults.js'"));
 // A source granted `auth.session` signs in through the system browser (auth.js, LLP 1069.006).
 const auth = /^\s*auth\.session\s/m.test(grants);
 if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace("'__APP_TS__'", JSON.stringify(resolve(appDir, 'app.ts')))
   .replace('__AUTH_IMPORT__', auth ? "import { install as signIn } from './auth.js';" : '')
   .replace('__AUTH_INSTALL__', auth ? `signIn(${JSON.stringify(grants)}, () => asking);` : ''));
-for (const f of ['auth-glue.js', 'storage-environment.js', 'http-body.js', 'grant-admission.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
-writeFileSync(resolve(gen, 'admission.js'), readFileSync(resolve(here, 'admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
+for (const f of ['auth-glue.js', 'storage-environment.js', 'http-body.js', 'grant-admission.js', 'faults.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
+writeFileSync(resolve(gen, 'admission.js'), readFileSync(resolve(here, 'admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'"));
 cpSync(resolve(here, 'ts-fetch.js'), resolve(gen, 'ts-fetch.js'));
 cpSync(resolve(here, 'ts-stream.js'), resolve(gen, 'ts-stream.js'));
 cpSync(resolve(here, 'auth.js'), resolve(gen, 'auth.js'));

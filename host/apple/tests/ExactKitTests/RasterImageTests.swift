@@ -85,6 +85,23 @@ final class RasterImageTests: XCTestCase {
         XCTAssertThrowsError(try RasterDecodePlan(metadata: metadata, maxPixel: 0))
         XCTAssertThrowsError(try RasterMetadata.validated(width: 100000, height: 100000, orientation: 1, encodedBytes: 20, headerBytes: 20))
     }
+    /// A whole file no decoder here reads is its format, which the image's
+    /// `error` names (LLP 1011 §4); a prefix too short to size stays the
+    /// header limit.
+    func testAWholeFileNoDecoderReadsIsItsFormat() throws {
+        for text in ["<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\"><circle r=\"10\"/></svg>", "not an image"] {
+            let bytes = Data(text.utf8)
+            XCTAssertThrowsError(try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)) { error in
+                XCTAssertEqual(error as? RasterFailure, .format)
+                XCTAssertEqual(String(describing: error), "not an image format this host decodes")
+            }
+        }
+        let bytes = try fixture(40, 20)
+        XCTAssertThrowsError(try RasterMetadata.read(prefix: Data(bytes.prefix(4)), encodedBytes: bytes.count)) { error in
+            XCTAssertEqual(error as? RasterFailure, .headerLimit)
+        }
+        XCTAssertEqual(String(describing: RasterHTTPStatus(code: 404)), "HTTP 404")
+    }
     func testProviderRetainsChargeUntilLastImageAliasDropsOnWorker() throws {
         let bytes = try fixture(120, 60)
         let metadata = try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)

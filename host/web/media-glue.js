@@ -123,6 +123,14 @@ globalThis.exact.installMedia = (el, send) => {
       if (Number.isFinite(el.currentTime)) { emit('timeupdate', String(el.currentTime)); early.add('timeupdate'); }
       emit('seeked'); early.add('seeked');
     }
+    // Metadata but no data yet (readyState 1, a cached source on the JS
+    // target): the opening seek the glue makes at `loadedmetadata` has not
+    // happened and that event has passed, so it is made now, as the wasm
+    // host makes it (synthetic-media: seeks 1, at 0).
+    else if (el.readyState === 1 && el.seeking !== true && el.exactMedia.props.currentTime != null) {
+      const at = Number(el.exactMedia.props.currentTime);
+      if (Number.isFinite(at) && at >= 0) el.currentTime = at;
+    }
     if (el.readyState >= 3) { emit('canplay'); early.add('canplay'); }
     setTimeout(() => { early.delete('seeking'); early.delete('timeupdate'); early.delete('seeked'); early.delete('canplay'); }, 0);
   }

@@ -319,6 +319,11 @@ zone's `utcOffset` at that instant, answered again when the virtual date crosses
 or `open({host, seed: 42, locale: "fr-CA", timeZone: "America/Toronto", epoch: "2026-09-21T14:13:20Z"})`;
 a test file writes them as launch lines (`epoch "2026-09-21T14:13:20Z"`, `time-zone "America/Toronto"`,
 [authored tests](contract-grammar.md#authored-tests)), which override the flags.
+A drive can fail fetches by URL prefix (LLP 1103): `--fail-fetch <prefix>` (repeatable) arms one before the
+first data load, `fail fetch <prefix> [times <n>]` and `pass fetch <prefix>` arm and clear one mid-drive (a form of `prefer`:
+`{"op":"prefer","faults":{"fail":…,"times":…}}` or `{…{"pass":…}}`), and `state.faults` lists each prefix's `times`, `left`, `hits` and
+`armed`. Native carriers pass the launch table as `EXACT_AGENT_FAIL_FETCH`, web pages as `?failFetch=`, one
+`<prefix>[\t<times>]` line a fault, read only in agent mode; a production build ignores both. `--fail-fetch` with `--test` arms every test.
 Seeds are integers from 0 through 2^53 − 1; an epoch is an ISO date or Unix milliseconds. Native carriers pass
 `EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
 (milliseconds); direct agent launches can set these too. Web agent pages accept
@@ -390,7 +395,10 @@ refuses them by name, with the same message, on first use: Hermes, the web's
 module realm, and the web build, whose bundler gives the app's own modules
 guarded `Date`, `Math`, `Intl`, timers and `performance` in place of the
 page's (LLP 1027.000 D3), so an app that reads the clock fails in the web loop
-as it would on a device. The type check cannot see the difference. Development JS builds name a derive
+as it would on a device. The type check cannot see the difference, but every
+build refuses a direct use in a module `app.ts` reaches, by file and line
+(`logic.ts:2:28: Date.now() is unavailable in data sources; …`), so a test that
+runs the module under Bun, which has no such guard, cannot hide it. Development JS builds name a derive
 whose value fails its type check and report failed resource/source dependencies
 that it read.
 ES2024's resizable `ArrayBuffer`, shared memory and the RegExp `v` flag are not
@@ -460,7 +468,7 @@ in the answer, unawaited:
 ```ts
 edit(store, args) {
   song = apply(song, args);
-  storage.fs.atomicWriteFile(PATH, JSON.stringify(song)).catch(note);  // started now, not awaited
+  storage.fs.atomicWriteFile(PATH, new TextEncoder().encode(JSON.stringify(song))).catch(note);  // started now, not awaited
   return song;
 }
 ```
@@ -493,8 +501,12 @@ input.
 A newer send may replace a mutation's reply. An operation already issued still
 runs, in the order it was issued; the replaced reply is dropped, and that
 answer's Store writes are not the live answer's. A send dropped before it has
-issued storage does not run. Forgotten work that reaches a fetch retains the
-usual cancellation policy. Unloading finishes storage the module already
+issued storage does not run. A replaced answer waiting on a `fetch` is not
+stranded: on the web build (the JS target) its fetch completes and the code
+after the `await` runs; natively and in the web's wasm module realm the fetch
+rejects with a `FetchError` of kind `Aborted` (the request may already have
+been sent), so a `catch` or `finally` runs. A stream's fetch never settles. Its reply is
+dropped either way; a mutation that needs every reply is declared `queue`. Unloading finishes storage the module already
 started, within a second, and drops what has not begun. Reads remain
 replaceable. An answer the runner lets go between storage steps (a refresh it
 discards before a mutation lands, a read whose arguments changed or that a
@@ -502,6 +514,15 @@ discards before a mutation lands, a read whose arguments changed or that a
 their end; only its answer is dropped, so
 serializing storage through one promise chain composes with `refreshes` and
 fast-changing arguments (ledger F12, minesweeper F10).
+
+A `fetch` waits as long as the platform lets it (URLSession's 60 seconds
+without data on Apple), holding an ordered source's lane meanwhile. Give it a
+deadline with `exactTimeout`, in milliseconds (1 to 3600000), for the whole
+exchange, headers and body: `fetch(url, { exactTimeout: 10000 })`. When it
+passes the request is cancelled and the fetch rejects with a `FetchError`
+whose `kind` is `Timeout` (`the request timed out after 10000 ms`). The same
+holds on Apple, Linux, the web's wasm host and the web build; a stream
+(`exactStream`) takes none.
 
 An answer that keeps coming (LLP 1016.000) is a `fetch` with `exactStream`,
 returned as the answer: `return fetch(url, { exactStream: (event) => value })`.
@@ -552,6 +573,30 @@ lists what the app posted (`{title, body, tag, showTrigger}`, a tag replacing
 its older one, `closeNotification` removing it), so a drive reads a reminder
 without a permission prompt. Scheduling is one time per call: a daily
 reminder posts the next one when the app runs.
+
+### Apple Health
+
+Exact has no Health API: the app's own Swift module (LLP 1067) calls
+HealthKit. What Exact does is let the binary ask. The app's grants name
+`device.health-read purpose.<key>`, `device.health-write purpose.<key>`,
+or both, each with its own strings key (LLP 1069.008.000):
+
+- iOS gets `NSHealthShareUsageDescription` and
+  `NSHealthUpdateUsageDescription` (one direction granted writes both, the
+  other borrowing its text, which iOS never shows), and the
+  `com.apple.developer.healthkit` entitlement in the signature, on a
+  simulator too.
+- macOS gets the two keys and no entitlement (it is restricted there, and a
+  development build carrying it does not launch), so a module should treat
+  a Mac's request as unavailable. tvOS, the web, Linux and Windows get
+  nothing.
+- A phone build needs a development profile for the app's own id with
+  HealthKit turned on. A team wildcard never allows it, and the build
+  refuses (`grant-device-profile`) rather than sign one that fails at its
+  first request.
+- An app with a Health grant keeps no answers across launches: its first
+  frame never shows last launch's data from the store, and any kept answer
+  on disk is forgotten at boot.
 
 ### Sounds
 
@@ -860,7 +905,9 @@ bun scripts/boot.mjs                                                   # boot gr
 ```
 
 Cargo's checks cover the root `default-members`: the deterministic, in-process
-crates, the web host's among them. The async lane runs the same commands with
+crates, the web host's and the Apple host's Rust among them (the Apple host's
+real-socket, wall-clock and toolchain-launching tests are `async lane:`; a test
+may still re-run its own binary to isolate its environment). The async lane runs the same commands with
 `--workspace` (the other hosts, GPU, Hermes, platform shells, stress fixtures).
 
 Development and test builds optimize the third-party CPU rasterizer `tiny-skia`.

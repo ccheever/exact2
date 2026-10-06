@@ -25,6 +25,12 @@ shape R4Tab
   closeTitle: string
   closeBody: string
   closeTarget: string
+  menu: list<R4TabMenuItem>
+// right-panel-tab-menu: one row of the tab's context menu (right-panel-tabs.ts tabMenuRows).
+shape R4TabMenuItem
+  id: string
+  label: string
+  disabled: bool
 shape R4TreeRow
   id: string
   path: string

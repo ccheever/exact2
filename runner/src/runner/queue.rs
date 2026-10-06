@@ -366,9 +366,7 @@ impl<D: DataSource> Runner<D> {
         match answer {
             Answer::Now(v) => {
                 if !self.conforms(&v, ty) {
-                    return Err(RunnerError::Shape {
-                        resource: name(&self.plan),
-                    });
+                    return Err(self.shape(name(&self.plan), &v, ty));
                 }
                 let slot = self.mutation_slot(m)?;
                 Ok(Asked::Now(slot, Value::some(v)))

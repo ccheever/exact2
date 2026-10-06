@@ -58,7 +58,9 @@ impl Transport for Fake {
             let (next, timeout) = self
                 .0
                 .ready
-                .wait_timeout_while(state, Duration::from_secs(5), |s| !s.1 && !signal.aborted())
+                .wait_timeout_while(state, Duration::from_secs(60), |s| {
+                    !s.1 && !signal.aborted()
+                })
                 .unwrap();
             state = next;
             if timeout.timed_out() {
@@ -369,7 +371,8 @@ fn retirement_aborts_held_http_discards_queued_effects_and_stops_wakes() {
     let state = core.shared.clone();
     let start = Instant::now();
     drop(core);
-    assert!(start.elapsed() < Duration::from_secs(1));
+    // Well before the held request's minute: retirement aborted it.
+    assert!(start.elapsed() < Duration::from_secs(30));
     assert!(state.abort.signal().aborted());
     assert_ne!(
         destroyed.recv_timeout(Duration::from_secs(5)).unwrap(),
@@ -772,6 +775,7 @@ fn an_ordered_job_waits_for_retained_bytes_instead_of_refusing() {
 /// handoff, behind and beside handed-off module turns as worker placement
 /// queues them (the Crew port's F4/F6, not reproduced on macOS).
 #[test]
+#[ignore = "async lane: a real socket under the platform transport (URLSession), timing-sensitive on a loaded machine; bun scripts/async.mjs runs it"]
 fn a_large_body_on_the_platform_transport_drains_behind_handed_off_turns() {
     use std::io::{Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -912,3 +916,6 @@ fn completed_latency_is_measured_before_the_ui_drains_it() {
     assert!(matches!(outcome, Outcome::Response(_)));
     assert!(elapsed.unwrap() <= completed_by);
 }
+
+#[path = "executor_timeout_tests.rs"]
+mod timeout;

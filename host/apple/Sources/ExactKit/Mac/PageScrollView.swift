@@ -77,10 +77,13 @@ final class PageScrollView: NSScrollView {
     /// does on the web — unless a node under it just took the focus on the
     /// way up (its `mouseDown`): the web focuses the nearest focusable
     /// ancestor of what was clicked, a `tabindex` box's included (LLP 1088 D7.3).
+    /// The same click on the ground ends the reader's text selection.
+    var pressedGround: (() -> Void)?
     override func mouseDown(with event: NSEvent) {
         let hit = window?.contentView?.hitTest(event.locationInWindow)
         if let focused = window?.firstResponder as? NodeView, let hit, hit.isDescendant(of: focused) {} else {
             window?.makeFirstResponder(nil)
+            pressedGround?()
         }
         super.mouseDown(with: event)
     }

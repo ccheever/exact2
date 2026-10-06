@@ -12,6 +12,8 @@ struct Source {
     value: Value,
     asks: Vec<Vec<Value>>,
     parses: Vec<Vec<Value>>,
+    /// Grants Health (LLP 1069.008.000 D7).
+    health: bool,
 }
 
 impl Default for Source {
@@ -24,6 +26,7 @@ impl Default for Source {
             value: Value::str("fresh"),
             asks: Vec::new(),
             parses: Vec::new(),
+            health: false,
         }
     }
 }
@@ -79,7 +82,11 @@ impl DataSource for Source {
     }
 
     fn grants(&self) -> &str {
-        "secret.keep token\nnet.fetch https://example.test"
+        if self.health {
+            "secret.keep token\nnet.fetch https://example.test\ndevice.health-read purpose.health"
+        } else {
+            "secret.keep token\nnet.fetch https://example.test"
+        }
     }
 }
 
@@ -612,4 +619,36 @@ fn a_cold_boot_forgets_kept_answers_no_declared_reader_seeds() {
         .collect();
     assert_eq!(removed, [gone.as_str()]);
     assert_eq!(answer_writes(&r), 0);
+}
+
+#[test]
+fn an_app_granting_health_neither_seeds_nor_keeps_answers() {
+    // A reader's answer kept before the grant (or by an older build) is
+    // forgotten on disk and does not paint the first frame; the fresh answer
+    // is never kept (LLP 1069.008.000 D7).
+    let source = Source {
+        health: true,
+        ..Source::default()
+    };
+    let mut r = boot(
+        plan(2, false),
+        source,
+        entry(&[Value::str("A")], &Value::str("kept")),
+    );
+    shows(&r, "loading");
+    assert!(!state(&r).kept_seed);
+    assert_eq!(r.store.kept(&kept::kept_name("answer")), None);
+    let removed: Vec<_> = r
+        .store
+        .writes()
+        .iter()
+        .filter(|w| w.value.is_none())
+        .map(|w| w.name.clone())
+        .collect();
+    assert_eq!(removed, [kept::kept_name("answer")]);
+    r.data.ready = true;
+    assert!(r.data_ready().unwrap().is_some());
+    shows(&r, "fresh");
+    assert_eq!(r.store.kept(&kept::kept_name("answer")), None);
+    assert_eq!(answer_writes(&r), 1, "only the removal");
 }

@@ -5,6 +5,17 @@
 const pressesByKey = el => !el.matches("button, a[href], input, select, textarea, summary")
   && (el.exactHandlers ?? el.dataset.exactOn?.split(" "))?.includes("press") === true;
 const shortcutKeys = new Set(["Enter", "Tab", "Escape", "Backspace", "Delete", "Insert", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
+/** A shortcut's key when `e.key` is one character outside ASCII and the Latin script (ㅠ on KeyB under Korean 2-Set,
+ * Russian, Greek): what its physical key (`code`) types on a US layout, with Shift, as web apps match (the macOS host
+ * asks the Mac's ASCII-capable layout instead; the web has only `code`). A Latin character is the key wherever it is
+ * (AZERTY, Dvorak, German's ö), so no chord fires twice; so are Option's characters (the macOS host's rule). */
+const usCodes = "Backquote Digit1 Digit2 Digit3 Digit4 Digit5 Digit6 Digit7 Digit8 Digit9 Digit0 Minus Equal BracketLeft BracketRight Backslash Semicolon Quote Comma Period Slash".split(" ");
+const physicalKey = e => {
+  if (e.altKey || typeof e.key !== "string" || [...e.key].length !== 1 || !/[^\x00-\x7f]/.test(e.key) || /\p{Script=Latin}/u.test(e.key)) return null;
+  if (/^Key[A-Z]$/.test(e.code)) return e.code.slice(3).toLowerCase();
+  const at = usCodes.indexOf(e.code);
+  return at < 0 ? null : (e.shiftKey ? "~!@#$%^&*()_+{}|:\"<>?" : "`1234567890-=[]\\;',./")[at];
+};
 /** The modifiers an event holds, as a chord prefix (a pointer record's last field; glue.js's press writes the same). */
 const modifiers = e => (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "");
 /** The `PointerEvent` line of `e` at `el`: the point from its content box in its own CSS px (a scale undone), the buttons, pressure, device, id, the viewport point (LLP 1094 D11) and modifiers. */
@@ -41,6 +52,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   document.addEventListener("keydown", (event) => {
     if (event.isComposing || !ready() || event.defaultPrevented) return;
     const editing = event.composedPath().some(el => el?.isContentEditable || el?.matches?.("input, textarea, [role=textbox], [role=searchbox], [role=combobox]"));
+    const physical = physicalKey(event);
     const matches = (chord) => {
       const parts = chord.split("+");
       let key;
@@ -55,7 +67,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         && [...modifiers].every(m => ["Meta", "Control", "Alt", "Shift"].includes(m))
         && event.metaKey === modifiers.has("Meta") && event.ctrlKey === modifiers.has("Control")
         && event.altKey === modifiers.has("Alt") && event.shiftKey === modifiers.has("Shift")
-        && event.key.toLowerCase() === key.toLowerCase();
+        && (event.key?.toLowerCase() === key.toLowerCase() || physical === key.toLowerCase());
     };
     // Nothing behind the frontmost modal — a modal `dialog`, or the last
     // shown `aria-modal` view (gallery F22) — and never Enter or Space while

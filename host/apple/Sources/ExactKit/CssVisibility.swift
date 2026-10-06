@@ -39,11 +39,34 @@ extension NodeView {
         textAreaScroll?.isHidden = hidden
         symbolClip?.isHidden = hidden
         #endif
+        if hidden { giveUpFocus() }
         guard isParagraph else { return }
         // The bitmap `invalidateText` left up. A fully hidden paragraph may
         // raster blank afterwards; a visible run draws through TextEngine.
         if hidden { retireHiddenText() }
         if hidden || inlineText.contains(where: { $0.paints && $0.run(dark: drawsDark).hidden }) { updateTextAccessibility() }
+    }
+
+    /// A box hidden now no longer holds the focus it had: no ring, no keys
+    /// (its own, or its field's or text area's editor). On the next turn:
+    /// ending an edit sends its `change` at once, which must not apply a batch
+    /// inside the one applying this style.
+    func giveUpFocus() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.cssVisibilityHidden else { return }
+            #if os(macOS)
+            guard let window = self.window, window.firstResponder === self || window.firstResponder === self.textArea
+                || self.field?.currentEditor() != nil else { return }
+            window.makeFirstResponder(nil)
+            #else
+            for responder in [self, self.field, self.textArea].compactMap({ $0 }) where responder.isFirstResponder {
+                _ = responder.resignFirstResponder()
+            }
+            #if os(tvOS)
+            if self.isFocused { self.setNeedsFocusUpdate(); self.updateFocusIfNeeded() } // the remote's focus moves on
+            #endif
+            #endif
+        }
     }
 
     /// Take down the text bitmap this paragraph was already showing.

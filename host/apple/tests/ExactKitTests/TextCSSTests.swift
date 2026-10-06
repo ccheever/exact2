@@ -2,6 +2,7 @@
 // without `line-clamp`, and `tabular-nums`, as the browser renders them.
 import XCTest
 import CoreText
+import CExact
 @testable import ExactKit
 
 final class TextCSSTests: XCTestCase {
@@ -144,6 +145,52 @@ final class TextCSSTests: XCTestCase {
             let p = engine.paragraph(Spec(runs: runs, align: 0, lineClamp: 0, color: [0, 0, 0, 255], whiteSpace: whiteSpace), width: .infinity)
             XCTAssertEqual(p.width, CSSLineBox.layoutWidth(2 * interval + CGFloat(k)), accuracy: 1.0 / 64 + 1e-9, "white-space \(whiteSpace)")
         }
+    }
+
+    /// A declared variable face draws at its declared weight on the `wght`
+    /// axis, as a browser draws an `@font-face` (the Bluesky clone's Inter,
+    /// whose first named instance is Thin); a static face is left as it is.
+    func testADeclaredVariableFaceTakesItsWeightOnTheAxis() throws {
+        let fonts = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../")
+        let inter = try Data(contentsOf: fonts.appendingPathComponent("vendor/cosmic-text/fonts/InterVariable.ttf").standardized)
+        let first = (CTFontManagerCreateFontDescriptorsFromData(inter as CFData) as! [CTFontDescriptor])[0]
+        func wght(_ d: CTFontDescriptor) -> Double? {
+            (CTFontCopyVariation(CTFontCreateWithFontDescriptor(d, 16, nil)) as? [NSNumber: NSNumber])?[0x77676874 as NSNumber]?.doubleValue
+        }
+        XCTAssertEqual(wght(first), 100, "the file's first named instance is Thin")
+        // CoreText leaves an axis at its default (Inter's 400) out of the variation.
+        XCTAssertEqual(wght(TextEngine.declaredFace(first, weight: 400)) ?? 400, 400)
+        XCTAssertEqual(wght(TextEngine.declaredFace(first, weight: 600)), 600)
+        XCTAssertEqual(wght(TextEngine.declaredFace(first, weight: 1000)), 900, "clamped to the axis")
+        let dejavu = try Data(contentsOf: fonts.appendingPathComponent("scripts/fixtures/fonts/assets/DejaVuSans.ttf").standardized)
+        let plain = (CTFontManagerCreateFontDescriptorsFromData(dejavu as CFData) as! [CTFontDescriptor])[0]
+        XCTAssertTrue(TextEngine.declaredFace(plain, weight: 700) === plain)
+        // Through registration: one file declared at 400 and 600, as an app's
+        // `font "Inter"` block does, draws each weight on the axis.
+        let engine = TextEngine(resolve: { _ in nil }, read: { _ in inter })
+        let family = Array("Inter".utf8), source = Array("inter.ttf".utf8)
+        family.withUnsafeBufferPointer { f in
+            source.withUnsafeBufferPointer { src in
+                var faces = [400, 600].map { w -> ExactFontFace in
+                    var face = ExactFontFace()
+                    face.family = f.baseAddress; face.family_len = f.count
+                    face.source = src.baseAddress; face.source_len = src.count
+                    face.stack = 8; face.weight = UInt16(w); face.italic = 0
+                    return face
+                }
+                faces.withUnsafeMutableBufferPointer { rows in
+                    var catalog = ExactFontCatalog()
+                    catalog.faces = UnsafePointer(rows.baseAddress); catalog.count = rows.count
+                    withUnsafePointer(to: &catalog) { engine.install($0) }
+                }
+            }
+        }
+        func drawn(_ weight: Int) -> Double? {
+            (CTFontCopyVariation(engine.font(size: 16, weight: weight, family: 8, italic: false) as CTFont) as? [NSNumber: NSNumber])?[0x77676874 as NSNumber]?.doubleValue
+        }
+        XCTAssertEqual(drawn(400) ?? 400, 400)
+        XCTAssertEqual(drawn(600), 600)
+        XCTAssertEqual(drawn(700), 600, "700 matches the 600 face, drawn at its declared weight")
     }
 
     func testEllipsisEndsAnOverWideLineOnlyWhereItPaints() {

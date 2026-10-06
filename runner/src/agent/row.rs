@@ -7,10 +7,16 @@
 //! its canonical text. The engine's and the grid's rows are named, not spelled.
 
 use super::{num, quote};
-use exact_kernel::{Color, ColorValue, Dimension, Edge, RowValue};
+use exact_kernel::{Color, ColorValue, Dimension, Edge, RowValue, StyleId};
 use std::fmt::Write as _;
 
-pub(super) fn row_json(v: RowValue<'_>, out: &mut String) {
+pub(super) fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
+    // CSS's unbounded maximum is `none`, as the web writes it (LLP 1102 §3.11).
+    if matches!(row, StyleId::MaxWidth | StyleId::MaxHeight)
+        && matches!(v, RowValue::Dimension(Dimension::Auto))
+    {
+        return out.push_str("\"none\"");
+    }
     let hex = |c: Color| -> String {
         if c.a() == 255 {
             format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b())
@@ -127,5 +133,23 @@ pub(super) fn row_json(v: RowValue<'_>, out: &mut String) {
         RowValue::Filter(f) => quote(&f.css(), out),
         RowValue::Animations(a) => quote(&a.css(), out),
         RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => quote("(grid)", out),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_unbounded_maximum_prints_none_as_css_does() {
+        let print = |row, v| {
+            let mut s = String::new();
+            row_json(row, v, &mut s);
+            s
+        };
+        let auto = || RowValue::Dimension(Dimension::Auto);
+        assert_eq!(print(StyleId::MaxWidth, auto()), "\"none\"");
+        assert_eq!(print(StyleId::MaxHeight, auto()), "\"none\"");
+        assert_eq!(print(StyleId::Width, auto()), "\"auto\"");
     }
 }

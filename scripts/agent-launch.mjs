@@ -147,6 +147,8 @@ export function parseFlags(argv) {
     else if (argv[i] === '--chrome') flags.chrome = argv[++i];
     else if (argv[i] === '--phone') flags.phone = argv[++i];
     else if (argv[i] === '--storage') flags.storage = argv[++i];
+    // A driver fault armed before the app's first data load (LLP 1103 D3): every fetch whose URL starts with it fails.
+    else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
     else rest.push(argv[i]);
   }
   return { flags, rest };
@@ -155,7 +157,30 @@ export function parseFlags(argv) {
 /** LLP 1027.000.000 D3: the date at the agent clock's zero, unless the drive names one. */
 export const AGENT_EPOCH = '2026-01-01T00:00:00Z';
 
-export function launchFacts({seed, locale, timeZone, epoch, env = {}}) {
+/** The fault table's launch lines (LLP 1103 D3; the runner's `Faults::parse`): `<prefix>` or `<prefix>\t<times>`, or a reload's whole entry. Refused here, before any process starts, as the host would. */
+export function faultSpec(spec) {
+  const lines = String(spec ?? '').split('\n').filter(l => l.trim());
+  for (const line of lines) {
+    const [prefix, ...counts] = line.split('\t');
+    if (!prefix) throw new Error('fail fetch: each fault names a non-empty URL prefix');
+    if (counts.length > 4 || counts.some((c, i) => !(c === '-' || /^\d+$/.test(c)) && !(i === 3 && /^[01]$/.test(c)))) throw new Error(`fail fetch: an unreadable fault line: ${JSON.stringify(line)}`);
+    if (counts[0] === '0') throw new Error('fail fetch: `times` is a positive integer');
+  }
+  return lines.join('\n');
+}
+
+/** The page address with the fault table a reload carries (LLP 1103 D3); `undefined` leaves the launch's. */
+export function withFaults(href, failFetch) {
+  if (failFetch === undefined) return href;
+  const url = new URL(href);
+  if (failFetch) url.searchParams.set('failFetch', failFetch); else url.searchParams.delete('failFetch');
+  return url.href;
+}
+
+/** Launch lines from `state.faults` (LLP 1103 D3): a reload relaunches with the table as it is now. */
+export const faultSpecOf = faults => (faults ?? []).map(f => [f.prefix, f.times ?? '-', f.left ?? '-', f.hits, f.armed ? 1 : 0].join('\t')).join('\n');
+
+export function launchFacts({seed, locale, timeZone, epoch, failFetch, env = {}}) {
   seed = Number(seed ?? env.EXACT_AGENT_SEED ?? 1);
   // An ISO date or Unix milliseconds; hosts are told milliseconds.
   epoch = String(epoch ?? env.EXACT_AGENT_EPOCH ?? AGENT_EPOCH);
@@ -168,11 +193,12 @@ export function launchFacts({seed, locale, timeZone, epoch, env = {}}) {
   locale = Intl.getCanonicalLocales(locale)[0];
   if (!locale) throw new Error('locale: a BCP 47 language tag');
   new Intl.DateTimeFormat(locale, {timeZone}).format(0);
-  return {seed, locale, timeZone, epoch};
+  failFetch = faultSpec(failFetch ?? env.EXACT_AGENT_FAIL_FETCH);
+  return {seed, locale, timeZone, epoch, ...(failFetch ? {failFetch} : {})};
 }
 
 export function launchEnvironment(facts) {
-  return {EXACT_AGENT_SEED: String(facts.seed), EXACT_AGENT_LOCALE: facts.locale, EXACT_AGENT_TIME_ZONE: facts.timeZone, EXACT_AGENT_EPOCH: String(facts.epoch)};
+  return {EXACT_AGENT_SEED: String(facts.seed), EXACT_AGENT_LOCALE: facts.locale, EXACT_AGENT_TIME_ZONE: facts.timeZone, EXACT_AGENT_EPOCH: String(facts.epoch), ...(facts.failFetch ? {EXACT_AGENT_FAIL_FETCH: facts.failFetch} : {})};
 }
 
 // A build older than what it was made from is refused before launch
