@@ -152,6 +152,12 @@ theorem stdlib_unsupported {env : Env} {p : Program} {name : String} {vs : List 
     subst h
     simp only [stdlib]; exact formatting_good
   rw [ite_neg hn] at h
+  by_cases hn : name = "toFixed" ∨ name = "formatDecimal"
+  · rw [ite_pos hn] at h
+    split at h <;> simp at h
+    subst h
+    rcases hn with rfl | rfl <;> simp only [stdlib] <;> exact formatting_good
+  rw [ite_neg hn] at h
   by_cases hn : name = "t"
   · subst hn; rw [ite_pos rfl] at h
     split at h <;> simp at h

@@ -68,6 +68,26 @@ const DATES: &[&str] = &[
     "",
 ];
 
+/// Numbers for `toFixed` and `formatDecimal`: binary-rounding cases
+/// (`1.005`), halves, signed zero, a tiny negative, counts, and `1e21`.
+const DECIMALS: &[f64] = &[
+    1.005,
+    2.5,
+    -2.5,
+    0.5,
+    -0.0,
+    -0.001,
+    1234.0,
+    -5.0,
+    7.0,
+    0.1,
+    1e21,
+    999999999999999900000.0,
+    123.456,
+    9007199254740993.0,
+    5e-324,
+];
+
 /// UTC offsets in minutes east: whole, half and quarter hours, the ±18 h
 /// bounds and just past them.
 const OFFSETS: &[f64] = &[
@@ -575,7 +595,7 @@ impl Gen<'_> {
                 g.expr(env, &Ty::Num, d, false)
             }
         };
-        match self.rng.weighted(&[2, 2, 3]) {
+        match self.rng.weighted(&[2, 2, 3, 2, 2]) {
             0 => {
                 let (at, off) = (num(self), number(*self.rng.pick(OFFSETS)));
                 format!("formatTime({at}, {off}, \"short\")")
@@ -585,13 +605,33 @@ impl Gen<'_> {
                 let style = *self.rng.pick(&["\"medium\"", "\"month-year\"", "\"iso\""]);
                 format!("formatDate({at}, {off}, {style})")
             }
-            _ => {
+            2 => {
                 let n = if self.rng.chance(1, 2) {
                     number(*self.rng.pick(COUNTS))
                 } else {
                     self.expr(env, &Ty::Num, d, false)
                 };
                 format!("formatNumber({n}, \"compact\")")
+            }
+            // LLP 1102 §3.2: `toFixed` of any number at a literal 0–100,
+            // `formatDecimal` of a count (often rounded, as money is) at 0–20.
+            3 => {
+                let n = if self.rng.chance(1, 2) {
+                    number(*self.rng.pick(DECIMALS))
+                } else {
+                    self.expr(env, &Ty::Num, d, false)
+                };
+                let digits = *self.rng.pick(&[0, 1, 2, 2, 3, 20, 100]);
+                format!("toFixed({n}, {digits})")
+            }
+            _ => {
+                let n = match self.rng.below(3) {
+                    0 => number(*self.rng.pick(DECIMALS)),
+                    1 => format!("round({} * 100)", self.expr(env, &Ty::Num, d, false)),
+                    _ => self.expr(env, &Ty::Num, d, false),
+                };
+                let digits = *self.rng.pick(&[0, 1, 2, 2, 3, 20]);
+                format!("formatDecimal({n}, {digits})")
             }
         }
     }

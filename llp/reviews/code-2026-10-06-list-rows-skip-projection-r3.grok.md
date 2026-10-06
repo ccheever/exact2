@@ -1,0 +1,17 @@
+# Code review: a batch of list rows alone skips the route projection, round 3 (4d019ae0c), 2026-10-06 (grok)
+
+- **Family:** xAI. `grok-4.7` via `~/.grok/bin/grok`, reasoning effort xhigh, `--no-subagents`, `--cwd` a detached worktree at `4d019ae0c`, plain output.
+- **Method:** one brief (sha256 `b2b1f1b613d37488d44f12d3c596e31aafdab1c1e91b6d3f58537eb2e8a989d5`), shared with astra. Round 3, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the review's findings and verdict, unedited.
+- **Verdict:** LAND WITH CHANGES.
+- **Disposition:** 1 taken as proposed (scroll names projected; `children` placing what is read counts); a tablist placed in a row is a test. 2 not taken: no session-mounted test, no flat-leaf case.
+
+---
+
+LAND WITH CHANGES
+
+Round 1 holds, and round 2 holds except the named-scroller rule: it only sees nodes already under the list. `isHidden` guards, tvOS (same skip; `menuKey` and `focusGuides` still run), and the idle-tick path are fine. `requestProjectionSync` still remounts grouped lists, then segments and controls, and a rows batch still runs those. `syncOwed` covers the early returns in `sync` (first draw at `NavigationIOS.swift:348`, a transition at `:349`, `closeTop` at `:379`, `canPresent` at `:384`) because `settled` stays false, plus `nativeMoved`, `windowless`, and `mounted()`.
+
+1. **MATERIAL** — The batch that first puts a route's `navigationScroll` target under a rows list still skips projection. `onlyListRows` runs before the batch applies (`ListRowsIOS.swift:14-16`). `projected` treats a Back id as bar state (`:19-22`) but not a scroll name. `rowsList` only walks nodes already in `chrome.named` (`:39-40`, `:51-54`), starting at `superview`, so a node this batch creates or renames is invisible. Concrete batch, route already showing with `navigationScroll=feed`, virtualized list 1, row 10: `create` 100 `{id: feed}` with `overflow_y: scroll`, `children` 10 `[100]`, frames. `create`/`.props` accept it (`:90-92`), `rowsList(1)` is still true, `navigation.sync` is skipped. `contentScroll` (`NavigationBarIOS.swift:633-635`) would now return that scroll view, and the hook signature includes its identity (`:433`), so the hook does not run and `contentInsetAdjustmentBehavior` stays `.never`. Previously that same apply configured it. A later batch syncs only because the node is then inside the list; if the fling stops on this batch, it stays unconfigured. Same gap for a `.props` that sets `id` to `feed` on a row already in the list, and for a `.children` that is the only op placing an already-named node under the row. **Fix:** treat `props["id"]` as projected when it is any live route's `navigationScroll`. Treat a `.children` op as not rows when any id is in `read` or is created with a projected id. Test that create under row 10 bumps `syncCalls`.
+
+2. **MINOR** — `ListRowsIOSTests` does not pin that. The presenter has no session, so the first `sync` sets `settled` and returns (`NavigationIOS.swift:335-336`); deleting `!settled` from `syncOwed` (`:137`) keeps `testOnlyARowsBatchSkipsTheProjection` green. Nothing creates a `navigationScroll` target, places a flat leaf under the header, or runs on tvOS (`ListRowsIOSTests.swift:1`). A classifier that treats every flat id as rows stays green. **Fix:** one apply that creates the named scroller under a row and asserts `syncCalls` advanced; one flat heading under the header whose `style` is not rows-only.

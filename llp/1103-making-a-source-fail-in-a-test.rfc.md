@@ -1,7 +1,7 @@
 # LLP 1103: Making a fetch fail in a test or a drive
 
 **Type:** RFC
-**Status:** Draft r3, 2026-10-06. Charlie accepted the direction (LLP 1102 §0, §3.3). r1 was reviewed blind by Astra (`gpt-6-astra`, xhigh) and Grok 4.7 (xhigh); both found it not ready (§6). r2 narrowed the first version to what every executor can do exactly. r3 folds Astra's pass on r2 (NOT READY on five specification gaps, all answered here).
+**Status:** Built r4, 2026-10-06 (§7). Charlie accepted the direction (LLP 1102 §0, §3.3). r1 was reviewed blind by Astra (`gpt-6-astra`, xhigh) and Grok 4.7 (xhigh); both found it not ready (§6). r2 narrowed the first version to what every executor can do exactly. r3 folded Astra's pass on r2 (NOT READY on five specification gaps, all answered).
 **Systems:** the grant check every fetch passes (`grants/` and each executor's fetch path: `js/src/prelude.js` on Hermes, `host/web-js/ts-fetch.js` and `rt.js` `data.fetch` on the JS target, the native HTTP executor for a Rust source's declarative request), the authored-test grammar and runner (`contract/syntax/src/parser/steps.rs`, `scripts/agent-test.mjs`), the agent's open options and operations (`scripts/agent.mjs`, the web, Apple and Linux carriers), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-06
@@ -150,3 +150,64 @@ About three and a half lane-days.
   - streams are deferred.
 
   The cost is raised.
+- r4, 2026-10-06: built (§7). Astra reviewed it blind (LAND WITH FIXES); Grok's pass ended without a verdict. Folded in:
+  - an early GET sent before arming is not failed;
+  - the unfired check fails a counted fault whose table never appeared, an unreadable state, and one about to `close`;
+  - only a test's leading lines override the file's;
+  - replacement runners carry the table;
+  - `--fail-fetch` reaches `--test`;
+  - the drive request is a form of `prefer`, so the operation count is unchanged;
+  - the production claims are corrected.
+
+  A second pass by both (LAND WITH FIXES) found four more, folded as the third and last round:
+  - `reload` keeps a launch table the page has not made yet;
+  - a window the app closes cannot hide an unfired counted fault;
+  - the render host does not consult faults;
+  - Linux routes `faults` by its top-level key.
+
+  Grok's forced-GET note is not a defect: an uncached forced GET is a new request, which a fault may fail, and the early GET it does not claim is aborted.
+
+## 7. As built
+
+**The table.** It is one per session, in two places, because the two kinds of executor are two programs.
+- **Native** (Apple, Linux): the runner holds the table (`runner/src/runner/faults.rs`). Each host's plain-request arm, where it would hand a request to the executor, asks `Runner::fault_dispatch` first. A match is counted there and becomes work that returns `Outcome::Failed { kind: Network }`. The shared native executor (`host/apple/src/executor_core.rs`) now runs a plain request's work instead of the transport, so the request never goes out.
+  - A Hermes source's `fetch` rejects with the prelude's `FetchError('Network')`, as for a refused connection.
+  - A module worker's requests take the same arm.
+  - The render host has no driver and never consults it.
+- **The web** (both targets): the page holds the table (`host/web/faults.js`, on `globalThis`, because the builds copy these modules). It is consulted at two points, after the grant check:
+  - the wasm host's `request` (`http-body.js`) returns the browser-failure kind;
+  - the JS target's `fetchWith` throws `FetchError('Network')`.
+
+  `fetchEarly` only declines to start a matching GET, so each request is counted once. A GET `fetchEarly` already sent, before the fault was armed, is claimed and not failed.
+
+**Rules.** The longest live prefix decides. Arming again replaces an entry. `pass` keeps its hits. A count runs out and the entry stays, with `left: 0`. Every injected failure writes the journal line "fetch failed (driver fault): <url>".
+
+**Arming.**
+- At launch:
+  - natively, the runner reads `EXACT_AGENT_FAIL_FETCH` under `EXACT_AGENT=1` (simulators get it through `SIMCTL_CHILD_`);
+  - on the web, the page reads `?failFetch=` under `?agent`, which the history allowlist carries.
+
+  Both take one `<prefix>[\t<times>]` line per fault, and a reload's whole entry is `<prefix>\t<times>\t<left>\t<hits>\t<armed>`. A production build honors neither:
+  - a native one drops every `EXACT_AGENT_*` variable before the host or the runner reads one (LLP 1069.007 D2);
+  - a web bake compiles the reader out with `AGENT_ADMITTED`.
+- During a drive, it is a form of `prefer`, not another operation: the network is the environment, as `online` is (LLP 1012 §1 keeps ten). On the wire it is `{"op":"prefer","faults":{"fail":…,"times":…}}`, `{…{"pass":…}}`, or `{…{}}` to read; the command line spells it `fail fetch …` and `pass fetch …`. Each carrier hands it to its table: the runner on native, the page on the web. `state.faults` lists the table when it is not empty, and `--fail-fetch <prefix>` arms one at open (and for every test, with `--test`).
+- A replacement runner, from a development reload, carries the table as it is (`Carried::faults`). A JS-target development page reloads with its launch URL, as it carries no state.
+
+**Tests.**
+- `fail fetch` lines that lead a test (or sit at a file's top level) are launch facts; later ones are steps. Inheritance goes by prefix.
+- `scripts/agent-test.mjs` fails a counted fault that matched no fetch (or whose table no fetch ever made), at the line that armed it: at the test's end, before it is armed again, or before a `close`.
+- Before each input while counted faults are outstanding, the runner reads `state.faults` and drops those that have fired. A press the app answers with `close()` therefore cannot take an unfired fault's evidence with it: one still outstanding when the window closes fails the test.
+- `reload` relaunches with `state.faults` as the launch table. A page whose table no fetch or fault request has made yet keeps its launch's, and an unreadable state is an error. On the web, the page reloads with the new `failFetch`.
+
+**Verified.**
+- A scratch app's four tests pass on the web JS target, the wasm web host, macOS and an iOS simulator:
+  - a launch fault shows the error, `pass` and a retry load;
+  - a counted fault fails once;
+  - a later fault fails a retry;
+  - a reload keeps a passed fault passed.
+- On Linux, launch arming, `faults` and `state.faults` work; no app with a Linux presenter fetches at boot, so a hit is covered by the shared executor and the runner tests.
+- Unit and integration tests: `runner` (the table), `contract/cli/tests/it/fetch_faults.rs` (runner dispatch, journal, state, streams not matched), `tests_decl.rs` (grammar, inheritance, refusals), `host/web/faults.test.mjs` (both web paths, `fetchEarly`, never sent).
+
+**Known difference.** On the web the grant check comes first, so an ungranted URL is still `Refused`. Natively the fault is decided before the executor's admission, so a faulted ungranted URL fails as `Network`. Both are failures a test can see. Making native match would need a URL-level grant query the executor does not expose.
+
+**Deferred, as D5 says:** holding a request, a staged status, storage faults, and streams.

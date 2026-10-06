@@ -193,3 +193,54 @@ fn a_field_s_number_an_age_and_an_iso_day() {
         contract::compile("component A\n  view\n    text toString(round(\"2\"))\n").unwrap_err();
     assert_eq!(e.id, "type-argument", "{e}");
 }
+
+/// LLP 1102 §3.2 (decided (c)): `toFixed` and `formatDecimal` are linked
+/// `format` entries; `digits` is a whole-number literal in each one's range,
+/// written at the call, as a style is.
+#[test]
+fn money_is_format_decimal_and_a_measure_is_to_fixed() {
+    let src = r#"component App
+  state price = 19.995
+  state km = 1.005
+  view
+    column
+      text `$${formatDecimal(round(price * 100), 2)}` testId="price"
+      text `${toFixed(km, 2)} km` testId="km"
+"#;
+    let plan = contract::compile(src).unwrap();
+    assert_eq!(exact_runner::uses(&plan).to_string(), "format");
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(text(&r, "price"), "$20.00");
+    assert_eq!(
+        text(&r, "km"),
+        "1.00 km",
+        "the binary value of 1.005 is below it"
+    );
+    for (call, given) in [
+        ("toFixed(1.5, 101)", "given `101`"),
+        ("toFixed(1.5, 2.5)", "given `2.5`"),
+        ("toFixed(1.5, 1 + 1)", "given an expression"),
+        ("formatDecimal(5, 21)", "given `21`"),
+    ] {
+        let e = contract::compile(&format!("component A\n  view\n    text {call}\n")).unwrap_err();
+        assert_eq!(e.id, "type-literal-digits", "{call}: {e}");
+        assert!(e.message.contains(given), "{call}: {e}");
+    }
+    let e = contract::compile("component A\n  view\n    text toFixed(1.5, -1)\n").unwrap_err();
+    assert_eq!(e.id, "type-literal-digits", "{e}");
+    // A wrapper can't forward the digits: its parameter is an expression.
+    let e = contract::compile(
+        "fn money(v: number, d: number): string = toFixed(v, d)\ncomponent A\n  view\n    text money(1, 2)\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-literal-digits", "{e}");
+    let e = contract::compile("component A\n  view\n    text toFixed(\"1.5\", 2)\n").unwrap_err();
+    assert_eq!(e.id, "type-argument", "{e}");
+}

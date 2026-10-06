@@ -847,6 +847,11 @@ fn execute(
             |work| work(),
         );
     }
+    // Work beside a plain request is a driver fault's failure (LLP 1103 D1):
+    // it runs instead of the transport, so the request never goes out.
+    if let Some(work) = work {
+        return work();
+    }
     let b = match bindings {
         Ok(b) => b,
         Err(unbound) => return failed(FailureKind::Refused, unbound),

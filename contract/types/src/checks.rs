@@ -1030,10 +1030,10 @@ pub(super) fn check_command(
             span,
         );
     }
-    if name == "close" && !args.is_empty() {
+    if name == "close" && args.len() > 1 {
         return err(
             "type-close",
-            "`close()` takes no arguments: it closes the window this session shows, without asking its `beforeunload` again",
+            "`close()` closes the window this session shows, without asking its `beforeunload` again; `close(id)` closes the dialog with that `id` (LLP 1101.001 P5); nothing else",
             span,
         );
     }

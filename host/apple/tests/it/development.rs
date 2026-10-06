@@ -28,7 +28,9 @@ import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {developmentURLScheme} from './scripts/app.mjs';
-import {appleArtifacts, developmentAdmission, developmentLaunchEnvironment, developmentLinks, infoPlist, macInfoPlist} from './host/apple/build.mjs';
+import {appleArtifacts, developmentAdmission, developmentLinks, infoPlist, macInfoPlist} from './host/apple/build.mjs';
+// Moved beside the simulator and device helpers (28a2ee81d).
+import {developmentLaunchEnvironment} from './host/apple/devices.mjs';
 import {developmentOpenPage} from './host/web/serve.mjs';
 const dir = mkdtempSync(join(tmpdir(), 'exact-development-link-'));
 try {

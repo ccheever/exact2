@@ -212,8 +212,9 @@ fn registration_refuses_auto_sized_outer_box_and_ordinary_layout_cannot_bypass_g
     .unwrap();
     let b = binding(&k);
     assert!(k.set_content_region(Some(b)).is_err());
-    // LLP 1074 T1: a static owner is refused too. A trial lays the owner
-    // out as the top of its own tree, where it contains every absolutely
+    // LLP 1074 T1: a static owner over an absolutely positioned box (the
+    // fixture's placeholder) is refused too. A trial lays the owner out as
+    // the top of its own tree, where it contains every absolutely
     // positioned descendant; the ordinary tree must agree.
     let mut k = fixture();
     let mut s = StyleProps::default();
@@ -224,12 +225,25 @@ fn registration_refuses_auto_sized_outer_box_and_ordinary_layout_cannot_bypass_g
         0,
         &[Op::SetStyle {
             id: 2,
-            patch: Box::new(s),
+            patch: Box::new(s.clone()),
         }],
     )
     .unwrap();
     let b = binding(&k);
     assert!(k.set_content_region(Some(b)).is_err());
+    // With nothing absolute under it, they agree: the compiler leaves such a
+    // clipping box static (487f14493), and it registers.
+    k.apply(
+        0,
+        0,
+        &[Op::SetStyle {
+            id: 5,
+            patch: Box::new(s),
+        }],
+    )
+    .unwrap();
+    let b = binding(&k);
+    assert!(k.set_content_region(Some(b)).is_ok());
 }
 
 #[test]

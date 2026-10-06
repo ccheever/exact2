@@ -134,6 +134,7 @@ export async function waitForInflight(waiting, deadline) {
 }
 
 import { admitsNetwork, grantError, scopedGrantSet } from './grant-admission.js';
+import { faultMessage, takeFault } from './faults.js';
 
 // Network and page-module requests share admission and the byte ceiling.
 // Called after the enclosing batch, so even an immediate refusal cannot re-enter it.
@@ -177,7 +178,11 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   if (decodedBody) init.body = decodedBody;
   if (op.stream && !headers.some(([k]) => k.toLowerCase() === 'accept')) init.headers = [...headers, ['accept', 'text/event-stream']];
   try {
-    const response = await (!asset && moduleLoader?.claim?.(url, init) || fetch(asset ? localAssetURL(url) : url, init));
+    const early = !asset && moduleLoader?.claim?.(url, init);
+    // @ref LLP 1103 D1, D2 — a driver fault is a refused connection, never sent; a GET
+    // `fetchEarly` already sent (before the fault was armed) is not one it decides.
+    if (!early && !asset && !op.stream && takeFault(url)) return failed(1, faultMessage(url));
+    const response = await (early || fetch(asset ? localAssetURL(url) : url, init));
     // A redirect that left the grants names where it led (podcast F5): the
     // browser followed it, and the response's URL is the last hop's.
     if (response.url && (asset

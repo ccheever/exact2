@@ -24,6 +24,7 @@ mod checks;
 mod component;
 mod geometry;
 mod lists;
+mod literals;
 mod media;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod placeholder;
@@ -159,35 +160,6 @@ fn roster_accepts(f: Stdlib, spec: &str, t: &Ty) -> bool {
         (Stdlib::First | Stdlib::At, "any") => matches!(t, Ty::List(_)),
         _ => t.matches_roster(spec),
     }
-}
-
-/// A roster parameter spelled as string literals (`"medium" | "month-year"`)
-/// takes one of them, written as a literal: a style is chosen where the call
-/// is written, never computed or forwarded (@ref LLP 1054.000.003 D9; the
-/// precedent is `path()`'s route name).
-fn literal_argument(name: &str, i: usize, spec: &str, arg: &Expr) -> Result<(), TypeError> {
-    let written = match arg {
-        Expr::Str(value, _) => {
-            let quoted = format!("\"{value}\"");
-            if spec.split(" | ").any(|choice| choice == quoted) {
-                return Ok(());
-            }
-            format!("`{quoted}`")
-        }
-        _ => "an expression".into(),
-    };
-    err(
-        "type-format-style",
-        format!(
-            "argument {} of `{name}` is one of {}, written as a string literal; given {written}",
-            i + 1,
-            spec.split(" | ")
-                .map(|c| format!("`{c}`"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        arg.span(),
-    )
 }
 
 /// A roster parameter as a refusal spells it.
@@ -917,8 +889,13 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 let mut given = Vec::with_capacity(args.len());
                 for (i, (arg, spec)) in args.iter().zip(f.params()).enumerate() {
                     if spec.starts_with('"') {
-                        literal_argument(name, i, spec, arg)?;
+                        literals::literal_argument(name, i, spec, arg)?;
                         given.push(Ty::String);
+                        continue;
+                    }
+                    if let Some(range) = spec.split_once("..=") {
+                        literals::digits_argument(name, i, range, arg)?;
+                        given.push(Ty::Number);
                         continue;
                     }
                     let t = infer(arg, scope, shapes)?;

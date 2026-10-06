@@ -179,7 +179,9 @@ fn call_value(
             _ => return None,
         },
         // @ref LLP 1054.000.003 D8 — the linked capability, or a trap.
-        Stdlib::FormatDate | Stdlib::FormatNumber => return format?(f, args),
+        Stdlib::FormatDate | Stdlib::FormatNumber | Stdlib::ToFixed | Stdlib::FormatDecimal => {
+            return format?(f, args)
+        }
         Stdlib::Length => Value::Number(match args.first()? {
             Value::List(items) => items.len() as f64,
             // The web's String.length (and `maxlength`): UTF-16 code units.

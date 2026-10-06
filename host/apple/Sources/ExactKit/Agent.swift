@@ -231,7 +231,8 @@ public final class Agent {
         case "type": let r = releaseCanvasKey(req) ?? type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
         case "reveal": Agent.reply(tagged(reveal(req))) // before a tap or a type: a target out of view, scrolled into it
         case "clock": let r = clock(req); session.tellAgentOffset(); Agent.reply(tagged(r))
-        case "prefer": Agent.reply(tagged(prefer(req)))
+        // A fetch fault (LLP 1103) is the runner's, below; the device facts are this host's.
+        case "prefer" where req["faults"] == nil: Agent.reply(tagged(prefer(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
         case "sample": Agent.reply(tagged(sample(req)))
         case "logs":

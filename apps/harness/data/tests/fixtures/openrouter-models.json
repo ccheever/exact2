@@ -1,0 +1,1341 @@
+{
+ "data": [
+  {
+   "id": "anthropic/claude-sonnet-4.5",
+   "canonical_slug": "anthropic/claude-sonnet-4.5-20250101",
+   "name": "Anthropic: Claude Sonnet 4.5",
+   "created": 1759161676,
+   "description": "Anthropic: Claude Sonnet 4.5 \u2014 a model.",
+   "context_length": 1000000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 1000000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "anthropic/claude-opus-4.1",
+   "canonical_slug": "anthropic/claude-opus-4.1-20250101",
+   "name": "Anthropic: Claude Opus 4.1",
+   "created": 1754411591,
+   "description": "Anthropic: Claude Opus 4.1 \u2014 a model.",
+   "context_length": 200000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 200000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "anthropic/claude-3.5-haiku",
+   "canonical_slug": "anthropic/claude-3.5-haiku-20250101",
+   "name": "Anthropic: Claude 3.5 Haiku",
+   "created": 1730678400,
+   "description": "Anthropic: Claude 3.5 Haiku \u2014 a model.",
+   "context_length": 200000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 200000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "anthropic/claude-3.7-sonnet:thinking",
+   "canonical_slug": "anthropic/claude-3.7-sonnet-20250101",
+   "name": "Anthropic: Claude 3.7 Sonnet (thinking)",
+   "created": 1740422110,
+   "description": "Anthropic: Claude 3.7 Sonnet (thinking) \u2014 a model.",
+   "context_length": 200000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 200000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "openai/gpt-5",
+   "canonical_slug": "openai/gpt-5-20250101",
+   "name": "OpenAI: GPT-5",
+   "created": 1754587413,
+   "description": "OpenAI: GPT-5 \u2014 a model.",
+   "context_length": 400000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 400000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "openai/gpt-5-mini",
+   "canonical_slug": "openai/gpt-5-mini-20250101",
+   "name": "OpenAI: GPT-5 Mini",
+   "created": 1754587407,
+   "description": "OpenAI: GPT-5 Mini \u2014 a model.",
+   "context_length": 400000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 400000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "openai/gpt-4o-audio-preview",
+   "canonical_slug": "openai/gpt-4o-audio-preview-20250101",
+   "name": "OpenAI: GPT-4o Audio",
+   "created": 1755233061,
+   "description": "OpenAI: GPT-4o Audio \u2014 a model.",
+   "context_length": 128000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 128000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "openai/gpt-5-image",
+   "canonical_slug": "openai/gpt-5-image-20250101",
+   "name": "OpenAI: GPT-5 Image",
+   "created": 1760447986,
+   "description": "OpenAI: GPT-5 Image \u2014 a model.",
+   "context_length": 128000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 128000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "openai/gpt-4o-search-preview",
+   "canonical_slug": "openai/gpt-4o-search-preview-20250101",
+   "name": "OpenAI: GPT-4o Search Preview",
+   "created": 1741817949,
+   "description": "OpenAI: GPT-4o Search Preview \u2014 a model.",
+   "context_length": 128000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 128000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop"
+   ]
+  },
+  {
+   "id": "openai/gpt-4.1",
+   "canonical_slug": "openai/gpt-4.1-20250101",
+   "name": "OpenAI: GPT-4.1",
+   "created": 1744651385,
+   "description": "OpenAI: GPT-4.1 \u2014 a model.",
+   "context_length": 1047576,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 1047576,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "google/gemini-2.5-pro",
+   "canonical_slug": "google/gemini-2.5-pro-20250101",
+   "name": "Google: Gemini 2.5 Pro",
+   "created": 1750169544,
+   "description": "Google: Gemini 2.5 Pro \u2014 a model.",
+   "context_length": 1048576,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 1048576,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "google/gemini-2.5-flash",
+   "canonical_slug": "google/gemini-2.5-flash-20250101",
+   "name": "Google: Gemini 2.5 Flash",
+   "created": 1750172488,
+   "description": "Google: Gemini 2.5 Flash \u2014 a model.",
+   "context_length": 1048576,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 1048576,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "google/gemini-2.5-flash-image-preview",
+   "canonical_slug": "google/gemini-2.5-flash-image-preview-20250101",
+   "name": "Google: Gemini 2.5 Flash Image Preview",
+   "created": 1756218977,
+   "description": "Google: Gemini 2.5 Flash Image Preview \u2014 a model.",
+   "context_length": 128000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 128000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "google/gemma-3-27b-it:free",
+   "canonical_slug": "google/gemma-3-27b-it-20250101",
+   "name": "Google: Gemma 3 27B (free)",
+   "created": 1741756359,
+   "description": "Google: Gemma 3 27B (free) \u2014 a model.",
+   "context_length": 128000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 128000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop"
+   ]
+  },
+  {
+   "id": "x-ai/grok-4",
+   "canonical_slug": "x-ai/grok-4-20250101",
+   "name": "xAI: Grok 4",
+   "created": 1752087689,
+   "description": "xAI: Grok 4 \u2014 a model.",
+   "context_length": 256000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 256000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "x-ai/grok-code-fast-1",
+   "canonical_slug": "x-ai/grok-code-fast-1-20250101",
+   "name": "xAI: Grok Code Fast 1",
+   "created": 1756238927,
+   "description": "xAI: Grok Code Fast 1 \u2014 a model.",
+   "context_length": 256000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 256000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "x-ai/grok-3-mini",
+   "canonical_slug": "x-ai/grok-3-mini-20250101",
+   "name": "xAI: Grok 3 Mini",
+   "created": 1749583245,
+   "description": "xAI: Grok 3 Mini \u2014 a model.",
+   "context_length": 128000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 128000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "deepseek/deepseek-chat-v3.1",
+   "canonical_slug": "deepseek/deepseek-chat-v3.1-20250101",
+   "name": "DeepSeek: DeepSeek V3.1",
+   "created": 1755779628,
+   "description": "DeepSeek: DeepSeek V3.1 \u2014 a model.",
+   "context_length": 163840,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 163840,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "deepseek/deepseek-chat-v3.1:free",
+   "canonical_slug": "deepseek/deepseek-chat-v3.1-20250101",
+   "name": "DeepSeek: DeepSeek V3.1 (free)",
+   "created": 1755779628,
+   "description": "DeepSeek: DeepSeek V3.1 (free) \u2014 a model.",
+   "context_length": 163840,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 163840,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "qwen/qwen3-coder",
+   "canonical_slug": "qwen/qwen3-coder-20250101",
+   "name": "Qwen: Qwen3 Coder 480B A35B",
+   "created": 1753230546,
+   "description": "Qwen: Qwen3 Coder 480B A35B \u2014 a model.",
+   "context_length": 262144,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 262144,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "qwen/qwen3-max",
+   "canonical_slug": "qwen/qwen3-max-20250101",
+   "name": "Qwen: Qwen3 Max",
+   "created": 1758662808,
+   "description": "Qwen: Qwen3 Max \u2014 a model.",
+   "context_length": 256000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 256000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "qwen/qwen3-next-80b-a3b-instruct",
+   "canonical_slug": "qwen/qwen3-next-80b-a3b-instruct-20250101",
+   "name": "Qwen: Qwen3 Next 80B A3B Instruct",
+   "created": 1757612213,
+   "description": "Qwen: Qwen3 Next 80B A3B Instruct \u2014 a model.",
+   "context_length": 128000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 128000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "moonshotai/kimi-k2-0905",
+   "canonical_slug": "moonshotai/kimi-k2-0905-20250101",
+   "name": "MoonshotAI: Kimi K2 0905",
+   "created": 1757021147,
+   "description": "MoonshotAI: Kimi K2 0905 \u2014 a model.",
+   "context_length": 262144,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 262144,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "z-ai/glm-4.6",
+   "canonical_slug": "z-ai/glm-4.6-20250101",
+   "name": "Z.AI: GLM 4.6",
+   "created": 1759235576,
+   "description": "Z.AI: GLM 4.6 \u2014 a model.",
+   "context_length": 202752,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 202752,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "z-ai/glm-4.5-air:free",
+   "canonical_slug": "z-ai/glm-4.5-air-20250101",
+   "name": "Z.AI: GLM 4.5 Air (free)",
+   "created": 1753471258,
+   "description": "Z.AI: GLM 4.5 Air (free) \u2014 a model.",
+   "context_length": 128000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 128000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "mistralai/devstral-medium",
+   "canonical_slug": "mistralai/devstral-medium-20250101",
+   "name": "Mistral: Devstral Medium",
+   "created": 1752161321,
+   "description": "Mistral: Devstral Medium \u2014 a model.",
+   "context_length": 128000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 128000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "mistralai/mistral-medium-3.1",
+   "canonical_slug": "mistralai/mistral-medium-3.1-20250101",
+   "name": "Mistral: Mistral Medium 3.1",
+   "created": 1755095639,
+   "description": "Mistral: Mistral Medium 3.1 \u2014 a model.",
+   "context_length": 128000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 128000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "meta-llama/llama-4-maverick",
+   "canonical_slug": "meta-llama/llama-4-maverick-20250101",
+   "name": "Meta: Llama 4 Maverick",
+   "created": 1743881822,
+   "description": "Meta: Llama 4 Maverick \u2014 a model.",
+   "context_length": 1048576,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 1048576,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "meta-llama/llama-3.3-70b-instruct",
+   "canonical_slug": "meta-llama/llama-3.3-70b-instruct-20250101",
+   "name": "Meta: Llama 3.3 70B Instruct",
+   "created": 1733506137,
+   "description": "Meta: Llama 3.3 70B Instruct \u2014 a model.",
+   "context_length": 128000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 128000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "cohere/command-a",
+   "canonical_slug": "cohere/command-a-20250101",
+   "name": "Cohere: Command A",
+   "created": 1742889600,
+   "description": "Cohere: Command A \u2014 a model.",
+   "context_length": 128000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 128000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "nousresearch/hermes-4-405b",
+   "canonical_slug": "nousresearch/hermes-4-405b-20250101",
+   "name": "Nous: Hermes 4 405B",
+   "created": 1756235463,
+   "description": "Nous: Hermes 4 405B \u2014 a model.",
+   "context_length": 128000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 128000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "response_format",
+    "structured_outputs"
+   ]
+  },
+  {
+   "id": "perplexity/sonar",
+   "canonical_slug": "perplexity/sonar-20250101",
+   "name": "Perplexity: Sonar",
+   "created": 1738013808,
+   "description": "Perplexity: Sonar \u2014 a model.",
+   "context_length": 128000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 128000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop"
+   ]
+  },
+  {
+   "id": "openrouter/auto",
+   "canonical_slug": "openrouter/auto-20250101",
+   "name": "Auto Router",
+   "created": 1699401600,
+   "description": "Auto Router \u2014 a model.",
+   "context_length": 2000000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "-1",
+    "completion": "-1",
+    "request": "0",
+    "image": "0"
+   },
+   "top_provider": {
+    "context_length": 2000000,
+    "max_completion_tokens": 32000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop"
+   ]
+  }
+ ]
+}

@@ -1,4 +1,5 @@
 import { admitsNetwork, admitsSecret, coversPath, createGrantSet, grantError, hasGrant, rawGrantText, scopedGrantSet, unionGrantSets } from '../web/grant-admission.js';
+import { faultMessage, takeFault } from '../web/faults.js';
 export { admitsNetwork, admitsSecret, coversPath, createGrantSet, grantError, hasGrant, rawGrantText, sameGrantDeclaration, scopedGrantSet, unionGrantSets } from '../web/grant-admission.js';
 
 // Captured while the entry graph loads. App source injection never replaces
@@ -37,6 +38,8 @@ export async function fetchWith(set, input, init = {}) {
   const invalid = grantError(set);
   if (invalid) throw new FetchError('Refused', invalid);
   if (!asset && !admitsNetwork(set, value, 'fetch')) throw new FetchError('Refused', refusal('net.fetch'));
+  // @ref LLP 1103 D1, D2 — a driver fault: the refused connection's failure, never sent.
+  if (!asset && takeFault(value)) throw new FetchError('Network', faultMessage(value));
   try {
     const { exactTimeout: _, ...rest } = init;
     // The caller's signal, from `init` or the input `Request` (`null`

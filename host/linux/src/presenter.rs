@@ -693,10 +693,9 @@ impl<D: DataSource> Presenter<D> {
             let dispatch = match r.request.continuation {
                 Some(token) => self.host.dispatch_work(token),
                 None if r.request.is_native() => self.host.native_work(&r.request),
-                None => {
-                    self.run_dispatch(r, exact_runner::Dispatch::Missing);
-                    continue;
-                }
+                // @ref LLP 1103 D1 — a driver fault fails it before transport.
+                None => (self.host.runner_mut().fault_dispatch(&r))
+                    .unwrap_or(exact_runner::Dispatch::Missing),
             };
             self.run_dispatch(r, dispatch);
         }
