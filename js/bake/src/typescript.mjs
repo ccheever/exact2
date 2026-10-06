@@ -19,6 +19,46 @@ export function assertCapturedModule(stage, id) {
   }
 }
 
+// Time and seeds are source arguments (LLP 1027.000): every executor refuses
+// the clock, randomness and timers when they are used, with these words
+// (js/src/prelude.js, host/web-js/ts-fetch.js). A direct use in the app's own
+// code is refused here too, at build, by file and line, so a test that runs
+// the module under Bun, which has no such guard, cannot hide it.
+const ambient=(api)=>api+' is unavailable in data sources; pass time or a random seed as an argument';
+const timers=(api)=>api+' is unavailable in data sources: there are no timers; pass time as an argument';
+const member=(node,object,property)=>node?.type==='MemberExpression' && !node.computed
+  && node.object?.type==='Identifier' && node.object.name===object && node.property?.name===property;
+function refusal(node) {
+  if (node.type==='CallExpression') {
+    const callee=node.callee;
+    if (member(callee,'Date','now')) return ambient('Date.now()');
+    if (member(callee,'performance','now')) return ambient('performance.now()');
+    if (member(callee,'Math','random')) return 'Math.random() is unavailable in data sources; pass time or a random seed as an argument, or use crypto.getRandomValues';
+    if (callee?.type==='Identifier' && callee.name==='Date') return ambient('Date()');
+    if (callee?.type==='Identifier' && ['setTimeout','setInterval','requestAnimationFrame','requestIdleCallback'].includes(callee.name)) return timers(callee.name+'()');
+  }
+  if (node.type==='NewExpression' && node.callee?.type==='Identifier' && node.callee.name==='Date' && !node.arguments.length) return ambient('new Date()');
+  return null;
+}
+/** The direct uses of the clock, randomness and timers in the captured
+ * module `file`, as `path:line:col: why` with its path in the app: `parse`
+ * is Rolldown's (a plugin's `this.parse`, or `parseAst`), given TypeScript. */
+export function ambientRefusals(stage, file, code, parse) {
+  if (!isAbsolute(file) || /\.d\.[cm]?ts$/.test(file) || !/\.[cm]?[jt]sx?$/.test(file)) return [];
+  const lang=/\.[cm]?tsx?$/.test(file) ? (file.endsWith('x') ? 'tsx' : 'ts') : 'js';
+  const label=relative(stage,file).split(sep).join('/'), found=[], starts=[0];
+  for (let i=0;i<code.length;i++) if (code.charCodeAt(i)===10) starts.push(i+1);
+  const at=(offset)=>{ let lo=0, hi=starts.length; while (lo+1<hi) { const mid=(lo+hi)>>1; if (starts[mid]<=offset) lo=mid; else hi=mid; } return (lo+1)+':'+(offset-starts[lo]+1); };
+  const walk=(node)=>{
+    if (!node || typeof node!=='object') return;
+    if (Array.isArray(node)) { node.forEach(walk); return; }
+    if (typeof node.type==='string') { const why=refusal(node); if (why) found.push(label+':'+at(node.start)+': '+why); }
+    for (const key in node) if (key!=='parent') walk(node[key]);
+  };
+  walk(parse(code,{lang}));
+  return found;
+}
+
 // The standard library is what every executor runs: the browser, and Hermes
 // natively (js/src/standard.js fills what it lacks of ES2023). ES2024's
 // ArrayBuffer resizing, shared memory and the RegExp `v` flag are not in

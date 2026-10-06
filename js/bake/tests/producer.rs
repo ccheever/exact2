@@ -1039,3 +1039,34 @@ fn a_slow_first_frame_source_bakes_whatever_the_wall_clock() {
         "the slow source's first frame is baked"
     );
 }
+
+/// The clock in the app's own code is refused at build, by file and line,
+/// in both compilers, so a Bun test (no guard there) cannot hide it from a
+/// device that refuses it on first use (LLP 1027.000).
+#[test]
+fn the_clock_in_a_data_module_is_refused_at_build_by_file_and_line() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    f.write(
+        "logic.ts",
+        "export const prefix = 'old: ';\nexport const stamp = () => Date.now();\n",
+    );
+    let error = bake(&f.0, &Tools::default())
+        .err()
+        .expect("Date.now() refused");
+    assert!(
+        error.contains("logic.ts:2:28: Date.now() is unavailable in data sources; pass time or a random seed as an argument"),
+        "{error}"
+    );
+    let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
+    assert!(producer
+        .bake(&f.0, None)
+        .err()
+        .unwrap()
+        .contains("logic.ts:2:28: Date.now()"));
+    // An explicit date, a member named `now` elsewhere, and a comment are fine.
+    f.write("logic.ts", "export const prefix = 'old: ';\n// Date.now() is refused\nexport const epoch = new Date(0).getTime() + ({ now: () => 1 }).now();\n");
+    assert!(producer.bake(&f.0, None).is_ok());
+}

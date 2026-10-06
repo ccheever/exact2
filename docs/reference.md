@@ -390,7 +390,10 @@ refuses them by name, with the same message, on first use: Hermes, the web's
 module realm, and the web build, whose bundler gives the app's own modules
 guarded `Date`, `Math`, `Intl`, timers and `performance` in place of the
 page's (LLP 1027.000 D3), so an app that reads the clock fails in the web loop
-as it would on a device. The type check cannot see the difference. Development JS builds name a derive
+as it would on a device. The type check cannot see the difference, but every
+build refuses a direct use in a module `app.ts` reaches, by file and line
+(`logic.ts:2:28: Date.now() is unavailable in data sources; …`), so a test that
+runs the module under Bun, which has no such guard, cannot hide it. Development JS builds name a derive
 whose value fails its type check and report failed resource/source dependencies
 that it read.
 ES2024's resizable `ArrayBuffer`, shared memory and the RegExp `v` flag are not

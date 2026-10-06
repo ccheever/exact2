@@ -266,9 +266,12 @@ guide's rules don't make obvious.
   send's reply matters (LLP 1092). Until 2026-10-05 the continuation vanished
   natively, which held the Signal clone's sends forever (build 35).
 
-- **`Date.now()` throws in an iOS data module, and Bun tests pass.** Take the
-  time from the call's arguments (the Contract's `wallTime.epochAtZero + now()`),
-  as every source already receives it. (Signal clone build 34, 2026-10-05.)
+- **`Date.now()` in a data module passes its Bun tests and fails on the
+  device.** Since 2026-10-05 the build refuses a direct use by file and line
+  (`Date.now()`, `new Date()`, `Math.random()`, timers); an alias still gets
+  past the build and throws on first use on every host but Bun. Take the time
+  from the call's arguments (the Contract's `wallTime.epochAtZero + now()`), as
+  every source already receives it. (Signal clone build 34, 2026-10-05.)
 
 - **A helper action does not see what its caller just assigned.** `sel = next`
   then `follow()`, with `follow` reading `sel`, would read the old `sel`: a call
