@@ -24,6 +24,7 @@ import { legacyCommand, legacyLocal } from './legacy-sidebar-commands'; // legac
 import { legacyEnabled, legacyProjectOrder, threadSortOrder } from './legacy-sidebar-view';
 import { closeThreadTerminals, detachThreadSessions, removeOrphanedWorktree, setWorktreePrompt, worktreePlan, worktreePrompt, type WorktreePrompt } from './worktree-cleanup'; // thread-commands-and-keys: G5
 import { deleteSelectedThreadEntries, getFallbackThreadIdAfterDelete } from './sidebar-delete-logic';
+import { mostRecentProjectId } from './pages-home';
 
 const failure = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
 const threadOf = (client: T3Client, id: string): Obj | undefined => client.shell.threads.find(thread => thread.id === id);
@@ -178,7 +179,8 @@ export async function remove(client: T3Client, native: Native, storage: Files, i
   if (wasOpen && client.threadId === id) {
     const navigator = client as unknown as Navigator;
     if (fallback) await navigator.openSelected?.(native, fallback);
-    else await navigator.openDraft?.(native, str(thread.projectId));
+    // No thread left in the project: the home route `/` (IndexDraftLanding), a draft in the most recently active project.
+    else await navigator.openDraft?.(native, mostRecentProjectId({ ...client.shell, threads: client.shell.threads.filter(entry => entry.id !== id && !deleted.has(str(entry.id))) }));
   }
   if (plan && answer === true) await removeOrphanedWorktree(client, native, storage, plan);
   return 'deleted';

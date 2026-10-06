@@ -177,7 +177,8 @@ Implemented on `feat(example)/t3-code-thread-commands-and-keys` (base `9670b0723
   (`sidebar:dialog-confirm` / `sidebar:dialog-cancel`); Cancel still deletes the thread. Order: provider-session.detach
   per session (only with a runtime, projection fetched for a thread that is not open), the terminal hook
   (`setCloseThreadTerminals`, no-op until 20261005-terminal-drawer), thread.delete, fallback navigation (top thread of
-  the project in the thread sort), then `vcs.removeWorktree{cwd: workspaceRoot, path, force: true}` and
+  the project in the thread sort; with none left, the home route `/` as the reference does: a draft in the most
+  recently active project), then `vcs.removeWorktree{cwd: workspaceRoot, path, force: true}` and
   `vcs.refreshStatus{cwd}`; failures are stacked toasts and never fail the deletion. Bulk deletes continue after a
   failure (first failure toasted) and ask once per orphaned worktree. The legacy sidebar's direct deletes use the same path.
 - Keys (`thread-keys.ts`, one `MAIN_ROWS` entry): ⇧⌘↩ steers the first queued message only when the provider steers
@@ -201,11 +202,15 @@ native context menu, which the agent answers as dismissed: unverified (attended)
 Korean 2-Set (unverified (attended)); queue keys live (no signed-in provider: unverified (needs sign-in, on hold));
 ⇧⌘H / Cycle Host live (one machine in the lane); reduced-motion and focus-return rows of the dialog.
 
+Open question for the user: whether the agent may get a way to pick from the sidebar's native menu (test
+apparatus, needs approval), so the worktree dialog can be driven live.
+
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
 | 1 | `72bd6a8d8` | `bun test examples/t3-code` 1867 pass / 0 fail (base 1829); strict tsc clean; contract build 2324 slots, 43 resources; `cargo test -p t3-code-macos --lib` 10 pass; AppKit binaries 0 failures except r8-keys (2) and r9-input (4) focus tests, which pass on rerun and fail the same way at the base; mermaid not runnable (lane server has no web Mermaid build); caps and the five checks pass (cargo tests 2927 pass); macOS bundle builds | Live drive (one BEFORE on the base app, one AFTER): at the first thread the dispatch list has no `shortcut-thread.previous` and ⇧⌘[ keeps "Locked C" (base: wraps to "Plain notes"); ⌥⌘B on a draft opens "Open a surface"; ⌘K in Settings opens the palette above it; ⌘U leaves Settings for Usage with Back/Forward live. G5 against the lane server and real `git worktree`s through the clone's own sidebar path (menu pick stood in): Confirm → thread.delete, vcs.removeWorktree{force:true}, vcs.refreshStatus, feature-a gone from `git worktree list`; shared feature-b: first delete no dialog, last thread's Cancel keeps it; locked feature-c → "Failed to delete worktree" toast, thread deleted | attended rows above |
+| 2 | home route fix | Deleting a project's last open thread goes to the home route `/` (a draft in the most recently active project) as the reference does, not a draft in the deleted thread's project; `bun test examples/t3-code` 1868 pass / 0 fail; strict tsc clean; no live drive (coordinator) | Bun test "deleting a project's last open thread goes home" | — |
 
 ## Next action
 
