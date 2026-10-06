@@ -1,0 +1,16 @@
+{
+  "source": "762f501cb",
+  "fixture": "Real authenticated HTTPS backend with remoteOpenTargets=[]",
+  "shortcut": "Cmd+O delivered after closing Files editor menu",
+  "nativeWindowAfterShortcut": [
+    "App=com.exact.t3code.ssh157 (pid 88748)",
+    "Window: \"T3 Code (Exact)\", App: T3 Code (Exact).",
+    ""
+  ],
+  "openRequestAfterShortcut": "",
+  "scope": "Observed no editor window takeover; unavailable helper no-op is additionally covered by unit tests.",
+  "detailsOpenDisabled": true,
+  "detailsMenuNoRouteDisabled": true,
+  "filesOpenDisabled": true,
+  "filesMenuNoRoute": true
+}

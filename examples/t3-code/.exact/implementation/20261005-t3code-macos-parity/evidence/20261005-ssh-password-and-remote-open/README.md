@@ -72,14 +72,25 @@ Files also displays the first available editor independently of the remembered
 selection. No VS Code document-view success is claimed for that local attempt. The supported
 local Open outcome uses the offered Finder entry, recorded above.
 
-Still open: missing-route UI and final acceptance/delivery reconciliation. The
-remote project outcome and Files OS handoff are separate evidence; no remote Files
-content claim is inferred from a dispatched URL. Existing checks are reused unless later
-changes affect them; this record does not declare the task complete.
+## Final missing-route acceptance
 
-The missing-route fixture has a separate real backend with empty advertised targets.
-Its non-loopback HTTP URL is rejected by native transport, including on restore.
-Loopback URLs intentionally use local execution, and saved SSH aliases provide a
-route, so neither exercises unavailable UI. An authenticated temporary HTTPS tunnel
-would enable this last drive; authorization to expose the isolated fixture was
-requested and has not yet been received. No public tunnel was started.
+The user authorized a temporary HTTPS tunnel to the isolated authenticated backend.
+The real server config advertised no SSH targets. The native client paired over
+HTTPS and opened the fixture thread and README through its normal UI.
+
+- Details Open was disabled, and its menu displayed a disabled “No SSH route” item.
+- Files Open was disabled, and its menu displayed the same unavailable explanation.
+- After Escape closed the Files menu, Cmd+O left the native window in place with no
+  open request. This observation complements the unavailable-action no-op unit test;
+  it is not a system-wide audit of every possible side effect.
+
+Evidence: [details screenshot](unavailable-details.png), [details AX](unavailable-details-ax.txt),
+[Files screenshot](unavailable-files.png), [Files AX](unavailable-files-ax.txt),
+[shortcut AX](unavailable-shortcut-ax.txt), [assertions](unavailable-summary.json).
+
+All feature acceptance follow-up items are now covered. Generic parent oracle/trace
+infrastructure remains outside this feature's completion claim. The temporary
+public tunnel is terminated after this drive; no pairing credential is retained here.
+
+[HTTPS config](route-https-check.json) records the empty advertised routes;
+[cleanup](route-cleanup.json) confirms the tunnel, proxy and dedicated backend exited.

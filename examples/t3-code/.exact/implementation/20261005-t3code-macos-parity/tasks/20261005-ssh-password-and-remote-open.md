@@ -1,14 +1,14 @@
 ---
 name: 20261005-ssh-password-and-remote-open
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
-verification: unverified
-delivery: none
+implementation: verified
+verification: passed
+delivery: open
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-ssh-password-and-remote-open
 pr_url: https://github.com/ccheever/exact2/pull/157
-verified_commit: null
+verified_commit: 762f501cb82f933fa00dd72146934d4ae37fcc8a
 ---
 
 # SSH password prompt and Open in a local editor for remote environments
@@ -309,13 +309,13 @@ checklist above; implementation and verification status remain unchanged.
   with the requested alias/path; no Files document-content outcome is inferred.
 - [x] Verify local Open using the offered Finder entry and successful backend RPC;
   the fixture README is selected in Finder.
-- [ ] Verify missing-route UI.
+- [x] Verify missing-route UI through an authorized authenticated HTTPS fixture: details and Files Open are disabled; menus explain the missing SSH route.
 - [x] Compare Korean input-source behavior with the pinned desktop oracle: both
   secure fields select ABC when focused. Preserve the first-to-second FIFO comparison.
 - [x] Reconcile dependency status: #142 is merged and included; direct feature oracle
   evidence exists, while the generic oracle/trace and clone-on-main tasks remain
   planned/unverified. This does not waive their broader acceptance requirements.
-- [ ] Record remaining acceptance outcomes and update final delivery status together.
+- [x] Record final acceptance evidence and prepare PR #157 for review.
 
 The recorded FIFO `afterCancel` sample still has the second prompt open; no claim
 of a drained queue is made. A local editor menu item is not evidence of an editor
@@ -337,3 +337,16 @@ alias and standard-scope imports. #142's [acceptance record](../evidence/2026100
 distinguishes feature acceptance from full T0/RPC equality. This task likewise
 records only its observed SSH/remote-open behavior; no full parent trace or reusable
 oracle-tooling completion is claimed. The dependency table retains that distinction.
+
+
+## Final acceptance, 2026-10-06
+
+Implementation `762f501cb82f933fa00dd72146934d4ae37fcc8a` passed the remaining
+feature checks; subsequent commits contain evidence and tracking only. The native
+HTTPS fixture closes the last missing-route row, including Details, Files and the
+Open shortcut. See the durable evidence record for screenshots and bounded claims.
+The earlier in-progress/Draft instructions describe superseded checkpoints.
+
+The feature is implemented and verified; PR #157 is being marked Ready under the
+user's explicit instruction. It is not merged. Generic parent tooling and the full
+T0 matrix remain separately tracked and are not claimed complete by this task.
