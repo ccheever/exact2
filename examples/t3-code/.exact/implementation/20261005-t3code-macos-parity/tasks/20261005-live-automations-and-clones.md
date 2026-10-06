@@ -13,6 +13,10 @@ verified_commit: null
 
 # Live automations and tracked project clones
 
+Current acceptance: client implementation and partial UI verification only.
+Authenticated Codex completion, real-time scheduled execution and the tracked-clone
+runtime flow remain unverified. PR #156 must not be described as end-to-end complete.
+
 ## Outcome
 
 **Automations.** Settings › Scheduled tasks lists the tasks of every connected environment and updates by itself while the server schedules and runs them (status, next run, last error). A thread's details panel gets an **Automations** section for the tasks bound to that thread, with Edit, Run now and a Pause/Resume switch. **Clones.** Adding a project by cloning a repository returns at once: the server creates the project and clones in the background. A toast per clone shows progress with Cancel, then "Cloned X" with Open project, or a failure with Retry and Remove project. The project's draft shows the same state in its composer and cannot send until the clone ends.
@@ -157,4 +161,47 @@ repository Rust tests and 10 macOS Rust tests pass. The macOS application bundle
 also builds. These merge checks do not add authenticated provider or timed-run
 coverage to the original evidence.
 
-`verify`: drive the tracked clone (palette › Git URL with the slow-pack hook) and a second environment; run the oracle rows once desktop-oracle-and-trace exists.
+### Handoff: authenticated automation verification
+
+Resume from [PR #156](https://github.com/ccheever/exact2/pull/156). Read its current
+verification note and this task's acceptance table. Keep `verification: unverified`
+until the remaining required acceptance rows pass. Provider execution and scheduling
+belong to the T3 server; a missing credential is not evidence of an Exact framework bug.
+
+1. Build the current app with Bun 1.4.2 and start an isolated T3 backend. Previous
+   fixture ports were 16170/16171 and its data was under `target/lane-after` and
+   `target/lane-before`; these ignored artifacts may no longer exist. Recreate the
+   disposable project/thread/tasks if needed. Do not use the production `~/.t3` or
+   port 3773. Record app/server revisions, origin, provider instance/model and UTC time.
+2. Check authentication in the exact provider process and credential home used by
+   that backend. A signed-in interactive Codex session elsewhere does not prove this
+   process is authenticated. Complete sign-in with the user if required; do not copy
+   credentials from another agent or include tokens in evidence. First send a bounded
+   ordinary prompt such as `Reply exactly AUTOMATION_OK; do not run tools or edit files.`
+   Require an actual assistant response and successful provider completion.
+3. Create a disposable task bound to the test thread with that prompt. Run it from
+   both Thread details > Automations and Settings > Scheduled tasks. Record task,
+   thread and provider turn IDs, RPC, final assistant response, provider terminal
+   status, server run status and UI updates without reload. A successful `runNow`
+   RPC or a `succeeded` label alone does not meet the completion criterion.
+4. Enable a short interval task and observe a real server-clock deadline without
+   pressing Run now. Record scheduled time, actual start, completed response,
+   run count and next run. The UI agent's `clock` changes do not advance the backend
+   scheduler. Pause across a due interval and verify no new turn; resume and verify
+   the next due run. Disable/delete only the test tasks after the check.
+5. In a separate disposable unauthenticated environment, reproduce an authentication
+   failure. Correlate the task/run/thread/turn IDs and timestamps with the server
+   stream and both UI views. Investigate the earlier `succeeded`/provider `failed`
+   discrepancy; its cause and whether the records name the same run are unknown.
+   Determine whether the server status means dispatch or actual provider completion.
+   If a change is needed, fix the owning layer and verify against the reference;
+   do not invent a client success state or claim a server fix without evidence.
+6. Preserve sanitized transcripts and evidence links in the PR and this task,
+   including remaining failures. Logs under `target/` are local and not durable
+   handoff artifacts. Never infer current account identity from the old 401 log.
+
+Automation acceptance requires real manual and scheduled provider completions plus
+consistent, understood status/error behavior. It does not close the other task rows:
+tracked-clone success/cancel/failure/retry/remove, a second environment, the old-server
+path, keyboard/Escape/reduced-motion and reference/trace checks remain open as listed
+above. Resume those separately after authentication is available.
