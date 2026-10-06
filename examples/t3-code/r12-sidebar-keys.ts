@@ -7,9 +7,8 @@
 // - a thread row has no key handler: ContextMenu reaches Chromium's keyboard
 //   contextmenu, which opens the row's menu at the focused row's centre; Shift+F10
 //   does nothing on macOS.
-// Shift+F10 is the draft row's window shortcut while it holds focus
-// (sidebar-row.contract DraftCard: `draft-menu` with the value `key`); the row
-// key handler carries the key name only (no modifiers), so it answers ContextMenu.
+// The draft row's key handler (sidebar-row.contract DraftCard `rowKey`) reads the
+// KeyboardEvent's modifiers (exact2 8a0afbeab) and names Shift+F10 itself.
 // The native menu (T3Sidebar.swift `sidebarMenu` `anchor`) is placed from the
 // window's first responder, the focused row button, instead of the pointer.
 import type { T3Client } from './client';
@@ -22,9 +21,9 @@ export const isMenuKey = (name: string): boolean => MENU_KEYS.has(name);
 
 /** A focused row's key: the menu op it opens (a `draft:<project>` id is a draft row), or null. */
 export function rowKeyMenu(id: string, name: string): { op: 'menu' | 'draft-menu'; id: string; value: string; anchor: MenuAnchor } | null {
-  if (!isMenuKey(name) || !id) return null;
-  if (id.startsWith('draft:')) return id.length > 6 ? { op: 'draft-menu', id: id.slice(6), value: 'key', anchor: 'bottom-left' } : null;
-  return { op: 'menu', id, value: 'row', anchor: 'center' };
+  if (!id) return null;
+  if (id.startsWith('draft:')) return (isMenuKey(name) || name === 'Shift+F10') && id.length > 6 ? { op: 'draft-menu', id: id.slice(6), value: 'key', anchor: 'bottom-left' } : null;
+  return isMenuKey(name) ? { op: 'menu', id, value: 'row', anchor: 'center' } : null;
 }
 
 const anchors = new WeakMap<object, MenuAnchor>();

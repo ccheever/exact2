@@ -434,7 +434,8 @@ component UnpricedInfo
     column position="relative" margin-left=4
       button popovertarget="usage-unpriced" aria-label="Unpriced usage details" testId="usage-unpriced" width=12 height=12 padding=0 border-width=0 background-color="#00000000" display="flex"
         PgIcon(name="info", size=12, color="light-dark(#71717b, #818181)")
-      column id="usage-unpriced" popover="auto" position="absolute" left=0 top=0 padding-top=4
+      // PopoverPopup side="top" (align center, sideOffset 4), placed by position-area (exact2 2c6b551ba).
+      column id="usage-unpriced" popover="auto" position="absolute" position-area="top" padding-bottom=4
         text text max-width=240 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 font-size=12 line-height="16px" color="light-dark(#fafafa, #27272a)" background-color="light-dark(#27272a, #f5f5f5)"
 
 // UsageProviderChart: a 56pt axis, the 224pt plot (layered areas at 12%, then
