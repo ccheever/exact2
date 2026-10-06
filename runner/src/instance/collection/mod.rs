@@ -41,13 +41,9 @@ pub(super) fn collections_json(tree: &Tree) -> String {
 
 const BOOTSTRAP_ROWS: usize = 16;
 const ESTIMATED_HEIGHT: f64 = 32.0;
-/// How far a host's port may sit from where the runner places it and still
-/// be there: a host rounds its offset to device pixels (UIKit's
-/// `contentOffset`, a browser's `scrollTop`), so 4405.1667 shows as
-/// 4405.333 at 3x. A tighter test re-sent the same unreachable correction
-/// with every commit, and the opening never settled (`settle_start`).
-/// Half a point is half a pixel at 1x and more at any finer scale; a
-/// per-host half pixel would need the scale in every report, on every host.
+/// A port this near its target is there: hosts round offsets to device
+/// pixels (4405.1667 shows as 4405.333 at 3x), and a tighter test re-sent an
+/// unreachable correction every commit (LLP 1010 §6.8). Half a pixel at 1x.
 const AT_OFFSET: f64 = 0.5;
 /// Travel the window leads by, past its viewport of overscan.
 const LEAD_SECONDS: f64 = 0.25;
