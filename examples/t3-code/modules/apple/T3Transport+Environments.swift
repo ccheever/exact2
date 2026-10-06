@@ -71,7 +71,7 @@ extension T3Transport {
                         let bytes = data ?? Data()
                         let decoded = bytes.count <= T3Wire.maximumBytes ? (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any] : nil
                         guard (200..<300).contains(status), let decoded else {
-                            let reason = decoded?["message"] as? String ?? (decoded?["reason"] as? String == "invalid_credential" ? "The environment credential is invalid." : "The server returned HTTP \(status).")
+                            let reason = T3RemoteAuth.failureMessage(decoded, status: status)
                             return self.finish(completion, failure: T3Failure(kind: [401, 403].contains(status) ? "Authentication" : "HTTP", message: scrub(reason)))
                         }
                         then(decoded)
@@ -91,13 +91,7 @@ extension T3Transport {
             // The message names the direction (compatibility.ts); T3Fleet's fleetOutdatedPair saves an
             // outdated host that can update itself, so this one never exchanges the credential.
             if let problem = T3Compatibility.problem(descriptor) { return finish(completion, failure: T3Failure(kind: "Protocol", message: problem.message)) }
-            let body = T3Endpoint.form([
-                "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange", "subject_token": credential,
-                "subject_token_type": "urn:t3:params:oauth:token-type:environment-bootstrap",
-                "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
-                "scope": "orchestration:read orchestration:operate review:write",
-                "client_label": "Exact T3 for Mac", "client_device_type": "desktop", "client_os": "macos",
-            ])
+            let body = T3RemoteAuth.exchangeForm(credential: credential, scope: request["scope"] as? String ?? "")
             send("/oauth/token", body: body) { [self] grant in
                 guard grant["token_type"] as? String == "Bearer", let access = grant["access_token"] as? String, !access.isEmpty else {
                     return finish(completion, failure: T3Failure(kind: "Protocol", message: "The server did not issue a bearer access token."))

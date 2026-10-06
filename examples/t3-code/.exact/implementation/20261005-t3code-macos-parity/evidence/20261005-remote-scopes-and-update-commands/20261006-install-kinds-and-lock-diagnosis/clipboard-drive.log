@@ -1,0 +1,2 @@
+PASS forced native pasteboard failure and error toast
+PASS npm-global native control + clipboard + toast

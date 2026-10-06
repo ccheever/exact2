@@ -1,0 +1,49 @@
+{
+  "scopeExchanges": [
+    {
+      "client": "oracle",
+      "step": "readonly",
+      "at": 1791273568439,
+      "kind": "http",
+      "method": "POST",
+      "path": "/oauth/token",
+      "status": 400,
+      "scope": "orchestration:read orchestration:operate terminal:operate review:write relay:read"
+    },
+    {
+      "client": "oracle",
+      "step": "standard",
+      "at": 1791273578520,
+      "kind": "http",
+      "method": "POST",
+      "path": "/oauth/token",
+      "status": 200,
+      "scope": "orchestration:read orchestration:operate terminal:operate review:write relay:read"
+    },
+    {
+      "client": "native",
+      "step": "readonly",
+      "at": 1791273828687,
+      "kind": "http",
+      "method": "POST",
+      "path": "/oauth/token",
+      "status": 400,
+      "scope": "orchestration:read orchestration:operate terminal:operate review:write relay:read"
+    },
+    {
+      "client": "native",
+      "step": "standard",
+      "at": 1791273846828,
+      "kind": "http",
+      "method": "POST",
+      "path": "/oauth/token",
+      "status": 200,
+      "scope": "orchestration:read orchestration:operate terminal:operate review:write relay:read"
+    }
+  ],
+  "sameOrderedFiveScopes": true,
+  "readonlyBoth400": true,
+  "standardBoth200": true,
+  "traceContainsNoCredentialFields": true,
+  "scope": "Actual native and Electron remote pairing exchanges; this is not a full message/approval T0 trace."
+}

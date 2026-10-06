@@ -1,0 +1,48 @@
+{
+  "readonly": {
+    "connected": false,
+    "state": "error",
+    "adminAccess": false,
+    "activeLabel": "127.0.0.1:16140",
+    "environments": [],
+    "updateCount": 0,
+    "machines": [],
+    "loadBalancing": false,
+    "loadSummary": "Off",
+    "githubSummary": "Off"
+  },
+  "standardSession": {
+    "sessionId": "b18a9432-25bb-448c-9324-f9c37edc6279",
+    "subject": "one-time-token",
+    "scopes": [
+      "orchestration:read",
+      "orchestration:operate",
+      "terminal:operate",
+      "review:write",
+      "relay:read"
+    ],
+    "method": "bearer-access-token",
+    "client": {
+      "label": "review-standard",
+      "ipAddress": "127.0.0.1",
+      "userAgent": "ExactMac (unknown version) CFNetwork/3860.700.1 Darwin/25.6.0",
+      "deviceType": "desktop",
+      "os": "macos"
+    },
+    "issuedAt": "2026-10-06T06:04:17.498Z",
+    "expiresAt": "2026-11-05T06:04:17.498Z",
+    "lastConnectedAt": "2026-10-06T06:04:17.508Z",
+    "connected": true,
+    "current": false
+  },
+  "clipboard": {
+    "text": "npx t3@0.0.46-nightly.20261004.1"
+  },
+  "assertions": [
+    "readonly link refused; no saved environment",
+    "standard session connected with exactly five scopes",
+    "manual command copied with relaunch toast",
+    "desktop-managed row has note and no update button"
+  ],
+  "legacy": "blocked during Keychain read, not passed"
+}

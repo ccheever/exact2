@@ -43,6 +43,15 @@ class FakeTransport implements Native {
   }
 }
 
+test('adding a route requests the standard scopes while checking the existing environment', async () => {
+  const native = new FakeTransport();
+  await runConnectionOp(native, 'environment-route-add', 'env-a https://route.example.com', 'ROUTECODE', false);
+  expect(native.calls.find(call => call.op === 'pairEnvironment')).toEqual({
+    op: 'pairEnvironment', origin: 'https://route.example.com', credential: 'ROUTECODE', expectedEnvironmentId: 'env-a',
+    scope: 'orchestration:read orchestration:operate terminal:operate review:write relay:read',
+  });
+});
+
 test('status copy follows savedBackendStatus and connectionStatusText', () => {
   expect(savedStatus(true, 'connected', '')).toEqual({ text: 'Connected', tone: 'muted' });
   expect(savedStatus(false, 'connected', '')).toEqual({ text: 'Off', tone: 'muted' });
@@ -87,7 +96,7 @@ test('every paired environment, a loopback one included, is a saved row under En
     ['Fixture A', 'http://127.0.0.1:14796/ · Connected', true, false, true, 'laptop'],
     ['Remote', 'https://remote.example.com/ · Connected · 0.0.40', true, false, false, 'desktop'],
     ['Off box', 'https://off.example.com/ · Off', false, true, false, 'cloud']]);
-  expect(page.environments[1]).toMatchObject({ tooltip: 'Connected\nUpdate available: 0.0.40 → 0.0.46-nightly.20261004.1', switchTip: 'Switch off', update: 'Copy update command', iconLock: '' });
+  expect(page.environments[1]).toMatchObject({ tooltip: 'Connected\nUpdate available: 0.0.40 → 0.0.46-nightly.20261004.1', switchTip: 'Switch off', update: 'Copy relaunch command', updateNote: '', iconLock: '' });
   expect(page.environments[2]).toMatchObject({ tooltip: 'Switched off', switchTip: 'Switch on', update: '', iconLock: 'Connect to this environment to change its icon.' });
   expect(page.environments[1]!.icons.map(icon => [icon.kind, icon.selected, icon.note])).toEqual([['server', false, ''], ['cloud', false, ''], ['linux', false, ''],
     ['desktop', true, 'detected'], ['laptop', false, ''], ['mac-mini', false, ''], ['mac-studio', false, '']]);
@@ -133,7 +142,7 @@ test('adding pairs beside the focused connection, connects when there is none, a
   await expect(runConnectionOp(native, 'environment-add', 'http://127.0.0.1:14806', 'invalid-fixture-code', true)).rejects.toThrow('The environment credential is invalid.');
   expect(await runConnectionOp(native, 'environment-add', 'http://127.0.0.1:14806', 'PAIRCODE', true)).toEqual({ status: null, generation: -1 });
   expect(native.calls.filter(call => call.op === 'connect' && !call.fleet)).toHaveLength(0);
-  expect(native.calls.find(call => call.op === 'pairEnvironment' && call.credential === 'PAIRCODE')).toEqual({ op: 'pairEnvironment', origin: 'http://127.0.0.1:14806', credential: 'PAIRCODE' });
+  expect(native.calls.find(call => call.op === 'pairEnvironment' && call.credential === 'PAIRCODE')).toEqual({ op: 'pairEnvironment', origin: 'http://127.0.0.1:14806', credential: 'PAIRCODE', scope: 'orchestration:read orchestration:operate terminal:operate review:write relay:read' });
   const result = await runConnectionOp(native, 'environment-add', 'http://127.0.0.1:14806', 'PAIRCODE', false);
   expect(result.status).toMatchObject({ state: 'connected', environmentId: 'env-b' });
   const page = await connectionsPage(host(), native, true);

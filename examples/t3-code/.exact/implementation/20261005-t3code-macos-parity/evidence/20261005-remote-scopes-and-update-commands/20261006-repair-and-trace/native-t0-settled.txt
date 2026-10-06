@@ -1,0 +1,115 @@
+App=com.exact.t3code.scope-repair (pid 19124)
+Window: "T3 Code (Exact)", App: T3 Code (Exact).
+
+0 standard window T3 Code (Exact)
+	1 scroll area, Secondary Actions: scroll up, scroll down
+		2 button Toggle sidebar
+		3 button Go to threads
+		4 text Search
+		5 text field (settable) Search threads
+		6 button Filter threads by project
+		7 button Add project
+		8 button New thread
+		9 scroll area, Secondary Actions: scroll up, scroll down
+			10 button T0 verification message. Return T0_READY_FOR_APPRO..., 16140
+			11 button T0 verification message. Return T0_READY_FOR_APPRO..., 16140
+			12 button T0 verification message. Return T0_READY_FOR_APPRO..., 16140
+			13 button T0 verification message. Return T0_READY_FOR_APPRO..., 16140
+			14 button T0 verification message. Return T0_READY_FOR_APPRO..., 16140
+			15 button T0 verification message. Return T0_READY_FOR_APPRO..., 16140
+			16 button T0 verification message. Return T0_READY_FOR_APPRO..., 16140
+			17 button Legacy scope verification. Reply with LEGACY_SCOPE..., 16140
+			18 button New thread, 16140
+			19 button Toggle Settled
+			20 scroll bar 0
+				21 value indicator 0
+				22 increment arrow button
+				23 decrement arrow button
+				24 increment page button
+				25 decrement page button
+		26 button Settings
+		27 button Pull Requests
+		28 button Usage
+		29 button New thread in 16140
+		30 text /
+		31 button Thread actions for T0 verification message. Return T0_READY_FOR_APPRO...
+		32 button (expanded) Toggle thread details panel
+		33 button (disabled) Toggle terminal drawer
+		34 button Toggle right panel
+		35 scroll area, Secondary Actions: scroll up, scroll down
+			36 text T0 verification message. Return T0_READY_FOR_APPROVAL and request fixture approval.
+			37 text 6:07 PM
+			38 button Copy message
+			39 button Worked for 18s
+			40 text 6:07 PM
+			41 text T0_READY_FOR_APPROVAL
+			42 button Fork from this response
+			43 button Copy message
+			44 text 6:07 PM
+		45 scroll area, Secondary Actions: scroll up, scroll down
+			46 text entry area (settable) Message
+			47 scroll bar (disabled) 0
+		48 button Choose provider and model
+		49 button Medium
+		50 button Runtime mode
+		51 button Attach files
+		52 button (disabled) Submit message
+		53 scroll area, Secondary Actions: scroll up, scroll down
+			54 text 16140
+			55 button Open in Cursor
+			56 button Choose editor
+			57 button Add project script
+			58 button Branch: Select ref
+			59 container Git actions
+				60 button Git action options
+				61 button Commit & push
+			62 button Changes +168434 -2004
+			63 scroll bar 0
+				64 value indicator 0
+				65 increment arrow button
+				66 decrement arrow button
+				67 increment page button
+				68 decrement page button
+			69 scroll bar 0
+				70 value indicator 0
+				71 increment arrow button
+				72 decrement arrow button
+				73 increment page button
+				74 decrement page button
+		75 button Settings
+		76 button Command Palette
+		77 button Go to File
+		78 button Search Project Contents
+		79 button Change Theme
+		80 button Open Usage
+		81 button Toggle Theme Editor
+		82 button New Thread
+		83 button New Thread
+		84 button New Local Thread
+		85 button Appearance: Light
+		86 button Previous Thread
+		87 button Next Thread
+		88 button Thread 1
+		89 button Thread 2
+		90 button Thread 3
+		91 button Thread 4
+		92 button Thread 5
+		93 button Thread 6
+		94 button Thread 7
+		95 button Thread 8
+		96 button Thread 9
+		97 button Back
+		98 button Settle Thread
+		99 button Pin Thread
+		100 button Open in Editor
+		101 button Toggle Right Panel
+		102 button Toggle Diff
+		103 button Copy Thread ID
+		104 button Terminal harness
+	105 toolbar
+	106 close button
+	107 full screen button, Secondary Actions: zoom the window
+	108 minimize button
+
+The focused UI element is 46 text entry area (settable) Message.
+Screenshot: /var/folders/br/htsmr3l906b37_3s3k_63n500000gn/T/orca-computer-use/1882c4ed-66cd-486d-8796-02dede6c619d-screenshot.png

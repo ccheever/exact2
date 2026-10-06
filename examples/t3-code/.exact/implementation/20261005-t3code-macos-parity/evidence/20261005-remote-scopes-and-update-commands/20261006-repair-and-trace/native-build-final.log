@@ -1,0 +1,29 @@
+    Finished `host-dev` profile [optimized] target(s) in 0.16s
+host/apple: baked L=0; Swift embedded composition
+Building for debugging...
+[2 / 10] ExactKit
+[4 / 12] ExactKit
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Sources/ExactKit/Mac/NodeViewMac.swift:366:15: warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 364 |     /// A control is a leaf, as UIKit makes one: VoiceOver reads its name.
+ 365 |     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+ 366 |         super.accessibilityAttributeNames() + (["AXLanguage"] + Self.ariaAttributes.filter { ariaAttribute($0) != nil }).map { .init(rawValue: $0) }
+     |               `- warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 367 |     }
+ 368 |     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Sources/ExactKit/Mac/NodeViewMac.swift:373:59: warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 371 |             return language.isEmpty ? nil : language
+ 372 |         }
+ 373 |         return ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+     |                                                           `- warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 374 |     }
+ 375 |     /// `aria-hidden` takes the node and its subtree off the tree, as the
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+[7 / 11] ExactKit
+[9 / 11] ExactKit
+[10 / 11] ExactMac-product
+Build complete! (3.59 sec)
+local client: /Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/clients/e22818802f97c366e6210351/com.exact.t3code.macos/macos/T3 Code (Exact).app
+  No development opening link: build with --url <dev server URL> to register one.
+host/apple: target/clients/e22818802f97c366e6210351/com.exact.t3code.macos/macos/aarch64-apple-darwin/embedded/development/standalone/ExactMac (cargo 0.6 s, swift 3.6 s, arms 0.3 s, modules 0.0 s, package 1.1 s; signed 0F0D033A); GPU: no GPU crate; web arm: libexact_web.dylib; modules: libexact_modules.dylib

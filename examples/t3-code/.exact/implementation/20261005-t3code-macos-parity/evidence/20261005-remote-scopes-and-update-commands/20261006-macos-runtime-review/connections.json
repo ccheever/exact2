@@ -1,0 +1,254 @@
+{
+  "connected": true,
+  "state": "connected",
+  "adminAccess": false,
+  "activeLabel": "Daehyeon\u2019s MacBook Pro",
+  "environments": [
+    {
+      "key": "http://127.0.0.1:16140\n17550d22-978d-4e02-b083-4e41dbd7d34c",
+      "first": true,
+      "origin": "http://127.0.0.1:16140",
+      "environmentId": "17550d22-978d-4e02-b083-4e41dbd7d34c",
+      "label": "Daehyeon\u2019s MacBook Pro",
+      "kind": "laptop",
+      "subtitle": "http://127.0.0.1:16140/ \u00b7 Connected \u00b7 0.0.45",
+      "tooltip": "Connected\nUpdate available: 0.0.45 \u2192 0.0.46-nightly.20261004.1",
+      "errorTone": false,
+      "enabled": true,
+      "dimmed": false,
+      "unsupported": false,
+      "switchTip": "Switch off",
+      "active": true,
+      "traceId": "",
+      "update": "Copy relaunch command",
+      "updateVersion": "0.0.46-nightly.20261004.1",
+      "updateNote": "",
+      "outdatedAction": "",
+      "outdatedFrom": "",
+      "progress": "",
+      "progressFailed": "",
+      "iconLock": "",
+      "icons": [
+        {
+          "kind": "server",
+          "label": "Server",
+          "selected": false,
+          "note": ""
+        },
+        {
+          "kind": "cloud",
+          "label": "Cloud VM",
+          "selected": false,
+          "note": ""
+        },
+        {
+          "kind": "linux",
+          "label": "Linux/WSL",
+          "selected": false,
+          "note": ""
+        },
+        {
+          "kind": "desktop",
+          "label": "Desktop",
+          "selected": false,
+          "note": ""
+        },
+        {
+          "kind": "laptop",
+          "label": "Laptop",
+          "selected": true,
+          "note": "detected"
+        },
+        {
+          "kind": "mac-mini",
+          "label": "Mini PC",
+          "selected": false,
+          "note": ""
+        },
+        {
+          "kind": "mac-studio",
+          "label": "Workstation",
+          "selected": false,
+          "note": ""
+        }
+      ]
+    },
+    {
+      "key": "http://127.0.0.1:16141\nf78038a2-9795-4e0b-a6af-7a718bba2538",
+      "first": false,
+      "origin": "http://127.0.0.1:16141",
+      "environmentId": "f78038a2-9795-4e0b-a6af-7a718bba2538",
+      "label": "Daehyeon\u2019s MacBook Pro",
+      "kind": "laptop",
+      "subtitle": "http://127.0.0.1:16141/ \u00b7 Connected \u00b7 0.0.45",
+      "tooltip": "Connected\nUpdate available: 0.0.45 \u2192 0.0.46-nightly.20261004.1",
+      "errorTone": false,
+      "enabled": true,
+      "dimmed": false,
+      "unsupported": false,
+      "switchTip": "Switch off",
+      "active": false,
+      "traceId": "",
+      "update": "",
+      "updateVersion": "0.0.46-nightly.20261004.1",
+      "updateNote": "Update the desktop app on that machine to update this server.",
+      "outdatedAction": "",
+      "outdatedFrom": "",
+      "progress": "",
+      "progressFailed": "",
+      "iconLock": "",
+      "icons": [
+        {
+          "kind": "server",
+          "label": "Server",
+          "selected": false,
+          "note": ""
+        },
+        {
+          "kind": "cloud",
+          "label": "Cloud VM",
+          "selected": false,
+          "note": ""
+        },
+        {
+          "kind": "linux",
+          "label": "Linux/WSL",
+          "selected": false,
+          "note": ""
+        },
+        {
+          "kind": "desktop",
+          "label": "Desktop",
+          "selected": false,
+          "note": ""
+        },
+        {
+          "kind": "laptop",
+          "label": "Laptop",
+          "selected": true,
+          "note": "detected"
+        },
+        {
+          "kind": "mac-mini",
+          "label": "Mini PC",
+          "selected": false,
+          "note": ""
+        },
+        {
+          "kind": "mac-studio",
+          "label": "Workstation",
+          "selected": false,
+          "note": ""
+        }
+      ]
+    }
+  ],
+  "updateCount": 0,
+  "machines": [
+    {
+      "key": "http://127.0.0.1:16140\n17550d22-978d-4e02-b083-4e41dbd7d34c",
+      "first": true,
+      "environmentId": "17550d22-978d-4e02-b083-4e41dbd7d34c",
+      "label": "Daehyeon\u2019s MacBook Pro",
+      "kind": "laptop",
+      "subtitle": "This machine",
+      "weight": "50",
+      "weightLabel": "Normal",
+      "routing": "off",
+      "routingLabel": "Off",
+      "weights": [
+        {
+          "value": "100",
+          "label": "Prefer",
+          "selected": false
+        },
+        {
+          "value": "50",
+          "label": "Normal",
+          "selected": true
+        },
+        {
+          "value": "25",
+          "label": "Less often",
+          "selected": false
+        },
+        {
+          "value": "0",
+          "label": "Manual only",
+          "selected": false
+        }
+      ],
+      "routings": [
+        {
+          "value": "off",
+          "label": "Off",
+          "selected": true
+        },
+        {
+          "value": "read",
+          "label": "Read PRs",
+          "selected": false
+        },
+        {
+          "value": "read-write",
+          "label": "Read and act",
+          "selected": false
+        }
+      ]
+    },
+    {
+      "key": "http://127.0.0.1:16141\nf78038a2-9795-4e0b-a6af-7a718bba2538",
+      "first": false,
+      "environmentId": "f78038a2-9795-4e0b-a6af-7a718bba2538",
+      "label": "Daehyeon\u2019s MacBook Pro",
+      "kind": "laptop",
+      "subtitle": "http://127.0.0.1:16141/",
+      "weight": "50",
+      "weightLabel": "Normal",
+      "routing": "off",
+      "routingLabel": "Off",
+      "weights": [
+        {
+          "value": "100",
+          "label": "Prefer",
+          "selected": false
+        },
+        {
+          "value": "50",
+          "label": "Normal",
+          "selected": true
+        },
+        {
+          "value": "25",
+          "label": "Less often",
+          "selected": false
+        },
+        {
+          "value": "0",
+          "label": "Manual only",
+          "selected": false
+        }
+      ],
+      "routings": [
+        {
+          "value": "off",
+          "label": "Off",
+          "selected": true
+        },
+        {
+          "value": "read",
+          "label": "Read PRs",
+          "selected": false
+        },
+        {
+          "value": "read-write",
+          "label": "Read and act",
+          "selected": false
+        }
+      ]
+    }
+  ],
+  "loadBalancing": false,
+  "loadSummary": "Off",
+  "githubSummary": "Off"
+}

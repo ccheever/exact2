@@ -1,0 +1,70 @@
+argv: ['swift', 'test', '--scratch-path', '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/clients/d2ba34fa068a317d9021e1da/com.exact.caltrain/macos/aarch64-apple-darwin/embedded/development/tests', '--filter', 'NativeButtonsMacTests']
+Building for debugging...
+[Planning deferred tasks]
+[1 / 3]
+[2 / 6] ExactKit
+[3 / 7] ExactKit
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Sources/ExactKit/Mac/NodeViewMac.swift:366:15: warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 364 |     /// A control is a leaf, as UIKit makes one: VoiceOver reads its name.
+ 365 |     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+ 366 |         super.accessibilityAttributeNames() + (["AXLanguage"] + Self.ariaAttributes.filter { ariaAttribute($0) != nil }).map { .init(rawValue: $0) }
+     |               `- warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 367 |     }
+ 368 |     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Sources/ExactKit/Mac/NodeViewMac.swift:373:59: warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 371 |             return language.isEmpty ? nil : language
+ 372 |         }
+ 373 |         return ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+     |                                                           `- warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 374 |     }
+ 375 |     /// `aria-hidden` takes the node and its subtree off the tree, as the
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+[7 / 9] ExactKit
+[9 / 10] ExactKit
+[11 / 15] ExactKitTests-product
+[13 / 17] ExactKitTests-product
+[18 / 20] ExactKitTests-product/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[208](d68e2414d33f8bac-darwin_http.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[209](d68e2414d33f8bac-darwin_websocket.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[210](d68e2414d33f8bac-darwin_keychain.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[352](25ac62e5b3c53843-curve25519.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[353](0bbbd18bda93c05b-aes_nohw.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[354](00c879ee3285a50d-montgomery.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[355](00c879ee3285a50d-montgomery_inv.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[356](a0330e891e733f4e-ecp_nistz.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[358](a0330e891e733f4e-gfp_p384.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[360](aaa1ba3e455ee2e1-limbs.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[361](a4019cc0736b0423-mem.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[362](d5a9841f3dc6e253-poly1305.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[363](a0330e891e733f4e-p256-nistz.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[364](c322a0bcc369f531-chacha-armv8-ios64.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[365](c322a0bcc369f531-chacha20_poly1305_armv8-ios64.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[366](c322a0bcc369f531-aesv8-armx-ios64.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[367](c322a0bcc369f531-aesv8-gcm-armv8-ios64.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[368](c322a0bcc369f531-ghash-neon-armv8-ios64.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[369](c322a0bcc369f531-ghashv8-armx-ios64.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[370](c322a0bcc369f531-vpaes-armv8-ios64.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[371](c322a0bcc369f531-armv8-mont-ios64.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[372](c322a0bcc369f531-p256-armv8-asm-ios64.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[373](c322a0bcc369f531-sha512-armv8-ios64.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/host/apple/Package.swift: ExactKitTests-product: ld: warning: object file (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/host-dev/libcaltrain_apple.a[374](c322a0bcc369f531-sha256-armv8-ios64.o)) was built for newer 'macOS' version (27.0) than being linked (14.0)
+
+Build complete! (4.60 sec)
+Test Suite 'Selected tests' started at 2026-10-06 18:05:08.995.
+Test Suite 'ExactKitTests.xctest' started at 2026-10-06 18:05:08.995.
+Test Suite 'NativeButtonsMacTests' started at 2026-10-06 18:05:08.995.
+Test Case '-[ExactKitTests.NativeButtonsMacTests testAGlassButtonIsIsolatedInItsGroup]' started.
+Test Case '-[ExactKitTests.NativeButtonsMacTests testAGlassButtonIsIsolatedInItsGroup]' passed (0.093 seconds).
+Test Case '-[ExactKitTests.NativeButtonsMacTests testCustomButtonExposesItsFocusMaskToAppKit]' started.
+Test Case '-[ExactKitTests.NativeButtonsMacTests testCustomButtonExposesItsFocusMaskToAppKit]' passed (0.008 seconds).
+Test Case '-[ExactKitTests.NativeButtonsMacTests testItFocusesAsAClickDoesAndPressesOnlyAnAncestorItIsIn]' started.
+Test Case '-[ExactKitTests.NativeButtonsMacTests testItFocusesAsAClickDoesAndPressesOnlyAnAncestorItIsIn]' passed (0.007 seconds).
+Test Case '-[ExactKitTests.NativeButtonsMacTests testItIsAppKitsButtonPressingOnce]' started.
+Test Case '-[ExactKitTests.NativeButtonsMacTests testItIsAppKitsButtonPressingOnce]' passed (0.006 seconds).
+Test Suite 'NativeButtonsMacTests' passed at 2026-10-06 18:05:09.110.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.114 (0.115) seconds
+Test Suite 'ExactKitTests.xctest' passed at 2026-10-06 18:05:09.110.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.114 (0.115) seconds
+Test Suite 'Selected tests' passed at 2026-10-06 18:05:09.110.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.114 (0.115) seconds

@@ -1,0 +1,57 @@
+[
+  {
+    "threadId": "92749fb3-4d8a-406c-9cc0-dc60ba02e7f6",
+    "input": [
+      {
+        "text": "T0 verification message. Return T0_READY_FOR_APPROVAL and request fixture approval.",
+        "type": "text"
+      }
+    ],
+    "model": "gpt-5.6-sol",
+    "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/rsu-review/16140"
+  },
+  {
+    "threadId": "92749fb3-4d8a-406c-9cc0-dc60ba02e7f6",
+    "input": [
+      {
+        "text": "T0 verification message. Return T0_READY_FOR_APPROVAL and request fixture approval.",
+        "type": "text"
+      }
+    ],
+    "model": "gpt-5.6-sol",
+    "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/rsu-review/16140"
+  },
+  {
+    "threadId": "eff3f9ff-c7f3-4196-ae35-6b7ef10292db",
+    "input": [
+      {
+        "text": "T0 verification message. Return T0_READY_FOR_APPROVAL and request fixture approval.",
+        "type": "text"
+      }
+    ],
+    "model": "gpt-5.6-sol",
+    "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/rsu-review/16140"
+  },
+  {
+    "threadId": "eff3f9ff-c7f3-4196-ae35-6b7ef10292db",
+    "input": [
+      {
+        "text": "T0 verification message. Return T0_READY_FOR_APPROVAL and request fixture approval.T0 verification message. Return T0_READY_FOR_APPROVAL and request fixture approval.",
+        "type": "text"
+      }
+    ],
+    "model": "gpt-5.6-sol",
+    "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/rsu-review/16140"
+  },
+  {
+    "threadId": "eff3f9ff-c7f3-4196-ae35-6b7ef10292db",
+    "input": [
+      {
+        "text": "T0 verification message. Return T0_READY_FOR_APPROVAL and request fixture approval.",
+        "type": "text"
+      }
+    ],
+    "model": "gpt-5.6-sol",
+    "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/rsu-review/16140"
+  }
+]

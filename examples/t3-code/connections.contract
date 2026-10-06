@@ -52,6 +52,8 @@ shape SavedEnvironment
   traceId: string
   update: string
   updateVersion: string
+  // ServerUpdateAction: a desktop-managed server without remote app updates shows this sentence, no button.
+  updateNote: string
   // 22e9d35613: an outdated, self-updating host's "Update"/"Retry update", and the update's progress line.
   outdatedAction: string
   outdatedFrom: string
@@ -216,6 +218,8 @@ component EnvironmentRow
           when environment.outdatedAction != ""
             button press=op("environment-update-outdated", environment.key, environment.label) disabled=busy aria-label=`${environment.outdatedAction} ${environment.label} server` testId=`environment-update-outdated-${environment.environmentId}` display="flex" flex-direction="row" align-items="center" justify-content="center" height=24 padding-left=7 padding-right=7 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d"
               text environment.outdatedAction font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+          when environment.updateNote != ""
+            text environment.updateNote font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" testId=`environment-update-note-${environment.environmentId}`
           when environment.update != ""
             box position="relative" hover=hover("update")
               button press=op("environment-update", environment.key, environment.updateVersion) class=PvIconButton aria-label=`${environment.update} for ${environment.label} server` disabled=busy testId=`environment-update-${environment.environmentId}`

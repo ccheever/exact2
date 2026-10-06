@@ -1,0 +1,121 @@
+App=com.exact.t3code.scope-review (pid 88845)
+Window: "T3 Code (Exact)", App: T3 Code (Exact).
+
+0 standard window T3 Code (Exact)
+	1 scroll area, Secondary Actions: scroll up, scroll down
+		2 button Toggle sidebar
+		3 button Go to threads
+		4 text Search
+		5 text field (disabled) Search threads
+		6 button Filter threads by project
+		7 button Add project
+		8 button New thread
+		9 scroll area, Secondary Actions: scroll up, scroll down
+			10 button Legacy scope verification. Reply with LEGACY_SCOPE..., 16140
+			11 button New thread, 16140
+			12 button Toggle Settled
+		13 button Settings
+		14 button Pull Requests
+		15 button Usage
+		16 button New thread in 16140
+		17 text /
+		18 button Thread actions for Legacy scope verification. Reply with LEGACY_SCOPE...
+		19 button (expanded) Toggle thread details panel
+		20 button (disabled) Toggle terminal drawer
+		21 button Toggle right panel
+		22 scroll area, Secondary Actions: scroll up, scroll down
+			23 text Legacy scope verification. Reply with LEGACY_SCOPE_OK.
+			24 text 4:42 PM
+			25 button Copy message
+			26 text LEGACY_SCOPE_OK
+			27 button Fork from this response
+			28 button Copy message
+			29 text 4:42 PM
+		30 scroll area, Secondary Actions: scroll up, scroll down
+			31 text entry area Message
+			32 scroll bar (disabled) 0
+		33 button Choose provider and model
+		34 button Medium
+		35 button Runtime mode
+		36 button Attach files
+		37 button (disabled) Submit message
+		38 scroll area, Secondary Actions: scroll up, scroll down
+			39 text 16140
+			40 button Open in Cursor
+			41 button Choose editor
+			42 button Add project script
+			43 button Branch: Select ref
+			44 container Git actions
+				45 button Git action options
+				46 button Commit & push
+			47 button Changes +24731 -54
+			48 scroll bar 0
+				49 value indicator 0
+				50 increment arrow button
+				51 decrement arrow button
+				52 increment page button
+				53 decrement page button
+			54 scroll bar 0
+				55 value indicator 0
+				56 increment arrow button
+				57 decrement arrow button
+				58 increment page button
+				59 decrement page button
+		60 button Toggle sidebar
+		61 button Go to threads
+		62 text Search
+		63 text field (disabled) Search settings
+		64 text /
+		65 scroll area, Secondary Actions: scroll up, scroll down
+			66 button General
+			67 button Appearance
+			68 button Keybindings
+			69 button SnapShots
+			70 button Providers
+			71 button Integrations
+			72 button Scheduled Tasks
+			73 button Source Control
+			74 button Storage
+			75 button (selected) Connections
+			76 button Archive
+		77 button Back
+		78 button Focus settings search
+		79 text Settings
+		80 text Connections
+		81 scroll area, Secondary Actions: scroll up, scroll down
+			82 heading This machine
+			83 heading Administrative access
+			84 text Pairing links and client-session management require the access:write scope for this backend.
+			85 heading Environments
+			86 button Add environment
+			87 text Daehyeon’s MacBook Pro
+			88 text http://127.0.0.1:16140/ · Connected · 0.0.45
+			89 button Copy relaunch command for Daehyeon’s MacBook Pro server
+			90 switch Switch off Daehyeon’s MacBook Pro, Value: 1
+			91 button More actions for Daehyeon’s MacBook Pro
+			92 text The environment rejected the authentication request.
+		93 button Settings
+		94 button Back
+		95 button Toggle Theme Editor
+		96 heading Add Environment
+		97 text Pair another environment to this client.
+		98 radio button Remote link Enter a backend host and pairing code., Value: 1
+		99 radio button SSH Use local SSH config, agent, and tunnels for the backend., Value: 0
+		100 text Host
+		101 text field (settable) Host, Value: http://127.0.0.1:16158, Placeholder: backend.example.com
+		102 text Pairing code
+		103 text field (settable) Pairing code, Value: [redacted], Placeholder: PAIRCODE
+		104 text Paste a full pairing URL here to fill both fields automatically.
+		105 text The environment rejected the authentication request.
+		106 button Add environment
+		107 button Close
+		108 heading Could not add backend
+		109 text The environment rejected the authentication request.
+		110 button Copy error
+		111 button Dismiss notification
+	112 toolbar
+	113 close button
+	114 full screen button, Secondary Actions: zoom the window
+	115 minimize button
+
+The focused UI element is 0 standard window T3 Code (Exact).

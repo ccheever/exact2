@@ -1,0 +1,83 @@
+Code
+T0 verification message. Return T0_READY_FOR_APPRO...
+16
+16140
+now
+Settle
+T0 verification message. Return T0_READY_FOR_APPRO...
+T0 verification message. Return T0_READY_FOR_APPRO...
+16
+16140
+53m
+Settle
+T0 verification message. Return T0_READY_FOR_APPRO...
+T0 verification message. Return T0_READY_FOR_APPRO...
+16
+16140
+54m
+Settle
+T0 verification message. Return T0_READY_FOR_APPRO...
+T0 verification message. Return T0_READY_FOR_APPRO...
+16
+16140
+55m
+Settle
+T0 verification message. Return T0_READY_FOR_APPRO...
+T0 verification message. Return T0_READY_FOR_APPRO...
+16
+16140
+57m
+Settle
+T0 verification message. Return T0_READY_FOR_APPRO...
+T0 verification message. Return T0_READY_FOR_APPRO...
+16
+16140
+57m
+Settle
+T0 verification message. Return T0_READY_FOR_APPRO...
+T0 verification message. Return T0_READY_FOR_APPRO...
+16
+16140
+58m
+Settle
+T0 verification message. Return T0_READY_FOR_APPRO...
+Legacy scope verification. Reply with LEGACY_SCOPE...
+16
+16140
+1h
+Settle
+Legacy scope verification. Reply with LEGACY_SCOPE...
+New thread
+16
+16140
+3h
+Settle
+New thread
+Settled (0)
+16
+16140
+/
+T0 verification message. Return T0_READY_FOR_APPRO...
+You
+
+T0 verification message. Return T0_READY_FOR_APPROVAL and request fixture approval.
+
+6:09 PM
+
+T3 Code
+
+T0_READY_FOR_APPROVAL
+
+6:09 PM
+
+Worked for 7.2s
+6:09 PM
+
+
+
+
+Ask anything, @tag files/folders, $use skills, or / for commands
+Scope test model
+Medium
+Full access
+Toggle Sidebar
