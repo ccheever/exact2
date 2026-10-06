@@ -88,7 +88,7 @@ the snapshot and branch reads; sends are covered by tests).
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| 1 (2026-10-07) | see PR | CHECKS | drive records below | none |
+| 1 (2026-10-07) | `86ee667eb` on `0a7ca50ad` | `bun test examples/t3-code` 2198 pass / 1 skip / 0 fail (base 2190; +8 in `let-go.test.ts`, the reproduction among them); strict tsc (`--target ES2023 --lib ES2023,DOM`) clean; contract build 2535 slots, 45 resources; `cargo test -p t3-code-macos --lib` 11/0; no AppKit binary touched; caps pass; five checks pass (cargo build, cargo test 3310 pass / 0 fail / 32 ignored, clippy, fmt, caps, boot); macOS bundle builds | drive records below; PR screenshot | none |
 
 Drives: one BEFORE (`t3-code-evidence-base` at `0a7ca50ad`) and one AFTER, each one
 `agent.mjs macos --size 1280x840` call: pair with a fresh link, Continue, Continue, "Do not
