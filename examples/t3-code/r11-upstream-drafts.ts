@@ -15,6 +15,7 @@ import { remember } from './sidebar-commands';
 import { sidebarSession } from './sidebar-state';
 import { draftContext, type DraftContext } from './composer-controls-branch';
 import { menuAnchor } from './r12-sidebar-keys';
+import { letGo } from './let-go';
 
 /** buildDraftActionMenuItems: Copy (Path, Branch), Project settings, then the destructive Discard draft. */
 export function draftMenuItems(options: { hasPath: boolean; hasBranch: boolean; hasProject: boolean }): MenuItem[] {
@@ -54,7 +55,7 @@ export function discardDraft(client: T3Client, native: Native, key: string, whol
 
 async function copy(client: T3Client, native: Native, text: string, title: string, failure: string): Promise<void> {
   try { await client.restAccess(native).call({ op: 'copyText', text }); pushToast(client, { kind: 'success', title, description: text }); }
-  catch (error) { pushToast(client, { kind: 'error', title: failure, description: error instanceof Error ? error.message : 'An error occurred.', stacked: true }); }
+  catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: failure, description: error instanceof Error ? error.message : 'An error occurred.', stacked: true }); }
 }
 
 /** handleDraftContextMenu for a new-thread draft row (`projectId`). */

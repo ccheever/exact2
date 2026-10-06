@@ -10,6 +10,7 @@ import { rememberDiffLayout } from './settings-appearance-look';
 import { requestDiff } from './r11-device-diff';
 import { diffReview, loadDiffFiles } from './diff-review';
 import { type Native, type Files } from './protocol';
+import { letGo } from './let-go';
 
 /** The changes panel: open (a turn's checkpoint, a scope), refresh, whitespace, view options, copy a path, close. */
 export async function diffOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
@@ -50,6 +51,6 @@ async function diff(this: T3Client, native: Native, op: string, id: string, valu
       this.diffText = adoptDiff(this, request, result);
       await loadDiffFiles(this, native); // diff-review.ts: a large preview's first four files
     }
-  } catch (error) { if (epoch === this.threadEpoch) this.diffError = message(error); }
+  } catch (error) { if (epoch === this.threadEpoch && !letGo(error)) this.diffError = message(error); }
   finally { if (epoch === this.threadEpoch) this.diffLoading = false; }
 }

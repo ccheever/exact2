@@ -11,6 +11,7 @@ import { ClientError, type Files, type Native } from './protocol';
 import { pushToast } from './toast';
 import { visiblePullRequests } from './shell-pr';
 import { relativeLabel } from './pages-prs';
+import { letGo } from './let-go';
 
 export type LinkedRow = {
   key: string; index: number; number: number; title: string; url: string; host: string; repository: string; depth: number;
@@ -127,7 +128,7 @@ export async function prsLocal(client: T3Client, native: Native, op: string, id:
     menus.set(client, '');
     const link = linkOf(client, id);
     try { await client.restAccess(native).call({ op: 'copyText', text: str(link.url) }); }
-    catch (error) { pushToast(client, { kind: 'error', title: 'Failed to copy link', description: error instanceof Error ? error.message : 'An error occurred.' }); return ''; }
+    catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy link', description: error instanceof Error ? error.message : 'An error occurred.' }); return ''; }
     pushToast(client, { kind: 'success', title: 'Link copied', description: str(link.url) });
     return '';
   }

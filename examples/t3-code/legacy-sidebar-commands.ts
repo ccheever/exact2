@@ -16,11 +16,13 @@ import { applyDeviceSetting } from './settings-core';
 import { archive, deleteThreads, markUnread } from './sidebar-commands';
 import { buildMultiSelectThreadContextMenuItems, clampSidebarThreadPreviewCount, legacyProjectMenuItems, legacyThreadMenuItems, memberActionLabel, resolveProjectExpanded } from './legacy-sidebar-model';
 import { emptyDialog, expansionKeys, legacyGroups, legacySession, previewCount, sortedGroups, type LegacyGroup } from './legacy-sidebar-view';
+import { letGo } from './let-go';
 
 type Local = Parameters<typeof applyDeviceSetting>[0];
 interface Navigator { openSelected?(native: Native, id: string): Promise<void>; openDraft?(native: Native, projectId: string): Promise<void> }
 const failure = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
-const toast = (client: T3Client, title: string, error: unknown) => pushToast(client, { kind: 'error', title, description: failure(error), stacked: true });
+/** The failure toast; a let-go request is rethrown instead (let-go.ts), so nothing after it runs. */
+const toast = (client: T3Client, title: string, error: unknown) => { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title, description: failure(error), stacked: true }); };
 const threadOf = (client: T3Client, id: string): Obj | undefined => client.shell.threads.find(thread => thread.id === id);
 const groupOf = (client: T3Client, key: string): LegacyGroup | undefined => legacyGroups(client).find(group => group.key === key);
 function memberOf(client: T3Client, memberId: string) {

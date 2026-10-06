@@ -9,6 +9,7 @@ import { isSnapshotPermissionMessage } from './snapshot-settings';
 import { shortcutInput } from './keybinding-settings';
 import { obj, str, arr } from './domain';
 import { ClientError, type Native, type Files } from './protocol';
+import { letGo } from './let-go';
 
 /** Draft captures and the SnapShot settings: shortcut, sound, setup and options. */
 export async function snapshotOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
@@ -52,7 +53,7 @@ export async function snapshotOps(this: T3Client, op: string, id: string, value:
         catch (error) { if (!(error instanceof ClientError) || error.kind !== 'SnapShot' || !isSnapshotPermissionMessage(error.message)) throw error; }
       } catch (error) {
         this.local.deviceSettings = previous;
-        try { await this.persist(storage); } catch { throw new ClientError('Could not save the shortcut. Keep settings open and retry; the previous native binding is retained.'); }
+        try { await this.persist(storage); } catch (error) { if (letGo(error)) throw error; throw new ClientError('Could not save the shortcut. Keep settings open and retry; the previous native binding is retained.'); }
         throw error;
       }
       await this.call(native, { op: 'snapshotRecordShortcut', record: false });

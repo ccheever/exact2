@@ -33,6 +33,7 @@ import { restoredEffects } from './r11-device-panels'; // lane r11-device: with 
 import { requestDiff } from './r11-device-diff';
 import { deviceTargetOf, restoreDeviceTarget, type DeviceTarget } from './r6-media-device';
 import type { PrTarget } from './r5-panels-pr';
+import { letGo } from './let-go';
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment';
 export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number; pr?: PrTarget; attachment?: AttachmentMeta; device?: DeviceTarget; title?: string; terminal?: PanelTerminal };
@@ -128,7 +129,7 @@ async function showDiff(client: T3Client, native: Native): Promise<void> {
   try {
     const result = await requestDiff(client.config, request, (method, payload) => client.restAccess(native).request(method, payload)); // r11-device-diff.ts
     if (threadId === client.threadId && client.diffOpen) client.diffText = adoptDiff(client, request, result);
-  } catch (error) { if (threadId === client.threadId) client.diffError = error instanceof Error ? error.message : String(error); }
+  } catch (error) { if (threadId === client.threadId && !letGo(error)) client.diffError = error instanceof Error ? error.message : String(error); }
   finally { if (threadId === client.threadId) client.diffLoading = false; }
 }
 

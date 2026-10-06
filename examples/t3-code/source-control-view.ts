@@ -12,6 +12,7 @@ import { bitbucketView, type BitbucketView } from './settings-a-bitbucket';
 import { deviceHostsView } from './settings-a-hosts';
 import { deviceScope } from './settings-integrations-scope';
 import { connectedEnvironmentCount, simulatorSupportRows, type SimulatorSupportRow } from './device-support'; // 5318d054a5: Simulator support row
+import { letGo } from './let-go';
 
 type Choice = { value: string; label: string; selected: boolean };
 type Layer = { key: string; label: string; value: string; effective: boolean; set: boolean };
@@ -236,7 +237,7 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
     let cached = discoveries.get(client);
     if (!cached || cached.key !== key) {
       try { cached = { key, value: await access.request('server.discoverSourceControl', {}), error: '' }; }
-      catch (failure) { cached = { key, value: {}, error: failure instanceof Error ? failure.message : 'Could not scan the server environment.' }; }
+      catch (failure) { if (letGo(failure)) throw failure; cached = { key, value: {}, error: failure instanceof Error ? failure.message : 'Could not scan the server environment.' }; }
       discoveries.set(client, cached);
     }
     const found = discoveryRows(cached.value);

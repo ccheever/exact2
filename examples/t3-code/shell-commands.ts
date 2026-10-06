@@ -16,6 +16,7 @@ import { markCopied } from './shell';
 import { gitShellCommand, GIT_FAILURE_TITLES } from './r4-git-route';
 import { surfaceLocal, surfaceCommand } from './r4-surfaces-panel';
 import { openInEditorHere } from './remote-open'; // remote Open (OpenInPicker)
+import { letGo } from './let-go';
 
 function threadOf(client: T3Client, threadId: string) {
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
@@ -49,6 +50,7 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
         await access.request('server.updateProvider', { provider: str(provider.driver), instanceId }, true);
       }
     } catch (error) {
+      if (letGo(error)) throw error;
       pushToast(client, { kind: 'error', title: one ? 'Provider update failed' : 'Provider updates failed', description: messageOf(error), timeoutMs: 0, stacked: true, key: 'provider-update' });
       return '';
     }
@@ -117,20 +119,20 @@ export async function shellLocal(client: T3Client, native: Native, op: string, i
     const project = client.shell.projects.find(candidate => candidate.id === (thread?.projectId ?? client.projectId));
     const path = str(thread?.worktreePath) || str(project?.workspaceRoot);
     if (!path) { pushToast(client, { kind: 'error', title: 'Path unavailable', description: 'This thread does not have a workspace path to copy.', stacked: true }); return ''; }
-    try { await copy(path); } catch (error) { pushToast(client, { kind: 'error', title: 'Failed to copy path', description: messageOf(error) }); return ''; }
+    try { await copy(path); } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy path', description: messageOf(error) }); return ''; }
     pushToast(client, { kind: 'success', title: 'Path copied', description: path });
     return '';
   }
   if (op === 'copy-branch') {
     const branch = str(thread?.branch);
     if (!branch) return '';
-    try { await copy(branch); } catch (error) { pushToast(client, { kind: 'error', title: 'Failed to copy branch', description: messageOf(error) }); return ''; }
+    try { await copy(branch); } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy branch', description: messageOf(error) }); return ''; }
     pushToast(client, { kind: 'success', title: 'Branch copied', description: branch });
     return '';
   }
   if (op === 'copy-thread-id') {
     if (!thread) throw new ClientError('That thread is no longer available.');
-    try { await copy(str(thread.id)); } catch (error) { pushToast(client, { kind: 'error', title: 'Failed to copy thread ID', description: messageOf(error) }); return ''; }
+    try { await copy(str(thread.id)); } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy thread ID', description: messageOf(error) }); return ''; }
     pushToast(client, { kind: 'success', title: 'Thread ID copied', description: str(thread.id) });
     return '';
   }

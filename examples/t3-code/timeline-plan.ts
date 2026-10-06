@@ -4,6 +4,7 @@ import { arr, obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import type { T3Client } from './client';
 import { pushToast } from './toast';
+import { letGo } from './let-go';
 
 export function proposedPlanTitle(markdown: string): string | null {
   const heading = /^\s{0,3}#{1,6}\s+(.+)$/m.exec(markdown)?.[1]?.trim();
@@ -70,6 +71,7 @@ export async function planAction(client: T3Client, native: Native, op: string, i
   if (op === 'plan-copy') {
     try { await client.restAccess(native).call({ op: 'copyText', text: planExport(planMarkdown(client, id)) }); }
     catch (error) {
+      if (letGo(error)) throw error;
       pushToast(client, { kind: 'error', title: 'Could not copy plan', description: error instanceof Error && error.message ? error.message : 'An error occurred while copying.' });
       return '';
     }
@@ -104,6 +106,7 @@ export async function planAction(client: T3Client, native: Native, op: string, i
       pushToast(client, { kind: 'success', title: 'Plan saved to workspace', description: str(result.relativePath, relativePath) });
     } catch (error) {
       save.saving = false;
+      if (letGo(error)) throw error;
       pushToast(client, { kind: 'error', title: 'Could not save plan', description: error instanceof Error && error.message ? error.message : 'An error occurred while saving.', stacked: true });
     }
     return '';
