@@ -82,6 +82,9 @@ component SidebarOverlays
       SettingsConfirm(title=data.sidebar.dialogTitle, description=data.sidebar.dialogDescription, confirmLabel="Confirm", destructive=false, busy=busy, error="", dialogId=`sidebar-${data.sidebar.dialog}`, cancel=local("dialog-close", "", ""), confirm=run("dialog-confirm", "", ""))
     when data.sidebar.dialog == "delete" or data.sidebar.dialog == "delete-many"
       SettingsConfirm(title=data.sidebar.dialogTitle, description=data.sidebar.dialogDescription, confirmLabel="Confirm", destructive=true, busy=busy, error="", dialogId=`sidebar-${data.sidebar.dialog}`, cancel=local("dialog-close", "", ""), confirm=run("dialog-confirm", "", ""))
+    // thread-commands-and-keys G5: "Delete the worktree too?" (useThreadActions deleteThread); Cancel still deletes the thread.
+    when data.sidebar.dialog == "delete-worktree"
+      SettingsConfirm(title=data.sidebar.dialogTitle, description=data.sidebar.dialogDescription, confirmLabel="Confirm", destructive=true, busy=busy, error="", dialogId="sidebar-delete-worktree", cancel=run("dialog-cancel", "", ""), confirm=run("dialog-confirm", "", ""))
     when data.sidebar.dialog == "snooze"
       SidebarSnoozeDialog(data=data, busy=busy, local=local, run=run)
     // legacy-sidebar: Rename project, Project grouping and the removal / archive confirms.

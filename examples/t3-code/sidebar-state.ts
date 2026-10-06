@@ -40,7 +40,7 @@ export function sidebarPrefs(client: T3Client): SidebarPrefs {
 
 export type UndoAction = 'Settled' | 'Snoozed' | 'Unpinned' | 'Archived' | 'Discarded'; // lane r11-upstream: Discarded (95edeb753b)
 export interface UndoEntry { action: UndoAction; threadIds: string[]; at: number }
-export interface SidebarDialog { kind: '' | 'archive' | 'delete' | 'delete-many' | 'snooze' | 'unpin'; threadIds: string[]; title: string }
+export interface SidebarDialog { kind: '' | 'archive' | 'delete' | 'delete-many' | 'snooze' | 'unpin' | 'delete-worktree'; threadIds: string[]; title: string }
 export interface SidebarSession {
   settledVisible: number; settledScope: string;
   searchIndex: number; searchQuery: string; searchPending: boolean;

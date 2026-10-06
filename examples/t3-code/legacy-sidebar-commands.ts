@@ -13,7 +13,7 @@ import { canArchive, nativeTemplate, type MenuItem } from './sidebar-menu';
 import { sidebarPrefs, sidebarSession } from './sidebar-state';
 import { menuAnchor, isMenuKey, withMenuAnchor } from './r12-sidebar-keys';
 import { applyDeviceSetting } from './settings-core';
-import { archive, markUnread, remove } from './sidebar-commands';
+import { archive, deleteThreads, markUnread } from './sidebar-commands';
 import { buildMultiSelectThreadContextMenuItems, clampSidebarThreadPreviewCount, legacyProjectMenuItems, legacyThreadMenuItems, memberActionLabel, resolveProjectExpanded } from './legacy-sidebar-model';
 import { emptyDialog, expansionKeys, legacyGroups, legacySession, previewCount, sortedGroups, type LegacyGroup } from './legacy-sidebar-view';
 
@@ -144,9 +144,7 @@ async function threadMenu(client: T3Client, native: Native, storage: Files, id: 
       return legacyCommand(client, native, storage, 'archive-many', '', ids.join(','));
     } else if (choice === 'delete') {
       if (settings?.confirmThreadDelete !== false) { selection.dialog = { kind: 'delete-many', threadIds: ids, title: '' }; return ''; }
-      const deleting = new Set(ids);
-      for (const threadId of ids) { if (!(await attempt(client, 'Failed to delete threads', () => remove(client, native, storage, threadId, deleting)))) break; }
-      selection.selection = selection.selection.filter(key => !!threadOf(client, key) && !deleting.has(key));
+      await deleteThreads(client, native, storage, ids, true); // thread-commands-and-keys G5: the worktree question
     }
     return '';
   }
@@ -169,7 +167,7 @@ async function threadMenu(client: T3Client, native: Native, storage: Files, id: 
     case 'project-settings': selection.navigate = { kind: 'project-settings', projectId: str(thread.projectId) }; return 'sidebar:navigate';
     case 'delete':
       if (settings?.confirmThreadDelete !== false) { selection.dialog = { kind: 'delete', threadIds: [id], title: str(thread.title) }; return ''; }
-      await attempt(client, 'Failed to delete thread', () => remove(client, native, storage, id)); return '';
+      await deleteThreads(client, native, storage, [id], false); return '';
     default: return '';
   }
 }
