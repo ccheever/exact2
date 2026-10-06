@@ -12,6 +12,7 @@ import type { Files, Native } from './protocol';
 import { shortcutInput } from './keybinding-settings';
 import { shortcutLabel } from './keybinding-view';
 import { snoozePresets } from './sidebar-presentation';
+import { canSnooze, effectiveSnoozed } from './sidebar-model';
 import { diffNotGit } from './diff';
 import { threadNotifications, providerUpdates, nativeNotifyStatus, type NotifyStatus } from './shell-notify';
 import { slowRequests, tracking } from './shell-slow';
@@ -176,8 +177,9 @@ export function titleMenu(client: T3Client, now: number): ShellMenuItem[] {
   if (!thread) return [{ ...item('project-settings', 'Project settings', 'settings', 'ui:project-settings', client.projectId) }];
   const caps = obj(obj(client.config.environment).capabilities);
   const id = str(thread.id), branch = str(thread.branch);
-  const settled = thread.settledOverride === 'settled' || (!!thread.settledAt && thread.settledOverride !== 'active');
-  const snoozed = !!thread.snoozedUntil;
+  // useThreadActionMenu: only an explicit settle offers Un-settle; a snooze that has woken or raised its hand reads as awake.
+  const settled = thread.settledOverride === 'settled';
+  const snoozed = effectiveSnoozed(thread, now);
   const running = !!thread.activeRunId || ['preparing', 'starting', 'running', 'waiting'].includes(str(thread.status));
   const regenerating = thread.titleRegeneration != null;
   const autoSettle = thread.autoSettleDisabledAt == null;
@@ -190,7 +192,7 @@ export function titleMenu(client: T3Client, now: number): ShellMenuItem[] {
     if (snoozed) items.push(item('unsnooze', 'Wake thread', 'clock', 'chat:unsnooze', id));
     else {
       const presets = snoozePresets(now, client.local.deviceSettings.timestampFormat);
-      items.push({ ...item('snooze', 'Snooze', 'clock', 'ui:submenu', 'snooze'), disabled: presets.length === 0 });
+      items.push({ ...item('snooze', 'Snooze', 'clock', 'ui:submenu', 'snooze'), disabled: !canSnooze(thread, now) });
       for (const preset of presets) items.push({ ...item(`snooze:${preset.id}`, `${preset.label} (${preset.wakeLabel})`, '', 'chat:snooze', id, preset.until), submenu: 'snooze' });
       items.push({ ...item('snooze:custom', 'Custom…', '', 'ui:custom-snooze', id), submenu: 'snooze', separated: true });
     }
