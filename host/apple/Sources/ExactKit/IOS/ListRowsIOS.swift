@@ -1,37 +1,94 @@
-// Which batches touch only a list's rows (iOS, tvOS): a fling's fills build,
-// move and drop rows many times a second, and the passes that project the
-// app's routes and bars read nothing inside a list.
+// Which batches touch only a virtualized list's rows (iOS, tvOS): a fling's
+// fills build, move and drop rows many times a second, and the route and
+// bar projection reads nothing in them.
 #if os(iOS) || os(tvOS)
 import UIKit
 
 extension Presenter {
-    /// Whether every op in `batch` is a list snapshot, a presented value, or
-    /// lands inside a list: on a node under one, on a node the batch places
-    /// under one, or on the list's own children, content size, frame or rank.
-    /// Read before the batch applies, while its destroys still have views.
+    /// Whether every op in `batch` is a list snapshot or lands in a
+    /// virtualized list's rows: on a node under one, on a node the batch
+    /// places under one, or on the list's own children, content size, frame
+    /// or rank. A node on the way up to the list that the projection reads
+    /// (a header, a tab, tablist or tabpanel, a route, the stack's Back
+    /// control), a list that is a route or a routes' owner, or one inside a
+    /// header, a tab or the Back control makes the op count. Read before the batch applies,
+    /// while its destroys still have views.
     func onlyListRows(_ batch: Batch) -> Bool {
         guard !batch.controls, !batch.ops.isEmpty else { return false }
-        var placed: [UInt32: UInt32] = [:]
-        for op in batch.ops where op.op == .children { for child in op.ids { placed[child] = op.id } }
-        var known: [UInt32: Bool] = [:]
-        func underList(_ id: UInt32, _ depth: Int = 0) -> Bool {
-            if let k = known[id] { return k }
+        let back = navigation.container?.props["navigationBack"]
+        func projected(_ props: [String: String], kind: String) -> Bool {
+            props["semanticTag"] == "header" || ["tab", "tablist", "tabpanel"].contains(props["accessibilityRole"] ?? "")
+                || props["navigationKey"] != nil || props["navigationBack"] != nil || (back != nil && props["id"] == back)
+        }
+        func projected(_ node: NodeView) -> Bool { projected(node.props, kind: node.kind) }
+        /// Read with everything under it: a header's items and title, a
+        /// tab's face, a tablist's segments, the Back control's title.
+        func readsInside(_ node: NodeView) -> Bool {
+            node.props["semanticTag"] == "header" || ["tab", "tablist"].contains(node.props["accessibilityRole"] ?? "")
+                || (back != nil && node.props["id"] == back)
+        }
+        var placed: [UInt32: UInt32] = [:], created: [UInt32: BatchOp] = [:]
+        for op in batch.ops {
+            if op.op == .children { for child in op.ids { placed[child] = op.id } }
+            if op.op == .create { created[op.id] = op }
+        }
+        var lists: [ObjectIdentifier: Bool] = [:]
+        /// A virtualized list that is not a route or a routes' owner, and
+        /// that no header, tab or Back control holds.
+        func rowsList(_ list: NodeView) -> Bool {
+            if let known = lists[ObjectIdentifier(list)] { return known }
+            var result = list.kind == "list" && collections.owns(list.id) && !projected(list) && navigation.container !== list
+            var up = list.superview
+            while result, let u = up { if let n = u as? NodeView, readsInside(n) { result = false }; up = u.superview }
+            lists[ObjectIdentifier(list)] = result
+            return result
+        }
+        var rows: [UInt32: Bool] = [:]
+        /// Strictly under a rows list, nothing projected on the way.
+        func inRows(_ id: UInt32, _ depth: Int = 0) -> Bool {
+            if let known = rows[id] { return known }
             var result = false
             if let view = views[id] {
-                var up = view.superview
-                while let u = up { if let n = u as? NodeView, n.kind == "list" { result = true; break }; up = u.superview }
+                var up: UIView? = view
+                while let u = up {
+                    if let n = u as? NodeView {
+                        if projected(n) { break }
+                        if n !== view, n.kind == "list" { result = rowsList(n); break }
+                    }
+                    up = u.superview
+                }
             } else if depth < 64, let parent = placed[id] ?? flats.parent(of: id) {
-                result = views[parent]?.kind == "list" || underList(parent, depth + 1)
+                let own = created[id].map { projected($0.props, kind: $0.kind) } ?? false
+                if !own { result = views[parent].map { $0.kind == "list" ? rowsList($0) : inRows(parent, depth + 1) } ?? inRows(parent, depth + 1) }
+            } else if created[id] == nil, !flats.isFlat(id), leaving[id] == nil {
+                // A node with no view (a layout box the presenter never
+                // makes): an op on it does nothing here.
+                result = true
             }
-            known[id] = result
+            rows[id] = result
             return result
         }
         return batch.ops.allSatisfy { op in
             switch op.op {
-            case .collections, .present: return true
-            case .children, .content, .frame, .rank where views[op.id]?.kind == "list": return true
-            case .create, .destroy, .children, .props, .style, .paragraph, .flow, .frame, .content, .rank: return underList(op.id)
-            default: return false
+            case .collections:
+                return true
+            case .children, .content, .frame, .rank:
+                if let list = views[op.id], list.kind == "list" { return rowsList(list) }
+                return inRows(op.id)
+            case .create, .props:
+                // What it sets may make it projected: a route, a tab, the Back control.
+                return !projected(op.props, kind: op.kind) && inRows(op.id)
+            case .present:
+                // A presented value (a fade, a slide) is read only by a tab's
+                // face (a badge's opacity) and what a header or Back shows.
+                guard let view = views[op.id] else { return inRows(op.id) }
+                var up: UIView? = view
+                while let u = up { if let n = u as? NodeView, readsInside(n) { return false }; up = u.superview }
+                return true
+            case .destroy, .style, .paragraph, .flow:
+                return inRows(op.id)
+            default:
+                return false
             }
         }
     }

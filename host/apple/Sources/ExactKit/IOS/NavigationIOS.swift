@@ -134,10 +134,14 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// and is still owed, or UIKit moved a stack itself (its back button, a
     /// swipe) since the last one: the next batch syncs, whatever it holds.
     var syncOwed: Bool {
-        pendingSync || changing || windowless || nativeMoved
+        pendingSync || changing || windowless || nativeMoved || drawOwed
             || ([primaryNavigation].compactMap { $0 } + presentedNavigations).contains { $0.transitionCoordinator != nil }
     }
-    private var windowless = false, nativeMoved = false
+    /// No window yet; UIKit moved a stack since the last sync; a
+    /// presentation waits for the first draw.
+    private var windowless = false, nativeMoved = false, drawOwed = false
+    /// Syncs asked for, for tests.
+    private(set) var syncCalls = 0
     private var interactiveSource: (node: NodeView, key: String)?
     /// The stack's depth when the interactive pop began, source included.
     private var interactiveDepth = 0
@@ -322,10 +326,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     func sync(_ batch: Batch) {
         // Installing or moving a controller can synchronously cause layout.
         // That layout must not start another containment handoff inside this one.
+        syncCalls += 1
         guard !syncing else { return }
-        windowless = presenter.session?.view?.window == nil
-        guard !windowless else { return }
-        nativeMoved = false
+        let window = presenter.session?.view?.window
+        windowless = presenter.session != nil && window == nil
+        guard window != nil else { return }
+        nativeMoved = false; drawOwed = false
         syncing = true
         defer { syncing = false; presenter.flushPendingFocus() }
         guard let p = projection(batch) else { return }
@@ -336,7 +342,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         // The other tabs' stacks, the selected tab and its items (LLP 1075.003 §3.7).
         if p.tabs != nil { syncTabs(p) }
         // Initial content draws before presentation takes over its viewport.
-        if parts.count > 1, let session = presenter.session, session.firstDrawMs == nil { return }
+        if parts.count > 1, let session = presenter.session, session.firstDrawMs == nil { drawOwed = true; return }
         guard !changing, !presenter.modals.inTransition else { pendingSync = true; return }
         pendingSync = false
         let boundaries = parts.dropFirst().map { wanted[$0.lowerBound].node }
