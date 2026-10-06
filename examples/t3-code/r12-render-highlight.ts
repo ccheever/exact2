@@ -97,6 +97,14 @@ export function startHighlightTurn(budget = SLICE_BUDGET_CHARS): void {
 export function resetHighlightSlicing(): void {
   slicing = false; turnLeft = Infinity; turn = 0; jobs.clear(); results.clear(); documents.length = 0;
 }
+/** A text waiting for its Shiki tokens paints the heuristic colours up to this length and plain text
+ *  above it: the TypeScript heuristic takes 16 ms for 20,000 characters but 1.2 s for 200,000 in Hermes. */
+export const HEURISTIC_MAX_CHARS = 20_000;
+/** Whether shikiTokens deferred this text to background turns. */
+export function shikiDeferred(text: string, nameOrPath: string): boolean {
+  const lang = shikiLanguage(nameOrPath);
+  return !!lang && jobs.has(`${lang}\u0000${text}`);
+}
 /** Whether a text is waiting for its Shiki tokens (the root keeps slicing while this holds). */
 export const highlightPending = (): boolean => jobs.size > 0;
 /** How many times shikiTokens answered "not yet": a cache of highlight results checks it. */
