@@ -257,6 +257,20 @@ guide's rules don't make obvious.
 
 ## Actions
 
+- **State a data module keeps across an `await` in a mutation goes stale for
+  good.** A newer `send x = command(…)` supersedes the pending one, and the
+  superseded call's continuation is dropped: its fetch may finish on the
+  wire, but the code after the `await` never runs, so a busy flag or lock it
+  set is never cleared. The Signal clone's keystroke (`draft`) commands sent
+  typing indicators this way, and one dropped continuation held every later
+  send forever. Fix: do network work from a call that is never superseded (a
+  heartbeat sent only when `not pending(…)`), and give any in-flight marker a
+  deadline from the caller's clock. (Signal clone build 35, 2026-10-05.)
+
+- **`Date.now()` throws in an iOS data module, and Bun tests pass.** Take the
+  time from the call's arguments (the Contract's `wallTime.epochAtZero + now()`),
+  as every source already receives it. (Signal clone build 34, 2026-10-05.)
+
 - **A helper action does not see what its caller just assigned.** `sel = next`
   then `follow()`, with `follow` reading `sel`, would read the old `sel`: a call
   is its callee's statements in the caller's one commit, and every statement
@@ -550,6 +564,16 @@ guide's rules don't make obvious.
   store of their own), and queue every `storage.sqlite.open` in `app.ts`
   ([the human guide](contract-for-humans.md#writing-the-data-module) shows one).
   (LLP 1086 reading-list example, 2026-10-04.)
+
+- **An agent drive shows the app's defaults (a mock, an empty store) though
+  the app's files are there.** Cause: without `--storage <name>` every
+  `storage.fs` call in the data module throws "storage is unavailable in agent
+  mode…", and a module that catches a missing config file falls back silently.
+  The installed app's own files are not the drive's: a named scratch store lives
+  apart (on iOS under `Library/Caches/exact/<app id>/agent/<name>/data`). Fix:
+  `--storage <name>`, and copy the files the drive needs (a config, a saved
+  store) into that folder first; `logs` shows the module's `console.log`.
+  (Signal clone, live transport, 2026-10-05.)
 
 - **A save that fails in the background is lost to the person.** An answer that
   saves unawaited has replied before the write fails, so no answer reports it;
