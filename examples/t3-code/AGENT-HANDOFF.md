@@ -40,6 +40,9 @@ Task records and the dated independent review carry the final runtime verdicts. 
 active until all their required acceptance checks are satisfied.
 The user explicitly stopped pixel-perfect UI testing/fix loops; use bounded functional checks.
 
+`REFERENCE-TESTS.md` maps every T3 Code test file (four packages, pin `1e2ecbd975`) to the
+clone module and test it belongs to, with one class per file; port tickets start from it.
+
 The remaining sections are historical round-11 evidence, not current task status.
 
 ## Where a feature adds its code
