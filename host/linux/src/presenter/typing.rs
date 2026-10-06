@@ -55,26 +55,24 @@ impl<D: DataSource> Presenter<D> {
         // or blur (`commit_text`), as hardware typing does.
         self.edited = Some(id);
         self.selected = None;
+        let bound = self.bound_text(id);
         let error = if self
             .host
             .runner()
             .handlers_of(id)
             .contains(&EventKind::Input)
         {
-            self.host.dispatch_at(id, Event::Input(text.into()), now)
+            self.host
+                .dispatch_at(id, Event::Input(text.as_str().into()), now)
         } else {
             None
         };
         let e = self.after_commit();
+        self.keep_typed(id, text, bound);
         if let Some(e) = error.or(e) {
             return Err(e);
         }
-        let value = self
-            .host
-            .kernel()
-            .node(id)
-            .and_then(|n| n.props.str(PropId::Value).map(str::to_string))
-            .unwrap_or_default();
+        let value = self.field_text(id);
         let mut s = format!("{{\"typed\":{id},\"value\":");
         quote(&value, &mut s);
         s.push('}');
@@ -451,7 +449,10 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         let textarea = node.props.str(PropId::SemanticTag) == Some("textarea");
-        let mut value = node.props.str(PropId::Value).unwrap_or("").to_string();
+        let bound = node.props.str(PropId::Value).unwrap_or("").to_string();
+        let shown = crate::paint::control::choice(&node, self.chosen.get(&id)).map(str::to_string);
+        let before = shown.unwrap_or_else(|| bound.clone());
+        let mut value = before.clone();
         // A selected text is what an edit replaces: Backspace deletes it.
         let selected = self.selected == Some(id)
             && (name == "Backspace"
@@ -483,13 +484,7 @@ impl<D: DataSource> Presenter<D> {
         }
         if exact_kernel::control::text_maxlength(node.props).is_some_and(|limit| {
             value.encode_utf16().count() > limit
-                && value.encode_utf16().count()
-                    > node
-                        .props
-                        .str(PropId::Value)
-                        .unwrap_or("")
-                        .encode_utf16()
-                        .count()
+                && value.encode_utf16().count() > before.encode_utf16().count()
         }) {
             return;
         }
@@ -502,7 +497,7 @@ impl<D: DataSource> Presenter<D> {
         {
             if let Some(e) = self
                 .host
-                .dispatch_at(id, Event::Input(value.into()), now_ms)
+                .dispatch_at(id, Event::Input(value.as_str().into()), now_ms)
             {
                 eprintln!("exact: {e}");
             }
@@ -510,6 +505,7 @@ impl<D: DataSource> Presenter<D> {
                 eprintln!("exact: {e}");
             }
         }
+        self.keep_typed(id, value, bound);
     }
 
     /// Commit a field typed into since it took the focus: HTML's `change`,
@@ -528,15 +524,43 @@ impl<D: DataSource> Presenter<D> {
         {
             return None;
         }
-        let value = self
-            .host
-            .kernel()
-            .node(id)
-            .and_then(|n| n.props.str(PropId::Value).map(str::to_string))
-            .unwrap_or_default();
+        let value = self.field_text(id);
         Some(
             self.host
                 .dispatch_at(id, Event::Change(value.into()), now_ms),
         )
+    }
+
+    /// A field's committed `value`.
+    fn bound_text(&self, id: ViewId) -> String {
+        self.host
+            .kernel()
+            .node(id)
+            .and_then(|n| n.props.str(PropId::Value).map(str::to_string))
+            .unwrap_or_default()
+    }
+
+    /// What a field shows and commits: its typed text while its bound
+    /// value is the one it had then (`keep_typed`), else that value.
+    pub(crate) fn field_text(&self, id: ViewId) -> String {
+        let Some(node) = self.host.kernel().node(id) else {
+            return String::new();
+        };
+        crate::paint::control::choice(&node, self.chosen.get(&id))
+            .unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""))
+            .to_string()
+    }
+
+    /// After an edit's dispatch: a field whose `value` the edit's action did
+    /// not write keeps the typed text, as the web's element keeps its own
+    /// value and the web build writes `value` only when the bound value
+    /// changes (LLP 1069.001 D4: an unbound field holds its own text).
+    fn keep_typed(&mut self, id: ViewId, typed: String, before: String) {
+        let bound = self.bound_text(id);
+        if bound == before && bound != typed {
+            self.chosen.insert(id, (typed, bound));
+        } else {
+            self.chosen.remove(&id);
+        }
     }
 }

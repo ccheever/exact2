@@ -131,8 +131,9 @@ pub struct Presenter<D: DataSource> {
     /// Unbound checkboxes' own states, as a browser keeps an uncontrolled
     /// control's (LLP 1069.001 D4); a bound one draws its `checked`.
     pub(crate) controls: BTreeMap<ViewId, bool>,
-    /// A date's, range's or select's choice since its bound value last
-    /// changed, beside that bound value (`paint::control::choice`).
+    /// A date's, range's or select's choice, or a field's typed text, since
+    /// its bound value last changed, beside that bound value
+    /// (`paint::control::choice`, `field_text`).
     pub(crate) chosen: BTreeMap<ViewId, (String, String)>,
     /// The select whose menu is open (LLP 1069.001 D7).
     pub(crate) menu: Option<ViewId>,
