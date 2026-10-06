@@ -48,7 +48,10 @@ The **scope** is what the bar sits over:
   around the route outlet (an authored header over the stack, an overlay).
 
 A route under a push, an unselected tab and the screen behind a covering
-presentation are outside the scope.
+presentation are outside the scope. (As built, a covering presentation's
+scope is its navigation view; an unselected tab is out by not being in the
+window or hidden, so a custom tab container that parks one on screen
+unhidden would let it compete.)
 
 ### D3 — Within the scope, the declaration painted on top wins
 

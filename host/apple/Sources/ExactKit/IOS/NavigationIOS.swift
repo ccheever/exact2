@@ -552,7 +552,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// (`started`) one begun by Exact or the finger, without the coordinator
     /// a finished transition is still winding down in `didShow`.
     var transitioning: Bool {
-        started || ([primaryNavigation].compactMap { $0 } + presentedNavigations).contains { $0.transitionCoordinator != nil }
+        // A rotation's or resize's coordinator moves no controller: not one.
+        started || ([primaryNavigation].compactMap { $0 } + presentedNavigations).contains { $0.transitionCoordinator?.viewController(forKey: .from) != nil }
     }
     var started: Bool { changing || interactiveTransition }
 

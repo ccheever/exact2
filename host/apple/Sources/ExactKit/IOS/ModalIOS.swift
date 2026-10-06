@@ -69,11 +69,10 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         #if os(iOS)
         // Back after a cancelled drag or zoom dismissal, which no completion
         // resolves: what landed during the gesture shows now (LLP 1105 D5).
-        if let coordinator = transitionCoordinator {
-            coordinator.animate(alongsideTransition: nil) { [weak self] _ in self?.host?.presenter.resolveStatusBar() }
-        } else {
-            host?.presenter.resolveStatusBar()
-        }
+        // The finished coordinator may still be installed: only a newly
+        // started push or pop holds the style.
+        let resolve = { [weak self] in self?.host?.presenter.resolveStatusBar(settled: true) }
+        if !(transitionCoordinator?.animate(alongsideTransition: nil, completion: { _ in resolve() }) ?? false) { resolve() }
         #endif
         guard backdropTap == nil, let container = presentationController?.containerView else { return }
         let tap = UITapGestureRecognizer(target: self, action: #selector(tappedBackdrop))
