@@ -13,11 +13,12 @@ import { settingsOps, settingsWrites } from './client-ops-settings';
 import { composerOps, composerWrites } from './client-ops-composer';
 import { threadOps, threadWrites } from './client-ops-threads';
 import { sidebarOps, sidebarWrites } from './client-ops-sidebar';
+import { diffOps } from './client-ops-diff';
 
 export type OpOut = { message: string; id: string; value: string };
 export type OpGroup = (this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut) => Promise<boolean>;
 
-export const READ_OPS: OpGroup[] = [connectionOps, snapshotOps, settingsOps, composerOps, threadOps, sidebarOps];
+export const READ_OPS: OpGroup[] = [connectionOps, snapshotOps, settingsOps, composerOps, threadOps, sidebarOps, diffOps];
 export const WRITE_OPS: OpGroup[] = [settingsWrites, composerWrites, threadWrites, sidebarWrites];
 
 /** Runs `op` in the first group that owns it; false when none does. */

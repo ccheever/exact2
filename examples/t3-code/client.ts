@@ -28,15 +28,13 @@ import { groupLabel } from './r6-polish-groups';
 import { adoptModelPrefs } from './settings-b-models';
 import { settingsBCommand } from './settings-b-commands';
 import { type RequestDraft } from './requests';
-import { DiffState, DIFF_LOCAL_OPS, adoptDiff, diffPaths, diffRequest, diffView, selectCheckpoint, selectScope } from './diff';
-import { rememberDiffLayout } from './settings-appearance-look';
+import { DiffState, DIFF_LOCAL_OPS } from './diff';
 import { TELEMETRY_KEY, telemetryEvent } from './settings-a-telemetry';
 import { mostRecentProjectId } from './pages-home';
 import { pagesLocal } from './pages-commands';
 import { adoptPagesPrefs } from './pages-prefs';
 import { adoptShellPrefs } from './shell-prefs';
 import { adoptFilesPrefs } from './r5-panels-prefs';
-import { requestDiff } from './r11-device-diff';
 import { adoptSidebarWidth } from './r4-polish-sidebar-width'; // r4-polish: the stored sidebar width
 import { VCS_STATUS_KEY, vcsStatusEvent } from './shell-vcs';
 import { DEVICE_STATE_KEY, deviceStateEvent } from './r4-surfaces-device';
@@ -629,11 +627,7 @@ export class T3Client {
       } else if (op.startsWith('shelllocal:')) { resultMessage = await shellLocal(this, native, op.slice(11), id, value);
       } else if (op.startsWith('cclocal:')) { resultMessage = await composerLocal(this, native, storage, op.slice(8), id, value);
       } else if (op.startsWith('sidebarlocal:')) { resultMessage = await sidebarLocal(this, native, op.slice(13), id, value);
-      } else if (op === 'close-diff') { this.diffOpen = false; this.diffLoading = false; }
-      else if (op === 'diff-view' && id === 'copy') { await this.call(native, { op: 'copyText', text: value }); resultMessage = 'Copied file path'; }
-      else if (op === 'diff-view') { diffView(this, id, value, diffPaths(this)); if (id === 'layout') rememberDiffLayout(this, value); }
-      else if (['diff', 'checkpoint-diff', 'diff-scope', 'diff-refresh', 'diff-whitespace'].includes(op)) await this.diff(native, op, id, value, n);
-      else {
+      } else {
         this.requireWrite();
         if (await runOps(this, WRITE_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
         else if (op.startsWith('rest:')) resultMessage = await restCommand(this, native, storage, op.slice(5), id, value);
@@ -888,34 +882,6 @@ export class T3Client {
       const page = await this.http(native, `/api/orchestration/threads/${encodeURIComponent(id)}/history?cursor=${encodeURIComponent(cursor)}`);
       if (epoch === this.threadEpoch && id === this.threadId && this.thread?.historyCursor === cursor) this.thread = mergeHistory(this.thread, page);
     } finally { this.historyLoading = false; }
-  }
-  /** The changes panel asks the server for the current selection; a stale answer never replaces a newer one. */
-  private async diff(native: Native, op: string, id: string, value: string, n: number): Promise<void> {
-    // Only opening commands open the panel; a refetch queued behind a close never reopens it.
-    if (op !== 'diff' && op !== 'checkpoint-diff' && !this.diffOpen) {
-      if (op === 'diff-whitespace') this.diffState.ignoreWhitespace = !this.diffState.ignoreWhitespace;
-      return;
-    }
-    this.diffOpen = true; this.diffError = '';
-    let request;
-    try {
-      if (op === 'checkpoint-diff') selectCheckpoint(this, n, id);
-      else if (op === 'diff-scope') selectScope(this, value);
-      else if (op === 'diff') selectScope(this, 'branch'); // generic opens show Changes (diff.ts, upstream d1034d62b2)
-      else if (op === 'diff-whitespace') this.diffState.ignoreWhitespace = !this.diffState.ignoreWhitespace;
-      request = diffRequest(this);
-    } catch (error) { this.diffText = ''; this.diffError = message(error); return; }
-    if (request.scope !== this.diffState.scopeKey) this.diffText = '';
-    const epoch = this.threadEpoch, threadId = this.threadId, asked = JSON.stringify(request);
-    this.diffLoading = true;
-    try {
-      const result = await requestDiff(this.config, request, (method, payload) => this.request(native, method, payload)); // r11-device: DiffPanel's server-cwd retry
-      if (epoch === this.threadEpoch && threadId === this.threadId && this.diffOpen && JSON.stringify(diffRequest(this)) === asked) {
-        // A named file stays collapsed, as in the reference (onOpenTurnDiff leaves 'Expand <file>' false).
-        this.diffText = adoptDiff(this, request, result);
-      }
-    } catch (error) { if (epoch === this.threadEpoch) this.diffError = message(error); }
-    finally { if (epoch === this.threadEpoch) this.diffLoading = false; }
   }
 
 }
