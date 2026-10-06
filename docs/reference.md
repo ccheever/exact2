@@ -28,18 +28,22 @@ The verified install lives under `~/.cargo/hermes-lean-sys/`. Exact sets
 `HERMES_LEAN_SYS_OFFLINE=1` in `.cargo/config.toml`, so an ordinary build
 neither downloads a bundle nor compiles Hermes; a missing install fails with
 the one-time command. `HERMES_LEAN_SYS_DIR` remains a development override.
-E1 supports macOS, Linux, iOS devices, and the universal iOS Simulator bundle,
-and deliberately leaves Linux Intl off; E2 adds the v4 tvOS, Windows, and Linux
-English-Intl tiers. A Rust-only app needs no engine at run time. `exact setup`
-installs the host bundle; on macOS its report prints the iOS target commands.
+The v4 set supports macOS, Linux, Windows, iOS devices and the universal iOS
+Simulator, plus tvOS devices and the arm64 tvOS Simulator. Exact selects
+Ibex's English `intl` tier on Linux and Windows, not `intl-all-locales`; Apple
+keeps Hermes's OS-backed Intl. A Rust-only app needs no engine at run time.
+`exact setup` installs the host bundle; on macOS its report prints the iOS and
+tvOS Simulator target commands.
 
 ### Windows TypeScript
 
 The former private `260318099.0.0` build is superseded. Native Windows
-TypeScript is intentionally deferred in E1: E2 will re-vendor Ibex's v4 pins,
-use its debugger-off lean Windows bundle with OS-backed Intl, and requalify the
-ordinary app path described by
-[LLP 1027.006](../llp/1027.006-windows-native-typescript.plan.md). Do not
+TypeScript uses Ibex's v4 debugger-off lean bundle. `exact-js` selects the
+`intl` feature and installs `GROUP_INTL`; Ibex binds the Windows 10 2004+ OS
+`icu.dll` from System32 through function pointers, with no ICU linker flags or
+bundled locale data. The ordinary app path still requires the Windows
+qualification in [LLP 1027.006](../llp/1027.006-windows-native-typescript.plan.md)
+before release claims. Do not
 resurrect Exact's deleted private source builder or use its old
 `%LOCALAPPDATA%/Exact/hermes` cache for this snapshot. `EXACT_JS_ENGINE=stub` remains the Hermes-free,
 refusing build for CI; it cannot bake a working TypeScript app.
@@ -730,10 +734,15 @@ drain microtasks without re-entering wasm; stale incarnations cannot fulfill the
 replacement app. 
 
 Linux uses the same installer command at the top of this reference with its
-Rust target triple; E1 deliberately does not select Ibex's optional Intl group.
-The verified bundle supplies both the lean archive and matching compiler.
-iOS has a pinned v3 bundle as well. tvOS and Windows remain E2 work and must not
-fall back to the former sibling-Ibex/private-cache recipes. The normal native
+Rust target triple. Exact selects Ibex's `intl` feature and `INTL` group there:
+`en`/`en-US` and complete currency data are present, and unsupported locales
+fall back to `en-US`; it does not select `intl-all-locales`. The verified
+bundle supplies both VM archives, all three ICU data tiers and the matching
+compiler, while the feature links the English tier. Apple does not install
+Ibex's `INTL` group because Hermes retains OS-backed Intl there. iOS, tvOS and
+Windows use their pinned v4 bundles and must not fall back to the former
+sibling-Ibex/private-cache recipes. tvOS builds set a 17.0 deployment target,
+above the bundle's 15.0 minimum. The normal native
 build captures bundle inputs under the `hermes-lean-sys/` bake receipt root.
 `smoke.mjs --app-only` runs the selected app and its tests without unrelated
 bare-plan host fixtures. The driver supports `ios --device [--phone <name|udid>]`:

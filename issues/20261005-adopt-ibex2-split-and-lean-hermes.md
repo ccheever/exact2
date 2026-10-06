@@ -7,6 +7,21 @@
 **Date:** 2026-10-05
 **Related:** expo/ibex LLP 0057.000 §5.0 (three doors), §6 L1 (L1b–L1h notes); exact2 LLP 1027.006 (Windows native TypeScript); vendor/ibex/crates/ibex2/EXACT-PATCHES.md
 
+## 2026-10-06 E2 checkpoint
+
+Exact now vendors Ibex `ec949fef` and its v4 bundles. All Exact patches replay
+with the same stable patch ID. `exact-js` selects the English `intl` tier and
+installs `INTL` on Linux/Windows only; Apple retains engine-owned OS Intl.
+Fieldnotes launches with TypeScript on both iOS and tvOS Simulators, including
+the universal-iOS thinning path, and tvOS targets 17.0. `setup --check` now
+authenticates the canonical receipt and every compiler/header/VM/ICU member.
+Ibex's installer at this snapshot has no read-only `--check`; upstream should
+expose its resolver validation so Exact can call that instead of maintaining a
+schema-parallel check. No vendor-only mode was added here.
+This issue stays open only for the actual Linux and Windows qualification runs;
+the Windows build path is implemented but must not be described as qualified
+from macOS inspection.
+
 ## Why this is open
 
 Ibex 2 now lives in its own repository, github.com/expo/ibex, and is split into three
@@ -29,9 +44,9 @@ and what adoption still needs.
   actually linked, and lean is offered only when a receipt authenticates it.
   Measured on arm64, stripped: a minimal embedding is 1.63 MB on lean and 2.63 MB on
   full.
-- **Pinned, attested bundles.** The current set is `hermes-vanilla-d412d3bd8512-v3`
-  (2026-10-05): every bundle has both VMs, and Linux bundles have ICU 74.2 with trimmed and
-  full data. Immutable GitHub prereleases on expo/ibex, built from
+- **Pinned, attested bundles.** The current set is `hermes-vanilla-d412d3bd8512-v4`
+  (2026-10-06): every bundle has both VMs, Linux carries base, English and full
+  ICU 74.2 tiers, and Windows and tvOS are included. Immutable GitHub prereleases on expo/ibex, built from
   `main` by an unprivileged builder and published by a default-branch-only publisher.
   Each archive has a Sigstore attestation bound to the publisher on `refs/heads/main`.
   `hermes-lean-sys` pins each bundle's SHA-256 in source and verifies it before

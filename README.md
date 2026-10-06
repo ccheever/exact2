@@ -215,8 +215,10 @@ Linux host.
   ```
 
   The installer verifies the bundle and publishes it under
-  `~/.cargo/hermes-lean-sys/`. E1 supports macOS, Linux, iOS devices, and the
-  universal iOS Simulator bundle; tvOS and Windows bundles follow in E2.
+  `~/.cargo/hermes-lean-sys/`. The v4 set supports macOS, Linux, Windows, iOS
+  devices and the universal iOS Simulator, plus tvOS devices and arm64 tvOS
+  Simulators. Linux and Windows select Ibex's English `intl` tier; Apple keeps
+  Hermes's OS-backed Intl.
   `HERMES_LEAN_SYS_DIR` is only an explicit development
   override, not normal setup.
 
@@ -230,8 +232,10 @@ Hermes host bundle, and fetches the crates
 of exact2's lock and the game SDK's (`game/app/shells.lock`), since every bake
 resolves offline. It keeps Binaryen in `~/.cache/exact/binaryen`; builds find it
 automatically. On macOS the report also prints the one-time iOS Simulator and device
-installer commands. `setup --check` checks the installed tools, Hermes bundle, and Cargo
-cache without installing anything; a missing pinned host bundle makes it fail.
+installer commands, including the tvOS Simulator bundle. `setup --check`
+authenticates the canonical receipt, target, compiler/HBC version, every header
+and VM archive digest, and Linux's ICU artifacts without installing anything;
+a missing or corrupt pinned host bundle makes it fail.
 
 ### 2. Run Caltrain in the browser
 

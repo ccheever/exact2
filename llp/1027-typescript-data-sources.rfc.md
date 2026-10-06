@@ -922,16 +922,25 @@ provisioning. The install-once installer performs acquisition explicitly;
 offline builds set `HERMES_LEAN_SYS_OFFLINE` and never download or compile an
 engine in `build.rs`. Waiting would only make the migration gnarlier.
 
-**iOS execution (Codex, 2026-09-07; acquisition replaced 2026-10-06).**
-`hermes-lean-sys` selects the digest-pinned Ibex v3 bundle for the actual Rust
-target: `aarch64-apple-ios` for a device and the universal iOS Simulator asset
-for `aarch64-apple-ios-sim` or `x86_64-apple-ios`. The paired host bundle
-supplies `hermesc`; the target bundle supplies the lean archive. Cargo builds
-are forced offline. Before invoking Cargo, `host/apple/build.mjs` checks that
-the selected target bundle is installed and, when it is absent, refuses with
-the exact `hermes-lean-sys-installer --target <triple>` command. v3 has no tvOS
-bundle, so a tvOS app with `app.ts` refuses explicitly until E2 re-vendors v4.
-Rust-only clients still link no VM.
+**Linux/Windows Intl (E2, 2026-10-06).** Exact selects `ibex2/intl`, never
+`intl-all-locales`, and installs `INTL` on Linux and Windows. Linux links the
+English tier (`en`, `en-US`, complete currency data; unsupported locales fall
+back to `en-US`); Ibex's stripped arm64 consumer measurement is 11,478,968 B,
+**+524,296 B** over the 10,954,672 B base tier. Windows binds the Windows 10
+2004+ OS ICU from System32 by full path through function pointers, with no ICU
+link flags or data archive. Apple does neither: its engine keeps OS Intl.
+
+**Apple execution (Codex, 2026-09-07; v4 acquisition 2026-10-06).**
+`hermes-lean-sys` selects the digest-pinned Ibex v4 bundle for the actual Rust
+target: `aarch64-apple-ios` for a device, the universal iOS Simulator asset for
+`aarch64-apple-ios-sim` or `x86_64-apple-ios`, and the tvOS device or arm64
+Simulator bundle. The paired host bundle supplies `hermesc`; the target bundle
+supplies the lean archive. Cargo builds are forced offline. Before invoking
+Cargo, `host/apple/build.mjs` checks that the selected target bundle is installed
+and, when it is absent, refuses with the exact
+`hermes-lean-sys-installer --target <triple>` command. tvOS builds use Exact's
+17.0 deployment floor, above v4's 15.0 minimum. Apple retains Hermes's OS-backed
+Intl and does not install Ibex's `INTL` group. Rust-only clients still link no VM.
 
 **Dated history — retired 2026-10-06.** The 2026-09-07 implementation built
 three lean archives from pristine Hermes source at Exact's private pin. It did
@@ -1442,7 +1451,8 @@ p50 where repeated.
 | `hermesc` alone (2026-09-03, Charlie's question): the 6 KB module, process start included | **7 ms** (10 runs, 70 ms) |
 | `hermesc` on synthetic bundles, `-O0` / `-O` | 100 KB: 20 / 20 ms · 1 MB: 0.21 / 0.27 s · 5 MB: 1.0 / 1.7 s — about 3–5 MB/s of source; `-O` dead-code-eliminates, so those bytecode sizes are not comparable; the real module is 1.85× its script |
 | Runtime create · bytecode load (n=20) | **0.322 ms · 0.008 ms** |
-| Ibex bindings-door adoption, incremental (2026-10-06) | **+259 KB stripped (+4.8%) · +2.2 ms per module load** — universal hardening, deferred intrinsic capture, and group install; Ibex tracks reducing it |
+| Ibex bindings-door adoption, E1 (2026-10-06) | **+259 KB stripped (+4.8%) · +2.2 ms per module load** — universal hardening, deferred intrinsic capture, and group install |
+| Ibex v4 refresh and Apple E2 (2026-10-06) | **+520 B stripped over E1 · 2.049 ms/load median** (15 loads; E1 2.045 ms) — tvOS, Simulator thinning and Headers ownership add no material Apple cost |
 | Cases byte-identical (values) or equal (errors) | **20 / 20** — six sources, three argument sets of `board` (a full day, a terminus, mid-day), three of `search` (one hit, three, all), six error paths with the crate's exact messages |
 | `login`: `answer` → request; `parse(200)` → a `Session` record; `parse(Refused)` → the crate's exact refusal text | as designed (D1) |
 
@@ -1485,13 +1495,15 @@ reads only).
 
 - **Binary:** the original lean-engine probe measured +1.8 MB per native binary
   that links `exact-js`. The 2026-10-06 Ibex bindings-door adoption adds
-  **259 KB stripped (+4.8%)** to the shipping comparison; Ibex tracks reducing
-  it. TypeScript apps only; a Rust-only app pays nothing (D3). Against
+  **259 KB stripped (+4.8%)** to the shipping comparison; the v4 E2 refresh
+  changes the identical stripped harness by only **+520 bytes**. TypeScript
+  apps only; a Rust-only app pays nothing (D3). Against
   `rules/RULES.md`'s budgets it is not on any; against the phone it
   is the one number §10 asks about first, as LLP 1026 did for its 1.0.
 - **Boot:** the original probe measured +0.33 ms. The 2026-10-06 bindings door
   adds **2.2 ms per module load** for universal hardening, deferred intrinsic
-  capture, and group install. Both remain after first pixel (D4); the
+  capture, and group install. The identical E2 harness measured **2.049 ms**
+  median across 15 loads, versus E1's **2.045 ms**. Both remain after first pixel (D4); the
   first-frame budget is untouched by construction. The one frame of `pending` for a
   store-reading resource is the observable cost.
 - **Per call:** microseconds to tens of microseconds, per resource
