@@ -76,12 +76,15 @@ shape KeybindingPage
 style KbMuted
   font-size=12 line-height="12px" color="light-dark(#71717bb3, #828282b3)"
 style KbIcon
+  cursor="pointer"
   display="flex" align-items="center" justify-content="center" box-sizing="border-box" width=24 height=24 padding=0 border-width=0 border-radius=8 background-color="#00000000" flex-shrink=0
 style KbCompact
+  cursor="pointer"
   display="flex" flex-direction="row" align-items="center" justify-content="center" gap=4 box-sizing="border-box" height=28 padding-left=7 padding-right=7 border-radius=6 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" flex-shrink=0
 style KbCapture
   box-sizing="border-box" width=176 height=28 padding-left=9 padding-right=9 border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-family="monospace" font-size=13 color="light-dark(#27272a, #f5f5f5)"
 style KbPrimary
+  cursor="pointer"
   display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height=28 padding-left=9 padding-right=9 border-radius=8 border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" flex-shrink=0
 
 component KeybindingsPanel

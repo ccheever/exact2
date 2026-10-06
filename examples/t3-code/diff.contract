@@ -152,7 +152,7 @@ component DiffPanelBody
               DiffTreeRow(file=file, command=command, scheme=data.look.diff)
       // The rail sits inside the panel and above its body: an overflowing child is not hit-testable natively.
       when not sheet and not maximized
-        box position="absolute" top=0 bottom=0 left=0 width=6 z-index=28 touch-action="none" pan=resize panrelease=finishResize hover=hover("resize") role="separator" aria-orientation="vertical" aria-label="Resize diff panel" testId="diff-resize"
+        box position="absolute" top=0 bottom=0 left=0 width=6 z-index=28 cursor="col-resize" touch-action="none" pan=resize panrelease=finishResize hover=hover("resize") role="separator" aria-orientation="vertical" aria-label="Resize diff panel" testId="diff-resize"
           box position="absolute" top=0 bottom=0 left=0 width=1 pointer-events="none" background-color=(hovered == "resize" ? "light-dark(#e4e4e7, #ffffff1a)" : "#00000000")
       when data.diffMenu != ""
         box position="absolute" left=-3000 right=-3000 top=-3000 bottom=-3000 z-index=29 press=command("diff-view", "menu", "", 0) aria-label="Close diff scope menu" aria-keyshortcuts="Escape"
