@@ -1,10 +1,14 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { Obj } from './domain';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
 import { providerPillView, sidebarProviderPill, dismissProviderPill, scheduleProviderPill, SUCCESS_VISIBLE_MS } from './sidebar-provider-pill';
 import { CARD, LABEL, dropIndex, parseDrop, planDrop, sidebarDrop } from './sidebar-drop';
-import { sidebarSession } from './sidebar-state';
+import { sidebarSession, setRuntimeClock } from './sidebar-state';
+
+// The data runtime has no clock (sidebar-state.ts `clock`); these tests stand in for a host clock that reads Date.now.
+beforeEach(() => setRuntimeClock(() => Date.now()));
+afterEach(() => setRuntimeClock(() => Number.NaN));
 
 const provider = (driver: string, update: Obj | null, extra: Obj = {}): Obj => ({ driver, instanceId: driver, enabled: true, checkedAt: '2026-10-04T10:00:00.000Z',
   version: '0.160.0', versionAdvisory: { latestVersion: '0.160.0' }, ...(update ? { updateState: update } : {}), ...extra });
