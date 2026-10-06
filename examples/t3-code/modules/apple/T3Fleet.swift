@@ -91,8 +91,14 @@ final class T3Fleet: @unchecked Sendable {
 //   fleetOutdatedProbe   (key origin\\nid)  the unauthenticated descriptor
 //   fleetOutdatedPair    (key origin\\n)    pair a self-updatable outdated host
 //   fleetOutdatedUpdate  (key origin\\nid)  start an update job { targetVersion, fromVersion }
-//   fleetOutdatedJobs    (any key)          every job { status, stage, fromVersion, targetVersion, message, resultVersion, label }
+//   fleetOutdatedJobs    (any key)          every job { status, stage, fromVersion, targetVersion, message, resultVersion, label, mode, attempt }
 //   fleetOutdatedAck     (key origin\\nid)  forget a finished job
+// The same job runs a connected server that is only older than this client
+// (`mode: "connected"`; reference client-runtime state/server.ts
+// updateServer): its socket names protocol 2 (a current server refuses one
+// that does not), the request carries the config's capabilities and extra
+// payload (continueRunningThreads), the restart is proven by the descriptor
+// reporting the target version, and the saved switch is left alone.
 final class T3OutdatedHosts: @unchecked Sendable {
     static let protocolVersion = 2
     static let restartTimeout: TimeInterval = 240
@@ -105,6 +111,7 @@ final class T3OutdatedHosts: @unchecked Sendable {
     private var jobs: [String: [String: Any]] = [:]
     private var sockets: [String: URLSessionWebSocketTask] = [:]
     private var alive = true
+    private var attempts = 0
     /// Test seam: how long the descriptor poll waits between attempts.
     var pollInterval: TimeInterval = 1
     var restartTimeout: TimeInterval = T3OutdatedHosts.restartTimeout
@@ -157,11 +164,16 @@ final class T3OutdatedHosts: @unchecked Sendable {
                 let jobKey = "\(origin.absoluteString)\n\(environment)"
                 // Single-flight per environment (createOutdatedServerUpdateCommand concurrency).
                 if jobs[jobKey]?["status"] as? String == "running" { return reply(completion, ["started": false]) }
+                let connected = request["mode"] as? String == "connected"
+                attempts += 1
                 jobs[jobKey] = ["status": "running", "stage": "downloading", "fromVersion": request["fromVersion"] as? String ?? target,
-                                "targetVersion": target, "message": "", "resultVersion": "", "label": request["label"] as? String ?? ""]
+                                "targetVersion": target, "message": "", "resultVersion": "", "label": request["label"] as? String ?? "",
+                                "mode": connected ? "connected" : "outdated", "attempt": "\(attempts)"]
                 changed("t3.fleet")
-                reply(completion, ["started": true])
-                update(jobKey, origin: origin, environment: environment, target: target)
+                reply(completion, ["started": true, "attempt": "\(attempts)"])
+                let run = Run(connected: connected, capabilities: request["capabilities"] as? [String: Any] ?? [:],
+                              extras: (request["extras"] as? [String: Any] ?? [:]).filter { $0.key == "continueRunningThreads" && $0.value is Bool })
+                update(jobKey, origin: origin, environment: environment, target: target, run: run)
             case "fleetOutdatedAck":
                 let jobKey = "\(origin.absoluteString)\n\(environment)"
                 if jobs[jobKey]?["status"] as? String != "running" { jobs.removeValue(forKey: jobKey) }
@@ -266,7 +278,10 @@ final class T3OutdatedHosts: @unchecked Sendable {
         setJob(key, ["status": "failed", "message": message])
     }
 
-    private func update(_ key: String, origin: URL, environment: String, target: String) {
+    /// How one job runs: an outdated host (protocol older than this client) or a connected, older server.
+    struct Run { var connected = false; var capabilities: [String: Any] = [:]; var extras: [String: Any] = [:] }
+
+    private func update(_ key: String, origin: URL, environment: String, target: String, run: Run = Run()) {
         descriptor(origin) { [self] result in
             guard alive else { return }
             guard case .success(let descriptor) = result else {
@@ -276,8 +291,9 @@ final class T3OutdatedHosts: @unchecked Sendable {
             let label = descriptor["label"] as? String ?? origin.host ?? "This environment"
             if (jobs[key]?["label"] as? String ?? "").isEmpty { setJob(key, ["label": label]) }
             guard descriptor["environmentId"] as? String == environment else { return fail(key, "\(label) is a different environment now. Pair with it again.") }
-            guard Self.canSelfUpdate(descriptor) else { return fail(key, "Update T3 Code on \(label) manually; it cannot update itself.") }
-            let capabilities = descriptor["capabilities"] as? [String: Any] ?? [:]
+            // A connected server's config names its capabilities; an outdated host's descriptor does.
+            let capabilities = run.connected && !run.capabilities.isEmpty ? run.capabilities : descriptor["capabilities"] as? [String: Any] ?? [:]
+            guard Self.canSelfUpdate(["capabilities": capabilities]) else { return fail(key, "Update T3 Code on \(label) manually; it cannot update itself.") }
             if let from = descriptor["serverVersion"] as? String, !from.isEmpty, jobs[key]?["fromVersion"] as? String == target { setJob(key, ["fromVersion": from]) }
             let token: String
             do { token = try credentials.read(origin: origin.absoluteString, environment: environment) ?? "" } catch { token = "" }
@@ -294,13 +310,15 @@ final class T3OutdatedHosts: @unchecked Sendable {
                     url.scheme = url.scheme == "https" ? "wss" : "ws"; url.path = "/ws"
                     url.queryItems = [URLQueryItem(name: "wsTicket", value: ticket), URLQueryItem(name: "clientSurface", value: "desktop"),
                                       URLQueryItem(name: "clientOs", value: "macos"), URLQueryItem(name: "clientDeviceType", value: "desktop")]
+                    // A connected server speaks protocol 2 and refuses a socket that does not name it.
+                    if run.connected { url.queryItems?.append(URLQueryItem(name: "orchestrationProtocol", value: "\(Self.protocolVersion)")) }
                     var request = URLRequest(url: url.url!)
                     request.timeoutInterval = Self.socketOpenTimeout
                     let socket = session.webSocketTask(with: request)
                     socket.maximumMessageSize = T3Wire.maximumBytes
                     sockets[key] = socket
                     socket.resume()
-                    runUpdate(key, socket: socket, origin: origin, label: label, target: target, capabilities: capabilities)
+                    runUpdate(key, socket: socket, origin: origin, label: label, target: target, capabilities: capabilities, run: run)
                 }
             }
         }
@@ -309,10 +327,11 @@ final class T3OutdatedHosts: @unchecked Sendable {
     /// One RPC over the bare socket: progress chunks call `progress`; the result arrives as `.success(exit value)`,
     /// a server failure as `.failure(message)`, and a dropped socket as `.dropped`.
     enum Outcome { case success(Any), failure(String), dropped(String) }
-    private func call(_ socket: URLSessionWebSocketTask, id: String, method: String, payload: [String: Any], key: String,
+    private func call(_ socket: URLSessionWebSocketTask, id: String, method: String, payload: [String: Any], key: String, gated: Bool = false,
                       progress: @escaping ([String: Any]) -> Void, done: @escaping (Outcome) -> Void) {
         var opened = false
-        let request: [String: Any] = ["_tag": "Request", "id": id, "tag": method, "payload": payload, "headers": [] as [Any]]
+        let request: [String: Any] = gated ? T3Wire.request(id: id, method: method, payload: payload)
+            : ["_tag": "Request", "id": id, "tag": method, "payload": payload, "headers": [] as [Any]]
         guard let text = try? T3Wire.encode(request) else { return done(.failure("The update request could not be encoded.")) }
         queue.asyncAfter(deadline: .now() + Self.socketOpenTimeout + 1) { [weak self] in
             guard let self, !opened, self.sockets[key] === socket else { return }
@@ -367,20 +386,22 @@ final class T3OutdatedHosts: @unchecked Sendable {
         return failure.message
     }
 
-    private func runUpdate(_ key: String, socket: URLSessionWebSocketTask, origin: URL, label: String, target: String, capabilities: [String: Any]) {
+    private func runUpdate(_ key: String, socket: URLSessionWebSocketTask, origin: URL, label: String, target: String, capabilities: [String: Any], run: Run = Run()) {
         let selfUpdate = capabilities["serverSelfUpdate"] as? String ?? ""
+        var input: [String: Any] = ["targetVersion": target]
+        for (name, value) in run.extras { input[name] = value }
         let finish = { [self] (result: [String: Any]) in
             let commitToken = result["desktopUpdateToken"] as? String ?? ""
-            guard result["method"] as? String == "desktop-app", !commitToken.isEmpty else { return resume(key, origin: origin, label: label) }
+            guard result["method"] as? String == "desktop-app", !commitToken.isEmpty else { return resume(key, origin: origin, label: label, run: run) }
             // The commit relaunches the desktop app, so a dropped socket is success.
-            call(socket, id: "2", method: "server.commitDesktopUpdate", payload: ["requestId": commitToken], key: key, progress: { _ in }) { [self] outcome in
+            call(socket, id: "2", method: "server.commitDesktopUpdate", payload: ["requestId": commitToken], key: key, gated: run.connected, progress: { _ in }) { [self] outcome in
                 if case .failure(let message) = outcome { return fail(key, message) }
-                resume(key, origin: origin, label: label)
+                resume(key, origin: origin, label: label, run: run)
             }
         }
         if capabilities["serverSelfUpdateProgress"] as? Bool == true {
             var terminal: [String: Any]?
-            call(socket, id: "1", method: "server.updateServerWithProgress", payload: ["targetVersion": target], key: key, progress: { [self] event in
+            call(socket, id: "1", method: "server.updateServerWithProgress", payload: input, key: key, gated: run.connected, progress: { [self] event in
                 if event["type"] as? String == "complete", let result = event["result"] as? [String: Any] { terminal = result }
                 else if event["type"] as? String == "progress", let stage = event["stage"] as? String, ["downloading", "installing"].contains(stage) { setJob(key, ["stage": stage]) }
             }) { [self] outcome in
@@ -394,7 +415,7 @@ final class T3OutdatedHosts: @unchecked Sendable {
                 }
             }
         } else {
-            call(socket, id: "1", method: "server.updateServer", payload: ["targetVersion": target], key: key, progress: { _ in }) { [self] outcome in
+            call(socket, id: "1", method: "server.updateServer", payload: input, key: key, gated: run.connected, progress: { _ in }) { [self] outcome in
                 switch outcome {
                 case .success(let value): finish(value as? [String: Any] ?? ["targetVersion": target, "method": selfUpdate])
                 // Older servers can drop the socket before acknowledging the restart.
@@ -407,13 +428,23 @@ final class T3OutdatedHosts: @unchecked Sendable {
         }
     }
 
-    private func resume(_ key: String, origin: URL, label: String) {
+    private func resume(_ key: String, origin: URL, label: String, run: Run = Run()) {
         sockets.removeValue(forKey: key)?.cancel(with: .goingAway, reason: nil)
         setJob(key, ["stage": "resuming"])
         let deadline = Date().addingTimeInterval(restartTimeout)
+        let target = jobs[key]?["targetVersion"] as? String ?? ""
         func poll() {
             descriptor(origin) { [self] result in
                 guard alive, jobs[key]?["status"] as? String == "running" else { return }
+                // A connected server resumed once it reports the target version (matchesServerUpdateReadyEvent).
+                if run.connected {
+                    if case .success(let descriptor) = result, descriptor["serverVersion"] as? String == target {
+                        return setJob(key, ["status": "done", "resultVersion": target])
+                    }
+                    guard Date() < deadline else { return fail(key, "The server did not resume on t3@\(target).") }
+                    queue.asyncAfter(deadline: .now() + pollInterval) { poll() }
+                    return
+                }
                 if case .success(let descriptor) = result, Self.protocolOf(descriptor) == Self.protocolVersion {
                     let environment = key.split(separator: "\n", maxSplits: 1).last.map(String.init) ?? ""
                     saved.remember(origin: origin.absoluteString, descriptor: descriptor)

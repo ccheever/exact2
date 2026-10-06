@@ -184,6 +184,9 @@ component WindowOverlays
       PlanSaveDialog(path=data.planSavePath, root=data.planSaveRoot, saving=data.planSaving, local=chatLocal)
     when shell.panel.deviceSetup
       R4DeviceSetup(device=shell.panel.device, scheme=viewport.prefersColorScheme, viewportHeight=viewport.height, local=chatLocal, command=command)
+    // server-update-banner: requestConfirmDialog before a desktop-managed server's app updates (server-update-notices.ts).
+    when data.serverUpdate.confirmTitle != ""
+      AppConfirm(title=data.serverUpdate.confirmTitle, body=data.serverUpdate.confirmBody, destructive=false, busy=commandPending, cancel=command("su:cancel", "", "", 0), confirm=command("su:confirm", "", "", 0))
     when confirmOp != ""
       AppConfirm(title=confirmTitle, body=confirmBody, destructive=confirmDestructive, busy=commandPending, cancel=confirmUi(false), confirm=confirmUi(true))
     when viewport.prefersColorScheme == "dark"

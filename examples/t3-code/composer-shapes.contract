@@ -48,6 +48,13 @@ shape ComposerNotice
   actionReason: string
   dismissId: string
   segments: list<NoticeSegment>
+  // server-update-banner: the title's and actions' tooltips, a red icon, a "·" before the description, the title's live role.
+  tip: string
+  actionTip: string
+  action2Tip: string
+  iconTone: string
+  sep: bool
+  liveRole: string
 shape ComposerTask
   key: string
   text: string

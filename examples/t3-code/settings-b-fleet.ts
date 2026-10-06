@@ -9,6 +9,7 @@
 import { obj, str, num, arr, initialShell, applyShell, type Obj, type Shell } from './domain';
 import { bridgeReply, applyConfig, type Native } from './protocol';
 import { announceJobs } from './settings-b-outdated';
+import { announceServerUpdates } from './server-update';
 import type { T3Client } from './client';
 import { learnRoutes } from './connection-routes-ops';
 import { liveFleetEvent, liveFleetPass } from './live-streams';
@@ -101,6 +102,13 @@ export class EnvironmentFleet {
     await learnRoutes(native, this, focused).catch(() => {});
     // Outdated-host updates (settings-b-outdated.ts) finish in the background: toast each result once.
     await announceJobs(native, 'local' in focused ? focused as unknown as T3Client : null).catch(() => {});
+    // A connected server's update (server-update.ts) toasts once its connection reports the new version.
+    const client = 'local' in focused ? focused as unknown as T3Client : null;
+    await announceServerUpdates(native, client, (_key, environmentId) => {
+      if (client && environmentId === client.environmentId) return client.connection === 'connected' ? str(obj(client.config.environment).serverVersion) || null : null;
+      const entry = [...this.entries.values()].find(candidate => candidate.environmentId === environmentId);
+      return entry?.phase === 'connected' ? str(obj(entry.config.environment).serverVersion) || null : null;
+    }).catch(() => {});
   }
 
   private async syncOne(native: Native, entry: FleetEntry, epoch: number): Promise<void> {
