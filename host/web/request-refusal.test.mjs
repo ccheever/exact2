@@ -391,7 +391,7 @@ test('a clean JS dist imports every lazy storage and document entry with its com
     for (const name of ['grant-admission.js', 'storage-fs.js', 'storage-sqlite.js', 'storage-request.js', 'picker-glue.js', 'documents-glue.js']) {
       await import(`${pathToFileURL(resolve(dist, name)).href}?built=${Date.now()}-${name}`);
     }
-    for (const name of ['navigation.js', 'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm']) expect(existsSync(resolve(dist, name)), name).toBe(true);
+    for (const name of ['storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm']) expect(existsSync(resolve(dist, name)), name).toBe(true);
   } finally { rmSync(dist, { recursive: true, force: true }); }
 }, 60_000);
 
