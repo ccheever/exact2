@@ -50,7 +50,7 @@ final class FrameSampler: NSObject {
     private var turnBegan: CFTimeInterval?
     private var overrun = 0.0
     private var overruns = 0
-    private var turnObservers: [CFRunLoopObserver] = []
+    private(set) var turnObservers: [CFRunLoopObserver] = []
 
     init(session: ExactSession) {
         self.session = session
@@ -112,7 +112,9 @@ final class FrameSampler: NSObject {
         last = nil
         for o in turnObservers { CFRunLoopRemoveObserver(CFRunLoopGetMain(), o, .commonModes) }
         turnObservers = []
-        target = nil
+        // A segment's timing is its own: an overrun not yet sampled goes
+        // with it, not onto the next segment's first frame.
+        target = nil; turnBegan = nil; overrun = 0
     }
 
     /// A frame the display link delivered on time can still miss the
@@ -121,9 +123,11 @@ final class FrameSampler: NSObject {
     /// (a fling's rows built in one turn). The link's own cadence does not
     /// see it; the turn's end against the target does. Each turn is
     /// timed from the run loop waking to it going back to sleep, after
-    /// Core Animation's commit.
+    /// Core Animation's commit. The turn that installs them is timed from
+    /// then: it may run on past the first target before it ever sleeps.
     private func watchTurns() {
         guard turnObservers.isEmpty else { return }
+        turnBegan = CACurrentMediaTime()
         let woke = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.afterWaiting.rawValue, true, 0) { [weak self] _, _ in
             self?.turnBegan(at: CACurrentMediaTime())
         }
@@ -146,14 +150,20 @@ final class FrameSampler: NSObject {
     }
 
     @objc func tick(_ link: CADisplayLink) {
-        observe(now: link.timestamp, target: link.targetTimestamp)
+        observe(now: link.timestamp, target: link.targetTimestamp, at: CACurrentMediaTime())
         // The session's own frame source running is activity too.
         if session?.frames.link != nil { active = CACurrentMediaTime() }
         if CACurrentMediaTime() - active > Self.quiet { stop() }
     }
 
-    /// One display callback: its time and the next frame's target, seconds.
-    func observe(now: CFTimeInterval, target: CFTimeInterval) {
+    /// One display callback: its time and the next frame's target, seconds;
+    /// `wall`, when it ran. A callback inside a turn that began before the
+    /// last target and has not slept since is past that target already:
+    /// the turn has not committed, so that frame is an overrun too.
+    func observe(now: CFTimeInterval, target: CFTimeInterval, at wall: CFTimeInterval? = nil) {
+        if let wall, let old = self.target, let began = turnBegan, began < old, wall > old {
+            overrun = max(overrun, (wall - old) * 1000)
+        }
         self.target = target
         period = (target - now) * 1000
         if let last { sample(interval: (now - last) * 1000, at: now) }

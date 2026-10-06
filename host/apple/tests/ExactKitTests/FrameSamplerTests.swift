@@ -41,6 +41,27 @@ final class FrameSamplerTests: XCTestCase {
         let late = try XCTUnwrap((reply["late"] as? [[String: Any]])?.first)
         XCTAssertEqual(try XCTUnwrap(late["overrun"] as? Double), 4, accuracy: 0.05)
         XCTAssertTrue(session.agent(#"{"op":"logs","since":0}"#).contains("ms past the target"))
+
+        // One turn through two callbacks, never sleeping between: the first
+        // target is overrun when the second callback comes.
+        let u = t + 10 * p
+        sampler.observe(now: u, target: u + p, at: u + 0.0005)
+        sampler.turnBegan(at: u + 0.001)
+        sampler.observe(now: u + p, target: u + 2 * p, at: u + p + 0.006)
+        sampler.turnEnded(at: u + p + 0.008)
+        // A stop drops an overrun not yet sampled: the next segment's first
+        // frames are on time.
+        sampler.observe(now: u + 2 * p, target: u + 3 * p, at: u + 2 * p + 0.0005)
+        sampler.turnBegan(at: u + 2 * p + 0.001)
+        sampler.turnEnded(at: u + 3 * p + 0.005)
+        sampler.stop()
+        let v = u + 20 * p
+        sampler.observe(now: v, target: v + p, at: v + 0.0005)
+        sampler.observe(now: v + p, target: v + 2 * p, at: v + p + 0.0005)
+        let after = try XCTUnwrap(sampler.reply()["lifetime"] as? [String: Int])
+        XCTAssertEqual(after["overruns"], 2, "the turn through two callbacks, not the stopped segment's")
+        let through = try XCTUnwrap((sampler.reply()["late"] as? [[String: Any]])?.last)
+        XCTAssertEqual(try XCTUnwrap(through["overrun"] as? Double), 6, accuracy: 0.05)
     }
 
     func testALateFrameIsCountedAgainstTheTargetPeriodJournaledAndSaved() throws {
