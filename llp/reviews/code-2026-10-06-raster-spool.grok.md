@@ -47,3 +47,23 @@ Round-1 items otherwise check out. Delete-on-any-`open`-failure is only `ENOENT`
 `testAFailedEstablishThrows` never calls `directory()`, so it does not prove the static cache is skipped. There is no test that a creator paused before its per-directory `flock` is protected by `.namespace.lock`.
 
 NOT READY
+
+# Round 3
+
+- **Method:** one brief (sha256 `f38a4a655f46ff2e3cd12fb2235c45925468c41431d58da62084984cf08d536a`), blind to the other review, on 335aa6214 with rounds 1 and 2's artifacts.
+- **Verdict:** READY WITH CHANGES.
+- **Disposition:** 1 taken in part: a root link that cannot be unlinked (an immutable link, a read-only tmp) is checked before anything is opened through it, so nothing is created in its target (a test with a read-only tmp; it fails without the check). Opening the root once and working relative to its descriptor (`openat`) would also close a swap by another process of the same user between the checks and the sweep; that is an adversary who can already delete the files outright, so it is left for QUEUE. 2 taken, as Astra's r3.
+
+1. **P2** — A symlink `unlink` cannot remove is still followed, and `.namespace.lock` is created in its target. `host/apple/Sources/ExactKit/RasterSpool.swift:54`
+
+`establish` unlinks a symlink and ignores the result. `mkdir` on a symlink that is still there returns `EEXIST`, and that errno is treated as success. `lockFile` then opens `root/.namespace.lock` with `O_CREAT`. `O_NOFOLLOW` applies only to the final component, so the parent symlink is followed and the lock file is created in the target. On this Mac, a symlink with `UF_IMMUTABLE` (`chflags -h uchg`) makes `unlink` return `EPERM` and `mkdir` return `EEXIST`, and the following `open` creates `.namespace.lock` in the target. The same sequence happens when the parent is mode `0555`: `unlink` returns `EACCES` and `mkdir` still returns `EEXIST`. The `lstat` at line 58 then throws `ENOTDIR`, so the directory is not cached and `sweep` does not run, but the file is already in the target. Every later spool opens that file and, when a live owner holds it, spends the full retry budget (about 500 ms, with `directory()` holding `NSLock`) before failing again. The `lstat` also does not pin the inode that `sweep` and `mkdir` use at lines 59–61. `contentsOfDirectory` on a symlink throws `ENOTDIR`, so a link substituted for the root is left in place by `sweep`, while `mkdir` of the per-process directory follows a parent symlink and creates the spool in the target.
+
+**Fix:** Open the root with `O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC` before any child path is opened. Create and lock `.namespace.lock` with `openat` on that directory fd, and sweep and `mkdir` the per-process directory relative to it. If the open fails because the path is a symlink, `unlink` and retry a bounded number of times. If `unlink` fails, throw that errno and do not open a child path.
+
+2. **P3** — The symlink test does not cover the repair race it cites. `host/apple/tests/ExactKitTests/RasterSpoolTests.swift:133`
+
+`testSymlinksAreNeverFollowed` runs two `establish` calls one after the other. The second call sees a real directory, so it never unlinks. Restoring `removeItem` (the round-2 bug, where a second launch deletes the first launch's tree after both have observed the symlink) still passes. The fixture is also a removable symlink, so the stray `.namespace.lock` in finding 1 is invisible. `testEstablishingSweepsAndHoldsItsOwnLock` puts its dead directory outside `exact-raster` and asserts that directory is kept, so deleting `sweep(root)` from `establish` would not fail it.
+
+**Fix:** Overlap two `establish` calls on one symlinked root, with one already returned and holding its per-directory lock, and assert that spool file remains. Add an unremovable symlink and assert the target gains no `.namespace.lock`. Put a lock-less directory inside the root before `directory()` and assert that `establish` removes it.
+
+READY WITH CHANGES

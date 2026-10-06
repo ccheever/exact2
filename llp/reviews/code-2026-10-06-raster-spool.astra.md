@@ -43,3 +43,19 @@ Round-1 audit: the lock-open error handling, publication-after-success, descript
 XCTest was not run because it writes files. No files were edited.
 
 **NOT READY**
+
+# Round 3
+
+- **Method:** one brief (sha256 `f38a4a655f46ff2e3cd12fb2235c45925468c41431d58da62084984cf08d536a`), blind to the other review, on 335aa6214 with rounds 1 and 2's artifacts.
+- **Verdict:** READY WITH CHANGES.
+- **Disposition:** Both taken (29d34558c): a test pauses one launch between seeing the symlinked root and unlinking it, through a test-only hook, while another repairs and spools; it fails with the old `removeItem`. The first spool's own sweep is tested inside the spool root, with no explicit sweep.
+
+1. **P3 — Root-repair test does not reproduce the earlier race.** [RasterSpoolTests.swift:139](/tmp/bsky-rs-rv3/host/apple/tests/ExactKitTests/RasterSpoolTests.swift:139). The second `establish` starts after the first finishes, so it observes a real directory. This test also passes with the previous, unsafe `removeItem` implementation. **Suggested fix:** deterministically pause one creator after observing the symlink, let another establish and write a spool, then resume the first and assert that the live spool survives.
+
+2. **P3 — Establishment test does not prove abandoned directories are swept.** [RasterSpoolTests.swift:68](/tmp/bsky-rs-rv3/host/apple/tests/ExactKitTests/RasterSpoolTests.swift:68). Its “dead” directory sits outside `exact-raster`; the subsequent sweep is called directly by the test. Removing the production `sweep(root)` call from `establish` would leave this suite passing, despite disabling launch cleanup. **Suggested fix:** seed an abandoned directory inside `exact-raster`, call `directory()`, and assert its removal without an additional explicit sweep.
+
+The earlier production defects are resolved for cooperating launches: conservative lock-open failure handling, publication only after successful setup, retry after failure, namespace serialization, bounded contention, and descriptor inheritance protection. `NSLock` guards the cached state consistently. Unwritable-root setup throws without caching success. The revised descriptor and retry tests address their earlier findings, and all test roots are isolated.
+
+XCTest was not run because the review is read-only. `git diff --check` passed; no files were edited.
+
+READY WITH CHANGES
