@@ -7,7 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
 import type { Files, Native } from './protocol';
-import { closeThreadTerminals, terminalDrawerView, terminalMetadataEvent, terminalOps, terminalAvailable, terminalOpen, TERMINAL_METADATA_KEY } from './terminal-drawer-view';
+import { closeThreadTerminals, terminalRows, terminalDrawerView, terminalMetadataEvent, terminalOps, terminalAvailable, terminalOpen, TERMINAL_METADATA_KEY } from './terminal-drawer-view';
 import { adoptTerminalPrefs, terminalUiStore } from './terminal-ui-state';
 
 type Call = { method: string; payload: Obj };
@@ -45,6 +45,17 @@ describe('terminal drawer commands', () => {
     await run(client, 'toggle');
     expect(calls).toHaveLength(1);
     expect(terminalOpen(client)).toBe(false);
+  });
+
+  test('⌘J dispatches the toggle where the drawer can open (keyboard-dispatch MAIN_ROWS)', () => {
+    const { client, raw } = fixture();
+    const added: string[][] = [];
+    const add = (command: string, kind: string, target: string, label: string) => { added.push([command, kind, target, label]); };
+    terminalRows(add, client);
+    expect(added).toEqual([['terminal.toggle', 'command', 'terminallocal:toggle', 'Toggle Terminal']]);
+    raw.threadId = '';
+    terminalRows(add, client);
+    expect(added).toHaveLength(1);
   });
 
   test('a thread without a worktree opens in the project root and sends no worktree path', async () => {
