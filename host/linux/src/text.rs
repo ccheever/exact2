@@ -781,7 +781,13 @@ impl TextEngine {
         self.paragraphs.before_shape(key);
         let source = self.source(key);
         let width = minimum.then(|| source.min_content().ceil());
-        let metrics = paragraph_metrics(&self.layout_source(&source, width));
+        let mut metrics = paragraph_metrics(&self.layout_source(&source, width));
+        // Min-content is the widest unbreakable run, not the widest line at that
+        // width: a preserved trailing space counts toward a line but not toward
+        // min-content, as in Chrome.
+        if let Some(w) = width {
+            metrics.width = metrics.width.min(w);
+        }
         self.paragraphs.set_intrinsic(key, minimum, metrics);
         metrics
     }
