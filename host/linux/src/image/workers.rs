@@ -272,7 +272,7 @@ impl Backend {
             // This charge precedes the decoder and output allocations. On an
             // error decode_rows destroys both before the permit can retire.
             let charge = permit.allocation_charge();
-            let pixels = png_decode::decode_rows(input, &plan, || permit.is_cancelled())?;
+            let pixels = super::jpeg_decode::decode_pixels(input, &plan, || permit.is_cancelled())?;
             let bitmap = Arc::new(Bitmap::from_source(
                 pixels,
                 plan.natural(),
@@ -290,7 +290,7 @@ impl Backend {
         });
         match result {
             Ok(bitmap) => {
-                let bytes = bitmap.as_ref().as_ref().len() as u64;
+                let bytes = bitmap.bytes();
                 let _ = permit.complete(
                     bitmap,
                     ResidentBytes {

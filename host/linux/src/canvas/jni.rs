@@ -344,6 +344,28 @@ macro_rules! canvas_jni {
                 flag($crate::canvas::jni::copy_buffer(env, id as u32, buffer))
             }
 
+            /// The reader wraps a picture's own GPU buffer (`imageBuffer`): from
+            /// now on platform-decoded pictures are decoded into one.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_hardwarePictures(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                on: jboolean,
+            ) {
+                $crate::image::hardware_pictures(on == JNI_TRUE);
+            }
+
+            /// Picture `id`'s own GPU buffer as a `HardwareBuffer` to wrap, or
+            /// null when its pixels are on the heap (copy them instead).
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_imageBuffer(
+                env: *mut JNIEnv,
+                _class: jclass,
+                id: jint,
+            ) -> jobject {
+                $crate::canvas::jni::image_buffer(env, id as u32)
+            }
+
             /// A GPU canvas's window (op 28, kind 3); the window to pass back to
             /// `detachSurface`, or 0.
             #[no_mangle]
@@ -623,6 +645,7 @@ extern "C" {
     fn ANativeWindow_fromSurface(env: *mut JNIEnv, surface: jobject) -> *mut c_void;
     fn ANativeWindow_release(window: *mut c_void);
     fn AHardwareBuffer_fromHardwareBuffer(env: *mut JNIEnv, buffer: jobject) -> *mut c_void;
+    fn AHardwareBuffer_toHardwareBuffer(env: *mut JNIEnv, buffer: *mut c_void) -> jobject;
     fn AHardwareBuffer_describe(buffer: *const c_void, desc: *mut BufferDesc);
     fn AHardwareBuffer_lock(
         buffer: *mut c_void,
@@ -684,6 +707,27 @@ pub unsafe fn copy_bitmap(env: *mut JNIEnv, id: u32, bitmap: jobject) -> bool {
     );
     AndroidBitmap_unlockPixels(env, bitmap);
     true
+}
+
+/// Picture `id`'s own GPU buffer as a Java `HardwareBuffer` (which holds its
+/// own reference), taking the picture as fetched; null, and the picture left
+/// to be copied, when its pixels are on the heap.
+///
+/// # Safety
+/// `env` is the JNI call's.
+pub unsafe fn image_buffer(env: *mut JNIEnv, id: u32) -> jobject {
+    let mut pending = super::pending();
+    let Some(super::Picture::Bitmap(bitmap)) = pending.get(&id) else {
+        return std::ptr::null_mut();
+    };
+    let Some(buffer) = bitmap.hardware() else {
+        return std::ptr::null_mut();
+    };
+    let object = AHardwareBuffer_toHardwareBuffer(env, buffer);
+    if !object.is_null() {
+        pending.remove(&id);
+    }
+    object
 }
 
 /// Picture `id` into the `HardwareBuffer` `buffer` (RGBA_8888, CPU-writable):

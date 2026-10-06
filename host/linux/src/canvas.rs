@@ -428,15 +428,16 @@ impl Backend for Recorder {
         self.recorded = None;
         GROUPS.with(|g| g.borrow_mut().clear());
         self.frames += 1;
-        // Pictures the presenter dropped since the last frame, and those not
-        // drawn for a while: the reader's copy (heap and texture) goes; the
-        // decoded picture, if the presenter still caches it, is sent again
-        // when it draws again. Kept rows hold their own reference.
+        // Pictures the presenter dropped, and those not drawn for a while
+        // that the reader copied: its copy goes, and is sent again when it
+        // draws again. Kept rows hold their own reference.
         let frames = self.frames;
         let dead: Vec<(usize, u32)> = self
             .images
             .iter()
-            .filter(|(_, (_, weak, used))| !weak.alive() || frames - used > self.idle)
+            .filter(|(_, (_, weak, used))| {
+                !weak.alive() || (frames - used > self.idle && !weak.shared())
+            })
             .map(|(k, (id, _, _))| (*k, *id))
             .collect();
         for (k, id) in dead {

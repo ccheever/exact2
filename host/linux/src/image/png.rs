@@ -159,6 +159,11 @@ pub(super) struct DecodePlan {
     pub cost: DecodeCost,
 }
 impl DecodePlan {
+    /// Whether the platform's decoder decodes this (JPEG, GIF, WebP).
+    #[cfg(target_os = "android")]
+    pub(super) fn platform(&self) -> bool {
+        self.header.color == JPEG
+    }
     pub fn new(header: Header, pixels: (u32, u32)) -> Result<Self, Refusal> {
         let natural = header.metadata.natural;
         if pixels.0 == 0 || pixels.1 == 0 || pixels.0 > natural.width || pixels.1 > natural.height {

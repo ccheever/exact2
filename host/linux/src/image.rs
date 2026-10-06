@@ -31,6 +31,11 @@ mod png_decode;
 mod workers;
 pub use assets::{AssetResolver, Assets};
 pub use bitmap::Bitmap;
+#[cfg(target_os = "android")]
+#[path = "image/hardware.rs"]
+mod hardware;
+#[cfg(target_os = "android")]
+pub use hardware::hardware_pictures;
 use workers::{Backend, Prepared, SourceOwner};
 
 struct View {
