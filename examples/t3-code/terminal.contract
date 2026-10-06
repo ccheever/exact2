@@ -1,3 +1,4 @@
+use Look from "./settings-appearance-look.contract"
 // The terminal surface spike's development harness (task 20261005-terminal-surface): a
 // `t3-terminal` view (T3TerminalView.swift: T3 Code's Ghostty surface in a web view) fed by the
 // native fixtures, so the agent and a person can check rendering, keys and the bridge without a
@@ -6,6 +7,7 @@
 component TerminalHarness
   props
     dark: bool
+    look: Look
   state open = false
   state fixture = "render"
   state lastMessage = ""
@@ -33,6 +35,6 @@ component TerminalHarness
               text name font-size=12 color="light-dark(#1c2129, #edf1f7)"
           button press=toggle aria-label="Close terminal harness" testId="terminal-harness-close" height=24 padding-left=8 padding-right=8 border-radius=6 border-width=0 background-color="#00000000"
             text "×" font-size=16 color="light-dark(#1c2129, #edf1f7)"
-        t3-terminal terminal="harness" fixture=fixture scheme=(dark ? "dark" : "light") chords="Meta+K Meta+J Control+Alt+Shift+T" message=heard focus=focusIn blur=focusOut aria-label="Terminal" testId="terminal-harness-view" flex=1 min-height=0
+        t3-terminal terminal="harness" fixture=fixture scheme=(dark ? "dark" : "light") terminal-theme=(dark ? look.terminalDark : look.terminalLight) terminal-font=look.terminalFont terminal-font-size=look.terminalSize chords="Meta+K Meta+J Control+Alt+Shift+T" message=heard focus=focusIn blur=focusOut aria-label="Terminal" testId="terminal-harness-view" flex=1 min-height=0
         row align-items="center" height=22 padding-left=12 padding-right=12 flex-shrink=0
           text `${focused ? "focused" : "unfocused"} · ${messages} messages · ${lastMessage}` font-size=11 color="light-dark(#71717a, #9ca3af)" testId="terminal-harness-status" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex=1 min-width=0
