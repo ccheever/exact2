@@ -4,33 +4,33 @@ import Foundation
 import AppKit
 
 final class T3Module: ExactModule {
-    private let transport: T3Transport
+    let transport: T3Transport
     private let activity: T3ActivityReporter
     private let panelTabs = RightPanelTabsInput()
     private let toolIcons = T3ToolActivityIcon()
     private let timelineTips = T3TimelineTooltip()
     private let fleet: T3Fleet // Background environments (T3Fleet.swift).
-    private let ssh: T3Ssh // Add Environment → SSH: discovery, ssh -G, tunnels (T3Ssh.swift).
-    private let composer: T3Composer
-    private let intent: T3ComposerIntent // Send gestures and ⌘ state (T3ComposerIntent.swift).
+    let ssh: T3Ssh // Add Environment → SSH: discovery, ssh -G, tunnels (T3Ssh.swift).
+    let composer: T3Composer
+    let intent: T3ComposerIntent // Send gestures and ⌘ state (T3ComposerIntent.swift).
     private let frames: T3ComposerFrames // Popover anchors in window space (T3ComposerFrames.swift).
     private let scrollEnds: R5ComposerScroll // r5-composer: ref lists' next-page signal (R5ComposerScroll.swift).
-    private let attach: T3ComposerAttach // Attach files: picked images become PNG drafts (T3ComposerAttach.swift).
+    let attach: T3ComposerAttach // Attach files: picked images become PNG drafts (T3ComposerAttach.swift).
     private let video: T3ComposerVideo // A shelf video's expanded preview (T3ComposerVideo.swift).
     private let media: R6MediaPreview // lane r6-media: attachment PDF and HTML bodies (R6MediaPreview.swift).
-    private let devices: R6DeviceStreams // lane r6-media: device screens, input and screenshots (R6DeviceStream.swift).
+    let devices: R6DeviceStreams // lane r6-media: device screens, input and screenshots (R6DeviceStream.swift).
     private let timeline: T3Timeline
-    private let turns: T3TimelineTurns // The minimap's turns in view and jumps (T3TimelineTurns.swift).
-    private let mermaid: T3TimelineMermaid // Mermaid fences laid out with the server's own Mermaid (T3TimelineMermaid.swift).
-    private let snapShot: T3SnapShot
-    private let chrome = T3WindowChrome()
-    private let exportsRoot: URL? // Agent runs export into the isolated data root (T3ContextMenu.saveText).
-    private let menus = T3Menus() // Menu bar items, zoom and the ⌘Q hold (T3Menus.swift).
-    private let notifications: T3Notifications // Thread notifications, sound, Dock badge (T3Notifications.swift).
-    private let sidebar: T3Sidebar // Thread menu, modifier reads and jump hints (T3Sidebar.swift).
-    private let gate: T3ReadGate // Holds the snapshot read's topics until its last reply (T3ReadGate.swift).
+    let turns: T3TimelineTurns // The minimap's turns in view and jumps (T3TimelineTurns.swift).
+    let mermaid: T3TimelineMermaid // Mermaid fences laid out with the server's own Mermaid (T3TimelineMermaid.swift).
+    let snapShot: T3SnapShot
+    let chrome = T3WindowChrome()
+    let exportsRoot: URL? // Agent runs export into the isolated data root (T3ContextMenu.saveText).
+    let menus = T3Menus() // Menu bar items, zoom and the ⌘Q hold (T3Menus.swift).
+    let notifications: T3Notifications // Thread notifications, sound, Dock badge (T3Notifications.swift).
+    let sidebar: T3Sidebar // Thread menu, modifier reads and jump hints (T3Sidebar.swift).
+    let gate: T3ReadGate // Holds the snapshot read's topics until its last reply (T3ReadGate.swift).
     private let launcher = R8KeysLauncher() // lane r8-keys: the surface launcher's focus and letters (R8KeysLauncher.swift).
-    private let measure = R8KeysMeasure() // lane r8-keys: drawn frames for window-level popups (R8KeysMeasure.swift).
+    let measure = R8KeysMeasure() // lane r8-keys: drawn frames for window-level popups (R8KeysMeasure.swift).
     private let r9: R9Input // lane r9-input: composer focus and composing text, the transcript's remembered position (R9Input.swift).
     private let r10: R10Connect // lane r10-connect: wake, select on open, chords by physical key, hover under a still pointer (R10Connect.swift).
     // Settings → Keybindings capture field (T3KeyRecorder.swift).
@@ -70,68 +70,18 @@ final class T3Module: ExactModule {
     override func later(_ request: [String: Any], reply: ExactReply) {
         if gate.began(request, answer: { reply.send($0) }) { return }
         if let key = request["fleet"] as? String { gate.sent(request); return fleet.perform(key, request) { [gate] in gate.answered(request); reply.send($0) } }
-        if let op = request["op"] as? String, op.hasPrefix("ssh") { return ssh.perform(request) { reply.send($0) } }
-        if request["op"] as? String == "contextMenu" { return T3ContextMenu.perform(request) { reply.send($0) } } // Settings context menus (T3ContextMenu.swift).
-        if request["op"] as? String == "r8MeasureFrame" { DispatchQueue.main.async { [weak self] in reply.send(self?.measure.perform(request) ?? ["ok": false, "generation": 0]) }; return } // lane r8-keys
-        if request["op"] as? String == "r10Wake" { return R10Connect.wake(request, changed: { [gate] in gate.changed($0) }) { reply.send($0) } } // lane r10-connect
-        if request["op"] as? String == "timelineSleep" { return T3TimelineTurns.sleep(request) { reply.send($0) } }
-        if request["op"] as? String == "mermaidRender" { DispatchQueue.main.async { [weak self] in self?.mermaid.perform(request) { reply.send($0) } }; return }
-        if request["op"] as? String == "timelineJump" { DispatchQueue.main.async { [weak self] in self?.turns.jump(request) { reply.send($0) } }; return }
-        if request["op"] as? String == "imageAccent" { return T3ImageAccent.perform(request) { reply.send($0) } } // Image chip accents (T3ImageAccent.swift, lane r4-timeline).
-        if request["op"] as? String == "saveText" { return T3ContextMenu.saveText(request, exportsRoot: exportsRoot) { reply.send($0) } }
-        if request["op"] as? String == "openText" { return T3ContextMenu.openText(request, importsRoot: exportsRoot.map { $0.deletingLastPathComponent().appendingPathComponent("imports", isDirectory: true) }) { reply.send($0) } }
-        if request["op"] as? String == "fetchText" { return T3ContextMenu.fetchText(request) { reply.send($0) } }
-        if request["op"] as? String == "r6DeviceInput" { DispatchQueue.main.async { [weak self] in reply.send(self?.devices.input(request) ?? ["ok": false, "generation": 0]) }; return } // lane r6-media
-        if request["op"] as? String == "r6DeviceScreenshot" { return R6DeviceStreams.screenshot(request, access: { [transport] done in transport.deviceHubAccess(done) }, exportsRoot: exportsRoot) { reply.send($0) } }
-        if request["op"] as? String == "attachmentText" || request["op"] as? String == "attachmentSave" { return T3AttachmentFiles.perform(request, exportsRoot: exportsRoot) { reply.send($0) } } // lane r5-panels (T3PanelsNative.swift)
-        if let op = request["op"] as? String, op.hasPrefix("sidebar") {
-            DispatchQueue.main.async { [weak self] in self?.sidebar.perform(request) { reply.send($0) } }
-            return
-        }
-        if let op = request["op"] as? String, op.hasPrefix("notify") {
-            DispatchQueue.main.async { [weak self] in self?.notifications.perform(request) { reply.send($0) } }
-            return
-        }
-        if let op = request["op"] as? String, op.hasPrefix("snapshot") {
-            DispatchQueue.main.async { [weak self] in self?.snapShot.perform(request) { reply.send($0) } }
-            return
-        }
-        if let op = request["op"] as? String, op.hasPrefix("editor") {
-            DispatchQueue.main.async { [weak self] in reply.send(self?.composer.perform(request) ?? ["ok": false, "generation": 0]) }
-            return
-        }
-        if let op = request["op"] as? String, op.hasPrefix("composerAttach") { return attach.perform(request) { reply.send($0) } } // pick, read, remove (T3ComposerAttach.swift)
-        if request["op"] as? String == "composerSendIntent" {
-            DispatchQueue.main.async { [weak self] in reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": self?.intent.take() ?? [:]]) }
-            return
-        }
-        if request["op"] as? String == "devicePresentation" {
-            DispatchQueue.main.async { [weak self] in
-                self?.chrome.setAppearance(request["appearanceMode"] as? String ?? "system")
-                self?.composer.sendShortcut = request["sendShortcut"] as? String ?? "enter"
-                self?.menus.quitMode = request["confirmQuit"] as? String ?? "hold"
-                reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": [:]])
-            }
-            return
-        }
-        if request["op"] as? String == "pickFolder" { // The palette's Open in Finder (T3Menus.swift).
-            DispatchQueue.main.async { [weak self] in
-                self?.menus.pickFolder(startingAt: request["path"] as? String ?? "") { path in
-                    reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["path": path ?? ""]])
-                }
-            }
-            return
-        }
-        if request["op"] as? String == "copyText", let text = request["text"] as? String {
-            DispatchQueue.main.async {
-                NSPasteboard.general.clearContents()
-                let copied = NSPasteboard.general.setString(text, forType: .string)
-                reply.send(["ok": copied, "generation": request["generation"] as? Int ?? 0,
-                            "value": ["copied": copied],
-                            "error": ["kind": "Clipboard", "message": "Could not copy the message.", "uncertain": false]])
-            }
-            return
-        }
+        route(request, reply: reply, from: 0)
+    }
+    /// Each area's ops (T3Module+<Area>.swift), in turn: an area answers the ops it owns and
+    /// calls `next` for the rest; what no area owns goes to the transport. No two areas share
+    /// an op. A feature adds its area's method in its own file and one entry here.
+    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.timelineOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps, T3Module.composerOps, T3Module.windowOps]
+    private func route(_ request: [String: Any], reply: ExactReply, from index: Int) {
+        guard index < Self.areas.count else { return forward(request, reply: reply) }
+        Self.areas[index](self)(request, reply) { self.route(request, reply: reply, from: index + 1) }
+    }
+    /// The authenticated connection's ops (T3Transport.swift); a status read gains the presentation state.
+    private func forward(_ request: [String: Any], reply: ExactReply) {
         gate.sent(request)
         transport.perform(request) { [weak self, gate] response in
             gate.answered(request)

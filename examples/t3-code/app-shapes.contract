@@ -1,0 +1,11 @@
+// The root component's own reply and resource shapes (app.contract).
+shape WorkspaceDiscovery
+  key: string
+  needed: bool
+shape WorkspaceRefresh
+  key: string
+  retry: bool
+shape TimelineReadsResult
+  complete: bool
+shape Time
+  epochAtZero: number
