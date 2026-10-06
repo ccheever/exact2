@@ -254,6 +254,8 @@ shape Snapshot
   sidebarWidth: number
   // r12-sidebar: resolveThreadSidebarMinimumWidth at the Interface font size (r12-sidebar-width.ts).
   sidebarMinWidth: number
+  // desktop-shell-details: --workspace-controls-left, 90 beside the traffic lights, 0.75rem in full screen (r12-sidebar-width.ts).
+  controlsLeft: number
   sidebarOpen: bool
   query: string
   projectId: string
