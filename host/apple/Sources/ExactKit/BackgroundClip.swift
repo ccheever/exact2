@@ -71,7 +71,7 @@ extension NodeView {
     /// `background-clip: text`: the background colour and gradients inside
     /// the paragraph's glyphs, before the glyphs themselves paint.
     func paintBackgroundThroughText(_ ctx: CGContext, paragraph: Paragraph, spec: Spec, in box: CGRect) {
-        guard backgroundClip == "text" else { return }
+        guard backgroundClip == "text", !cssVisibilityHidden else { return }
         let glyphs = TextEngine.glyphPath(paragraph, spec: spec, in: box)
         guard !glyphs.isEmpty else { return }
         ctx.saveGState()
@@ -96,6 +96,7 @@ extension TextEngine {
             let origin = CGPoint(x: bounds.minX + p.origin(index, align: spec.align, width: bounds.width),
                                  y: bounds.minY + p.baselines[index].rounded())
             for run in (CTLineGetGlyphRuns(line) as? [CTRun]) ?? [] {
+                if (CTRunGetAttributes(run) as NSDictionary)[NSAttributedString.Key.exactHidden] as? Bool == true { continue }
                 let count = CTRunGetGlyphCount(run)
                 guard count > 0, let font = (CTRunGetAttributes(run) as? [CFString: Any])?[kCTFontAttributeName] else { continue }
                 var glyphs = [CGGlyph](repeating: 0, count: count), positions = [CGPoint](repeating: .zero, count: count)
