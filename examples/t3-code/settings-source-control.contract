@@ -26,6 +26,8 @@ use BitbucketView from "./settings-a-bitbucket.contract"
 use BitbucketForm from "./settings-a-bitbucket.contract"
 use DeviceHostsView from "./settings-a-hosts.contract"
 use DeviceHostsRow from "./settings-a-hosts.contract"
+use SimulatorSupportRow from "./device-support.contract"
+use SimulatorSupportSettingsRow from "./device-support.contract"
 
 shape InheritLayer
   key: string
@@ -110,6 +112,7 @@ shape IntegrationsPage
   agentTool: DeviceTool
   hostsRow: ScopedRow
   deviceHosts: DeviceHostsView
+  simulatorSupport: list<SimulatorSupportRow>
 
 component SectionTitle
   props
@@ -400,6 +403,9 @@ component IntegrationsPanel
             SectionTitle(title="Devices")
           Card()
             DeviceRow(row=data.deviceHub, tool=data.hubTool, busy=busy, rest=rest)
+            // 1e2ecbd975 (5318d054a5): Simulator support, revealed once the hub is ready or the local host lacks a platform.
+            each support in data.simulatorSupport key=support.key
+              SimulatorSupportSettingsRow(row=support, busy=busy, rest=rest)
             DeviceRow(row=data.agentDevice, tool=data.agentTool, busy=busy, rest=rest)
             DeviceHostsRow(view=data.deviceHosts, busy=busy, rest=rest)
               when data.hostsRow.summary != ""
