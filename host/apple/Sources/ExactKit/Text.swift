@@ -1438,9 +1438,9 @@ enum TextLinePaint {
     /// ink fell below the line box it was measured in.
     /// `scale`: base-space units per point, for a run's own shadow (1 in a
     /// view's context, the pixel scale in a bitmap the host made).
-    static func draw(_ line: CTLine, at origin: CGPoint, in ctx: CGContext, scale: CGFloat = 1) {
+    static func draw(_ line: CTLine, at origin: CGPoint, in ctx: CGContext, scale: CGFloat = 1, pass: Pass = .all) {
         ctx.saveGState()
-        for (rect, color) in backgrounds(line, at: origin) {
+        for (rect, color) in backgrounds(line, at: origin) where pass.paintsBackgrounds {
             ctx.setFillColor(color); ctx.fill(rect)
         }
         // The text matrix is not graphics state; put the caller's back.
@@ -1449,7 +1449,7 @@ enum TextLinePaint {
         ctx.scaleBy(x: 1, y: -1)
         ctx.textMatrix = .identity
         ctx.textPosition = .zero
-        if !drawShadowed(line, in: ctx, scale: scale) { CTLineDraw(line, ctx) }
+        if !drawShadowed(line, in: ctx, scale: scale, pass: pass) { CTLineDraw(line, ctx) }
         ctx.textMatrix = matrix
         ctx.restoreGState()
     }

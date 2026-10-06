@@ -21,3 +21,32 @@ enum TextShadowLayer {
         layer.rasterizationScale = layer.contentsScale
     }
 }
+
+/// An HDR `text-shadow`'s bitmap, under its ink layer. Each layer is mapped to
+/// the limit on its own, so under `standard` SDR ink stays white (LLP 1100 D8).
+final class TextCastLayer: CALayer {
+    override func action(forKey event: String) -> (any CAAction)? { nil }
+}
+
+extension CALayer {
+    private static let castKey = "exactTextCast"
+    var textCast: CALayer? { value(forKey: Self.castKey) as? CALayer }
+
+    /// Shows `contents` under this ink layer, or removes the cast for nil.
+    func applyTextCast(_ contents: Any?, headroom: Float, limit: String?) {
+        guard let contents, let superlayer else { dropTextCast(); return }
+        let cast = textCast ?? TextCastLayer()
+        if textCast == nil { setValue(cast, forKey: Self.castKey) }
+        if cast.superlayer !== superlayer { superlayer.insertSublayer(cast, below: self) }
+        cast.frame = frame
+        cast.contentsScale = contentsScale
+        cast.contentsGravity = contentsGravity
+        cast.contents = contents
+        cast.applyTextRange(headroom: headroom, limit: limit)
+    }
+
+    func dropTextCast() {
+        textCast?.removeFromSuperlayer()
+        setValue(nil, forKey: Self.castKey)
+    }
+}

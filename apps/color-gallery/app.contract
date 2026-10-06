@@ -105,14 +105,20 @@ component ColorGallery
   resource hiddenHdr = hidden("hdr") as shape string
   resource caveat = caveat("constrained") as shape string
   resource host = hostKind() as shape string
+  // rec2100 colors come from data: the web build refuses a literal one.
+  resource one = hdrWhite(1) as shape string
+  resource four = hdrWhite(4) as shape string
   state limit = "no-limit"
   // Whether the sticky limit card has docked (native only; the web's
   // `sticky-limit` hook animates it on a scroll timeline). It docks at a
   // scroll of 128: the 136 of fixed-height content above it, less its
   // sticky top of 8.
   state docked = false
+  state moved = false
   action choose(value: string)
     limit = value
+  action toggleMoved()
+    moved = not moved
   action scrolled(left: number, top: number)
     if host != "web" and docked != (top >= 128)
       docked = top >= 128
@@ -166,7 +172,7 @@ component ColorGallery
             text caveat class=Note padding-top=6 testId="constrained-caveat"
 
           text "HDR colors under each limit" class=Section
-          text "color(rec2100-linear 4 4 4): four times SDR white, as a background, text, a text shadow, a border (laid on a layer, and drawn by the view), a box shadow and SVG paint. On an HDR display each row steps down left to right; on SDR all three match." class=Legend
+          text "color(rec2100-linear 4 4 4): four times SDR white, as a background, text, a text shadow behind white text, a border (laid on a layer, and drawn by the view), a box shadow, a gradient from 1× to 4× and SVG paint. On an HDR display each row steps down left to right; on SDR all three match." class=Legend
           when host == "web"
             text "Not in browsers yet: none draws rec2100 colors." class=Note padding-top=6
           when host != "web"
@@ -174,14 +180,15 @@ component ColorGallery
               text "no-limit" class=ColumnTitle
               text "constrained" class=ColumnTitle
               text "standard" class=ColumnTitle
-            HdrPaintTrio(kind="background", label="background")
-            HdrPaintTrio(kind="text", label="text")
-            HdrPaintTrio(kind="text-shadow", label="text-shadow")
-            HdrPaintTrio(kind="border", label="border")
-            HdrPaintTrio(kind="drawn-border", label="border, sides of two widths (drawn by the view)")
-            HdrPaintTrio(kind="shadow", label="box-shadow")
-            HdrPaintTrio(kind="svg-fill", label="SVG fill")
-            HdrPaintTrio(kind="svg-stroke", label="SVG stroke")
+            HdrPaintTrio(kind="background", label="background", one=one, four=four)
+            HdrPaintTrio(kind="text", label="text", one=one, four=four)
+            HdrPaintTrio(kind="text-shadow", label="text-shadow", one=one, four=four)
+            HdrPaintTrio(kind="border", label="border", one=one, four=four)
+            HdrPaintTrio(kind="drawn-border", label="border, sides of two widths (drawn by the view)", one=one, four=four)
+            HdrPaintTrio(kind="shadow", label="box-shadow", one=one, four=four)
+            HdrPaintTrio(kind="gradient", label="linear-gradient, 1× to 4× in srgb-linear", one=one, four=four)
+            HdrPaintTrio(kind="svg-fill", label="SVG fill", one=one, four=four)
+            HdrPaintTrio(kind="svg-stroke", label="SVG stroke", one=one, four=four)
             text "Not yet HDR on Apple: SVG gradients, patterns, masks and filters, which are drawn into SDR pictures (LLP 1100)." class=Note padding-top=6
 
           text "Canvas 2D color-space" class=Section
@@ -197,12 +204,61 @@ component ColorGallery
           text "The same red as text: sRGB, then Display P3 (redder on a P3 display)." class=Legend
           text "sRGB red text" color="red" font-size=18 font-weight=700
           text "Display P3 red text" testId="p3-text" color="color(display-p3 1 0 0)" font-size=18 font-weight=700
+          text "oklch(0.7 0.25 145) text" testId="oklch-text" color="oklch(0.7 0.25 145)" font-size=18 font-weight=700
 
           text "Shadows" class=Section
-          text "A shadow's color is painted on its own path. Each pair: the sRGB color, then the Display P3 one (more vivid on a P3 display)." class=Legend
+          text "A shadow's color is painted on its own path. Each row: the sRGB color, then the Display P3 one (more vivid on a P3 display)." class=Legend
+          column class=Row column-gap=24 padding-top=4
+            box width=48
+            text "sRGB" class=ColumnTitle width=96
+            text "Display P3" class=ColumnTitle width=96
           ShadowPair(label="green", srgb="rgb(0 255 0 / 0.85)", p3="color(display-p3 0 1 0 / 0.85)")
           ShadowPair(label="red", srgb="rgb(255 0 0 / 0.85)", p3="color(display-p3 1 0 0 / 0.85)")
           ShadowPair(label="blue", srgb="rgb(0 0 255 / 0.85)", p3="color(display-p3 0 0 1 / 0.85)")
+
+          text "Borders" class=Section
+          text "Each row: the sRGB color, then the Display P3 one with square and with round corners (more vivid on a P3 display). Last, mixed sides: the top sRGB blue, the others red in the column's space." class=Legend
+          column class=Row column-gap=8 padding-top=4
+            box width=48
+            text "sRGB" class=ColumnTitle width=72
+            text "Display P3" class=ColumnTitle width=72
+            text "P3, rounded" class=ColumnTitle width=72
+          BorderRow(label="red", srgb="rgb(255 0 0)", p3="color(display-p3 1 0 0)")
+          BorderRow(label="green", srgb="rgb(0 255 0)", p3="color(display-p3 0 1 0)")
+          BorderRow(label="blue", srgb="rgb(0 0 255)", p3="color(display-p3 0 0 1)")
+          column class=Row column-gap=8 padding-top=8 align-items="center"
+            text "mixed" class=Name width=48
+            box width=72 height=28 box-sizing="border-box" border-width=4 border-style="solid" border-color="rgb(255 0 0)" border-top-color="rgb(0 0 255)" testId="mixed-srgb-border"
+            box width=72 height=28 box-sizing="border-box" border-width=4 border-style="solid" border-color="color(display-p3 1 0 0)" border-top-color="rgb(0 0 255)" testId="mixed-border"
+            box width=72 height=28 box-sizing="border-box" border-width=4 border-style="solid" border-radius=10 border-color="color(display-p3 1 0 0)" border-top-color="rgb(0 0 255)" testId="mixed-rounded-border"
+
+          text "Gradients" class=Section
+          text "Blue to yellow in each interpolation space. sRGB's midpoint is gray, Oklab's lighter; Oklch goes round the hue wheel. Without `in`, legacy colors interpolate in sRGB and modern ones in Oklab." class=Legend
+          GradientRow(label="legacy sRGB", gradient="linear-gradient(to right, #0000ff, #ffff00)")
+          GradientRow(label="in srgb", gradient="linear-gradient(in srgb to right, #0000ff, #ffff00)")
+          GradientRow(label="in srgb-linear", gradient="linear-gradient(in srgb-linear to right, #0000ff, #ffff00)")
+          GradientRow(label="in oklab", gradient="linear-gradient(in oklab to right, #0000ff, #ffff00)")
+          GradientRow(label="in oklch", gradient="linear-gradient(in oklch to right, #0000ff, #ffff00)")
+          GradientRow(label="in display-p3", gradient="linear-gradient(in display-p3 to right, #0000ff, #ffff00)")
+          GradientRow(label="P3 stops", gradient="linear-gradient(to right, color(display-p3 1 0 0), color(display-p3 0 1 0))")
+          text "Hue methods" class=Label
+          text "Red to blue in oklch, the four ways round: shorter and decreasing pass through magenta, longer and increasing through yellow, green and cyan." class=Note
+          GradientRow(label="shorter hue", gradient="linear-gradient(in oklch shorter hue to right, #ff0000, #0000ff)")
+          GradientRow(label="longer hue", gradient="linear-gradient(in oklch longer hue to right, #ff0000, #0000ff)")
+          GradientRow(label="increasing hue", gradient="linear-gradient(in oklch increasing hue to right, #ff0000, #0000ff)")
+          GradientRow(label="decreasing hue", gradient="linear-gradient(in oklch decreasing hue to right, #ff0000, #0000ff)")
+
+          text "Transitions" class=Section
+          text "Two seconds, linear. Legacy colors move in sRGB; a color in its own space moves in Oklab, so its midpoint stays light and saturated." class=Legend
+          button press=toggleMoved testId="transition-toggle" align-self="flex-start" margin-top=4 padding-left=14 padding-right=14 padding-top=6 padding-bottom=6 border-radius=8 background-color="#1f6feb"
+            text (moved ? "Transition back" : "Transition") color="#ffffff" font-size=13 font-weight=600
+          TransitionRow(label="legacy", moved=moved, from="#0000ff", to="#ffff00")
+          TransitionRow(label="oklch", moved=moved, from="oklch(0.45 0.31 264)", to="oklch(0.97 0.21 110)")
+          TransitionRow(label="display-p3", moved=moved, from="color(display-p3 0 0 1)", to="color(display-p3 1 1 0)")
+          when host != "web"
+            TransitionRow(label="HDR, 1× to 4×", moved=moved, from=one, to=four)
+          when host == "web"
+            text "The HDR row is not on the web: no browser draws rec2100 colors yet." class=Note padding-top=6
 
 component LimitControl
   props
@@ -228,12 +284,8 @@ component ShadowPair
   view
     column class=Row column-gap=24 align-items="center" padding-top=14 padding-bottom=6
       text label class=Name width=48
-      column align-items="center" row-gap=10
-        box width=96 height=28 border-radius=8 background-color="light-dark(#ffffff, #1c1c1e)" box-shadow=`0 6px 16px ${srgb}`
-        text "sRGB" class=Note
-      column align-items="center" row-gap=10
-        box width=96 height=28 border-radius=8 background-color="light-dark(#ffffff, #1c1c1e)" box-shadow=`0 6px 16px ${p3}` testId=`p3-shadow-${label}`
-        text "Display P3" class=Note
+      box width=96 height=28 border-radius=8 background-color="light-dark(#ffffff, #1c1c1e)" box-shadow=`0 6px 16px ${srgb}`
+      box width=96 height=28 border-radius=8 background-color="light-dark(#ffffff, #1c1c1e)" box-shadow=`0 6px 16px ${p3}` testId=`p3-shadow-${label}`
 
 component SpaceRowView
   props
@@ -247,44 +299,82 @@ component SpaceRowView
         each s in row.swatches key=s.label
           box class=Chip background-color=s.color
 
+component BorderRow
+  props
+    label: string
+    srgb: string
+    p3: string
+  view
+    column class=Row column-gap=8 padding-top=8 align-items="center"
+      text label class=Name width=48
+      box width=72 height=28 box-sizing="border-box" border-width=4 border-style="solid" border-color=srgb
+      box width=72 height=28 box-sizing="border-box" border-width=4 border-style="solid" border-color=p3 testId=`p3-border-${label}`
+      box width=72 height=28 box-sizing="border-box" border-width=4 border-style="solid" border-radius=10 border-color=p3 testId=`p3-rounded-border-${label}`
+
+component GradientRow
+  props
+    label: string
+    gradient: string
+  view
+    column class=Row column-gap=8 padding-top=6 align-items="center"
+      text label class=Name width=112 flex-shrink=0
+      box flex=1 height=24 background-image=gradient testId=`gradient-${label}`
+
+component TransitionRow
+  props
+    label: string
+    moved: bool
+    from: string
+    to: string
+  view
+    column class=Row column-gap=8 padding-top=6 align-items="center"
+      text label class=Name width=112 flex-shrink=0
+      box flex=1 height=24 box-sizing="border-box" class=Hairline background-color=(moved ? to : from) transition="background-color 2s linear" testId=`transition-${label}`
+
 component HdrPaintTrio
   props
     kind: string
     label: string
+    one: string
+    four: string
   view
     column
       text label class=Label
       column class=Row column-gap=6
         column dynamic-range-limit="no-limit"
-          HdrPaint(kind=kind)
+          HdrPaint(kind=kind, one=one, four=four)
         column dynamic-range-limit="constrained"
-          HdrPaint(kind=kind)
+          HdrPaint(kind=kind, one=one, four=four)
         column dynamic-range-limit="standard"
-          HdrPaint(kind=kind)
+          HdrPaint(kind=kind, one=one, four=four)
 
 component HdrPaint
   props
     kind: string
+    one: string
+    four: string
   view
     column width=116 height=32 box-sizing="border-box" background-color="#000000" align-items="center" justify-content="center" class=Hairline testId=`hdr-${kind}`
       when kind == "background"
-        box width=116 height=32 background-color="color(rec2100-linear 4 4 4)"
+        box width=116 height=32 background-color=four
       when kind == "text"
-        text "HDR" font-size=20 font-weight=800 color="color(rec2100-linear 4 4 4)"
+        text "HDR" font-size=20 font-weight=800 color=four
       when kind == "text-shadow"
-        text "HDR" font-size=20 font-weight=800 color="#202020" text-shadow="0 0 6px color(rec2100-linear 4 4 4)"
+        text "HDR" font-size=20 font-weight=800 color="#ffffff" text-shadow=`3px 3px 3px ${four}`
       when kind == "border"
-        box width=100 height=20 border-width=4 border-style="solid" border-color="color(rec2100-linear 4 4 4)"
+        box width=100 height=20 border-width=4 border-style="solid" border-color=four
       when kind == "drawn-border"
-        box width=100 height=20 box-sizing="border-box" border-width=2 border-left-width=8 border-right-width=8 border-style="solid" border-color="color(rec2100-linear 4 4 4)"
+        box width=100 height=20 box-sizing="border-box" border-width=2 border-left-width=8 border-right-width=8 border-style="solid" border-color=four
       when kind == "shadow"
-        box width=60 height=12 background-color="#000000" box-shadow="0 0 10px 4px color(rec2100-linear 4 4 4)"
+        box width=60 height=12 background-color="#000000" box-shadow=`0 0 10px 4px ${four}`
+      when kind == "gradient"
+        box width=116 height=32 background-image=`linear-gradient(in srgb-linear to right, ${one}, ${four})`
       when kind == "svg-fill"
         svg viewBox="0 0 116 32" width=116 height=32
-          rect x=8 y=6 width=100 height=20 rx=4 fill="color(rec2100-linear 4 4 4)"
+          rect x=8 y=6 width=100 height=20 rx=4 fill=four
       when kind == "svg-stroke"
         svg viewBox="0 0 116 32" width=116 height=32
-          rect x=8 y=6 width=100 height=20 rx=4 fill="none" stroke="color(rec2100-linear 4 4 4)" stroke-width=4
+          rect x=8 y=6 width=100 height=20 rx=4 fill="none" stroke=four stroke-width=4
 
 component HdrTrio
   props

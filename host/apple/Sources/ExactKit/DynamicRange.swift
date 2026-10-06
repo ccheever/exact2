@@ -97,7 +97,16 @@ extension CALayer {
     /// does the same for every sublayer (a shadow caster, an SVG scene).
     func applyColorRange(limit: String?, deep: Bool = false) {
         setColorRange(hdr: ownColors.contains { ColorRange.isHDR($0) || ColorRange.needsExtendedComponents($0) }, limit: limit)
+        if self is CAGradientLayer { mapsExtendedRange(ownColors.contains(where: ColorRange.isHDR)) }
         if deep { sublayers?.forEach { $0.applyColorRange(limit: limit, deep: true) } }
+    }
+
+    /// Core Animation maps extended-range contents to the layer's range only
+    /// under `ifSupported`.
+    private func mapsExtendedRange(_ hdr: Bool) {
+        guard #available(iOS 18, macOS 15, tvOS 18, *) else { return }
+        let mode: CALayer.ToneMapMode = hdr ? .ifSupported : .automatic
+        if toneMapMode != mode { toneMapMode = mode }
     }
 
     /// A view's own drawing in an HDR colour gets a half-float backing store.
@@ -115,13 +124,15 @@ extension CALayer {
     /// Where a text raster's headroom is kept, so a later limit can re-ask.
     static let textHeadroomKey = "exactTextHeadroom"
 
-    /// A text raster's layer: HDR ink, or an HDR `text-shadow` it casts.
+    /// A text raster's layer, and the layer of its HDR `text-shadow` under it.
     func applyTextRange(headroom: Float? = nil, limit: String?) {
         if let headroom { setValue(NSNumber(value: headroom), forKey: Self.textHeadroomKey) }
         let ink = (value(forKey: Self.textHeadroomKey) as? NSNumber)?.floatValue ?? 0
         let h = max(ink, shadowOpacity > 0 ? ColorRange.headroom(shadowColor) : 0)
         let extended = ink >= 1 || (shadowOpacity > 0 && ColorRange.needsExtendedComponents(shadowColor))
         applyDynamicRange(hdr: h > 1 || extended, headroom: max(1, h), limit: limit)
+        mapsExtendedRange(ink > 1)
+        textCast?.applyTextRange(limit: limit)
     }
 
     /// An HDR bitmap's layer asks for what `limit` allows, with its headroom.
@@ -242,6 +253,10 @@ extension NodeView {
 }
 
 extension Spec {
+    /// The paragraph's `text-shadow` if it is past SDR white. The raster
+    /// paints it apart, as it does a run's own (`TextRasterJob.render`).
+    var hdrShadow: [Double]? { shadow.flatMap { ColorRange.isHDR(TextEngine.shadowColor($0)) ? $0 : nil } }
+
     /// The peak over SDR white of the paragraph's colours.
     var headroom: Float {
         var colors: [[Double]?] = [color, shadow.map { Array($0[3...]) }]

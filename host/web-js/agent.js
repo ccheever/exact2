@@ -156,10 +156,12 @@ export function install(exact) {
   // its own copy of navigation.js, so it could now be imported.)
   // A synced animation starts on its clock's boundary (LLP 1055.002).
   const starts = new WeakMap(), held = new WeakSet(), clocks = animationClocks(document);
+  // A scroll-driven animation follows its scroll, not a clock.
+  const timed = () => document.getAnimations().filter(a => !a.timeline || a.timeline instanceof DocumentTimeline);
   const anim = {
-    register(t) { clocks.commit(); for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, clocks.start(a, t) ?? t); if (a.playState === 'paused') held.add(a); } },
+    register(t) { clocks.commit(); for (const a of timed()) if (!starts.has(a)) { starts.set(a, clocks.start(a, t) ?? t); if (a.playState === 'paused') held.add(a); } },
     seek(to, sync = true) {
-      for (const a of document.getAnimations()) {
+      for (const a of timed()) {
         const timing = a.effect?.getComputedTiming();
         if (!timing || held.has(a)) continue;
         const t = to - (starts.get(a) ?? exact.clock.now);
@@ -169,7 +171,7 @@ export function install(exact) {
     },
     settle() {
       let to = Math.max(exact.clock.now, exact.settleAt?.() ?? 0);
-      for (const a of document.getAnimations()) {
+      for (const a of timed()) {
         const timing = a.effect?.getComputedTiming();
         if (timing && timing.endTime !== Infinity && !held.has(a)) to = Math.max(to, (starts.get(a) ?? exact.clock.now) + timing.endTime);
       }

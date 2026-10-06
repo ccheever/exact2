@@ -125,6 +125,7 @@ export const answer: Answer = ((source: string, args: unknown[]) => {
     return pairs;
   }
   if (source === 'hostKind') return web ? 'web' : 'native';
+  if (source === 'hdrWhite') return web ? '#ffffff' : `color(rec2100-linear ${args[0]} ${args[0]} ${args[0]})`;
   if (source === 'hdrPictures') return HDR.filter((p) => shows(p.src));
   // As of Mobile Safari 27.0 (LLP 1100 D8).
   if (source === 'caveat') return safari ? SAFARI_CONSTRAINED : '';

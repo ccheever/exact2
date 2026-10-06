@@ -72,13 +72,15 @@ extension Spec {
 }
 
 extension Spec {
-    /// How far runs' own shadows reach past the box to the left and right,
-    /// each at most `TextRasterJob.maxShadowReach`: what a band's clip must
-    /// admit for them (a paragraph-wide shadow is the layer's, outside it).
-    var runShadowReach: (left: CGFloat, right: CGFloat) {
+    /// How far the shadows a raster paints reach past the box to the left
+    /// and right, each at most `TextRasterJob.maxShadowReach`: what a band's
+    /// clip must admit for them. Runs' own, and the paragraph's when it is
+    /// HDR (`hdrShadow`); an SDR paragraph-wide shadow is the layer's,
+    /// outside the pixels.
+    var shadowReach: (left: CGFloat, right: CGFloat) {
         var left: CGFloat = 0, right: CGFloat = 0
-        for run in runs {
-            guard let s = run.shadow, TextEngine.isShadow(s) else { continue }
+        for shadow in runs.map(\.shadow) + [hdrShadow] {
+            guard let s = shadow, TextEngine.isShadow(s) else { continue }
             // As `TextRunShadow.reach`: a Gaussian of σ = blur / 2 is spent by 3σ.
             let spread = s[2] * 1.5 + 1
             left = max(left, spread - s[0]); right = max(right, spread + s[0])
@@ -143,14 +145,38 @@ extension NSAttributedString.Key {
 }
 
 extension TextLinePaint {
+    /// Which of a line's paint a pass makes. A raster paints an HDR
+    /// `text-shadow` apart from the ink, for a layer of its own (LLP 1100 D8).
+    enum Pass {
+        /// Everything: a view's own drawing.
+        case all
+        /// A raster's ink: all but runs' HDR shadows.
+        case ink
+        /// Only the glyphs of the runs that cast this shadow, with no shadow.
+        case caster(TextRunShadow)
+
+        /// An inline background casts no run's shadow.
+        var paintsBackgrounds: Bool { if case .caster = self { false } else { true } }
+    }
+
     /// A line whose glyph runs carry their own shadows, in a context already
     /// at the line's origin, y up: each stretch of runs sharing one shadow
     /// drawn in a transparency layer that casts it, under those glyphs, as
     /// Chrome paints each inline box's shadow with its text.
-    static func drawShadowed(_ line: CTLine, in ctx: CGContext, scale: CGFloat) -> Bool {
+    static func drawShadowed(_ line: CTLine, in ctx: CGContext, scale: CGFloat, pass: Pass = .all) -> Bool {
         let runs = CTLineGetGlyphRuns(line) as! [CTRun]
-        let shadows = runs.map(TextRunShadow.of)
+        var shadows = runs.map(TextRunShadow.of)
         func hidden(_ run: CTRun) -> Bool { (CTRunGetAttributes(run) as NSDictionary)[NSAttributedString.Key.exactHidden] as? Bool == true }
+        switch pass {
+        case .all: break
+        case .ink: shadows = shadows.map { $0.flatMap { ColorRange.isHDR($0.color) ? nil : $0 } }
+        case .caster(let cast):
+            for (run, shadow) in zip(runs, shadows) where shadow == cast && !hidden(run) {
+                ctx.textPosition = .zero
+                CTRunDraw(run, ctx, CFRange())
+            }
+            return true
+        }
         guard shadows.contains(where: { $0 != nil }) || runs.contains(where: hidden) else { return false }
         var i = 0
         while i < runs.count {
