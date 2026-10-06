@@ -15,7 +15,7 @@ fn send(h: &mut Harness, source: &str, args: &[&str]) -> bool {
 
 fn mock() -> Harness {
     providers::mock::FAST.store(true, std::sync::atomic::Ordering::Relaxed);
-    let mut h = Harness::new();
+    let mut h = Harness::with_options(Options::offline(None));
     assert!(send(&mut h, "setModel", &["mock"]));
     h
 }
@@ -224,7 +224,7 @@ fn slash_commands() {
 
 #[test]
 fn bake_style_query_answers_without_side_effects() {
-    let mut h = Harness::new();
+    let mut h = Harness::with_options(Options::offline(None));
     let before = h.shared.lock().entries.len();
     assert!(matches!(h.query("session", &[]).unwrap(), Value::Record(_)));
     let frame = h
@@ -244,4 +244,76 @@ fn bake_style_query_answers_without_side_effects() {
         h.query("nope", &[]),
         Err(DataError::UnknownSource(_))
     ));
+}
+
+#[test]
+fn a_saved_key_switches_the_model_and_never_shows() {
+    use std::os::unix::fs::PermissionsExt;
+    const KEY: &str = "sk-or-v1-TESTONLY-0123456789abcdef";
+    let dir = std::env::temp_dir().join(format!("exact-harness-setkey-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("keys"), "OTHER=kept\n").unwrap();
+    let mut h = Harness::with_options(Options::offline(Some(dir.clone())));
+    assert!(send(&mut h, "setModel", &["mock"]));
+    assert!(send(
+        &mut h,
+        "setKey",
+        &["openrouter", &format!("  {KEY}\n")]
+    ));
+    {
+        let s = h.shared.lock();
+        assert_eq!(s.model, "openrouter:anthropic/claude-sonnet-4.5");
+        assert!(s
+            .toast
+            .starts_with("OpenRouter key saved — model: Anthropic: Claude Sonnet 4.5"));
+        assert!(s
+            .models
+            .iter()
+            .filter(|m| m.provider == "openrouter")
+            .all(|m| m.available));
+        assert!(
+            !s.models
+                .iter()
+                .any(|m| m.provider == "anthropic" && m.available)
+                || std::env::var_os("ANTHROPIC_API_KEY").is_some()
+        );
+    }
+    let text = std::fs::read_to_string(dir.join("keys")).unwrap();
+    assert_eq!(text, format!("OTHER=kept\nOPENROUTER_API_KEY={KEY}\n"));
+    let mode = std::fs::metadata(dir.join("keys"))
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o600);
+    // A turn that cannot connect still names no key.
+    h.shared.lock().openrouter_base = "http://127.0.0.1:9".into();
+    assert!(send(&mut h, "submit", &["hello"]));
+    drive(&mut h, "no");
+    for cmd in ["/models", "/help"] {
+        assert!(send(&mut h, "submit", &[cmd]));
+    }
+    let shown = format!("{:?}", h.session());
+    assert!(
+        !shown.contains(KEY) && !shown.contains("0123456789abcdef"),
+        "a key reached the session"
+    );
+    assert!(shown.contains("OpenRouter"));
+    assert!(!format!("{:?}", h.shared.lock().history).contains(KEY));
+    // A key loads back from the file; an empty key removes it.
+    let again = Harness::with_options(Options::offline(Some(dir.clone())));
+    if std::env::var_os("OPENROUTER_API_KEY").is_none() {
+        assert_eq!(
+            again.shared.lock().keys.get("OPENROUTER_API_KEY"),
+            Some(KEY)
+        );
+    }
+    assert!(!send(&mut h, "setKey", &["nobody", "x"]));
+    assert!(send(&mut h, "setKey", &["openrouter", ""]));
+    assert_eq!(
+        std::fs::read_to_string(dir.join("keys")).unwrap(),
+        "OTHER=kept\n"
+    );
+    assert_eq!(h.shared.lock().model, "mock");
+    let _ = std::fs::remove_dir_all(&dir);
 }

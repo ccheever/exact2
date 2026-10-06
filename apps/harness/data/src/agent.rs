@@ -31,10 +31,10 @@ pub fn start(shared: &Arc<Shared>, prompt: &str) {
             )],
             ..Entry::default()
         });
-        match providers::route(&s.model, &s.provider()) {
+        match providers::route(&s.model, &s.provider(), &s.sources()) {
             Err(e) => {
                 let message = format!("Can't reach {}: {e}", s.model);
-                s.error(&message);
+                s.error_scrubbed(&message);
                 None
             }
             Ok(route) => {
@@ -59,15 +59,24 @@ pub fn start(shared: &Arc<Shared>, prompt: &str) {
 }
 
 fn run(shared: &Arc<Shared>, turn: &Turn, route: &Route) {
+    let mut done = false;
     for _ in 0..MAX_ROUNDS {
         match round(shared, turn, route) {
             Some(true) => continue,
-            Some(false) => break,
+            Some(false) => {
+                done = true;
+                break;
+            }
             None => return,
         }
     }
     let mut s = shared.lock();
     if s.current(turn) {
+        if !done {
+            s.notice(vec![Block::p(vec![Run::dim(format!(
+                "Stopped after {MAX_ROUNDS} rounds of tool calls."
+            ))])]);
+        }
         end(&mut s);
         drop(s);
         shared.changed();
@@ -237,7 +246,7 @@ fn round(shared: &Arc<Shared>, turn: &Turn, route: &Route) -> Option<bool> {
         e.busy = false;
     }
     if let Err(e) = result {
-        s.error(&e);
+        s.error_scrubbed(&e);
         end(&mut s);
         drop(s);
         shared.changed();
@@ -296,7 +305,7 @@ fn tool(
     input: &serde_json::Value,
 ) -> Option<Part> {
     let title = tools::title(name, input);
-    let needs = tools::needs_approval(name);
+    let needs = tools::needs_approval(name) && crate::sse::invalid_arguments(input).is_none();
     let preview = needs.then(|| tools::preview(name, input));
     let entry = {
         let mut s = shared.lock();

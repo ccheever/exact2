@@ -5,7 +5,7 @@
 
 use exact_plan::Value;
 use exact_runner::DataSource;
-use harness_data::Harness;
+use harness_data::{Harness, Options};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
@@ -95,7 +95,7 @@ fn an_openai_compatible_stream_drives_a_turn() {
     std::env::set_var("OLLAMA_HOST", format!("127.0.0.1:{port}"));
     std::env::set_var("EXACT_HARNESS_OLLAMA_MODEL", "fake");
 
-    let mut h = Harness::new();
+    let mut h = Harness::with_options(Options::offline(None));
     let ack = h.query("setModel", &[Value::str("ollama:fake")]).unwrap();
     assert_eq!(record(&ack)[0], Value::Bool(true));
     h.query("submit", &[Value::str("look around")]).unwrap();

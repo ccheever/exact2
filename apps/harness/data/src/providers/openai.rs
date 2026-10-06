@@ -60,17 +60,21 @@ pub fn stream(
             json!({"type":"function","function":{"name":name,"description":description,"parameters":schema}})
         })
         .collect();
-    let body = json!({
+    let mut body = json!({
         "model": endpoint.model,
         "stream": true,
         "stream_options": {"include_usage": true},
         "tools": tools,
         "messages": messages(ask.system, ask.history),
     });
-    let mut headers = Vec::new();
+    if let (Some(body), Some(extra)) = (body.as_object_mut(), endpoint.extra.as_object()) {
+        body.extend(extra.clone());
+    }
+    let mut headers: Vec<(&str, String)> = Vec::new();
     if let Some(key) = &endpoint.key {
         headers.push(("authorization", format!("Bearer {key}")));
     }
+    headers.extend(endpoint.headers.iter().map(|(k, v)| (*k, v.clone())));
     let mut decoder = OpenAi::default();
     let mut failed = None;
     let url = format!("{}/chat/completions", endpoint.base.trim_end_matches('/'));

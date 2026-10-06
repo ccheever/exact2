@@ -3,6 +3,8 @@
 //! threads write. A writer calls [`Shared::changed`] after it unlocks; the
 //! runner then asks `session()` again.
 
+use crate::keys::Keys;
+use crate::providers::Sources;
 use exact_runner::Native;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
@@ -260,6 +262,18 @@ pub struct State {
     /// The round in progress: its assistant message so far, and the
     /// results its tools have answered. An interrupt finishes it.
     pub round: Option<(Msg, Vec<Part>)>,
+    /// Provider keys. Never copied into anything the session shows.
+    pub keys: Keys,
+    /// Whether Ollama answered the startup probe.
+    pub ollama_up: bool,
+    /// OpenRouter's models, from the catalog, its cache, or the fallback.
+    pub catalog: Vec<ModelChoice>,
+    /// OpenRouter's API (a test points it at a local server).
+    pub openrouter_base: String,
+    /// `~/.config/exact-harness`, when there is one.
+    pub config_dir: Option<std::path::PathBuf>,
+    /// Whether background requests (the catalog, the Ollama probe) run.
+    pub network: bool,
 }
 
 impl State {
@@ -297,6 +311,38 @@ impl State {
     /// Whether `turn` is still the running one and not interrupted.
     pub fn current(&self, turn: &Turn) -> bool {
         self.turn.as_ref().map(|t| t.id) == Some(turn.id) && !turn.cancelled()
+    }
+
+    /// What the model list and the routes are made from.
+    pub fn sources(&self) -> Sources<'_> {
+        Sources {
+            keys: &self.keys,
+            ollama_up: self.ollama_up,
+            catalog: &self.catalog,
+            openrouter_base: &self.openrouter_base,
+        }
+    }
+
+    /// Rebuild the model list from the keys and the catalog. The current
+    /// model stays listed even when the catalog no longer has it.
+    pub fn refresh_models(&mut self) {
+        let mut models = crate::providers::models(&self.sources());
+        if !models.iter().any(|m| m.id == self.model) {
+            if let Some(old) = self.models.iter().find(|m| m.id == self.model) {
+                let mut kept = old.clone();
+                kept.available = models
+                    .iter()
+                    .any(|m| m.provider == kept.provider && m.available);
+                models.push(kept);
+            }
+        }
+        self.models = models;
+    }
+
+    /// An error entry with every key scrubbed out of it.
+    pub fn error_scrubbed(&mut self, message: &str) -> String {
+        let message = crate::keys::scrub(message, &self.keys.secrets());
+        self.error(&message)
     }
 
     /// The selected model's provider.

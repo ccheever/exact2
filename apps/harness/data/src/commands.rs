@@ -4,6 +4,8 @@
 
 use crate::agent;
 use crate::art;
+use crate::catalog;
+use crate::keys;
 use crate::markdown;
 use crate::state::{Block, Choice, Entry, Run, Shared};
 use crate::tools;
@@ -206,4 +208,59 @@ pub fn approve(shared: &Arc<Shared>, id: &str, choice: &str) -> bool {
     drop(s);
     shared.wake.notify_all();
     true
+}
+
+fn provider_name(provider: &str) -> &'static str {
+    match provider {
+        "openrouter" => "OpenRouter",
+        "anthropic" => "Anthropic",
+        "openai" => "OpenAI",
+        _ => "That provider",
+    }
+}
+
+/// `setKey(provider, key)`: keep the key, save it, and pick a model for
+/// it if the session is still on the mock. `None` when refused; `Some`
+/// says whether an OpenRouter key was set (the catalog is fetched again).
+/// The key itself goes nowhere but the key store.
+pub fn set_key(shared: &Arc<Shared>, provider: &str, key: &str) -> Option<bool> {
+    let Some(name) = keys::var_for(provider) else {
+        shared.toast(&format!("No provider {provider:?} takes a key"));
+        return None;
+    };
+    let key = key.trim();
+    let who = provider_name(provider);
+    let (saved, model) = {
+        let mut s = shared.lock();
+        let saved = s.keys.set(name, key);
+        s.refresh_models();
+        let current = s.provider();
+        if key.is_empty() && current == provider {
+            s.model = "mock".into();
+        } else if !key.is_empty() && s.model == "mock" {
+            s.model = match provider {
+                "openrouter" => catalog::default_model(&s.catalog),
+                _ => s
+                    .models
+                    .iter()
+                    .find(|m| m.provider == provider && m.available)
+                    .map(|m| m.id.clone())
+                    .unwrap_or_else(|| "mock".into()),
+            };
+        }
+        let label = s
+            .models
+            .iter()
+            .find(|m| m.id == s.model)
+            .map(|m| m.label.clone())
+            .unwrap_or_else(|| s.model.clone());
+        (saved, label)
+    };
+    let toast = match (saved, key.is_empty()) {
+        (Err(e), _) => format!("{who} key kept for this session; not saved ({e})"),
+        (Ok(()), true) => format!("{who} key removed — model: {model}"),
+        (Ok(()), false) => format!("{who} key saved — model: {model}"),
+    };
+    shared.toast(&toast);
+    Some(provider == "openrouter" && !key.is_empty())
 }

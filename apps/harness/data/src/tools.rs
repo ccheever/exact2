@@ -220,6 +220,9 @@ pub fn output_lines(text: &str) -> Vec<Line> {
 
 /// Run a call. `cancel` stops a running command.
 pub fn run(name: &str, input: &Json, cancel: &AtomicBool) -> Done {
+    if let Some(why) = crate::sse::invalid_arguments(input) {
+        return Done::err(format!("invalid JSON arguments: {why}"));
+    }
     match name {
         "read_file" => read_file(input),
         "list_dir" => list_dir(arg(input, "path")),

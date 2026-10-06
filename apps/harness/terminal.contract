@@ -12,6 +12,11 @@ shape Cmd
   name: string
   help: string
 
+// The terminal's size in layout pixels (a column is 8, a row 16).
+shape Viewport
+  width: number
+  height: number
+
 fn fg(c: string): string = c == "" ? "inherit" : c
 fn bg(c: string): string = c == "" ? "transparent" : c
 fn weight(r: Run): number = r.bold ? 700 : (r.dim ? 300 : 400)
@@ -32,6 +37,7 @@ component Harness
   mutation answered as shape Ack
   mutation stopped as shape Ack
   mutation chosen as shape Ack
+  mutation keyed as shape Ack
   state draft = ""
   state history = []
   state back = -1
@@ -40,9 +46,15 @@ component Harness
   state anim = ""
   state frameTick = 0
   state quitArmed = false
+  // `/key`: an API key typed into a password field, straight to the data
+  // module (which saves it, 0600); never into the transcript or history.
+  state keying = false
+  state keyFor = "openrouter"
+  state keyDraft = ""
   state commands = [
     Cmd(name="/help", help="what this harness can do"),
-    Cmd(name="/model", help="choose a model"),
+    Cmd(name="/model", help="choose a model (ctrl+o)"),
+    Cmd(name="/key", help="add an API key: OpenRouter, Anthropic, OpenAI"),
     Cmd(name="/clear", help="start over"),
     Cmd(name="/stress", help="flood the scrollback (try /stress 2000)"),
     Cmd(name="/image", help="an image: kitty, iTerm2 or half-blocks"),
@@ -55,11 +67,22 @@ component Harness
     Cmd(name="/matrix", help="animation: digital rain"),
     Cmd(name="/spinners", help="animation: every spinner"),
     Cmd(name="/bars", help="animation: progress bars"),
+    Cmd(name="/donut", help="animation: the spinning ASCII donut"),
+    Cmd(name="/knot", help="animation: a torus knot in Braille"),
+    Cmd(name="/tesseract", help="animation: a 4D hypercube in Braille"),
+    Cmd(name="/warp", help="animation: warp-speed starfield"),
+    Cmd(name="/tunnel", help="animation: the demoscene tunnel"),
+    Cmd(name="/wave", help="animation: the waving logo"),
     Cmd(name="/quit", help="leave"),
   ]
   derive matches = isCommand(draft) and not includes(draft, " ") ? matching(commands, draft) : []
   derive animating = anim != ""
-  resource frame = animation(anim, frameTick, 72, 16) as shape Frame
+  derive animations = ["/plasma", "/fire", "/matrix", "/spinners", "/bars", "/donut", "/knot", "/tesseract", "/warp", "/tunnel", "/wave"]
+  resource viewport = exactViewport() as shape Viewport
+  // Animations fill the width and most of the height, within reason.
+  derive animCols = max(20, min(160, floor(viewport.width / 8) - 2))
+  derive animRows = max(6, min(40, floor(viewport.height / 16) - 9))
+  resource frame = animation(anim, frameTick, animCols, animRows) as shape Frame
 
   task spin when session.busy
     every(100, step)
@@ -83,10 +106,14 @@ component Harness
       if text == "/quit"
         close()
       else
-        if text == "/plasma" or text == "/fire" or text == "/matrix" or text == "/spinners" or text == "/bars"
-          anim = slice(text, 1)
+        if text == "/key"
+          keying = true
+          keyDraft = ""
         else
-          send sent = submit(text)
+          if includes(animations, text)
+            anim = slice(text, 1)
+          else
+            send sent = submit(text)
         history = concat([text], history)
         draft = ""
         back = -1
@@ -150,6 +177,19 @@ component Harness
                             close()
                           else
                             quitArmed = true
+  action pickKeyFor(p: string)
+    keyFor = p
+  action writeKey(value)
+    keyDraft = value
+  action saveKey
+    send keyed = setKey(keyFor, trim(keyDraft))
+    keyDraft = ""
+    keying = false
+  action keyBoxKey(key: string, e: KeyboardEvent)
+    if key == "Escape"
+      keyDraft = ""
+      keying = false
+      preventDefault()
   action answer(choice: string)
     send answered = approve(session.approval.id, choice)
   action pickModel(id: string)
@@ -179,6 +219,21 @@ component Harness
               text `2. Yes, and don't ask again for ${session.approval.tool}`
             button press=answer("no") aria-keyshortcuts="3 Escape" testId="approve-no" text-align="start"
               text "3. No, and tell the model what to do differently (esc)"
+        when keying
+          column margin-top="1lh" border="1px solid #5fd75f" border-radius="1ch" padding="0 1ch" testId="key-box"
+            text "Add an API key" font-weight=700 color="#5fd75f"
+            text "Saved to ~/.config/exact-harness/keys, readable only by you. It never enters the transcript." color="#6c6c6c"
+            row gap="2ch" margin-top="1lh"
+              button press=pickKeyFor("openrouter") testId="key-openrouter" white-space="pre"
+                text (keyFor == "openrouter" ? "● OpenRouter" : "○ OpenRouter")
+              button press=pickKeyFor("anthropic") testId="key-anthropic" white-space="pre"
+                text (keyFor == "anthropic" ? "● Anthropic" : "○ Anthropic")
+              button press=pickKeyFor("openai") testId="key-openai" white-space="pre"
+                text (keyFor == "openai" ? "● OpenAI" : "○ OpenAI")
+            row margin-top="1lh"
+              text "key › " white-space="pre" color="#5fd75f" flex-shrink=0
+              input type="password" value=keyDraft input=writeKey submit=saveKey key=keyBoxKey autofocus=true placeholder="paste your key, then Enter" flex-grow=1 testId="key-input"
+            text "shift+tab for the provider · enter to save · esc to cancel" color="#6c6c6c"
         when animating
           column margin-top="1lh" border="1px solid #5f5fd7" border-radius="1ch" testId="animation"
             row padding="0 1ch"
@@ -194,7 +249,7 @@ component Harness
                 text c.help color="#8a8a8a" white-space="nowrap" text-overflow="ellipsis" flex-shrink=1 min-width=0
         row margin-top="1lh" border="1px solid #585858" border-radius="1ch" padding="0 1ch"
           text "› " white-space="pre" color="#87afff" font-weight=700 flex-shrink=0
-          textarea value=draft input=write key=onKey disabled=(session.approval.id != "") autofocus=true placeholder="Ask anything, or / for commands" flex-grow=1 rows=min(8, length(split(draft, "\n"))) testId="prompt"
+          textarea value=draft input=write key=onKey disabled=(session.approval.id != "" or keying) autofocus=true placeholder="Ask anything, or / for commands" flex-grow=1 rows=min(8, length(split(draft, "\n"))) testId="prompt"
         row padding="0 1ch" color="#6c6c6c" gap="2ch"
           button commandfor="models" command="show-modal" aria-keyshortcuts="Control+o" testId="model-button" white-space="nowrap" flex-shrink=0
             text `${session.model} (${session.provider})` color="#87afff"

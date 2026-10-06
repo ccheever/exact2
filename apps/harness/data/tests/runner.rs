@@ -5,7 +5,7 @@
 use exact_kernel::Kernel;
 use exact_plan::Value;
 use exact_runner::{DataSource, Runner, RunnerError};
-use harness_data::Harness;
+use harness_data::{Harness, Options};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -32,7 +32,7 @@ fn entries(v: &Value) -> usize {
 fn a_runner_takes_the_shapes_and_the_push() {
     let source = format!("{}\n{APP}", include_str!("../../shapes.contract"));
     let plan = contract::compile(&source).expect("the app compiles");
-    let harness = Harness::new();
+    let harness = Harness::with_options(Options::offline(None));
     let mut handle = harness.clone();
     let mut r = Runner::boot(
         plan,
@@ -79,7 +79,7 @@ component App
     let plan = contract::compile(wrong).expect("compiles");
     let booted = Runner::boot(
         plan,
-        Harness::new(),
+        Harness::with_options(Options::offline(None)),
         Kernel::with_monospace(),
         Default::default(),
         "/",

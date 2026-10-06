@@ -84,12 +84,24 @@ fn number(v: &Json) -> Option<f64> {
     v.as_f64()
 }
 
+/// A tool call's arguments: the parsed object, or, when they are not a
+/// JSON object, a marker [`invalid_arguments`] recognises.
 fn input_json(text: &str) -> Json {
     if text.trim().is_empty() {
         return Json::Object(Default::default());
     }
-    serde_json::from_str(text)
-        .unwrap_or_else(|e| serde_json::json!({ "_unparsed": text, "_error": e.to_string() }))
+    match serde_json::from_str::<Json>(text) {
+        Ok(v) if v.is_object() => v,
+        Ok(_) => serde_json::json!({ INVALID: "not a JSON object", "_raw": text }),
+        Err(e) => serde_json::json!({ INVALID: e.to_string(), "_raw": text }),
+    }
+}
+
+const INVALID: &str = "_invalid_arguments";
+
+/// Why a call's arguments could not be read, if they could not.
+pub fn invalid_arguments(input: &Json) -> Option<&str> {
+    input.get(INVALID).and_then(Json::as_str)
 }
 
 /// Anthropic's Messages stream.
@@ -219,9 +231,9 @@ impl OpenAi {
         let Ok(v) = serde_json::from_str::<Json>(&sse.data) else {
             return vec![Event::Error(format!("bad chunk: {}", sse.data))];
         };
-        if let Some(e) = v.get("error").filter(|e| !e.is_null()) {
-            let message = e["message"].as_str().map(str::to_string);
-            return vec![Event::Error(message.unwrap_or_else(|| e.to_string()))];
+        // OpenRouter reports a failure mid-stream as a chunk with `error`.
+        if v.get("error").is_some_and(|e| !e.is_null()) {
+            return vec![Event::Error(crate::providers::error_message(&sse.data))];
         }
         let mut out = Vec::new();
         if let Some(u) = v.get("usage").filter(|u| u.is_object()) {
@@ -243,6 +255,9 @@ impl OpenAi {
                 let tool = self.tools.entry(index).or_default();
                 if let Some(id) = call["id"].as_str().filter(|s| !s.is_empty()) {
                     tool.0 = id.to_string();
+                } else if tool.0.is_empty() {
+                    // Some upstream models leave the id out.
+                    tool.0 = format!("call_{index}");
                 }
                 if let Some(name) = call["function"]["name"].as_str() {
                     tool.1.push_str(name);
@@ -251,6 +266,13 @@ impl OpenAi {
                     tool.2.push_str(args);
                 }
             }
+        }
+        // Reasoning (`delta.reasoning`) is not shown: the phase stays
+        // "thinking" until the first content.
+        if choice["finish_reason"].as_str() == Some("error") {
+            return vec![Event::Error(
+                "the model's stream ended with an error".into(),
+            )];
         }
         if choice["finish_reason"].as_str().is_some() {
             // Tool calls are complete; usage may still follow before [DONE].
@@ -406,6 +428,63 @@ data: [DONE]
             ]
         );
         assert_eq!(o.end(), vec![]);
+    }
+
+    const OPENROUTER: &str = r#": OPENROUTER PROCESSING
+
+: OPENROUTER PROCESSING
+
+data: {"id":"gen-1","provider":"Anthropic","model":"anthropic/claude-sonnet-4.5","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":"Let me think"},"finish_reason":null}]}
+
+data: {"id":"gen-1","choices":[{"index":0,"delta":{"content":"Partial "},"finish_reason":null}]}
+
+: OPENROUTER PROCESSING
+
+data: {"id":"gen-1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"type":"function","function":{"name":"bash","arguments":"{\"command\": "}}]},"finish_reason":null}]}
+
+data: {"id":"gen-1","object":"chat.completion.chunk","error":{"code":502,"message":"Upstream error","metadata":{"provider_name":"Anthropic","raw":"overloaded"}},"choices":[{"index":0,"delta":{"content":""},"finish_reason":"error"}]}
+
+"#;
+
+    #[test]
+    fn openrouter_keepalives_reasoning_and_a_mid_stream_error() {
+        let mut o = OpenAi::default();
+        let sse = feed(OPENROUTER);
+        assert_eq!(sse.len(), 4, "comments dispatch nothing");
+        let events: Vec<Event> = sse.iter().flat_map(|e| o.event(e)).collect();
+        assert_eq!(
+            events,
+            vec![
+                Event::Text("Partial ".into()),
+                Event::Error("Upstream error (Anthropic): overloaded".into()),
+            ]
+        );
+        let finish = r#"{"choices":[{"index":0,"delta":{},"finish_reason":"error"}]}"#;
+        let mut o = OpenAi::default();
+        assert!(matches!(
+            o.event(&Sse {
+                event: String::new(),
+                data: finish.into()
+            })[..],
+            [Event::Error(_)]
+        ));
+    }
+
+    #[test]
+    fn invalid_tool_arguments_are_marked_not_dropped() {
+        let mut o = OpenAi::default();
+        let chunk = r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"name":"read_file","arguments":"{\"path\": "}}]},"finish_reason":"tool_calls"}]}"#;
+        let events = o.event(&Sse {
+            event: String::new(),
+            data: chunk.into(),
+        });
+        let Event::ToolCall { id, name, input } = &events[0] else {
+            panic!("{events:?}")
+        };
+        assert_eq!((id.as_str(), name.as_str()), ("call_0", "read_file"));
+        assert!(invalid_arguments(input).unwrap().contains("EOF"));
+        assert!(invalid_arguments(&serde_json::json!({"path": "x"})).is_none());
+        assert!(invalid_arguments(&input_json("[1]")).is_some());
     }
 
     #[test]

@@ -11,7 +11,8 @@
 //! Sources:
 //! - `session()` → `Session` (topic "session")
 //! - `animation(name, tick, cols, rows)` → `Frame`
-//! - `submit(text)`, `approve(id, choice)`, `interrupt()`, `setModel(id)` → `Ack`
+//! - `submit(text)`, `approve(id, choice)`, `interrupt()`, `setModel(id)`,
+//!   `setKey(provider, key)` → `Ack`
 //!
 //! @ref LLP 1101 (terminal apps)
 
@@ -20,8 +21,11 @@
 mod agent;
 mod anim;
 mod art;
+mod ascii_anim;
+mod catalog;
 mod commands;
 mod highlight;
+mod keys;
 mod markdown;
 pub mod providers;
 pub mod sse;
@@ -71,39 +75,111 @@ fn git_branch() -> String {
         .unwrap_or_default()
 }
 
+/// Where a harness keeps its configuration and what it may reach at
+/// startup. [`Options::default`] is the real thing; tests go offline.
+#[derive(Clone, Debug)]
+pub struct Options {
+    /// Where `keys` and `models.json` live; `None` keeps keys in memory.
+    pub config_dir: Option<std::path::PathBuf>,
+    /// OpenRouter's API base.
+    pub openrouter_base: String,
+    /// Fetch OpenRouter's catalog and probe Ollama in the background.
+    pub network: bool,
+}
+
+impl Default for Options {
+    fn default() -> Options {
+        Options {
+            config_dir: keys::default_dir(),
+            openrouter_base: providers::OPENROUTER.into(),
+            network: true,
+        }
+    }
+}
+
+impl Options {
+    /// No background requests, configuration in `dir`.
+    pub fn offline(dir: Option<std::path::PathBuf>) -> Options {
+        Options {
+            config_dir: dir,
+            network: false,
+            ..Options::default()
+        }
+    }
+}
+
+/// Fetch OpenRouter's catalog on a thread and rebuild the model list.
+fn refresh_catalog(shared: &Arc<Shared>) {
+    let (base, dir) = {
+        let s = shared.lock();
+        if !s.network {
+            return;
+        }
+        (s.openrouter_base.clone(), s.config_dir.clone())
+    };
+    let shared = shared.clone();
+    std::thread::spawn(move || {
+        if let Ok(catalog) = catalog::fetch(&base, dir.as_deref()) {
+            let mut s = shared.lock();
+            s.catalog = catalog;
+            s.refresh_models();
+            drop(s);
+            shared.changed();
+        }
+    });
+}
+
 impl Harness {
     /// A session in the process's working directory, with the banner.
     pub fn new() -> Harness {
-        let models = providers::models();
-        let model = providers::default_model(&models);
+        Harness::with_options(Options::default())
+    }
+
+    /// A session configured by `options`.
+    pub fn with_options(options: Options) -> Harness {
+        let keys = keys::Keys::load(options.config_dir.clone());
+        let catalog = options
+            .config_dir
+            .as_deref()
+            .and_then(catalog::cached)
+            .unwrap_or_else(catalog::fallback);
         let cwd = home_relative(&std::env::current_dir().unwrap_or_default());
         let branch = git_branch();
         let mut state = State {
-            model: model.clone(),
             cwd: cwd.clone(),
             branch: branch.clone(),
             phase: "idle".into(),
-            models,
+            keys,
+            catalog,
+            openrouter_base: options.openrouter_base.clone(),
+            config_dir: options.config_dir.clone(),
+            network: options.network,
             ..State::default()
         };
+        state.refresh_models();
+        state.model = providers::default_model(&state.models);
+        let model = state.model.clone();
         state.push(Entry {
             kind: "banner".into(),
             blocks: art::banner(&model, &cwd, &branch),
             ..Entry::default()
         });
+        let probe = (!state.keys.has("OLLAMA_HOST")).then(|| providers::ollama_host(&state.keys));
         let shared = Shared::new(state, Native::default());
-        if std::env::var_os("OLLAMA_HOST").is_none() {
-            let probe = shared.clone();
-            std::thread::spawn(move || {
-                if providers::probe_ollama() {
-                    let mut s = probe.lock();
-                    for m in s.models.iter_mut().filter(|m| m.provider == "ollama") {
-                        m.available = true;
+        if options.network {
+            refresh_catalog(&shared);
+            if let Some(host) = probe {
+                let shared = shared.clone();
+                std::thread::spawn(move || {
+                    if providers::probe_ollama(&host) {
+                        let mut s = shared.lock();
+                        s.ollama_up = true;
+                        s.refresh_models();
+                        drop(s);
+                        shared.changed();
                     }
-                    drop(s);
-                    probe.changed();
-                }
-            });
+                });
+            }
         }
         Harness { shared }
     }
@@ -139,6 +215,13 @@ impl Harness {
             "approve" => commands::approve(&self.shared, text(0)?, text(1)?),
             "interrupt" => agent::interrupt(&self.shared),
             "setModel" => commands::set_model(&self.shared, text(0)?),
+            "setKey" => {
+                let saved = commands::set_key(&self.shared, text(0)?, text(1)?);
+                if saved == Some(true) {
+                    refresh_catalog(&self.shared);
+                }
+                saved.is_some()
+            }
             other => return Err(DataError::UnknownSource(other.into())),
         };
         Ok(value::ack(ok))

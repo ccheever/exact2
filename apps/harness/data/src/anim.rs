@@ -7,7 +7,19 @@ use crate::art::{hex, hsv};
 use crate::state::{Line, Run};
 
 /// Every animation's name.
-pub const NAMES: [&str; 5] = ["plasma", "fire", "matrix", "spinners", "bars"];
+pub const NAMES: [&str; 11] = [
+    "plasma",
+    "fire",
+    "matrix",
+    "spinners",
+    "bars",
+    "donut",
+    "knot",
+    "tesseract",
+    "warp",
+    "tunnel",
+    "wave",
+];
 
 /// The frame `tick` of `name`, at `cols`×`rows` cells.
 pub fn frame(name: &str, tick: f64, cols: usize, rows: usize) -> (String, Vec<Line>) {
@@ -20,7 +32,10 @@ pub fn frame(name: &str, tick: f64, cols: usize, rows: usize) -> (String, Vec<Li
         "matrix" => matrix(t as u64, cols, rows),
         "spinners" => spinners(t as u64, cols, rows),
         "bars" => bars(t as u64, cols, rows),
-        other => text_frame(&[format!("no animation named {other:?}")], cols, rows),
+        other => match crate::ascii_anim::frame(other, t, cols, rows) {
+            Some(lines) => lines,
+            None => text_frame(&[format!("no animation named {other:?}")], cols, rows),
+        },
     };
     (name.to_string(), lines)
 }

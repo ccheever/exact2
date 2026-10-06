@@ -519,6 +519,9 @@ fn field(
     let shown = if placeholder {
         style.faint = true;
         clusters(n.props.str(PropId::Placeholder).unwrap_or(""))
+    } else if n.props.str(PropId::Type) == Some("password") {
+        // A password field shows a bullet per character, never the text.
+        clusters(value).into_iter().map(|_| ("•".to_string(), 1)).collect()
     } else {
         clusters(value)
     };
