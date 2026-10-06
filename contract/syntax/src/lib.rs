@@ -94,6 +94,10 @@ pub const HOST_COMMANDS: &[&str] = &[
     "haptic",
     "openURL",
     "load",
+    // `requestFullscreen("id")`: the `video` with that HTML id takes the
+    // screen, as HTML's Element.requestFullscreen(); `fullscreenchange` says
+    // when it did and when it left.
+    "requestFullscreen",
     // `reload()`: the development host boots the app again, as its dev
     // menu's Reload does; a host without a dev menu refuses it.
     "reload",
