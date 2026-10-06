@@ -25,6 +25,7 @@ use ProviderPill from "./r4-polish-tip.contract"
 
 component Sidebar
   props
+    reduced: bool
     data: Snapshot
     // r6-polish: the root's live clock (epoch ms), so a Working row's label ticks each second.
     now: number
@@ -117,11 +118,11 @@ component Sidebar
             box id="sidebar-list-top" width="100%" height=(dragId != "" ? 24 : 0) margin-bottom=-1 position="relative" testId="sidebar-pinned-header"
               when dragId != ""
                 SidebarDragLabel(label="Pinned", target=(dragTarget == "pinned"))
-            ThreadSection(threads=data.threads, data=data, now=now, section="pinned", label="", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
+            ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="pinned", label="", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
             box id="sidebar-pinned-divider" width="100%" height=(dragId != "" ? 24 : 0) margin-bottom=-1 position="relative" testId="sidebar-pinned-divider"
               when dragId != ""
                 SidebarDragLabel(label="Active", target=(dragTarget == "active"))
-            ThreadSection(threads=data.threads, data=data, now=now, section="active", label="", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
+            ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="active", label="", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
             when data.sidebar.emptyText != ""
               column align-items="center" gap=8 margin-top=-2 padding-left=8 padding-right=8 padding-top=24 padding-bottom=24 box-sizing="border-box" testId="sidebar-empty"
                 text data.sidebar.emptyText font-size=12 line-height="16px" text-align="center" color="light-dark(#71717b99, #81818199)"
@@ -132,10 +133,10 @@ component Sidebar
             else
               box flex=1 min-height=16
               when data.sidebar.workingCount > 0
-                ThreadSection(threads=data.threads, data=data, now=now, section="working", label="Working", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
+                ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="working", label="Working", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
               when data.sidebar.snoozedCount > 0
-                ThreadSection(threads=data.threads, data=data, now=now, section="snoozed", label="Snoozed", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
-              ThreadSection(threads=data.threads, data=data, now=now, section="settled", label="Settled", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
+                ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="snoozed", label="Snoozed", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
+              ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="settled", label="Settled", busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
               when data.sidebar.showMore > 0
                 button cursor="pointer" press=local("more", "", "") width="100%" height=36 padding-left=10 padding-right=10 box-sizing="border-box" gap=10 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" testId="sidebar-show-more"
                   SidebarIcon(name="plus", size=16, color="light-dark(#71717b8c, #8181818c)")
@@ -179,6 +180,7 @@ component Sidebar
 // shelf still paints the open thread, which the projection already decided.
 component ThreadSection
   props
+    reduced: bool
     threads: list<Thread>
     data: Snapshot
     now: number
@@ -254,7 +256,7 @@ component ThreadSection
           box flex=1 min-width=8 height=1 background-color=(section == "snoozed" ? "light-dark(#2b7fff33, #51a2ff26)" : "light-dark(#e4e4e799, #ffffff0c)")
           SidebarIcon(name=(expanded ? "chevron-up" : "chevron-down"), size=12, color=tone)
       each t in rows key=t.id
-        ThreadRow(t=t, now=now, presets=data.snoozePresets, busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=(sweepLive ? "" : sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? sweepHover : hoverId), drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=(dragId == t.id ? dragOffset : 0), page=page, sweep=sweep, sweepKeys=(sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? "|cancel|" : sweepLive ? sweepKeys : ""), sweepVerb=sweepVerb)
+        ThreadRow(reduced=reduced, t=t, now=now, presets=data.snoozePresets, busy=busy, local=local, run=run, open=open, hoverCard=hoverCard, hoverId=(sweepLive ? "" : sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? sweepHover : hoverId), drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=(dragId == t.id ? dragOffset : 0), page=page, sweep=sweep, sweepKeys=(sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? "|cancel|" : sweepLive ? sweepKeys : ""), sweepVerb=sweepVerb)
       // r12-sidebar: the sweep owns Escape while it is armed (a window shortcut: the pan's section gets no keys).
       when sweepLive
         button press=cancelSweep aria-keyshortcuts="Escape" aria-label="Cancel sweep" testId=`sweep-cancel-${section}` position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000"

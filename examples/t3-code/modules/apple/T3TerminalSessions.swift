@@ -22,7 +22,7 @@ import Foundation
 /// - Resizes are latest-wins per session (the reference's `concurrency: latest` scheduler).
 final class T3TerminalSession {
     let key: String, threadId: String, terminalId: String
-    var cwd = "", worktreePath = "", env: [String: String] = [:]
+    var cwd = "", worktreePath = "", providerInstance = "", env: [String: String] = [:]
     var output = T3TerminalOutput()
     /// TerminalBufferState: status, error, version and lifecycle version.
     var status = "closed", error: String? = nil, version = 0, lifecycleVersion = 0
@@ -75,13 +75,21 @@ final class T3TerminalSessions {
         T3TerminalView.json([environment, thread, terminal])
     }
 
+    /// Provider Account input shares the focused transport, but has its own serial queue in the view.
+    func providerAuthCall(_ payload: [String: Any], done: @escaping (T3Failure?) -> Void) {
+        guard let transport else { return done(T3Failure(kind: "Closed", message: "The server is not connected.")) }
+        transport.terminalCall("provider.auth.respond", payload: payload) { error in
+            DispatchQueue.main.async { done(error) }
+        }
+    }
+
     // MARK: Views
 
-    func bind(_ view: T3TerminalView, environment: String, thread: String, terminal: String, cwd: String, worktreePath: String, env: [String: String]) -> T3TerminalSession {
+    func bind(_ view: T3TerminalView, environment: String, thread: String, terminal: String, cwd: String, worktreePath: String, env: [String: String], providerInstance: String = "") -> T3TerminalSession {
         let key = Self.key(environment: environment, thread: thread, terminal: terminal)
         let session = sessions[key] ?? T3TerminalSession(key: key, threadId: thread, terminalId: terminal)
         sessions[key] = session
-        session.cwd = cwd; session.worktreePath = worktreePath; session.env = env
+        session.cwd = cwd; session.worktreePath = worktreePath; session.env = env; session.providerInstance = providerInstance
         session.views.removeAll { $0.view == nil || $0.view === view }
         session.views.append(WeakView(view: view))
         session.detachWork?.cancel(); session.detachWork = nil
@@ -113,6 +121,7 @@ final class T3TerminalSessions {
     }
 
     private func drop(_ session: T3TerminalSession) {
+        guard sessions[session.key] === session else { return }
         session.detachWork?.cancel(); session.detachWork = nil
         if let id = session.streamId { transport?.terminalDetach(id) }
         session.streamId = nil
@@ -138,20 +147,22 @@ final class T3TerminalSessions {
         var payload: [String: Any] = ["threadId": session.threadId, "terminalId": session.terminalId, "cwd": session.cwd,
                                       "worktreePath": session.worktreePath.isEmpty ? NSNull() : session.worktreePath]
         if !session.env.isEmpty { payload["env"] = session.env }
-        let key = session.key
-        transport.terminalAttach(payload: payload, receive: { [weak self] values, acknowledge in
+        if !session.providerInstance.isEmpty { payload["providerInstanceId"] = session.providerInstance }
+        // A closed terminal ID may be reused before queued delivery from its old stream drains.
+        let key = session.key, generation = session.output.generation
+        transport.terminalAttach(payload: payload, receive: { [weak self, weak session] values, acknowledge in
             DispatchQueue.main.async {
-                if let self, let session = self.sessions[key] {
+                if let self, let session, self.sessions[key] === session, session.output.generation == generation {
                     session.chunks += 1
                     for value in values { if let event = value as? [String: Any] { self.apply(event, to: session) } }
                     session.acknowledged += 1
+                    self.changed(key)
                 }
                 acknowledge() // only now: the buffer holds the chunk
-                self?.changed(key)
             }
-        }, ended: { [weak self] failure, lost in
+        }, ended: { [weak self, weak session] failure, lost in
             DispatchQueue.main.async {
-                guard let self, let session = self.sessions[key] else { return }
+                guard let self, let session, self.sessions[key] === session, session.output.generation == generation else { return }
                 session.streamId = nil; session.attaching = false
                 if let failure {
                     // useAttachedTerminalSession: an attach error shows as the session's error.
@@ -165,9 +176,9 @@ final class T3TerminalSessions {
                     session.failed = true
                 }
             }
-        }, opened: { [weak self] id, failure in
+        }, opened: { [weak self, weak session] id, failure in
             DispatchQueue.main.async {
-                guard let self, let session = self.sessions[key] else { if let id { transport.terminalDetach(id) }; return }
+                guard let self, let session, self.sessions[key] === session, session.output.generation == generation else { if let id { transport.terminalDetach(id) }; return }
                 session.attaching = false
                 if let id { session.streamId = id; return }
                 // Not connected yet: the connection's return attaches. Any other refusal shows as the error.
@@ -234,7 +245,7 @@ final class T3TerminalSessions {
 
     /// onResize → `terminal.resize`, latest-wins while one is in flight (cols 1–1000, rows 1–500).
     func resize(_ session: T3TerminalSession, cols: Int, rows: Int) {
-        guard cols > 0, rows > 0 else { return }
+        guard sessions[session.key] === session, cols > 0, rows > 0 else { return }
         let size = (cols: min(cols, 1000), rows: min(rows, 500))
         session.desiredSize = size
         if session.resizing { session.pendingSize = size; return }
@@ -243,11 +254,12 @@ final class T3TerminalSessions {
         session.resizing = true
         transport.terminalCall("terminal.resize", payload: ["threadId": session.threadId, "terminalId": session.terminalId, "cols": size.cols, "rows": size.rows]) { [weak self] failure in
             DispatchQueue.main.async {
+                guard let self, self.sessions[session.key] === session else { return }
                 session.resizing = false
                 if failure == nil { session.lastSize = size }
                 if let next = session.pendingSize {
                     session.pendingSize = nil
-                    if next != session.lastSize { self?.resize(session, cols: next.cols, rows: next.rows) }
+                    if next != session.lastSize { self.resize(session, cols: next.cols, rows: next.rows) }
                 }
             }
         }

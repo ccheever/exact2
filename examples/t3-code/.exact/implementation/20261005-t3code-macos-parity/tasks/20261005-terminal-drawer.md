@@ -11,7 +11,7 @@ pr_url: https://github.com/ccheever/exact2/pull/175
 verified_commit: null
 ---
 
-# Terminal drawer: one shell per thread on the server's terminal sessions
+# Terminal sessions and bottom drawer
 
 ## Outcome
 
@@ -243,3 +243,7 @@ physical Korean IME, three-scope authorization, and visual/motion rows.
 
 Review the repairs and evidence on PR #175. Keep the overall ticket active until the remaining
 acceptance rows have direct evidence.
+
+## Expanded verification, 2026-10-07
+
+PR #175 now also carries terminal-layout, terminal-integrations and sign-in-terminals. Normal app restart, physical first-input Korean composition, three-scope refusal, 44-session transport capacity, retained drawer animation/reversal/reduced motion, native paste and terminal focus have direct evidence. Source review caught reused-ID resize and blurred-composer caret defects; their regressions are preserved with the repair checks. The [acceptance matrix](https://github.com/ccheever/exact2/blob/t3-code-evidence/evidence/terminal-drawer/20261007-expanded-parity/MATRIX.md) distinguishes actual GUI, transport and component checks. Full parity remains unverified, including the unresolved [Browser dependency #100](https://github.com/ccheever/exact2/issues/100).

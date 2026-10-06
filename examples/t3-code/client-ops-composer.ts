@@ -1,3 +1,4 @@
+import { omitExpiredTerminalContexts } from './terminal-integrations';
 // The composer's client.command() ops (client-ops.ts): the draft and favorite
 // models, Send (a new thread's launch, a follow-up, a fan-out), the model,
 // option and mode pickers, Stop, approvals and the provider's questions, and
@@ -89,7 +90,10 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   if (isUsageLimitsCommand(value || this.draft) && !this.snapshotDrafts.length && usageLimitsOffered(this)) { if (openUsageLimits(this, composerNow(this))) this.local.drafts[this.draftKey] = ''; return; }
   const plan = planFollowUp(this);
   const submission = plan ? resolvePlanSubmission(value || this.draft, plan.markdown) : null;
-  const text = promptForSend(this, selection.providerId, selection.modelId, JSON.parse(selection.options), submission ? submission.text : value || this.draft);
+  const rawText = promptForSend(this, selection.providerId, selection.modelId, JSON.parse(selection.options), submission ? submission.text : value || this.draft);
+  const terminalSubmission = omitExpiredTerminalContexts(this, rawText, this.snapshotDrafts.length > 0);
+  if (terminalSubmission.empty) return;
+  const text = terminalSubmission.text;
   if (!text.trim() && !this.snapshotDrafts.length) throw new ClientError('Write a message or attach an image first.');
   if (promptLengthMessage(text)) throw new ClientError(promptLengthMessage(text));
   if (!this.projectId) throw new ClientError('Choose or add a project first.');

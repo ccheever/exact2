@@ -8,7 +8,9 @@ import type { T3Client } from './client';
 import type { Obj } from './domain';
 import type { Files, Native } from './protocol';
 import { closeThreadTerminals as cleanupCloseThreadTerminals } from './worktree-cleanup';
-import { closeThreadTerminals, terminalRows, terminalDrawerView, terminalMetadataEvent, terminalOps, terminalAvailable, terminalOpen, TERMINAL_METADATA_KEY } from './terminal-drawer-view';
+import { closeThreadTerminals, terminalRows, terminalKeybindings, terminalDrawerView, terminalMetadataEvent, terminalOps, terminalAvailable, terminalOpen, TERMINAL_METADATA_KEY } from './terminal-drawer-view';
+import { surfaceStore } from './r4-surfaces-panel';
+import { focusedTerminal, recordTerminalFocus } from './terminal-focus';
 import { adoptTerminalPrefs, terminalUiStore } from './terminal-ui-state';
 
 type Call = { method: string; payload: Obj };
@@ -46,6 +48,12 @@ describe('terminal drawer commands', () => {
     await run(client, 'toggle');
     expect(calls).toHaveLength(1);
     expect(terminalOpen(client)).toBe(false);
+    // The clipped native view stays mounted through closing, without requesting focus.
+    const hidden = await terminalDrawerView(client, null, 840, 0);
+    expect(hidden.panes).toMatchObject([{ terminalId: 'term-1', focusRequest: 0 }]);
+    await run(client, 'toggle');
+    const reopened = await terminalDrawerView(client, null, 840, 0);
+    expect(reopened.panes).toMatchObject([{ terminalId: 'term-1', focusRequest: 2 }]);
   });
 
   test('⌘J dispatches the toggle where the drawer can open (keyboard-dispatch MAIN_ROWS)', () => {
@@ -56,7 +64,7 @@ describe('terminal drawer commands', () => {
     expect(added).toEqual([['terminal.toggle', 'command', 'terminallocal:toggle', 'Toggle Terminal']]);
     raw.threadId = '';
     terminalRows(add, client);
-    expect(added).toHaveLength(1);
+    expect(added).toHaveLength(2);
   });
 
   test('a thread without a worktree opens in the project root and sends no worktree path', async () => {
@@ -66,12 +74,9 @@ describe('terminal drawer commands', () => {
     expect(calls[0]).toEqual({ method: 'terminal.open', payload: { threadId: 'thread-2', terminalId: 'term-1', cwd: '/repo', env: { T3CODE_PROJECT_ROOT: '/repo' } } });
   });
 
-  test('a draft or a thread without a project has no drawer', async () => {
+  test('a thread without a project has no drawer', async () => {
     const { client, calls, raw } = fixture();
-    raw.threadId = '';
-    expect(terminalAvailable(client)).toBe(false);
-    await run(client, 'toggle');
-    raw.threadId = 'thread-1'; raw.shell.projects = [];
+    raw.shell.projects = [];
     expect(terminalAvailable(client)).toBe(false);
     await run(client, 'toggle');
     expect(calls).toEqual([]);
@@ -184,4 +189,98 @@ describe('terminal drawer resource', () => {
     expect(last.sessions).toContain('["env-a","thread-11","term-1"]');
     expect((await terminalDrawerView(client, null, 840, 99)).mounted).toBe(11);
   });
+});
+
+import { T3Client as Client } from './client';
+import { launchThreadId, forgetDraftThreadId } from './r7-handoff-thread';
+import { activeRef } from './terminal-drawer-view';
+test('draft terminal reserves its send identity, worktree and session across first send', async () => {
+  const client = new Client();
+  client.environmentId = 'env'; client.projectId = 'project'; client.threadId = '';
+  client.shell.projects = [{ id: 'project', workspaceRoot: '/repo' }];
+  client.local.composerControls.contexts[client.draftKey] = { envMode: 'worktree', branch: 'feature', worktreePath: '/wt' };
+  const calls: Call[] = [];
+  client.restAccess = () => ({ ids: async () => ['reserved-thread'] }) as ReturnType<Client['restAccess']>;
+  client.request = async (_native, method, payload) => { calls.push({ method, payload }); return {}; };
+  const draftKey = client.draftKey;
+  expect(terminalAvailable(client)).toBe(true);
+  await run(client, 'toggle');
+  expect(activeRef(client)).toEqual({ environmentId: 'env', threadId: 'reserved-thread' });
+  expect(calls[0]).toMatchObject({ method: 'terminal.open', payload: { threadId: 'reserved-thread', cwd: '/wt', worktreePath: '/wt' } });
+  expect(launchThreadId(client, draftKey, 'unused-fresh')).toBe('reserved-thread');
+  client.threadId = 'reserved-thread'; client.shell.threads = [{ id: client.threadId, projectId: 'project', worktreePath: '/wt' }];
+  forgetDraftThreadId(client, draftKey);
+  expect(terminalOpen(client)).toBe(true);
+  expect((await terminalDrawerView(client, null, 840, 0)).terminalId).toBe('term-1');
+});
+test('closing the last pane and hiding the drawer return composer focus; a remaining pane keeps focus', async () => {
+  const { client } = fixture();
+  await run(client, 'toggle'); await run(client, 'split', 'env-a:thread-1|term-1');
+  let result = out();
+  await terminalOps.call(client, 'terminallocal:close', 'env-a:thread-1|term-2', '', 0, {} as Native, {} as Files, result);
+  expect(result.message).toBe('');
+  result = out();
+  await terminalOps.call(client, 'terminallocal:close', 'env-a:thread-1|term-1', '', 0, {} as Native, {} as Files, result);
+  expect(result.message).toBe('terminal:focus-composer');
+  await run(client, 'toggle'); result = out();
+  await terminalOps.call(client, 'terminallocal:toggle', '', '', 0, {} as Native, {} as Files, result);
+  expect(result.message).toBe('terminal:focus-composer');
+});
+
+
+test('terminal keys use actual running state for custom when clauses', () => {
+  const { client } = fixture();
+  client.config.keybindings = [{ command: 'thread.stop', shortcut: { key: 'x', modKey: true }, whenAst: { type: 'identifier', name: 'turnRunning' } }];
+  client.projection = { runs: [{ status: 'running' }] };
+  expect(JSON.parse(terminalKeybindings(client))).toEqual([{ chord: 'Meta+x', command: 'thread.stop' }]);
+  client.projection = { runs: [{ status: 'completed' }] };
+  expect(JSON.parse(terminalKeybindings(client))).toEqual([]);
+});
+
+test('a retained drawer session exiting never takes focus from the panel', async () => {
+  for (const open of [true, false]) {
+    const { client } = fixture();
+    await run(client, 'toggle');
+    if (!open) await run(client, 'toggle');
+    const panel = { environmentId: 'env-a', threadId: 'thread-1', terminalId: 'term-2', surface: 'terminal:term-2' };
+    recordTerminalFocus(client, { ...panel, focused: true });
+    const result = out();
+    await terminalOps.call(client, 'terminallocal:exited', 'env-a:thread-1|term-1', JSON.stringify({ type: 'exited', terminalId: 'term-1' }), 0, {} as Native, {} as Files, result);
+    expect(result.message).toBe('');
+    expect(focusedTerminal(client)).toEqual(panel);
+    expect((await terminalDrawerView(client, null, 840, 0)).panes).toEqual([]);
+  }
+});
+
+test('immediate native close targets the emitting split before focus state refresh', async () => {
+  const { client, calls } = fixture(), ref = { environmentId: 'env-a', threadId: 'thread-1' };
+  const store = terminalUiStore(client).getState();
+  store.ensureTerminal(ref, 'term-1', { open: true }); store.splitTerminal(ref, 'term-2');
+  store.setActiveTerminal(ref, 'term-1');
+  await run(client, 'message', 'env-a:thread-1|term-2', JSON.stringify({ type: 'command', command: 'terminal.close', ...ref, terminalId: 'term-2', surface: 'drawer' }));
+  expect(surfaceStore(client).terminalClose).toEqual({ serial: 1, title: 'Close terminal "Terminal 2"?', body: 'This stops the running process and clears its history.', target: 'env-a:thread-1|term-2', op: 'terminallocal:close' });
+  expect(calls).toEqual([]);
+});
+
+test('native toggle preserves composer-focus result and rejects obsolete scope', async () => {
+  const { client } = fixture(), ref = { environmentId: 'env-a', threadId: 'thread-1' }, result = out();
+  terminalUiStore(client).getState().ensureTerminal(ref, 'term-1', { open: true });
+  const message = { type: 'command', command: 'terminal.toggle', ...ref, terminalId: 'term-1', surface: 'drawer' };
+  await terminalOps.call(client, 'terminallocal:message', 'env-a:thread-1|term-1', JSON.stringify(message), 0, {} as Native, {} as Files, result);
+  expect(result.message).toBe('terminal:focus-composer'); expect(terminalOpen(client)).toBe(false);
+  await run(client, 'message', '', JSON.stringify({ ...message, environmentId: 'old-env' }));
+  expect(terminalOpen(client)).toBe(false);
+});
+
+
+test('dedicated focus operations update pane context without dispatching a terminal command', async () => {
+  const { client, calls } = fixture(), ref = { environmentId: 'env-a', threadId: 'thread-1' };
+  const store = terminalUiStore(client).getState();
+  store.ensureTerminal(ref, 'term-1', { open: true }); store.splitTerminal(ref, 'term-2');
+  await run(client, 'focus-in', 'env-a:thread-1|term-2', 'drawer');
+  expect(focusedTerminal(client)).toEqual({ ...ref, terminalId: 'term-2', surface: 'drawer' });
+  await run(client, 'focus-out', 'env-a:thread-1|term-1', 'drawer');
+  expect(focusedTerminal(client)?.terminalId).toBe('term-2');
+  await run(client, 'focus-out', 'env-a:thread-1|term-2', 'drawer');
+  expect(focusedTerminal(client)).toBeNull(); expect(calls).toEqual([]);
 });

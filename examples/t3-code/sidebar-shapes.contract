@@ -30,6 +30,8 @@ shape SearchPart
   text: string
   hit: bool
 shape Thread
+  terminalCount: number
+  terminalLabel: string
   id: string
   // r6-polish: Working's start (epoch ms; the label ticks from the root clock) and a background environment's machine glyph.
   workingSince: number

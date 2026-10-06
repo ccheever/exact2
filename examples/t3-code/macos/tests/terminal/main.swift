@@ -196,6 +196,40 @@ final class TerminalSurfaceTests: XCTestCase {
         print("terminal S1 delivery \(view.agentDelivery) declined \(view.declined) palette \(target.palette) container \(container.keys) resent-before \(resent) after \((NSApp as? TestApplication)?.resent.count ?? 0)")
     }
 
+    func testNativePasteShortcutsPreserveUnicodeBracketsAndLaterInputAndOutput() throws {
+        let board = NSPasteboard.general
+        let saved = (board.pasteboardItems ?? []).map { item in
+            item.types.compactMap { type in item.data(forType: type).map { (type, $0) } }
+        }
+        defer {
+            board.clearContents()
+            let restored = saved.map { values in
+                let item = NSPasteboardItem()
+                for (type, data) in values { item.setData(data, forType: type) }
+                return item
+            }
+            if !restored.isEmpty { board.writeObjects(restored) }
+        }
+        let payload = "alpha 한글😀\nsecondline"
+        board.clearContents(); XCTAssertTrue(board.setString(payload, forType: .string))
+        let view = mount(["terminal": "native-paste"])
+        waitReady(view)
+        view.write("\u{1b}[?2004h")
+        try view.agentInput(.key("Meta+V", phase: nil))
+        let bracketed = "\u{1b}[200~" + payload + "\u{1b}[201~"
+        spin(until: { self.typed(view) == bracketed }, timeout: 5)
+        XCTAssertEqual(typed(view), bracketed)
+        try view.agentInput(.key("Meta+Shift+V", phase: nil))
+        spin(until: { self.typed(view) == bracketed + bracketed }, timeout: 5)
+        XCTAssertEqual(typed(view), bracketed + bracketed)
+        try view.agentInput(.key("Control+D", phase: nil))
+        spin(until: { self.typed(view).hasSuffix("\u{4}") }, timeout: 5)
+        XCTAssertEqual(typed(view), bracketed + bracketed + "\u{4}")
+        view.write("\r\nAFTER_PASTE\r\n")
+        spin(until: { (self.debug(view)["text"] as? [String] ?? []).contains { $0.contains("AFTER_PASTE") } }, timeout: 5)
+        XCTAssertTrue((debug(view)["text"] as? [String] ?? []).contains { $0.contains("AFTER_PASTE") })
+    }
+
     /// S6 (host path): text the app read from the clipboard reaches the shell as one paste.
     func testHostPaste() {
         let view = mount(["terminal": "paste"])
@@ -412,6 +446,7 @@ NSApp.setActivationPolicy(.accessory)
 var suite = XCTestSuite(name: "terminal")
 suite.addTest(XCTestSuite(forTestCaseClass: TerminalSurfaceTests.self))
 suite.addTest(XCTestSuite(forTestCaseClass: TerminalDrawerTests.self)) // terminal-drawer (drawer.swift)
+suite.addTest(XCTestSuite(forTestCaseClass: TerminalAuthTests.self))
 if let only = ProcessInfo.processInfo.environment["T3_TERMINAL_ONLY"] {
     let picked = XCTestSuite(name: only)
     for case let group as XCTestSuite in suite.tests { for test in group.tests where test.name.contains(only) { picked.addTest(test) } }

@@ -42,6 +42,9 @@ final class T3ComposerChipTips: NSObject, NSViewToolTipOwner {
         switch chip.kind {
         case "mention": return chip.detail.isEmpty ? nil : chip.detail
         case "context":
+            if let text = styler.terminalText(chip) {
+                return text.isEmpty ? "Terminal context expired. Remove and re-add \(chip.label) to include it in your message." : text
+            }
             guard styler.chipResolved(chip) else { return "This context is no longer available. Remove it or attach it again." }
             switch styler.chipKind(chip) {
             case "thread": return "Open thread"

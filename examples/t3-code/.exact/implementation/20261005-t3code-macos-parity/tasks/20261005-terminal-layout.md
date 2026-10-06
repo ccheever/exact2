@@ -1,13 +1,13 @@
 ---
 name: 20261005-terminal-layout
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: in-progress
 verification: unverified
-delivery: none
+delivery: open
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-terminal-drawer
+pr_url: https://github.com/ccheever/exact2/pull/175
 verified_commit: null
 ---
 
@@ -152,14 +152,14 @@ Required environment: lane backend at the pin, oracle build, Xcode 27.0, Bun 1.4
 
 ## Progress
 
-Planned. No branch.
+Implemented on PR #175 with the expanded terminal work. The actual native app exercises terminal groups, horizontal/vertical splits, the four-pane limit, independent right-panel terminals, terminal-owned shortcuts and busy-process labels. Reused native session callbacks and queued resizes are fenced by session identity. This does not close every acceptance permutation.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| Expanded native verification, 2026-10-07 | Source fingerprints in linked evidence | Groups/splits/panel/keys/busy indicators driven; native and real-server regressions pass | [Matrix](https://github.com/ccheever/exact2/blob/t3-code-evidence/evidence/terminal-drawer/20261007-expanded-parity/MATRIX.md) | Fine-grained remaining subcases remain explicit |
 
 ## Next action
 
-`prepare` after `20261005-terminal-drawer` merges.
+Review the combined implementation and recorded runtime evidence on PR #175. Keep verification open for the remaining matrix subcases; the original Browser route remains a separate full-parity blocker.

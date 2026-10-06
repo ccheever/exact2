@@ -93,6 +93,75 @@ final class TerminalStreamTests: XCTestCase {
         XCTAssertTrue(until(5) { sinks.allSatisfy { $0.endings.first?.1 == true } }, "a lost socket ends every attach stream")
     }
 
+    func testProviderInstanceIsPreservedAcrossSessionReattach() throws {
+        let socket = try R3Socket()
+        socket.answer = { _ in [] }
+        let transport = connected(socket); defer { transport.destroy() }
+        let sessions = T3TerminalSessions(transport: transport)
+        let view = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1), agent: true)
+        defer { view.destroy() }
+        _ = sessions.bind(view, environment: "env-a", thread: "thread-1", terminal: "term-1", cwd: "/repo", worktreePath: "", env: [:], providerInstance: "codex-custom")
+        XCTAssertTrue(until(2) { socket.requests("terminal.attach").count == 1 })
+        XCTAssertEqual((socket.requests("terminal.attach").first?["payload"] as? [String: Any])?["providerInstanceId"] as? String, "codex-custom")
+        socket.dropAll()
+        XCTAssertTrue(until(8) { socket.requests("terminal.attach").count == 2 })
+        XCTAssertEqual((socket.requests("terminal.attach").last?["payload"] as? [String: Any])?["providerInstanceId"] as? String, "codex-custom", "a fresh server shell must resolve the same provider environment")
+    }
+
+    func testQueuedOldStreamCannotChangeAReplacementWithTheSameTerminalID() throws {
+        let socket = try R3Socket()
+        socket.answer = { _ in [] }
+        let transport = connected(socket); defer { transport.destroy() }
+        let sessions = T3TerminalSessions(transport: transport)
+        let oldView = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1), agent: true)
+        let newView = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 2), agent: true)
+        defer { oldView.destroy(); newView.destroy() }
+        let old = sessions.bind(oldView, environment: "env-a", thread: "thread-1", terminal: "term-5", cwd: "/repo", worktreePath: "", env: [:])
+        XCTAssertTrue(until(2) { old.streamId != nil })
+        let id = try XCTUnwrap(old.streamId)
+        sessions.retain([old.key]); sessions.unbind(oldView, from: old)
+        // Queue old delivery while main is occupied by an unmount/remount. The callbacks must
+        // still acknowledge old output, but may not look up and mutate the replacement by key.
+        transport.queue.sync {
+            let stream = transport.terminalStreams[id]!
+            stream.receive([["type": "output", "data": "old lifetime"]]) {}
+            stream.receive([["type": "closed"]]) {}
+            stream.ended(T3Failure(kind: "OldStream", message: "old lifetime failed"), false)
+        }
+        sessions.retain([])
+        let replacement = sessions.bind(newView, environment: "env-a", thread: "thread-1", terminal: "term-5", cwd: "/repo", worktreePath: "", env: [:])
+        XCTAssertFalse(replacement === old)
+        XCTAssertTrue(until(2) { replacement.streamId != nil })
+        XCTAssertEqual(replacement.version, 0)
+        XCTAssertEqual(replacement.output.text, "")
+        XCTAssertEqual(replacement.chunks, 0)
+        XCTAssertNil(replacement.error)
+        XCTAssertFalse(replacement.failed)
+    }
+
+    func testLateResizeCannotResizeAReplacementWithTheSameTerminalID() throws {
+        let socket = try R3Socket()
+        socket.answer = { _ in [] }
+        let transport = connected(socket); defer { transport.destroy() }
+        let sessions = T3TerminalSessions(transport: transport)
+        let oldView = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1), agent: true)
+        let newView = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 2), agent: true)
+        defer { oldView.destroy(); newView.destroy() }
+        let old = sessions.bind(oldView, environment: "env-a", thread: "thread-1", terminal: "term-5", cwd: "/repo", worktreePath: "", env: [:])
+        sessions.resize(old, cols: 100, rows: 30)
+        XCTAssertTrue(until(2) { socket.requests("terminal.resize").count == 1 })
+        let held = try XCTUnwrap(socket.requests("terminal.resize").first?["id"])
+        sessions.resize(old, cols: 120, rows: 40)
+        sessions.retain([old.key]); sessions.unbind(oldView, from: old); sessions.retain([])
+        let replacement = sessions.bind(newView, environment: "env-a", thread: "thread-1", terminal: "term-5", cwd: "/repo", worktreePath: "", env: [:])
+        XCTAssertFalse(old === replacement)
+        sessions.resize(replacement, cols: 80, rows: 24)
+        XCTAssertTrue(until(2) { socket.requests("terminal.resize").count == 2 })
+        socket.send(["_tag": "Exit", "requestId": held, "exit": ["_tag": "Success", "value": [:]]])
+        wait(0.2)
+        XCTAssertEqual(socket.requests("terminal.resize").count, 2, "old pending grid must never be sent to the replacement terminal")
+    }
+
     func testDisconnectedResizeIsAppliedOnAttachWithoutAnotherFit() throws {
         let socket = try R3Socket()
         socket.answer = { request in [["_tag": "Exit", "requestId": request["id"]!, "exit": ["_tag": "Success", "value": [:]]]] }
@@ -102,7 +171,9 @@ final class TerminalStreamTests: XCTestCase {
         let transport = T3Transport(persistent: false, configuration: config, signals: false, changed: { _ in })
         defer { transport.destroy() }
         let sessions = T3TerminalSessions(transport: transport)
-        let session = T3TerminalSession(key: "resize", threadId: "thread-1", terminalId: "term-1")
+        let view = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1), agent: true)
+        defer { view.destroy() }
+        let session = sessions.bind(view, environment: "env-a", thread: "thread-1", terminal: "term-1", cwd: "", worktreePath: "", env: [:])
         sessions.resize(session, cols: 120, rows: 40)
         // A queue barrier ensures the disconnected RPC answered; then drain its main-queue callback.
         _ = perform(transport, ["op": "status"])
@@ -126,7 +197,9 @@ final class TerminalStreamTests: XCTestCase {
         socket.answer = { _ in [] } // Hold each resize until the test releases its reply.
         let transport = connected(socket); defer { transport.destroy() }
         let sessions = T3TerminalSessions(transport: transport)
-        let session = T3TerminalSession(key: "resize", threadId: "thread-1", terminalId: "term-1")
+        let view = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1), agent: true)
+        defer { view.destroy() }
+        let session = sessions.bind(view, environment: "env-a", thread: "thread-1", terminal: "term-1", cwd: "", worktreePath: "", env: [:])
         sessions.resize(session, cols: 100, rows: 30)
         XCTAssertTrue(until(2) { socket.requests("terminal.resize").count == 1 })
         let failed = try XCTUnwrap(socket.requests("terminal.resize").first?["id"])

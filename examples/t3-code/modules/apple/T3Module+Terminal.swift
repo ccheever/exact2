@@ -7,6 +7,7 @@ extension T3Module: T3TerminalSessionOwner {
 
     /// `terminalRetain` { sessions: [JSON.stringify([environmentId, threadId, terminalId])] }.
     func terminalOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
+        if T3TerminalActions.perform(request, reply: reply) { return }
         guard request["op"] as? String == "terminalRetain" else { return next() }
         let keys = Set((request["sessions"] as? [Any] ?? []).compactMap { $0 as? String })
         DispatchQueue.main.async { [transport] in

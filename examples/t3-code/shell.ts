@@ -155,8 +155,7 @@ export function surfaces(client: T3Client): ShellSurface[] {
     ({ id, label, icon, shortcut, available, reason: available ? '' : reason });
   return [
     row('browser', 'Browser', 'earth', 'B', false, 'Only available in the desktop app.'),
-    // EX01: no terminal here; the row is the reference's unavailable Terminal (SURFACE_UNAVAILABLE_HINTS.terminal).
-    row('terminal', 'Terminal', 'square-terminal', 'T', false, 'Available when a project is open.'),
+    row('terminal', 'Terminal', 'square-terminal', 'T', terminalAvailable(client), 'Available when a project is open.'),
     row('files', 'Files', 'files', 'F', can.files, 'Available when a project is open.'),
     row('diff', 'Diff', 'file-diff', 'D', !!client.threadId && client.ready, 'Available for Git repositories.'),
     // r5-panels: ChatView pullRequestSurfaceAvailable (supportsPullRequests and a panel target); the detail panel opens beside the thread.

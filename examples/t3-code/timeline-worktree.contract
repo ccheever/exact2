@@ -54,6 +54,8 @@ component WorktreeSetupCard
               text detail.id width=44 flex-shrink=0 font-size=12 line-height="16px" color="light-dark(#27272acc, #f5f5f5cc)"
               text detail.text min-width=0 line-clamp=1 font-family="ui-monospace" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
       row margin-top=2 margin-left=19 gap=2 flex-wrap="wrap" align-items="center"
+        when setup.terminal
+          SetupButton(label="Open terminal", icon="terminal", expanded=false, press=local("setup-terminal", "", ""), testId="worktree-setup-open-terminal")
         SetupButton(label="Details", icon=(setup.detailsOpen ? "chevron-down" : "chevron-right"), expanded=setup.detailsOpen, press=local("setup-details", "", ""), testId="worktree-setup-details-toggle")
         when setup.cancel
           SetupButton(label="Cancel", icon="x", expanded=false, press=local("setup-cancel", "", ""), testId="worktree-setup-cancel")

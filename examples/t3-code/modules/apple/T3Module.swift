@@ -105,6 +105,7 @@ final class T3Module: ExactModule {
         }
     }
     override func element(_ element: ExactElement) {
+        T3TerminalCommandKey.install(element)
         panelTabs.install(element); toolIcons.install(element); timelineTips.install(element)
         frames.install(element); scrollEnds.install(element)
         composer.install(element); chrome.install(element); timeline.install(element); menus.install(element); turns.install(element); video.install(element); media.install(element); devices.install(element)
@@ -114,6 +115,7 @@ final class T3Module: ExactModule {
         if element.hook == .t3SnapshotTile, let view = element.view { snapShot.installTile(id: element.data[.snapshotId] ?? "", view: view) }
     }
     override func elementEnded(_ element: ExactElement) {
+        T3TerminalCommandKey.remove(element)
         panelTabs.remove(element); toolIcons.remove(element); timelineTips.remove(element)
         frames.remove(element); scrollEnds.remove(element)
         composer.remove(element); launcher.remove(element); measure.remove(element); r9.remove(element); r10.remove(element); timeline.remove(element); turns.remove(element); video.remove(element); media.remove(element); devices.remove(element)
