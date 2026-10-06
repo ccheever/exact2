@@ -9,50 +9,62 @@ import Foundation
 /// every app, which is why a live owner is told by its lock, not by age.
 /// Creating a directory and sweeping both hold `.namespace.lock`, so a sweep
 /// never sees a directory between its creation and its lock.
-enum RasterSpool {
-    private static let guarded = NSLock()
-    private static var established: URL?
+final class RasterSpool: @unchecked Sendable {
+    static let shared = RasterSpool(tmp: URL(fileURLWithPath: NSTemporaryDirectory()))
+    /// A spool asks for the namespace lock this often before it gives up for
+    /// now (the image fails, and the next spool asks again).
+    static let attempts = 20, pause: useconds_t = 25_000
+
+    let tmp: URL
+    private let guarded = NSLock()
+    private var established: (url: URL, lock: Int32)?
+
+    init(tmp: URL) { self.tmp = tmp }
+
+    /// A fresh spool file's URL in this process's directory.
+    static func file() throws -> URL { try shared.directory().appendingPathComponent(UUID().uuidString) }
 
     /// This process's spool directory, made (and the root swept) on first
     /// use. A failure throws and the next spool tries again.
-    static func directory() throws -> URL {
+    func directory() throws -> URL {
         guarded.lock(); defer { guarded.unlock() }
-        if let established { return established }
-        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+        if let established { return established.url }
         #if os(iOS) || os(tvOS)
         // Before this directory, spools were loose `tmp/exact-raster-<uuid>`
         // files; an app's own sandboxed temporary directory holds no one else's.
-        sweepLoose(tmp, now: Date())
+        Self.sweepLoose(tmp, now: Date())
         #endif
-        let made = try establish(in: tmp.appendingPathComponent("exact-raster", isDirectory: true))
+        let made = try Self.establish(in: tmp.appendingPathComponent("exact-raster", isDirectory: true))
         established = made
-        return made
+        return made.url
     }
 
-    /// A fresh spool file's URL in this process's directory.
-    static func file() throws -> URL { try directory().appendingPathComponent(UUID().uuidString) }
+    /// The descriptor holding this process's lock, once established.
+    var heldLock: Int32? { guarded.lock(); defer { guarded.unlock() }; return established?.lock }
 
-    /// Sweep `root`, then make a directory in it whose lock this process
-    /// holds from now on (the descriptor is never closed; it closes at exit
-    /// and is not inherited across exec).
-    static func establish(in root: URL) throws -> URL {
-        let fm = FileManager.default
-        // A symlink in the root's place (a shared macOS tmp) is never
-        // followed: it goes, and a real directory takes its place.
-        if (try? root.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true { try fm.removeItem(at: root) }
-        try fm.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let namespace = try lockFile(root.appendingPathComponent(".namespace.lock"), create: true, wait: true)
+    /// Sweep `root`, then make a directory in it whose lock the returned
+    /// descriptor holds (never closed: it closes at exit, and `O_CLOEXEC`
+    /// keeps an exec'd child from holding it after).
+    static func establish(in root: URL) throws -> (url: URL, lock: Int32) {
+        // A symlink in the root's place is unlinked, never followed (unlink
+        // cannot remove a directory, so a real root another launch just made
+        // survives a concurrent repair), and a real directory takes its place.
+        var info = stat()
+        if lstat(root.path, &info) == 0, info.st_mode & S_IFMT == S_IFLNK { unlink(root.path) }
+        if mkdir(root.path, 0o700) != 0, errno != EEXIST { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        let namespace = try lockFile(root.appendingPathComponent(".namespace.lock"), create: true, attempts: attempts)
         defer { close(namespace) }
+        // Swept and made only inside a real directory.
+        guard lstat(root.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { throw POSIXError(.ENOTDIR) }
         sweep(root)
         let mine = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try fm.createDirectory(at: mine, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        if mkdir(mine.path, 0o700) != 0 { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         do {
-            _ = try lockFile(mine.appendingPathComponent(".lock"), create: true, wait: false)
+            return (mine, try lockFile(mine.appendingPathComponent(".lock"), create: true, attempts: 1))
         } catch {
-            try? fm.removeItem(at: mine)
+            try? FileManager.default.removeItem(at: mine)
             throw error
         }
-        return mine
     }
 
     /// Remove the directories under `root` that no live process owns: one
@@ -87,15 +99,19 @@ enum RasterSpool {
         }
     }
 
-    /// An open, exclusively locked descriptor on `url`, or a thrown errno.
-    private static func lockFile(_ url: URL, create: Bool, wait: Bool) throws -> Int32 {
+    /// An open descriptor on `url` holding its exclusive lock, asked for up to
+    /// `attempts` times (never a blocking wait: another process holding it
+    /// cannot stall the image workers), or a thrown errno.
+    private static func lockFile(_ url: URL, create: Bool, attempts: Int) throws -> Int32 {
         let fd = open(url.path, O_RDWR | O_CLOEXEC | O_NOFOLLOW | (create ? O_CREAT : 0), 0o600)
         guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        guard flock(fd, LOCK_EX | (wait ? 0 : LOCK_NB)) == 0 else {
+        for attempt in 1...max(1, attempts) {
+            if flock(fd, LOCK_EX | LOCK_NB) == 0 { return fd }
             let code = errno
-            close(fd)
-            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+            if code != EWOULDBLOCK || attempt == attempts { close(fd); throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO) }
+            usleep(pause)
         }
-        return fd
+        close(fd)
+        throw POSIXError(.EWOULDBLOCK)
     }
 }

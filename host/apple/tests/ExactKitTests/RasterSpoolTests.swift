@@ -62,23 +62,63 @@ final class RasterSpoolTests: XCTestCase {
     }
 
     /// Establishing sweeps the dead and makes a directory whose lock is held:
-    /// a second process's sweep (another descriptor) keeps it.
+    /// a second process's sweep (another descriptor) keeps it. The held
+    /// descriptor itself is close-on-exec, so no exec'd child keeps it.
     func testEstablishingSweepsAndHoldsItsOwnLock() throws {
         let dead = try spool("dead", lock: true)
-        let mine = try RasterSpool.establish(in: root)
-        XCTAssertFalse(fm.fileExists(atPath: dead.path))
-        XCTAssertEqual(mine.deletingLastPathComponent().standardizedFileURL, root.standardizedFileURL)
-        RasterSpool.sweep(root)
+        let spool = RasterSpool(tmp: root)
+        let mine = try spool.directory()
+        let base = root.appendingPathComponent("exact-raster")
+        XCTAssertEqual(mine.deletingLastPathComponent().standardizedFileURL, base.standardizedFileURL)
+        XCTAssertTrue(fm.fileExists(atPath: dead.path), "outside the spool root: not swept")
+        RasterSpool.sweep(base)
         XCTAssertTrue(fm.fileExists(atPath: mine.path), "this process's lock is held")
         let fd = open(mine.appendingPathComponent(".lock").path, O_RDWR | O_CLOEXEC)
         defer { close(fd) }
         XCTAssertNotEqual(flock(fd, LOCK_EX | LOCK_NB), 0, "the lock is taken")
-        XCTAssertNotEqual(fcntl(fd, F_GETFD) & FD_CLOEXEC, 0, "a sweep's descriptor is not inherited")
+        let held = try XCTUnwrap(spool.heldLock)
+        XCTAssertNotEqual(fcntl(held, F_GETFD) & FD_CLOEXEC, 0, "the held descriptor is not inherited across exec")
+        XCTAssertEqual(try spool.directory(), mine, "made once")
+    }
+
+    /// A spool root that cannot be made throws, nothing is kept, and once it
+    /// can be made the next spool makes it (Astra's r2 finding 4).
+    func testAFailedSpoolIsTriedAgain() throws {
+        XCTAssertEqual(chmod(root.path, 0o500), 0)
+        let spool = RasterSpool(tmp: root)
+        XCTAssertThrowsError(try spool.directory())
+        XCTAssertNil(spool.heldLock)
+        XCTAssertEqual(chmod(root.path, 0o700), 0)
+        let mine = try spool.directory()
+        XCTAssertTrue(fm.fileExists(atPath: mine.path))
+        XCTAssertNotNil(spool.heldLock)
+    }
+
+    /// Another process holding the namespace lock (a creator between its
+    /// directory and its lock) makes a spool give up, without sweeping, after
+    /// its bounded attempts, never wait; the next spool succeeds once it is
+    /// released (Astra's r2 finding 2).
+    func testAHeldNamespaceIsNotWaitedFor() throws {
+        let base = root.appendingPathComponent("exact-raster")
+        try fm.createDirectory(at: base, withIntermediateDirectories: true)
+        let other = open(base.appendingPathComponent(".namespace.lock").path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+        XCTAssertEqual(flock(other, LOCK_EX | LOCK_NB), 0)
+        // The holder is mid-creation: its directory has no lock file yet.
+        let creating = base.appendingPathComponent("creating", isDirectory: true)
+        try fm.createDirectory(at: creating, withIntermediateDirectories: true)
+        let spool = RasterSpool(tmp: root)
+        let started = Date()
+        XCTAssertThrowsError(try spool.directory())
+        XCTAssertTrue(fm.fileExists(atPath: creating.path), "no sweep without the namespace lock (Grok r2)")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5, "bounded, not a blocking wait")
+        close(other)
+        XCTAssertNoThrow(try spool.directory())
     }
 
     /// A symlink is never followed: an entry that links elsewhere is left
-    /// alone, and a root that is a link is replaced by a real directory
-    /// (Grok's review, finding 2).
+    /// alone; a root that is a link is unlinked and made real, while a real
+    /// root (another launch's, just repaired) keeps its live spools (Grok r1
+    /// finding 2, Astra r2 finding 1).
     func testSymlinksAreNeverFollowed() throws {
         let elsewhere = fm.temporaryDirectory.appendingPathComponent("raster-elsewhere-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: elsewhere, withIntermediateDirectories: true)
@@ -88,22 +128,17 @@ final class RasterSpoolTests: XCTestCase {
         try fm.createSymbolicLink(at: root.appendingPathComponent("link"), withDestinationURL: victim)
         RasterSpool.sweep(root)
         XCTAssertTrue(fm.fileExists(atPath: victim.path), "an entry that is a link is not swept")
-        let linkedRoot = root.appendingPathComponent("exact-raster")
-        try fm.createSymbolicLink(at: linkedRoot, withDestinationURL: elsewhere)
-        let mine = try RasterSpool.establish(in: linkedRoot)
+        let linked = root.appendingPathComponent("exact-raster")
+        try fm.createSymbolicLink(at: linked, withDestinationURL: elsewhere)
+        let first = try RasterSpool.establish(in: linked)
+        defer { close(first.lock) }
         XCTAssertTrue(fm.fileExists(atPath: victim.path), "the link's target is not swept")
         var info = stat()
-        XCTAssertEqual(lstat(linkedRoot.path, &info), 0)
+        XCTAssertEqual(lstat(linked.path, &info), 0)
         XCTAssertEqual(info.st_mode & S_IFMT, S_IFDIR, "the root is a real directory now")
-        XCTAssertEqual(mine.deletingLastPathComponent().standardizedFileURL, linkedRoot.standardizedFileURL)
-    }
-
-    /// A root that cannot be made throws, and nothing is cached: the next
-    /// spool tries again (finding 2).
-    func testAFailedEstablishThrows() throws {
-        let blocked = root.appendingPathComponent("file")
-        try Data().write(to: blocked)
-        XCTAssertThrowsError(try RasterSpool.establish(in: blocked.appendingPathComponent("exact-raster")))
+        let second = try RasterSpool.establish(in: linked)
+        defer { close(second.lock) }
+        XCTAssertTrue(fm.fileExists(atPath: first.url.path), "a second launch's repair keeps the first's live spool")
     }
 
     /// The spools of builds before the directory, loose in an iOS app's own
