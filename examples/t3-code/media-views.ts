@@ -33,7 +33,8 @@ function stateOf(client: T3Client): MediaState {
   return state;
 }
 /** A video whose player reported `error` for this URL (MediaVideoPlayer failedSrc). */
-export const videoFailed = (client: T3Client, url: string): boolean => !!url && stateOf(client).failed.has(url);
+/** Whether a player or a picture reported an error for this URL (a `video` or `image` `error`, exact2 #121). */
+export const mediaFailed = (client: T3Client, url: string): boolean => !!url && stateOf(client).failed.has(url);
 
 // Signed URLs a surface minted (useAssetUrlState), re-minted after five minutes as the HTML page is.
 type Minted = { url: string; at: number; error: boolean; resource: Obj };
@@ -69,7 +70,8 @@ export async function filesMediaView(client: T3Client, native: Native | null | u
   const entry = await mint(client, native, key, resource, now);
   const url = entry && !entry.error ? revisedUrl(entry.url, revision) : '';
   const source: MediaActionSource = { kind, name: previewPath, src: url || null, reference: mediaFileReference(absolutePath, cwd), asset: { resource } };
-  const failed = !!entry?.error || (kind === 'video' && videoFailed(client, url));
+  // WorkspaceImagePreview / WorkspaceVideoPreview: a refused signature, or the picture's or player's onError for this URL.
+  const failed = !!entry?.error || mediaFailed(client, url);
   const open = kind === 'video' ? openMediaLink({ src: url || null }) : null;
   return {
     kind, state: !entry ? 'loading' : failed ? 'failed' : 'ready', url, name: previewPath, tip: mediaTooltip(source), source: encodeMediaSource(source),
@@ -158,7 +160,7 @@ type Hooks = { urlOf?: (id: string) => string | null; openFile?: (relativePath: 
 export async function mediaLocal(client: T3Client, native: Native, op: string, id: string, value: string, hooks: Hooks = {}): Promise<string> {
   const state = stateOf(client);
   if (op === 'menu') { await showMediaMenu(client, native, id, value, hooks); return ''; }
-  if (op === 'video-error') { if (id) state.failed.add(id); if (state.failed.size > 64) state.failed.delete(state.failed.values().next().value!); return ''; }
+  if (op === 'video-error' || op === 'image-error') { if (id) state.failed.add(id); if (state.failed.size > 64) state.failed.delete(state.failed.values().next().value!); return ''; }
   if (op === 'retry') {
     if (!id || state.retrying.has(id)) return '';
     state.retrying.add(id);
