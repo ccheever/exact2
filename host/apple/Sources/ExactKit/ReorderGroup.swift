@@ -352,7 +352,8 @@ extension NodeView {
     /// step, Space or Enter drops and Escape cancels. True when taken.
     func reorderKey(_ name: String) -> Bool {
         guard reorderKeys, let presenter else { return false }
-        if let hold = presenter.reorderGroup {
+        // A landing session yields to a new lift (LLP 1102 §3.18): Space below ends it first.
+        if let hold = presenter.reorderGroup, !hold.isLanding {
             guard hold.handle === self else { return false }
             if let step = ReorderGroupStep(key: name) { hold.step(step); return true }
             switch name {
