@@ -265,6 +265,29 @@ fn a_runner_source_called_as_a_function_says_to_declare_it() {
 }
 
 #[test]
+fn a_logical_box_property_names_its_physical_longhands() {
+    for (attr, says) in [
+        (
+            "padding-block=8",
+            "`padding-block` is not admitted: write `padding-top` and `padding-bottom`",
+        ),
+        (
+            "margin-inline-start=4",
+            "`margin-inline-start` is not admitted: write `margin-left`",
+        ),
+        (
+            "inset-inline=0",
+            "`inset-inline` is not admitted: write `left` and `right`",
+        ),
+    ] {
+        let src = format!("component App\n  view\n    column {attr}\n      text \"a\"\n");
+        let error = contract::compile(&src).unwrap_err();
+        assert_eq!(error.id, "lower-unknown-attr", "{error}");
+        assert!(error.message.ends_with(says), "{error}");
+    }
+}
+
+#[test]
 fn a_maximum_of_none_says_no_limit_is_the_default() {
     for src in [
         "component App\n  view\n    column max-height=\"none\"\n      text \"a\"\n",

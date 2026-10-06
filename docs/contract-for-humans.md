@@ -803,7 +803,7 @@ call outside them fails. The capabilities are:
   ```ts
   edit(store, args) {
     song = apply(song, args);
-    storage.fs.atomicWriteFile(PATH, JSON.stringify(song)).catch(note);  // started now, not awaited
+    storage.fs.atomicWriteFile(PATH, new TextEncoder().encode(JSON.stringify(song))).catch(note);  // started now, not awaited
     return song;
   }
   ```
