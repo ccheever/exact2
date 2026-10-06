@@ -1,108 +1,149 @@
 # LLP 1105: The status bar's style, declared from state
 
 **Type:** RFC
-**Status:** Draft r1, 2026-10-06, for design review (Astra, Grok)
-**Systems:** the kernel schema (two props), Contract lowering (`contract/lower/src/tags.rs`), the iOS presenter and its view controllers, the standalone iOS adapter; macOS, Linux and the web take the props and do nothing
+**Status:** Draft r2, 2026-10-06. r1 had one blind design pass: Astra (max) NOT READY, Grok (xhigh) READY WITH CHANGES (§5); r2 takes both.
+**Systems:** the kernel schema (two props), Contract lowering (`contract/lower/src/tags.rs`, `values.rs`), the iOS presenter (`ModalIOS.swift`, a small `StatusBarIOS.swift`), the standalone iOS adapter's root controller and `ExactView`; the web and JS targets skip the props; macOS, Linux and tvOS do nothing
 **Author:** Claude (Opus 5.5) for Charlie Cheever, who approved the feature
 **Date:** 2026-10-06
-**Related:** LLP 1069 §10 (system chrome: "status bar style and `theme-color`", unasked until now); LLP 1008 §9 (what a phone paints behind the status bar: the first root's background, `viewport-fit`); LLP 1034 §8 (per-subtree `color-scheme`); LLP 1035.001, LLP 1075.003 (routes, presentations, tabs)
+**Related:** LLP 1069 §10 (system chrome); LLP 1008 §9 (what paints behind the status bar); LLP 1034 §8 (per-subtree `color-scheme`); LLP 1035.001, LLP 1075.003 (routes, presentations, tabs)
 
 ## 1. The ask
 
 The Bluesky clone shows a profile whose banner is dark. When the compact
 white header slides in over it, the status bar's text must turn dark in the
-same frame. Today the app has no say: the status bar takes UIKit's default,
-which follows the window's appearance, not what is under it, and an app that
-fakes it with UIKit's automatic scroll-edge styling lags about eight frames,
-white on white. Expo apps set it per screen (`expo-status-bar`'s `style`).
+same frame. Today the app has no say: the bar takes UIKit's default, which
+follows the window's appearance, not what is under it. Expo apps set it per
+screen (`expo-status-bar`).
 
 ## 2. Decisions
 
-### D1 — A prop on any node, bound to state
+### D1 — Two props on any node, bound to state
 
 ```
-column status-bar-style=(compact ? "dark" : "light") status-bar-animation="fade"
+column status-bar-style=(compact ? "dark-content" : "light-content") status-bar-animation="fade"
 ```
 
-- `status-bar-style`: `"light"` (light text, for a dark background),
-  `"dark"` (dark text) or `"auto"` (the platform's choice for the scheme
-  under it, §D3). Expo's names, which mean the text's colour.
-  Unset is the same as not declaring.
-- `status-bar-animation`: `"none"` (the default: the new style shows in the
-  frame the batch commits) or `"fade"` (UIKit's cross-fade, 0.3 s).
+- `status-bar-style` names the **text**: `"light-content"` (light text, for
+  a dark surface: a dark banner takes `light-content`), `"dark-content"`
+  (dark text, for a light surface) or `"auto"` (§D4). React Native's words:
+  `light`/`dark` would read as the surface, as `color-scheme="dark"` does.
+- `status-bar-animation`: `"none"` (default: the new style shows in the
+  frame its batch commits) or `"fade"` (UIKit's cross-fade).
 - Lowered to the props `statusBarStyle` and `statusBarAnimation` (schema
-  `str`). Other values are a compile error.
+  `str`). A literal outside its set is `lower-attr-value`; a bound value
+  outside it is logged and counts as unset.
 
 A prop, not a command: it is state the app already has (the header is
 compact, the lightbox is open), so it stays right across navigation, reloads
 and the agent's clock without the app replaying a call.
 
-### D2 — The topmost declaration that shows wins
+### D2 — Which screen is under the bar
 
-The host reads every node that declares a style and shows (it is in the
-window and nothing above it is hidden), and picks one, the way UIKit's
-`childForStatusBarStyle` defers to what is on top:
-1. **The highest presentation:** a node inside the topmost presented route
-   (a sheet, a full-screen route, a lightbox presented as a route) beats one
-   under it. The primary stack is the lowest.
-2. **Within it, the most specific:** the deeper node wins (an overlay
-   inside a route over the route's own declaration); between equals, the
-   later in document order (painted on top).
+The **scope** is what the bar sits over:
+- the topmost presented route that covers it: a `fullscreen` route or a
+  zoom (`.overFullScreen`) always; a sheet only on a compact-width screen
+  at its `large` detent (at `medium`, and on an iPad, the screen behind
+  still has the bar);
+- else the committed route of the selected tab, with the root's own nodes
+  around the route outlet (an authored header over the stack, an overlay).
 
-So a profile route declares `"light"`, its compact header declares `"dark"`
-while it shows, and a lightbox route declares `"light"` over both. A route
-underneath a push, an unselected tab and a hidden overlay are not in the
-window and do not count. Mid-transition both routes show; the result
-settles when the transition ends (the host re-reads then).
+A route under a push, an unselected tab and the screen behind a covering
+presentation are outside the scope.
 
-### D3 — `auto` is the scheme under it
+### D3 — Within the scope, the declaration painted on top wins
 
-`"auto"`, or no declaration at all, takes the platform's default for the
-appearance where the winner sits: inside a `color-scheme` subtree forced
-dark (LLP 1034 §8) it is light text, forced light it is dark text, and
-otherwise the system's (`UIStatusBarStyle.default`). With no declaration
-anywhere, nothing changes from today.
+Of the declarations in scope that show, the one painted last wins: a
+descendant beats its ancestor's declaration (the compact header inside the
+profile route over the route's own), and between two branches the one the
+presenter paints above (its `z-index` rank, then its order among siblings,
+as `PaintOrder` already orders them) wins. **Shows** means in the window,
+not `display: none`, not `visibility: hidden`, and not a node UIKit is
+showing a projection of instead (a popover or menu hidden for UIKit's own
+menu, a row lifted into a context-menu preview); a route's header that the
+navigation bar projects counts, at its route's place. No declaration in
+scope is `auto` for the scope.
 
-### D4 — The same frame
+### D4 — `auto` is the scheme where the winner sits
 
-The presenter re-reads the declarations after every batch's projection,
-after a navigation or presentation transition ends, and when a modal is
-dismissed. A change calls `setNeedsStatusBarAppearanceUpdate` on the root
-controller (inside a 0.3 s animation for `fade`) in that turn, so the style
-commits with the batch that flipped the state.
+`"auto"` on a node whose computed `color-scheme` is dark is light text;
+light, dark text; unspecified, the platform's default
+(`UIStatusBarStyle.default`), which keeps following the system's
+appearance with no batch. It follows the appearance, not the pixels under
+the bar. With no declaration anywhere, nothing changes from today.
 
-UIKit asks the topmost full-screen controller, or a presented one that
-captures the status bar. Exact's controllers that UIKit can ask (the
-adapter's root `Controller`, `ModalController`, which now captures it) all
-answer the one resolved style, so whoever UIKit asks agrees. An embedder
-that hosts `ExactView` in its own controller reads
-`ExactView.statusBarStyle` and is told by `onStatusBarStyle`, as it is told
-`onCanvasColor` and `onTitle`.
+### D5 — Committed state, applied in the batch's frame
 
-### D5 — The other hosts
+The bar follows committed state. The presenter resolves the style once at
+the end of each outermost batch's projection, synchronously, and calls
+`setNeedsStatusBarAppearanceUpdate` in that turn (inside a 0.3 s animation
+block that wraps only that call, for `fade`), so a flip shows in the frame
+its batch commits. A push, a completed pop, a tab change and a presentation
+apply in the batch that commits them (a push therefore changes as its
+animation starts). While a transition is in flight (an interactive back
+swipe, a sheet being dragged, a presentation animating), the last committed
+style stays, and the batch or callback that commits the outcome applies the
+new one: a finger-driven dismiss snaps when it commits. Following the finger
+would need a style per route and the transition coordinator; not now. A
+sheet's detent change re-resolves without a batch. The animation is the
+winner's.
 
-- **macOS:** no status bar. The props are read and ignored.
-- **Linux:** none either. Ignored.
-- **The web:** a page cannot style the phone's status bar (only a
-  home-screen web app's static `apple-mobile-web-app-status-bar-style`
-  meta, which cannot follow state). Ignored. `theme-color`, which some
-  browsers paint behind it, is a colour, not a style, and is a separate
-  feature (LLP 1069 §10).
-- **The agent** reports the resolved style in `layout` (`statusBar: light`),
-  so a drive can check it without a screenshot.
+### D6 — Who UIKit asks
+
+UIKit asks the window's root controller, or a presented controller that
+covers the screen. In the standalone adapter those are the root
+`Controller` and `ModalController` (`.overFullScreen` and `.pageSheet`);
+the navigation, tab and route controllers are children nobody forwards to.
+Both override `preferredStatusBarStyle` to return the one resolved style,
+so whichever UIKit asks agrees; neither forwards `childForStatusBarStyle`,
+and `modalPresentationCapturesStatusBarAppearance` stays unset. The update
+is sent to the root and to the topmost `ModalController`. An embedder that
+hosts `ExactView` in its own controller reads `ExactView.statusBarStyle`
+(style and animation) and is told by `onStatusBarStyle`, called with the
+current value when set, as `onCanvasColor` is. tvOS compiles the code and
+has no bar: the overrides are inert there.
+
+### D7 — The other hosts and the agent
+
+- **macOS, Linux:** no status bar. The props are ignored.
+- **The web and the JS target:** a page cannot style the phone's status bar
+  (only a home-screen app's static `apple-mobile-web-app-status-bar-style`
+  meta, which cannot follow state). Both skip the two props rather than
+  writing them as `data-` attributes. `theme-color` is a colour, a separate
+  feature.
+- **The agent:** iOS `layout` gains `statusBar`, the resolved text style
+  (`light-content`, `dark-content` or `default`) and the node it came from.
+  It is Exact's request, not a reading of the screen. Other hosts omit it.
 
 ## 3. Not doing
 
-- **Hiding the status bar** (`prefersStatusBarHidden`). Nothing asks; it
-  would be one more value later.
-- **Android's navigation bar and status bar colour.** No Android host.
-- **`theme-color`.** A colour for browsers' chrome, its own feature.
+Hiding the status bar (`prefersStatusBarHidden`); following a finger
+through a transition; Android's bars; `theme-color`.
 
 ## 4. Tests
 
-- Contract: the attributes lower to the props; a bad value is refused.
-- iOS: the resolved style for a root declaration, a deeper overlay over its
-  route, a presented route over the primary stack, a hidden overlay that
-  does not count, `auto` under a dark `color-scheme` subtree; a state flip
-  changes the root controller's `preferredStatusBarStyle` in the same
-  `apply`; `fade` animates.
+- Contract: the attributes lower to the props; a bad literal is refused.
+- iOS: the winner for a root declaration, a descendant over its route, a
+  later-painted overlay over a deeper declaration in another branch, a
+  hidden or `visibility: hidden` overlay, a `fullscreen` route over the
+  stack, a sheet that does not cover the bar, `auto` under a dark
+  `color-scheme` subtree, no declaration (`.default`); a flip changes
+  `preferredStatusBarStyle` on the controller the walk reaches (the root,
+  or the presented `ModalController`) within the same `apply`; a transition
+  in flight keeps the committed style; `fade` animates.
+
+## 5. Review (r1)
+
+Astra (max) NOT READY, Grok (xhigh) READY WITH CHANGES. Taken:
+- **Who is asked (both):** only the root and `ModalController`; one stored
+  style; no capture flag; update the root and the top modal (D6).
+- **The order (both):** paint order, not tree depth; scope by what covers
+  the bar, sheets by detent (D2, D3).
+- **Transitions (both):** committed state; keep the last style while one
+  is in flight; snap on commit (D5).
+- **"Shows" (Astra):** projections excluded, projected headers included (D3).
+- **`auto` (both):** from the winner's computed scheme, unforced stays
+  `.default`; none in scope is `.default` (D4).
+- **Names (Grok):** `light-content`/`dark-content` (D1).
+- **Validation, embedder, web skips, agent report (both)** (D1, D6, D7).
+- **Same frame (Astra):** resolved synchronously at the end of the
+  outermost batch; screen-capture verification stays an acceptance check.
