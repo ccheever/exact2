@@ -56,30 +56,39 @@ impl Module {
         };
         let (mut owed, mut rejected) = (false, false);
         for call in calls {
-            match engine
-                .call("__exact_forget", [&call.to_string(), "", ""])
-                .as_deref()
-            {
-                Ok("storage") => owed = true,
-                Ok("rejected") => rejected = true,
-                _ => {}
+            if let Ok(said) = engine.call("__exact_forget", [&call.to_string(), "", ""]) {
+                owed |= said.starts_with("storage");
+                rejected |= said.ends_with("rejected");
             }
         }
         // The rejected fetches' continuations run now, their answers
-        // discarded: what they set (a busy flag) is cleared, never stranded.
-        // Between answers, as a let-go's steps run: storage they start is
-        // the background's, not refused as at bake.
+        // discarded, before any answer is current: what they set (a busy
+        // flag) is cleared, never stranded, and never lands on a live
+        // answer's store. Between answers, as a let-go's steps run: storage
+        // they start is the background's, not refused as at bake.
         if rejected {
             self.host.between_answers = true;
-            let drained = engine.drain();
+            // An interrupt ends the job it stopped; the jobs queued behind it
+            // still run here, not in the next answer's drain (a bounded
+            // number of tries: each one pops at least the job it stopped).
+            let mut drained = engine.drain();
+            for _ in 0..8 {
+                if drained.is_ok() {
+                    break;
+                }
+                self.watch.take();
+                drained = engine.drain();
+            }
             self.host.between_answers = false;
-            // A continuation another answer shared may have settled it: a
-            // waiter counts this as progress (`wake`).
-            self.progress += 1;
-            // An interrupted drain is over; its flag is not the next turn's.
-            if drained.is_err() {
+            if drained.is_ok() {
+                // A continuation another answer shared may have settled it:
+                // a waiter counts this as progress (`wake`).
+                self.progress += 1;
+            } else {
                 self.watch.take();
             }
+            // Storage a continuation started is the background's: arm it.
+            self.refresh_background();
         }
         if owed {
             self.finish_let_go();

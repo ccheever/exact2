@@ -1272,10 +1272,11 @@
     dropped.forEach(function (p) {
       p.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this reply; the request may already have been sent" }));
     });
-    if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage"; }
+    var rejected = dropped.length ? " rejected" : "";
+    if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage" + rejected; }
     call.replied = true;
     calls.delete(call.id);
-    return dropped.length ? "rejected" : "";
+    return rejected.trim();
   };
   global.__exact_let_go = function (failed, message) {
     var owed = false;
