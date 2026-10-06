@@ -14,13 +14,22 @@ type FamilyList = SmallVec<[FamilyId; 1]>;
 #[derive(Clone, Default, Debug)]
 pub struct FallbackMap {
     fallbacks: HashMap<Script, PerScript>,
+    /// The families of a script set no list of its own (its default key):
+    /// one list a host gives every such script, set once (Exact patch).
+    last_resort: Option<FamilyList>,
 }
 
 impl FallbackMap {
     /// Returns the font fallback families for the given key.
     pub fn get(&self, key: impl Into<FallbackKey>) -> Option<&[FamilyId]> {
         let key = key.into();
-        let entry = self.fallbacks.get(&key.script)?;
+        let Some(entry) = self.fallbacks.get(&key.script) else {
+            return if key.is_default() {
+                self.last_resort.as_deref()
+            } else {
+                None
+            };
+        };
         if key.is_default() {
             Some(entry.default.as_ref()?.as_slice())
         } else {
@@ -44,6 +53,11 @@ impl FallbackMap {
         families: impl Iterator<Item = FamilyId>,
     ) -> bool {
         self.set_or_append(key, families, true)
+    }
+
+    /// Sets the families of every script that has no list of its own.
+    pub fn set_last_resort(&mut self, families: impl Iterator<Item = FamilyId>) {
+        self.last_resort = Some(families.collect());
     }
 
     /// Inserts or appends the fallback families for the given script and
