@@ -680,7 +680,9 @@ drawn title bar) is a bug. On iOS:
 itself: its content goes in a `scroll`, `list` or `overflow-y="auto"` box, which
 `navigationScroll` names for the bar ("Routes and web documents"). A sheet's swipe down and a pushed screen's edge swipe press the
 route's enabled control whose `id` is the root's `navigationBack`; without one
-both are refused, as is the swipe on a sheet with `closedby="none"`.
+both are refused, as is the swipe on a sheet with `closedby="none"`. On iOS that
+control's text becomes the bar's back button title beside the bar's own chevron (no
+text shows the chevron alone), so label it `Recipes`, not `‹ Recipes`.
 
 An `image` source is the same string on every host: a path under the app's
 `assets/`, an `http(s)` URL, `symbol:<role>` (the roles are
