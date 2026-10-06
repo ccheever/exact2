@@ -107,6 +107,18 @@ Checked sources and time: plan issue drafts in [issues](../issues/README.md), 20
 - Keep the page key policy in the page (it must answer in the same event). TS sends the chord list for the contexts
   `terminalFocus:true, terminalOpen:true` (the clone's `chordWinners`, `keyboard-dispatch.ts`). The hook reports focus changes;
   TS turns them into the real `terminalFocus` and `terminalOpen` values.
+- Keys while the terminal has focus (read from the reference at `1e2ecbd975`, recorded by terminal-drawer):
+  `ThreadTerminalDrawer.tsx:745-781` `handleBeforeKey` hands these to the app instead of the terminal:
+  the close shortcut (`preventTerminalCloseShortcut`, ⌘W), `terminal.toggle` (⌘J), `terminal.split` (⌘D),
+  `terminal.splitVertical` (⇧⌘D), `terminal.new` (⌘N) and `diff.toggle`, each evaluated with
+  `terminalFocus:true, terminalOpen:true`. It keeps for the terminal: navigation chords
+  (`terminalNavigationShortcutData`), delete chords (`terminalDeleteShortcutData`) and clear (⌘K → `^L`,
+  `isTerminalClearShortcut`). The window handler (`ChatView.tsx:7583-7600`) still runs with
+  `terminalFocus:true` when the terminal owns focus, so commands whose default binding has no
+  `!terminalFocus` condition (`keybindings` defaults, e.g. ⌘B, ⌥⌘B, ⇧⌘J, ⌘O, ⇧⌘[ / ⇧⌘], ⌘1–9) also apply;
+  those with `!terminalFocus` (⌘K palette, ⌘P, ⌘N new chat, …) do not. Check the Ghostty surface's
+  `beforeKey` path (`terminal/ghostty/surface.ts:1057`) for which events reach the window before porting.
+  terminal-drawer passes only ⌘J through today.
 - Sidebar: teal (`text-teal-600`, dark `text-teal-300/90`) terminal icon, 14 pt in the row, 12 pt in the hover card; pulse 2 s stepped
   opacity 1 → 0.5 → 1 (`index.css:302-315`), no pulse under reduced motion. Row label `N terminal process(es) running`; palette tooltip
   `Terminal process running`. The server polls every 1 s, so the icon lags by up to about 1 s (`Manager.ts:100`).
