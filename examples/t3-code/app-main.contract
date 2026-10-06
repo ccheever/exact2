@@ -203,9 +203,9 @@ component ChatColumn
       // resolveThreadDetailsCardLayout: the card folds to the height above a player resized into it, and leaves when
       // no readable height (160pt) is left.
       when details.inline and canvas.cardShown and viewport.prefersColorScheme == "dark"
-        ThreadDetailsInline(details=details, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal)
+        ThreadDetailsInline(details=details, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
       when details.inline and canvas.cardShown and viewport.prefersColorScheme != "dark"
-        ThreadDetailsInline(details=details, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal)
+        ThreadDetailsInline(details=details, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
 
 // The right panel beside the chat on a wide window: the diff, or the surface chooser.
 component RightPanels

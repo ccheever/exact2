@@ -157,9 +157,9 @@ component WindowOverlays
     when paletteOpen
       CommandPalette(view=palette, query=paletteQuery, highlight=paletteHighlight, scroll=paletteScroll, busy=paletteBusy, viewport=viewport, scheme=viewport.prefersColorScheme, edit=paletteEdit, onKey=paletteKey, run=paletteRun, hover=paletteHover, close=paletteClose, back=paletteKey("Back"), flag=paletteFlag)
     when detailsOpen and conversationWidth < 984 and viewport.prefersColorScheme == "dark"
-      ThreadDetailsPanel(details=details, right=(((rightPanel or data.diffOpen) and not narrowDiff) ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth + 13 : 13), maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal)
+      ThreadDetailsPanel(details=details, right=(((rightPanel or data.diffOpen) and not narrowDiff) ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth + 13 : 13), maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
     when detailsOpen and conversationWidth < 984 and viewport.prefersColorScheme != "dark"
-      ThreadDetailsPanel(details=details, right=(((rightPanel or data.diffOpen) and not narrowDiff) ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth + 13 : 13), maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal)
+      ThreadDetailsPanel(details=details, right=(((rightPanel or data.diffOpen) and not narrowDiff) ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth + 13 : 13), maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
     R4GitLayers(details=details, windowHeight=viewport.height, act=detailsAct, local=chatLocal)
     R6PrLayers(details=details, scheme=viewport.prefersColorScheme, act=detailsAct, local=chatLocal) // lane r6-pr: the Merge AlertDialog
     when details.ready and details.git.dialog == "publish"
