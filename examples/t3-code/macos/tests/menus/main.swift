@@ -401,6 +401,50 @@ final class MenuTests: XCTestCase {
         XCTAssertFalse(T3Menus.dropsHeldClose(keyEvent(.keyDown, "w", 13, [], repeating: true)))
         XCTAssertFalse(T3Menus.dropsHeldClose(keyEvent(.keyDown, "e", 14, repeating: true)))
     }
+    /// pickProjectFavicon: one image (WORKSPACE_IMAGE_PREVIEW_EXTENSIONS), starting at the workspace root.
+    func testFaviconPanelPicksOneImageFromTheWorkspaceRoot() throws {
+        _ = NSApplication.shared
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("t3-favicon-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let panel = T3Menus.faviconPanel(startingAt: root.path)
+        XCTAssertEqual(panel.directoryURL?.standardizedFileURL.path, root.standardizedFileURL.path)
+        XCTAssertFalse(panel.allowsMultipleSelection)
+        XCTAssertTrue(panel.canChooseFiles)
+        XCTAssertFalse(panel.canChooseDirectories)
+        XCTAssertEqual(Set(panel.allowedContentTypes.compactMap(\.preferredFilenameExtension)).isSuperset(of: ["png", "svg", "gif", "jpeg", "webp", "ico"]), true)
+        // Under the agent: the imports folder's first image, or nothing.
+        let imports = root.appendingPathComponent("imports", isDirectory: true)
+        try FileManager.default.createDirectory(at: imports, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: imports.appendingPathComponent("notes.txt"))
+        var picked: String?? = .none
+        T3Menus().pickProjectFavicon(startingAt: root.path, importsRoot: imports) { picked = .some($0) }
+        XCTAssertEqual(picked, .some(nil))
+        try Data("x".utf8).write(to: imports.appendingPathComponent("icon.png"))
+        T3Menus().pickProjectFavicon(startingAt: root.path, importsRoot: imports) { picked = .some($0) }
+        XCTAssertEqual(picked.flatMap { $0 }.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }, imports.appendingPathComponent("icon.png").resolvingSymlinksInPath().path)
+    }
+    /// The full-screen fact: the style mask at attach, then did-enter / did-exit, each published.
+    func testFullScreenFactFollowsTheWindowNotifications() {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+        let fact = T3FullScreen()
+        var published = 0
+        fact.changed = { published += 1 }
+        fact.attach(window)
+        XCTAssertFalse(fact.fullScreen)
+        NotificationCenter.default.post(name: NSWindow.didEnterFullScreenNotification, object: window)
+        XCTAssertTrue(fact.fullScreen)
+        NotificationCenter.default.post(name: NSWindow.didEnterFullScreenNotification, object: window)
+        NotificationCenter.default.post(name: NSWindow.didExitFullScreenNotification, object: NSWindow())
+        XCTAssertTrue(fact.fullScreen, "another window's exit is not this one's")
+        NotificationCenter.default.post(name: NSWindow.didExitFullScreenNotification, object: window)
+        XCTAssertFalse(fact.fullScreen)
+        XCTAssertEqual(published, 3, "attach, enter, exit")
+        XCTAssertEqual(T3Locale.systemLocale(Locale(identifier: "ko_KR")), "ko-KR")
+        XCTAssertEqual(T3Locale.systemLocale(Locale(identifier: "en_GB")), "en-GB")
+    }
+
     func testMenusGainTheReferenceItems() {
         _ = NSApplication.shared
         let bar = NSMenu()
@@ -541,6 +585,6 @@ let suite = XCTestSuite(name: "Menus")
 suite.addTest(QuitHoldTests.defaultTestSuite)
 suite.addTest(MenuTests.defaultTestSuite)
 suite.run()
-guard let run = suite.testRun, run.executionCount == 41 else { print("Menus: unexpected test count \(suite.testRun?.executionCount ?? 0)"); exit(1) }
+guard let run = suite.testRun, run.executionCount == 43 else { print("Menus: unexpected test count \(suite.testRun?.executionCount ?? 0)"); exit(1) }
 print("Menus: \(run.executionCount) tests, \(run.totalFailureCount) failures")
 exit(run.hasSucceeded ? 0 : 1)
