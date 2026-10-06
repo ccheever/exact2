@@ -367,6 +367,8 @@ extension Agent {
         }
         node["scroll"] = scroll
         node["clip"] = clip
+        // CSS `visibility: hidden` with nothing of it showing, or a hidden run (e28279b3b keeps the view).
+        if hiddenBy == nil, !host.accessibilityExposed || presenter.inlineText(UInt32(id))?.hidden == true { hiddenBy = "visibility" }
         var visible: [String: Any] = ["hidden": hiddenBy != nil, "inert": inertBy != nil, "inViewport": b.intersects(CGRect(origin: .zero, size: vp.bounds.size)), "clipped": clipped]
         if let hiddenBy { visible["hiddenBy"] = hiddenBy }
         if let inertBy { visible["inertBy"] = inertBy }
@@ -453,7 +455,7 @@ extension Agent {
         if let reply = canvasTap(req) { return reply }
         if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
-            guard node.window != nil, !node.inert, !node.disabled else { return ["error": "inline node #\(id) is unavailable"] }
+            guard node.window != nil, !node.inert, !node.disabled, !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
             if req["hover"] as? Bool == true {
                 presenter.hoverInline(run.handlers.contains("hover") ? id : nil)
                 return ["tapped": Int(id), "hover": true]

@@ -282,13 +282,15 @@ extension Agent {
         }
         node["scroll"] = scroll
         node["clip"] = clip
-        var visible: [String: Any] = ["hidden": host.isHiddenOrHasHiddenAncestor, "inert": host.inert, "inViewport": b.intersects(NSRect(origin: .zero, size: clipView.bounds.size)), "clipped": clipped]
+        // CSS `visibility: hidden` with nothing of it showing, or a hidden run (e28279b3b keeps the view).
+        let cssHidden = !host.accessibilityExposed || presenter.inlineText(UInt32(id))?.hidden == true
+        var visible: [String: Any] = ["hidden": host.isHiddenOrHasHiddenAncestor || cssHidden, "inert": host.inert, "inViewport": b.intersects(NSRect(origin: .zero, size: clipView.bounds.size)), "clipped": clipped]
         if host.isHiddenOrHasHiddenAncestor {
             // Name the ancestor that hides it, never leave a reader guessing.
             var s: NSView? = host
             while let v = s, !v.isHidden { s = v.superview }
             if let v = s { visible["hiddenBy"] = (v as? NodeView).map { "#\($0.id)" } ?? String(describing: Swift.type(of: v)) }
-        }
+        } else if cssHidden { visible["hiddenBy"] = "visibility" }
         node["visible"] = visible
         var native: [String: Any] = ["view": String(describing: Swift.type(of: v)), "sheet": false]
         if presenter.inlineText(UInt32(id)) != nil { native["inline"] = true }
@@ -449,7 +451,7 @@ extension Agent {
         }
         if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["mouse"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
-            guard node.window != nil, !node.inert, !node.disabled else { return ["error": "inline node #\(id) is unavailable"] }
+            guard node.window != nil, !node.inert, !node.disabled, !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
             if req["hover"] as? Bool == true {
                 presenter.hoverInline(run.handlers.contains("hover") ? id : nil)
                 return ["tapped": Int(id), "hover": true]

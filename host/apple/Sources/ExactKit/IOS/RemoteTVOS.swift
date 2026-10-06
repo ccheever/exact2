@@ -14,6 +14,7 @@ extension NodeView {
     /// stop (LLP 1088 D7.3); the remote's order stays UIKit's geometry.
     override var canBecomeFocused: Bool {
         if let index = explicitTabIndex, index < 0 { return false }
+        if cssVisibilityHidden { return false } // no remote stop, nor Select (e28279b3b)
         return canBecomeFirstResponder || (!disabled && !inert && handlers.contains("press"))
     }
 
@@ -34,7 +35,7 @@ extension NodeView {
 
     /// Whether `presses` hold Select for this node; a Select going down presses it.
     func remoteSelect(_ presses: Set<UIPress>, down: Bool) -> Bool {
-        guard presses.contains(where: { $0.type == .select }), !disabled, handlers.contains("press") else { return false }
+        guard presses.contains(where: { $0.type == .select }), !disabled, !cssVisibilityHidden, handlers.contains("press") else { return false }
         if down { presenter?.press(id) }
         return true
     }
