@@ -694,7 +694,7 @@ export class T3Client {
   }
   /** Opens a thread as the selection: the row press, keyboard jumps and the sidebar's forward navigation. */
   async openSelected(native: Native, id: string): Promise<void> {
-    if (!this.shell.threads.some(thread => thread.id === id)) throw new ClientError('That thread is no longer available.');
+    if (!this.shell.threads.some(thread => thread.id === id)) { await this.openDraft(native, this.projectId); this.threadId = id; return; } // composer-fidelity G15: a missing thread shows NoActiveThreadState
     this.threadId = id; this.thread = null; this.diffOpen = false; this.answers = {};
     this.ensureSelection(); await this.openThread(native, id);
     sidebarOpened(this, native);
