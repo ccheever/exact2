@@ -438,10 +438,9 @@ component ComposerFooter
       // r5-composer: the labels' natural widths (r5-composer.contract), read by footerLayout.
       R5TextProbes(probes=data.composer.menuProbes)
       R5ComposerLabelProbes(model=(data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel), traits=data.composer.traitsLabel, runtime=data.composer.runtimeLabel, plan=(data.composer.planVisible ? (data.composer.planActive ? "Plan" : "Build") : ""))
-      // r5-integrate: the model picker sits 10pt left of this row (-ms-2.5). Natively a child outside its parent's
-      // bounds takes no press, so the row reaches 10pt further left (margin -10, padding 10) to hold it; host width
-      // below subtracts that padding (composer-presentation.ts), so the label breakpoints are unchanged.
-      row flex=1 min-width=0 gap=(resting ? 0 : 4) align-items="center" height=32 margin-left=-10 padding-left=10 box-sizing="border-box" hook="t3-anchor" data-anchor="controls"
+      // r5-integrate: the model picker sits 10pt left of this row (-ms-2.5); main's macOS hit test reaches a
+      // child's visible overflow (652a6c865), so the part outside the row takes its press.
+      row flex=1 min-width=0 gap=(resting ? 0 : 4) align-items="center" height=32 box-sizing="border-box" hook="t3-anchor" data-anchor="controls"
         when data.composer.noProvider != ""
           ProviderUnavailable(label=data.composer.noProvider, xs=resting, disabled=(data.composer.providerSetupId == ""), press=openProviders(data.composer.providerSetupId))
         else
