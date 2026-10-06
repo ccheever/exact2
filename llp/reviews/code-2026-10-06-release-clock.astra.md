@@ -34,3 +34,25 @@ I modified no files. Cached binaries passed 39 transform tests and failed the he
 2. Taken: the advance and the event are split (`advance_for_input`, `deliver_after`). After the timers, the event runs only if the kernel's binding is still the one the input was validated against (`transform_drag_binding(handle) == input.binding`; for a height drag, `height_drag_target(handle) == target`); otherwise the timers' commits are kept and the event is refused (`committed:false`, "the gesture's binding changed before its event"). Test: `a_timer_that_unbinds_the_photo_before_its_release_ends_the_gesture` (Apple and web).
 3. Taken: geometry advances the runner before it adopts the held pair's authoring and cancels it, so the cancellation meets what the timers left. Test: `a_timer_that_drops_the_transition_before_new_geometry_snaps_the_cancel` (Apple and web). The web's failure fallback still lowers current values before the receipts, in the same batch, which the presenter applies in order.
 Pre-existing follow-ups: Apple resize is taken (advanced to the host's clock before its handlers; a view a timer removed is skipped); Linux retained press/swipe and the terminal are queued (QUEUE.md).
+
+# Round 2 (on 789a66c18)
+
+**Verdict: READY WITH CHANGES.**
+
+1. **P2 — Resize notifications are captured before timers can invalidate their geometry.** In [host/apple/src/resize.rs:27](/Users/admin/.tuft/projects/exact2-bsky/host/apple/src/resize.rs:27), `due` and the next depth threshold have already been calculated when `advance_for_input` runs. Timer receipts are not laid out until after those notifications dispatch. A timer changing an observed element’s size therefore delivers the old `contentRect`; the depth rule then excludes that element from correction in this turn. If the timer replaces it, the replacement at the same or shallower depth misses its initial notification. With no further work scheduled, it remains undelivered. Apply and lay out timer receipts before gathering the notifications and advancing the depth threshold.
+
+2. **P2 — Native window resizing still supplies an old input time.** This is an uncovered existing path. [Session.swift:1296](/Users/admin/.tuft/projects/exact2-bsky/host/apple/Sources/ExactKit/Session.swift:1296) calls `runtime.resize` without `now()`, and [host/apple/src/host.rs:1075](/Users/admin/.tuft/projects/exact2-bsky/host/apple/src/host.rs:1075) leaves `self.now_ms` unchanged. After an idle interval, the new resize advance consequently advances to the old host time. A resize handler still reads stale `now()` and can arm an already-overdue `after(300)`. Carry the observation’s timestamp through the resize bridge and advance before viewport settlement and resize delivery.
+
+The gesture changes otherwise look sound: timer receipts precede the event receipt; binding changes suppress dispatch while retaining timer commits; geometry adopts timer-updated authoring before cancellation; and web retirement precedes lowering. The web `committed` check correctly distinguishes a successful geometry event from an earlier timer refusal. I found no additional actionable defect in the geometry early returns.
+
+Other **pre-existing P2** instances remain in [Linux retained dispatch](/Users/admin/.tuft/projects/exact2-bsky/host/linux/src/host.rs:937) and [terminal key delivery after polling](/Users/admin/.tuft/projects/exact2-bsky/host/terminal/src/term.rs:701), as the added queue entry describes. The JS target refreshes time at action commit, so it does not share the original idle-clock failure.
+
+**Validation:** 68 focused tests passed using cached binaries. The added tests use explicit timestamps and no sleeps; their assertions would fail against the original implementation. I did not execute a baseline mutation run. Coverage still needs the two resize cases above, timer refusal plus successful/failed event dispatch, and unchanged-dimensions geometry with due timers. The changed browser admission expression has no added integration regression.
+
+No files were modified, and I did not open the prohibited prior reviews.
+
+# Disposition (round 2)
+
+1. Taken by reverting: Apple resize goes back to its old delivery, and the whole resize path (the rounds' order, and the window resize's missing time) is queued as one item (QUEUE.md), since advancing inside the rounds needs the timers laid out before the round gathers its notifications.
+2. Queued with it (pre-existing).
+Coverage added: a refusing timer is reported while the release still commits, and unchanged geometry commits the timers due by then (`a_refusing_timer_is_reported_and_the_release_still_commits`, Apple and web). Not re-reviewed.
