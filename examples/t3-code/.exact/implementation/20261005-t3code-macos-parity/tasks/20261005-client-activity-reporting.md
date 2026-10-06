@@ -1,12 +1,12 @@
 ---
 name: 20261005-client-activity-reporting
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
-verification: blocked
+implementation: implemented
+verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3code-parallel-features
-branch: daehyeon/t3code-client-activity-reporting
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-client-activity-reporting
 pr_url: null
 verified_commit: null
 ---
@@ -228,3 +228,67 @@ No activity production change was needed. **Verification remains blocked**, with
 Each final capture has passing scoped runner assertions and a validated evidence manifest. These reports establish their stated checks, not whole-task acceptance. Earlier captures remain historical; the final root-clock capture supersedes the stale full-file fingerprint from the first pass. Current source, test/build gates and review are coordinated in [repair review](../reviews/20261006-repair-verification.md).
 
 Remaining mandatory gaps: measured <=0.3s focus/pointer-to-report latency, and the actual reference Electron lifecycle trace/diff. Existing GUI action logs have no paired high-resolution event timestamp, so successful transitions cannot prove that bound. Common main/oracle merge prerequisites remain pending as recorded above. The task stays active with `implementation: in-progress`, `verification: blocked`; no task or framework issue was moved to `closed` by this verification.
+
+
+## Wave 3 completion, 2026-10-06
+
+Base `feat(example)/t3-code` at `9670b0723`; reference `1e2ecbd975`. The reporter, transport
+hooks and fleet hooks were already on the branch and needed no change. The earlier evidence
+folders this record links (`../evidence/20261005-client-activity-reporting/…`) were made on
+the old `examples/macos/t3-code` layout and live only in commit `d55a3d690`.
+
+**Fixed (A10).** The root retried a failed or snapshot-less `server.refreshProviders` every
+10 s for as long as the composer stayed open. ChatComposer.tsx:2195-2268 arms its retry timer
+only while the cwd's snapshot has `slashCommandsPending`; otherwise its refresh effect runs again
+only when the prompt or the provider list/settings change, and only once the 10 s cooldown is
+over (a change inside the cooldown is dropped). `composerWorkspace` now returns `timer` (pending
+snapshot) and `wake` (a count of prompt/config changes); the refresh result carries `wake` at
+completion; the root retries after the cooldown only on `timer` or a newer `wake`, and absorbs
+changes seen inside the cooldown. Commits `163b1a669` (TypeScript and tests) and `1e589cb71`
+(shared root: `app-shapes.contract` +3 lines at 5-6 and 10, `app.contract` +6/-1 at 200, 206,
+215-219).
+
+### Live proof against the reference server (agent drive, one app session per build)
+
+Fixture (not committed, `target/activity-proof/`): reference servers started with `env -i`
+and isolated HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG/T3CODE_HOME, telemetry off, ports 16320-16324;
+Codex logged in with a fake API key (`codex login --with-api-key`, no real account; Claude not on
+PATH); one project added with `project add` whose folder was then removed, so every workspace
+refresh is a snapshot-less answer (`refreshWorkspaceSnapshot` Failure in the server trace);
+`providerHealthRefreshInterval` 5000 ms. `observer.mjs` samples `server.getBackgroundPolicy` and
+`server.getConfig` each second with its own bearer session; `drive.mjs` drives the app through
+`scripts/agent.mjs`'s `open()` (pair, wizard, New thread, then the phases), stops and starts the
+server, and closes the window. RPC timing comes from the server's own `server.trace.ndjson`.
+
+The shared Mac's screen was locked during every drive (`CGSSessionScreenIsLocked = 1`), so macOS
+reported the window occluded: `visible:false` in every lease after the first seconds, and the
+agent never activates the app, so `focused:false`. Hide/unhide could not be driven: an agent
+app is an accessory app, `NSRunningApplication.hide()` returns false and Command-H through the
+driver did not hide it.
+
+| Row | Result | Server record |
+| --- | --- | --- |
+| Discovery, idle 60 s after opening the draft | Before: 6 `refreshProviders` (every 10 s). After: 1 (at open) | trace, run-before 10:42:03.8…10:42:53.9; run-after 10:44:36.8 only |
+| Discovery, agent clock after a failed answer | After: no change +12 s → 0; prompt change +1 s → 1; change inside the cooldown, +1 s, +8 s, +2 s → 0; change after the cooldown +1 s → 1. Before: 2, 0, 0, 1, 0, 0 | trace bucketed by drive marks |
+| Cadence | Reports at connect then every 25 s (10:44:35.7, 10:45:00.6, 10:45:25.6, 10:45:50.6, 10:46:15.6); every lease `desktop-renderer`, 45 s TTL, scopes `provider-status` + `vcs-status:<cwd>` | trace + policy |
+| Interaction window | `recentlyInteracted` true until launch + 45 s, false from the 10:45:25 report | policy |
+| Server effect, Balanced | Lease live but not foreground (not visible): codex `checkedAt` unchanged 10:44:36-10:45:36 | policy |
+| Server effect, Performance (scope demand only) | `checkedAt` moves every ~5 s while the lease lives (from 10:45:38) | policy |
+| Server effect, Balanced foreground (base build, attempt 1, same reporter) | lease `visible:true recentlyInteracted:true` → foreground 1 → `checkedAt` 10:27:26.2, 10:27:31.2; window occluded by the lock screen → off-grid report 10:27:33.659 `visible:false background` → refresh stops | policy + trace (`run-before-attempt1`) |
+| Retry after failed reports | Server stopped 10:46:16.9, started 10:46:36.9; reports fail silently; the app reconnects and reports at 10:46:40.676, then cadence resumes; refresh resumes | trace + policy |
+| Silent failure | No toast after the outage (`toast-region` empty), no activity refusal in `logs` | tree/logs records |
+| App quit | Window close at 10:47:27.1 quits the app; no report after the last at 10:47:05.6; the server keeps the lease until its TTL (expires 10:47:50) and then stops refreshing (`checkedAt` stays 10:47:48.4) | policy |
+
+Not run / remaining: trace-diff and Electron oracle rows (no oracle); hide/unhide and the
+0.3 s focus/pointer latency, and visible-window foreground in the after build (need an unlocked
+screen and real input: unverified (attended)); several environments (fleet B) was proved by the
+earlier harness only; the pending-snapshot timer path is unit-tested (Codex never answers with
+`slashCommandsPending`). Drives: three BEFORE attempts (1: projects step tapped the wrong
+`welcome-import` node, 2: no provider selected because the isolated Codex had no CODEX_HOME,
+3: phases 0-2 recorded, the helper call crashed after applying the Performance profile) and one
+AFTER run, all harness faults, no app fix between them.
+
+Checks: `bun test examples/t3-code` 1832 pass / 1 skip / 0 fail (base 1829); strict tsc clean;
+contract build 2325 slots, 43 resources; `cargo test -p t3-code-macos --lib` 10 pass; AppKit
+`activity` 7/0, `transport` 45 pass / 2 skipped (live) / 0 fail; macOS bundle built; five checks:
+build, test (2,927 passed, 0 failed, 18 ignored), clippy, fmt, caps and boot all pass.
