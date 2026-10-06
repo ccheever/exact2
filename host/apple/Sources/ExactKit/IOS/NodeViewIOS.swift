@@ -304,7 +304,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let ok = super.resignFirstResponder()
         if ok { showFocusRing(false) }
         if ok { presenter?.collections.pinsChanged() }
-        if ok { inputCanvas?.canvasInput?.blur() }
+        if ok && !isSurfaceControl { inputCanvas?.canvasInput?.blur() }
         if ok, handlers.contains("blur"), presenter?.menus.focus.quiet != true { presenter?.blur(id) }
         return ok
     }

@@ -12,7 +12,7 @@
 use super::Loader;
 use crate::CompileError;
 use crate::RelatedLocation;
-use contract_syntax::scope::{Elsewhere, Missing};
+use contract_syntax::scope::{Elsewhere, Kind, Missing};
 use std::path::{Component, Path, PathBuf};
 
 /// One line a file needs: an existing `use` line rewritten with the names
@@ -68,6 +68,13 @@ impl Loader<'_> {
                     "`{}` is declared in {}: name it from the one meant",
                     m.name,
                     files.join(" and ")
+                ));
+            } else if let Some(clash) = self.clash(index, e.unit, &m.name) {
+                unresolved.push(clash);
+            } else if self.reaches(e.unit, index) {
+                unresolved.push(format!(
+                    "`{}` is declared in `{}`, which uses this file: naming it here would make a cycle; move it to a file both can use",
+                    m.name, e.file
                 ));
             } else if let Some(spec) = self.specifier(index, e.unit) {
                 match groups.iter_mut().find(|(s, _)| *s == spec) {
@@ -194,7 +201,96 @@ impl Loader<'_> {
     }
 
     /// The specifier that brings unit `to` into unit `from`.
-    fn specifier(&self, from: usize, to: usize) -> Option<String> {
+    /// Why naming `name` from unit `to` in unit `index` is not mechanical: a
+    /// `use` brings every declaration of the name (a component and a style
+    /// alike), and one of those may be a name this file declares or already
+    /// brings from elsewhere.
+    pub(super) fn clash(&self, index: usize, to: usize, name: &str) -> Option<String> {
+        let theirs: Vec<Kind> = self.declared[to]
+            .iter()
+            .filter(|(_, n)| n == name)
+            .map(|(k, _)| *k)
+            .collect();
+        let here = &self.units[index];
+        for kind in theirs {
+            if self.declared[index]
+                .iter()
+                .any(|(k, n)| *k == kind && n == name)
+            {
+                return Some(format!(
+                    "naming `{name}` from `{}` would also bring its {} `{name}`, which this file declares: rename one",
+                    self.shown(to),
+                    kind.what()
+                ));
+            }
+            // Or one this file already names from another file.
+            let brought = here.file.uses.iter().zip(&here.targets).any(|(u, &t)| {
+                t != to
+                    && u.names.iter().any(|n| {
+                        n.local() == name
+                            && self.declared[t]
+                                .iter()
+                                .any(|(k, d)| *k == kind && *d == n.name)
+                    })
+            });
+            if brought {
+                return Some(format!(
+                    "naming `{name}` from `{}` would also bring its {} `{name}`, which this file already names from another file: rename one with `as`",
+                    self.shown(to),
+                    kind.what()
+                ));
+            }
+        }
+        None
+    }
+
+    /// Whether unit `from` uses unit `to`, through any chain of uses.
+    fn reaches(&self, from: usize, to: usize) -> bool {
+        let mut seen = vec![false; self.units.len()];
+        let mut stack = vec![from];
+        while let Some(u) = stack.pop() {
+            if u == to {
+                return true;
+            }
+            if !std::mem::replace(&mut seen[u], true) {
+                stack.extend(self.units[u].targets.iter().copied());
+                // And the edges the other fixes would add.
+                stack.extend(
+                    self.proposed
+                        .iter()
+                        .filter(|(f, _)| *f == u)
+                        .map(|(_, t)| *t),
+                );
+            }
+        }
+        false
+    }
+
+    /// The specifier a `use` in unit `from` names unit `to` by — checked by
+    /// resolving it from `from`, since a package's name need not lead to the
+    /// same install from every directory.
+    pub(super) fn specifier(&self, from: usize, to: usize) -> Option<String> {
+        let spec = self.candidate_specifier(from, to)?;
+        let dir = self.sources.paths[from]
+            .canonicalize()
+            .ok()?
+            .parent()?
+            .to_path_buf();
+        let resolved = crate::resolve::resolve(
+            &spec,
+            &dir,
+            &self.sources.origins[from],
+            self.app_root,
+            &mut Vec::new(),
+        )
+        .ok()?;
+        let target = &self.sources.paths[to];
+        let same =
+            resolved.key == *target || target.canonicalize().is_ok_and(|t| t == resolved.key);
+        same.then_some(spec)
+    }
+
+    fn candidate_specifier(&self, from: usize, to: usize) -> Option<String> {
         let named = |unit: usize| {
             let u = &self.units[unit];
             u.file

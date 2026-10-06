@@ -31,6 +31,7 @@ import { BINARYEN } from '../host/web/stages.mjs';
 
 import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
+import { throwContractErrors } from './contract-diagnosis.mjs';
 import { filesystem } from './filesystem.mjs';
 import { startSweep } from './sweep.mjs';
 import { installProblems } from './install-page.mjs';
@@ -840,23 +841,7 @@ function buildCommand(command, args, app, env, stderr = 'pipe') {
     if (fetched.status === 0) result = spawnSync(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
   }
   if (result.error || result.status !== 0) {
-    // A host crate's build script compiles the Contract and panics on its
-    // first error, somewhere in cargo's output. Ask the compiler for all of
-    // them and say those alone, last (LLP 1054 L9); only on a failure.
-    const source = resolve(app.dir, 'app.contract');
-    if (command === 'cargo' && existsSync(source)) {
-      const scratch = resolve(tmpdir(), `exact-contract-check-${process.pid}.plan`);
-      const checked = spawnSync('cargo', ['run', '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract', '--', 'build', source, '-o', scratch],
-        { cwd: ROOT, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
-      rmSync(scratch, { force: true });
-      const found = (checked.stderr ?? '').split('\n').filter((line) => /\.contract:\d+:\d+ \[[a-z0-9-]+\]/.test(line))
-        .map((line) => line.replace(/^(\/\S+?\.contract)/, (file) => relative(process.cwd(), file) || file));
-      if (checked.status !== 0 && found.length) {
-        const error = new Error(`${app.name}: the Contract does not compile:\n  ${[...new Set(found)].join('\n  ')}`);
-        error.stack = error.message; error.contract = true;
-        throw error;
-      }
-    }
+    if (command === 'cargo') throwContractErrors(app, args, result, ROOT);
     throw new Error(`${command} ${args.join(' ')} failed: ${result.error?.message ?? result.stderr ?? `exit ${result.signal ?? result.status} (see diagnostics above)`}\n${(result.stdout ?? '').slice(-4000)}`);
   }
   return result;

@@ -222,6 +222,9 @@ private final class NativeEntry {
     #endif
     var intrinsicSize: CGSize?
     var hasIntrinsicReport = false
+    #if os(iOS) || os(tvOS)
+    var worldLayout = NativeWorldLayout()
+    #endif
     init(owner: NodeView) { self.owner = owner; self.id = owner.id }
     var status: [String: Any] {
         var s: [String: Any] = ["name": name, "state": state]
@@ -229,6 +232,28 @@ private final class NativeEntry {
         return s
     }
 }
+
+#if os(iOS) || os(tvOS)
+/// A fixed-size native child need not get UIKit layout when only an ancestor
+/// moves. Re-arm it after a geometry batch, once per changed window geometry.
+struct NativeWorldLayout {
+    private struct Geometry: Equatable {
+        let frame: CGRect
+        let scale: CGFloat
+        let window: ObjectIdentifier
+    }
+    private var previous: Geometry?
+
+    mutating func refresh(_ view: UIView) {
+        guard let window = view.window else { previous = nil; return }
+        let next = Geometry(frame: view.convert(view.bounds, to: window),
+                            scale: window.screen.scale, window: ObjectIdentifier(window))
+        guard next != previous else { return }
+        previous = next
+        view.setNeedsLayout()
+    }
+}
+#endif
 
 private final class NativeWait { var data: Data?; var error: String?; var done = false }
 
@@ -873,6 +898,15 @@ final class NativeViews {
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         #endif
     }
+
+    #if os(iOS) || os(tvOS)
+    func refreshWorldGeometry() {
+        for entry in entries.values {
+            guard let view = entry.view else { continue }
+            entry.worldLayout.refresh(view)
+        }
+    }
+    #endif
 
     fileprivate func received(nonce: UInt32, kind: UInt32, data: Data) {
         guard let entry = entries.values.first(where: { $0.nonce == nonce }), let owner = entry.owner,

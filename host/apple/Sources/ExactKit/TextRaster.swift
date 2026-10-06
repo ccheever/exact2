@@ -47,6 +47,13 @@ extension TextRasterImage {
     #endif
 }
 
+/// A raster's rectangle and, once aligned to physical pixel edges, its size
+/// in pixels: counted from those edges, never rounded again from points.
+struct TextRasterExtent {
+    let rect: CGRect
+    let pixels: CGSize?
+}
+
 struct TextRasterJob {
     let source: NSAttributedString
     let ranges: [CFRange]
@@ -75,6 +82,21 @@ struct TextRasterJob {
     var shadow: TextRunShadow? = nil
 
     static let maxInkOverflow: CGFloat = 256
+    /// `input` within `limit` (the box and its ink allowance) and `clip`, out
+    /// to whole device pixels. The box itself is kept as laid out. A span
+    /// is `right - left` pixels: `(right / scale - left / scale) * scale`
+    /// rounded up can be one more (787 pixels at 3x allocated 788, and the
+    /// bitmap stretched to fit its frame).
+    static func alignedExtent(_ input: CGRect, bounds: CGRect, limit: CGRect? = nil, clip: CGRect?, scale: CGFloat) -> TextRasterExtent {
+        var rect = input.intersection(limit ?? bounds.insetBy(dx: -maxInkOverflow, dy: -maxInkOverflow))
+        if let clip { rect = rect.intersection(clip) }
+        guard rect != bounds, !rect.isNull else { return TextRasterExtent(rect: rect, pixels: nil) }
+        let left = floor(rect.minX * scale), top = floor(rect.minY * scale)
+        let right = ceil(rect.maxX * scale), bottom = ceil(rect.maxY * scale)
+        return TextRasterExtent(
+            rect: CGRect(x: left / scale, y: top / scale, width: (right - left) / scale, height: (bottom - top) / scale),
+            pixels: CGSize(width: right - left, height: bottom - top))
+    }
     /// How far past the box a run's own `text-shadow` may reach in these
     /// pixels (LLP 1077 D3): its offset plus 1.5× its blur, per side. Past
     /// it the shadow is cut, so a huge value cannot size an absurd bitmap:
@@ -186,23 +208,18 @@ struct TextRasterJob {
             }
             for (fill, _) in TextLinePaint.backgrounds(line, at: position) { painted = painted.union(fill) }
         }
-        func aligned(_ r: CGRect) -> CGRect {
-            var r = r.intersection(limit)
-            if let clip { r = r.intersection(clip) }
-            guard r != bounds, !r.isNull else { return r }
-            let left = floor(r.minX * scale) / scale
-            let top = floor(r.minY * scale) / scale
-            return CGRect(x: left, y: top, width: ceil(r.maxX * scale) / scale - left,
-                          height: ceil(r.maxY * scale) / scale - top)
+        func aligned(_ r: CGRect) -> TextRasterExtent {
+            Self.alignedExtent(r, bounds: bounds, limit: limit, clip: clip, scale: scale)
         }
-        let covered = aligned(painted.isNull ? bounds : bounds.union(painted))
-        var frame = covered
+        let coveredExtent = aligned(painted.isNull ? bounds : bounds.union(painted))
+        var frameExtent = coveredExtent
         if crop, !painted.isNull {
             let ink = aligned(painted)
-            if !ink.isNull, !ink.isEmpty { frame = ink }
+            if !ink.rect.isNull, !ink.rect.isEmpty { frameExtent = ink }
         }
-        let pixelWidth = (frame.width * scale).rounded(.up)
-        let pixelHeight = (frame.height * scale).rounded(.up)
+        let covered = coveredExtent.rect, frame = frameExtent.rect
+        let pixelWidth = frameExtent.pixels?.width ?? (frame.width * scale).rounded(.up)
+        let pixelHeight = frameExtent.pixels?.height ?? (frame.height * scale).rounded(.up)
         guard pixelWidth.isFinite, pixelHeight.isFinite,
               pixelWidth > 0, pixelHeight > 0,
               pixelWidth < CGFloat(Int.max), pixelHeight < CGFloat(Int.max) else { return nil }

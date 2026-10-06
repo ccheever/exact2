@@ -11,7 +11,8 @@
 // frame the host presents the curve's progress; the view is shown at the
 // interpolation between the captured rectangle and its slot (re-read every
 // frame, so a scroll that settles moves the landing), with its radius and an
-// image's crop interpolated too. `land` puts it back.
+// image's crop interpolated too. Any other view flies scaled whole in a clip
+// that is the shown box (`FlightScale`). `land` puts it back.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -24,6 +25,9 @@ struct FlightLook {
     /// that hides the leaver, and a flight drawing nothing until then showed
     /// no photo at all for a frame or two on a device (LLP 1013.000 D4).
     var stand: NativeRasterLease? = nil
+    /// A view scaled whole in its clip (`FlightScale`): `applyTransform`
+    /// keeps this scale while it flies, as a style would otherwise undo it.
+    var scale: CGFloat? = nil
 }
 
 /// Where a leaver was shown when its name moved on.
@@ -47,6 +51,9 @@ final class Flight {
     weak var view: NodeView?
     var slot: UIView?
     var container: UIView?
+    /// A view that is not an image flies scaled inside this: the shown box,
+    /// its radius and its clip (D4.4).
+    var clip: UIView?
     var geometry: BatchOp?
     var saved: (radius: CGFloat, clips: Bool, interaction: Bool, hidden: Bool)?
     init(id: UInt32, source: FlightSource) { self.id = id; self.source = source }
@@ -54,6 +61,11 @@ final class Flight {
 
 /// The flight layer: draws its flights, takes no touches.
 final class FlightLayer: UIView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
+}
+
+/// A flight's clip: the shown box of a view flying scaled (D4.4).
+final class FlightClip: UIView {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
 }
 
@@ -73,6 +85,11 @@ extension Presenter {
                                 width: look.image.width / max(leaver.bounds.width, 1), height: look.image.height / max(leaver.bounds.height, 1))
             source.natural = flying.source.natural ?? leaver.raster?.image.naturalSize
             source.radius = leaver.layer.cornerRadius
+            if let clip = flying.clip {
+                // Scaled in its clip: where and how round the clip is shown.
+                source.rect = clip.convert(clip.bounds, to: nil)
+                source.radius = clip.layer.cornerRadius
+            }
             source.raster = leaver.raster ?? look.stand
             // The size of the image the stand draws, with it: after the
             // flying view's own raster landed, that is the replacement's.
@@ -115,13 +132,25 @@ extension Presenter {
         flights.removeValue(forKey: f.id)
         guard let view = f.view, let slot = f.slot, let parent = slot.superview else {
             // Its place went (a roots change): the view is wherever that put
-            // it; it gets its own look, input and accessibility back.
-            if let view = f.view { restore(view, f) }
+            // it; it gets its own look, input and accessibility back. Still in
+            // its clip, it stands at the clip's top left, unscaled, at its
+            // own size.
+            if let view = f.view {
+                if let clip = f.clip, view.superview === clip, let layer = clip.superview {
+                    view.transform = .identity
+                    view.frame = CGRect(origin: clip.frame.origin, size: view.bounds.size)
+                    layer.insertSubview(view, aboveSubview: clip)
+                }
+                restore(view, f)
+                view.applyTransform()
+            }
+            f.clip?.removeFromSuperview()
             f.slot?.removeFromSuperview(); f.container.map(Self.dropEmptyLayer); return
         }
         view.flightLook = nil
         parent.insertSubview(view, aboveSubview: slot)
         slot.removeFromSuperview()
+        f.clip?.removeFromSuperview()
         restore(view, f)
         let op = f.geometry ?? {
             var op = BatchOp(op: .frame, nodeID: f.id)
@@ -151,6 +180,7 @@ extension Presenter {
         f.view?.flightLook = nil
         f.view?.removeFromSuperview()
         f.slot?.removeFromSuperview()
+        f.clip?.removeFromSuperview()
         f.container.map(Self.dropEmptyLayer)
     }
 
@@ -164,7 +194,7 @@ extension Presenter {
     func resetFlights() {
         for f in flights.values {
             f.view?.flightLook = nil
-            f.view?.removeFromSuperview(); f.slot?.removeFromSuperview(); f.container?.removeFromSuperview()
+            f.view?.removeFromSuperview(); f.slot?.removeFromSuperview(); f.clip?.removeFromSuperview(); f.container?.removeFromSuperview()
         }
         flights = [:]
     }
@@ -217,12 +247,26 @@ extension Presenter {
         f.slot = slot
         f.container = layer
         view.transform = .identity
-        layer.addSubview(view)
         view.isUserInteractionEnabled = false
         view.accessibilityElementsHidden = true
-        view.layer.masksToBounds = true
-        view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
-        view.flightLook = FlightLook(image: CGRect(origin: .zero, size: size))
+        if view.kind == "image" {
+            layer.addSubview(view)
+            view.layer.masksToBounds = true
+            view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
+            view.flightLook = FlightLook(image: CGRect(origin: .zero, size: size))
+        } else {
+            // Its own look, at its own size, scaled in a clip (D4.4).
+            let clip = FlightClip(frame: f.source.rect.isNull ? .zero : layer.convert(f.source.rect, from: nil))
+            clip.isUserInteractionEnabled = false
+            clip.layer.masksToBounds = true
+            layer.addSubview(clip)
+            clip.addSubview(view)
+            f.clip = clip
+            view.flightLook = FlightLook(image: CGRect(origin: .zero, size: size), scale: 1)
+        }
+        // Ranked among the flights by its rank, a clip as the view it holds
+        // (`PaintOrder`).
+        PaintOrder.changed(layer)
     }
 
     private func showFlight(_ f: Flight) {
@@ -234,6 +278,24 @@ extension Presenter {
         let shown = CGRect(x: mix(from.minX, to.minX), y: mix(from.minY, to.minY),
                            width: max(0, mix(from.width, to.width)), height: max(0, mix(from.height, to.height)))
         CATransaction.begin(); CATransaction.setDisableActions(true)
+        if let clip = f.clip {
+            // Scaled whole at its own layout, the slot's size, in a clip that
+            // is the shown box; the radius is the clip's, in the shown box's
+            // units, as the leaver's was captured (D4.4).
+            let layout = slot.bounds.size
+            let s = FlightScale.of(shown: shown.size, layout: layout) ?? 1
+            let ratio = to.width / max(layout.width, 1)
+            clip.frame = shown
+            clip.layer.cornerRadius = mix(f.source.radius, (view.cornerRadii(in: CGRect(origin: .zero, size: layout)).max() ?? 0) * ratio)
+            view.transform = .identity
+            view.bounds = CGRect(origin: .zero, size: layout)
+            let a = view.layer.anchorPoint
+            view.layer.position = CGPoint(x: a.x * layout.width * s, y: a.y * layout.height * s)
+            view.transform = CGAffineTransform(scaleX: s, y: s)
+            view.flightLook = FlightLook(image: CGRect(origin: .zero, size: layout), scale: s)
+            CATransaction.commit()
+            return
+        }
         view.transform = .identity
         view.frame = shown
         view.layer.cornerRadius = mix(f.source.radius, view.cornerRadii(in: CGRect(origin: .zero, size: to.size)).max() ?? 0)

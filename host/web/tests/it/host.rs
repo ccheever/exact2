@@ -88,7 +88,8 @@ fn symbol_roles_carry_host_paths_and_decorative_images() {
   view
     column font-size=22
       button "Change" press=change testId="change"
-      image source aria-label="Ignored decorative label" tint-color="light-dark(#007aff,#0a84ff)"
+      image source tint-color="light-dark(#007aff,#0a84ff)"
+      image "symbol:add" aria-label="Add a stop"
 "##,
     )
     .unwrap();
@@ -101,8 +102,7 @@ fn symbol_roles_carry_host_paths_and_decorative_images() {
     .unwrap();
     assert!(first.contains("\"src\":\"symbol:search\""));
     assert!(first.contains("\"data-symbol-path\":\"M16 10"));
-    assert!(first.contains("\"alt\":\"\""));
-    assert!(!first.contains("Ignored decorative label"));
+    assert!(first.contains("\"alt\":\"\"") && first.contains("\"alt\":\"Add a stop\""));
     assert!(first.contains("--exact-tint:light-dark("), "{first}");
     let changed = host.dispatch(view_with_test_id(&host, "change"), Event::Press);
     assert!(changed.contains("\"data-symbol-path\":\"\""), "{changed}");

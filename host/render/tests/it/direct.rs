@@ -121,9 +121,13 @@ fn every_corpus_and_conformance_plan_is_the_same_without_a_kernel() {
         }
     }
     // Every plan a kernel renders is written without one too (LLP
-    // 1048.004 stage 2: virtualized lists and `id` references included).
+    // 1048.004 stage 2: virtualized lists and `id` references included),
+    // except one whose initializer reads a resource through a prop, which
+    // `projects_as_booted` sends to the kernel (budget.contract, 976bef093).
     assert!(
-        skipped.iter().all(|why| why.ends_with("no kernel render")) && compared > 0,
+        skipped.iter().all(|why| why.ends_with("no kernel render")
+            || why.ends_with("a slot's initializer reads a resource"))
+            && compared > 0,
         "{compared} of {} plans compared; skipped: {skipped:#?}",
         files.len()
     );

@@ -203,6 +203,14 @@ guide's rules don't make obvious.
   safe area. Fix: put `env(safe-area-inset-top)` on the route column, not on each
   authored header. (Signal Clone, build 5.)
 
+- **An empty date input can still show a date on iOS.** `input type="date" value=""`
+  draws a date in the `UIDatePicker`, which has no empty state: today in a new picker,
+  the last date in one whose value was cleared (`time` and `datetime-local` share the
+  picker), while the bound value, `state` and `tree` stay `""` until the person picks. Fix: when the value is empty,
+  show the field's emptiness yourself (a "Not set" label beside it), and validate
+  the bound value, not the screenshot. (Authoring bench, LLP 1087, ios20 t7-wizard,
+  2026-10-05.)
+
 ## Actions
 
 - **A helper action does not see what its caller just assigned.** `sel = next`
@@ -240,14 +248,33 @@ guide's rules don't make obvious.
   `box-sizing`.) **Candidate diagnostic:** the compiler or a development log
   could name the failed condition.
 
-- **A text field shows an edit its action refused.** A field bound with
+- **A text field shows an edit its action refused or normalized.** A field bound with
   `value=text input=edit`, where `edit` ignores a blank value, shows the blank while
-  `text` keeps the old value, and the next keystroke builds on what is shown. Cause: on
-  the web (both targets) a text field is re-set only when its bound value changes, so
-  an unchanged binding does not overwrite the edit. Fix: bind the field to draft state that `edit` always writes, and on commit
+  `text` keeps the old value, and the next keystroke builds on what is shown; so does
+  one whose action or source normalizes `-2` to the `0` it already held. Cause: on
+  the web (both targets) a text field is re-set only when what its binding reads
+  changes, so an unchanged binding does not overwrite the edit. Fix: bind the field to draft state that `edit` always writes, and on commit
   (`change`, Enter, `blur`) write the accepted value or reset the draft to it, which
   changes the bound value and redraws the field. (Authoring bench, LLP 1087, t2-todo:
-  two builders, about 10 minutes each, 2026-10-04.)
+  two builders, about 10 minutes each, 2026-10-04; t1-tip, a normalized count,
+  2026-10-05.)
+
+- **A checkbox bound to a resource field does not tick until the save answers.** With
+  `checked=form.terms change=editTerms`, where `editTerms` sends a mutation that
+  `refreshes form`, a click shows the box unchecked again while the save's answer is
+  out and checked only when the refreshed answer lands, so a slow store shows no tick,
+  and a test that clicks and reads `checked` before the answer fails. Cause: every host (both web targets, iOS,
+  macOS) re-sets the box to its binding, `form.terms`, which is still `false` until
+  the answer. Fix: bind it to state the action writes at once (`terms = value`, then
+  `send`), and seed that state from the saved record as a form does. (Authoring bench,
+  LLP 1087, codex17 t7-wizard, 2026-10-05.)
+
+- **`autofocus` on a field an action shows does not focus it on the web.** The JS
+  target honours `autofocus` once, at boot; a field mounted later by an action keeps
+  the focus where it was (the pressed button). Fix: give the field an `id` and call
+  `focus("field")` (the `id`, not the `testId`) in the action that shows it. (LLP 1035.000 D9 says a node mounted later may autofocus, as
+  the wasm target does; the JS target's gap is in QUEUE.md.) (Authoring bench, LLP
+  1087, r27 t2-todo, 2026-10-05.)
 
 - **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
   is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats

@@ -372,7 +372,7 @@ impl Parser {
                 let Some(decoded) = next.and_then(escaped) else {
                     return Err(SyntaxError {
                         id: "syntax-bad-escape",
-                        message: "unknown escape".into(),
+                        message: crate::lexer::bad_escape(next),
                         span: Span {
                             source_id: span.source_id,
                             ..Span::point(span.line, span.col + 1 + pos as u32)

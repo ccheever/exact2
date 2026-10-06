@@ -7,6 +7,44 @@ import CExact
 @testable import ExactKit
 
 final class RasterLoaderTests: XCTestCase {
+    func testQueueFullRequestAdmissionRemainsRetryable() {
+        XCTAssertTrue(RasterLoader.transientRequestRefusal(8))
+        for permanent in [1, 2, 6, 7, 9, 12, 15] {
+            XCTAssertFalse(RasterLoader.transientRequestRefusal(UInt64(permanent)))
+        }
+    }
+    func testQueueFullInterestSurvivesAndPaintsOnNextWorkerWake() throws {
+        let (root, resolver, presenter, seed, loader, window) = try fixture()
+        let node = NodeView(id: 2, kind: "image", presenter: presenter)
+        defer {
+            loader.testRequest = nil; loader.shutdown(); seed.raster = nil; node.raster = nil; window.close()
+            try? FileManager.default.removeItem(at: root)
+        }
+        try png(root, "queue.png", width: 256, height: 256, identity: 4)
+        seed.frame = CGRect(x: 0, y: 0, width: 32, height: 32); seed.loadGeneration = 1
+        XCTAssertTrue(loader.load(seed, source: "queue.png", resolver: resolver))
+        settle { seed.raster != nil }
+
+        node.frame = CGRect(x: 0, y: 0, width: 64, height: 64); node.loadGeneration = 1
+        presenter.views[node.id] = node; presenter.viewport.addSubview(node)
+        var refused = false
+        loader.testRequest = { [unowned loader] demand in
+            if !refused { refused = true; return (0, 8) }
+            return (exact_raster_request(loader.id, demand), nil)
+        }
+        XCTAssertTrue(loader.load(node, source: "queue.png", resolver: resolver))
+        settle { refused }
+        XCTAssertNil(node.raster)
+        XCTAssertEqual(loader.loadingOnScreen, 1)
+        XCTAssertEqual(loader.diagnostics["deferred"] as? Int, 1)
+
+        // A real worker completion calls the same pass. The original interest
+        // must submit again and paint without a prop, resize or reload event.
+        loader.reconcile()
+        settle { node.raster != nil }
+        XCTAssertEqual(loader.loadingOnScreen, 0)
+        XCTAssertEqual(loader.diagnostics["deferred"] as? Int, 0)
+    }
     /// One decoder while any owner's list travels fast; both once none does.
     func testDecodesOneAtATimeWhileAnyListTravelsFast() {
         let workers = RasterWorkers.shared, a = NSObject(), b = NSObject()
@@ -94,7 +132,7 @@ final class RasterLoaderTests: XCTestCase {
         while !predicate() && Date() < hang { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
         XCTAssertTrue(predicate(), file: file, line: line)
     }
-    private func fixture() throws -> (URL, AssetResolver, Presenter, NodeView, RasterLoader, NSWindow) {
+    private func fixture(sourceLimit: Int = 1152, metadataLimit: Int = 64) throws -> (URL, AssetResolver, Presenter, NodeView, RasterLoader, NSWindow) {
         _ = NSApplication.shared
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-raster-test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
@@ -106,7 +144,8 @@ final class RasterLoaderTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.contentView = presenter.viewport; presenter.viewport.addSubview(node)
         // The core's minimum budget, which these pressures are sized for.
-        return (root, AssetResolver(root: root), presenter, node, RasterLoader(budget: 32 * 1024 * 1024), window)
+        return (root, AssetResolver(root: root), presenter, node,
+                RasterLoader(budget: 32 * 1024 * 1024, sourceLimit: sourceLimit, metadataLimit: metadataLimit), window)
     }
     func testCreationStartsBeforePresenterRegistersView() throws {
         let (root, resolver, presenter, node, loader, window) = try fixture()
@@ -120,6 +159,102 @@ final class RasterLoaderTests: XCTestCase {
         settle { node.raster != nil }
         XCTAssertEqual(node.raster?.image.naturalSize, CGSize(width: 120, height: 80))
     }
+    func testMetadataAdmissionQueuesLateImagesAndEventuallyPaintsEveryOne() throws {
+        let (root, resolver, presenter, first, loader, window) = try fixture()
+        var nodes = [first]
+        defer {
+            loader.shutdown(); nodes.forEach { $0.raster = nil }; window.close()
+            try? FileManager.default.removeItem(at: root)
+        }
+        // Hold inspection still so this deterministically crosses the 64-source
+        // metadata cap. The remaining images must become bounded interests,
+        // rather than one-shot refusals that need an unrelated prop update.
+        loader.setPaused(true)
+        for index in 0..<70 { try png(root, "burst-\(index).png", width: 32, height: 24, identity: index) }
+        for index in 0..<70 {
+            let node: NodeView
+            if index == 0 { node = first }
+            else {
+                node = NodeView(id: UInt32(index + 1), kind: "image", presenter: presenter)
+                nodes.append(node); presenter.views[node.id] = node; presenter.viewport.addSubview(node)
+            }
+            node.frame = NSRect(x: 0, y: 0, width: 32, height: 24)
+            node.loadGeneration = 1
+            XCTAssertTrue(loader.load(node, source: "burst-\(index).png", resolver: resolver))
+        }
+        XCTAssertEqual(loader.diagnostics["viewInterests"] as? Int, 64)
+        XCTAssertEqual(loader.diagnostics["deferredAdmission"] as? Int, 6)
+        XCTAssertEqual(loader.loadingOnScreen, 70)
+        loader.setPaused(false)
+        settle { nodes.allSatisfy { $0.raster != nil } }
+        XCTAssertEqual(loader.diagnostics["deferredAdmission"] as? Int, 0)
+        XCTAssertEqual(loader.diagnostics["decoded"] as? Int, 70)
+    }
+    func testReplacementAtSourceCapReclaimsColdIdentityWithoutLosingOldPixels() throws {
+        let (root, resolver, presenter, first, loader, window) = try fixture(sourceLimit: 3, metadataLimit: 3)
+        let second = NodeView(id: 2, kind: "image", presenter: presenter)
+        presenter.views[2] = second; presenter.viewport.addSubview(second)
+        second.frame = first.frame
+        defer {
+            loader.shutdown(); first.raster = nil; second.raster = nil; window.close()
+            try? FileManager.default.removeItem(at: root)
+        }
+        for (index, name) in ["cold.png", "a.png", "b.png", "replacement.png"].enumerated() {
+            try png(root, name, width: 32, height: 24, identity: index)
+        }
+        first.loadGeneration = 1
+        loader.load(first, source: "cold.png", resolver: resolver)
+        settle { first.raster != nil }
+        let coldPixels = first.raster
+        loader.cancel(first.id)
+        first.loadGeneration += 1
+        loader.load(first, source: "a.png", resolver: resolver)
+        second.loadGeneration = 1
+        loader.load(second, source: "b.png", resolver: resolver)
+        settle { loader.diagnostics["decoded"] as? Int == 3 }
+        let old = first.raster
+        first.loadGeneration += 1
+        XCTAssertTrue(loader.load(first, source: "replacement.png", resolver: resolver))
+        XCTAssertTrue(first.raster === old, "replacement retains the painted lease while admission runs")
+        settle { first.raster !== old }
+        XCTAssertEqual(loader.diagnostics["deferredAdmission"] as? Int, 0)
+        XCTAssertLessThanOrEqual(loader.diagnostics["sources"] as? Int ?? .max, 3)
+        withExtendedLifetime(coldPixels) {}
+    }
+    func testDeferredAdmissionContinuesPastBusyAndSharesNewlyAdmittedSource() throws {
+        let (root, resolver, presenter, first, loader, window) = try fixture(sourceLimit: 1, metadataLimit: 1)
+        var nodes = [first]
+        for id in 2...4 {
+            let node = NodeView(id: UInt32(id), kind: "image", presenter: presenter)
+            node.frame = first.frame; node.loadGeneration = 1
+            presenter.views[node.id] = node; presenter.viewport.addSubview(node); nodes.append(node)
+        }
+        defer {
+            loader.shutdown(); window.close(); try? FileManager.default.removeItem(at: root)
+        }
+        first.loadGeneration = 1
+        loader.load(first, source: "occupied", resolver: resolver)
+        loader.load(nodes[1], source: "shared", resolver: resolver)
+        loader.load(nodes[2], source: "blocked", resolver: resolver)
+        loader.load(nodes[3], source: "shared", resolver: resolver)
+        XCTAssertEqual(loader.diagnostics["deferredAdmission"] as? Int, 3)
+        loader.cancel(first.id)
+        settle {
+            loader.diagnostics["viewInterests"] as? Int == 2
+                && loader.diagnostics["deferredAdmission"] as? Int == 1
+        }
+        loader.cancel(nodes[1].id); loader.cancel(nodes[3].id)
+        settle { loader.diagnostics["deferredAdmission"] as? Int == 0 }
+    }
+    #if DEBUG
+    func testTrimWakesADeferredAdmissionPass() throws {
+        let (root, _, _, node, loader, window) = try fixture()
+        defer { loader.shutdown(); node.raster = nil; window.close(); try? FileManager.default.removeItem(at: root) }
+        let before = loader.testReconciliations
+        loader.trimCold()
+        settle { loader.testReconciliations > before }
+    }
+    #endif
     func testReplacementKeepsBackingAndNaturalGeometryUntilMatchingAcceptance() throws {
         let (root, resolver, presenter, node, loader, window) = try fixture()
         defer { loader.shutdown(); node.raster = nil; window.close(); try? FileManager.default.removeItem(at: root) }

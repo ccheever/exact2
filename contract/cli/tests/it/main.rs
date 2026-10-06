@@ -1,6 +1,7 @@
 //! The compiler's integration tests: one binary, so one link and one launch.
 
 mod action_related;
+mod ancestor_row_state;
 mod announce;
 mod aria;
 mod at;

@@ -37,21 +37,37 @@ struct Abi {
     rendered: bool,
     shaders: shaders::Pack,
 }
+const NO_IDENTITY: &str = "GPU module has no baked identity";
+
+/// Whether a module is not there at all: no baked identity, or no file where
+/// it would be. Any other failure (the directory unknown, the file unreadable)
+/// is a module that is there and refuses.
+fn absent(file: Result<PathBuf, String>) -> bool {
+    match file {
+        Err(e) => e == NO_IDENTITY,
+        Ok(path) => path.try_exists().is_ok_and(|exists| !exists),
+    }
+}
+
 impl Abi {
     fn open(compat: &Value, artifact: &str) -> Result<Self, String> {
         Self::open_as(compat, artifact, true)
     }
     fn open_as(compat: &Value, artifact: &str, load: bool) -> Result<Self, String> {
+        Self::open_path_as(&Self::file(compat, artifact)?, compat, artifact, load)
+    }
+    /// Where `artifact`'s module is: `Err(NO_IDENTITY)` when it has none baked.
+    fn file(compat: &Value, artifact: &str) -> Result<PathBuf, String> {
         #[cfg(not(target_os = "android"))]
         let binary = std::env::current_exe().map_err(|e| e.to_string())?;
         #[cfg(target_os = "android")]
         let binary = android::library_dir().ok_or("EXACT_NATIVE_LIBS is not set")?;
         let name = gpu_card(compat, artifact)["name"]
             .as_str()
-            .ok_or("GPU module has no baked identity")?;
+            .ok_or(NO_IDENTITY)?;
         // A declared module sits beside the binary; only the primary has a
         // development override.
-        let path = if artifact.is_empty() {
+        Ok(if artifact.is_empty() {
             module_path(
                 &binary.with_file_name(name),
                 compat,
@@ -59,8 +75,7 @@ impl Abi {
             )
         } else {
             binary.with_file_name(name)
-        };
-        Self::open_path_as(&path, compat, artifact, load)
+        })
     }
     #[cfg(test)]
     fn open_path(path: &std::path::Path, compat: &Value, artifact: &str) -> Result<Self, String> {
@@ -517,13 +532,19 @@ impl Surfaces {
             if !self.attempted.insert(artifact.clone()) {
                 continue;
             }
-            match Abi::open(&compat, &artifact).and_then(|mut abi| {
+            // A module that is not there (no baked identity, no file) is
+            // logged and its canvases stay Contract-painted (a99d55103); one
+            // that is there and refuses (its ABI, its device, a shader pack,
+            // LLP 1015.004) is the reply's error.
+            let present = !absent(Abi::file(&compat, &artifact));
+            let opened = Abi::open(&compat, &artifact).and_then(|mut abi| {
                 if artifact.is_empty() {
                     let pack = abi.prepare_shaders(&compat, assets)?;
                     abi.commit_shaders(pack)?;
                 }
                 Ok(abi)
-            }) {
+            });
+            match opened {
                 Ok(abi) => {
                     // Headless, a module recovers to "no device"; on Android it loaded one.
                     #[cfg(not(target_os = "android"))]
@@ -544,7 +565,9 @@ impl Surfaces {
                 }
                 Err(e) => {
                     host.log(format!("surface module unavailable: {e}"));
-                    self.error = Some(e);
+                    if present {
+                        self.error = Some(e);
+                    }
                 }
             }
         }

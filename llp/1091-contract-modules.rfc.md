@@ -448,6 +448,9 @@ stage 1 lands, and stage 2 waits on them.
 - r12 (2026-10-05): round 10 (§19).
 - r13 (2026-10-05): round 11 (§20).
 - r14 (2026-10-05): round 12 (§22).
+- r15 (2026-10-05): round 13 (§23).
+- r16 (2026-10-05): round 14 (§24).
+- r17 (2026-10-05): round 15, the last authorized (§25).
 
 ## 9. Review dispositions (round 1)
 
@@ -775,6 +778,8 @@ edges of round 10's fixes. Every finding is taken; every plan stays byte-identic
 | Astra 5: a root file retargeted at a twin went unseen by the wasm session | The root is a used file by the path it is opened at |
 | Astra 6: off Unix, a stamp had no file identity | Every stamp hashes the file's canonical path, on every platform |
 
+*Follow-up (2026-10-05, acae0e3f6):* with the root a used file, its stamp's time made an identical re-save a change, and exact-web's identical-save test failed; used files now compare by fingerprint (bytes, canonical path, file identity), not time.
+
 ## 21. The lines a file lacks (2026-10-04, branch `fix/polish7`)
 
 D1 refused the first name a file reached without a `use`, with `use X
@@ -815,4 +820,54 @@ between them. Every finding is taken; every plan stays byte-identical.
 | Grok 1 / Astra 2: past three unknown computed parts, round 11 called every literal ambiguous, refusing names `motion` always reads as names (quoted ones too) | The reading is exact at any length: the slots each prefix can leave filled, forward from the start and back from the end, decide for each literal whether some accepted reading names it and whether some does not. No cutoff |
 | Astra 1: an empty interpolation was made to fill a slot, so a full shorthand had no reading and its name went unrenamed | An unknown computed part may also be empty, filling nothing |
 | Astra 3 / Grok 2: a consulted path kept `..`, so the watchers, which fold it, missed a hidden link | Consulted paths fold `.` and `..` as written, as a watcher names the file |
+
+## 23. Code review round 13 dispositions
+
+Round 13 (`llp/reviews/code-2026-10-05-1091-r13.{astra,grok}.md`), the first to cover §21's batching
+and `contract fmt --uses`: both UNSOUND. Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Grok 1: a computed part glued to text (`${x}ease`) was read as a time by its `s`; Astra 2: a quoted computed part (`'${name}'`) was read as any kind | A computed part's text settles only what it must: quoted is a name, a function's is an easing; any other may be any kind, and only a value alone may also be empty |
+| Grok 2 / Astra 4: a written type naming another file's shape refused at once, ending §21's batch, so `fmt --uses` wrote nothing | It is recorded with the file's other missing names; only a type beside a same-named `fn` (not mechanical) is refused at once, saying so |
+| Astra 1: `fmt --uses` copied a package name another file used, which reached another install from here | A proposed specifier is resolved from the file it goes in and kept only if it reaches the declaring file |
+| Astra 5: `fmt --uses` wrote a `use` back to a file that uses this one | A name whose file uses this one is said, not written: naming it would cycle |
+| Astra 3: folding `..` past a link named a path that need not exist | A consulted path is recorded folded and as written |
+
+## 24. Code review round 14 dispositions
+
+Round 14 (`llp/reviews/code-2026-10-05-1091-r14.{astra,grok}.md`): Astra UNSOUND, Grok SOUND WITH
+CHANGES. Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1: a computed value holding a comma splits the shorthand (`spin 1s ${sep} pulse 1s`), which the reader did not model, so neither name was renamed | A computed part may also end the animation and begin another; every literal that is always a name is renamed, more than one per shorthand where there are several |
+| Astra 2: `use pending as identity` brought the call back to the intrinsic's spelling | A declaration spelled like an intrinsic the checker reads first (`pending`, `failed`, `t`) is always renamed, as `action` is |
+| Astra 3 / Grok 1: `fmt --uses` wrote two new `use` lines that cycle together | The cycle test walks the uses on disk and every use the other fixes would add |
+| Astra 4: a fixed `use` would also bring a declaration of the name in another namespace that this file declares | Said, not written: naming it would also bring a {kind} this file declares |
+| Grok 3: a `fn` beside another file's shape of its name refused at once, ending the batch | Its refusal is reported with the file's missing names; the batch goes on |
+| Grok 2: a folded consulted path leaving the root could name a file outside the snapshot | A folded path outside the using file's root is not recorded |
+| Astra 5: the TypeScript producer skipped a Contract source under a skipped directory (`target/`) | Its watch descends into any directory on the way to a source the compile read |
+
+## 25. Code review round 15 dispositions, and where the reviews stopped
+
+Round 15 (`llp/reviews/code-2026-10-05-1091-r15.{astra,grok}.md`), the last Charlie authorized: both
+UNSOUND. Every finding is taken; every plan stays byte-identical. **These fixes were not
+reviewed**: a sixteenth round was not authorized.
+
+| Finding | Fix |
+|---|---|
+| Astra 3 / Grok 1: round 14 renamed every `fn t`, though the checker calls a program's `fn t` before the strings intrinsic (`types/src/lib.rs`), so a file's own `t(…)` went to the intrinsic | `t` is renamed like any name; a call of `t` is the intrinsic only when no `fn t` is in this file's scope and no action, prop or inject of the name is the innermost binding; another file's `fn t` is renamed when this file calls `t` without naming it |
+| Astra 4: an aliased `shape path` became the router's `path()` | A shape spelled `path` is always renamed |
+| Astra 1: a computed comma in `animation-name` left the literal after it unrenamed | In `animation-name` every literal is a name |
+| Astra 2: a computed `, ease` begins the next animation and fills its easing | A computed part may end one animation and fill a slot of the next |
+| Astra 6 / Grok 2: a fixed `use` could bring a declaration another `use` already brings | Said, not written |
+| Grok 3: the cycle test counted edges no fix would write | Only edges with one declarer, no clash and a reaching specifier count |
+| Astra 7: a bare `animation-timeline=Name` another file declares was not among the missing names | Recorded with them, unless a binding of the name is in scope |
+| Astra 5: the TypeScript producer skipped a Contract source under an asset directory | Its watch descends to any source the compile read |
+
+Fifteen rounds of code review (§10–§25) took the findings from thirteen to five or six a round,
+all in two areas after round 8: renaming keyframes named in `animation` text beside computed values,
+and the dev loops' and `fmt --uses`' edges. No finding after round 8 changed a plan in this
+repository.
 

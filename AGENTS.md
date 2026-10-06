@@ -91,14 +91,14 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   contract-difftest -- quick` before landing. It checks the semantics on what you changed,
   takes about 10 s warm, and is advice, not a check (`semantics/README.md`, "Using it day to
   day"; `contract verify <app>` is the app author's version).
-- The gate tests only `default-members`. The host crates (`exact-web`, `exact-web-js`,
-  `exact-linux`, `exact-apple`, `exact-windows`, `exact-render`, …), `js/`, `gpu/` and
-  most apps are neither built nor tested by it unless a member depends on them, and the
-  async lane reports them only after the push. When you touch one, or what its tests
-  read (`exact-web`'s dataset test fails when the web host writes a `data-*` name that
-  `contract/lower` does not reserve), run its tests before landing: `cargo test -p
-  exact-web --lib --tests --no-fail-fast`, or `--bins` for a bin-only crate such as
-  `exact-web-js`. Advice, not a check.
+- The gate tests only `default-members`. Of the hosts it holds the web host
+  (`exact-web`). The others (`exact-web-js`, `exact-web-capabilities`, `exact-linux`,
+  `exact-apple`, `exact-windows`, `exact-render`, …), `js/`, `gpu/` and most apps are
+  not tested by it (one is compiled when a member depends on it, and its tests still do
+  not run), and the async lane reports them only after the push. When you touch one, or
+  what its tests read, run its tests before landing: `cargo test -p exact-linux --lib
+  --tests --no-fail-fast`, or `--bins` for a bin-only crate such as `exact-web-js`.
+  Advice, not a check.
 - Verify by running, never by grepping. Fix loops get three rounds, then stop and say so.
 - To see a change work, drive the app: `bun scripts/agent.mjs <web|macos|ios|linux> tree
   "tap change-station" "type station-search Palo" "clock +60000" state logs "screenshot

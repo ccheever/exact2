@@ -528,4 +528,17 @@ fn template_text_decodes_the_escapes_a_string_does_and_escaped_interpolation_is_
     let e = parse("component A\n  view\n    text `ok \\q`\n").unwrap_err();
     assert_eq!(e.id, "syntax-bad-escape", "{e:?}");
     assert_eq!((e.span.line, e.span.col), (3, 14), "{e:?}");
+    let accepted = r#"a string accepts \n \t \" \\ \` \$"#;
+    assert_eq!(e.message, format!("unknown escape `\\q`; {accepted}"));
+    // A string's refusal names the escapes it accepts too.
+    let e = parse("component A\n  view\n    text \"a\\rb\"\n").unwrap_err();
+    assert_eq!(e.id, "syntax-bad-escape", "{e:?}");
+    assert_eq!(e.message, format!("unknown escape `\\r`; {accepted}"));
+    // A `\` that ends the line (trailing spaces trimmed) escapes nothing.
+    let e = parse("component A\n  view\n    text \"a\\  \n").unwrap_err();
+    assert_eq!(e.id, "syntax-bad-escape", "{e:?}");
+    assert_eq!(
+        e.message,
+        format!("a `\\` ends the line, escaping nothing; {accepted}")
+    );
 }

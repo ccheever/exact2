@@ -320,12 +320,15 @@ fn unsupported_emoji_picker_does_not_dispatch_a_fake_selection() {
     let plan = contract::compile(
         r#"component Picker
   state value = "kept"
+  state draft = ""
   action change(next: string)
     value = next
+  action edit(next: string)
+    draft = next
   view
     column
       input emojiPicker=true change=change testId="picker"
-      input change=change testId="text"
+      input value=draft input=edit change=change testId="text"
 "#,
     )
     .unwrap();
@@ -341,6 +344,8 @@ fn unsupported_emoji_picker_does_not_dispatch_a_fake_selection() {
     assert_eq!(p.host().runner().slot("value"), Some(&Value::str("kept")));
     let input = view(&p, "text");
     p.type_text(input, "☕️").unwrap();
+    // `input` edits; `change` commits on Enter, as hardware typing does (cbf1b3311).
+    p.type_key(input, "Enter", "Enter", true, false).unwrap();
     assert_eq!(p.host().runner().slot("value"), Some(&Value::str("☕️")));
 }
 
@@ -531,11 +536,7 @@ fn a_nonregular_image_is_refused_off_the_boot_thread_without_blocking_a_worker()
 fn agent_requests_answer_on_the_wire() {
     let mut p = boot();
     let l = handle(&mut p, "{\"op\":\"layout\"}");
-    assert!(
-        l.contains("\"viewport\":{\"w\":390,\"h\":844}"),
-        "{}",
-        &l[..80]
-    );
+    assert!(l.contains("\"viewport\":{\"w\":390,\"h\":844}"), "{l}");
     let id = view(&p, "change-station");
     let t = handle(&mut p, &format!("{{\"op\":\"tap\",\"id\":{id}}}"));
     assert!(t.starts_with(&format!("{{\"tapped\":{id},\"at\":[")), "{t}");

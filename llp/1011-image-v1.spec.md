@@ -131,6 +131,9 @@ schema roles: back, close, compose, add, microphone, send and search. Literal
 unknown roles are `lower-attr-value`; a dynamic unknown role paints empty,
 clears intrinsic size and logs a refusal. Symbols are decorative: the surrounding
 control carries its accessible name, the symbol does not carry another one.
+Since 2026-10-04 a symbol its author names (`alt` or `aria-label`) keeps that
+name on the web and macOS (LLP 1035.004 D1, amended); iOS still hides every
+symbol from VoiceOver (`NodeViewIOS.swift`), and Linux exposes no image names.
 No network or asset load resolves a symbol. Definite dimensions still size its
 box; inherited font size/weight configure its natural glyph dimensions.
 
@@ -152,7 +155,7 @@ a relative source resolves against the page's URL, as `src` does; the
 servers (`serve`, `dev`, `smoke`, `metrics`) know `image/png`.
 
 For `symbol:` sources, the host supplies the schema's generic SVG path and
-`alt=""`; the glue uses a transparent SVG for intrinsic size and a CSS mask
+`alt=""`, or the author's name when it has one (`accessibilityLabel`, written as `alt`); the glue uses a transparent SVG for intrinsic size and a CSS mask
 for the glyph. Computed font size/weight update the SVG; `tint-color` supplies
 the mask's colour. The mask follows the content box and `object-fit`. These
 paths express the roles without copying Apple's artwork.

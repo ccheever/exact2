@@ -5,6 +5,20 @@
 // pointer hovering is not delivered). An observer, not a gesture: it never
 // recognizes, so it takes nothing from a press, a pan, a long press or the
 // scroll view, and it fires before any of them has decided.
+#if os(iOS) || os(tvOS)
+import UIKit
+
+extension Presenter {
+    /// A window point from the viewport's top-left, the page scroll applied:
+    /// DOM's `clientX`/`clientY`, `frame()`'s space (LLP 1094 D11). tvOS's
+    /// samples (the agent's pan, a long press) read it too.
+    func client(_ windowPoint: CGPoint) -> CGPoint {
+        let p = viewport.convert(windowPoint, from: nil)
+        return CGPoint(x: p.x - viewport.bounds.minX, y: p.y - viewport.bounds.minY)
+    }
+}
+#endif
+
 #if os(iOS)
 import UIKit
 
@@ -124,15 +138,6 @@ extension NodeView {
 
 #if os(iOS) || os(tvOS)
 import UIKit
-
-extension Presenter {
-    /// A window point from the viewport's top-left, the page scroll applied:
-    /// DOM's `clientX`/`clientY`, `frame()`'s space (LLP 1094 D11).
-    func client(_ windowPoint: CGPoint) -> CGPoint {
-        let p = viewport.convert(windowPoint, from: nil)
-        return CGPoint(x: p.x - viewport.bounds.minX, y: p.y - viewport.bounds.minY)
-    }
-}
 
 extension NodeView {
     // Press: a touch down and up inside the bounds. A node without a
