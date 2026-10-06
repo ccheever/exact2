@@ -201,9 +201,11 @@ class Collection {
     if (compare && !rekeyed) { inPlace = []; items.forEach((it, p) => { if (!same(it, this.items[p])) inPlace.push(p); }); }
     if (rekeyed) { this.index.replace(idents); this.idents = idents; this.dups = dups; }
     const moved = rekeyed || !inPlace || inPlace.length;
-    if (this.preview && moved) this.endPreview();
-    // A grouped session's offsets move with its rows, at once (LLP 1094 D8).
+    // A grouped session's offsets move with its rows, at once (LLP 1094 D8),
+    // ending a preview too: the index above already lost a held drop's row,
+    // so its rows' offsets fall to zero here, in the commit that moved them.
     this.instant = !!(moved && (this.incoming || this.preview?.grouped));
+    if (this.preview && moved) this.endPreview();
     if (moved) this.preparedMove?.();
     this.items = items;
     if (this.kept.size) for (const k of [...this.kept.keys()]) if (!this.index.pos.has(k.split("\0")[0])) this.kept.delete(k);
