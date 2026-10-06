@@ -905,7 +905,9 @@ bun scripts/boot.mjs                                                   # boot gr
 ```
 
 Cargo's checks cover the root `default-members`: the deterministic, in-process
-crates, the web host's among them. The async lane runs the same commands with
+crates, the web host's and the Apple host's Rust among them (the Apple host's
+real-socket, wall-clock and toolchain-launching tests are `async lane:`; a test
+may still re-run its own binary to isolate its environment). The async lane runs the same commands with
 `--workspace` (the other hosts, GPU, Hermes, platform shells, stress fixtures).
 
 Development and test builds optimize the third-party CPU rasterizer `tiny-skia`.
