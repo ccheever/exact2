@@ -52,12 +52,8 @@ export function cargoOnPath(env = process.env, home = homedir()) {
 }
 cargoOnPath();
 
-/** Consumer builds never acquire Hermes. The installer is the single explicit
- * online step; every Cargo process Exact starts inherits this refusal even in
- * an external workspace whose local Cargo configuration predates Exact. */
-export function cargoEnvironment(env = process.env) {
-  return { ...env, HERMES_LEAN_SYS_OFFLINE: '1' };
-}
+/** Every Cargo process Exact starts refuses implicit Hermes acquisition. */
+export function cargoEnvironment(env = process.env) { return { ...env, HERMES_LEAN_SYS_OFFLINE: '1' }; }
 
 // @ref llp/1046.006.000-render-hooks.rfc.md#d5-shaders-that-live-with-the-game
 /** Explicit source roots, relative to app.json. Only packaged names reach a host. */
@@ -861,36 +857,27 @@ export function contractLast(build) {
   try { return build(); } catch (error) { if (!error?.contract) throw error; console.error(error.message); process.exit(1); }
 }
 export const HERMES_INSTALLER = resolve(ROOT, 'vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml');
-
-/** Rust's host triple for the platforms for which the pinned Ibex release has
- * a host bundle. Cross targets (including iOS) are named by their build. */
+/** Rust's host triple; cross targets such as iOS are named by their build. */
 export function hermesTarget(os = process.platform, cpu = process.arch) {
   const arch = cpu === 'arm64' ? 'aarch64' : cpu === 'x64' ? 'x86_64' : null;
   const suffix = os === 'darwin' ? 'apple-darwin' : os === 'linux' ? 'unknown-linux-gnu' : os === 'win32' && arch === 'x86_64' ? 'pc-windows-msvc' : null;
   return arch && suffix ? `${arch}-${suffix}` : null;
 }
 
-/** The exact digest-addressed bundle selected by hermes-lean-sys. This is a
- * read-only preflight: acquisition happens only through HERMES_INSTALLER. */
+/** The selected digest-addressed bundle; acquisition is installer-only. */
 export function hermesBundle(target = hermesTarget(), env = process.env) {
   if (!target) throw new Error(`no pinned Hermes bundle target for ${process.platform}/${process.arch}`);
-  const support = readFileSync(resolve(ROOT, 'vendor/ibex/crates/hermes-lean-sys/build_support.rs'), 'utf8');
-  const tag = /RELEASE_TAG: &str = "([^"]+)"/.exec(support)?.[1];
+  const support = readFileSync(resolve(ROOT, 'vendor/ibex/crates/hermes-lean-sys/build_support.rs'), 'utf8'), tag = /RELEASE_TAG: &str = "([^"]+)"/.exec(support)?.[1];
   const blocks = [...support.matchAll(/BundlePin \{([\s\S]*?)\n    \}/g)].map(match => match[1]);
   const block = blocks.find(value => new RegExp(`target:\\s*"${target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`).test(value));
   const digest = /sha256:\s*"([0-9a-f]{64})"/.exec(block ?? '')?.[1];
   if (!tag || !digest) throw new Error(`hermes-lean-sys has no pinned bundle for ${target}`);
-  const cache = resolve(env.CARGO_HOME ?? resolve(env.HOME ?? homedir(), '.cargo'), 'hermes-lean-sys');
-  const root = resolve(env.HERMES_LEAN_SYS_DIR ?? resolve(cache, tag, digest));
+  const cache = resolve(env.CARGO_HOME ?? resolve(env.HOME ?? homedir(), '.cargo'), 'hermes-lean-sys'), root = resolve(env.HERMES_LEAN_SYS_DIR ?? resolve(cache, tag, digest));
   const host = target === hermesTarget();
-  const lean = resolve(root, 'lib', target.endsWith('-windows-msvc') ? 'hermesvmlean_a.lib' : 'libhermesvmlean_a.a');
-  const hermesc = resolve(root, 'bin', target.endsWith('-windows-msvc') ? 'hermesc.exe' : 'hermesc');
+  const lean = resolve(root, 'lib', target.endsWith('-windows-msvc') ? 'hermesvmlean_a.lib' : 'libhermesvmlean_a.a'), hermesc = resolve(root, 'bin', target.endsWith('-windows-msvc') ? 'hermesc.exe' : 'hermesc');
   const required = [resolve(root, 'include'), lean, resolve(root, 'hermes-input-receipt.json'), ...(host ? [hermesc] : [])];
   const missing = required.filter(path => !existsSync(path));
-  return {
-    target, tag, digest, root, lean, hermesc, installed: missing.length === 0, missing,
-    fix: `cargo run --manifest-path ${HERMES_INSTALLER} -- --target ${target}`,
-  };
+  return { target, tag, digest, root, lean, hermesc, installed: missing.length === 0, missing, fix: `cargo run --manifest-path ${HERMES_INSTALLER} -- --target ${target}` };
 }
 /** Classification roots for Ibex's verified install-once Hermes bundles.
  * The digest directory remains part of the receipt name, so a bundle update
