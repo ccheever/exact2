@@ -1,13 +1,13 @@
 ---
 name: 20261005-diff-review-engine
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+branch: feat(example)/t3-code-diff-review-engine
+pr_url: https://github.com/ccheever/exact2/pull/145
 verified_commit: null
 ---
 
@@ -111,14 +111,56 @@ Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, git, reference oracle
 
 ## Progress
 
-Planned. No branch.
+Implemented on `feat(example)/t3-code-diff-review-engine` (2026-10-06), from `feat(example)/t3-code` at `d78ac86ff`.
+Verification: unverified (the one live drive did not reach the Diff panel; see below).
+
+- **G13 tree** (`diff-tree.ts`, `diff-tree.contract`): Files header with count and Collapse/Expand all folders,
+  folders flattened and open, reading order, status tint and letter, a file press reveals it (opens, asks for a
+  lazy file, selects it, `scrollIntoView("diff-list", file:<path>)`; the same press again reveals again).
+  Word marks are off (`lineDiffType: "none"`, confirmed in `DiffPanel.tsx:1147` at 1e2ecbd975).
+  Pinned file headers: not done, held for a user decision (X32, #131: no sticky rows in a virtualized list).
+- **G4 large diffs and hidden lines** (`diff-lazy.ts`, `diff-review.ts`): a truncated git preview with per-file
+  stats reads `review.getDiffPreview { file }` four files at a time (first batch with the preview, then four per
+  `reachend` of the list), header skeletons for up to four remaining files, per-file Retry ("Retry loading diff")
+  and the partial mark ("Partial diff preview"), header stats from `files`; the size banner shows only without
+  per-file stats. Separators open hidden lines from `review.getDiffFileContents` (git sources only, single flight
+  per file, all of a range up to 100 lines, else 100 below the previous hunk; the trailing range once contents
+  are in). Pierre's two expand arrows on a long range are one control (difference recorded).
+- **G2 diff comments** (`diff-comments.ts`, `diff-comments.contract`, `diff.contract`): a press on a line number
+  selects it, Shift extends; the gutter "+" (shown on hover) opens a draft under the range's end line on its
+  side ("Add a comment…", "⌘/Ctrl Enter to send", Cancel, Comment, Escape cancels, ⌘↵ sends); saving builds the
+  reference's record (`buildDiffReviewComment`, `reviewCommentContextRecord`) and inserts the review-comment
+  chip at the composer caret; the saved card shows while its chip is in the prompt; "Delete comment" removes
+  the chip. A mixed range is labelled as the reference does (`a.ts 3 to 5`; additions only read `L3 to L5`).
+- **G2 Files comments** (`diff-file-comments.ts`, `r4-surfaces-files.*`): the same on the Files preview; chip
+  "README.md L3 to L5" with the file excerpt and its language fence; comments move with their text after an edit
+  (head/tail remap through `remapFileCommentAnnotations`) and hide while the editor is open.
+- **G3 Cite** (`diff-citations.ts`, `diff-cite.contract`, `markdown.contract`): `selectionchange` on an answer's
+  prose texts (one or several blocks) shows "Cite" under the selection ("Shorten selection" past 8,000 units,
+  Escape dismisses, `retainFocus` keeps the selection); the press inserts an `[Assistant quote](t3-citation://…)`
+  chip with the reference selector. Not done: blocks with inline code (word-by-word texts) and code blocks are not
+  citable; the selection is not cleared after citing (#132); the chip's comment popover is not built (native
+  composer chip; needs a popover anchored to a chip, X22 #127). Sent chips now parse hrefs with
+  `parseAssistantCitationHref`.
+
+Ported tests (Bun): `diffFileTreeEntries`, `collectDirectoryPaths`, `diff tree reading order`,
+`createGitDiffFileContentsLoader` (exercised through the `expand` flow), `review comment context parsing`,
+review labels/clamp/folded ids, `fileCommentAnnotations`, `isCommentSubmitShortcut`, assistant citation
+round-trips, `createAssistantTextSelector`, `findAssistantCitationText`, `resolveAssistantCitationCommentDismissal`,
+`selection action positioning`; DOM-bound cases (captureAssistantTextSelection, observeSelectionActions) n/a-ui.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (implementation) | `6fbb82114` on `feat(example)/t3-code-diff-review-engine` | `bun test examples/t3-code` 1275 pass / 0 fail (base 1200); strict `tsc` clean; `contract build` 2232 slots, 42 resources, 50272 nodes; `cargo test -p t3-code-macos --lib` 10/0; `bun scripts/caps.mjs` within caps; five checks: build, test (2927 pass / 0 fail), clippy, fmt, boot all exit 0; macOS bundle build exit 0. No Swift changed, so no AppKit binary was rebuilt. | Logs in the worktree's `target/` (not committed) | — |
+| 2 (live macOS drive, two runs, ADDENDUM 3) | same | Run 1: the driver script typed the pairing link before the disclosure had opened (script error). Run 2: paired and passed the wizard (`after pair: welcome-computer-…, welcome-continue`; `wizard welcome-continue`, `welcome-agents-continue`, `welcome-skip-import`; `wizard gone: true`), but the sidebar read "No projects yet": the isolated server (port 16110) had not bootstrapped the fixture project (`--auto-bootstrap-project-from-cwd <dir>` given a value; no bootstrap line in its log), so no thread and no Diff panel. `diff loaded` timed out; nothing of this task was exercised live. | records `target/drive/out/records.txt` (not committed) | Live drive unverified. Next run: start the server with its cwd at the fixture and the flag alone, or add the project in the app, then run `target/drive/drive.mjs`. |
+
+Not run: the attended rows (real drag over line numbers, real wheel for pinned headers, real selection for Cite),
+the oracle pairs and the trace tools (`target/t3-ui-parity/*` are not in this checkout), visual parity.
 
 ## Next action
 
-`prepare` after `20261005-clone-on-exact2-main`, `20261005-desktop-oracle-and-trace` and `20261005-hot-file-split` merge: run the selection spike and the sticky-vocabulary check; if the spike fails, split G3 into its own ticket.
+Review the PR; one live drive of the Diff flow on a server that has the fixture project (tree, lazy batches,
+Retry, hidden lines, a diff comment, a Files comment), then the attended rows. User decisions: pinned headers
+(#131) and the citation comment popover on a native composer chip.

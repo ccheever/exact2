@@ -1,13 +1,13 @@
 ---
 name: 20261005-composer-fidelity
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-composer-fidelity
+pr_url: https://github.com/ccheever/exact2/pull/144
 verified_commit: null
 ---
 
@@ -137,14 +137,48 @@ Required environment: Xcode 27.0, pinned Bun 1.4.2, oracle desktop build, one la
 
 ## Progress
 
-Planned. No branch.
+Implemented on `feat(example)/t3-code-composer-fidelity` (base `d78ac86ff`), 2026-10-06. Verification: unverified.
+
+- G9 ultrathink (`composer-provider-state.ts`, `composer-ultrathink.ts`): ports of getComposerProviderState,
+  withImplicitFastModeDefault, applyClaudePromptEffortPrefix, resolvePromptInjectedEffort and the TraitsPicker
+  flow. Choosing an injected effort rewrites the draft to start with `Ultrathink:\n` and stores no option;
+  "ultrathink" in the body shows the reference note and disables the primary effort rows; another effort strips the
+  prefix and is stored; the trigger reads "Ultrathink"; sends prefix once (slash commands none). A client-side
+  rewrite reaches the window through `requestKey` (`#rewrite:<n>`), so `app.contract` gains no action. Ring: an SVG
+  gradient stroke over the card's edge (`composer-ultrathink-frame`); chroma: `filter=saturate(1.2)` on the model mark.
+- G9 Fast: every send path (thread, launch, multi-model, compact, implement) dispatches
+  `modelOptionsForDispatch` (explicit choices plus `fastMode:false` when the model offers Fast and nothing was chosen);
+  the traits trigger shows Normal in that case.
+- G11 (`composer-resting-layout.ts`, `composer-overflow.ts`): resolveRestingComposerControlsLayout fed from the
+  footer's block geometry: labels, then mode, then traits into an icon-only "More composer controls" trigger, then
+  the picker shrinks, below its minimum the cluster hides; promotion needs 1pt of slack (previous step per client).
+  The menu holds traits content, Mode (Chat/Plan, when Plan UI is on) and Access; it goes when its trigger hides.
+- G12a (`queued-edit-attachments.ts`): edit loads the message's attachments as removable chips (images signed
+  through the existing attachment URL resource, extended to queued messages), stashes the thread's text and SnapShot
+  images, saves `queued-run.edit` with the full list and merged context, 100-attachment limit, attachment-only
+  prompt, "Could not save the edited queued message.", lost-run kept/discarded toasts with the reference wording.
+  Rows show 16pt thumbnails; a queued send still in flight shows the "Saving queued message" clock row.
+- A15 (`subagent-card.ts`): the card's content with the account rule. Unit only; no view (fixture cannot produce subagents).
+- G15: approval warnings as tooltip + `aria-description` (row and More menu); 17 more editor marks in
+  `editor-icons.contract` (20 editors + Finder); "No active thread" landing for a route to a missing thread.
+
+Shared-file edits (own commits `4d6f79e4f`, `a588ba5be`, `ad0082876`): `client.ts` lines 22 (import), 880
+(queued-edit uploader), 885 (promptForSend), 912 and 925 (dispatchSelection), 1017 (missing thread opens the empty
+state), 1376 (ultrathinkChoice); `app.contract` line 75 (`pageCover` includes "no-thread").
+
+Not done / differences: the trigger hides at once with no menu fade (no motion added; reduced-motion row not
+filmed); an open "More" menu that loses its trigger stays logically open (renders nothing) until the next menu
+action; the remote removal of the open thread still lands on a draft (only a route to a missing thread shows the
+empty state); the subagent card has no view; the ring has no saturate/brightness filter at runtime (baked into the
+stops) and its gradient spans the card's box, not a 220% box; menu flips (X17), faint shadows (X11) and textarea
+height after a rewrite (X12) as declared in those issues; brand-mark terms are an open question for the user.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (2026-10-06) | `ad0082876` on `d78ac86ff` | `bun test examples/t3-code` 1274 pass / 0 fail (base 1200; new: composer-provider-state 24, composer-ultrathink 5, composer-resting-layout 16, composer-overflow 5, queued-edit-attachments 14, subagent-card 8, no-active-thread 2); strict tsc clean; `contract build` 2171 slots, 42 resources, 51069 nodes; `cargo test -p t3-code-macos --lib` 10/0; no Swift changed (no AppKit binary touched); macOS bundle built (`build.mjs t3-code-macos --bundle`); five checks pass (build, test 2927/0, clippy, fmt, caps, boot) | Live drive (one script session, `target/cf/drive.mjs`, isolated server on 16100 with a version-only `claude` shim and editor shims): paired through the wizard; landing `providerDriver: "claudeAgent"`, `traitsLabel: "Medium · 1M"`. The bootstrapped project was not present after "Do not import projects", so the composer stayed inert under the "What should we work on?" landing; no task flow ran. Retry used (attempt 1 failed on a wizard target before mount). | Every live row: unverified (one-drive rule spent). Real-input rows (hover tooltip, keyboard menu, Escape): unverified (attended). Queue edit and approvals need a running provider turn: unit tests only. |
 
 ## Next action
 
-After dependencies merge: `prepare` (settle the fixture decision and the brand-icon terms), then `implement`.
+Verify: one live drive with a lane project imported in the wizard (import the bootstrapped project instead of "Do not import projects"), then the ultrathink, overflow and editor-mark screenshots; settle the brand-mark terms with the user.

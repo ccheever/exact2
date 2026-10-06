@@ -4,6 +4,7 @@
 // the toast stack with its timers, the header's panel-control labels, the
 // right panel's surface chooser and the thread title's action menu.
 import type { T3Client } from './client';
+import { highlightPending } from './r12-render-highlight';
 import { toasts, dismissToast, type Toast, type ToastKind } from './toast';
 import { arr, obj, str, type Obj } from './domain';
 import type { Files, Native } from './protocol';
@@ -22,6 +23,7 @@ import { gitTicking } from './r4-git-actions'; // lane r4-git: a running action'
 import { refsPageWanted } from './r6-polish-refs'; // r6-polish: a ref list's next page
 import { effectiveShortcut } from './r4-polish-shortcuts'; // r4-polish: header shortcut labels
 import { checkoutView } from './r9-connect-checkout';
+import { cloneToasts } from './project-clones-live';
 
 export type ShellToastView = {
   id: number; kind: string; title: string; description: string; icon: string; iconColor: string; provider: string;
@@ -48,7 +50,7 @@ const TONES: Record<string, string> = {
   foreground: 'light-dark(#27272a, #f5f5f5)',
 };
 
-type Clock = { remaining: number; last: number };
+type Clock = { remaining: number; last: number; timeout?: number };
 type ShellState = { clocks: Map<number, Clock>; handled: Set<string>; status: NotifyStatus; now: number; copied: Map<number, number> };
 const states = new WeakMap<T3Client, ShellState>();
 export function shellState(client: T3Client): ShellState {
@@ -102,7 +104,8 @@ export function advanceToasts(client: T3Client, now: number, paused: boolean): T
   if (!Number.isFinite(now) || now <= 0) return live;
   for (const toast of live) {
     let clock = state.clocks.get(toast.id);
-    if (!clock) { clock = { remaining: toast.timeoutMs, last: now }; state.clocks.set(toast.id, clock); }
+    // A toast updated to another timeout (a clone's running → done) starts that timer afresh.
+    if (!clock || (clock.timeout ?? toast.timeoutMs) !== toast.timeoutMs) { clock = { remaining: toast.timeoutMs, last: now, timeout: toast.timeoutMs }; state.clocks.set(toast.id, clock); }
     // Only the front three are visible; hidden toasts wait their turn.
     const visible = live.slice(-TOAST_LIMIT).includes(toast);
     // The window ticks every 500 ms only while toasts exist, so a longer gap
@@ -243,6 +246,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     native.watch('t3.notify');
     state.status = await nativeNotifyStatus(native, state.status);
     await providerUpdates(client, storage);
+    await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
     await threadNotifications(client, native, state.status);
     if (tracking(client)) await settleLiveTraces(client, native);
   }
@@ -262,5 +266,6 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     panel: await panelSaved(client, storage, await panelView(client, native, now, sheet)), // r12-threads: `sheet` (window ≤ 980)
     prCheckout: checkoutView(client), // lane r9-connect
     notifications: `${state.status.authorization}${state.status.agent ? ' (agent)' : ''}${state.status.active ? '' : ' (window inactive)'}`,
+    highlightPending: highlightPending(), // shiki-residuals: after the panel's code texts asked for their tokens
   };
 }

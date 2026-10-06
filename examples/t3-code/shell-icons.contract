@@ -1,3 +1,4 @@
+use EditorBrandIcon from "./editor-icons.contract" // composer-fidelity G15
 // Lucide glyphs the window shell draws (toasts, panel controls, the surface
 // chooser, the details panel and the title menu), copied from the built
 // reference's icon modules and flattened to one path each (circles and
@@ -59,5 +60,8 @@ component ShellEditorIcon
         rect x=2 y=2 width=20 height=20 rx=4 fill="#36A9F5"
         path d="M13 2h5a4 4 0 0 1 4 4v12a4 4 0 0 1-4 4h-6c-1-4-1-7 0-10H9c0-4 2-8 4-10Z" fill="#D9F1FF"
         path d="M7 7v2m10-2v2M6 15c3 3 9 3 12 0" stroke="#163A59" stroke-width=1.5 stroke-linecap="round"
-    when editor != "cursor" and editor != "vscode" and editor != "zed" and editor != "file-manager"
+    // composer-fidelity G15: the other 17 editors' marks (editor-icons.contract); an unknown editor keeps the outline cube.
+    when includes(["trae", "kiro", "vscode-insiders", "vscodium", "antigravity", "idea", "aqua", "clion", "datagrip", "dataspell", "goland", "phpstorm", "pycharm", "rider", "rubymine", "rustrover", "webstorm"], editor)
+      EditorBrandIcon(editor=editor, size=size)
+    when editor != "cursor" and editor != "vscode" and editor != "zed" and editor != "file-manager" and not includes(["trae", "kiro", "vscode-insiders", "vscodium", "antigravity", "idea", "aqua", "clion", "datagrip", "dataspell", "goland", "phpstorm", "pycharm", "rider", "rubymine", "rustrover", "webstorm"], editor)
       ShellIcon(name="cursor", size=size, color="light-dark(#27272a, #f5f5f5)")
