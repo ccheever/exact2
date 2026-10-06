@@ -12,7 +12,9 @@ import { ancestorDirectories } from './diff-tree';
 import { createGitDiffFileContentsLoader, changeType, expandRange, loadFileContents, loadFilePatches, loadNextFiles, requestFiles, retryFile, settledFileCount } from './diff-lazy';
 import { buildDiffReviewComment, reviewCommentContextRecord, type SelectedLineRange, type SelectionSide } from './diff-comments';
 import { contentsKey, currentSelection, diffFiles, reviewLinesOf, reviewSection } from './diff';
-import { addReviewCommentChip, localId, removeReviewCommentChip } from './composer-editor';
+import { addReviewCommentChip, insertContext, localId, removeReviewCommentChip } from './composer-editor';
+import { ASSISTANT_CITATION_MAX_TEXT_LENGTH, createAssistantTextSelector, formatAssistantCitationHref, parseAssistantCitationHref } from './diff-citations';
+import { pushToast } from './toast';
 
 /** After a preview answers: read the per-file patches it asked for (the first four, then whatever was requested since). */
 export async function loadDiffFiles(client: T3Client, native: Native): Promise<void> {
@@ -97,6 +99,7 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
     state.draft = { scope, path: at.path, id, range, rangeLabel: comment.rangeLabel };
     return '';
   }
+  if (action === 'cite') return citeSelection(client, native, op.slice('cite:'.length), value);
   if (action === 'partial') return ''; // DiffFileStatus: the partial mark only explains itself
   if (action === 'cancel') { state.draft = null; state.selection = null; return ''; }
   if (action === 'save') {
@@ -117,4 +120,34 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
     return '';
   }
   throw new ClientError('Unsupported diff review action.');
+}
+
+/**
+ * The message id a citation names: the served client's `message:…` id for the row's turn item
+ * (r5-composer-citation.ts reads both spellings back).
+ */
+export function citedMessageId(rowId: string): string {
+  let item = rowId;
+  try { const key = JSON.parse(rowId) as unknown; if (Array.isArray(key)) item = String(key[1] ?? ''); } catch { /* a plain id */ }
+  return item.replace(/^turn-item:/, 'message:');
+}
+
+/**
+ * Cite (AssistantSelectionToolbar → ChatView insertAssistantCitation): the selected parts of an
+ * answer's text stream ("start-end,…|stream") become a t3-citation:// chip at the composer caret.
+ */
+async function citeSelection(client: T3Client, native: Native, rowId: string, value: string): Promise<string> {
+  const bar = value.indexOf('|');
+  if (bar < 0 || !client.threadId) return '';
+  const stream = value.slice(bar + 1);
+  const ranges = value.slice(0, bar).split(',').map(part => part.split('-').map(Number)).filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end! > start!);
+  if (!ranges.length) return '';
+  const selector = createAssistantTextSelector(stream, Math.min(...ranges.map(range => range[0]!)), Math.max(...ranges.map(range => range[1]!)));
+  if (!selector) return '';
+  if (selector.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH) throw new ClientError('Selection is too long to cite');
+  const href = formatAssistantCitationHref({ version: 1, environmentId: client.environmentId, threadId: client.threadId, messageId: citedMessageId(rowId), ...selector });
+  if (!parseAssistantCitationHref(href)) throw new ClientError('Unable to cite this selection.');
+  try { await insertContext(client, native, 'citation', href); }
+  catch { pushToast(client, { kind: 'warning', title: 'The composer is not ready', description: 'Try citing the selection after the connection or pending input is resolved.', hideCopy: true }); }
+  return '';
 }

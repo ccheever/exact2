@@ -1,0 +1,38 @@
+// Cite, measured against T3 Code 1e2ecbd975 AssistantSelectionToolbar.tsx (MIT; see LICENSE-T3):
+// a floating glass button with the quote glyph under the selection in an answer, "Cite" with
+// aria-label "Cite selection in composer", or disabled "Shorten selection" ("Selection is too long
+// to cite") past 8,000 UTF-16 units; Escape dismisses it. The press keeps the selection
+// (`retainFocus`, so the paragraph keeps the first responder) and sends the parts to diff-review.ts,
+// which builds the t3-citation:// chip and inserts it at the composer's caret.
+use DiffGlyph from "./diff-glyphs.contract"
+
+// One prose block's part of the selection, in the answer's text stream (UTF-16 offsets).
+shape CitePart
+  block: string
+  start: number
+  end: number
+
+component CiteButton
+  props
+    parts: list<CitePart>
+    stream: string
+    source: string
+    top: number
+    cite: action
+    dismiss: action
+  derive size = length(join(map(parts, (p) => slice(stream, p.start, p.end)), ""))
+  derive tooLong = size > 8000
+  state hovering = false
+  action hover(over: bool)
+    hovering = over
+  action press
+    cite(`cite:${source}`, `${join(map(parts, (p) => `${p.start}-${p.end}`), ",")}|${stream}`)
+    dismiss()
+  action keys(k: string)
+    if k == "Escape"
+      preventDefault()
+      dismiss()
+  view
+    button retainFocus=true press=press key=keys hover=hover disabled=tooLong aria-label=(tooLong ? "Selection is too long to cite" : "Cite selection in composer") testId=`cite-${source}` position="absolute" right=8 top=top z-index=20 height=28 padding-left=10 padding-right=10 gap=6 box-sizing="border-box" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color=(hovering ? "light-dark(#f4f4f5f2, #1c1c1cf2)" : "light-dark(#ffffffeb, #111111eb)") box-shadow="0 8px 24px -12px #00000059" opacity=(tooLong ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+      DiffGlyph(name="quote", size=14, color="light-dark(#27272a, #f5f5f5)")
+      text (tooLong ? "Shorten selection" : "Cite") font-size=12 font-weight=500 line-height="16px" white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
