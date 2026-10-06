@@ -18,7 +18,7 @@ import { filesView, filesLocal, ensureFile, ensureTree, reconcileFiles, emptyFil
 import { prsView, prsLocal, prsCommand, emptyPrs, type PrsView } from './r4-surfaces-prs';
 import { deviceView, deviceLocal, deviceCommand, deviceReady, watchDevice, emptyDevice, deviceStateOf, type DeviceView } from './r4-surfaces-device';
 // lane r6-media: opening a device, its workspace and the floating player (r6-media-device.ts).
-import { r6DeviceView, r6DeviceMini, r6DeviceLocal, r6DeviceCommand, emptyMini, deviceTab, type R6DeviceMini } from './r6-media-device';
+import { r6DeviceView, r6DeviceMini, r6DeviceLocal, r6DeviceCommand, emptyMini, deviceTab, floatMiniDevice, type R6DeviceMini } from './r6-media-device';
 import { threadDevices, visibleMini } from './r12-threads-device'; // lane r12-threads
 import { activeSerial, tabStrip, NO_TAB_STRIP, type TabStrip } from './r12-threads-tabs'; // lane r12-threads: the tab strip scrolls
 // lane r5-panels: the Pull request (P) surface and sent attachments (r5-panels-surfaces.ts).
@@ -187,7 +187,12 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
     if (next?.kind === 'device') selectDeviceTarget(client, panelKey(client), next.device);
     return '';
   }
-  if (op === 'hide') { state.visible = false; client.diffOpen = false; client.diffLoading = false; return ''; }
+  if (op === 'hide') {
+    // closePreviewPanel (ChatView.tsx): closing the whole panel on a live device floats it instead of dropping it.
+    const active = state.visible ? state.surfaces.find(entry => entry.id === state.active) : undefined, target = active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
+    if (target && client.threadId) floatMiniDevice(client, client.threadId, target);
+    state.visible = false; client.diffOpen = false; client.diffLoading = false; return '';
+  }
   if (op === 'show') {
     state.visible = state.surfaces.length > 0;
     const active = state.surfaces.find(entry => entry.id === state.active);
@@ -266,8 +271,13 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   return {
     open, kind: active?.kind ?? '', active: active?.id ?? '', count: state.surfaces.length,
     tabs: state.surfaces.map(surface => tabOf(client, surface, state.active, pendingPaths(client))), files, prs, device, deviceSetup, ...r5,
-    deviceMini: visibleMini(r6DeviceMini(client, deviceStateOf(client)), state.visible && active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined, obj(obj(client.presentation).frames)), // r12-threads: shouldRenderPreviewMiniPlayer, the canvas frame
+    deviceMini: visibleMini(r6DeviceMini(client, deviceStateOf(client)), shownDevice(client)), // r12-threads: shouldRenderPreviewMiniPlayer (its frame: chat-canvas-view.ts)
     tabStrip: tabStrip(obj(client.presentation), state.surfaces.map(surface => surface.id), active?.id ?? '', activeSerial(client, panelKey(client), active?.id ?? '')),
   };
+}
+/** The device the rendered right panel shows (shouldRenderPreviewMiniPlayer's renderedRightPanelSurface), if any. */
+export function shownDevice(client: T3Client): DeviceTarget | undefined {
+  const state = panelState(client), active = state.surfaces.find(entry => entry.id === state.active);
+  return state.visible && active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
 }
 export const closedPanel = (): PanelView => ({ open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP });

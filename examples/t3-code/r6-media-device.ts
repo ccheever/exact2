@@ -14,6 +14,7 @@ import { emptyR7Workspace, r7Workspace, r7DeviceCommand, r7DeviceLocal, type R7D
 import { arr, obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { emptyR9Folding, r9Folding, r9FoldingValue, type R9DevFolding } from './r9-device-duo'; // lane r9-device
+import { PreviewMiniPlayerStore, previewMiniPlayerSourceKey, type PreviewMiniPlayerSource } from './previewMiniPlayerStore'; // the floating player's per-thread state
 
 export type DeviceTarget = { hostId: string; deviceId: string; platform: string; name: string };
 export type R6DeviceRail = {
@@ -30,18 +31,19 @@ export type R6DeviceView = {
   mode: string; pendingKey: string; openingName: string; openingDescription: string; openingMessage: string;
   operationError: string; booting: string; hostDetail: string; workspace: R6DeviceWorkspace;
 };
-export type R6DeviceMini = { show: boolean; key: string; name: string; description: string; platform: string; deviceId: string; hostId: string; stream: R6DeviceStream; width: number; height: number; top: number };
+/** The floating player's source and stream; its frame comes from the chat canvas (chat-canvas-view.ts). */
+export type R6DeviceMini = { show: boolean; key: string; sourceKey: string; name: string; description: string; platform: string; deviceId: string; hostId: string; stream: R6DeviceStream };
 
 type Store = {
   generation: number; pending: (DeviceTarget & { booted: boolean; version: string }) | null; operationError: string;
-  targets: Map<string, DeviceTarget>; mini: Map<string, DeviceTarget>;
+  targets: Map<string, DeviceTarget>; mini: PreviewMiniPlayerStore;
   detail: Obj | null; detailKey: string; detailError: string; acting: boolean; screenshotPending: boolean; screenshotError: string; menu: string;
 };
 const stores = new WeakMap<T3Client, Store>();
 function storeOf(client: T3Client): Store {
   let store = stores.get(client);
   if (!store) {
-    store = { generation: client.generation, pending: null, operationError: '', targets: new Map(), mini: new Map(), detail: null, detailKey: '', detailError: '', acting: false, screenshotPending: false, screenshotError: '', menu: '' };
+    store = { generation: client.generation, pending: null, operationError: '', targets: new Map(), mini: new PreviewMiniPlayerStore(), detail: null, detailKey: '', detailError: '', acting: false, screenshotPending: false, screenshotError: '', menu: '' };
     stores.set(client, store);
   }
   if (store.generation !== client.generation) { store.generation = client.generation; store.detail = null; store.detailKey = ''; store.pending = null; }
@@ -97,7 +99,7 @@ const EMPTY_STREAM: R6DeviceStream = { status: '', message: '', error: false, in
 const EMPTY_RAIL: R6DeviceRail = { inputConnected: false, appearance: '', appearanceLabel: '', appearanceIcon: 'moon', appearanceDisabled: true, textSize: '', textSizeDisabled: true, screenshotLabel: 'Save screenshot', screenshotDisabled: true, menu: '', menuTop: 0, menuRight: 0 };
 export const emptyWorkspace = (): R6DeviceWorkspace => ({ key: '', name: '', description: '', platform: '', deviceId: '', hostId: '', screenLabel: '', alert: '', stream: EMPTY_STREAM, rail: EMPTY_RAIL, r7: emptyR7Workspace(), r9: emptyR9Folding() });
 export const emptyR6Device = (): R6DeviceView => ({ mode: 'list', pendingKey: '', openingName: '', openingDescription: '', openingMessage: '', operationError: '', booting: '', hostDetail: '', workspace: emptyWorkspace() });
-export const emptyMini = (): R6DeviceMini => ({ show: false, key: '', name: '', description: '', platform: '', deviceId: '', hostId: '', stream: EMPTY_STREAM, width: 0, height: 0, top: 64 });
+export const emptyMini = (): R6DeviceMini => ({ show: false, key: '', sourceKey: '', name: '', description: '', platform: '', deviceId: '', hostId: '', stream: EMPTY_STREAM });
 
 /** DevicePanel's body after onboarding, for the thread `panelKey` names. */
 export async function r6DeviceView(client: T3Client, native: Native | null, state: Obj, loaded: boolean, panelKey: string): Promise<R6DeviceView> {
@@ -142,25 +144,25 @@ export async function r6DeviceView(client: T3Client, native: Native | null, stat
 
 /** The floating player for this thread, if one was floated (previewMiniPlayerStore). */
 export function r6DeviceMini(client: T3Client, state: Obj | null): R6DeviceMini {
-  const target = storeOf(client).mini.get(client.threadId);
+  const target = miniDeviceOf(client, client.threadId);
   if (!target || !client.threadId) return emptyMini();
   const device = state ? arr(state.devices).find(entry => str(entry.hostId) === target.hostId && str(entry.id) === target.deviceId) : undefined;
-  const key = deviceKey(target), platform = platformOf(target.platform), report = obj(obj(client.presentation.deviceStreams)[key]);
-  // resolveDeviceMiniPlayerSourceSize inside the 320 × 320 default box.
-  const source = Number(report.width) > 0 && Number(report.height) > 0 ? { width: Number(report.width), height: Number(report.height) } : { width: 1000, height: 1000 / (platform === 'ios' ? 9 / 19.5 : 9 / 20) };
-  const scale = Math.min(320 / source.width, 320 / source.height);
-  return { show: true, key, name: str(device?.name, target.name), description: `${state ? hostLabel(state, target.hostId) : 'Device host'} · ${str(device?.version, platform)}`,
-    platform, deviceId: target.deviceId, hostId: target.hostId, stream: streamView(client, key, platform),
-    width: Math.round(source.width * scale), height: Math.round(source.height * scale), top: 64 };
+  const key = deviceKey(target), platform = platformOf(target.platform);
+  return { show: true, key, sourceKey: previewMiniPlayerSourceKey(target), name: str(device?.name, target.name), description: `${state ? hostLabel(state, target.hostId) : 'Device host'} · ${str(device?.version, platform)}`,
+    platform, deviceId: target.deviceId, hostId: target.hostId, stream: streamView(client, key, platform) };
 }
 
+const miniSource = (target: DeviceTarget): PreviewMiniPlayerSource => ({ kind: 'device', hostId: target.hostId, deviceId: target.deviceId, platform: platformOf(target.platform), name: target.name });
+/** The connection's previewMiniPlayerStore (chat-canvas-view.ts reads and moves it). Threads are its keys. */
+export const miniStoreOf = (client: T3Client): PreviewMiniPlayerStore => storeOf(client).mini;
 /** Lane r12-threads: previewMiniPlayerStore open / close / the thread's source, for ChatView's device effects. */
-export const miniDeviceOf = (client: T3Client, threadId: string): DeviceTarget | undefined => storeOf(client).mini.get(threadId);
-export function floatMiniDevice(client: T3Client, threadId: string, target: DeviceTarget): void {
-  const current = storeOf(client).mini.get(threadId);
-  if (!current || deviceKey(current) !== deviceKey(target)) storeOf(client).mini.set(threadId, target);
+export function miniDeviceOf(client: T3Client, threadId: string): DeviceTarget | undefined {
+  const source = storeOf(client).mini.get(threadId)?.source;
+  return source ? { hostId: source.hostId, deviceId: source.deviceId, platform: source.platform, name: source.name } : undefined;
 }
-export const closeMiniDevice = (client: T3Client, threadId: string): void => { storeOf(client).mini.delete(threadId); };
+/** previewMiniPlayerStore.open: a new source keeps the thread's position and width. */
+export function floatMiniDevice(client: T3Client, threadId: string, target: DeviceTarget): void { storeOf(client).mini.open(threadId, miniSource(target)); }
+export const closeMiniDevice = (client: T3Client, threadId: string): void => { storeOf(client).mini.close(threadId); };
 
 /** Text size (side left, centred, min-w-40, four 28pt rows) and More (side left, aligned to the
  *  trigger's end, three rows and a separator) beside their rail triggers, measured by `t3-frame`. */
@@ -278,13 +280,13 @@ export async function r6DeviceLocal(client: T3Client, native: Native, state: Obj
     store.menu = '';
     const device = state ? activeDevice(state, client.threadId, store.targets.get(panelKey)) : null;
     if (!device) return '';
-    store.mini.set(client.threadId, { hostId: str(device.hostId), deviceId: str(device.id), platform: platformOf(str(device.platform)), name: str(device.name) });
+    floatMiniDevice(client, client.threadId, { hostId: str(device.hostId), deviceId: str(device.id), platform: platformOf(str(device.platform)), name: str(device.name) });
     return 'hide'; // floatActive: the panel closes
   }
-  if (op === 'mini-close') { store.mini.delete(client.threadId); return ''; }
+  if (op === 'mini-close') { closeMiniDevice(client, client.threadId); return ''; }
   if (op === 'mini-restore') {
-    const target = store.mini.get(client.threadId);
-    store.mini.delete(client.threadId);
+    const target = miniDeviceOf(client, client.threadId);
+    closeMiniDevice(client, client.threadId);
     if (!target) return '';
     store.targets.set(panelKey, target);
     return 'reopen';
