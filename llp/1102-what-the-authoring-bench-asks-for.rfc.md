@@ -12,9 +12,9 @@
 
 | § | Question | Decision |
 |---|---|---|
-| §3.1, §3.2, §3.4, §3.6, §3.10–§3.12 | `parseNumber`, `ceil`, `round` (`Math.round`), the `"iso"` date style, `autocomplete`, `px` strings, `none` on `max-*`, number-input bounds as numbers | **Accepted.** Build them. |
+| §3.1, §3.2, §3.4, §3.6, §3.10–§3.12 | `parseNumber`, `ceil`, `round` (`Math.round`), the `"iso"` date style, `autocomplete`, `px` strings, `none` on `max-*`, number-input bounds as numbers | **Accepted.** Build them. §3.1 `parseNumber`, §3.2 `ceil` and `round`, §3.4 `"iso"`: **built e6e9ea5e7** (review fixes aad86ff08, c768b5442). |
 | §3.2 | Money: `toFixed` or a cents-based function | **Open.** Charlie wants to think more. |
-| §3.4 | `calendarDiff` | **Accepted, narrowly:** whole years and months between two ISO dates, `option<number>`. "Nice to have; let's try adding it for now." |
+| §3.4 | `calendarDiff` | **Accepted, narrowly:** whole years and months between two ISO dates, `option<number>`. "Nice to have; let's try adding it for now." **Built e6e9ea5e7**: counted as Temporal's `PlainDate.until` counts (a Feb 29 start completes a year on Mar 1 of a common year, a Jan 31 start a month on Mar 1). |
 | §3.3 | Source faults (`fail`, `hold`) as a failed host request | **Accepted** as recommended: a small RFC, resources first, then build. |
 | §3.15 | Text fields: visible by default, or opt in | **Visible by default.** A field draws the platform's field; `appearance="none"` keeps the bare box. Buttons keep their rule. **Built e97afa5af** (LLP 1104: default rows, not native chrome; focus states deferred). |
 | §3.16 | The editing contract instead of write-back | **Accepted.** Docs and a recipe; no automatic write-back. |
