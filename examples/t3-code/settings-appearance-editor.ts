@@ -188,7 +188,10 @@ export function saveDraft(client: T3Client): { theme: CustomTheme; context: Them
     const taken = ['t3-code', 't3-chat', 'grove', 'ocean', 'ember', 'iris', ...custom.filter(entry => entry.id !== editing?.id).map(entry => entry.id)];
     let id = editing?.id ?? '';
     if (!id) { const base = themeIdFromName(name); id = base; for (let n = 2; taken.includes(id); n++) id = `${base}-${n}`; }
-    theme = { id, label: name, appearance: editing?.appearance ?? draft.appearance, light: { ...draft.colors.light }, dark: { ...draft.colors.dark } };
+    // handleSubmit: an edit keeps the theme's own palettes (its base appearance and, when it has one, its
+    // variant); a new theme installs only the palette of the appearance being edited.
+    const modes: Mode[] = editing ? (['light', 'dark'] as Mode[]).filter(mode => mode === editing.appearance || editing[mode] != null) : [draft.appearance];
+    theme = { id, label: name, appearance: editing?.appearance ?? draft.appearance, light: modes.includes('light') ? { ...draft.colors.light } : null, dark: modes.includes('dark') ? { ...draft.colors.dark } : null };
     if (editing) local.customThemes = custom.map(entry => entry.id === editing.id ? theme : entry);
     else {
       if (custom.length >= 100) throw new ClientError('Remove a theme before adding another.');

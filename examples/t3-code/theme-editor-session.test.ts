@@ -65,12 +65,26 @@ describe('theme editor session and save notices (D16)', () => {
     expect(editorView(syncDraft(as(fake), 'duplicate', 'grove', prefs(fake), 'dark')).name).toBe('Grove copy');
     expect(syncDraft(as(fake), '', '', prefs(fake), 'dark')).toBeNull();
   });
+  test('each Create request is a new session: pressing Create while a create is open restarts the draft', () => {
+    const fake = client();
+    const first = syncDraft(as(fake), 'create', '#1', prefs(fake), 'dark')!;
+    editDraft(as(fake), 'name', 'Half done');
+    expect(syncDraft(as(fake), 'create', '#1', prefs(fake), 'dark')).toBe(first);
+    const second = syncDraft(as(fake), 'create', '#2', prefs(fake), 'dark')!;
+    expect([second === first, second.sessionId > first.sessionId, second.name]).toEqual([false, true, '']);
+    // An edit request names its theme before the request number.
+    (fake.local.customThemes as CustomTheme[]).push({ id: 'dusk', label: 'Dusk', appearance: 'dark', light: null, dark: { accent: '#7241b8' } });
+    expect(editorView(syncDraft(as(fake), 'edit', 'dusk#3', prefs(fake), 'dark')).name).toBe('Dusk');
+  });
   test('create, edit, merge and a removed theme each say what happened', async () => {
     const fake = client();
     syncDraft(as(fake), 'create', '', prefs(fake), 'dark');
     await themeEditorCommand(as(fake), null, 'theme-editor-save', '', 'Aurora');
     expect(toasts(as(fake)).at(-1)).toMatchObject({ kind: 'success', title: 'Aurora created', description: 'It’s now active.' });
     expect(prefs(fake).themeDark).toBe('aurora');
+    // A new theme installs only the palette of the appearance being edited.
+    const aurora = (fake.local.customThemes as CustomTheme[]).find(entry => entry.id === 'aurora')!;
+    expect([aurora.appearance, aurora.dark !== null, aurora.light]).toEqual(['dark', true, null]);
     syncDraft(as(fake), 'edit', 'aurora', prefs(fake), 'dark');
     await themeEditorCommand(as(fake), null, 'theme-editor-save', '', 'Aurora');
     expect(toasts(as(fake)).at(-1)).toMatchObject({ title: 'Aurora saved', description: 'Your changes are now active.' });
