@@ -11,6 +11,8 @@
 import { sig, effect, scope, end, untracked, write, writeItem, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, adopting, adoptRow, settled, Refusal, Hosts, exitView, clock } from "./rt.js";
 
 const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 2, KEPT = 4096;
+// A port within half a point of its target is there: hosts round offsets to device pixels (mod.rs `AT_OFFSET`).
+const AT_OFFSET = 0.5;
 const lead = (port, v) => { const extra = Math.min(Math.abs(v) * LEAD_SECONDS, port * 2); return v > 0 ? [port, port + extra] : [port + extra, port]; };
 const same = Object.is;
 
@@ -261,7 +263,7 @@ class Collection {
     const g = this.geometry;
     if (!a || !g) return;
     const c = this.index.restoreAnchor(a, g.port_main);
-    if (Math.abs(c - g.offset) > 0.01) {
+    if (Math.abs(c - g.offset) > AT_OFFSET) {
       // An anchor's correction is relative where its row stayed put
       // (mod.rs `restore`): from where the anchor was taken, or from where
       // an unacknowledged one began.
@@ -546,7 +548,7 @@ class Collection {
     };
     if (f.measurements.some(remeasures) || this.restoredAt || this.atEnd || this.target || this.pending || this.correction || !this.dims(f)) return undefined;
     const a = this.index.anchor(f.offset, g.port_main, this.followEnd);
-    if (Math.abs(this.index.restoreAnchor(a, g.port_main) - f.offset) > 0.01) return undefined;
+    if (Math.abs(this.index.restoreAnchor(a, g.port_main) - f.offset) > AT_OFFSET) return undefined;
     const pins = this.pins();
     const w = this.index.window(f.offset, f.port_main, lead(f.port_main, fill.velocity ?? 0), [this.pin(pins[0]), this.pin(pins[1])]);
     let k = 0;

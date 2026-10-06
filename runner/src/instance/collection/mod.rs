@@ -46,6 +46,8 @@ const ESTIMATED_HEIGHT: f64 = 32.0;
 /// `contentOffset`, a browser's `scrollTop`), so 4405.1667 shows as
 /// 4405.333 at 3x. A tighter test re-sent the same unreachable correction
 /// with every commit, and the opening never settled (`settle_start`).
+/// Half a point is half a pixel at 1x and more at any finer scale; a
+/// per-host half pixel would need the scale in every report, on every host.
 const AT_OFFSET: f64 = 0.5;
 /// Travel the window leads by, past its viewport of overscan.
 const LEAD_SECONDS: f64 = 0.25;

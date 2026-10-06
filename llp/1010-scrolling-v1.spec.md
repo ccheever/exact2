@@ -974,7 +974,11 @@ one (+64 pt), inside the frame the motion starts on. So:
   250 ms poll), an opening list never settled (`settle_start` needs no
   correction owed), and with its opening unsettled no follow was smooth:
   in such a session every sent message snapped. The runner now takes a port
-  within half a point as there (`AT_OFFSET`, `collection/mod.rs`).
+  within half a point as there (`AT_OFFSET`, `collection/mod.rs`, and the
+  web JS target's `list.js`, which mirrors it). Half a point is half a pixel
+  at 1x and more at any finer scale; a per-host half pixel would need each
+  host's scale in its reports. The web hosts take the runner's corrections,
+  so the same loop under a browser's device-pixel `scrollTop` ends with it.
 - Not done: the host resolving a followed end from its own layout, a
   correction that names the end, not an offset (proposal on
   `ide/doc/followed-end-one-target`). With the second target inside the
@@ -984,4 +988,5 @@ one (+64 pt), inside the frame the motion starts on. So:
 Tests: `SmoothCollectionIOSTests`
 (`testATargetBeforeTheFirstFrameIsTheMotionsOneTarget`,
 `testASmoothCorrectionUnderHalfAPointIsSet`), the runner's
-`a_port_rounded_to_a_device_pixel_is_at_its_followed_end`.
+`a_port_rounded_to_a_device_pixel_is_at_its_followed_end` and
+`a_half_pixel_extent_is_reached_by_a_rounded_port`.
