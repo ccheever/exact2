@@ -297,6 +297,8 @@ component CoreMark
 // results, and Back. testIds keep `settings-<route>` for the drivers.
 component SettingsNav
   props
+    // desktop-shell-details: --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
+    controlsLeft: number
     nav: CoreNav
     route: string
     query: string
@@ -318,7 +320,7 @@ component SettingsNav
     column width=width height="100%" flex-shrink=0 position="relative" background-color=pal.sidebar border-right-width=1 border-right-style="solid" border-color=pal.sidebarBorder testId="settings-navigation"
       when artwork
         NightlyBackdrop()
-      row height=52 flex-shrink=0 padding-left=90 padding-right=8 gap=12 align-items="center" position="relative"
+      row height=52 flex-shrink=0 padding-left=controlsLeft padding-right=8 gap=12 align-items="center" position="relative"
         button press=toggle class=SettingsGhost width=28 height=28 padding=6 aria-label="Toggle sidebar" testId="settings-toggle-sidebar"
           CoreIcon(name="panel-left-close", size=16, color=(artwork ? "#d8daed" : pal.sidebarMuted))
         button press=back aria-label="Go to threads" class=SettingsGhost padding=0 gap=4 testId="settings-go-to-threads"
@@ -364,6 +366,7 @@ component SettingsNav
 // WorkspacePageHeader + SettingsBreadcrumb; Restore device defaults on General only.
 component SettingsTopBar
   props
+    controlsLeft: number
     route: string
     crumb: string
     pal: CorePalette
@@ -373,7 +376,7 @@ component SettingsTopBar
     toggle: action
     restore: action
   view
-    row height=52 min-height=52 flex-shrink=0 align-items="center" gap=12 padding-left=(navOpen ? 20 : 90) padding-right=20 box-sizing="border-box" width="100%" testId="settings-header"
+    row height=52 min-height=52 flex-shrink=0 align-items="center" gap=12 padding-left=(navOpen ? 20 : controlsLeft) padding-right=20 box-sizing="border-box" width="100%" testId="settings-header"
       when not navOpen
         button press=toggle class=SettingsGhost width=28 height=28 padding=6 aria-label="Toggle sidebar" testId="settings-header-toggle-sidebar"
           CoreIcon(name="panel-left-close", size=16, color=pal.muted)

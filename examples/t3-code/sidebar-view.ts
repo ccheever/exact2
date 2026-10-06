@@ -16,7 +16,7 @@ import { SIDEBAR_PROBES, textMeasure } from './r6-polish-measure';
 import type { Probe } from './r5-composer-menus';
 export { grayIdentity } from './r3-sidebar-glyph';
 import { ageLabel, capabilities, canSnooze, isWoke, lastVisited, recedes, sectionOf, settledTimestamp, sidebarStatus, sidebarVisible,
-  snoozeWakeLabel, sortActive, sortByReturn, sortPinned, sortSettled, sortSnoozed, threadTimeLabel, topStatus, unseenCompletion,
+  snoozeWakeLabel, sortActive, sortByReturn, sortPinned, sortSettled, sortSnoozed, sortWorkingThreadsBySend, threadTimeLabel, topStatus, unseenCompletion,
   wokeAt, workingDuration, workingStartedAt, type SidebarSection } from './sidebar-model';
 import { sidebarPrBadge } from './r5-panels-pr'; // r5-panels: the sidebar PR badge
 import { notePlaces, rowHoverKey } from './r9-input-hover'; // lane r9-input
@@ -105,7 +105,7 @@ export function partition(client: T3Client, now: number): Partition {
     result[sectionOf(thread, caps, now, working)].push(thread);
   }
   return { pinned: sortPinned(result.pinned), active: working ? sortByReturn(result.active) : sortActive(result.active),
-    working: sortByReturn(result.working), snoozed: sortSnoozed(result.snoozed), settled: sortSettled(result.settled) };
+    working: sortWorkingThreadsBySend(result.working), snoozed: sortSnoozed(result.snoozed), settled: sortSettled(result.settled) };
 }
 
 /** Rows as painted: collapsed shelves keep only the open thread; the settled tail pages. */

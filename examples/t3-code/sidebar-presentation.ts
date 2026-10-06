@@ -1,6 +1,7 @@
 import { arr, obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
+import { RUNTIME_LOCALE, timestampFormatter } from './timestamp-format'; // desktop-shell-details: the host's locale
 
 export interface SearchPart { id: string; text: string; hit: boolean }
 
@@ -78,10 +79,9 @@ export function serverMatches(client: T3Client): Map<string, Obj> {
 
 export interface SnoozePreset { id: string; label: string; wakeLabel: string; until: string }
 
+/** formatShortTimestamp in the host's locale (timestamp-format.ts). */
 function clockLabel(date: Date, format: string): string {
-  const options: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' };
-  if (format !== 'locale') options.hour12 = format === '12-hour';
-  return new Intl.DateTimeFormat(undefined, options).format(date);
+  return timestampFormatter(format).format(date);
 }
 function atHour(date: Date, hour: number, days = 0): Date {
   const result = new Date(date);
@@ -108,7 +108,7 @@ export function snoozePresets(now: number, format: string): SnoozePreset[] {
   const nextWeek = atHour(base, 9, (1 - base.getDay() + 7) % 7 || 7);
   if (nextWeek.getTime() !== tomorrow.getTime()) {
     presets.push(preset('next-week', 'Next week', nextWeek,
-      `${nextWeek.toLocaleDateString(undefined, { weekday: 'short' })} ${clockLabel(nextWeek, format)}`));
+      `${nextWeek.toLocaleDateString(RUNTIME_LOCALE, { weekday: 'short' })} ${clockLabel(nextWeek, format)}`));
   }
   return presets;
 }
