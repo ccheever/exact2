@@ -274,6 +274,7 @@ fn session_rows(m: &Model) -> Vec<Json> {
 
 pub(crate) fn session(m: &Model) -> Json {
     let voice = m.voice();
+    let upload = m.upload();
     let Some(key) = &m.open else {
         return json!({ "open": false });
     };
@@ -370,6 +371,8 @@ pub(crate) fn session(m: &Model) -> Json {
         "scrollRevision": m.scroll_revision,
         "composerHeight": m.composer_height.max(44.0),
         "queue": queue,
+        "uploadUrl": upload.as_ref().map(|u| u.0.clone()).unwrap_or_default(),
+        "auth": upload.map(|u| u.1).unwrap_or_default(),
         "canTalk": voice.is_some(),
         "voiceUrl": voice.as_ref().map(|v| v.0.clone()).unwrap_or_default(),
         "voiceAuth": voice.map(|v| v.1).unwrap_or_default(),

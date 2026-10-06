@@ -139,6 +139,8 @@ const SESSION: Shape = Record(&[
     ("scrollRevision", Num),
     ("composerHeight", Num),
     ("queue", List(&QUEUED)),
+    ("uploadUrl", Str),
+    ("auth", Str),
     ("canTalk", Bool),
     ("voiceUrl", Str),
     ("voiceAuth", Str),

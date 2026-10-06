@@ -42,6 +42,16 @@ impl Model {
         }
     }
 
+    /// Where the open session's attachments upload (fleet serve's
+    /// `…/sessions/{id}/upload`, through the relay) and the bearer.
+    pub fn upload(&self) -> Option<(String, String)> {
+        let conn = self.conn.as_ref()?;
+        let key = self.open.as_ref()?;
+        self.live_session(key)?;
+        let url = conn.session_url(&self.route_of(&self.via), &key.0, &key.1, "upload");
+        Some((url, conn.bearer()))
+    }
+
     /// Fleet's voice page for the open session (`…/voice?thread=<native id>`
     /// through the relay) and the bearer for its first request's header;
     /// `None` unless Codex's voice can join it.
@@ -67,7 +77,8 @@ impl Model {
 
     /// The native composer asked for `points` of height (its text wrapped).
     pub fn composer_sized(&mut self, points: f64) {
-        let points = points.clamp(44.0, 240.0);
+        // Six lines of text and a row of attachments.
+        let points = points.clamp(44.0, 320.0);
         if (points - self.composer_height).abs() >= 0.5 {
             self.composer_height = points;
             self.version += 1;

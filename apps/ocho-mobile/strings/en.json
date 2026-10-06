@@ -1,4 +1,4 @@
 {
-  "purpose.camera": "Ocho reads the pairing code that Pair Phone shows on your Mac.",
+  "purpose.camera": "Ocho uses the camera to scan the pairing code on your Mac and to take photos you send to a session.",
   "purpose.microphone": "Ocho lets you talk with Codex about a coding session."
 }

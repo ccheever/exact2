@@ -139,6 +139,8 @@ shape Session
   scrollRevision: number
   composerHeight: number
   queue: list<QueuedMessage>
+  uploadUrl: string
+  auth: string
   canTalk: bool
   voiceUrl: string
   voiceAuth: string
@@ -575,5 +577,5 @@ component Conversation
         row align-items="flex-end" gap=10
           // UIKit's text view in real Liquid Glass, its send button the
           // system's prominent glass, the two in one glass container.
-          glass-composer id="composer" testId="composer" flex=1 min-width=0 height=model.composerHeight draft=draft prompt=(model.canSend ? "Message" : "Can't send right now") sendable=(model.canSend ? "true" : "false") change=write message=sized
+          glass-composer id="composer" testId="composer" flex=1 min-width=0 height=model.composerHeight draft=draft prompt=(model.canSend ? "Message" : "Can't send right now") sendable=(model.canSend ? "true" : "false") upload=model.uploadUrl auth=model.auth change=write message=sized
         box height="calc(env(safe-area-inset-bottom) - 12px)" min-height=0 flex-shrink=0
