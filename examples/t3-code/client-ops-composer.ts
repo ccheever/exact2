@@ -21,6 +21,7 @@ import { promptLengthMessage } from './composer-editor-menu';
 import { composerFileAttachments } from './composer-editor-files';
 import { activeInput, pendingRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload } from './requests';
 import { threadPhase } from './composer-presentation';
+import { autoBalanceSend } from './auto-balance'; // auto-balance
 import { obj, str, arr, type Obj } from './domain';
 import { ClientError, activeRun, providerAvailable, modelSelection, sendPayload,
   launchPayload, type Native, type Files } from './protocol';
@@ -63,7 +64,7 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
   try {
     if (op === 'send' && pendingRequests(this.projection).approvals.length) throw new ClientError('Resolve this approval request to continue.');
     else if (op === 'send' && activeInput(this)) await submitAnswers.call(this, native, storage, '', value);
-    else if (op === 'send') await send.call(this, native, storage, value);
+    else if (op === 'send') await autoBalanceSend(this, native, () => send.call(this, native, storage, value)); // auto-balance: onSend's guard and the retarget
     else if (op === 'provider' || op === 'model') await changeModel.call(this, native, storage, op, id, value);
     else if (op === 'model-option') await changeModelOption.call(this, native, storage, id, value);
     else if (op === 'runtime' || op === 'interaction') await changeMode.call(this, native, storage, op, value);

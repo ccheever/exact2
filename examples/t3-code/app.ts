@@ -41,6 +41,7 @@ import { noteServerUpdateClock } from './server-update-notices'; // server-updat
 import { terminalDrawerView, terminalOpen } from './terminal-drawer-view';
 import { terminalFocused } from './terminal-focus';
 import { watchProviderAuth, providerAuthOp } from './provider-auth-terminal'; // terminal-drawer
+import { autoBalancePrepare } from './auto-balance'; // auto-balance: Settings › Load balancing, read for the composer
 
 export const appId = 'com.exact.t3code.macos';
 export const grants = '';
@@ -57,6 +58,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
     noteServerUpdateClock(client, String(args[1] ?? ''), String(args[2] ?? '')); // server-update-notices.ts: the 2 s and 20 s timers
     await client.refresh(native, storage);
     await prepareTimeline(client, native); // Mermaid layouts and the worktree setup stream (timeline-prepare.ts).
+    await autoBalancePrepare(client, native); // auto-balance.ts
     return snapshot(client, Number(args[0]) || 0);
   }
   if (source === 'composerBranches') return composerBranches(client, native, args[0] === true, String(args[1] || ''));
