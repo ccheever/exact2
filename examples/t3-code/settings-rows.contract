@@ -323,7 +323,8 @@ component CoreField
 // track in muted 22% with a 55% border ring, the primary fill to the thumb's centre
 // (progress · (width − 16) + 8) and a 16-point thumb ringed in primary. The NSSlider stays
 // on top, transparent, for the pointer and keys; `input` moves the drawing while it drags
-// and `change` commits on release.
+// and `change` snaps to the setting's increment and commits on release.
+fn sliderSnap(value: number, low: number, high: number, step: number): number = max(low, min(high, low + floor((value - low) / step + 0.5) * step))
 component CoreSlider
   props
     row: CoreRow
@@ -335,18 +336,29 @@ component CoreSlider
   action track(value: number)
     live = value
     liveFrom = row.value
+  action release(value: number)
+    let snapped = sliderSnap(value, row.min, row.max, row.step)
+    live = snapped
+    liveFrom = row.value
+    commit(snapped)
+  action navigate(key: string)
+    if not disabled
+      if key == "ArrowRight" or key == "ArrowUp" or key == "ArrowLeft" or key == "ArrowDown" or key == "Home" or key == "End" or key == "PageUp" or key == "PageDown"
+        release(key == "Home" ? row.min : key == "End" ? row.max : shown + (key == "ArrowLeft" or key == "ArrowDown" or key == "PageDown" ? -1 : 1) * row.step * (key == "PageUp" or key == "PageDown" ? 10 : 1))
+        preventDefault()
   derive shown = liveFrom != "" and liveFrom == row.value ? live : row.amount
+  derive label = sliderSnap(shown, row.min, row.max, row.step)
   derive trackWidth = row.width - 12 - (row.suffix == " ms" ? 64 : 48)
   derive ratio = row.max > row.min ? max(0, min(1, (shown - row.min) / (row.max - row.min))) : 0
   view
     row width=row.width gap=12 align-items="center"
-      text `${shown}${row.suffix}` font-family="ui-monospace" font-size=12 font-weight=500 line-height="16px" color=pal.text font-variant-numeric="tabular-nums" text-align="center" min-width=(row.suffix == " ms" ? 64 : 48) padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 background-color=pal.output box-sizing="border-box" role="status" testId=`setting-${row.id}-value`
+      text `${label}${row.suffix}` font-family="ui-monospace" font-size=12 font-weight=500 line-height="16px" color=pal.text font-variant-numeric="tabular-nums" text-align="center" min-width=(row.suffix == " ms" ? 64 : 48) padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 background-color=pal.output box-sizing="border-box" role="status" testId=`setting-${row.id}-value`
       box position="relative" width=trackWidth height=24 flex-shrink=0 opacity=(disabled ? 0.64 : 1)
         box position="absolute" left=0 top=9 width=trackWidth height=6 border-radius=3 background-color="light-dark(#71717b38, #81818138)"
         box position="absolute" left=0 top=9 width=(ratio * (trackWidth - 16) + 8) height=6 border-radius=3 background-color=pal.accent testId=`setting-${row.id}-fill`
         box position="absolute" left=0 top=9 width=trackWidth height=6 border-radius=3 border-width=1 border-style="solid" border-color="light-dark(#e4e4e78c, #ffffff0d)" box-sizing="border-box"
         box position="absolute" left=(ratio * (trackWidth - 16)) top=4 width=16 height=16 border-radius=8 border-width=2 border-style="solid" border-color=pal.accent background-color=pal.canvas box-sizing="border-box" box-shadow="0 1px 2px #0000001f"
-        input type="range" min=row.min max=row.max step=row.step value=row.value input=track change=commit disabled=disabled aria-label=row.title position="absolute" left=0 top=0 width=trackWidth height=24 opacity=0 id=`setting-${row.id}` testId=`setting-${row.id}`
+        input type="range" min=row.min max=row.max step="any" value=`${shown}` input=track change=release key=navigate disabled=disabled aria-label=row.title position="absolute" left=0 top=0 width=trackWidth height=24 margin=0 opacity=0 id=`setting-${row.id}` testId=`setting-${row.id}`
 
 // SettingsFontPreviews: the composer sample in the interface font and a diff in the code font.
 component FontPromptPreview
