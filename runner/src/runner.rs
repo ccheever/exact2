@@ -11,6 +11,7 @@ mod background;
 mod commit;
 mod control;
 mod event;
+pub mod faults;
 mod field;
 pub use field::{FieldSelection, SelectionDirection};
 mod host_kinds;
@@ -463,6 +464,8 @@ pub struct Runner<D: DataSource> {
     /// What happened, one line each, for the agent API's `logs`: the last
     /// [`JOURNAL_RING`] lines, and how many were dropped before them.
     journal: std::collections::VecDeque<String>,
+    /// The driver's fetch faults (LLP 1103).
+    faults: faults::Faults,
     /// Device requests held for the agent (LLP 1069.007 D3): not I/O.
     device_holds: Vec<device::Hold>,
     /// Notifications the app posted under the agent (`state.notifications`):
@@ -891,6 +894,7 @@ impl<D: DataSource> Runner<D> {
             settled: None,
             derive_store_dependent: Vec::new(),
             journal: std::collections::VecDeque::new(),
+            faults: faults::Faults::from_env(),
             device_holds: Vec::new(),
             notifications: Vec::new(),
             auth: Default::default(),

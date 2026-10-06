@@ -92,7 +92,11 @@ impl Parser {
             .iter()
             .take_while(|s| !launch_word(s).is_empty())
             .count();
-        if let Some(late) = steps[leading..].iter().find(|s| !launch_word(s).is_empty()) {
+        // `fail fetch` is a launch line where it leads and a step after (LLP 1103 D3).
+        let late = steps[leading..]
+            .iter()
+            .find(|s| !launch_word(s).is_empty() && !matches!(s, Step::FailFetch { .. }));
+        if let Some(late) = late {
             return Err(SyntaxError {
                 id: "syntax-expected-step",
                 message: format!(
@@ -177,7 +181,7 @@ impl Parser {
                 return self.err(
                     "syntax-expected-step",
                     format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`), found {}",
+                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `screenshot`, `fail fetch`, `pass fetch`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`, `fail fetch`), found {}",
                     describe(&other)
                 ),
                 )
@@ -532,6 +536,35 @@ impl Parser {
                 self.next();
                 Step::BeforeData { span }
             }
+            // @ref LLP 1103 D3 — `fail fetch "<prefix>" [times N]`, `pass fetch "<prefix>"`.
+            "fail" | "pass" => {
+                if !self.at_ident("fetch") {
+                    return self.err(
+                        "syntax-expected-step",
+                        format!("`{word}` takes `fetch`: `{word} fetch \"https://api.example.com/\"`"),
+                    );
+                }
+                self.next();
+                let prefix = self.launch_str(&format!("{word} fetch"), "the URL prefix a fetch starts with")?;
+                if word == "pass" {
+                    Step::PassFetch { prefix, span }
+                } else {
+                    let times = if self.at_ident("times") {
+                        self.next();
+                        let n = self.step_number("how many fetches fail, a positive whole number")?;
+                        if n.fract() != 0.0 || !(1.0..=u32::MAX as f64).contains(&n) {
+                            return self.err(
+                                "syntax-expected-step",
+                                "`fail fetch … times` takes a positive whole number",
+                            );
+                        }
+                        Some(n as u32)
+                    } else {
+                        None
+                    };
+                    Step::FailFetch { prefix, times, span }
+                }
+            }
             "reload" => Step::Reload { span },
             "close" => Step::Close { span },
             "screenshot" => Step::Screenshot {
@@ -680,7 +713,15 @@ fn during_read(op: &str) -> bool {
 
 /// The words of a test's launch lines, which a test file may also write at
 /// its top level for every test in it (habits F7, calendar F13).
-pub(super) const LAUNCH: [&str; 6] = ["size", "epoch", "time-zone", "locale", "seed", "before"];
+pub(super) const LAUNCH: [&str; 7] = [
+    "size",
+    "epoch",
+    "time-zone",
+    "locale",
+    "seed",
+    "before",
+    "fail",
+];
 
 /// A launch line's word, or `""` for any other step.
 pub(super) fn launch_word(step: &Step) -> &'static str {
@@ -691,12 +732,17 @@ pub(super) fn launch_word(step: &Step) -> &'static str {
         Step::Locale { .. } => "locale",
         Step::Seed { .. } => "seed",
         Step::BeforeData { .. } => "before data",
+        Step::FailFetch { .. } => "fail fetch",
         _ => "",
     }
 }
 
-/// Whether two launch lines set the same fact.
-pub(super) fn same_launch(a: &Step, b: &Step) -> bool {
+/// Whether two launch lines set the same fact: `fail fetch` lines, the same
+/// prefix (several prefixes may be armed).
+pub fn same_launch(a: &Step, b: &Step) -> bool {
+    if let (Step::FailFetch { prefix: x, .. }, Step::FailFetch { prefix: y, .. }) = (a, b) {
+        return x == y;
+    }
     let word = launch_word(a);
     !word.is_empty() && word == launch_word(b)
 }

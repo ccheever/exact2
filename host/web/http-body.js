@@ -134,6 +134,7 @@ export async function waitForInflight(waiting, deadline) {
 }
 
 import { admitsNetwork, grantError, scopedGrantSet } from './grant-admission.js';
+import { faultMessage, takeFault } from './faults.js';
 
 // Network and page-module requests share admission and the byte ceiling.
 // Called after the enclosing batch, so even an immediate refusal cannot re-enter it.
@@ -170,6 +171,8 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   // A deadline for the whole exchange (Request::timeout_ms): kind 10 when it
   // passes (9 is an auth session's delivery, glue.js).
   if (op.timeoutMs !== undefined && (!Number.isInteger(op.timeoutMs) || op.timeoutMs < 1 || op.timeoutMs > 3600000)) return failed(2, 'a request timeout must be 1 to 3600000 ms');
+  // @ref LLP 1103 D1, D2 — a driver fault is a refused connection, never sent.
+  if (!asset && !op.stream && takeFault(url)) return failed(1, faultMessage(url));
   const deadline = op.timeoutMs === undefined ? null : AbortSignal.timeout(op.timeoutMs);
   controllers.add(controller);
   const signal = deadline ? AbortSignal.any([controller.signal, deadline]) : controller.signal;

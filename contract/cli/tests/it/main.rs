@@ -34,6 +34,7 @@ mod diagnostics;
 mod docs;
 mod document;
 mod entropy;
+mod fetch_faults;
 mod first;
 mod flow;
 mod fmt;

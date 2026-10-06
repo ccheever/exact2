@@ -481,3 +481,36 @@ fn the_test_step_grammar_names_drag_to() {
         Step::Drag { to: Some((to, Some((x, y)))), .. } if to == "b" && *x == 1.0 && *y == 2.0
     ));
 }
+
+#[test]
+fn fail_fetch_leads_as_a_launch_line_or_is_a_step_and_inherits_by_prefix() {
+    // LLP 1103 D3: leading lines arm before the first data load; later ones
+    // are steps; the file's lines lead every test that names no such prefix.
+    let src = "fail fetch \"https://api.test/\"\nfail fetch \"https://cdn.test/\" times 2\n\ntest \"a\"\n  fail fetch \"https://cdn.test/\"\n  tap \"retry\"\n  fail fetch \"https://api.test/x\" times 1\n  pass fetch \"https://api.test/\"\n";
+    let tests = contract::tests(src).unwrap();
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.starts_with("[{\"name\":\"a\",\"steps\":[{\"op\":\"fail-fetch\",\"prefix\":\"https://api.test/\",\"times\":null,\"line\":1},{\"op\":\"fail-fetch\",\"prefix\":\"https://cdn.test/\",\"times\":null,\"line\":5},{\"op\":\"tap\""),
+        "the file's cdn line is the test's own: {json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"fail-fetch\",\"prefix\":\"https://api.test/x\",\"times\":1,\"line\":7},{\"op\":\"pass-fetch\",\"prefix\":\"https://api.test/\",\"line\":8}"),
+        "{json}"
+    );
+    for (src, line) in [
+        (
+            "test \"t\"\n  fail fetch \"https://a.test/\"\n  fail fetch \"https://a.test/\"\n",
+            3,
+        ),
+        ("test \"t\"\n  fail fetch \"https://a.test/\" times 0\n", 2),
+        (
+            "test \"t\"\n  fail fetch \"https://a.test/\" times 1.5\n",
+            2,
+        ),
+        ("test \"t\"\n  fail \"https://a.test/\"\n", 2),
+        ("test \"t\"\n  pass fetch \"\"\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+}

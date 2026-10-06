@@ -815,7 +815,7 @@ fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &m
         let dispatch = match r.request.continuation {
             Some(token) => runner.dispatch_work(token),
             None if r.request.is_native() => runner.native_work(&r.request),
-            None => Dispatch::Missing,
+            None => runner.fault_dispatch(&r).unwrap_or(Dispatch::Missing),
         };
         run(executor, held, r, dispatch);
     }

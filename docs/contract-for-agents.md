@@ -1216,6 +1216,29 @@ as `clock data` does: its data module activated and every request launch started
 test does not start with `clock settle`. `before data`, a launch line, skips the
 wait; what has landed then is the host's (a native app runs on real time before
 the driver connects).
+
+To test an error path, fail the fetch: `fail fetch "<url prefix>"` makes every
+later fetch whose URL starts with it fail exactly as a refused connection does
+on that host (a TypeScript source's `fetch` rejects with `FetchError` kind
+`"Network"`; a Rust source's request settles `Failed { kind: Network }`), and it
+never goes out. Leading the test it is armed before the first data load, so
+"the API is down when the screen opens" is the launch; later it is a step.
+`times N` fails only the next N; `pass fetch "<prefix>"` stops it; a counted
+fault that never fired fails the test. The app's own `catch`, error record and
+retry run, so this checks the real error handling (LLP 1103). A drive takes
+`--fail-fetch <prefix>` at open and the ops `"fail fetch <prefix> [times N]"`
+and `"pass fetch <prefix>"`; `state.faults` shows each prefix's hits.
+
+```contract-test
+test "the list shows an error, then retries and loads"
+  fail fetch "https://api.example.com/recipes"
+  expect text "error" == "Couldn't load recipes."
+  pass fetch "https://api.example.com/recipes"
+  tap "retry"
+  clock data
+  expect tree has "recipes"
+```
+
 A test whose text depends on the date names its `epoch`; without one it runs at
 the driver's 2026-01-01 UTC. The steps are `tap "id" [hover|dblclick|contextmenu]`,
 `tap "id" modifiers "Shift+Meta"` (a press with keys held),

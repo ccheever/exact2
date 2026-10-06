@@ -18,7 +18,8 @@ mod names;
 mod routes;
 mod sounds;
 mod steps;
-use steps::{launch_word, same_launch, LAUNCH};
+pub use steps::same_launch;
+use steps::{launch_word, LAUNCH};
 
 /// A parse failure.
 #[derive(Debug, Clone, PartialEq, Eq)]

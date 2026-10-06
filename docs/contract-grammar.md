@@ -351,7 +351,8 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "time-zone" STRING NL                (* an IANA zone, "America/New_York" *)
               | "locale" STRING NL                   (* a BCP 47 tag, "fr-FR" *)
               | "seed" NUMBER NL                     (* 0 through 2^53 - 1 *)
-              | "before" "data" NL ;                 (* the first step does not wait for data *)
+              | "before" "data" NL                   (* the first step does not wait for data *)
+              | "fail" "fetch" STRING [ "times" NUMBER ] NL ; (* armed before the first data load *)
 step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
                   | "pinch" NUMBER [ "at" NUMBER NUMBER ]
                   | "into" STRING
@@ -368,6 +369,8 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
               | "clock" ( "settle" | "data" | [ "+" ] NUMBER [ "real" ] ) NL
               | "resize" NUMBER "x" NUMBER NL        (* the window, mid-test: 800x600 *)
               | "reload" NL
+              | "fail" "fetch" STRING [ "times" NUMBER ] NL (* later fetches whose URL starts with it fail *)
+              | "pass" "fetch" STRING NL             (* it stops failing *)
               | "close" NL                           (* the window's close button *)
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
@@ -389,7 +392,20 @@ name its own; either way they override the drive's flags. A file whose
 assertions depend on the date says so in the file. Before the first step, and
 after a `reload`, the driver waits for the app's data as `clock data` does (its
 module activated, every request in flight answered and each answer's `then`
-landed, the clock unmoved); `before data` skips the wait. `tap "id" drag to "other" [at x y]` ends on the other
+landed, the clock unmoved); `before data` skips the wait. `fail fetch "<prefix>"`
+(LLP 1103) makes every later fetch whose URL starts with the prefix fail as a
+refused connection does, on every host: a TypeScript source's `fetch` rejects
+with `FetchError` of kind `"Network"`, a Rust source's request settles
+`Failed { kind: Network }`, and the request never goes out. `times N` (a
+positive whole number) fails only the next N; `pass fetch "<prefix>"` stops it.
+Leading the steps, or at the top of the file, `fail fetch` is a launch line,
+armed before the app's first data load; later it is a step. Several prefixes may
+be armed; the longest matching prefix decides, and arming a prefix again
+replaces it. A file's line applies to every test that does not arm the same
+prefix itself. A counted fault that matched no fetch by the test's end (or
+before it is armed again) fails the test at the line that armed it, and
+`reload` relaunches with the table as it is then. A stream (`exactStream`, a
+WebSocket) is not matched. `tap "id" drag to "other" [at x y]` ends on the other
 node (LLP 1094 D12). `tap "id" drag dx dy` is the driver's `tap … drag` (from the
 node's middle, or `from x y` in its box, in points; `press`, `over`, `hold` in
 milliseconds; each once). It is a finger where the carrier has one (the web,

@@ -599,14 +599,23 @@ fn compile_path_checked(
 /// names the same fact itself (habits F7, calendar F13).
 pub fn tests(src: &str) -> Result<Vec<TestDecl>, CompileError> {
     let file = contract_syntax::parse(src)?;
-    let word = |s: &Step| std::mem::discriminant(s);
     Ok(file
         .tests
         .into_iter()
         .map(|mut test| {
-            let own: Vec<_> = test.steps.iter().map(word).collect();
-            let inherited = file.launch.iter().filter(|l| !own.contains(&word(l)));
-            test.steps = inherited.cloned().chain(test.steps).collect();
+            // By fact: a `fail fetch` line by its prefix (LLP 1103 D3).
+            let own = |l: &Step| {
+                test.steps
+                    .iter()
+                    .any(|s| contract_syntax::same_launch(s, l))
+            };
+            let inherited = file
+                .launch
+                .iter()
+                .filter(|l| !own(l))
+                .cloned()
+                .collect::<Vec<_>>();
+            test.steps = inherited.into_iter().chain(test.steps).collect();
             test
         })
         .collect())
@@ -764,6 +773,18 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                 Step::Reload { .. } => s.push_str("{\"op\":\"reload\""),
                 Step::Close { .. } => s.push_str("{\"op\":\"close\""),
                 Step::BeforeData { .. } => s.push_str("{\"op\":\"before-data\""),
+                Step::FailFetch { prefix, times, .. } => {
+                    s.push_str("{\"op\":\"fail-fetch\",\"prefix\":");
+                    q(prefix, &mut s);
+                    match times {
+                        Some(n) => s.push_str(&format!(",\"times\":{n}")),
+                        None => s.push_str(",\"times\":null"),
+                    }
+                }
+                Step::PassFetch { prefix, .. } => {
+                    s.push_str("{\"op\":\"pass-fetch\",\"prefix\":");
+                    q(prefix, &mut s);
+                }
                 Step::Resize { width, height, .. } => {
                     s.push_str(&format!(
                         "{{\"op\":\"resize\",\"width\":{width},\"height\":{height}"
