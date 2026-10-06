@@ -98,12 +98,26 @@ component R4HeaderBar
   derive tabsFadeLeft = panel.tabStrip.view > 0 ? min(24, max(0, tabsScroll)) * 100 / panel.tabStrip.view : 0
   derive tabsFadeRight = panel.tabStrip.view > 0 ? min(24, max(0, panel.tabStrip.max - tabsScroll)) * 100 / panel.tabStrip.view : 0
   derive tabsMask = not panel.tabStrip.overflow ? "none" : `linear-gradient(to right, #00000000 0%, #000000 ${tabsFadeLeft}%, #000000 ${100 - tabsFadeRight}%, #00000000 100%)`
+  // right-panel-tab-menu: the tab a right-click named. Its `contextmenu` runs before the host
+  // shows the one `r4-tab-menu` popover (LLP 1021 §5.1), so the popover lists that tab's rows.
+  state menuTab = ""
+  action tabMenu(id: string)
+    menuTab = id
   view
     row height=52 flex-shrink=0 padding-left=8 padding-right=13 box-sizing="border-box" align-items="center" gap=4 position="relative" z-index=20 testId="panel-tabbar"
+      // RightPanelTabs handleTabContextMenu: api.contextMenu.show at the pointer. macOS presents these
+      // rows as an NSMenu (plain items, no separators, disabled ones dimmed); the agent and the web paint
+      // the popover at the tab. A row presses the same `surface-<id>` op as the menu's choice.
+      column id="r4-tab-menu" popover="auto" position="absolute" role="menu" width=192 padding=4 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" testId="tab-menu"
+        each menuOf in panel.tabs key=menuOf.id
+          when menuOf.id == menuTab
+            each item in menuOf.menu key=item.id
+              button press=local(`surface-${item.id}`, menuOf.id, "") disabled=item.disabled popovertarget="r4-tab-menu" popovertargetaction="hide" role="menuitem" testId=`tab-menu-${item.id}` display="flex" flex-direction="row" align-items="center" width="100%" height=28 padding-left=8 padding-right=8 box-sizing="border-box" border-width=0 border-radius=6 opacity=(item.disabled ? 0.64 : 1) background-color="#00000000"
+                text item.label flex=1 min-width=0 white-space="nowrap" text-align="left" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
       scroll flex=1 min-width=0 height=24 overflow-x="scroll" overflow-y="hidden" scrollLeft=tabsScroll scroll=tabsScrolled mask-image=tabsMask hook="t3-anchor" data-anchor="r12-tabs-view" testId="panel-tab-strip"
         row flex-shrink=0 width=(panel.tabStrip.content > panel.tabStrip.view ? panel.tabStrip.content : "100%") gap=4 align-items="center" role="tablist" aria-label="Panel surfaces" hook="t3-anchor" data-anchor="r12-tabs-content"
           each tab in panel.tabs key=tab.id
-            R4TabChip(tab=tab, ui=ui, local=local)
+            R4TabChip(tab=tab, ui=ui, local=local, menu=tabMenu)
           when panel.count > 0
             R4AddSurface(surfaces=surfaces, ui=ui)
       when panel.tabStrip.overflow
@@ -134,6 +148,7 @@ component R4TabChip
     tab: R4Tab
     ui: action
     local: action
+    menu: action
   state over = false
   action hover(value: bool)
     over = value
@@ -144,7 +159,7 @@ component R4TabChip
       preventDefault()
       local("surface-menu", tab.id, "key")
   view
-    row contextmenu=local("surface-menu", tab.id, "") height=24 max-width=144 padding-left=6 padding-right=8 box-sizing="border-box" gap=2 align-items="center" border-radius=8 flex-shrink=0 hover=hover role="tab" aria-selected=tab.active background-color=(tab.active ? "light-dark(#f4f4f5, #141414)" : over ? "light-dark(#f4f4f599, #14141499)" : "#00000000") hook="t3-anchor" data-anchor=`r12-tab:${tab.id}` testId=`panel-tab-${tab.id}`
+    row contextmenu=menu(tab.id) contextPopover="r4-tab-menu" height=24 max-width=144 padding-left=6 padding-right=8 box-sizing="border-box" gap=2 align-items="center" border-radius=8 flex-shrink=0 hover=hover role="tab" aria-selected=tab.active background-color=(tab.active ? "light-dark(#f4f4f5, #141414)" : over ? "light-dark(#f4f4f599, #14141499)" : "#00000000") hook="t3-anchor" data-anchor=`r12-tab:${tab.id}` testId=`panel-tab-${tab.id}`
       button hook="t3-anchor" data-anchor=`tab-close:${tab.id}` press=ui("tab-close", tab.id) key=tabKey aria-label=`Close ${tab.title}` testId=`close-tab-${tab.id}` width=16 height=16 padding=0 border-radius=4 border-width=0 position="relative" flex-shrink=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
         when over
           ShellIcon(name="x", size=12, color=(tab.active or over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
@@ -162,12 +177,11 @@ component R4TabChip
                 ShellIcon(name=tab.icon, size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
         when tab.pending
           box position="absolute" right=-1 bottom=-1 width=6 height=6 border-radius=3 background-color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
-      box hook="t3-anchor" data-anchor=`tab-rename:${tab.id}` press=local("surface-rename", tab.id, "") width=0 height=0 padding=0 border-width=0 opacity=0 aria-hidden=true position="absolute"
       box hook="t3-anchor" data-anchor=`tab-cancel:${tab.id}` press=local("surface-rename-cancel", tab.id, "") width=0 height=0 padding=0 border-width=0 opacity=0 aria-hidden=true position="absolute"
       when tab.renaming
         input hook="t3-select-on-open" id=`tab-name-${tab.id}` value=tab.renameValue input=local("surface-rename-edit", tab.id) blur=local("surface-rename-commit", tab.id, "") submit=local("surface-rename-commit", tab.id, "") autofocus=true aria-label="Device tab name" testId=`tab-name-${tab.id}` width=96 min-width=0 height=20 padding=0 border-width=0 border-radius=4 box-shadow="0 0 0 1px light-dark(#a1a1aa80, #73737380)" background-color="#00000000" font-size=12 color="light-dark(#27272a, #f5f5f5)"
       else
-        button hook="t3-anchor" data-anchor=`tab-focus:${tab.id}` press=local("surface-activate", tab.id, "") key=tabKey aria-label=tab.title testId=`tab-${tab.id}` min-width=0 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+        button hook="t3-anchor" data-anchor=`tab-focus:${tab.id}` press=local("surface-activate", tab.id, "") dblclick=local("surface-rename", tab.id, "") key=tabKey aria-label=tab.title testId=`tab-${tab.id}` min-width=0 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
           text tab.title min-width=0 font-size=12 line-height="16px" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color=(tab.active or over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
 
 
