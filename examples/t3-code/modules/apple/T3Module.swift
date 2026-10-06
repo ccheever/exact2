@@ -20,8 +20,8 @@ final class T3Module: ExactModule {
     private let media: R6MediaPreview // lane r6-media: attachment PDF and HTML bodies (R6MediaPreview.swift).
     private let devices: R6DeviceStreams // lane r6-media: device screens, input and screenshots (R6DeviceStream.swift).
     private let timeline: T3Timeline
-    private let turns: T3TimelineTurns // The minimap's turns in view and jumps (T3TimelineTurns.swift).
-    private let mermaid: T3TimelineMermaid // Mermaid fences laid out with the server's own Mermaid (T3TimelineMermaid.swift).
+    let turns: T3TimelineTurns // The minimap's turns in view and jumps (T3TimelineTurns.swift).
+    let mermaid: T3TimelineMermaid // Mermaid fences laid out with the server's own Mermaid (T3TimelineMermaid.swift).
     private let snapShot: T3SnapShot
     private let chrome = T3WindowChrome()
     let exportsRoot: URL? // Agent runs export into the isolated data root (T3ContextMenu.saveText).
@@ -71,10 +71,6 @@ final class T3Module: ExactModule {
         if gate.began(request, answer: { reply.send($0) }) { return }
         if let key = request["fleet"] as? String { gate.sent(request); return fleet.perform(key, request) { [gate] in gate.answered(request); reply.send($0) } }
         if request["op"] as? String == "r8MeasureFrame" { DispatchQueue.main.async { [weak self] in reply.send(self?.measure.perform(request) ?? ["ok": false, "generation": 0]) }; return } // lane r8-keys
-        if request["op"] as? String == "timelineSleep" { return T3TimelineTurns.sleep(request) { reply.send($0) } }
-        if request["op"] as? String == "mermaidRender" { DispatchQueue.main.async { [weak self] in self?.mermaid.perform(request) { reply.send($0) } }; return }
-        if request["op"] as? String == "timelineJump" { DispatchQueue.main.async { [weak self] in self?.turns.jump(request) { reply.send($0) } }; return }
-        if request["op"] as? String == "imageAccent" { return T3ImageAccent.perform(request) { reply.send($0) } } // Image chip accents (T3ImageAccent.swift, lane r4-timeline).
         if request["op"] as? String == "r6DeviceInput" { DispatchQueue.main.async { [weak self] in reply.send(self?.devices.input(request) ?? ["ok": false, "generation": 0]) }; return } // lane r6-media
         if request["op"] as? String == "r6DeviceScreenshot" { return R6DeviceStreams.screenshot(request, access: { [transport] done in transport.deviceHubAccess(done) }, exportsRoot: exportsRoot) { reply.send($0) } }
         if let op = request["op"] as? String, op.hasPrefix("sidebar") {
@@ -130,7 +126,7 @@ final class T3Module: ExactModule {
     /// Each area's ops (T3Module+<Area>.swift), in turn: an area answers the ops it owns and
     /// calls `next` for the rest; what no area owns goes to the transport. No two areas share
     /// an op. A feature adds its area's method in its own file and one entry here.
-    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps]
+    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.timelineOps]
     private func route(_ request: [String: Any], reply: ExactReply, from index: Int) {
         guard index < Self.areas.count else { return forward(request, reply: reply) }
         Self.areas[index](self)(request, reply) { self.route(request, reply: reply, from: index + 1) }
