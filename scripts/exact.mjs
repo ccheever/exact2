@@ -30,13 +30,13 @@
 // second executable path for the same binary, and macOS gives it the bundle
 // identity of whatever the *symlink* is beside — which is not the app.
 import { spawn, spawnSync } from 'node:child_process';
-import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { BINARYEN } from '../host/web/stages.mjs';
-import { delimiter, resolve, sep } from 'node:path';
+import { delimiter, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cargoEnvironment, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
+import { cargoEnvironment, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { createApp, createGame } from '../game/new.mjs';
 import { sdkFetch } from '../game/app/shells.mjs';
 import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements, stripForDistribution } from '../host/apple/build.mjs';
@@ -56,91 +56,30 @@ export const commandOf = (app) => app.manifest.app?.command ?? app.name;
 /** Where `install` puts the app. */
 export const installedAt = (app) => resolve(APPLICATIONS, `${app.displayName}.app`);
 
-const HERMES_RECEIPT_SCHEMA = 'ibex/hermes-upstream-pinned-receipt/2';
-const HERMES_SOURCE = 'd412d3bd851278712c20cca25d094e32641a0465';
-const EMPTY_PATCH_SET = 'sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
-const ICU_SOURCE = '2d029329c82c7792b985024b2bdab5fc7278fbc8';
-const ICU_FILTERS = new Map([
-  ['share/icu/filters-root-en.json', 'sha256-c5d1b182d6e92212ff4952d7a5c956f3d54611f300cb6fa1fdca39a6510f9702'],
-  ['share/icu/filters-en-intl.json', 'sha256-796fa71ddfad7135f644884931c4e8c5491c27a5c4f0366d7dd12702489eb715'],
-]);
-const receiptTarget = target => target === 'aarch64-apple-ios-sim' || target === 'x86_64-apple-ios' ? 'universal-apple-ios-simulator'
-  : target === 'aarch64-apple-tvos-sim' ? 'aarch64-apple-tvos-simulator' : target;
-const sha256 = path => `sha256-${createHash('sha256').update(readFileSync(path)).digest('hex')}`;
-const digestPattern = /^sha256-[0-9a-f]{64}$/;
+/** Cross bundles installed and checked beside the host bundle on this machine. */
+export function hermesSetupTargets(os = process.platform, cpu = process.arch) {
+  if (os !== 'darwin') return [];
+  return [
+    cpu === 'x64' ? 'x86_64-apple-ios' : 'aarch64-apple-ios-sim',
+    'aarch64-apple-tvos-sim',
+  ];
+}
 
-/** Setup's read-only counterpart to the vendored resolver: authenticate every
- * input selected by the canonical receipt, then execute only the host compiler. */
-export function validateHermesBundle(bundle, { executeCompiler = bundle.target === hermesTarget() } = {}) {
-  const problems = [];
-  try {
-    const receiptPath = resolve(bundle.root, 'hermes-input-receipt.json');
-    const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
-    const insist = (condition, message) => { if (!condition) throw new Error(message); };
-    insist(receipt.schema === HERMES_RECEIPT_SCHEMA, `receipt is not canonical schema ${HERMES_RECEIPT_SCHEMA}`);
-    insist(receipt.upstream?.sourceCommit === HERMES_SOURCE, `receipt does not name pinned Hermes ${HERMES_SOURCE}`);
-    insist(receipt.patchSet?.digest === EMPTY_PATCH_SET && Array.isArray(receipt.patchSet.applied) && receipt.patchSet.applied.length === 0, 'receipt patch set is not canonical and empty');
-    const expectedTarget = receiptTarget(bundle.target);
-    insist(receipt.target === expectedTarget, `receipt target ${receipt.target ?? 'missing'} does not match ${expectedTarget}`);
-    insist(Number.isSafeInteger(receipt.bytecode?.version) && receipt.bytecode.version > 0, 'receipt has no positive HBC bytecode version');
-    insist(Array.isArray(receipt.linkDirectives) && receipt.linkDirectives.length > 0 && receipt.linkDirectives.every(value => typeof value === 'string' && value), 'receipt has no ordered link directives');
-    const root = realpathSync(bundle.root);
-    const file = (relative, label) => {
-      insist(typeof relative === 'string' && relative && !relative.includes('\\') && !relative.startsWith('/') && relative.split('/').every(part => part && part !== '.' && part !== '..'), `${label} has an unsafe path`);
-      const path = resolve(root, relative);
-      insist(existsSync(path) && statSync(path).isFile(), `${label} ${relative} is missing`);
-      const actual = realpathSync(path);
-      insist(actual.startsWith(`${root}${sep}`), `${label} ${relative} leaves the bundle`);
-      return path;
-    };
-    const digest = (value, label) => { insist(digestPattern.test(value ?? ''), `${label} has no canonical digest`); return value; };
-    const manifest = name => {
-      const values = receipt[name];
-      insist(Array.isArray(values) && values.length > 0, `receipt has no ${name} manifest`);
-      let previous = '';
-      return new Map(values.map((item, index) => {
-        insist(item && typeof item === 'object', `${name}[${index}] is not an object`);
-        const path = item.path;
-        file(path, `${name}[${index}]`);
-        insist(path > previous, `${name} manifest is not strictly sorted`);
-        previous = path;
-        const expected = digest(item.digest, `${name} ${path}`), actual = sha256(resolve(root, path));
-        insist(actual === expected, `${name} ${path} digest is ${actual}, expected ${expected}`);
-        return [path, expected];
-      }));
-    };
-    const archives = manifest('archives');
-    manifest('headers');
-    const windows = receipt.target.endsWith('-pc-windows-msvc');
-    const fullName = windows ? 'hermesvm_a.lib' : 'libhermesvm_a.a';
-    const leanName = windows ? 'hermesvmlean_a.lib' : 'libhermesvmlean_a.a';
-    insist(receipt.engine?.binary === `lib/${fullName}`, `receipt does not select full VM archive ${fullName}`);
-    const engineDigest = digest(receipt.engine?.binaryDigest, 'full VM');
-    insist(archives.get(receipt.engine.binary) === engineDigest, 'full VM archive is not bound by the manifest');
-    insist(archives.has(`lib/${leanName}`), `lean VM archive ${leanName} is not bound by the manifest`);
-    insist(receipt.compiler?.binary === `bin/hermesc${windows ? '.exe' : ''}`, 'receipt does not select the target compiler');
-    const compilerPath = file(receipt.compiler?.binary, 'compiler');
-    const compilerDigest = digest(receipt.compiler?.digest, 'compiler');
-    insist(sha256(compilerPath) === compilerDigest, 'compiler digest does not match the receipt');
-    if (receipt.target.endsWith('-unknown-linux-gnu')) {
-      const icu = receipt.icu, required = [
-        ...(icu?.codeArchives ?? []), icu?.data?.trimmed?.archive, icu?.data?.en?.archive, icu?.data?.full?.archive,
-      ];
-      insist(icu?.upstream?.sourceCommit === ICU_SOURCE, `Linux receipt does not name pinned ICU ${ICU_SOURCE}`);
-      insist(JSON.stringify(required) === JSON.stringify(['lib/libicui18n.a', 'lib/libicuuc.a', 'lib/libicudata.a', 'lib/libicudata-en.a', 'lib/libicudata-full.a']) && required.every(path => archives.has(path)), 'Linux receipt does not bind both ICU code archives and all three data tiers');
-      for (const [label, filter] of [['base ICU filter', icu?.data?.trimmed?.filter], ['English ICU filter', icu?.data?.en?.filter]]) {
-        const path = file(filter?.path, label), expected = digest(filter?.digest, label);
-        insist(ICU_FILTERS.get(filter.path) === expected, `${label} is not the pinned filter`);
-        insist(sha256(path) === expected, `${label} digest does not match the receipt`);
-      }
-    } else insist(receipt.icu == null, 'non-Linux receipt unexpectedly carries ICU artifacts');
-    if (executeCompiler) {
-      const version = spawnSync(compilerPath, ['-version'], { encoding: 'utf8' });
-      const hbc = /HBC bytecode version:\s*(\d+)/.exec(`${version.stdout ?? ''}\n${version.stderr ?? ''}`)?.[1];
-      insist(version.status === 0 && Number(hbc) === receipt.bytecode.version, `compiler did not report receipt HBC version ${receipt.bytecode.version}`);
-    }
-  } catch (error) { problems.push(error.message); }
-  return { ...bundle, installed: problems.length === 0, problems };
+const hermesInstallerArguments = (check, os = process.platform, cpu = process.arch) => [
+  'run', '--manifest-path', HERMES_INSTALLER, '--', ...(check ? ['--check'] : []),
+  ...hermesSetupTargets(os, cpu).flatMap(target => ['--target', target]),
+];
+
+/** Ask the vendored resolver itself whether every bundle setup installs is valid. */
+export function checkHermesBundles(env = process.env, execute = spawnSync, os = process.platform, cpu = process.arch) {
+  const host = hermesTarget(os, cpu);
+  if (!host) return { ok: false, message: `no pinned bundle exists for ${os}/${cpu}`, fix: '' };
+  const args = hermesInstallerArguments(true, os, cpu);
+  const result = execute('cargo', args, { cwd: ROOT, encoding: 'utf8', env: cargoEnvironment(env) });
+  const stderr = result.stderr?.trim().split(/\r?\n/).filter(Boolean).at(-1);
+  const message = [result.stdout?.trim(), stderr, result.error?.message].filter(Boolean).join('\n');
+  const install = ['cargo', ...hermesInstallerArguments(false, os, cpu)].join(' ');
+  return { ok: result.status === 0, message: message || `cargo exited ${result.status ?? 'without a status'}`, fix: install };
 }
 
 /** Where a shim goes: `EXACT_BIN_DIR`, else the first of these already on PATH, else `~/.local/bin` (made, and named in the advice). */
@@ -455,9 +394,8 @@ export function setup({check = false} = {}) {
       } finally { rmSync(stage, {recursive: true, force: true}); }
     }
     run(process.execPath, ['install', '--frozen-lockfile']);
-    const host = hermesTarget();
-    if (!host) throw new Error(`the pinned Hermes release has no host bundle for ${process.platform}/${process.arch}`);
-    run('cargo', [`+${pin.channel}`, 'run', '--manifest-path', resolve(ROOT, 'vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml'), '--', '--target', host]);
+    if (!hermesTarget()) throw new Error(`the pinned Hermes release has no host bundle for ${process.platform}/${process.arch}`);
+    run('cargo', hermesInstallerArguments(false));
     // Every bake resolves offline and locked: the checkout's crates, and the game SDK's for a game's shell.
     run('cargo', [`+${pin.channel}`, 'fetch', '--locked', '--manifest-path', resolve(ROOT, 'Cargo.toml')]);
     console.log('cargo fetch (the game SDK lock, game/app/shells.lock)');
@@ -518,22 +456,13 @@ export function sdkReport(env = process.env) {
     const xcode = /\.app\/Contents\/Developer$/.test(developer);
     rows.push(row('Xcode', developer, 'Xcode.app', xcode, 'install Xcode, then sudo xcode-select -s /Applications/Xcode.app', 'macOS and iOS'));
   }
-  const hostTarget = hermesTarget();
-  if (hostTarget) {
-    const host = validateHermesBundle(hermesBundle(hostTarget, env));
-    rows.push(row(`Hermes host bundle (${hostTarget})`, host.installed ? host.root : host.problems[0], host.tag, host.installed, host.fix));
-  } else rows.push(row('Hermes host bundle', '', 'a supported Ibex bundle', false, `no pinned bundle exists for ${process.platform}/${process.arch}`));
-  if (process.platform === 'darwin') {
-    const simulatorTarget = process.arch === 'x64' ? 'x86_64-apple-ios' : 'aarch64-apple-ios-sim';
-    for (const [name, target, need] of [
-      ['Hermes iOS Simulator bundle', simulatorTarget, 'TypeScript on an iOS Simulator'],
-      ['Hermes iOS device bundle', 'aarch64-apple-ios', 'TypeScript on an iOS device'],
-      ['Hermes tvOS Simulator bundle', 'aarch64-apple-tvos-sim', 'TypeScript on a tvOS Simulator'],
-    ]) {
-      const bundle = validateHermesBundle(hermesBundle(target, env), { executeCompiler: false });
-      rows.push(row(`${name} (${target})`, bundle.installed ? bundle.root : bundle.problems[0], bundle.tag, bundle.installed, bundle.fix, need));
-    }
-  }
+  const hostTarget = hermesTarget(), targets = hermesSetupTargets();
+  const bundles = checkHermesBundles(env);
+  rows.push(row(
+    `Hermes bundles (${[hostTarget, ...targets].filter(Boolean).join(', ')})`,
+    bundles.ok ? 'verified by hermes-lean-sys' : bundles.message,
+    'the pinned Ibex release', bundles.ok, bundles.fix,
+  ));
   return rows;
 }
 
@@ -604,7 +533,7 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact release <app>          sign with a Developer ID, notarise, staple, package
   exact uninstall <app>        take both away
   exact setup [--check]        install pinned Rust, wasm-bindgen, Binaryen and
-                               the host Hermes bundle; print optional iOS targets;
+                               this machine's host/iOS/tvOS Hermes bundles;
                                fetch the crates every bake reads offline
   exact list                   the apps in this repo
   exact new <path> [--update]  a new app outside this repo, using this checkout;

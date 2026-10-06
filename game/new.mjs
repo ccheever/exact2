@@ -343,7 +343,7 @@ The loop: generate the types, edit, \`contract build --json\` until it prints \`
 \`test web\`, look at it with \`agent web … screenshot\`, then the native hosts.
 Before the first native TypeScript build on a machine, run the one-time installer
 \`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup\`; it installs the pinned
-host Hermes bundle and prints the optional iOS Simulator and device commands.
+host bundle and the iOS/tvOS bundles this Mac builds.
 \`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup --check\` only checks and
 names anything this machine is missing. Cargo builds themselves are forced offline for Hermes.
 

@@ -9,8 +9,7 @@ agent can build it, run it, see it, and test it on every one of them.**
 >
 > ```text
 > Clone https://github.com/ccheever/exact2 and follow its README to make a new Exact
-> app with `exact new`. Run `bun scripts/exact.mjs setup` once first, and install the
-> pinned iOS Simulator Hermes bundle with the target command setup prints. Make a todo
+> app with `exact new`. Run `bun scripts/exact.mjs setup` once first. Make a todo
 > list where I can add items, check them off, delete them,
 > and see how many are left. Put the view in Contract and keep the list in `app.ts`.
 > Write an `app.test.contract`, pass it on web, macOS, and the iOS Simulator with
@@ -228,14 +227,13 @@ Use `~/.bun-1.4.2/bin/bun` for the commands below if it is not on your PATH.
 `bun scripts/exact.mjs setup` installs the declared stable and web nightly Rust
 toolchains, their components/targets (the nightly's clippy lints a game's web bake),
 matching wasm-bindgen, pinned Binaryen and Bun dependencies, installs the pinned
-Hermes host bundle, and fetches the crates
+Hermes host bundle and the iOS/tvOS bundles this Mac builds, and fetches the crates
 of exact2's lock and the game SDK's (`game/app/shells.lock`), since every bake
 resolves offline. It keeps Binaryen in `~/.cache/exact/binaryen`; builds find it
-automatically. On macOS the report also prints the one-time iOS Simulator and device
-installer commands, including the tvOS Simulator bundle. `setup --check`
-authenticates the canonical receipt, target, compiler/HBC version, every header
-and VM archive digest, and Linux's ICU artifacts without installing anything;
-a missing or corrupt pinned host bundle makes it fail.
+automatically. `setup --check` invokes Ibex's installer in its offline check mode for
+that same target set. The resolver authenticates the canonical receipts, archives,
+compiler and host/target HBC pairing without installing anything; its exit status and
+diagnostic are the check's result.
 
 ### 2. Run Caltrain in the browser
 

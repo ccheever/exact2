@@ -32,8 +32,9 @@ The v4 set supports macOS, Linux, Windows, iOS devices and the universal iOS
 Simulator, plus tvOS devices and the arm64 tvOS Simulator. Exact selects
 Ibex's English `intl` tier on Linux and Windows, not `intl-all-locales`; Apple
 keeps Hermes's OS-backed Intl. A Rust-only app needs no engine at run time.
-`exact setup` installs the host bundle; on macOS its report prints the iOS and
-tvOS Simulator target commands.
+`exact setup` installs the host bundle and, on macOS, the iOS and tvOS Simulator
+bundles. `exact setup --check` runs Ibex's own offline resolver validation over that
+same set. A signed iOS device build names its separate one-time target command.
 
 ### Windows TypeScript
 
