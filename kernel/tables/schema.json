@@ -293,7 +293,8 @@
     {
       "id": 24,
       "name": "accessibilityChecked",
-      "kind": "bool"
+      "kind": "str",
+      "_comment": "ARIA `aria-checked` on a checkable role: `true`, `false` or `mixed`; `mixed` is a checkbox's (or menuitemcheckbox's) third state, and a radio or switch reads it as `false`, as Chrome does. A bool expression, and a control's `checked`, are written as `true`/`false`."
     },
     {
       "id": 25,

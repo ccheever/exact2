@@ -993,7 +993,7 @@ impl<'a> Lowerer<'a> {
                     );
                 }
                 // @ref LLP 1069.001 D8 — rows a control derives.
-                if control.is_some() && controls::derived_rows(&mut bindings) {
+                if control.is_some() && self.derived_rows(expanded, scope, locals, &mut bindings)? {
                     if let Some(origins) = &mut origins {
                         origins.resize(bindings.len(), Origin::Own);
                     }

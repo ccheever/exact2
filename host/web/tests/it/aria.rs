@@ -45,3 +45,22 @@ fn form_states_and_haspopup_are_the_html_attributes() {
         assert!(batch.contains(attr), "{attr} in {batch}");
     }
 }
+
+/// `aria-checked` is ARIA's word (issue #120): a checkbox's `mixed` as is,
+/// a bool as `true`/`false`; Chrome then reads a switch's `mixed` as false.
+#[test]
+fn aria_checked_is_the_html_attribute_with_its_mixed_word() {
+    let plan = contract::compile(
+        "component App\n  state on = true\n  view\n    column\n      button role=\"checkbox\" aria-checked=\"mixed\" testId=\"all\"\n        text \"All\"\n      button role=\"switch\" aria-checked=on testId=\"sw\"\n        text \"Notify\"\n",
+    )
+    .unwrap();
+    let (_host, batch) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(batch.contains("\"aria-checked\":\"mixed\""), "{batch}");
+    assert!(batch.contains("\"aria-checked\":\"true\""), "{batch}");
+}

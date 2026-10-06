@@ -911,7 +911,9 @@ Use `aria-label`, roles, and other admitted ARIA attributes where content alone
 does not name a control. Keep accessible labels separate from driver `testId`s.
 They mean on every host what they mean in a browser: `aria-hidden` takes a
 subtree off the tree and out of its ancestors' names; `role="checkbox"`,
-`"radio"` or `"switch"` with `aria-checked` is that control, `role="img"` with a
+`"radio"` or `"switch"` with `aria-checked` is that control (`aria-checked` takes
+a bool or ARIA's `"true"`, `"false"` or `"mixed"`; `"mixed"` is a checkbox's third
+state, and a switch or radio reads it as unchecked, as Chrome does), `role="img"` with a
 label an image; `aria-labelledby` (the ids of the elements whose text names this
 one, as a radiogroup names itself by its visible heading) wins over `aria-label`;
 `aria-describedby` (the ids of the elements whose text describes

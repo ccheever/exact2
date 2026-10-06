@@ -424,25 +424,40 @@ impl Lowerer<'_> {
     }
 }
 
-/// A control's derived rows: a checkbox's checked state is its
-/// accessibility state on every host (LLP 1069.001 D8). Whether a row was
-/// added.
-pub(crate) fn derived_rows(bindings: &mut Vec<BindingsRow>) -> bool {
-    let checked = PropId::Checked as u16;
-    let Some(expr) = bindings
-        .iter()
-        .rev()
-        .find(|b| b.kind == BindingKind::Prop && b.id == checked)
-        .map(|b| b.expr)
-    else {
-        return false;
-    };
-    bindings.push(BindingsRow {
-        kind: BindingKind::Prop,
-        id: PropId::AccessibilityChecked as u16,
-        expr,
-    });
-    true
+impl Lowerer<'_> {
+    /// A control's derived rows: a checkbox's checked state is its
+    /// accessibility state on every host (LLP 1069.001 D8), written as
+    /// ARIA's word (`true`/`false`; `accessibilityChecked` also takes
+    /// `mixed`). Bound from the last `checked` in `attrs`, after the
+    /// authored rows. Whether a row was added.
+    pub(crate) fn derived_rows(
+        &mut self,
+        attrs: &[contract_syntax::Attr],
+        scope: &contract_types::Scope,
+        locals: u16,
+        bindings: &mut Vec<BindingsRow>,
+    ) -> Result<bool, LowerError> {
+        let checked = PropId::Checked as u16;
+        if !bindings
+            .iter()
+            .any(|b| b.kind == BindingKind::Prop && b.id == checked)
+        {
+            return Ok(false);
+        }
+        let Some(a) = attrs.iter().rev().find(|a| a.name == "checked") else {
+            return Ok(false);
+        };
+        let (mut asm, mut depth) = (exact_plan::asm::Asm::new(), locals);
+        crate::expr::compile(self, &mut asm, &a.value, scope, &mut depth)?;
+        asm.call(exact_plan::Stdlib::ToString);
+        let expr = self.b.code(asm);
+        bindings.push(BindingsRow {
+            kind: BindingKind::Prop,
+            id: PropId::AccessibilityChecked as u16,
+            expr,
+        });
+        Ok(true)
+    }
 }
 
 /// @ref LLP 1069.011 D1 — whether a `button` is a native one: its effective

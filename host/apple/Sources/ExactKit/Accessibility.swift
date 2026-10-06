@@ -45,11 +45,16 @@ extension NodeView {
     /// with `role="checkbox"` as a checkbox (habits F16).
     var actsAsButton: Bool { kind == "button" || kind == "view" && ["button", "link", "checkbox", "radio", "switch"].contains(props["accessibilityRole"] ?? "") }
     /// ARIA's checkable roles (Core-AAM): `checkbox`, `radio` and `switch`,
-    /// their state `aria-checked`; nil for any other role (onboarding F16:
-    /// a `button role="radio"` read as a plain button on macOS).
-    var checkedRole: (role: String, checked: Bool)? {
+    /// their state `aria-checked` as Chrome reads it — 0 off, 1 on, 2 mixed;
+    /// nil for any other role (onboarding F16: a `button role="radio"` read
+    /// as a plain button on macOS). `mixed` is a checkbox's third state; a
+    /// radio or switch has none and reads it as off (ARIA 1.2). `false`,
+    /// empty or `undefined` is off, any other word on.
+    var checkedRole: (role: String, checked: Int)? {
         guard let role = props["accessibilityRole"], ["checkbox", "radio", "switch"].contains(role) else { return nil }
-        return (role, props["accessibilityChecked"] == "true")
+        let word = (props["accessibilityChecked"] ?? "").lowercased()
+        if word == "mixed" { return (role, role == "checkbox" ? 2 : 0) }
+        return (role, ["", "false", "undefined"].contains(word) ? 0 : 1)
     }
     /// ARIA `aria-pressed` on a button: its toggle state, `true`, `false` or
     /// `mixed`; nil when it is no toggle (absent, another word, another role).
@@ -154,11 +159,11 @@ extension NSView {
     }
     /// Core-AAM's checkable roles: `checkbox` is `AXCheckBox`, `switch` an
     /// `AXCheckBox` whose subrole is `AXSwitch`, `radio` an `AXRadioButton`;
-    /// the value 1 when checked, else 0.
-    func setAccessibilityChecked(_ role: String, _ checked: Bool) {
+    /// the value 1 when checked, 2 when mixed, else 0 (`checkedRole`).
+    func setAccessibilityChecked(_ role: String, _ checked: Int) {
         setAccessibilityRole(role == "radio" ? .radioButton : .checkBox)
         setAccessibilitySubrole(role == "switch" ? .switch : nil)
-        setAccessibilityValue(checked ? 1 : 0)
+        setAccessibilityValue(checked)
     }
 }
 #else
@@ -171,15 +176,16 @@ extension UIView {
     }
     /// A checkable role as Safari's VoiceOver reads one: a checkbox or
     /// switch is a button whose value is `checked` or `unchecked` (as the
-    /// native checkbox, `ControlsIOS`); a radio is a button, selected while
-    /// checked. Called after `setAccessibilityToggle`, which it overrides.
-    func setAccessibilityChecked(_ role: String, _ checked: Bool) {
+    /// native checkbox, `ControlsIOS`), or `mixed` (a checkbox's, 2 in
+    /// `checkedRole`); a radio is a button, selected while checked. Called
+    /// after `setAccessibilityToggle`, which it overrides.
+    func setAccessibilityChecked(_ role: String, _ checked: Int) {
         accessibilityTraits.remove(.toggleButton)
         if role == "radio" {
             accessibilityValue = nil
-            if checked { accessibilityTraits.insert(.selected) }
+            if checked == 1 { accessibilityTraits.insert(.selected) }
         } else {
-            accessibilityValue = checked ? "checked" : "unchecked"
+            accessibilityValue = checked == 2 ? "mixed" : checked == 1 ? "checked" : "unchecked"
         }
     }
 }

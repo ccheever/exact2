@@ -56,7 +56,10 @@ fn checked(r: &Runner<NoData>, test_id: &str) -> (Option<bool>, Option<bool>) {
     let node = r.kernel().node(view_of(r, test_id)).unwrap();
     (
         node.props.bool(PropId::Checked),
-        node.props.bool(PropId::AccessibilityChecked),
+        // ARIA's word, `true` or `false` for a control.
+        node.props
+            .str(PropId::AccessibilityChecked)
+            .map(|w| w.parse().expect("`true` or `false`")),
     )
 }
 

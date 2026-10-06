@@ -260,7 +260,7 @@ export function axRole(e, source) {
   if (source === 'uikit') {
     const traits = Array.isArray(raw) ? raw : [];
     if (e.native?.class === 'UITextField' || e.native?.class === 'UITextView') return 'textbox';
-    if (traits.includes('button') && (e.value === 'checked' || e.value === 'unchecked')) return 'checkbox';
+    if (traits.includes('button') && ['checked', 'unchecked', 'mixed'].includes(e.value)) return 'checkbox';
     // UIKit has no radio trait: the host's drawn radio says so by its class (x2apps survey #2).
     if (e.native?.class === 'ExactRadio') return 'radio';
     if (traits.includes('link')) return 'link';
@@ -285,7 +285,7 @@ const CAN = { 'chrome-cdp': ['checked', 'level', 'disabled', 'expanded'], uikit:
 const APPLIES = { checked: r => r === 'checkbox' || r === 'radio' || r === 'switch', level: r => r === 'heading', disabled: () => true, expanded: () => true };
 const ABSENT_IS_FALSE = new Set(['disabled']);
 const TRUE_ONLY = { appkit: new Set(['expanded']) };
-const checkedOf = (e, source) => source === 'uikit' && (e.value === 'checked' || e.value === 'unchecked') ? e.value === 'checked' : e.states?.checked;
+const checkedOf = (e, source) => source === 'uikit' && ['checked', 'unchecked', 'mixed'].includes(e.value) ? (e.value === 'mixed' ? 'mixed' : e.value === 'checked') : e.states?.checked;
 
 /** Parity against the web by unique testId (D6): role, name, and the states
  * both hosts can observe. Refuses a truncated or spanned side. */

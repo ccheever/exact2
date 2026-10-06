@@ -822,6 +822,7 @@ pub(crate) fn check_style_value(
 pub(crate) fn aria_words(prop: PropId) -> Option<(&'static str, &'static [&'static str])> {
     Some(match prop {
         PropId::AccessibilityPressed => ("aria-pressed", &["true", "false", "mixed"]),
+        PropId::AccessibilityChecked => ("aria-checked", &["true", "false", "mixed"]),
         PropId::AccessibilityInvalid => ("aria-invalid", &["true", "false", "grammar", "spelling"]),
         PropId::AccessibilityHasPopup => (
             "aria-haspopup",
@@ -921,7 +922,7 @@ pub(crate) fn check_prop_value(
             }
         }
     }
-    // ARIA's word-valued states (`aria-pressed`'s `mixed`), or a bool.
+    // ARIA's word-valued states (`aria-pressed`'s and `aria-checked`'s `mixed`), or a bool.
     if let Some((attr, words)) = aria_words(prop) {
         if matches!(value, Expr::Str(s, _) if !words.contains(&s.as_str())) {
             let (last, rest) = words.split_last().unwrap();

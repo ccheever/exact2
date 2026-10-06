@@ -381,11 +381,12 @@ extension Presenter {
             switch o.accessibilityExpandedStatus { case .expanded: states["expanded"] = true; case .collapsed: states["expanded"] = false; default: break }
         }
         let editable = obj is UITextField || obj is UITextView
-        e["role"] = forced ?? (editable ? "textbox" : names.contains("button") && (value == "checked" || value == "unchecked") ? "checkbox"
+        e["role"] = forced ?? (editable ? "textbox" : names.contains("button") && ["checked", "unchecked", "mixed"].contains(value ?? "") ? "checkbox"
             : names.contains("link") ? "link" : names.contains("header") ? "heading" : names.contains("searchField") ? "searchbox"
             : names.contains("button") ? "button" : names.contains("image") ? "image" : names.contains("adjustable") ? "adjustable"
             : names.contains("tabBar") ? "tablist" : names.contains("staticText") ? "text" : "unknown")
-        if e["role"] as? String == "checkbox" { states["checked"] = value == "checked" }
+        // A mixed checkbox's state is Chrome's word for it.
+        if e["role"] as? String == "checkbox" { states["checked"] = value == "mixed" ? "mixed" as Any : value == "checked" }
         // UIKit has no radio trait: the drawn radio (x2apps survey #2) says
         // what it is by its class, its state by `selected`.
         if let radio = obj as? ExactRadio, forced == nil { e["role"] = "radio"; states["checked"] = radio.isOn }
@@ -426,7 +427,8 @@ extension Presenter {
                       "AXSlider": "slider", "AXPopUpButton": "combobox", "AXStaticText": "text", "AXGroup": "group", "AXImage": "image", "AXList": "list"][r]
         e["role"] = forced ?? mapped ?? r
         if r == "AXHeading", let level = f.value as? Int { states["level"] = level }
-        if r == "AXCheckBox" || r == "AXRadioButton", let on = f.value as? Int { states["checked"] = on == 1 }
+        // A mixed checkbox (value 2) is Chrome's `mixed`; a toggle button's is its pressed state, not this.
+        if r == "AXCheckBox" || r == "AXRadioButton", let on = f.value as? Int { states["checked"] = on == 2 && f.subrole != "AXToggle" ? "mixed" as Any : on == 1 }
         e["interactive"] = ["AXButton", "AXLink", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXSlider", "AXPopUpButton", "AXMenuItem", "AXComboBox"].contains(r)
         native["role"] = r
         if let subrole = f.subrole { native["subrole"] = subrole }

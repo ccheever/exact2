@@ -233,6 +233,26 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertNil(button.accessibilityValue())
         withExtendedLifetime(w) {}
     }
+    /// `aria-checked` as Chrome reads it (issue #120): a checkbox's `mixed`
+    /// is value 2; a switch or radio has no mixed state and reads it as 0;
+    /// the value follows the state.
+    func testAriaCheckedMixedIsACheckboxsThirdState() {
+        let (_, w, button, _) = fixture()
+        button.applyProps(set: ["accessibilityRole": "checkbox", "accessibilityChecked": "mixed"], clear: [])
+        XCTAssertEqual(button.accessibilityRole(), .checkBox)
+        XCTAssertEqual(button.accessibilityValue() as? Int, 2)
+        button.applyProps(set: ["accessibilityChecked": "true"], clear: [])
+        XCTAssertEqual(button.accessibilityValue() as? Int, 1)
+        button.applyProps(set: ["accessibilityChecked": "false"], clear: [])
+        XCTAssertEqual(button.accessibilityValue() as? Int, 0)
+        button.applyProps(set: ["accessibilityRole": "switch", "accessibilityChecked": "mixed"], clear: [])
+        XCTAssertEqual(button.accessibilitySubrole(), .switch)
+        XCTAssertEqual(button.accessibilityValue() as? Int, 0, "a switch has no mixed state")
+        button.applyProps(set: ["accessibilityRole": "radio"], clear: [])
+        XCTAssertEqual(button.accessibilityRole(), .radioButton)
+        XCTAssertEqual(button.accessibilityValue() as? Int, 0, "a radio has no mixed state")
+        withExtendedLifetime(w) {}
+    }
     /// The agent's name follows the web's accname: a non-empty label names
     /// any node (a status text); an empty one names nothing, so a button
     /// falls back to its content.

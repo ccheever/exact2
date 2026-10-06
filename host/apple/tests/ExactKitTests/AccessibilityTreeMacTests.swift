@@ -167,10 +167,12 @@ final class AccessibilityTreeMacTests: XCTestCase {
             ["op": "create", "id": 17, "kind": "text", "props": ["text": "Remind me"]],
             ["op": "create", "id": 18, "kind": "svg", "props": ["accessibilityRole": "img", "accessibilityLabel": "33% done", "testId": "ring"]],
             ["op": "create", "id": 19, "kind": "button", "handlers": ["press"], "props": ["accessibilityRole": "switch", "accessibilityChecked": "true", "accessibilityLabel": "Sound", "testId": "sound"]],
+            ["op": "create", "id": 20, "kind": "button", "handlers": ["press"], "props": ["accessibilityRole": "checkbox", "accessibilityChecked": "mixed", "accessibilityLabel": "All", "testId": "all"]],
+            ["op": "create", "id": 21, "kind": "button", "handlers": ["press"], "props": ["accessibilityRole": "switch", "accessibilityChecked": "mixed", "accessibilityLabel": "Some", "testId": "some"]],
             ["op": "children", "id": 12, "ids": [13]],
             ["op": "children", "id": 13, "ids": [14]],
             ["op": "children", "id": 15, "ids": [16, 17]],
-            ["op": "children", "id": 1, "ids": [2, 3, 10, 11, 12, 15, 18, 19]],
+            ["op": "children", "id": 1, "ids": [2, 3, 10, 11, 12, 15, 18, 19, 20, 21]],
             ["op": "frame", "id": 10, "x": 0.0, "y": 100.0, "w": 20.0, "h": 20.0],
             ["op": "frame", "id": 11, "x": 30.0, "y": 100.0, "w": 60.0, "h": 20.0],
             ["op": "frame", "id": 12, "x": 0.0, "y": 130.0, "w": 200.0, "h": 30.0],
@@ -181,6 +183,8 @@ final class AccessibilityTreeMacTests: XCTestCase {
             ["op": "frame", "id": 17, "x": 30.0, "y": 0.0, "w": 100.0, "h": 30.0],
             ["op": "frame", "id": 18, "x": 0.0, "y": 210.0, "w": 32.0, "h": 32.0],
             ["op": "frame", "id": 19, "x": 0.0, "y": 250.0, "w": 80.0, "h": 30.0],
+            ["op": "frame", "id": 20, "x": 0.0, "y": 290.0, "w": 80.0, "h": 30.0],
+            ["op": "frame", "id": 21, "x": 0.0, "y": 330.0, "w": 80.0, "h": 30.0],
         ]))
         p.syncAccessibility()
         let all = elements(p.axElements(roots: [p.viewport]))
@@ -202,6 +206,10 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertEqual([ring["role"] as? String, ring["name"] as? String], ["image", "33% done"])
         let sound = try one("sound")
         XCTAssertEqual([sound["role"] as? String, (sound["states"] as? [String: Any])?["checked"] as? Bool], ["switch", true] as [AnyHashable?])
+        // `aria-checked="mixed"` (issue #120): a checkbox's third state, as Chrome's tree has it; a switch's `false`.
+        let mixed = try one("all"), some = try one("some")
+        XCTAssertEqual([mixed["role"] as? String, mixed["value"] as? String, (mixed["states"] as? [String: Any])?["checked"] as? String], ["checkbox", "2", "mixed"])
+        XCTAssertEqual([some["role"] as? String, (some["states"] as? [String: Any])?["checked"] as? Bool], ["switch", false] as [AnyHashable?])
     }
 
     /// Onboarding F22, spreadsheet F20: a field's `aria-describedby` text is

@@ -80,6 +80,47 @@ fn aria_pressed_refuses_a_word_aria_does_not_have_and_a_number() {
     }
 }
 
+/// `aria-checked` takes ARIA's `true`, `false` or `mixed` (issue #120): a
+/// bool is written as its word, a literal or bound `mixed` rides as is on
+/// a checkbox and a switch alike (a host reads a switch's or radio's
+/// `mixed` as `false`, as Chrome does), and it follows its state.
+#[test]
+fn aria_checked_is_a_checkables_tristate() {
+    let mut r = boot(
+        "component App\n  state mode = \"mixed\"\n  state on = true\n  action cycle\n    mode = mode == \"mixed\" ? \"true\" : \"mixed\"\n  action flip\n    on = not on\n  action set(value: bool)\n    on = value\n  view\n    column\n      button role=\"checkbox\" aria-checked=mode press=cycle testId=\"all\"\n        text \"All\"\n      button role=\"switch\" aria-checked=\"mixed\" testId=\"sw\"\n        text \"Notify\"\n      button role=\"switch\" aria-checked=on press=flip testId=\"bool\"\n        text \"Bool\"\n      input type=\"checkbox\" checked=on change=set testId=\"box\"\n",
+    );
+    let checked = |r: &Runner<NoData>, id: &str| prop(r, id, PropId::AccessibilityChecked);
+    assert_eq!(checked(&r, "all").as_deref(), Some("mixed"));
+    assert_eq!(checked(&r, "sw").as_deref(), Some("mixed"));
+    assert_eq!(checked(&r, "bool").as_deref(), Some("true"));
+    assert_eq!(checked(&r, "box").as_deref(), Some("true"));
+    let all = view_of(&r, "all");
+    r.dispatch(all, Event::Press).unwrap();
+    assert_eq!(checked(&r, "all").as_deref(), Some("true"));
+    let bool = view_of(&r, "bool");
+    r.dispatch(bool, Event::Press).unwrap();
+    assert_eq!(checked(&r, "bool").as_deref(), Some("false"));
+    assert_eq!(checked(&r, "box").as_deref(), Some("false"));
+}
+
+#[test]
+fn aria_checked_refuses_a_word_aria_does_not_have_and_a_number() {
+    for (value, says) in [
+        (
+            "\"on\"",
+            "`aria-checked` takes a bool or \"true\", \"false\" or \"mixed\"",
+        ),
+        ("1", "`aria-checked` takes a string"),
+    ] {
+        let e = contract::compile(&format!(
+            "component App\n  view\n    button role=\"checkbox\" aria-checked={value}\n      text \"A\"\n"
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains(says), "{value}: {e}");
+    }
+}
+
 /// `aria-modal` (LLP 1080.003) lowers to `accessibilityModal` and follows
 /// its state; Signal Clone's call screen and menus had no way to say it.
 #[test]
