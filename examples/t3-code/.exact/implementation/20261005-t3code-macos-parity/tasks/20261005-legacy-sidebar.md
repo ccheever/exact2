@@ -1,13 +1,13 @@
 ---
 name: 20261005-legacy-sidebar
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+branch: feat(example)/t3-code-legacy-sidebar
+pr_url: https://github.com/ccheever/exact2/pull/143
 verified_commit: null
 ---
 
@@ -152,14 +152,74 @@ backends with the fixture above.
 
 ## Progress
 
-Planned. No branch.
+Implemented on `feat(example)/t3-code-legacy-sidebar` (2026-10-06); verification: unverified (no independent
+review; attended rows not run).
+
+- `legacy-sidebar-model.ts`: ports of `sortThreads`/`getThreadSortTimestamp`/`getLatestThreadForProject`,
+  `orderItemsByPreferredIds`, `sortProjectsForSidebar`, `resolveThreadStatusPill`, `resolveProjectStatusIndicator`,
+  `buildMultiSelectThreadContextMenuItems`, `isTrailingDoubleClick`, `resolveAdjacentThreadId`, `reorderProjects`,
+  `resolveProjectExpanded`, `formatRelativeTimeLabel`, and the legacy thread and project menus.
+- `legacy-sidebar-view.ts`: groups across this environment and the fleet's background environments
+  (`logicalKey`, `groupLabel`), Sort projects / Sort threads, preview count, Show more / Show less with the hidden
+  status, the open thread under a collapsed project, "No threads yet", jump labels and the visible order that
+  `thread.jump.N` and `thread.previous`/`next` follow (no wrap, as the reference). Snapshot field `legacy`.
+- `legacy-sidebar-commands.ts`: expansion (persisted in `t3-code.json` `sidebar.projectExpanded`), Show more/less,
+  Sidebar options (the two new client settings `sidebarThreadSortOrder`, `sidebarThreadPreviewCount` 1-15, in
+  `settings-core.ts`), Manual reorder (persisted `sidebar.projectOrder`, also read by the palette's project order),
+  the thread menu, the multi-selection menu (Mark unread / Archive behind "Archive N threads?" / Delete), the project
+  menu (Rename, Group into..., Copy Path, Project settings, Remove; a group's members as submenus), "Project is not
+  empty" with Delete anyway, the removal confirm, Rename project and Project grouping dialogs, the project New thread
+  button (a member menu for a group), inline Archive with Confirm.
+- `legacy-sidebar.contract` (+ `-shapes`): the chrome header and footer, Search trigger, Projects header with Sidebar
+  options and Add project, the project rows (a virtualized list with `reorderdrop`; grips in Manual), thread rows.
+- `chat.new` (⌘N, ⇧⌘O) creates in the current project at once while the switch is on (`sidebar-commands.ts`
+  `new-thread-click`); ⇧-click ranges over the row's project list.
+
+Remaining differences (not built or framework):
+- Context menus, real pointer drag and hover reveal are agent-driven only; real input unverified (attended).
+- No PR click-through to the right panel (the icon and its label show; a press opens the thread); no terminal-running
+  icon, discovered-port button or file drop onto rows (terminal, preview and `file_handlers` are not in this clone).
+- Thread and project tooltips are in-row `Tip`s, clipped by the list's scroll box; the options menu anchors below its
+  trigger (X17); the Archive button shows on hover only (no focus-within reveal, so it is not keyboard reachable).
+- List expand/collapse and reorder are not animated (the reference's auto-animate); nothing moves under reduced motion.
+- "New thread on <branch>" opens a plain draft in the project (as the default sidebar's menu does), not one on the branch.
+- Project actions on a background environment's member are disabled except Copy Path; the stale-row dedupe of
+  `environmentGrouping.test.ts` is not ported.
+- "Project is not empty"'s Delete anyway uses the default toast button tone, not the destructive one.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 | `2dac5bd6b` (3 commits on `d78ac86ff`) | `bun test examples/t3-code` 1241/0 (base 1200; +41 in `legacy-sidebar.test.ts`); strict tsc clean; `contract build` 2178 slots, 42 resources, 48380 nodes; `cargo test -p t3-code-macos --lib` 10/0; caps green; bundle `EXACT_APP_DIR=… host/apple/build.mjs t3-code-macos` exit 0 | Lane drive (macOS 1280×840, lane backend 127.0.0.1:16160, seeded 3 projects / 9 threads), below | Attended rows; second-environment fixture; relaunch persistence shown by `t3-code.json`, not a relaunch (agent sessions get fresh data dirs) |
+
+Lane drive records (`target/lane/drive/record.txt`, trimmed; `<lane>` is the lane's project root):
+
+```
+[main] connected: legacy.enabled=false sidebar=true
+[main] legacy-sidebar=true default sidebar=false            (switch on)
+run 1: rows=beta-1,alpha-8,…,alpha-3  show-more: 1 empty: 1; after Show more: rows=9 show-less=true; after Show less: rows=7
+[main] options open: true radios=legacy-sort-projects-{updated_at,created_at,manual},legacy-sort-threads-{updated_at,created_at}
+[main] preview 6-3=3: rows=4 (1 beta + 3 alpha)
+[main] sort threads created_at: rows=beta-1,alpha-8,alpha-7,alpha-1
+[main] collapsed alpha with alpha-8 open: rows=beta-1,alpha-8
+[main] dblclick beta-1: rename field=true; after Enter: thread-title-beta-1 text "Renamed by legacy sidebar", field gone
+[main] hover alpha-1: archive button=true; archived alpha-1: still listed=false
+[main] ⌘N legacy: paletteOpen=false palettePage="" threadId="" projectId="beta"
+[main] manual grips: 3; beta collapsed: rows=alpha-8,alpha-7
+[main] switch off: legacy-sidebar=false default sidebar=true
+[main] ⌘N default: paletteOpen=true palettePage="new-thread-in"
+[drag] before: alpha,beta,gamma grips=3
+[drag] during: {"item":"<env>:<lane>/gamma","from":"legacy-projects","before":"<env>:<lane>/alpha","phase":"active"}
+[drag] after: gamma,alpha,beta
+t3-code.json after the main drive: clientSettings.legacySidebarEnabled true, sidebarProjectSortOrder manual,
+sidebarThreadSortOrder created_at, sidebarThreadPreviewCount 3, sidebar.projectExpanded {…/beta: false, …/alpha: true}
+```
+
+Not run: context menus and native menu captures (real pointer), the oracle pixel pairs, dark mode and 840×620,
+`tree --ax`, reduced-motion films, a running / PR-linked / remote-machine thread live (unit tests only).
 
 ## Next action
 
-After the base tickets and `20261005-main-fix-adoption` merge: `prepare` (get the user's answer to decision U22), then `implement`.
+Review the PR; the attended rows (menus, real drag, hover) and the oracle comparison remain for `verify`.
+Decision U22 (build in full) was taken as "build" by this wave's coordinator; confirm with the user.
