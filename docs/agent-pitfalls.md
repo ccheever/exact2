@@ -604,6 +604,13 @@ guide's rules don't make obvious.
 
 ## Working on exact2 itself
 
+- **A bisect that shares another worktree's Cargo target directory builds
+  stale code.** `CARGO_TARGET_DIR` pointed at one worktree while checking out
+  older commits in another left generated enums (`PropId`, `Stdlib`) from the
+  wrong commit, and the build failed for no reason in either tree until a
+  full `cargo clean` (65 GiB). Give a bisect or a second worktree its own
+  target directory. (2026-10-06.)
+
 - **A platform feature looks missing, and you start building it.** Cause: the
   feature already exists under a name you did not search for. Haptics
   (`haptic()`, `press-haptic`) were proposed as a new gap after they had
