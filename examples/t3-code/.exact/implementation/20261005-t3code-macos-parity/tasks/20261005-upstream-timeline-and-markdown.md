@@ -1,12 +1,12 @@
 ---
 name: 20261005-upstream-timeline-and-markdown
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
-verification: blocked
+implementation: implemented
+verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3code-parallel-features
-branch: daehyeon/t3code-upstream-timeline-markdown
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-upstream-timeline-and-markdown
 pr_url: null
 verified_commit: null
 ---
@@ -176,3 +176,61 @@ User explicitly requested repair and continuation through verification. Prior fa
 Verification **blocked**, not closed. The final named native bundle passes the loaded-output boundary:334.88→334.88 after three Down keys→294.88 on the first Up. Actual native frames and source receipt: [frame-ID replay](../evidence/20261005-upstream-timeline-and-markdown/20261006-repair-verification/frame-id-agent/observations.md). Actual Tab/disclosure reachability and known-skill/rendering evidence remain in the preceding repair packets.
 
 The independent read slots preserve per-row output ownership. The [overlap attempt](../evidence/20261005-upstream-timeline-and-markdown/20261006-repair-verification/two-slot-agent/observations.md) cannot prove concurrent admission: the deterministic agent clock awaits A's replies before it advances the `then` callback for B. Independent review identifies this as a harness limitation, not a production serialization finding. Normal live mode is blocked on credential keychain insertion; no user keychain was modified. Focused-tooltip and attended wheel acceptance remain incomplete. Prior failed evidence is preserved; no pixel-perfect loop was performed.
+
+## Wave 3 repair: Tab order, 2026-10-06
+
+Base `9670b0723` (feature branch tip). The 2026-10-06 failure ("Tab skips the tool output")
+was reproduced on the actual host and in the mounted app, then fixed in app code.
+
+**Root cause.** Each work row held three extra Tab stops ahead of its output: the
+`t3-tool-icon` hook (16×16, `aria-hidden`), the row timestamp (it had `focus`/`blur`
+handlers) and the `t3-timeline-tip` hook inside it (zero size, `aria-hidden`). ExactKit
+makes a node with a `press` handler tabbable, so both hooks were invisible stops; one Tab
+from an open row landed on nothing visible. The reference timestamp is a plain span
+(Base UI 1.5.0's `TooltipTrigger` adds no `tabIndex`), so it is not a stop there either.
+
+**Fix.** `tabindex=-1` on the four hook boxes (`shell-tip.contract` ×2,
+`r8-pointer-tips.contract`, `timeline-icons.contract`); `TimelineTimestamp` is hover-only
+and is revealed by row hover, focus or expansion; `ToolOutput` is a focusable scroll
+region only for loaded output (`max-h-80 overflow-auto`), and loading, empty and error
+are plain text, as in `V2ItemInspector.tsx` `ToolOutput`. A gone item now reads
+"Couldn't load output: Output is no longer available." in red, the reference's text.
+
+**Checks.** `bun test examples/t3-code` 1,829 pass / 1 skip / 0 fail (two new source
+tests in `timeline.test.ts`); strict tsc clean; `contract build` 2,320 slots, 43
+resources; `cargo test -p t3-code-macos --lib` 10/10; `timeline-keyboard` (actual
+ExactKit host) passes: it now routes keys through `Presenter.routeKey` as the session's
+monitor does (the old direct `keyDown` call no longer reached `key` handlers on this
+framework revision) and reports "Base row: 3 invisible or non-reference Tab stop(s)
+before the output" for the old structure; five checks pass (2,926 Rust tests, clippy,
+fmt, caps, boot); macOS bundle builds.
+
+**Live drives** (one BEFORE on `t3-code-evidence-base`, one AFTER here; synthetic fixture
+thread `verify-timeline` on the reference server `1e2ecbd975`, port 16301, isolated homes;
+fixture and drive script under `target/t3-fixture/`, not committed). The before drive
+ran three times: the first two stopped in the driver script (empty import step; the
+signed-out Codex warning covering the group header), not in the app.
+
+```
+BEFORE  Tab walk from work-detail-[…fixture-command]:
+  [983 View hidden] → [985 work-timestamp-…] → [987 View hidden] → [1179 work-output-… "Tool output"]
+AFTER   Tab walk from work-detail-[…fixture-command]:
+  [1180 work-output-…command "Tool output"] → [995 work-detail-…exit] → [1186 work-output-…exit] → [1013 work-detail-…read]
+AFTER   a fifth Tab → [1191 work-output-…read]; Shift-Tab there → [1013 work-detail-…read]
+AFTER   Space on command row → expanded false, focus stays on 977; Return → expanded true, focus stays on 977
+AFTER   outputs (getTurnItem): command "verified output\nsecond result line"; exit "verification failure result" + red "exit 2";
+        read "Timeline verification fixture"; skill "Skill fixture output"; dynamic 31 lines (bounded scroll);
+        empty row: expanded false, no output node (no disclosure)
+```
+
+| Row | Result |
+| --- | --- |
+| Disclosure keyboard | **Pass** (live): one Tab reaches the output with its ring; Space/Return toggle; focus stays on the row. |
+| A2/A3/CN1 tool rows | **Pass** (live) for command, failed command, read, skill, dynamic and empty rows. Forced RPC error and missing item: unit tests only. |
+| A2 late reply | Unit tests only (not driven). |
+| A4 file links | **Pass** (live): "Review parser [fixture.txt · L3], [fixture.txt], [fixture.txt · L3]". |
+| Tool icons | **Pass** (live, synthetic items): website, themed, native, broken → fallback glyph, failed → trailing x. Provider MCP icons: unverified (needs a provider). |
+| G12b skill chips | Rust tests pass; live `$verify` stays plain in both builds because the fixture's Codex is signed out, so no skill list: unverified (needs sign-in, on hold). Price, code span and link exclusions show plain. |
+| A17 tooltips | Unverified: the agent hover did not open the timestamp tip on either build (tip stayed `aria-hidden`), so the agent scroll-dismiss row has no observation. Real wheel: unverified (attended). The timestamp is no longer a focus trigger (reference parity); the focused-trigger case applies to button triggers and was not driven. |
+| A1 | Unit test only (not re-driven). |
+| Oracle / trace diff | Not run (oracle not built). |
