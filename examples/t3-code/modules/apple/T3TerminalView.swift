@@ -30,6 +30,11 @@ final class T3TerminalView: ExactNativeInstance {
 
     final class WebView: WKWebView {
         var focused: (() -> Void)?
+        var mounted: (() -> Void)?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil { mounted?() }
+        }
         override func becomeFirstResponder() -> Bool {
             let became = super.becomeFirstResponder()
             if became { focused?() }
@@ -107,6 +112,11 @@ final class T3TerminalView: ExactNativeInstance {
         // EXACT2-GAPS X2 option 3: a development run's terminal is inspectable from Safari.
         if #available(macOS 13.3, *), Self.inspectable { web.isInspectable = true }
         web.focused = { [weak self] in self?.send(["type": "focus"]) }
+        web.mounted = { [weak self] in
+            guard let self else { return }
+            self.web.mounted = nil
+            if (Int(self.props["focus-request"] ?? "") ?? 0) > 0 { self.focusTerminal() }
+        }
         web.setAccessibilityLabel("Terminal")
         // Under the agent the window is often behind others or on another Space; WebKit then
         // treats the page as hidden and stops requestAnimationFrame, so output parses but never
@@ -295,8 +305,10 @@ final class T3TerminalView: ExactNativeInstance {
             cols = body["cols"] as? Int ?? 0; rows = body["rows"] as? Int ?? 0
             T3TerminalFixtures.start(props["fixture"] ?? "", on: self)
             if let session, let sessions { sessions.resize(session, cols: cols, rows: rows) }
-            // Startup may finish after a focus request (TerminalViewport: focus once the surface exists).
-            if (Int(props["focus-request"] ?? "") ?? 0) > 0 { focusTerminal() }
+            // Finish a pending focus only while it still belongs to this terminal. The user may
+            // have moved to the composer while WebKit/WASM loaded (TerminalViewport's mount check).
+            if props["active"] != "false", let responder = web.window?.firstResponder as? NSView,
+               responder === web || responder.isDescendant(of: web) { send(["type": "focus"]) }
         case "resize":
             cols = body["cols"] as? Int ?? cols; rows = body["rows"] as? Int ?? rows
             if let session, let sessions { sessions.resize(session, cols: cols, rows: rows) }

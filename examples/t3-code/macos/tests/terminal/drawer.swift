@@ -33,8 +33,8 @@ final class TerminalDrawerTests: XCTestCase {
         while !condition() && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
     }
 
-    private func mount(thread: String = "thread-1", terminal: String = "term-1") -> T3TerminalView {
-        let props = ["terminal": terminal, "environment": "env-a", "thread": thread, "cwd": "/repo", "worktree": "", "env": "{\"T3CODE_PROJECT_ROOT\":\"/repo\"}"]
+    private func mount(thread: String = "thread-1", terminal: String = "term-1", focusRequest: String = "0") -> T3TerminalView {
+        let props = ["terminal": terminal, "environment": "env-a", "thread": thread, "cwd": "/repo", "worktree": "", "env": "{\"T3CODE_PROJECT_ROOT\":\"/repo\"}", "focus-request": focusRequest]
         let view = T3TerminalView(props: props, events: ExactNativeEvents(fn: recordDrawerEvent, ctx: nil, nonce: 1), agent: true, sessions: sessions)
         view.web.frame = window.contentView!.bounds
         window.contentView!.addSubview(view.web)
@@ -47,6 +47,33 @@ final class TerminalDrawerTests: XCTestCase {
         view.debug { result = $0 }
         spin(until: { result != nil }, timeout: 5)
         return (result?["text"] as? [String] ?? []).filter { !$0.isEmpty }
+    }
+
+    func testLoadingTerminalDoesNotStealComposerFocus() throws {
+        let view = mount(focusRequest: "1")
+        XCTAssertFalse(view.ready)
+        let composer = NSTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
+        window.contentView!.addSubview(composer)
+        XCTAssertTrue(window.makeFirstResponder(composer))
+        composer.insertText("focus probe", replacementRange: NSRange(location: NSNotFound, length: 0))
+        spin(until: { view.ready })
+        XCTAssertTrue(view.ready)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertTrue(window.firstResponder === composer)
+        XCTAssertEqual(composer.string, "focus probe")
+        var next = view.props
+        next["focus-request"] = "2"
+        try view.setProps(next)
+        XCTAssertTrue(window.firstResponder === view.web, "a new explicit request still focuses the terminal")
+    }
+
+    func testOpeningTerminalFocusesItBeforeAndAfterLoading() {
+        let view = mount(focusRequest: "1")
+        XCTAssertTrue(window.firstResponder === view.web)
+        spin(until: { view.ready && view.focused })
+        XCTAssertTrue(view.ready)
+        XCTAssertTrue(view.focused)
+        XCTAssertTrue(window.firstResponder === view.web)
     }
 
     func testOutputBufferMatchesTheSharedVectors() throws {

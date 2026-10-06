@@ -32,6 +32,7 @@ final class T3TerminalSession {
     fileprivate var views: [WeakView] = []
     fileprivate var detachWork: DispatchWorkItem?
     fileprivate var resizing = false, pendingSize: (cols: Int, rows: Int)? = nil
+    fileprivate var desiredSize: (cols: Int, rows: Int)? = nil
     var lastSize = (cols: 0, rows: 0)
     var chunks = 0, acknowledged = 0, writes = 0, writeFailures = 0, attaches = 0
     init(key: String, threadId: String, terminalId: String) { self.key = key; self.threadId = threadId; self.terminalId = terminalId }
@@ -132,6 +133,7 @@ final class T3TerminalSessions {
         Self.attachGeneration += 1
         session.output = T3TerminalOutput(); session.output.generation = Self.attachGeneration
         session.status = "closed"; session.error = nil; session.version = 0; session.lifecycleVersion = 0
+        session.lastSize = (cols: 0, rows: 0)
         session.attaches += 1
         var payload: [String: Any] = ["threadId": session.threadId, "terminalId": session.terminalId, "cwd": session.cwd,
                                       "worktreePath": session.worktreePath.isEmpty ? NSNull() : session.worktreePath]
@@ -188,6 +190,9 @@ final class T3TerminalSessions {
             session.status = snapshot["status"] as? String ?? "running"
             session.error = nil; session.version += 1; session.lifecycleVersion = lifecycle
             if let label = snapshot["label"] as? String { session.label = label }
+            // A fit while disconnected may have failed. Reapply the current grid once the
+            // server has attached, even when the view has not resized again.
+            if let size = session.desiredSize { resize(session, cols: size.cols, rows: size.rows) }
         case "output":
             session.output.append(event["data"] as? String ?? "")
             if session.status == "closed" { session.status = "running" }
@@ -231,13 +236,15 @@ final class T3TerminalSessions {
     func resize(_ session: T3TerminalSession, cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else { return }
         let size = (cols: min(cols, 1000), rows: min(rows, 500))
+        session.desiredSize = size
         if session.resizing { session.pendingSize = size; return }
         if size == session.lastSize { return } // the page's ready size and its first fit are often the same
         guard let transport else { return }
-        session.resizing = true; session.lastSize = size
-        transport.terminalCall("terminal.resize", payload: ["threadId": session.threadId, "terminalId": session.terminalId, "cols": size.cols, "rows": size.rows]) { [weak self] _ in
+        session.resizing = true
+        transport.terminalCall("terminal.resize", payload: ["threadId": session.threadId, "terminalId": session.terminalId, "cols": size.cols, "rows": size.rows]) { [weak self] failure in
             DispatchQueue.main.async {
                 session.resizing = false
+                if failure == nil { session.lastSize = size }
                 if let next = session.pendingSize {
                     session.pendingSize = nil
                     if next != session.lastSize { self?.resize(session, cols: next.cols, rows: next.rows) }

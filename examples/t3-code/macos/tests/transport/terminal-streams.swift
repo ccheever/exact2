@@ -92,4 +92,59 @@ final class TerminalStreamTests: XCTestCase {
         socket.dropAll()
         XCTAssertTrue(until(5) { sinks.allSatisfy { $0.endings.first?.1 == true } }, "a lost socket ends every attach stream")
     }
+
+    func testDisconnectedResizeIsAppliedOnAttachWithoutAnotherFit() throws {
+        let socket = try R3Socket()
+        socket.answer = { request in [["_tag": "Exit", "requestId": request["id"]!, "exit": ["_tag": "Success", "value": [:]]]] }
+        R3HTTP.healthy()
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [R3HTTP.self]
+        let transport = T3Transport(persistent: false, configuration: config, signals: false, changed: { _ in })
+        defer { transport.destroy() }
+        let sessions = T3TerminalSessions(transport: transport)
+        let session = T3TerminalSession(key: "resize", threadId: "thread-1", terminalId: "term-1")
+        sessions.resize(session, cols: 120, rows: 40)
+        // A queue barrier ensures the disconnected RPC answered; then drain its main-queue callback.
+        _ = perform(transport, ["op": "status"])
+        wait(0.05)
+        XCTAssertEqual(session.lastSize.cols, 0, "a refused grid must not be recorded as applied")
+        let opened = perform(transport, ["op": "connect", "origin": "http://127.0.0.1:\(socket.port)", "credential": "pairing"])
+        XCTAssertEqual(opened["ok"] as? Bool, true)
+        // Deliver the attach snapshot through the production reducer, without another resize event.
+        sessions.apply(["type": "snapshot", "snapshot": ["history": "", "status": "running"]], to: session)
+        XCTAssertTrue(until(2) { session.lastSize.cols == 120 && session.lastSize.rows == 40 })
+        XCTAssertEqual(socket.requests("terminal.resize").count, 1)
+        XCTAssertEqual((socket.requests("terminal.resize").first?["payload"] as? [String: Any])?["rows"] as? Int, 40)
+        sessions.resize(session, cols: 120, rows: 40)
+        _ = perform(transport, ["op": "status"])
+        wait(0.05)
+        XCTAssertEqual(socket.requests("terminal.resize").count, 1, "successful identical fits stay deduplicated")
+    }
+
+    func testResizeFailureCanRetryAndInflightChangesKeepOnlyTheLatestGrid() throws {
+        let socket = try R3Socket()
+        socket.answer = { _ in [] } // Hold each resize until the test releases its reply.
+        let transport = connected(socket); defer { transport.destroy() }
+        let sessions = T3TerminalSessions(transport: transport)
+        let session = T3TerminalSession(key: "resize", threadId: "thread-1", terminalId: "term-1")
+        sessions.resize(session, cols: 100, rows: 30)
+        XCTAssertTrue(until(2) { socket.requests("terminal.resize").count == 1 })
+        let failed = try XCTUnwrap(socket.requests("terminal.resize").first?["id"])
+        socket.send(["_tag": "Exit", "requestId": failed, "exit": ["_tag": "Failure", "cause": [["_tag": "Fail", "error": ["_tag": "TerminalError", "message": "resize failed"]]]]])
+        wait(0.1)
+        XCTAssertEqual(session.lastSize.cols, 0)
+        XCTAssertEqual(socket.requests("terminal.resize").count, 1, "failure must not start a retry loop")
+        sessions.resize(session, cols: 100, rows: 30)
+        XCTAssertTrue(until(2) { socket.requests("terminal.resize").count == 2 }, "the same failed grid must be retryable")
+        sessions.resize(session, cols: 110, rows: 35)
+        sessions.resize(session, cols: 120, rows: 40)
+        let retry = try XCTUnwrap(socket.requests("terminal.resize").last?["id"])
+        socket.send(["_tag": "Exit", "requestId": retry, "exit": ["_tag": "Success", "value": [:]]])
+        XCTAssertTrue(until(2) { socket.requests("terminal.resize").count == 3 })
+        let latest = try XCTUnwrap(socket.requests("terminal.resize").last)
+        XCTAssertEqual((latest["payload"] as? [String: Any])?["cols"] as? Int, 120)
+        socket.send(["_tag": "Exit", "requestId": latest["id"]!, "exit": ["_tag": "Success", "value": [:]]])
+        XCTAssertTrue(until(2) { session.lastSize.cols == 120 && session.lastSize.rows == 40 })
+        XCTAssertEqual(socket.requests("terminal.resize").count, 3)
+    }
 }
