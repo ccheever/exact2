@@ -6,7 +6,7 @@
 //!
 //! The third host and the first that paints. The runner and kernel run
 //! natively; after every commit the host lays the tree out with the
-//! kernel's own layout (Taffy, measuring text with cosmic-text), seeks the
+//! kernel's own layout (Taffy, measuring text with Parley), seeks the
 //! motion engine to the app's clock, and the painter draws the kernel tree
 //! itself — vello on the GPU, tiny-skia on the CPU where there is none —
 //! **the kernel is the display list**: no batch, no mirror, no view tree of
@@ -16,7 +16,7 @@
 //! fleet Linux box with no GPU, or on macOS in the seconds-loop. Pure Rust
 //! end to end; no system library is linked.
 //!
-//! - [`text`] — cosmic-text: one paragraph cache answers measure and paint.
+//! - [`text`] — Parley: one paragraph cache answers measure and paint.
 //! - [`paint`] — the painter: one walk of the tree, every box recorded,
 //!   emitted to a backend.
 //! - [`gpu`] — the vello backend, the main one: wgpu, a texture, a readback.

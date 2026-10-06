@@ -32,8 +32,11 @@ license = "MIT"
 # in vendor/taffy/EXACT-PATCHES.md.
 [patch.crates-io]
 taffy = { path = "vendor/taffy" }
-# Pinned 0.19.0, font admission and span reservation fixes; see vendor/cosmic-text/EXACT-PATCHES.md.
-cosmic-text = { path = "vendor/cosmic-text" }
+# Parley and fontique 0.11.1 plus Exact patches (base direction, font admission,
+# line breaking, soft hyphens, faces described ahead of time); see
+# vendor/parley/EXACT-PATCHES.md and vendor/fontique/EXACT-PATCHES.md.
+parley = { path = "vendor/parley" }
+fontique = { path = "vendor/fontique" }
 # wgpu-hal 30.0.1 with two Metal patches (no empty command buffers; a frame's
 # presentations on its submit); see vendor/wgpu-hal/EXACT-PATCHES.md. exact-gpu's
 # build script refuses a workspace without this line.
@@ -80,9 +83,9 @@ opt-level = 3
 opt-level = 3
 
 # Keep font discovery and parsing fast for headless development and tests.
-[profile.dev.package.fontdb]
+[profile.dev.package.fontique]
 opt-level = 3
-[profile.dev.package.ttf-parser]
+[profile.dev.package.read-fonts]
 opt-level = 3
 
 # The tooling filesystem helper carries every dev generation's bytes as

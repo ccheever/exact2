@@ -1,10 +1,10 @@
 //! Exact geometry painted by Android's `Canvas` (LLP 1076 §3.3): the kernel
-//! lays out, cosmic-text shapes, and the paint walk runs as everywhere else,
+//! lays out, Parley shapes, and the paint walk runs as everywhere else,
 //! but the backend records what it would draw — rounded rects, paths,
 //! clips, layers, pictures and positioned glyph runs — into one flat op
 //! stream that the app's `View` replays in `onDraw`. HWUI (Skia on the
 //! RenderThread, with its glyph atlas) does the drawing; text is drawn with
-//! `Canvas.drawGlyphs` from the same font files cosmic-text shaped with, so
+//! `Canvas.drawGlyphs` from the same font files Parley shaped with, so
 //! measurement and pixels agree.
 //!
 //! The presenter lives on the Android main thread ([`CanvasHost`]); every
@@ -317,7 +317,7 @@ impl Recorder {
     /// A face loaded from bytes (a declared `font`) has no file for Android's
     /// `Font`: its bytes are written once to `$HOME/.exact-fonts/`, named by
     /// their hash, and that file stands in.
-    fn face_file(&mut self, font: &cosmic_text::PenikoFont) -> Option<(Arc<str>, u32)> {
+    fn face_file(&mut self, font: &parley::FontData) -> Option<(Arc<str>, u32)> {
         let blob = font.data.id();
         if let Some(path) = self.face_files.get(&blob) {
             return path.clone().map(|p| (p, font.index));
