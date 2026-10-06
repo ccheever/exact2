@@ -1,12 +1,12 @@
 ---
 name: 20261005-hot-file-split
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
-branch: null
+branch: 'feat(example)/t3-code-hot-file-split'
 pr_url: null
 verified_commit: null
 ---
@@ -82,14 +82,40 @@ Task-owned source paths: `examples/t3-code/{client.ts,client-ops-*.ts,app.contra
 
 ## Progress
 
-Planned.
+Implemented 2026-10-06 on `feat(example)/t3-code-hot-file-split` (from `feat(example)/t3-code`
+at d78ac86ff), one commit per moved area; verification is unverified until review.
+
+- `client.ts` 1462 → 867 lines. `command()` keeps its load, the two group runs and the
+  reporting; its branches moved, as written, into `client-ops-{connection,snapshot,settings,
+  composer,threads,sidebar,diff,lanes}.ts` (read and write groups) with the 18 private
+  methods only those branches called. `client-ops.ts` lists the groups (`READ_OPS`,
+  `WRITE_OPS`); a group hands its message and any rewritten id/value back through one record
+  (setting-snapshot's setup rewrites them; the catch reads them back, as before).
+  `client-shared.ts` holds the three helpers both sides use. Members the area files reach
+  lost TypeScript's `private` (type-only). Not moved: the `local` and `formCommand` op lists
+  in `command()`.
+- `keyboard-dispatch.ts`: the main-window commands are row functions in `MAIN_ROWS`
+  (button order kept).
+- `app.contract` 1366 → 1357 lines, **target ≤ 1,150 not met**. Its view and shapes are the
+  only parts the rules let move: the view already lives in `app-main`, `app-settings` and
+  `app-overlays`; the four shapes moved to `app-shapes.contract`. The rest (151 state, 156
+  actions, 42 resources, 20 derives, 7 mutations, 6 tasks) is root-owned (X9). Reaching
+  1,150 needs X9 (resources in children or a root across files) or moving UI-only state
+  and actions into children, which changes the plan and state lifetimes.
+- `T3Module.swift` 172 → 122: `later()` keeps the read gate and the fleet, then tries
+  `T3Module.areas` (`T3Module+{Connection,Files,Timeline,Devices,Sidebar,Snapshot,Composer,
+  Window}.swift`), then the transport. The README test recipe leaves `T3Module*.swift` out of
+  the composer, menus and r5-panels tests.
+- `T3Transport.swift` 898 → 812: `perform()`'s default case tries `T3Transport.areas`; the
+  saved-environment ops and `pairEnvironment` moved to `T3Transport+Environments.swift`.
+- `AGENT-HANDOFF.md`: "Where a feature adds its code".
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (2026-10-06) | a411dba3c..6bcc668e8 on d78ac86ff | Before → after: `bun test examples/t3-code` 1200 pass / 0 fail (117 files) → same; strict tsc clean → clean; `contract build`: 2158 slots, 20 derives, 42 resources, 1984 actions, 48014 nodes, 9590345 bytes → same, and `cmp before.plan after.plan` identical (with the `app-shapes.contract` use line last instead of first, 51,430 bytes differ at equal counts: the plan orders shapes by first use); `cargo test -p t3-code-macos --lib` 10 → 10; AppKit/XCTest binaries (README recipe) 27 run, all exit 0, per-binary counts equal before and after (e.g. composer 45, transport 36, menus 10, r5-panels 8, r8-keys 4, r10-connect 5, snapshot 9 check groups); mermaid skipped (needs a T3 server), timeline-keyboard not run (separate recipe). macOS bundle builds (`build.mjs t3-code-macos`, cargo 91.5 s). Five checks: build 0, test 0 (2927 passed), clippy 0, fmt 0, caps 0, boot 0. `contract fmt --check app.contract` fails as on the base (same 609 lines, view formatting); `app-shapes.contract` passes. `git diff --color-moved=zebra --color-moved-ws=allow-indentation-change` over the client split: 1082 lines moved; the rest are group wrappers, first-branch `if`, branch joins, method headers, `.call(this, …)` call sites and imports | Live drive (one agent call, isolated server on 16090): welcome window screenshot, then the pairing link typed and Pair pressed: `resources.data.connected = true`, `connectionsPage.state = "connected"`, `welcome.ready = true`, `modalError = ""` | `app.contract` ≤ 1,150 needs X9 |
 
 ## Next action
 
-`prepare` after the clone-on-main PR merges. Every feature ticket waits for this PR.
+Review the PR (moves only); feature tickets rebase onto it and add to the seams in `AGENT-HANDOFF.md`.
