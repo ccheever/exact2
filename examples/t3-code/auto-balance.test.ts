@@ -214,6 +214,12 @@ describe('Auto balance (ChatView automaticEnvironment, useLoadBalancedEnvironmen
     expect(client.environmentId).toBe('a');
   });
 
+  test('a draft with no provider chosen yet balances over the requested driver (Codex)', () => {
+    const { client, source } = setup();
+    Object.assign(client, { providerId: '', modelId: '' });
+    expect(autoBalanceState(client, NOW, source).candidates).toEqual(['c', 'b', 'a']);
+  });
+
   test('a weight of 0 is never chosen and every failure reads "Auto balance unavailable"', async () => {
     const { client, source, native } = setup(undefined, { a: new Error('timed out'), b: new Error('timed out'), c: sample(0.1) });
     noteBalancePrefs(client, { loadBalancingEnabled: true, loadBalancingWeights: { c: 0 }, githubRouting: {} });
