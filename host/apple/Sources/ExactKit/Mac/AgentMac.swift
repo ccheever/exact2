@@ -452,11 +452,7 @@ extension Agent {
         if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["mouse"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
             guard node.window != nil, !node.inert, !node.disabled, !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
-            if req["hover"] as? Bool == true {
-                presenter.hoverInline(run.handlers.contains("hover") ? id : nil)
-                return ["tapped": Int(id), "hover": true]
-            }
-            if node.activateInline(id) { return ["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"] }
+            if req["hover"] as? Bool != true, node.activateInline(id) { return ["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"] }
         }
 
         if let phase = req["phase"] as? String { return contact(phase, req) }
@@ -484,6 +480,11 @@ extension Agent {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         let b = v.tapBox(box(v))
+        // A wrapped run's union can include blank space. Hover a painted
+        // fragment, then let the normal hit test decide who receives it.
+        let inlinePoint = req["hover"] as? Bool == true && (req["id"] as? UInt32).flatMap(presenter.inlineText) != nil
+            ? tapPoint(req, node: v) : nil
+        let center = inlinePoint ?? CGPoint(x: b.midX, y: b.midY)
         // The middle of the box as seen — through a surface's placement when
         // there is one (LLP 1014 D5) — as a point in the window. `at` is a
         // point in the view (a mouse click, a context menu), the same
@@ -494,8 +495,8 @@ extension Agent {
             return CGPoint(x: raw[0], y: raw[1])
         }()
         if req["at"] != nil, localAt == nil { return ["error": "at needs two finite numbers"] }
-        let p = localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? b.midX) + clip.bounds.origin.x, y: (req["y"] as? Double ?? b.midY) + clip.bounds.origin.y), to: nil)
-        let at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(b.midX), Agent.r2(b.midY)]
+        let p = localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? center.x) + clip.bounds.origin.x, y: (req["y"] as? Double ?? center.y) + clip.bounds.origin.y), to: nil)
+        let at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(req["x"] as? Double ?? center.x), Agent.r2(req["y"] as? Double ?? center.y)]
         if req["wheel"] == nil,
            !clip.bounds.contains(clip.convert(p, from: nil)) {
             return ["error": "tap #\(v.id): its middle is outside the viewport; scroll it into view first"]
@@ -517,10 +518,21 @@ extension Agent {
                 node.pointerHovered(event)
                 presenter.flushHoverMove()
             }
-            var n: NSView? = win.contentView?.hitTest(p) ?? v
-            while let cur = n, !((cur as? NodeView)?.handlers.contains("hover") ?? false) { n = cur.superview }
-            if let node = n as? NodeView { presenter.hover(node, true) } else if let h = presenter.hovered { presenter.hover(h, false) }
-            return ["tapped": Int(v.id), "hover": true, "at": at]
+            var n: NSView? = win.contentView?.hitTest(p)
+            var inline: UInt32?
+            while let cur = n {
+                if let node = cur as? NodeView {
+                    inline = node.inlineTarget(at: node.local(p), handler: "hover")?.id
+                    if inline != nil || node.handlers.contains("hover") { break }
+                }
+                n = cur.superview
+            }
+            presenter.hoverInline(inline)
+            if inline == nil {
+                if let node = n as? NodeView { presenter.hover(node, true) }
+                else if let h = presenter.hovered { presenter.hover(h, false) }
+            }
+            return ["tapped": req["id"] as? Int ?? Int(v.id), "hover": true, "at": at]
         }
         if let wheel = req["wheel"] as? [Double], wheel.count == 2 {
             // The web's sign (a positive dy scrolls down), pixel units. The
