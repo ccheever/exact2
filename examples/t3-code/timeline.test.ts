@@ -213,3 +213,25 @@ describe('copy feedback', () => {
     expect(row()).toMatchObject({ copyFailed: true });
   });
 });
+
+// Clone-authored: the timeline's Tab order matches T3 Code 1e2ecbd975. The
+// actual-host walk is macos/tests/timeline-keyboard; this pins the source.
+describe('timeline Tab order', () => {
+  const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
+  test('hidden native hook boxes are never Tab stops', async () => {
+    for (const file of ['shell-tip.contract', 'r8-pointer-tips.contract', 'timeline-icons.contract']) {
+      const hooks = (await source(file)).split('\n').filter(line => /hook="t3-(timeline-tip|tool-icon)"/.test(line));
+      expect(hooks.length).toBeGreaterThan(0);
+      for (const line of hooks) expect(line).toContain('tabindex=-1');
+    }
+  });
+  test('the row timestamp is a plain span and only loaded output is a scroll region', async () => {
+    const tip = await source('shell-tip.contract');
+    const stamp = tip.split('component TimelineTimestamp\n')[1]!.split('\ncomponent ')[0]!;
+    expect(stamp).not.toMatch(/\bfocus=|\bblur=/);
+    const work = await source('timeline-work.contract');
+    const output = work.split('component ToolOutput\n')[1]!.split('\ncomponent ')[0]!;
+    expect(output).toMatch(/when outputState == ""\n\s+scroll focus=focusOutput\(true\)/);
+    expect(output.split('    else\n')[1]).not.toContain('scroll ');
+  });
+});
