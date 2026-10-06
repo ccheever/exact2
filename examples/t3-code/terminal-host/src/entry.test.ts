@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { eventKeyNames, matchesChord, parseChords, parseCommandBindings, terminalInputShortcutData } from "./entry";
+import { eventKeyNames, matchesChord, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
+  terminalInputShortcutData } from "./entry";
 
 const key = (init: Partial<KeyboardEvent> & { key: string; code: string }) => ({
   metaKey: false,
@@ -63,5 +64,72 @@ describe("terminal readline key policy", () => {
     }
     expect(terminalInputShortcutData(key({ key: "c", code: "KeyC", ctrlKey: true }))).toBeNull();
     expect(terminalInputShortcutData(key({ key: "ArrowLeft", code: "ArrowLeft", ctrlKey: true }))).toBeNull();
+  });
+});
+
+// T3 Code 1e2ecbd975 lib/terminalCloseShortcut.test.ts (macOS chord; the page receives the winners for terminalFocus).
+describe("terminal close shortcut guards", () => {
+  const bindings = parseCommandBindings([{ chord: "Meta+W", command: "terminal.close" }]);
+  const keyboardEvent = (overrides: Partial<KeyboardEvent> = {}) => {
+    let defaultPrevented = false;
+    return { key: "w", code: "KeyW", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, repeat: false, ...overrides,
+      preventDefault: () => { defaultPrevented = true; }, get defaultPrevented() { return defaultPrevented; } };
+  };
+  test("prevents the browser default for a deliberate terminal close", () => {
+    const event = keyboardEvent();
+    expect(preventTerminalCloseShortcut(event, bindings)).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
+  });
+  test("keeps held close repeats from closing the browser after the last terminal unmounts", () => {
+    expect(preventTerminalCloseShortcut(keyboardEvent(), bindings)).toBe(true);
+    let browserCloseCount = 0;
+    for (const repeat of [true, true, true]) {
+      const event = keyboardEvent({ repeat });
+      preventRepeatedTerminalCloseShortcut(event, bindings);
+      if (!event.defaultPrevented) browserCloseCount += 1;
+    }
+    expect(browserCloseCount).toBe(0);
+    expect(preventRepeatedTerminalCloseShortcut(keyboardEvent(), bindings)).toBe(false);
+  });
+  test("leaves a non-repeated window close and unrelated repeats alone", () => {
+    const deliberateWindowClose = keyboardEvent({ repeat: false });
+    const unrelatedRepeat = keyboardEvent({ key: "q", code: "KeyQ", repeat: true });
+    expect(preventRepeatedTerminalCloseShortcut(deliberateWindowClose, bindings)).toBe(false);
+    expect(deliberateWindowClose.defaultPrevented).toBe(false);
+    expect(preventRepeatedTerminalCloseShortcut(unrelatedRepeat, bindings)).toBe(false);
+    expect(unrelatedRepeat.defaultPrevented).toBe(false);
+  });
+});
+
+// T3 Code 1e2ecbd975 keybindings.test.ts:1076-1200, macOS cases. The page's one terminalInputShortcutData
+// answers all three; it only sees keydown (surface.ts onKeyDown), so the non-keydown cases are n/a.
+describe("isTerminalClearShortcut", () => {
+  test("matches Ctrl+L on all platforms", () => {
+    expect(terminalInputShortcutData(key({ key: "l", code: "KeyL", ctrlKey: true }))).toBe("\u000c");
+  });
+  test("matches Cmd+K on macOS", () => {
+    expect(terminalInputShortcutData(key({ key: "k", code: "KeyK", metaKey: true }))).toBe("\u000c");
+  });
+});
+describe("terminalDeleteShortcutData", () => {
+  test("maps Cmd+Backspace on macOS to delete-to-line-start", () => {
+    expect(terminalInputShortcutData(key({ key: "Backspace", code: "Backspace", metaKey: true }))).toBe("\u0015");
+  });
+  test("ignores non-macOS platforms and modified variants", () => {
+    expect(terminalInputShortcutData(key({ key: "Backspace", code: "Backspace", metaKey: true, altKey: true }))).toBeNull();
+  });
+});
+describe("terminalNavigationShortcutData", () => {
+  test("maps Option+Arrow on macOS to word movement", () => {
+    expect(terminalInputShortcutData(key({ key: "ArrowLeft", code: "ArrowLeft", altKey: true }))).toBe("\u001bb");
+    expect(terminalInputShortcutData(key({ key: "ArrowRight", code: "ArrowRight", altKey: true }))).toBe("\u001bf");
+  });
+  test("maps Cmd+Arrow on macOS to line movement", () => {
+    expect(terminalInputShortcutData(key({ key: "ArrowLeft", code: "ArrowLeft", metaKey: true }))).toBe("\u0001");
+    expect(terminalInputShortcutData(key({ key: "ArrowRight", code: "ArrowRight", metaKey: true }))).toBe("\u0005");
+  });
+  test("rejects unsupported combinations", () => {
+    expect(terminalInputShortcutData(key({ key: "ArrowLeft", code: "ArrowLeft", shiftKey: true, altKey: true }))).toBeNull();
+    expect(terminalInputShortcutData(key({ key: "a", code: "KeyA", altKey: true }))).toBeNull();
   });
 });
