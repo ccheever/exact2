@@ -7,7 +7,7 @@ delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-fix-minor-ui-issues
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/191
 verified_commit: f876fb29cf496b55d019c51972bd0a45d343b82a
 ---
 
