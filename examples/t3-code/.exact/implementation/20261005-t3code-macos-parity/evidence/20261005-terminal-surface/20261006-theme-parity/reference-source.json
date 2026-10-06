@@ -1,0 +1,83 @@
+{
+  "repository": "https://github.com/pingdotgg/t3code",
+  "commit": "1e2ecbd9758830669684b494d4398f626b0576e0",
+  "files": [
+    {
+      "path": "apps/web/src/terminal/ghostty/surface.ts",
+      "sha256": "1ea94e19afd13966f21c2f234ad0b801182394fb2fdccf82a09d84d4a65176cb",
+      "archiveSha256": "1ea94e19afd13966f21c2f234ad0b801182394fb2fdccf82a09d84d4a65176cb",
+      "matchesArchive": true,
+      "matchesAfterEscapingLiteralESC": true
+    },
+    {
+      "path": "apps/web/src/terminal/ghostty/core.ts",
+      "sha256": "47335667ed3fde33cd1e845ade24b2152e396736d384e7651280db49d322c11e",
+      "archiveSha256": "47335667ed3fde33cd1e845ade24b2152e396736d384e7651280db49d322c11e",
+      "matchesArchive": true,
+      "matchesAfterEscapingLiteralESC": true
+    },
+    {
+      "path": "apps/web/src/terminal/ghostty/renderer.ts",
+      "sha256": "626a03854511f0a16bd22d5a94f598c55c87ab14fe1f0b8bddb433b425c1f396",
+      "archiveSha256": "626a03854511f0a16bd22d5a94f598c55c87ab14fe1f0b8bddb433b425c1f396",
+      "matchesArchive": true,
+      "matchesAfterEscapingLiteralESC": true
+    },
+    {
+      "path": "apps/web/src/terminal/ghostty/runtime.ts",
+      "sha256": "2df8c4d7af327e47b6dcbf3fcb3935029e1f2acc209224acc383c97f9fe260d4",
+      "archiveSha256": "2df8c4d7af327e47b6dcbf3fcb3935029e1f2acc209224acc383c97f9fe260d4",
+      "matchesArchive": true,
+      "matchesAfterEscapingLiteralESC": true
+    },
+    {
+      "path": "apps/web/src/terminal/ghostty/keyCodes.ts",
+      "sha256": "2a74e77fb2ebba8030510273961090893601e2713443fdf6728fc966922cde24",
+      "archiveSha256": "2a74e77fb2ebba8030510273961090893601e2713443fdf6728fc966922cde24",
+      "matchesArchive": true,
+      "matchesAfterEscapingLiteralESC": true
+    },
+    {
+      "path": "apps/web/src/components/ThreadTerminalDrawer.tsx",
+      "sha256": "553648877e1919f191fd554cb85046f0f9d1edeaedf7a411a82771688b7f11e0",
+      "archiveSha256": "553648877e1919f191fd554cb85046f0f9d1edeaedf7a411a82771688b7f11e0",
+      "matchesArchive": true,
+      "matchesAfterEscapingLiteralESC": true
+    },
+    {
+      "path": "apps/web/src/index.css",
+      "sha256": "314122bee043f8448a4be36a84a22babd68cc44423e14b6f413e3d75a9eea308",
+      "archiveSha256": "314122bee043f8448a4be36a84a22babd68cc44423e14b6f413e3d75a9eea308",
+      "matchesArchive": true,
+      "matchesAfterEscapingLiteralESC": true
+    },
+    {
+      "path": "apps/web/src/appearanceFonts.ts",
+      "sha256": "dbb434f8c2763892d7b18a0536dd12d26bc4f67c34036494f6bef93d357de587",
+      "archiveSha256": "dbb434f8c2763892d7b18a0536dd12d26bc4f67c34036494f6bef93d357de587",
+      "matchesArchive": true,
+      "matchesAfterEscapingLiteralESC": true
+    },
+    {
+      "path": "packages/shared/src/themePalettes.ts",
+      "sha256": "82385050b8b691ff280efc0e93ea9dd8a4bbfd64a4c50cf8536b5c15d1e74479",
+      "archiveSha256": "82385050b8b691ff280efc0e93ea9dd8a4bbfd64a4c50cf8536b5c15d1e74479",
+      "matchesArchive": true,
+      "matchesAfterEscapingLiteralESC": true
+    },
+    {
+      "path": "apps/web/src/terminal-links.ts",
+      "sha256": "8b9c21544eec87c4fc8769fc0645e26113a574f672575fa407c41b3536ccf875",
+      "archiveSha256": "8b9c21544eec87c4fc8769fc0645e26113a574f672575fa407c41b3536ccf875",
+      "matchesArchive": true,
+      "matchesAfterEscapingLiteralESC": true
+    },
+    {
+      "path": "apps/web/src/lib/selectionActions.ts",
+      "sha256": "556ec9ddb3aac013d6d14179ee1fd0629bb35eca2e8f8dd30157004d85951b2d",
+      "archiveSha256": "556ec9ddb3aac013d6d14179ee1fd0629bb35eca2e8f8dd30157004d85951b2d",
+      "matchesArchive": true,
+      "matchesAfterEscapingLiteralESC": true
+    }
+  ]
+}
