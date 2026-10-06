@@ -382,6 +382,7 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         seekable: false,
         period_ms: 0.0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     match with(|m| m.render(id, &frame)).flatten() {
         Some(true) => 1,
@@ -482,6 +483,7 @@ pub fn readback(id: u32, width: f32, height: f32, scale: f32, now_ms: f64, out: 
         seekable: false,
         period_ms: 0.0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     match with(|m| m.readback(id, &frame)).flatten() {
         Some((px, wants)) if out.len() >= px.data.len() => {
@@ -510,6 +512,16 @@ pub fn readback(id: u32, width: f32, height: f32, scale: f32, now_ms: f64, out: 
 /// Whether a canvas wants raw input.
 pub fn wants_input(id: u32) -> bool {
     with(|m| m.wants_input(id)).unwrap_or(false)
+}
+
+/// Whether a canvas draws above SDR white (LLP 1100 D12b).
+pub fn high_dynamic_range(id: u32) -> bool {
+    with(|m| m.high_dynamic_range(id)).unwrap_or(false)
+}
+
+/// The headroom an HDR canvas draws its next frames to (LLP 1100 D12b).
+pub fn headroom(id: u32, headroom: f32) {
+    with(|m| m.set_headroom(id, headroom));
 }
 
 /// Deliver a JSON device event. True on success.
@@ -859,6 +871,14 @@ macro_rules! module {
         #[no_mangle]
         pub extern "C" fn gpu_wants_input(id: u32) -> u32 { u32::from($crate::native::wants_input(id)) }
 
+        /// Whether a canvas draws above SDR white (LLP 1100 D12b): 1 or 0.
+        #[no_mangle]
+        pub extern "C" fn gpu_high_dynamic_range(id: u32) -> u32 { u32::from($crate::native::high_dynamic_range(id)) }
+
+        /// The headroom an HDR canvas draws its next frames to.
+        #[no_mangle]
+        pub extern "C" fn gpu_headroom(id: u32, headroom: f32) { $crate::native::headroom(id, headroom) }
+
         /// Deliver one JSON event; 0 on success, 1 on refusal.
         /// # Safety
         /// `text` is `len` readable bytes.
@@ -1192,6 +1212,7 @@ mod placement_abi_tests {
             period_ms: 0.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         };
         with(|m| {
             assert!(m.render(id, &frame).is_some());
@@ -1422,7 +1443,8 @@ mod device_loss_tests {
                             seekable: true,
                             period_ms: 0.,
                             children_generation: 0,
-                            shader_generation: 0
+                            shader_generation: 0,
+                            headroom: 1.0,
                         }
                     )
                     .is_none()),

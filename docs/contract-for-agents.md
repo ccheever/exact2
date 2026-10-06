@@ -118,7 +118,9 @@ The web carrier opens at 420×900; `--size <w>x<h>` (before the operations) open
 another viewport, and a test's first step `size <w>x<h>` does the same for that test.
 `resize <w>x<h>`, an operation and a test step, resizes it mid-drive as a person
 dragging the window's edge would: the browser's viewport, a macOS window, the
-Linux presenter. An iOS app's viewport is the device's screen, so iOS refuses it.
+Linux presenter. iOS refuses a mid-drive `resize`; a size given at launch (`--size`, a
+test's `size` line) is laid out at that viewport with no safe-area insets, scaled to fit
+the app's frame (the safe area, unless the root covers the whole screen).
 `close`, an operation and a test step, presses the window's close button as ⌘W
 or the red button would (the agent's window is never key, so a typed ⌘W reaches
 nothing): the window asks its `beforeunload` first, and the reply says
@@ -175,7 +177,9 @@ host's wire beneath them: it addresses views by numeric `id`, and it refuses a
 request it would answer by doing nothing (a `target`, an unknown op, a web
 `tap` with no browser input behind it). A reload or a raw browser step goes
 through `s.carrier` (`reset({keep: true})` reloads the current browser route with
-its store and agent launch facts; `evaluate`, and on Chrome `call`, drive raw browser steps).
+its store and agent launch facts; `evaluate`, and on Chrome `call`, drive raw browser steps;
+`evaluate` takes an expression string or a function of no arguments, which runs in the page,
+so it sees none of the script's variables).
 
 Use the existing five repository checks for repository changes. Do not add a
 new global check or fixture framework for an ordinary app edit. For documentation,
@@ -425,6 +429,17 @@ states take the record's fields when it is made. The initializer runs once per
 child: a later `draft` (a refresh, a normalized answer) does not reset the form,
 and while a refresh is out `saved` keeps its value, so the editor stays.
 
+A native host (and the wasm web target; the default JS target keeps none) can make
+that child from a kept answer. When the data module is not ready at boot, a resource
+whose source read device state (a file, a database, a secret, a watched topic) shows
+the last answer the runner kept for it (a small answer, asked with the same
+arguments), so the form's states take those fields. A write the resource does not hear about (a file or database save from
+a mutation without `refreshes saved`, not a `store` write it reads) leaves that
+answer behind: after a restart the form opens with the old fields and keeps them
+when the fresh answer lands. Refresh the resource after each write, as below, or key
+the child by a string or number from the answer (`each d in [saved] key=…`) so a
+different answer makes it again.
+
 ```contract
 shape Draft
   name: string
@@ -548,7 +563,8 @@ A shape has no exported name in the `.d.ts`: name one by its source,
 an optional answer is `… | null`, so `NonNullable<Result<'find'>>`).
 The [human guide's data-module section](contract-for-humans.md#writing-the-data-module)
 has a complete `app.ts`: synchronous, `fetch` and SQLite sources, the grants
-each needs, and how to drive it with storage.
+each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https://…'].join('\n')`),
+and how to drive it with storage.
 The compiler accepting a source call does not provide its implementation. Check
 its arguments, declared result, grants, storage access, and bake-time behavior.
 Keep generated output out of version control. Use app-local sources for domain
@@ -606,10 +622,15 @@ nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
 (each row's handle names it with `reorderFor`); the compiler refuses it on any
 other element, where no host could drag. Lists that share a `reorderGroup`
 (each with a `reorderdrop`, an `id` and string keys) exchange rows: the drop
-fires once, on the list the row lands in, with the key it lands before and,
-for an action taking one more parameter, `ReorderEvent { from, to }`. A board
+fires once, on the list the row lands in, with the dragged row's key, then the
+key it lands before (`none` at the end) and, for an action taking one more
+parameter, `ReorderEvent { from, to }`. The action decides where the row goes: a board whose cards join the bottom
+of the column they are dropped on ignores that key when `from != to`. A board
 is columns in a plain horizontal `scroll`, each a header, a grouped list
-(`flex=1 min-height=…`) and its quick-add; give each grip `touch-action="none"`
+(`flex=1 min-height=…`: the list is the drop target, where the lifted card's centre
+is inside its scroll box, so space below a list that only fits its rows does not
+take the card: a release there lands at the last gap the drag passed over, in the
+card's own column when it crossed no other list) and its quick-add; give each grip `touch-action="none"`
 and no `press`, `pan`, `pointerdown` or `key` of its own, so the host's keys
 (Space, the arrows, Enter, Escape) work on it. The host draws the lifted row,
 holds the drop until the move shows (a second at most) and scrolls the lists
@@ -919,7 +940,8 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
 - Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
   1038 D11), which calls the root's `navigate`. On the web a CLI drive goes back as
   the browser's back button does with `tap <root> history -1`, `<root>` being the
-  navigation root (the node with `navigationBack`); native hosts refuse it, and a
+  navigation root (the node with `navigationBack`) by its `testId`, the simplest
+  handle, or its view number from `tree`; native hosts refuse it, and a
   test file has no such step yet.
 
 A `head` node supplies document metadata. The innermost active value wins for
@@ -972,8 +994,10 @@ the agent), not a date. For the date, read the reserved `exactTime` source and a
 `epochAtZero` (Unix milliseconds when `now()` read zero), `utcOffset` (minutes east
 of UTC), `locale` (BCP 47), `timeZone` (IANA), `resolvedLocale` (the language of
 the string table the app shows, `""` with no tables) and `seed` (a whole number
-drawn once per launch). A read does not itself schedule a future render. Use a timer if a displayed value must keep changing without other
-input. Prefer `clock settle` to waiting for a transition in real time.
+drawn once per launch). A read does not itself schedule a future render, and a
+derive that reads `now()` is not read again as time passes, and when it is read
+again differs by host. For a displayed value that must follow the clock, keep the
+time in state that a timer's action (`task … every`) writes. Prefer `clock settle` to waiting for a transition in real time.
 `time.utcOffset` is the zone's offset *now*: every host answers it again when the
 offset at the clock's instant changes (a DST change, a new zone), checked before a
 timer fires, so a midnight timer after the clocks change reads the new offset.

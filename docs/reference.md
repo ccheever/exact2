@@ -860,8 +860,8 @@ bun scripts/boot.mjs                                                   # boot gr
 ```
 
 Cargo's checks cover the root `default-members`: the deterministic, in-process
-crates. The async lane runs the same commands with `--workspace` (hosts, GPU,
-Hermes, platform shells, stress fixtures).
+crates, the web host's among them. The async lane runs the same commands with
+`--workspace` (the other hosts, GPU, Hermes, platform shells, stress fixtures).
 
 Development and test builds optimize the third-party CPU rasterizer `tiny-skia`.
 Debug assertions and overflow checks remain enabled; the normal development

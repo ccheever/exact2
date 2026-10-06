@@ -46,8 +46,7 @@ extension Canvas2DReplayer {
         c.saveGState()
         configureLines(c)
         if canvas2DClipsExtent(state.composite) {
-            if let off = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                   space: canvas2DSRGB, bitmapInfo: canvas2DBitmapInfo) {
+            if let off = space.context(width: width, height: height) {
                 off.concatenate(base)
                 configureLines(off)
                 off.setAlpha(state.alpha)
@@ -152,7 +151,7 @@ extension Canvas2DReplayer {
             c.fill(CGRect(x: -1e7, y: -1e7, width: 2e7, height: 2e7))
             return
         }
-        guard let gradient = CGGradient(colorsSpace: canvas2DSRGB, colors: g.stops.map(\.1) as CFArray,
+        guard let gradient = CGGradient(colorsSpace: space.space, colors: g.stops.map(\.1) as CFArray,
                                         locations: g.stops.map { CGFloat($0.0) }) else { return }
         let extend: CGGradientDrawingOptions = [.drawsBeforeStartLocation, .drawsAfterEndLocation]
         switch g.kind {
@@ -175,7 +174,7 @@ extension Canvas2DReplayer {
         let inverse = toDevice.inverted()
         let (w, h) = (width, height)
         let stops = g.stops.map { stop -> (Double, [Double]) in
-            let comps = stop.1.converted(to: canvas2DSRGB, intent: .defaultIntent, options: nil)?.components ?? [0, 0, 0, 1]
+            let comps = stop.1.converted(to: space.space, intent: .defaultIntent, options: nil)?.components ?? [0, 0, 0, 1]
             return (stop.0, comps.map(Double.init))
         }
         let tau = 2 * Double.pi
@@ -197,10 +196,7 @@ extension Canvas2DReplayer {
                 for k in 0..<4 { bytes[i + k] = UInt8(max(0, min(255, (rgba[k] * 255).rounded()))) }
             }
         }
-        guard let provider = CGDataProvider(data: Data(bytes) as CFData),
-              let image = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4, space: canvas2DSRGB,
-                                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: provider,
-                                  decode: nil, shouldInterpolate: false, intent: .defaultIntent) else { return }
+        guard let image = space.image(bytes, width: w, height: h) else { return }
         c.concatenate(c.ctm.inverted())
         c.interpolationQuality = .none
         c.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))

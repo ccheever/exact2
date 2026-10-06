@@ -239,4 +239,25 @@ final class TextPaintTests: XCTestCase {
         return Data(bytes: r.surface.baseAddress, count: r.surface.allocationSize)
         #endif
     }
+
+    /// LLP 1100 D2: a paragraph whose colour is wide rasterizes into Display
+    /// P3, so its ink is not clipped to sRGB; any other stays sRGB.
+    func testAWideColouredParagraphRastersInDisplayP3() throws {
+        func space(_ color: [Double]) throws -> String? {
+            let spec = Spec(runs: [run("Wide")], align: 0, lineClamp: 0, color: color)
+            let p = engine.paragraph(spec, width: 200)
+            let box = CGRect(x: 0, y: 0, width: 200, height: 40)
+            let job = TextRasterJob(source: engine.attributed(spec), ranges: p.lines.map { CTLineGetStringRange($0) },
+                                    baselines: p.baselines, flush: 0, box: box, size: box.size, scale: 2)
+            let image = try XCTUnwrap(job.render())
+            #if os(macOS)
+            let profile = IOSurfaceCopyValue(image.surface, kIOSurfaceColorSpace)
+            return profile.flatMap { CGColorSpace(propertyListPlist: $0) }?.name as String?
+            #else
+            return image.image.colorSpace?.name as String?
+            #endif
+        }
+        XCTAssertEqual(try space([255, 0, 0, 255, 1, 1, 0, 0, 1]), CGColorSpace.displayP3 as String)
+        XCTAssertEqual(try space([255, 0, 0, 255]), CGColorSpace.sRGB as String)
+    }
 }

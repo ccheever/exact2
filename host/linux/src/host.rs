@@ -206,6 +206,8 @@ impl<D: DataSource> Host<D> {
             b.kind == exact_plan::BindingKind::Prop
                 && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hook)
         });
+        // @ref LLP 1100 D10 — this host draws sRGB only.
+        exact_kernel::style::wide::set_available(exact_color::Wide::in_srgb);
         // Native hosts link every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
         exact_kernel::style::link_segments();

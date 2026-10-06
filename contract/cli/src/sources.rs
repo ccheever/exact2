@@ -112,6 +112,8 @@ pub(crate) fn load(
         units: Vec::new(),
         cache: HashMap::new(),
         fixes: Vec::new(),
+        proposed: Vec::new(),
+        declared: Vec::new(),
     };
     let resolve = |sources: &Sources, all: Vec<CompileError>| {
         all.into_iter()
@@ -149,6 +151,8 @@ pub(crate) fn use_fixes(
         units: Vec::new(),
         cache: HashMap::new(),
         fixes: Vec::new(),
+        proposed: Vec::new(),
+        declared: Vec::new(),
     };
     let resolve = |sources: &Sources, all: Vec<CompileError>| {
         all.into_iter()
@@ -225,6 +229,8 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         units: Vec::new(),
         cache: HashMap::new(),
         fixes: Vec::new(),
+        proposed: Vec::new(),
+        declared: Vec::new(),
     };
     let errors = match loader.load_source(&root_key, src, 0) {
         Err(all) => all,
@@ -268,6 +274,12 @@ struct Loader<'a> {
     cache: HashMap<PathBuf, usize>,
     /// What `scope` found each file lacks, when it refused for that.
     fixes: Vec<uses::UseFix>,
+    /// Every `use` edge §21's fixes would add, `(from, to)`: a cycle may be
+    /// two new edges, neither on disk yet.
+    proposed: Vec<(usize, usize)>,
+    /// Each unit's declarations as written, before renaming, for §21's
+    /// fixes to judge what a `use` would bring.
+    declared: Vec<Vec<(Kind, String)>>,
 }
 impl Loader<'_> {
     /// Parse `src` as unit `source_id`, then every file its uses name, depth
@@ -372,8 +384,18 @@ impl Loader<'_> {
                 .map_err(|e| vec![e])?;
         }
         let elsewhere = self.declared_elsewhere(&unique);
+        self.declared = self
+            .units
+            .iter()
+            .map(|unit| {
+                declarations(&unit.file)
+                    .map(|(k, n)| (k, n.to_owned()))
+                    .collect()
+            })
+            .collect();
         // Every file's references to names it does not see, refused together.
         let mut missing = Vec::new();
+        let mut refused: Vec<CompileError> = Vec::new();
         let shape_owners: Vec<(usize, Vec<String>, String)> = self
             .units
             .iter()
@@ -416,6 +438,8 @@ impl Loader<'_> {
                 })
                 .collect();
             rescope(&mut unit.file, &scope).map_err(|e| vec![e.into()])?;
+            // Refusals that are no `use` line's to fix, reported with the rest.
+            refused.extend(scope.refused.take().into_iter().map(CompileError::from));
             let misses = scope.missing.take();
             if !misses.is_empty() {
                 let found: Vec<_> = misses
@@ -437,12 +461,33 @@ impl Loader<'_> {
             contract_syntax::resolve_clock_timelines_in(&mut unit.file, &timelines)
                 .map_err(|e| vec![e.into()])?;
         }
-        if !missing.is_empty() {
+        if !missing.is_empty() || !refused.is_empty() {
+            // Only the edges a fix would write: one declarer, no clash, a
+            // specifier that reaches it.
+            self.proposed = missing
+                .iter()
+                .flat_map(|(index, found)| {
+                    found
+                        .iter()
+                        .filter(|(m, e)| {
+                            e.declared == m.name
+                                && e.declaring.iter().filter(|&&u| u != *index).count() == 1
+                                && self.clash(*index, e.unit, &m.name).is_none()
+                                && self.specifier(*index, e.unit).is_some()
+                        })
+                        .map(move |(_, e)| (*index, e.unit))
+                })
+                .collect();
             self.fixes = missing
                 .into_iter()
                 .map(|(index, found)| self.use_fix(index, found))
                 .collect();
-            return Err(self.fixes.iter().map(|f| f.error.clone()).collect());
+            return Err(self
+                .fixes
+                .iter()
+                .map(|f| f.error.clone())
+                .chain(refused)
+                .collect());
         }
         Ok(self.merge())
     }
@@ -515,7 +560,14 @@ impl Loader<'_> {
                     // `action` type reads (the checker prefers a shape).
                     let roster = |name: &str| {
                         kind == Kind::Call
-                            && (name == "action"
+                            // An intrinsic's spelling: a `fn` of it is never
+                            // what a call of the name reads, so one imported
+                            // under another name must not take it back.
+                            && (matches!(name, "action" | "pending" | "failed")
+                                // A shape spelled `path`: its constructor is
+                                // the router's `path()` under any alias.
+                                || (name == "path"
+                                    && unit.file.shapes.iter().any(|s| s.name == name))
                                 || (index > 0 && exact_plan::Stdlib::from_name(name).is_some())
                                 || captures(name)
                                 || bound
@@ -755,6 +807,8 @@ impl Loader<'_> {
             styles: all!(styles),
             keyframes: all!(keyframes),
             timelines: all!(timelines),
+            // CSS `@color-profile`s are global by name too (LLP 1100 D3).
+            color_profiles: all!(color_profiles),
             fns: all!(fns),
             components: all!(components),
         }

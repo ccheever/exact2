@@ -1442,6 +1442,18 @@
       "name": "seekforwardOffset",
       "kind": "float",
       "_comment": "@ref LLP 1098 D2: `seekbackwardOffset`'s twin for `seekforward`."
+    },
+    {
+      "id": 250,
+      "name": "colorSpace",
+      "kind": "str",
+      "_comment": "LLP 1100 D12a: getContext's `colorSpace`, `srgb` (default) or `display-p3`."
+    },
+    {
+      "id": 251,
+      "name": "colorType",
+      "kind": "str",
+      "_comment": "LLP 1100 D12a: getContext's `colorType`, `unorm8` (default) or `float16`."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -1816,6 +1828,14 @@
         "fixed"
       ],
       "default": "scroll"
+    },
+    "DynamicRangeLimit": {
+      "values": [
+        "standard",
+        "constrained",
+        "no-limit"
+      ],
+      "default": "no-limit"
     },
     "FieldSizing": {
       "values": [
@@ -3336,7 +3356,7 @@
       "admitsAuto": true,
       "layout": true,
       "default": "auto",
-      "_comment": "@ref LLP 1093 D1: CSS `column-width`, a length or auto (no percentage, as CSS). The used count and width are Multi-column Layout 1 \u00a73.4's, over the content-box width and the gap. The gap is `column-gap` when set, else the element's own font size (CSS's `normal`, 1em)."
+      "_comment": "@ref LLP 1093 D1: CSS `column-width`, a length or auto (no percentage, as CSS). The used count and width are Multi-column Layout 1 §3.4's, over the content-box width and the gap. The gap is `column-gap` when set, else the element's own font size (CSS's `normal`, 1em)."
     },
     {
       "bit": 182,
@@ -3349,13 +3369,13 @@
       "field": "column_rule_width",
       "codec": "f32",
       "default": 3,
-      "_comment": "@ref LLP 1093 \u00a71, D7: CSS `column-rule-width`; `thin`, `medium` (the initial value) and `thick` are 1, 3 and 5 points."
+      "_comment": "@ref LLP 1093 §1, D7: CSS `column-rule-width`; `thin`, `medium` (the initial value) and `thick` are 1, 3 and 5 points."
     },
     {
       "bit": 184,
       "field": "column_rule_style",
       "codec": "enum:BorderStyle",
-      "_comment": "@ref LLP 1093 \u00a71, D7: CSS `column-rule-style`, the styles the hosts paint for borders; the others are refused by the compiler."
+      "_comment": "@ref LLP 1093 §1, D7: CSS `column-rule-style`, the styles the hosts paint for borders; the others are refused by the compiler."
     },
     {
       "bit": 185,
@@ -3398,6 +3418,13 @@
       "field": "break_inside",
       "codec": "enum:BreakInside",
       "layout": true
+    },
+    {
+      "bit": 191,
+      "field": "dynamic_range_limit",
+      "codec": "enum:DynamicRangeLimit",
+      "inherited": true,
+      "_comment": "CSS Color HDR's `dynamic-range-limit` (LLP 1100 D8): how bright HDR images and video may draw."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

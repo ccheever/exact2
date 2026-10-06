@@ -25,7 +25,7 @@ export const drawer = {
     let entry = recorders.get(q.canvas);
     if (!entry || entry.generation !== q.generation) recorders.set(q.canvas, entry = { generation: q.generation, rec: new Recorder() });
     const inner = entry.rec._;
-    inner.env = { canvas: q.canvas, currentColor: q.color ?? null, rtl: q.rtl === true, host: globalThis.exact?.canvas2dHost ?? null };
+    inner.env = { canvas: q.canvas, currentColor: q.color ?? null, rtl: q.rtl === true, p3: q.p3 === true, host: globalThis.exact?.canvas2dHost ?? null };
     const [time, mounted, bits, width, height, pixelWidth, pixelHeight, scale] = q.frame;
     const causes = CAUSES.filter((_, i) => bits & (1 << i));
     // The arguments as a GPU surface's `bind` receives them: by name when

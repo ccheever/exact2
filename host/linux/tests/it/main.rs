@@ -4,6 +4,7 @@
 
 mod animation;
 mod arrange;
+mod colors;
 mod height;
 mod height_binding;
 mod holds;

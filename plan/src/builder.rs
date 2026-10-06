@@ -289,6 +289,14 @@ impl PlanBuilder {
         });
     }
 
+    /// A `@color-profile` (LLP 1100 D3): its dashed name, ICC file and
+    /// rendering intent.
+    pub fn color_profile(&mut self, name: &str, src: &str, intent: &str) -> ProfilesId {
+        let (name, src, intent) = (self.str(name), self.str(src), self.str(intent));
+        self.plan.profiles.push(ProfilesRow { name, src, intent });
+        ProfilesId(self.plan.profiles.len() as u32 - 1)
+    }
+
     /// An ordered CSS font fallback list (one to 64 members).
     pub fn font_stack(&mut self, members: &[(StackMemberKind, Option<FamiliesId>)]) -> StacksId {
         let start = self.plan.stack_members.len() as u32;

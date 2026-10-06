@@ -117,3 +117,15 @@ fn contextual_attributes_are_refused_elsewhere() {
         assert_eq!(error.id, "lower-attr-tag", "{tag} {attr}: {error}");
     }
 }
+
+#[test]
+fn a_hyphenated_name_no_built_in_has_says_so_before_the_module_note() {
+    let out = stdout(&vocab(&["outline-width"]));
+    assert!(
+        out.starts_with("outline-width: not a built-in tag or attribute, so a built-in tag refuses an attribute of that name; a hyphenated tag"),
+        "{out}"
+    );
+    let data = stdout(&vocab(&["data-row"]));
+    assert!(data.starts_with("data-row: `data-<word>`"), "{data}");
+    assert!(!data.contains("built-in"), "{data}");
+}

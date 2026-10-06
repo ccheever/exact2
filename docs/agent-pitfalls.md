@@ -133,6 +133,19 @@ guide's rules don't make obvious.
   runner's own data source has no such cap. Keep an answer under 16 MiB, or page
   it. (LLP 1090 conformance plan, `host/web-js/conformance/budget.contract`.)
 
+- **A second card drag right after a drop does nothing.** A drag that starts before
+  the last one's session ends is refused (LLP 1094 D8): the drop is held until its move
+  shows (a second at most; [the agent guide](contract-for-agents.md#views-layout-and-interaction),
+  boards), then the card lands (about 250 ms on the web). No diagnostic names the
+  refusal, and the agent's `drag to` reply reads like a success. A board whose drop
+  sends a mutation that `refreshes` its cards holds until storage answers, so a quick
+  second drag is easy to lose (a person's, or a test's: two `drag to` steps in a row).
+  Fix: in a test or drive put `clock settle` between drags; it is needed even when the
+  move shows at once, since the landing still holds the session. Showing the move in
+  the drop's own commit (the board in state the action writes, saved through the
+  mutation) only removes the wait for storage, which shortens what a person meets. (Authoring bench, LLP
+  1087, r26 and r29 t4-kanban, 2026-10-05.)
+
 ## Native presentation and navigation (iOS)
 
 - **Edge-swipe back does nothing.** Cause: the pop gesture presses the control named
@@ -203,6 +216,14 @@ guide's rules don't make obvious.
   the bar's cover is added to the route's padding, but a cover-fit root has no top
   safe area. Fix: put `env(safe-area-inset-top)` on the route column, not on each
   authored header. (Signal Clone, build 5.)
+
+- **An empty date input can still show a date on iOS.** `input type="date" value=""`
+  draws a date in the `UIDatePicker`, which has no empty state: today in a new picker,
+  the last date in one whose value was cleared (`time` and `datetime-local` share the
+  picker), while the bound value, `state` and `tree` stay `""` until the person picks. Fix: when the value is empty,
+  show the field's emptiness yourself (a "Not set" label beside it), and validate
+  the bound value, not the screenshot. (Authoring bench, LLP 1087, ios20 t7-wizard,
+  2026-10-05.)
 
 ## Actions
 
@@ -279,14 +300,33 @@ guide's rules don't make obvious.
   `box-sizing`.) **Candidate diagnostic:** the compiler or a development log
   could name the failed condition.
 
-- **A text field shows an edit its action refused.** A field bound with
+- **A text field shows an edit its action refused or normalized.** A field bound with
   `value=text input=edit`, where `edit` ignores a blank value, shows the blank while
-  `text` keeps the old value, and the next keystroke builds on what is shown. Cause: on
-  the web (both targets) a text field is re-set only when its bound value changes, so
-  an unchanged binding does not overwrite the edit. Fix: bind the field to draft state that `edit` always writes, and on commit
+  `text` keeps the old value, and the next keystroke builds on what is shown; so does
+  one whose action or source normalizes `-2` to the `0` it already held. Cause: on
+  the web (both targets) a text field is re-set only when what its binding reads
+  changes, so an unchanged binding does not overwrite the edit. Fix: bind the field to draft state that `edit` always writes, and on commit
   (`change`, Enter, `blur`) write the accepted value or reset the draft to it, which
   changes the bound value and redraws the field. (Authoring bench, LLP 1087, t2-todo:
-  two builders, about 10 minutes each, 2026-10-04.)
+  two builders, about 10 minutes each, 2026-10-04; t1-tip, a normalized count,
+  2026-10-05.)
+
+- **A checkbox bound to a resource field does not tick until the save answers.** With
+  `checked=form.terms change=editTerms`, where `editTerms` sends a mutation that
+  `refreshes form`, a click shows the box unchecked again while the save's answer is
+  out and checked only when the refreshed answer lands, so a slow store shows no tick,
+  and a test that clicks and reads `checked` before the answer fails. Cause: every host (both web targets, iOS,
+  macOS) re-sets the box to its binding, `form.terms`, which is still `false` until
+  the answer. Fix: bind it to state the action writes at once (`terms = value`, then
+  `send`), and seed that state from the saved record as a form does. (Authoring bench,
+  LLP 1087, codex17 t7-wizard, 2026-10-05.)
+
+- **`autofocus` on a field an action shows does not focus it on the web.** The JS
+  target honours `autofocus` once, at boot; a field mounted later by an action keeps
+  the focus where it was (the pressed button). Fix: give the field an `id` and call
+  `focus("field")` (the `id`, not the `testId`) in the action that shows it. (LLP 1035.000 D9 says a node mounted later may autofocus, as
+  the wasm target does; the JS target's gap is in QUEUE.md.) (Authoring bench, LLP
+  1087, r27 t2-todo, 2026-10-05.)
 
 - **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
   is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats
@@ -370,6 +410,15 @@ guide's rules don't make obvious.
 
 ## Driving and testing
 
+- **A test passes on the web and fails on iOS right after an input that saves.** An
+  `expect` straight after `type` or `tap` reads what the input's mutation answered,
+  but an input step only finishes the `then`s of answers already settled; it does not
+  wait for outstanding storage ([authored tests](contract-grammar.md#authored-tests)).
+  A fast web reply (the web input waits two frames) can make the `expect` pass while
+  the native reply is still pending. Fix: put `clock data` after the input, before the
+  `expect` that reads what its reply sets.
+  (Authoring bench, LLP 1087, ios23 t5-pomodoro, 2026-10-05; iOS round 6.)
+
 - **A drive script kept in the app folder makes the build stale.** Editing
   `verify.mjs` beside `app.contract` made the driver refuse the next drive until
   `bun exact.mjs web-build`. Cause: a file in the app folder counts as a build input
@@ -420,6 +469,20 @@ guide's rules don't make obvious.
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
   `scripts/agent.mjs` for dates that read as intended and stay reproducible; in a test
   file, `epoch "…"` and `time-zone "…"` lines, so a run without the flags still means it.
+- **A simulator measurement shows a 100–200 ms stall the app never makes.** A
+  plain launch's frames hold 16.7 ms, but a run driven with `axe` shows one
+  stall with no batch applied about 0.4 s after `axe` first reads the screen
+  (`describe-ui`, `swipe`, `tap` by label), and every push afterwards is 30+ ms
+  slower. Cause: an accessibility client turns on UIKit's accessibility runtime
+  in the app; Time Profiler puts the whole stall in
+  `-[UIApplication _accessibilityInit]` (loading the accessibility bundles,
+  starting the server), and from then on UIKit keeps accessibility state for
+  every view it moves. A phone pays this only with an assistive technology on
+  (VoiceOver, Voice Control, Switch Control). `xctrace` and `sample` attached to
+  the app stall it too. Fix: time a plain launch; drive taps with `axe touch`
+  (HID, no accessibility) or have the host press a row itself, and read frames
+  from Save Trace or a temporary log, not from a run an accessibility client
+  touched. (x2-perf, 2026-10-05.)
 - **`axe` stops delivering taps.** Use `axe` only as a last resort, for native
   chrome only a normal launch presents (bars, `UIMenu`s); drive everything else
   with `agent ios` by `testId`. After `axe touch --down --up --delay` (a long

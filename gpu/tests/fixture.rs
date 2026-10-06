@@ -97,6 +97,7 @@ fn offscreen_module_admits_device_before_its_first_readback() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (pixels, wants) = module.readback(id, &frame).unwrap();
     assert!(!wants);
@@ -134,6 +135,7 @@ fn a_frame_reads_back_unpadded_and_as_a_ppm() {
         seekable: false,
         period_ms: 0.0,
         shader_generation: exact_gpu::shaders::shader_generation(),
+        headroom: 1.0,
     };
     let (px, wants) = fixture::render(&gpu, &mut fill, &frame).unwrap();
     assert!(!wants);
@@ -160,6 +162,7 @@ fn a_bgra_texture_comes_back_rgba() {
         seekable: false,
         period_ms: 0.0,
         shader_generation: exact_gpu::shaders::shader_generation(),
+        headroom: 1.0,
     };
     let mut encoder = gpu.device.create_command_encoder(&Default::default());
     fill.render(

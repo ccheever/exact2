@@ -178,7 +178,10 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
                 "playbackRate": player.rate, "readyState": player.currentItem?.status == .readyToPlay ? 4 : 0,
                 "videoWidth": naturalSize.width, "videoHeight": naturalSize.height,
                 "error": (lastError ?? player.currentItem?.error?.localizedDescription).map { $0 as Any } ?? NSNull(),
-                "src": props["src"] ?? "", "renderer": renderer, "generation": generation]
+                "src": props["src"] ?? "", "renderer": renderer, "generation": generation,
+                // @ref LLP 1100 D11
+                "hdr": hdrItem, "eligibleForHDR": AVPlayer.eligibleForHDRPlayback,
+                "dynamicRange": props["dynamicRangeLimit"] ?? "no-limit"]
     }
     func emit(_ event: String = "snapshot", payload: String = "") {
         guard !invalidated else { return }
@@ -301,6 +304,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         // HTML's loop seeks to the start at the end without pausing (no pause, play or ended).
         set(\.actionAtItemEnd, bool("loop") ? .none : .pause)
         if changed("poster") { loadPoster() }
+        if changed("dynamicRangeLimit") { applyDynamicRange() }
         if changed("src") {
             wantsPlay = props["paused"].map { $0 == "false" } ?? bool("autoplay")
             loadSource()
@@ -432,6 +436,8 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
             }
         }
     }
+    /// An HDR poster is decoded with its gain map: UIKit's reader must be
+    /// asked; `NSImage` keeps it (LLP 1100 D11).
     func loadPoster() {
         posterGeneration += 1
         let token = posterGeneration
@@ -439,16 +445,61 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         guard let source = props["poster"], let url = URL(string: source) else { return }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let data = try? Data(contentsOf: url)
+            #if !os(macOS)
+            let image = data.flatMap { data -> UIImage? in
+                var configuration = UIImageReader.Configuration()
+                configuration.prefersHighDynamicRange = true
+                return UIImageReader(configuration: configuration).image(data: data)
+            }
+            #else
+            let image = data.flatMap { NSImage(data: $0) }
+            #endif
             DispatchQueue.main.async {
-                guard let self, !self.invalidated, self.posterGeneration == token, let data else { return }
-                #if os(macOS)
-                self.poster.image = NSImage(data: data)
-                #else
-                self.poster.image = UIImage(data: data)
-                #endif
+                guard let self, !self.invalidated, self.posterGeneration == token, let image else { return }
+                self.poster.image = image
+                self.applyDynamicRange()
                 self.poster.isHidden = self.player.rate != 0
             }
         }
+    }
+
+    var hdrItem: Bool {
+        player.currentItem?.asset.tracks(withMediaType: .video).contains { $0.hasMediaCharacteristic(.containsHDRVideo) } ?? false
+    }
+
+    /// `dynamic-range-limit` on the poster, AVKit's player and the inline
+    /// layer (LLP 1100 D11). Before iOS/macOS 26 AVKit has no range control.
+    func applyDynamicRange() {
+        let limit = props["dynamicRangeLimit"] ?? "no-limit"
+        #if !os(macOS)
+        let image: UIImage.DynamicRange = limit == "standard" ? .standard : limit == "constrained" ? .constrainedHigh : .high
+        #else
+        let image: NSImage.DynamicRange = limit == "standard" ? .standard : limit == "constrained" ? .constrainedHigh : .high
+        #endif
+        if poster.preferredImageDynamicRange != image { poster.preferredImageDynamicRange = image }
+        #if os(iOS) || os(tvOS)
+        if let layer = inline?.playerLayer {
+            if #available(iOS 26, tvOS 26, *) {
+                let wanted: CALayer.DynamicRange = limit == "standard" ? .standard : limit == "constrained" ? .constrainedHigh : .high
+                if layer.preferredDynamicRange != wanted { layer.preferredDynamicRange = wanted }
+            } else {
+                #if os(iOS)
+                layer.wantsExtendedDynamicRangeContent = limit != "standard"
+                #endif
+            }
+        }
+        #endif
+        // tvOS has no AVKit range preference.
+        #if os(iOS) || os(macOS)
+        if #available(iOS 26, macOS 26, *) {
+            let range: AVDisplayDynamicRange = limit == "standard" ? .standard : limit == "constrained" ? .constrainedHigh : .high
+            #if os(iOS)
+            if let controller, controller.preferredDisplayDynamicRange != range { controller.preferredDisplayDynamicRange = range }
+            #else
+            if presentation.preferredDisplayDynamicRange != range { presentation.preferredDisplayDynamicRange = range }
+            #endif
+        }
+        #endif
     }
     #if os(iOS) || os(tvOS)
     /// A video without `controls` uses the native player layer, as Chrome's
@@ -480,6 +531,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
             #if os(iOS)
             native.updatesNowPlayingInfoCenter = avkitPublishes
             #endif
+            applyDynamicRange()
             container.insertSubview(native.view, belowSubview: poster)
             inline?.playerLayer.player = nil
             inline?.removeFromSuperview()
@@ -491,6 +543,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
             surface.playerLayer.player = player
             surface.playerLayer.videoGravity = gravity
             inline = surface
+            applyDynamicRange()
             container.insertSubview(surface, belowSubview: poster)
         }
     }

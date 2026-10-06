@@ -40,11 +40,11 @@ public struct Batch {
         self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
         self.error = error; self.timerDueMs = timerDueMs; self.pending = pending
     }
-    static func decode(_ data: Data) -> Batch {
-        data.withUnsafeBytes { decode($0.bindMemory(to: UInt8.self)) }
+    static func decode(_ data: Data, resolver: AssetResolver? = nil) -> Batch {
+        data.withUnsafeBytes { decode($0.bindMemory(to: UInt8.self), resolver: resolver) }
     }
-    static func decode(_ bytes: UnsafeBufferPointer<UInt8>) -> Batch {
-        var reader = BatchReader(bytes: bytes)
+    static func decode(_ bytes: UnsafeBufferPointer<UInt8>, resolver: AssetResolver? = nil) -> Batch {
+        var reader = BatchReader(bytes: bytes, profileResolver: resolver)
         do {
             let batch = try reader.batch()
             try reader.end()
@@ -123,11 +123,14 @@ final class Runtime {
         }
     }
 
+    private var profileResolver: AssetResolver?
+    func setProfileResolver(_ resolver: AssetResolver?) { on { profileResolver = resolver } }
+
     func read(_ len: UInt32) -> Batch {
         // The runtime owns these bytes until its next call. The reader copies
         // strings into Swift values before returning; no batch borrows the buffer.
         let bytes = UnsafeBufferPointer(start: exact_out(rt), count: Int(len))
-        var batch = Batch.decode(bytes)
+        var batch = Batch.decode(bytes, resolver: profileResolver)
         #if DEBUG
         // What was decoded, before `prepare` adds the owner's values.
         observeBatch?(Data(bytes), batch)

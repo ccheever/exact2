@@ -237,6 +237,23 @@ fn position_fixed_says_how_to_pin_a_box() {
 }
 
 #[test]
+fn a_maximum_of_none_says_no_limit_is_the_default() {
+    for src in [
+        "component App\n  view\n    column max-height=\"none\"\n      text \"a\"\n",
+        "component App\n  state narrow = false\n  view\n    column max-width=(narrow ? \"320px\" : \"none\")\n      text \"a\"\n",
+    ] {
+        let error = contract::compile(src).unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{error}");
+        assert!(
+            error.message.ends_with(
+                "out (an explicit no-limit is `auto` here)"
+            ) && error.message.contains("; no limit is the default, so leave `max-"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
 fn an_expression_continued_on_an_indented_line_is_told_to_wrap_it() {
     let wrap = "an indented line that starts with an operator continues the line above";
     let derive = "component App\n  state done = false\n  derive label = done\n    ? \"Done\"\n    : \"Open\"\n  view\n    text label\n";
@@ -328,4 +345,20 @@ fn flex_none_beside_another_error_is_not_refused() {
         errors.iter().any(|e| e.id == "analyze-handler-arity"),
         "{errors:?}"
     );
+}
+
+#[test]
+fn a_shape_named_like_a_built_in_says_so() {
+    let error =
+        contract::compile("shape Geometry\n  x: number\ncomponent App\n  view\n    text \"a\"\n")
+            .unwrap_err();
+    assert_eq!(
+        error.message,
+        "`Geometry` is a shape the compiler declares; name the app's shape another way"
+    );
+    let error = contract::compile(
+        "shape A\n  x: number\nshape A\n  y: number\ncomponent App\n  view\n    text \"a\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(error.message, "shape `A` declared twice");
 }

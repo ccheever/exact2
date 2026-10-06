@@ -1,6 +1,7 @@
 //! The compiler's integration tests: one binary, so one link and one launch.
 
 mod action_related;
+mod ancestor_row_state;
 mod announce;
 mod aria;
 mod at;
@@ -22,6 +23,7 @@ mod collection_into_view;
 mod collection_nest;
 mod collection_reuse;
 mod collection_start;
+mod color_spaces;
 mod compose;
 mod controls;
 mod corpus;

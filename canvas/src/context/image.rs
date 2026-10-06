@@ -150,7 +150,17 @@ impl Images for ImageTable {
     }
 }
 
-/// `ImageData`: raw RGBA pixels, non-premultiplied, sRGB.
+/// HTML's `PredefinedColorSpace` (LLP 1100 D12a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorSpace {
+    /// `"srgb"`, the default.
+    #[default]
+    Srgb,
+    /// `"display-p3"`.
+    DisplayP3,
+}
+
+/// `ImageData`: raw RGBA pixels, non-premultiplied, in `color_space`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageData {
     /// Pixels per row.
@@ -159,6 +169,8 @@ pub struct ImageData {
     pub height: u32,
     /// `width × height × 4` bytes.
     pub data: Vec<u8>,
+    /// The pixels' space: the canvas's for `createImageData`, else sRGB.
+    pub color_space: ColorSpace,
 }
 
 fn dimension(v: f64, which: &str) -> Result<u32, DomException> {
@@ -188,6 +200,7 @@ impl ImageData {
             width: sw,
             height: sh,
             data: vec![0; sw as usize * sh as usize * 4],
+            color_space: ColorSpace::Srgb,
         })
     }
 
@@ -222,7 +235,14 @@ impl ImageData {
             width: sw,
             height: rows,
             data,
+            color_space: ColorSpace::Srgb,
         })
+    }
+
+    /// The same, with `ImageDataSettings`' `colorSpace`.
+    pub fn with_color_space(mut self, space: ColorSpace) -> ImageData {
+        self.color_space = space;
+        self
     }
 }
 
@@ -444,7 +464,10 @@ impl Context2d {
         sw: f64,
         sh: f64,
     ) -> Result<ImageData, DomException> {
-        ImageData::new_with_sw(dimension(sw, "width")?, dimension(sh, "height")?)
+        Ok(
+            ImageData::new_with_sw(dimension(sw, "width")?, dimension(sh, "height")?)?
+                .with_color_space(self.color_space()),
+        )
     }
 
     /// `createImageData(imagedata)`: the same size, transparent black.
@@ -452,7 +475,16 @@ impl Context2d {
         &self,
         data: &ImageData,
     ) -> Result<ImageData, DomException> {
-        ImageData::new_with_sw(data.width, data.height)
+        Ok(ImageData::new_with_sw(data.width, data.height)?.with_color_space(self.color_space()))
+    }
+
+    /// The canvas's space (LLP 1100 D12a): HTML's `getContextAttributes().colorSpace`.
+    pub fn color_space(&self) -> ColorSpace {
+        if self.g().env.p3 {
+            ColorSpace::DisplayP3
+        } else {
+            ColorSpace::Srgb
+        }
     }
 
     /// `putImageData(imagedata, dx, dy)`.
@@ -509,13 +541,34 @@ impl Context2d {
             return Ok(());
         }
         let (x0, y0, w, h) = (x as usize, y as usize, w as usize, h as usize);
+        // Pixels in another space than the canvas's are converted, as HTML's put does.
+        let convert: Option<fn(exact_color::Rgba8) -> exact_color::Rgba8> =
+            match (data.color_space, self.color_space()) {
+                (a, b) if a == b => None,
+                (ColorSpace::Srgb, _) => Some(exact_color::srgb8_to_p3),
+                (ColorSpace::DisplayP3, _) => Some(exact_color::p3_8_to_srgb),
+            };
         let mut ops = Vec::with_capacity(4 + w * h);
         ops.extend_from_slice(&[dx + x, dy + y, w as f64, h as f64]);
         for row in y0..y0 + h {
             for col in x0..x0 + w {
                 let i = (row * data.width as usize + col) * 4;
-                let p = &data.data[i..i + 4];
-                ops.push(u32::from_be_bytes([p[0], p[1], p[2], p[3]]) as f64);
+                let mut p = [
+                    data.data[i],
+                    data.data[i + 1],
+                    data.data[i + 2],
+                    data.data[i + 3],
+                ];
+                if let Some(convert) = convert {
+                    let c = convert(exact_color::Rgba8 {
+                        r: p[0],
+                        g: p[1],
+                        b: p[2],
+                        a: 1.0,
+                    });
+                    p[..3].copy_from_slice(&[c.r, c.g, c.b]);
+                }
+                ops.push(u32::from_be_bytes(p) as f64);
             }
         }
         self.g().op(Op::PutImageData, &ops);

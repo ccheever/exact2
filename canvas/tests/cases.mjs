@@ -17,7 +17,7 @@ export function parseCases(text = readFileSync(resolve(HERE, 'cases.txt'), 'utf8
   for (const raw of text.split('\n')) {
     const line = raw.trim();
     if (!line || (line.startsWith('#') && !line.startsWith('##'))) continue;
-    if (line.startsWith('## ')) { cases.push({ name: line.slice(3), lines: [] }); continue; }
+    if (line.startsWith('## ')) { cases.push({ name: line.slice(3), lines: [], p3: line.endsWith('(display-p3)') }); continue; }
     const c = cases[cases.length - 1];
     if (line.startsWith('? ')) {
       const [query, want] = line.slice(2).split(/\s*=>\s*/);
@@ -39,7 +39,10 @@ function caseSource(c) {
     if (l.throws) return `try{${stmt};fail.push(${JSON.stringify(l.call)}+' did not throw')}catch(e){if(e.name!==${JSON.stringify(l.throws)})fail.push(${JSON.stringify(l.call)}+' threw '+e.name)}`;
     return `try{${stmt}}catch(e){fail.push(${JSON.stringify(l.call)}+' threw '+e.name)}`;
   });
-  return `(ctx)=>{const fail=[];let g;${body.join('\n')}\nreturn fail;}`;
+  // A `(display-p3)` case runs in a `display-p3` canvas (LLP 1100 D12a):
+  // Chrome's is made so; the recorder's is told, as the seam tells it.
+  const p3 = c.p3 ? 'if(ctx._)ctx._.env.p3=true;' : '';
+  return `(ctx)=>{const fail=[];let g;${p3}${body.join('\n')}\nreturn fail;}`;
 }
 
 /** Run every case against `make()`, a fresh context each: `[{name, fail}]`. */
@@ -65,7 +68,7 @@ if (process.argv.includes('--chrome')) {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-canvas-cases-'));
   const page = resolve(dir, 'cases.html');
   const fns = cases.map((c) => `[${JSON.stringify(c.name)}, ${caseSource(c)}]`).join(',\n');
-  writeFileSync(page, `<pre id=o></pre><script>const r=[${fns}].map(([n,f])=>({name:n,fail:f(document.createElement('canvas').getContext('2d'))}));document.getElementById('o').textContent=JSON.stringify(r)</script>`);
+  writeFileSync(page, `<pre id=o></pre><script>const r=[${fns}].map(([n,f])=>({name:n,fail:f(document.createElement('canvas').getContext('2d',{colorSpace:/\(display-p3\)$/.test(n)?'display-p3':'srgb'}))}));document.getElementById('o').textContent=JSON.stringify(r)</script>`);
   const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   const r = spawnSync(chrome, ['--headless=new', '--disable-gpu', `--user-data-dir=${resolve(dir, 'profile')}`, '--dump-dom', `file://${page}`], { encoding: 'utf8', timeout: 60000 });
   rmSync(dir, { recursive: true, force: true });

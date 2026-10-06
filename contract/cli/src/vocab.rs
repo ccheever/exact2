@@ -92,7 +92,13 @@ fn one(name: &str, json: bool) -> ExitCode {
             }
         }
         if let Some(open) = open {
-            println!("{name}: {open}");
+            // A hyphenated name is usually a CSS property Contract lacks (r26 t1 read
+            // `outline-width` as a module): say that first.
+            if open == vocab::MODULE_NOTE {
+                println!("{name}: not a built-in tag or attribute, so a built-in tag refuses an attribute of that name; {open}");
+            } else {
+                println!("{name}: {open}");
+            }
         }
     }
     ExitCode::SUCCESS

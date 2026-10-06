@@ -73,7 +73,8 @@ final class FlightsIOSTests: XCTestCase {
             ["op": "present", "id": 4, "property": "flight", "x": 0.5, "y": 0.0]]))
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         let arriver = try XCTUnwrap(p.views[4])
-        let layer = try XCTUnwrap(arriver.superview as? FlightLayer, "the arriver flies")
+        // Not an image: it flies scaled in its clip (D4.4 as amended).
+        let layer = try XCTUnwrap((arriver.superview as? FlightClip)?.superview as? FlightLayer, "the arriver flies")
         let shown = arriver.convert(arriver.bounds, to: nil)
         XCTAssertEqual(shown.minY, 300, accuracy: 0.5, "halfway between 100 and 500")
         XCTAssertEqual(shown.width, 300, accuracy: 0.5, "halfway between 400 and 200")
@@ -135,7 +136,7 @@ final class FlightsIOSTests: XCTestCase {
             ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
             ["op": "present", "id": 4, "property": "flight", "x": 0.25, "y": 0.0]]))
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        let layer = try XCTUnwrap(p.views[4]?.superview as? FlightLayer)
+        let layer = try XCTUnwrap((p.views[4]?.superview as? FlightClip)?.superview as? FlightLayer)
         XCTAssertTrue(layer.superview === window)
     }
     private func png(_ root: URL, _ name: String, width: Int, height: Int) throws {

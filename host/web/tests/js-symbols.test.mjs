@@ -16,7 +16,7 @@ const After = [], PropHooks = {}, inflight = { n: 0 };
 globalThis.rtStandIn = { After, PropHooks, inflight, journal: [], clock: { now: 0 }, data: { appId: 'com.example' } };
 
 class Img {
-  constructor() { this.localName = 'img'; this.attrs = new Map(); this.props = new Map(); this.classList = []; this.alt = 'x';
+  constructor() { this.localName = 'img'; this.attrs = new Map(); this.props = new Map(); this.classList = [];
     this.style = { setProperty: (k, v) => this.props.set(k, v), removeProperty: (k) => this.props.delete(k), getPropertyValue: (k) => this.props.get(k) ?? '' }; }
   setAttribute(k, v) { this.attrs.set(k, String(v)); }
   getAttribute(k) { return this.attrs.get(k) ?? null; }
@@ -24,6 +24,8 @@ class Img {
   removeAttribute(k) { this.attrs.delete(k); }
   toggleAttribute(k, on) { if (on) this.attrs.set(k, ''); else this.attrs.delete(k); }
   set src(v) { this.setAttribute('src', v); }
+  get alt() { return this.getAttribute('alt') ?? ''; }
+  set alt(v) { this.setAttribute('alt', v); }
   get clientWidth() { return 24; } get clientHeight() { return 24; }
 }
 const el = new Img();
@@ -51,3 +53,15 @@ test('an image that leaves a symbol for an app:/ file keeps the file', async () 
   for (const f of After) f();
   expect(el.getAttribute('src')).toBe('blob:test/app:/data/photo.png');
 });
+
+test('a symbol is decorative unless its author named it', async () => {
+  const { symbols } = await import(resolve(dir, 'symbols.js'));
+  symbols({ photo: ['M0 0L24 24', false] });
+  const unnamed = new Img(), named = new Img();
+  named.setAttribute('alt', 'Add a stop'); // the template's alt, from `alt` or `aria-label`
+  expect(PropHooks.src(unnamed, 'symbol:photo')).toBe(true);
+  expect(PropHooks.src(named, 'symbol:photo')).toBe(true);
+  expect(unnamed.getAttribute('alt')).toBe('');
+  expect(named.getAttribute('alt')).toBe('Add a stop');
+});
+

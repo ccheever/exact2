@@ -71,7 +71,7 @@ final class TextRasterizer {
     }
     private func keep(_ image: TextRasterImage?, for key: TextRasterKey, namespace: Int) {
         guard let image, namespace == keptNamespace, kept[key] == nil else { return }
-        let bytes = image.image.bytesPerRow * image.image.height
+        let bytes = image.image.bytesPerRow * image.image.height + (image.cast.map { $0.bytesPerRow * $0.height } ?? 0)
         guard bytes <= Self.keptEntryLimit else { return }
         keptClock += 1
         kept[key] = Kept(image: image, bytes: bytes, used: keptClock)
@@ -132,7 +132,7 @@ final class TextRasterizer {
         let job = TextRasterJob(source: source.copy() as! NSAttributedString, ranges: geometry.ranges, baselines: geometry.baselines,
             flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, justifies: key.spec.align == 3, insets: paragraph?.insets ?? LineInsets(key.spec, source: source),
             box: key.box, size: key.size, scale: key.scale, clip: key.clip,
-            ellipsis: key.spec.ellipsis, crop: true, clamped: geometry.clamped)
+            ellipsis: key.spec.ellipsis, crop: true, clamped: geometry.clamped, shadow: key.spec.hdrShadow.map(TextRunShadow.init))
         // A job for the paragraph's previous text or box paints nothing now.
         if let pending { _ = pending.abandon() }
         node.textRasterKey = key; node.textRasterReady = false; node.textRasterFailed = false
@@ -261,11 +261,13 @@ extension NodeView {
         ink.contentsScale = key.scale
         NumeralRoll.roll(ink, node: self)
         ink.contents = result.image
-        TextShadowLayer.apply(key.spec.shadow, to: ink)
+        TextShadowLayer.apply(key.spec.hdrShadow == nil ? key.spec.shadow : nil, to: ink)
+        ink.applyTextRange(headroom: result.headroom, limit: style["dynamic_range_limit"]?.string)
+        ink.applyTextCast(result.cast, headroom: result.castHeadroom, limit: style["dynamic_range_limit"]?.string)
         textRasterLayer = ink
     }
     func dropTextRaster() {
-        textRasterLayer?.removeFromSuperlayer(); textRasterLayer = nil
+        textRasterLayer?.dropTextCast(); textRasterLayer?.removeFromSuperlayer(); textRasterLayer = nil
         textRaster = nil; textRasterKey = nil; textRasterReady = false; textRasterFailed = false
     }
 }

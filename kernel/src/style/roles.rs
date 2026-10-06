@@ -329,13 +329,21 @@ pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
 }
 
 impl ColorValue {
-    /// What a host without the platform's colour shows: a reference's
-    /// fallback (LLP 1095 D1), and any other value as it is.
+    /// What a host without the platform's colour, or with only sRGB, shows:
+    /// a reference's fallback (LLP 1095 D1), a wide colour's sRGB clip.
     pub fn fallback(self) -> ColorValue {
         match self {
             ColorValue::Role(id) => role_fallback(id),
             ColorValue::Platform(id) => {
                 platform(id).map_or(ColorValue::Fixed(Color::TRANSPARENT), |p| p.fallback)
+            }
+            ColorValue::Wide(id) => super::wide::wide(id)
+                .map_or(ColorValue::Fixed(Color::TRANSPARENT), |w| w.fallback()),
+            // A host that reaches here has refused it already (LLP 1100 D3).
+            ColorValue::Profiled(_) => ColorValue::Fixed(Color::TRANSPARENT),
+            ColorValue::Moving(..) => {
+                let (c, a) = self.moving_linear().unwrap_or_default();
+                ColorValue::Fixed(Color::from_linear_srgb(c, a))
             }
             other => other,
         }

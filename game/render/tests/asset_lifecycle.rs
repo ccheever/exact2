@@ -63,6 +63,7 @@ fn terminal_declaration_requests_no_more_frames() {
             period_ms: 0.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         },
     )
     .unwrap();
@@ -246,6 +247,7 @@ fn replacement_device_draws_identical_pixels() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (before, _) = fixture::render(&gpu, &mut surface, &frame).unwrap();
     surface.device_lost();
@@ -326,6 +328,7 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (before, _) = module.readback(id, &frame).unwrap();
     assert!(

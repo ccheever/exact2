@@ -44,6 +44,8 @@ pub struct File {
     /// `timeline` declarations, in order (LLP 1055.002 D1): clock timelines
     /// that `animation-timeline=Name` puts animations on.
     pub timelines: Vec<TimelineDecl>,
+    /// `color-profile` declarations, in order (LLP 1100 D3).
+    pub color_profiles: Vec<ColorProfileDecl>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
@@ -522,6 +524,17 @@ pub struct KeyframesDecl {
 pub struct TimelineDecl {
     /// The name `animation-timeline` refers to.
     pub name: String,
+    /// Where.
+    pub span: Span,
+}
+
+/// `color-profile --name src="…" rendering-intent=…`: CSS's `@color-profile`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColorProfileDecl {
+    /// The dashed name `color()` refers to, `--` included.
+    pub name: String,
+    /// The descriptors, literal: `src` and `rendering-intent`.
+    pub attrs: Vec<Attr>,
     /// Where.
     pub span: Span,
 }

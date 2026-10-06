@@ -68,16 +68,15 @@ extension NodeView {
         var p = BoxPlan()
         // Most nodes paint nothing and clip nothing: nothing to read.
         guard hasBoxPaint || clipsToBounds || clipBox != nil else { return p }
-        // sRGB colours straight from the rows: an NSColor's `cgColor` is
-        // made anew on each call, and this runs for every repaint.
-        func cg(_ c: [Double]) -> CGColor { CGColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255) }
-        p.fill = channels("background_color").flatMap { $0[3] > 0 ? cg($0) : nil }
+        // CGColors straight from the rows: an NSColor's `cgColor` is made
+        // anew on each call, and this runs for every repaint.
+        p.fill = cgColor("background_color").flatMap { $0.alpha > 0 ? $0 : nil }
         let uniform = number("border_width")
         let sides = ["top", "right", "bottom", "left"]
         p.widths = sides.map { number("border_width_" + $0, uniform) }
         if p.widths.contains(where: { $0 > 0 }) {
-            let top = channels("border_color_top")
-            p.colors = sides.map { side in (channels("border_color_" + side) ?? top).map(cg) ?? CGColor(gray: 0, alpha: 0) }
+            let top = cgColor("border_color_top")
+            p.colors = sides.map { side in cgColor("border_color_" + side) ?? top ?? CGColor(gray: 0, alpha: 0) }
         } else {
             p.colors = Array(repeating: CGColor(gray: 0, alpha: 0), count: 4)
         }
@@ -136,7 +135,7 @@ extension NodeView {
     /// uniform border following the curve, the radius clipping children
     /// only where the overflow clips.
     func applyBoxLayer() {
-        defer { syncEllipticalClip() }
+        defer { syncEllipticalClip(); applyColorRanges() }
         guard layerBoxEligible else { applyClipOnly(); return }
         let p = boxPlan
         applyBoxLayer(p)
@@ -244,7 +243,7 @@ extension NodeView {
         if round, g.maskedCorners != p.corners { g.maskedCorners = p.corners }
         if g.cornerCurve != p.curve { g.cornerCurve = p.curve }
         if g.masksToBounds != round { g.masksToBounds = round }
-        gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark)
+        gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark, limit: style["dynamic_range_limit"]?.string)
     }
 
     /// The viewport in this view's coordinates: a `background-attachment:
@@ -310,6 +309,7 @@ extension NodeView {
             if (l.contents as AnyObject?) !== frame { l.contents = frame }
             l.cornerRadius = 0
             l.masksToBounds = false
+            l.applyDynamicRange(hdr: bitmap.isHDR, headroom: bitmap.headroom, limit: style["dynamic_range_limit"]?.string)
             return
         }
         guard let layer, layerBoxEligible, let plan = imagePlan, let bitmap = raster?.image else {
@@ -326,6 +326,7 @@ extension NodeView {
         if l.contentsGravity != .resize { l.contentsGravity = .resize }
         let frame = AnimatedRasters.shared.frame(for: self) ?? bitmap.image
         if (l.contents as AnyObject?) !== frame { l.contents = frame }
+        l.applyDynamicRange(hdr: bitmap.isHDR, headroom: bitmap.headroom, limit: style["dynamic_range_limit"]?.string)
         if l.cornerRadius != plan.radius { l.cornerRadius = plan.radius }
         let curve: CALayerCornerCurve = CornerShape(style["corner_shape"])?.isAppleContinuous == true ? .continuous : .circular
         if l.cornerCurve != curve { l.cornerCurve = curve }

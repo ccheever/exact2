@@ -18,6 +18,25 @@ use exact_plan::Value;
 pub(super) const MAX_KEPT_BYTES: usize = 8 * 1024;
 
 /// The store name a resource's kept answer lives under.
+/// The kept entries in `snapshot` no declared reader of `plan` seeds. A
+/// cold boot seeds a first frame only from declared readers' kept answers,
+/// so any other entry (a reader made transient, a resource removed) is
+/// forgotten on disk, not carried forever. A reload's carried readers are
+/// checked for compatibility instead.
+pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, String)]) -> Vec<String> {
+    snapshot
+        .iter()
+        .filter_map(|(name, _)| {
+            let resource = name.strip_prefix(Store::KEPT)?;
+            (!plan
+                .resources
+                .iter()
+                .any(|r| r.reader && plan.str(r.name) == resource))
+            .then(|| name.clone())
+        })
+        .collect()
+}
+
 pub(super) fn kept_name(resource: &str) -> String {
     let mut name = String::from(Store::KEPT);
     name.push_str(resource);

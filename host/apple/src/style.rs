@@ -149,13 +149,8 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 push_rgba(&mut out, [c.r(), c.g(), c.b(), c.a()]);
                 true
             }
-            RowValue::ColorValue(c @ ColorValue::LightDark(..)) => {
-                push_color_value(&mut out, c);
-                true
-            }
-            // A reference crosses by name (LLP 1095 D1); a role WebKit names
-            // is also listed in `system_colors`, for vibrancy (LLP 1077 D13).
-            RowValue::ColorValue(c @ (ColorValue::Role(_) | ColorValue::Platform(_))) => {
+            // A role WebKit names is also in `system_colors`, for vibrancy (LLP 1077 D13).
+            RowValue::ColorValue(c) => {
                 push_color_value(&mut out, c);
                 systems.extend(c.system_name().map(|s| (name, s)));
                 true
@@ -447,6 +442,37 @@ fn push_dimension(out: &mut String, d: Dimension) {
 /// presenter resolves per view against its traits, and the fallback pair.
 /// A `platform-color()` with no name for this platform crosses as its fallback.
 pub(crate) fn push_color_value(out: &mut String, c: ColorValue) {
+    // LLP 1100 D3: no sRGB clip rides along; nothing here converts it.
+    if let ColorValue::Profiled(id) = c {
+        if let Some(p) = exact_kernel::style::profiled::profiled(id) {
+            push_profiled(out, &p, 1.0);
+            return;
+        }
+    }
+    if let Some((v, alpha)) = c.moving_linear() {
+        let _ = write!(
+            out,
+            "{{\"cs\":[{{\"s\":\"srgb-linear\",\"v\":[{},{},{},{}]}}],\"c\":",
+            v[0], v[1], v[2], alpha
+        );
+        push_color_value(out, c.fallback());
+        out.push('}');
+        return;
+    }
+    if let ColorValue::Wide(id) = c {
+        if let Some(w) = exact_kernel::style::wide::wide(id) {
+            out.push_str("{\"cs\":[");
+            push_wide(out, w.light);
+            if let Some(d) = w.dark {
+                out.push(',');
+                push_wide(out, d);
+            }
+            out.push_str("],\"c\":");
+            push_color_value(out, c.fallback());
+            out.push('}');
+            return;
+        }
+    }
     let native = match c {
         // An id past the table names no role: its transparent fallback.
         ColorValue::Role(id) => exact_kernel::style::roles::role_of(id).map(|r| {
@@ -483,8 +509,54 @@ pub(crate) fn push_color_value(out: &mut String, c: ColorValue) {
             push_rgba(out, [d.r(), d.g(), d.b(), d.a()]);
             out.push(']');
         }
-        ColorValue::Role(_) | ColorValue::Platform(_) => push_rgba(out, [0; 4]),
+        ColorValue::Role(_)
+        | ColorValue::Platform(_)
+        | ColorValue::Wide(_)
+        | ColorValue::Moving(..)
+        | ColorValue::Profiled(_) => push_rgba(out, [0; 4]),
     }
+}
+
+/// A profile's colour as `{"cs": [{"s": "cg:<name>" | "icc:<asset>", "i":
+/// <intent>, "v": [components…, alpha]}]}` (LLP 1100 D3).
+pub(crate) fn push_profiled(
+    out: &mut String,
+    p: &exact_kernel::style::profiled::ProfiledValue,
+    opacity: f32,
+) {
+    use exact_kernel::style::profiled::Source;
+    let (space, intent) = match &p.source {
+        Source::Named(name) => (format!("cg:{name}"), "relative-colorimetric"),
+        Source::Icc { src, intent } => (format!("icc:{src}"), &**intent),
+    };
+    let values: Vec<String> = p
+        .components
+        .iter()
+        .chain([&(p.alpha * opacity)])
+        .map(|v| v.to_string())
+        .collect();
+    let _ = write!(
+        out,
+        "{{\"cs\":[{{\"s\":{space:?},\"i\":{intent:?},\"v\":[{}]}}]}}",
+        values.join(",")
+    );
+}
+
+/// One wide colour as `{"s": <space>, "v": [c0, c1, c2, alpha]}`. Core
+/// Graphics names sRGB and Display P3; any other space crosses as extended
+/// linear sRGB, unclipped (LLP 1100 D2).
+pub(crate) fn push_wide(out: &mut String, w: exact_color::Wide) {
+    use exact_color::Space;
+    let (space, v) = match w.space {
+        Space::Srgb => ("srgb", w.c),
+        Space::DisplayP3 => ("display-p3", w.c),
+        _ => ("srgb-linear", w.linear_srgb()),
+    };
+    let _ = write!(
+        out,
+        "{{\"s\":\"{space}\",\"v\":[{},{},{},{}]}}",
+        v[0], v[1], v[2], w.alpha
+    );
 }
 
 fn push_rgba(out: &mut String, channels: [u8; 4]) {
@@ -598,6 +670,11 @@ impl Shown {
 }
 
 fn fixed(v: exact_motion::Value) -> ColorValue {
+    // LLP 1100 D2: Oklab motion keeps its gamut frame by frame.
+    if v.oklab {
+        let (linear, alpha) = v.linear_srgb();
+        return ColorValue::moving(linear, alpha);
+    }
     let [r, g, b, a] = v.to_rgba8();
     ColorValue::Fixed(exact_kernel::Color(u32::from_be_bytes([r, g, b, a])))
 }
@@ -745,22 +822,28 @@ pub fn style_json_presented(
 ) -> (String, Vec<Skipped>) {
     let rows = if matches!(
         node.node_type,
-        NodeType::Text | NodeType::TextInput | NodeType::Image | NodeType::Control
+        NodeType::Text
+            | NodeType::TextInput
+            | NodeType::Image
+            | NodeType::Control
+            | NodeType::Video
     ) {
         StyleMask::INHERITED
     } else {
         // `pointer-events` is inherited too: a box under a `none` parent
         // passes the pointer through wherever it paints, translated out of
         // its parent's box included (feed's toast, x2apps repro
-        // pointer-events-inherit-translate).
-        // `visibility` too: a hidden ancestor keeps a descendant's own
-        // `visible`, and one that does not set it inherits `hidden`. The
-        // initial `visible` stays unmarked and is not sent.
+        // pointer-events-inherit-translate). `visibility` too: a hidden
+        // ancestor keeps a descendant's own `visible`, and one that does
+        // not set it inherits `hidden`. The initial `visible` stays
+        // unmarked and is not sent. So is `dynamic-range-limit`
+        // (LLP 1100 D8).
         StyleMask::of(StyleId::TextColor)
             .union(StyleMask::of(StyleId::Direction))
             .union(StyleMask::of(StyleId::Cursor))
             .union(StyleMask::of(StyleId::PointerEvents))
             .union(StyleMask::of(StyleId::Visibility))
+            .union(StyleMask::of(StyleId::DynamicRangeLimit))
     };
     let mut computed = node.computed_style(rows);
     computed.mask.set(StyleId::TextColor);
@@ -909,7 +992,25 @@ pub fn glass_auto_props(node: &NodeRef<'_>, out: &mut std::collections::BTreeMap
 /// the view picks by its own appearance (LLP 1034 D2).
 fn gradient_json(g: &exact_kernel::gradient::Gradient) -> String {
     use exact_kernel::gradient::{premultiplied_ramp, Direction, GradientKind, Length};
+    // LLP 1100 D2: interpolated outside sRGB, the ramp crosses as unclipped
+    // extended linear sRGB floats, alpha 0–1.
     let stops = |dark: bool| {
+        if let Some(ramp) = g.interpolated(dark) {
+            let parts: Vec<String> = ramp
+                .into_iter()
+                .map(|(at, c, a)| {
+                    format!(
+                        "{},{},{},{},{}",
+                        num(at),
+                        c[0] as f32,
+                        c[1] as f32,
+                        c[2] as f32,
+                        a as f32
+                    )
+                })
+                .collect();
+            return format!("[{}]", parts.join(","));
+        }
         let parts: Vec<String> = premultiplied_ramp(&g.resolved(dark))
             .into_iter()
             .map(|(at, c)| format!("{},{},{},{},{}", num(at), c.r(), c.g(), c.b(), c.a()))
@@ -948,7 +1049,20 @@ fn gradient_json(g: &exact_kernel::gradient::Gradient) -> String {
     } else {
         String::new()
     };
-    format!("{{{shape},\"stops\":{}{dark}}}", stops(false))
+    let space = if g.interpolation(false).is_some() {
+        ",\"space\":\"srgb-linear\""
+    } else {
+        ""
+    };
+    let dark_space = if g.is_scheme_aware() && g.interpolation(true).is_some() {
+        ",\"darkSpace\":\"srgb-linear\""
+    } else {
+        ""
+    };
+    format!(
+        "{{{shape},\"stops\":{}{dark}{space}{dark_space}}}",
+        stops(false)
+    )
 }
 
 /// Shortest exact decimal for a number: `24`, not `24.0`; `0.5`.

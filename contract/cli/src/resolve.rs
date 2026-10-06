@@ -135,6 +135,14 @@ fn relative(
     let target = dir.join(spec);
     // Watched by the path written (without its `.` segments, as watchers
     // name it): creating it, or retargeting a link there, builds again.
+    // Both ways a watcher may name it: folded, as Node's `resolve` folds
+    // `..`, and as written, through any link before the `..`. A folded path
+    // that leaves the root names no file of this program (a link before the
+    // `..` led back inside), so it is not recorded.
+    let folded = lexical(&target);
+    if folded.starts_with(root) {
+        consulted.push(folded);
+    }
     consulted.push(
         target
             .components()
@@ -160,6 +168,25 @@ fn relative(
         builtin: None,
         origin: from.clone(),
     })
+}
+
+/// `path` with its `.` and `..` segments folded as written, the way a
+/// watcher names the file (Node's `resolve`): the path to watch, not the
+/// file to read, which resolution canonicalizes.
+fn lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 fn contract_file(spec: &str, key: &Path) -> Result<(), Refusal> {

@@ -41,10 +41,10 @@ extension NodeView {
     /// clip's outline.
     func paintBackground(_ ctx: CGContext, border: CGPath, color: Bool) {
         guard let clip = backgroundOutline(border) else { return }
-        if color, let c = channels("background_color"), c[3] > 0 {
+        if color, let c = cgColor("background_color"), c.alpha > 0 {
             ctx.saveGState()
             ctx.addPath(clip)
-            ctx.setFillColor(TextEngine.color(c).cgColor)
+            ctx.setFillColor(c)
             ctx.fillPath()
             ctx.restoreGState()
         }

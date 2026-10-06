@@ -79,6 +79,9 @@ pub struct Scope {
     /// the loader refuses them together, naming each `use` line the file
     /// lacks, so one compile shows them all (rules: every failure in one run).
     pub missing: RefCell<Vec<Missing>>,
+    /// Refusals that are no `use` line's to fix, reported with the missing
+    /// names rather than ending the pass before them.
+    pub refused: RefCell<Vec<SyntaxError>>,
     /// Whether a call names a roster function, which no file declares and
     /// every file sees: never another file's name, so never refused.
     pub roster: Option<fn(&str) -> bool>,
@@ -180,6 +183,8 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         styles,
         keyframes,
         timelines,
+        // A `@color-profile`'s dashed name is global, as in CSS.
+        color_profiles: _,
         fns,
         tests,
         launch: _,
@@ -377,19 +382,24 @@ impl Rewriter<'_> {
                 Some(to) if self.scope.shapes.contains(to) => {
                     self.scope.rename(Kind::Call, name, *span)
                 }
-                _ if self.scope.builtin_types.contains(name.as_str()) || name == "action" => {
+                _ if self.scope.builtin_types.contains(name.as_str()) || name == "action" => Ok(()),
+                // Nothing of the name here: another file's is refused with the
+                // rest of the file's missing names (§21).
+                None => self.scope.rename(Kind::Call, name, *span),
+                // A `fn` of the name here, which is no type: another file's
+                // shape of the name is not reachable past it by a `use`.
+                Some(_) => {
+                    if let Some(file) = self.scope.foreign_shapes.get(name.as_str()) {
+                        self.scope.refused.borrow_mut().push(SyntaxError {
+                            id: "contract-use-missing",
+                            message: format!(
+                                "`{name}` is a shape declared in `{file}`, and this file's `{name}` is a `fn`; rename one, then name the shape in a `use` (LLP 1091 D1)"
+                            ),
+                            span: *span,
+                        });
+                    }
                     Ok(())
                 }
-                _ => match self.scope.foreign_shapes.get(name.as_str()) {
-                    Some(file) => Err(SyntaxError {
-                        id: "contract-use-missing",
-                        message: format!(
-                            "`{name}` is a shape declared in `{file}`, which this file does not name: add `use {name} from \"…\"` (LLP 1091 D1)"
-                        ),
-                        span: *span,
-                    }),
-                    None => self.scope.rename(Kind::Call, name, *span),
-                },
             },
             TypeExpr::Option(inner, _) | TypeExpr::List(inner, _) => self.ty(inner),
         }
@@ -621,18 +631,20 @@ impl Rewriter<'_> {
             // none, and where it is the name in some but not others and also
             // renamed keyframes, no rename is right, so the compile is
             // refused (LLP 1091 §20).
-            let name = if shorthand {
-                let readings = readings(&tokens, HOLE);
-                let mut name = None;
+            let names: Vec<(usize, &str)> = if shorthand {
+                let roles = literal_roles(&tokens, HOLE);
+                // A computed comma may make more than one animation here, each
+                // with its name: every literal that is always a name.
+                let mut names = Vec::new();
                 for (i, &(at, t)) in tokens.iter().enumerate() {
                     if t.contains(HOLE) {
                         continue;
                     }
-                    let named = |r: &Vec<bool>| r[i];
-                    let all = !readings.is_empty() && readings.iter().all(named);
-                    let some = readings.iter().any(named);
+                    let (can_name, can_other) = roles[i];
+                    let all = can_name && !can_other;
+                    let some = can_name && can_other;
                     if all {
-                        name = Some((at, t));
+                        names.push((at, t));
                     } else if some {
                         let bare = t.trim_matches(|c| c == '"' || c == '\'');
                         if self
@@ -650,27 +662,31 @@ impl Rewriter<'_> {
                         }
                     }
                 }
-                name
+                names
             } else {
-                tokens.into_iter().next().filter(|(_, t)| !t.contains(HOLE))
+                // In `animation-name` each item is one name; a computed comma
+                // may separate literals, so every literal is a name.
+                tokens
+                    .into_iter()
+                    .filter(|(_, t)| !t.contains(HOLE))
+                    .collect()
             };
-            let Some((start, token)) = name else {
-                continue;
-            };
-            let quoted = token.len() >= 2
-                && ((token.starts_with('"') && token.ends_with('"'))
-                    || (token.starts_with('\'') && token.ends_with('\'')));
-            let (name, start) = if quoted {
-                (&token[1..token.len() - 1], start + 1)
-            } else {
-                (token, start)
-            };
-            if name == "none" {
-                continue;
-            }
-            if let Some(to) = self.scope.resolve(Kind::Keyframes, name, span)? {
-                if to != name {
-                    edits.push((start..start + name.len(), to.to_owned()));
+            for (start, token) in names {
+                let quoted = token.len() >= 2
+                    && ((token.starts_with('"') && token.ends_with('"'))
+                        || (token.starts_with('\'') && token.ends_with('\'')));
+                let (name, start) = if quoted {
+                    (&token[1..token.len() - 1], start + 1)
+                } else {
+                    (token, start)
+                };
+                if name == "none" {
+                    continue;
+                }
+                if let Some(to) = self.scope.resolve(Kind::Keyframes, name, span)? {
+                    if to != name {
+                        edits.push((start..start + name.len(), to.to_owned()));
+                    }
                 }
             }
         }
@@ -702,6 +718,15 @@ impl Rewriter<'_> {
     /// bare name is the clock pass's.
     fn timeline(&mut self, value: &mut Expr) -> R {
         match value {
+            // A bare name is the clock pass's to rewrite; one another file
+            // declares and this file neither names nor binds is recorded with
+            // the file's other missing names (§21).
+            Expr::Ident(name, span) => {
+                if !self.local(name) && self.scope.get(Kind::Timeline, name).is_none() {
+                    self.scope.resolve(Kind::Timeline, name, *span)?;
+                }
+                Ok(())
+            }
             Expr::Str(text, span) => {
                 let Some(name) = text
                     .trim()
@@ -781,9 +806,12 @@ impl Rewriter<'_> {
                         .scope
                         .get(Kind::Call, name)
                         .is_none_or(|to| self.scope.shapes.contains(to));
+                // `t` is the strings intrinsic unless a `fn t` is in the
+                // program (this file's, renamed with it) or an action, prop or
+                // inject of the name is the innermost binding.
                 let intrinsic = routing
                     || matches!(name.as_str(), "pending" | "failed")
-                    || (name == "t" && !self.callable_t());
+                    || (name == "t" && !declared && !self.callable_t());
                 if !intrinsic && (declared || !(self.local(name) || roster)) {
                     self.scope.rename(Kind::Call, name, *span)?;
                 }
@@ -841,7 +869,7 @@ enum Part<'a> {
 }
 
 /// One animation's slots, filled in the order `motion` fills them.
-#[derive(Default)]
+#[derive(Default, Clone, PartialEq, Eq, Hash)]
 struct Shorthand {
     named: bool,
     times: u32,
@@ -942,77 +970,122 @@ const ROLES: [Role; 7] = [
     Role::Name,
 ];
 
-/// Every reading of one animation's parts `motion` would accept, each as
-/// which parts are the name. A computed part (holding `hole`) whose text
-/// says its slot fills it; any other may be any; past three such parts the
-/// readings are too many to try and none is returned, so nothing is renamed
-/// and an ambiguity cannot be ruled out — every literal reads as possibly
-/// the name.
-fn readings(tokens: &[(usize, &str)], hole: char) -> Vec<Vec<bool>> {
+/// For each literal part of one animation, whether some reading `motion`
+/// would accept takes it as the name, and whether some takes it as anything
+/// else. A computed part (holding `hole`) whose text says its kind is that
+/// kind; any other may be any kind of value, or empty (no part at all). Read
+/// exactly, at any length, by the slots each prefix can leave filled: those
+/// reachable from the start, and those from which the rest still reads.
+fn literal_roles(tokens: &[(usize, &str)], hole: char) -> Vec<(bool, bool)> {
+    use std::collections::HashSet;
+    // What a computed part's own text settles: a quoted one is a name, a
+    // function's (`steps(${n}, …)`) an easing. Any other may be any kind of
+    // value — its literal text says nothing for certain (`${x}ms` may read
+    // `items`) — and one that is the value alone may also be empty.
     let known = |t: &str| {
-        if ["cubic-bezier(", "steps(", "linear(", "spring("]
+        let quoted = t.len() >= 2
+            && ((t.starts_with('"') && t.ends_with('"'))
+                || (t.starts_with('\'') && t.ends_with('\'')));
+        if quoted {
+            Some(Role::Name)
+        } else if ["cubic-bezier(", "steps(", "linear(", "spring("]
             .iter()
             .any(|f| t.starts_with(f))
         {
             Some(Role::Easing)
-        } else if t.ends_with("ms") || t.ends_with('s') {
-            Some(Role::Time)
         } else {
             None
         }
     };
-    let unknown: Vec<usize> = (0..tokens.len())
-        .filter(|&i| tokens[i].1.contains(hole) && known(tokens[i].1).is_none())
-        .collect();
-    if unknown.len() > 3 {
-        // Any literal may be the name: one reading with every literal named
-        // and one with none makes each "some but not all".
-        return vec![
-            tokens.iter().map(|(_, t)| !t.contains(hole)).collect(),
-            vec![false; tokens.len()],
-        ];
-    }
-    let mut out = Vec::new();
-    let mut choice = vec![0usize; unknown.len()];
-    loop {
-        let mut slots = Shorthand::default();
-        let mut named = vec![false; tokens.len()];
-        let mut valid = true;
-        for (i, &(_, t)) in tokens.iter().enumerate() {
-            let outcome = if t.contains(hole) {
-                let role = match unknown.iter().position(|&u| u == i) {
-                    Some(k) => ROLES[choice[k]],
-                    None => known(t).unwrap_or(Role::Name),
-                };
-                slots.fill(role).map(|_| false)
-            } else {
-                slots.take(t)
-            };
-            match outcome {
-                Some(is_name) => named[i] = is_name,
-                None => {
-                    valid = false;
-                    break;
+    // The slots after `token` from `state`, each with whether it was the
+    // name: one for a literal, one per kind for an unknown computed part.
+    let step = |state: &Shorthand, token: &str| -> Vec<(Shorthand, bool)> {
+        let mut out = Vec::new();
+        if !token.contains(hole) {
+            let mut next = state.clone();
+            if let Some(named) = next.take(token) {
+                out.push((next, named));
+            }
+            return out;
+        }
+        match known(token) {
+            Some(role) => {
+                let mut next = state.clone();
+                if let Some(named) = next.fill(role) {
+                    out.push((next, named));
+                }
+            }
+            None => {
+                // Empty: the value adds no part (only a value alone can be).
+                if token.chars().all(|c| c == hole) {
+                    out.push((state.clone(), false));
+                }
+                // A comma in the value ends this animation and begins the
+                // next (`spin 1s ${sep} pulse 1s`); what it adds on either
+                // side is read as more of this kind of guess, so here it is
+                // a fresh animation's slots.
+                out.push((Shorthand::default(), false));
+                // …and what follows the comma in the same value fills the
+                // next animation's slots.
+                for role in ROLES {
+                    let mut next = Shorthand::default();
+                    if let Some(named) = next.fill(role) {
+                        out.push((next, named));
+                    }
+                }
+                for role in ROLES {
+                    let mut next = state.clone();
+                    if let Some(named) = next.fill(role) {
+                        out.push((next, named));
+                    }
                 }
             }
         }
-        if valid {
-            out.push(named);
-        }
-        // The next combination of roles for the unknown parts.
-        let mut k = 0;
-        loop {
-            if k == choice.len() {
-                return out;
-            }
-            choice[k] += 1;
-            if choice[k] < ROLES.len() {
-                break;
-            }
-            choice[k] = 0;
-            k += 1;
-        }
+        out
+    };
+    let n = tokens.len();
+    let mut forward: Vec<HashSet<Shorthand>> = vec![HashSet::new(); n + 1];
+    forward[0].insert(Shorthand::default());
+    for i in 0..n {
+        let next: HashSet<Shorthand> = forward[i]
+            .iter()
+            .flat_map(|s| step(s, tokens[i].1).into_iter().map(|(t, _)| t))
+            .collect();
+        forward[i + 1] = next;
     }
+    // Any slots at the end read: an animation with no name is dropped by
+    // `motion`, not refused.
+    let mut alive: Vec<HashSet<Shorthand>> = vec![HashSet::new(); n + 1];
+    alive[n] = forward[n].clone();
+    for i in (0..n).rev() {
+        let keep: HashSet<Shorthand> = forward[i]
+            .iter()
+            .filter(|s| {
+                step(s, tokens[i].1)
+                    .iter()
+                    .any(|(t, _)| alive[i + 1].contains(t))
+            })
+            .cloned()
+            .collect();
+        alive[i] = keep;
+    }
+    (0..n)
+        .map(|i| {
+            let mut roles = (false, false);
+            for s in &alive[i] {
+                for (t, named) in step(s, tokens[i].1) {
+                    if alive[i + 1].contains(&t) {
+                        if named {
+                            roles.0 = true;
+                        } else {
+                            roles.1 = true;
+                        }
+                    }
+                }
+            }
+            roles
+        })
+        .collect()
 }
 
 /// `motion`'s `is_name`: a CSS custom-ident or a quoted string, not a

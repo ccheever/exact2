@@ -330,12 +330,22 @@ function flush(module = gpu) {
   if (module && (module !== gpu || !terminalDevice) && !module.gpu_flush()) console.error("exact gpu:", module.gpu_error());
 }
 
+// An HDR surface's headroom (LLP 1100 D12b). The web has no headroom query:
+// 4 is near BT.2408's 203 cd/m² white under a 1000 cd/m² peak, and the
+// browser clips at the panel's own.
+function headroom(el) {
+  const limit = getComputedStyle(el).getPropertyValue("dynamic-range-limit").trim();
+  if (limit === "standard" || !matchMedia("(dynamic-range: high)").matches) return 1;
+  return limit === "constrained" ? 2 : 4;
+}
+
 function render(entry, now) {
   if (entry.terminal || (hidden && !exact.now) || recoveringDevice || recoveryTimer) return;
   const { w, h, s } = size(entry.el);
   const pw = Math.max(1, Math.round(w * s)), ph = Math.max(1, Math.round(h * s));
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
   supplyChildren(entry);
+  if (entry.hdr) gpu.gpu_headroom(entry.id, headroom(entry.host ?? entry.el));
   const r = gpu.gpu_render(entry.id, w, h, s, clockFor(now));
   if (r < 2) {
     exact.drawCallback?.(frameRaw, clockFor(now), frameGeneration, entry.view);
@@ -412,6 +422,7 @@ function attach(entry) {
   entry.observer = new ResizeObserver(() => { if (entry.id && !entry.terminal) { render(entry, frameAt ?? performance.now()); flush(); } });
   entry.observer.observe(entry.el);
   entry.wantsInput = gpu.gpu_wants_input(entry.id);
+  entry.hdr = gpu.gpu_high_dynamic_range?.(entry.id) === true;
   if (entry.wantsInput) listen(entry);
   reportRestore(entry);
   messages(entry); schedule();

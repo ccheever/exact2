@@ -130,7 +130,13 @@ impl Session {
         let surfaces_stamp = std::fs::metadata(self.source.with_file_name(".shells/surfaces.json"))
             .ok()
             .and_then(|m| Some((m.modified().ok()?, m.len())));
-        let uses_changed = self.uses.iter().any(|(path, seen)| stamp_of(path) != *seen);
+        // By fingerprint (bytes and which file it is), not time: a used file
+        // re-saved with identical bytes is no change, as the root is not.
+        let print = |s: Option<(SystemTime, u64)>| s.map(|s| s.1);
+        let uses_changed = self
+            .uses
+            .iter()
+            .any(|(path, seen)| print(stamp_of(path)) != print(*seen));
         let surfaces_changed = self.surfaces_stamp != surfaces_stamp || uses_changed;
         // A failed compile may have observed a file while an editor was
         // replacing its bytes. Until a good plan lands, re-read even when
