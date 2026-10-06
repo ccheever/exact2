@@ -59,10 +59,19 @@ extension NodeView {
     /// The binding's recognizers: eligible handles only, and the pinch only
     /// where the platform would not zoom — a node from here up whose
     /// `touch-action` excludes `pinch-zoom`, as the browser decides (§2).
+    /// The pan leaves the platform an axis the handle's own `touch-action`
+    /// names (rule 2: `pan-x` on a pager's photo pages it sideways), as a
+    /// `pan` does and as a browser's pointer is cancelled; `auto` and
+    /// `manipulation` keep every drag the binding's.
     func transformShouldBegin(_ gesture: UIGestureRecognizer) -> Bool? {
         guard gesture === transformRecognizer || gesture === transformContact?.pinch else { return nil }
         guard SwipeInput.allows(self), presenter?.transformBindings[id]?.target != nil else { return false }
-        return gesture === transformRecognizer || !allowsPinchZoom
+        guard gesture === transformRecognizer else { return !allowsPinchZoom }
+        let action = style["touch_action"]?.string ?? "auto"
+        guard action != "auto", action != "manipulation", let pan = gesture as? UIPanGestureRecognizer else { return true }
+        let velocity = pan.velocity(in: self)
+        let direction = velocity == .zero ? pan.translation(in: self) : velocity
+        return direction == .zero || !allowsTouchPan(direction)
     }
     var allowsPinchZoom: Bool {
         var view: UIView? = self

@@ -9,6 +9,13 @@ import XCTest
 final class GesturePrecedenceIOSTests: XCTestCase {
     private var window: UIWindow!
 
+    /// A pan whose movement the test sets.
+    private final class Pan: UIPanGestureRecognizer {
+        var moved = CGPoint.zero, speed = CGPoint.zero
+        override func translation(in view: UIView?) -> CGPoint { moved }
+        override func velocity(in view: UIView?) -> CGPoint { speed }
+    }
+
     private final class Taps: UITapGestureRecognizer {
         private var phase = UIGestureRecognizer.State.possible
         override var state: UIGestureRecognizer.State { get { phase } set { phase = newValue } }
@@ -164,6 +171,35 @@ final class GesturePrecedenceIOSTests: XCTestCase {
             XCTAssertEqual(handle.transformShouldBegin(try XCTUnwrap(handle.transformRecognizer)), true, "the pan is unaffected")
             withExtendedLifetime(p) {}
         }
+    }
+
+    /// Rule 2 for the photo's pan: an axis the handle's `touch-action` names
+    /// is the platform's (a pager's photo at fit, `pan-x`, pages sideways and
+    /// drags to dismiss up and down); `none`, `auto` and `manipulation` keep
+    /// every drag, and a pan with no direction yet is not refused.
+    func testThePhotoPanLeavesTheAxesItsTouchActionNamesToThePlatform() throws {
+        let sideways = CGPoint(x: -300, y: 20), down = CGPoint(x: 20, y: 300)
+        for (action, speed, begins) in [("pan-x", sideways, false), ("pan-x", down, true),
+                                        ("pan-y", down, false), ("pan-y", sideways, true),
+                                        ("pan-x pinch-zoom", sideways, false), ("pan-left", sideways, true),
+                                        ("pan-right", sideways, false), ("pan-x", .zero, true),
+                                        ("none", sideways, true), ("auto", sideways, true), ("manipulation", down, true)] {
+            let (p, handle) = photo(handle: action)
+            let pan = Pan()
+            pan.speed = speed
+            handle.transformRecognizer = pan
+            XCTAssertEqual(handle.transformShouldBegin(pan), begins, "\(action) at \(speed)")
+            withExtendedLifetime(p) {}
+        }
+        // Before UIKit has a velocity, the movement that crossed the slop decides.
+        let (p, handle) = photo(handle: "pan-x")
+        let pan = Pan()
+        pan.moved = CGPoint(x: 12, y: 2)
+        handle.transformRecognizer = pan
+        XCTAssertEqual(handle.transformShouldBegin(pan), false)
+        pan.moved = CGPoint(x: 2, y: 12)
+        XCTAssertEqual(handle.transformShouldBegin(pan), true)
+        withExtendedLifetime(p) {}
     }
 
     /// Rule 3 on UIKit: an ancestor's pan waits for a descendant's swipe to
