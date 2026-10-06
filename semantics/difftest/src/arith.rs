@@ -400,7 +400,13 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
             let n = natural(&mut rng);
             let numeral = numeral(&mut rng, b);
             let (from, to) = (date(&mut rng), date(&mut rng));
-            let (d, g) = (rng.below(101) as u32, rng.below(21) as u32);
+            // Few digits half the time, where `toFixed`'s ties and carries are.
+            let d = if rng.chance(1, 2) {
+                rng.below(4)
+            } else {
+                rng.below(101)
+            } as u32;
+            let g = rng.below(21) as u32;
             Case {
                 a,
                 b,

@@ -23,7 +23,7 @@ pub fn method_fix(name: &str) -> String {
         "split" => "write `split(s, sep)`: the web's `split` with a string separator; Contract has no regular expressions".into(),
         "replace" | "replaceAll" => "write `replaceAll(s, find, with)`: the web's `replaceAll` with a string `find`; Contract has no regular expressions".into(),
         "at" => "write `at(xs, i)`: Contract spells the web's `xs.at(i)` as a roster function, `some` of the item or `none`".into(),
-        "toFixed" => "write `toFixed(x, digits)`, `digits` a whole-number literal from 0 to 100: the web's `x.toFixed(digits)` as a roster function; for money, `formatDecimal(round(price * 100), 2)` is exact (LLP 1102 §3.2)".into(),
+        "toFixed" => "write `toFixed(x, digits)`, `digits` a whole-number literal from 0 to 100: the web's `x.toFixed(digits)` as a roster function; for money, `formatDecimal(cents, 2)` prints a count of cents exactly (`round(price * 100)` of a price of at most two decimals) (LLP 1102 §3.2)".into(),
         _ => match refusal(name) {
             Some(why) => why,
             None => format!(
@@ -64,7 +64,7 @@ pub fn refusal(name: &str) -> Option<String> {
         // 2026-09-28; a hint, not a second spelling: `contains` does not compile.
         "contains" => "write `includes(s, t)`, or `includes(xs, x)` for a list: the roster's search wears the web's name, `String.prototype.includes` and `Array.prototype.includes` (LLP 1006 §Expressions, renamed from `contains` 2026-09-28); `startsWith(s, t)` and `endsWith(s, t)` are the web's too".into(),
         "toPrecision" | "toExponential" => format!(
-            "`{name}` is not in Contract: `toFixed(x, digits)` is the web's fixed-decimal format (`toFixed(2.5, 1)` is `\"2.5\"`), `formatDecimal(round(price * 100), 2)` prints money exactly, and `formatNumber(n, \"compact\")` prints a count as `1.2K` (LLP 1102 §3.2)"
+            "`{name}` is not in Contract: `toFixed(x, digits)` is the web's fixed-decimal format (`toFixed(2.5, 1)` is `\"2.5\"`), `formatDecimal(cents, 2)` prints a count of cents exactly, and `formatNumber(n, \"compact\")` prints a count as `1.2K` (LLP 1102 §3.2)"
         ),
         _ => return None,
     })

@@ -292,23 +292,27 @@ at CSS.
   -2), `min`, `max`, `%`, `formatNumber` (`1.2K`), `toFixed` and `formatDecimal`. A
   field's text is a number through `match parseNumber(s) { case some(n) => …, case
   none => … }`: a decimal numeral, trimmed, or `none` (`"12px"`, `""`).
-- Money is `formatDecimal(round(price * 100), 2)`: an integer count of cents
-  printed exactly (`1234` is `"12.34"`, `-5` is `"-0.05"`), so `19.995` shows
-  `20.00`. Keep money as a count of cents where you can; `formatDecimal` of a
-  number that is not an integer prints `""`, so round first. `toFixed(x, 2)` is
-  the web's `x.toFixed(2)`, for a measured number (`toFixed(km, 1)`): it rounds
-  the binary value, so `toFixed(1.005, 2)` is `"1.00"`, which is why money does
-  not use it. Both take the digits as a whole-number literal (`toFixed` 0–100,
+- Money is a count of cents printed with `formatDecimal(cents, 2)`, which is
+  exact (`1234` is `"12.34"`, `-5` is `"-0.05"`). A price held as dollars
+  becomes cents with `round(price * 100)`, which is right for any price of at
+  most two decimals (`19.99` is `1999`, though `19.99 * 100` is
+  `1998.9999999999998`); a half cent such as `1.005` has no exact binary value
+  and becomes `100`, so keep money in cents from the source when amounts can
+  have more places (tax, a split bill). `formatDecimal` of a number that is
+  not an integer prints `""`, so round first. `toFixed(x, 2)` is the web's
+  `x.toFixed(2)`, for a measured number (`toFixed(km, 1)`): it rounds the
+  binary value too (`toFixed(1.005, 2)` is `"1.00"`) and sums of dollars drift
+  (`0.1 + 0.2`), which is why money is counted in cents. Both take the digits as a whole-number literal (`toFixed` 0–100,
   `formatDecimal` 0–20), never a variable, and print `""` for `NaN` or
   `Infinity` (JavaScript's `toFixed` prints `"NaN"`).
 
 ```contract
 component Cart
-  state price = 19.995
+  state cents = 1999
   state km = 12.34
   view
     column
-      text `Total $${formatDecimal(round(price * 100), 2)}` testId="total"
+      text `Total $${formatDecimal(cents, 2)}` testId="total"
       text `${toFixed(km, 1)} km` testId="distance"
 ```
 - Dates: `formatDate(ms, offset, "iso")` is `YYYY-MM-DD`, and `calendarDiff(from, to,
