@@ -45,8 +45,8 @@ const client = new T3Client();
 // that the module is available, after its ordinary first-frame adoption.
 export async function answer(source: string, args: unknown[], _store: unknown, _storage: Files, native: Native | null | undefined) {
   const storage = native?.available ? nativeFiles(native) : _storage;
-  startHighlightTurn(); // shiki-residuals: each answer tokenizes code for at most 50 ms
-  if (source === 'highlightSlice') return highlightSlice();
+  if (source === 'highlightSlice') return highlightSlice(); // shiki-residuals: a background highlight turn
+  startHighlightTurn(); // shiki-residuals: any other answer tokenizes code within one turn's budget
   if (source === 'snapshot') {
     noteNow(client, Number(args[0]) || 0);
     await client.refresh(native, storage);

@@ -81,14 +81,19 @@ describe('long texts are tokenized in slices (shiki-residuals)', () => {
     expect(later.tokens).not.toEqual(first.tokens);
     expect(later.tokens.find(token => token.text.includes('Map'))?.cls).toBe('decl');
   });
-  test('a text nobody asks for again is dropped after five seconds', () => {
+  test('a text nobody asks for again is dropped after 300 answers', () => {
+    startHighlightTurn(0);
+    expect(shikiTokens(long, 'ts')).toBeNull();
+    for (let answer = 0; answer < 301; answer++) startHighlightTurn(0);
+    expect(highlightSlice(5)).toEqual({ finished: false, pending: false });
+  });
+  test('the turn budget counts characters, never the clock (a data source has none)', () => {
     const realNow = Date.now;
+    Date.now = () => { throw new Error('Date.now() is unavailable in data sources'); };
     try {
-      startHighlightTurn(0);
+      startHighlightTurn(5);
       expect(shikiTokens(long, 'ts')).toBeNull();
-      const later = realNow() + 6000;
-      Date.now = () => later;
-      expect(highlightSlice(5)).toEqual({ finished: false, pending: false });
+      expect(highlightSlice(5).pending).toBe(true);
     } finally { Date.now = realNow; }
   });
 });
