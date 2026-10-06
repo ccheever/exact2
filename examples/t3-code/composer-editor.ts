@@ -109,7 +109,8 @@ export function pullRequestRecords(client: T3Client, text: string): Obj[] {
 function chipContexts(client: T3Client, text: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const record of threadContextRecords(client, text)) out[`thread/${str(record.contextId)}`] = 'thread';
-  for (const record of pullRequestRecords(client, text)) out[`review-comment/${str(record.contextId)}`] = `pr-${pullRequestState(obj(record.pullRequest))}`;
+  // A line comment (diff-review.ts) draws as the review-comment chip; a pull request as its state's.
+  for (const record of pullRequestRecords(client, text)) out[`review-comment/${str(record.contextId)}`] = record.pullRequest ? `pr-${pullRequestState(obj(record.pullRequest))}` : 'review-comment';
   return { ...out, ...fileChipContexts(client, text), ...imageChipContexts(client, text) };
 }
 
@@ -348,6 +349,20 @@ async function restoreStash(client: T3Client, native: Native, id: string): Promi
 /** The chord a keybinding command currently resolves to, as aria-keyshortcuts. */
 function commandChord(client: T3Client, command: string, fallback: string): string {
   return commandChords(client.config, command, fallback);
+}
+
+/** addReviewComment (diff-review.ts): the line comment's record goes behind a chip inserted at the caret. */
+export async function addReviewCommentChip(client: T3Client, native: Native, record: Obj): Promise<void> {
+  cache(client).prRecords.set(str(record.contextId), record);
+  const result = await editorCall(native, { op: 'editorInsert', text: `${contextLink('review-comment', str(record.contextId), str(record.label))} ` });
+  if (result.applied !== true) throw new ClientError('The composer is not ready');
+}
+/** removeReviewComment: the chip leaves the prompt as one undoable edit, and its record goes. */
+export async function removeReviewCommentChip(client: T3Client, native: Native, contextId: string): Promise<void> {
+  const link = new RegExp(`\\[[^\\]\\n]{0,512}\\]\\(t3-context://v1/review-comment/${contextId.replace(/[^a-z0-9_-]/gi, '')}\\) ?`, 'g');
+  cache(client).prRecords.delete(contextId);
+  const next = client.draft.replace(link, '');
+  if (next !== client.draft) await replaceAll(client, native, next);
 }
 
 /**

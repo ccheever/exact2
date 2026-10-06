@@ -30,7 +30,7 @@ export function formatReviewCommentFence(language: string, contents: string): st
 }
 
 export function inferReviewCommentFenceLanguage(filePath: string): string {
-  const normalized = filePath.replaceAll('\\', '/');
+  const normalized = filePath.split('\\').join('/');
   const name = normalized.slice(normalized.lastIndexOf('/') + 1).toLowerCase();
   const dot = name.lastIndexOf('.');
   if (dot > 0 && dot < name.length - 1) return name.slice(dot + 1);
@@ -106,7 +106,7 @@ function diffRange(lines: ReadonlyArray<ReviewLine>, key: 'oldLineNumber' | 'new
   return { start: numbered[0]?.[key] ?? 0, count: numbered.length };
 }
 function formatDiffReviewRangeLabel(lines: ReadonlyArray<ReviewLine>): string {
-  const first = lines[0], last = lines.at(-1);
+  const first = lines[0], last = lines[lines.length - 1];
   if (!first || !last) return 'line';
   const firstNumber = first.newLineNumber ?? first.oldLineNumber, lastNumber = last.newLineNumber ?? last.oldLineNumber;
   if (firstNumber === null || lastNumber === null) return lines.length === 1 ? 'line' : `${lines.length} lines`;
@@ -136,7 +136,7 @@ const REVIEW_TEXT_MAX = 16_000, REVIEW_DIFF_MAX = 32_000, TRUNCATION_MARKER = '\
 function clamp(value: string, max: number): string {
   return value.length <= max ? value : `${value.slice(0, Math.max(0, max - TRUNCATION_MARKER.length))}${TRUNCATION_MARKER}`;
 }
-const basename = (filePath: string) => filePath.split(/[\\/]/).at(-1) ?? filePath;
+const basename = (filePath: string) => { const parts = filePath.split(/[\\/]/); return parts[parts.length - 1] ?? filePath; };
 export function reviewCommentContextLabel(comment: ReviewCommentContext): string {
   if (comment.pullRequest !== undefined || (comment.sectionId.startsWith('pull-request:') && comment.diff.trim() === '' && /^PR #\d+$/u.test(comment.filePath))) {
     const number = comment.pullRequest?.number ?? Number(/^PR #(\d+)$/u.exec(comment.filePath)?.[1]);
@@ -154,8 +154,6 @@ export function reviewCommentContextRecord(comment: ReviewCommentContext) {
     sectionId: comment.sectionId, sectionTitle: comment.sectionTitle, filePath: comment.filePath, startIndex: comment.startIndex, endIndex: comment.endIndex,
     rangeLabel: comment.rangeLabel, text: clamp(comment.text, REVIEW_TEXT_MAX), diff: clamp(comment.diff, REVIEW_DIFF_MAX),
     ...(comment.fenceLanguage !== undefined ? { fenceLanguage: comment.fenceLanguage } : {}),
-    // The draft keeps the selection so a saved comment finds its lines again (ReviewCommentContext.selection).
-    ...(comment.selection !== undefined ? { selection: comment.selection } : {}),
   };
 }
 
