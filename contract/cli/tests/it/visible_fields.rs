@@ -149,6 +149,45 @@ fn a_conditional_class_falls_back_to_the_sheet_not_the_kernel() {
     assert_eq!(look(&r, "field").0, [1.0; 4], "nor a border: the sheet's");
 }
 
+/// A node's top border colour and fill, light, as `#rrggbb`.
+fn colours(r: &Runner<NoData>, test_id: &str) -> (String, String) {
+    let n = r.kernel().node(id(r, test_id)).unwrap();
+    let hex = |c: exact_kernel::Color| format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b());
+    let border = n.style.border_colors(n.style.text_color)[0].resolve(false);
+    let fill = n.style.background_color.map(|c| c.resolve(false));
+    (hex(border), fill.map_or("none".into(), hex))
+}
+
+#[test]
+fn a_class_switch_keeps_each_styles_own_rows_and_the_sheets() {
+    // `Red` writes the shorthand, `Blue` a longhand it covers: Red's colour
+    // is its `border`'s, not the sheet's, and Blue's width is the sheet's.
+    let mut r = boot(
+        "style Red\n  border=\"2px solid #ff0000\"\nstyle Blue\n  border-color=\"#0000ff\"\n  background-color=\"#eeeeee\"\n",
+        "input class=(on ? Red : Blue) testId=\"field\"\ninput class=Blue testId=\"blue\"\nbutton press=flip testId=\"flip\"\n  text \"Flip\"",
+    );
+    assert_eq!(look(&r, "field").0, [2.0; 4]);
+    assert_eq!(
+        colours(&r, "field"),
+        ("#ff0000".into(), "#ffffff".into()),
+        "Red's border over the sheet's fill"
+    );
+    assert_eq!(
+        colours(&r, "blue"),
+        ("#0000ff".into(), "#eeeeee".into()),
+        "a class's own fill"
+    );
+    let flip = id(&r, "flip");
+    r.dispatch(flip, Event::Press).unwrap();
+    layout(&mut r);
+    assert_eq!(
+        look(&r, "field").0,
+        [1.0; 4],
+        "Blue sets no width: the sheet's"
+    );
+    assert_eq!(colours(&r, "field"), ("#0000ff".into(), "#eeeeee".into()));
+}
+
 #[test]
 fn a_fields_appearance_is_none_or_absent() {
     for body in [

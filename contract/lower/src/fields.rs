@@ -5,8 +5,11 @@
 //! attribute replaces any one of them; a literal `appearance="none"` leaves
 //! them all out, the bare box LLP 1064 D6 drew.
 
+use crate::tags::{attr, AttrTarget};
+use crate::values::four_sided;
 use crate::{err, LowerError};
 use contract_syntax::{Attr, Expr, Span};
+use exact_kernel::StyleId;
 
 /// The field's outline and fill, iOS 27's measured system colours (a
 /// grouped cell's fill; `separator` opaque, as a field's border is).
@@ -104,60 +107,109 @@ pub(crate) fn sheet<'a>(
 }
 
 /// A conditional class's rows over a sheet (D3): where one side of
-/// `class=(c ? A : B)` leaves a row the sheet writes unset, that side is the
-/// sheet's value, not `none` (which the runner clears to the kernel's
-/// default, past the sheet), so switching classes keeps the sheet's look.
+/// `class=(c ? A : B)` leaves a row unset, that side is what the row's style
+/// rows resolve to on that side — another of that style's rows that covers
+/// it (`border` for `border-color`), else the sheet's last row that does —
+/// not `none`, which the runner clears to the kernel's default, past the
+/// sheet. So switching classes keeps the sheet's look and the style's own.
 pub(crate) fn over_sheet(rows: &mut [Attr], sheet: &[Attr]) {
-    for row in rows {
-        if !matches!(row.value, Expr::Ternary(..)) {
-            continue;
-        }
-        let Some(under) = under(&row.name, sheet) else {
+    let class = rows.to_vec();
+    for (k, row) in rows.iter_mut().enumerate() {
+        let name = row.name.clone();
+        let Expr::Ternary(_, yes, no, span) = &mut row.value else {
             continue;
         };
-        if let Expr::Ternary(_, yes, no, _) = &mut row.value {
-            for side in [yes, no] {
-                if matches!(**side, Expr::None(_)) {
-                    **side = under.clone();
-                }
+        for (on_yes, side) in [(true, yes), (false, no)] {
+            if !matches!(**side, Expr::None(_)) {
+                continue;
+            }
+            let resolved = |id| {
+                let styled = class.iter().enumerate().rev().filter(|(j, _)| *j != k);
+                styled
+                    .filter_map(|(_, q)| Some((q, side_of(&q.value, on_yes)?)))
+                    .find_map(|(q, v)| at(&q.name, v, id))
+                    .or_else(|| sheet.iter().rev().find_map(|s| at(&s.name, &s.value, id)))
+            };
+            if let Some(v) = spell(&name, resolved, *span) {
+                **side = v;
             }
         }
     }
 }
 
-/// What the sheet writes for `name`: its own row, or a shorthand spelled
-/// from the sheet's longhands when it writes every one — `padding` as
-/// `"6px 8px 6px 8px"`, `border` as `"1px solid <colour>"` when its sides
-/// agree.
-fn under(name: &str, sheet: &[Attr]) -> Option<Expr> {
-    use crate::tags::{attr, AttrTarget};
-    if let Some(row) = sheet.iter().find(|s| s.name == name) {
-        return Some(row.value.clone());
-    }
-    let ids = match attr(name)? {
-        AttrTarget::Styles(ids) if crate::values::four_sided(ids) => ids,
-        AttrTarget::Shorthand if name.starts_with("border") => crate::shorthands::rows(name),
-        _ => return None,
-    };
-    let word = |id| {
-        let row = sheet
-            .iter()
-            .find(|s| matches!(attr(&s.name), Some(AttrTarget::Styles([only])) if *only == id))?;
-        match &row.value {
-            Expr::Number(n, _) => Some(format!("{n}px")),
-            Expr::Str(v, _) => Some(v.clone()),
-            _ => None,
+/// A class row's value on one side of its choice; `None` where it is unset.
+fn side_of(value: &Expr, on_yes: bool) -> Option<&Expr> {
+    let v = match value {
+        Expr::Ternary(_, yes, no, _) => {
+            if on_yes {
+                &**yes
+            } else {
+                &**no
+            }
         }
+        v => v,
     };
-    let words = ids.iter().map(|&id| word(id)).collect::<Option<Vec<_>>>()?;
-    let span = sheet.first()?.span;
-    if crate::values::four_sided(ids) {
+    (!matches!(v, Expr::None(_))).then_some(v)
+}
+
+/// The style rows an attribute name writes, in its value's component order.
+fn ids(name: &str) -> Option<&'static [StyleId]> {
+    match attr(name)? {
+        AttrTarget::Styles(ids) => Some(ids),
+        AttrTarget::Shorthand if name.starts_with("border") => Some(crate::shorthands::rows(name)),
+        _ => None,
+    }
+}
+
+/// What `name=value` writes to the row `id`: a box shorthand's side, a
+/// `border`'s component, or the value itself.
+fn at(name: &str, value: &Expr, id: StyleId) -> Option<Expr> {
+    let ids = ids(name)?;
+    let i = ids.iter().position(|&x| x == id)?;
+    if four_sided(ids) {
+        return Some(match crate::values::sides(name, value).ok()? {
+            Some(sides) => sides[i].clone(),
+            None => value.clone(),
+        });
+    }
+    if matches!(attr(name), Some(AttrTarget::Shorthand)) {
+        return crate::shorthands::component(value, name, i).ok();
+    }
+    Some(value.clone())
+}
+
+/// `name`'s value spelled from what each of its rows resolves to: the one
+/// value, a box shorthand's four (`"6px 8px 6px 8px"`), or a `border`'s
+/// width, style and colour when its sides agree. `None` where a row is
+/// unresolved or not a literal.
+fn spell(name: &str, resolved: impl Fn(StyleId) -> Option<Expr>, span: Span) -> Option<Expr> {
+    let ids = ids(name)?;
+    let mut values = ids
+        .iter()
+        .map(|&id| resolved(id))
+        .collect::<Option<Vec<_>>>()?;
+    if values.len() == 1 {
+        return values.pop();
+    }
+    let word = |e: &Expr| match e {
+        Expr::Number(n, _) => Some(format!("{n}px")),
+        Expr::Str(v, _) => Some(v.clone()),
+        _ => None,
+    };
+    let words = values.iter().map(word).collect::<Option<Vec<_>>>()?;
+    if four_sided(ids) {
         return Some(Expr::Str(words.join(" "), span));
     }
-    // `border` and `border-<side>`: width, style and colour, a side at a time.
-    let first = &words[..3];
+    if matches!(attr(name), Some(AttrTarget::Shorthand)) {
+        // `border` and `border-<side>`: width, style and colour, a side at a time.
+        let first = &words[..3];
+        return words
+            .chunks(3)
+            .all(|side| side == first)
+            .then(|| Expr::Str(first.join(" "), span));
+    }
     words
-        .chunks(3)
-        .all(|side| side == first)
-        .then(|| Expr::Str(first.join(" "), span))
+        .iter()
+        .all(|w| *w == words[0])
+        .then(|| values.swap_remove(0))
 }
