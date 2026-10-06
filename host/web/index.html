@@ -29,7 +29,10 @@
   html { -webkit-tap-highlight-color: transparent; }
   /* LLP 1019 §5: nearest real face, never browser-synthesized bold/italic. */
   #exact-root { height: 100%; font-synthesis: none; }
-  body { font: 16px system-ui, sans-serif; }
+  /* LLP 1069.000 D3: unsized text takes the root font size (16 unless the
+     reader's setting or the agent's `prefer root-font-size` says otherwise),
+     as the kernel resolves an `em` under no sized ancestor. */
+  body { font: 1rem system-ui, sans-serif; }
   button, input, textarea { all: unset; display: block; box-sizing: content-box; cursor: default; }
   select { display: block; }
   /* A link is a bare node too: the UA's link colour, underline and pointer

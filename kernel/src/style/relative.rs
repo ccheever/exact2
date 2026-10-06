@@ -3,12 +3,14 @@
 //! A row authored as `1.5rem` or `0.8em` keeps what was written here, beside
 //! the row, and the row itself always holds the pixels it resolves to — what
 //! CSS calls the computed value. Every reader (layout, the measurer, every
-//! host's painter, the web's CSS text) reads pixels as before; only the
-//! kernel knows a row is relative, and it resolves every such row at the end
-//! of each commit ([`crate::txn`]): `rem` against the root font size the host
-//! sets ([`crate::Kernel::set_root_font_size`]), `em` against the element's
-//! own computed `font-size` — and, for `font-size` itself, against the
-//! parent's, as CSS says. `px` never scales.
+//! host's painter, the live web host's CSS text) reads pixels as before; only
+//! the web's JS target, which keeps no kernel at run time, writes the units
+//! for the browser to resolve (`exact_web::css::css_text_relative`). The
+//! kernel resolves every such row at the end of each commit
+//! ([`crate::txn`]): `rem` against the root font size the host sets
+//! ([`crate::Kernel::set_root_font_size`]), `em` against the element's own
+//! computed `font-size` — and, for `font-size` itself, against the parent's,
+//! as CSS says. `px` never scales.
 //! @ref LLP 1069.000 D3
 
 use crate::error::StyleValueError;
