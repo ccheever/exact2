@@ -92,7 +92,7 @@ import { parseThemeFile } from './settings-themes';
 describe('theme editor', () => {
   test('a create draft seeds every family from the active theme and paints a preview', () => {
     const client = fakeClient();
-    const draft = syncDraft(as(client), 'create', '', 't3-code', 't3-code', 'light')!;
+    const draft = syncDraft(as(client), 'create', '', { theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code' }, 'light')!;
     const view = editorView(draft);
     expect([view.title, view.saveLabel, view.rows.map(row => [row.label, row.value])]).toEqual(['Create theme', 'Create theme', [['Background', '#fcfcfc'], ['Accent', '#1b4ed8']]]);
     expect(view.groups.map(group => group.title)).toEqual(['Foundation', 'Brand & content', 'Context', 'Status']);
@@ -102,8 +102,8 @@ describe('theme editor', () => {
     editDraft(as(client), 'filter', 'side');
     expect(editorView(draft).groups.flatMap(group => group.rows.map(row => row.label))).toEqual(['Sidebar background', 'Sidebar controls', 'Sidebar selection']);
     // Reopening the same dialog keeps the draft; closing drops it.
-    expect(syncDraft(as(client), 'create', '', 't3-code', 't3-code', 'light')).toBe(draft);
-    expect(syncDraft(as(client), '', '', 't3-code', 't3-code', 'light')).toBeNull();
+    expect(syncDraft(as(client), 'create', '', { theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code' }, 'light')).toBe(draft);
+    expect(syncDraft(as(client), '', '', { theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code' }, 'light')).toBeNull();
     expect(previewTheme(as(client))).toBeNull();
   });
   test('families write their related roles with readable foregrounds', () => {
@@ -114,13 +114,13 @@ describe('theme editor', () => {
   });
   test('save installs a new theme as the active pair, or replaces the edited one', async () => {
     const client = fakeClient();
-    syncDraft(as(client), 'create', '', 't3-code', 't3-code', 'light');
+    syncDraft(as(client), 'create', '', { theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code' }, 'light');
     editDraft(as(client), 'color:accent', '#ff0000');
     await themeEditorCommand(as(client), null, 'theme-editor-save', '', 'Aurora');
     const themes = client.local.customThemes as { id: string; label: string; light: Record<string, string> }[];
     expect([themes[0]!.id, themes[0]!.label, themes[0]!.light.accent]).toEqual(['aurora', 'Aurora', '#ff0000']);
     expect((client.local.clientSettings as Obj).themeDark).toBe('aurora');
-    syncDraft(as(client), 'edit', 'aurora', 'aurora', 'aurora', 'light');
+    syncDraft(as(client), 'edit', 'aurora', { theme: 'aurora', themeLight: 'aurora', themeDark: 'aurora' }, 'light');
     editDraft(as(client), 'name', 'Aurora 2');
     saveDraft(as(client));
     expect((client.local.customThemes as { id: string; label: string }[]).map(theme => [theme.id, theme.label])).toEqual([['aurora', 'Aurora 2']]);
