@@ -146,6 +146,26 @@ final class TextCSSTests: XCTestCase {
         }
     }
 
+    /// A declared variable face draws at its declared weight on the `wght`
+    /// axis, as a browser draws an `@font-face` (the Bluesky clone's Inter,
+    /// whose first named instance is Thin); a static face is left as it is.
+    func testADeclaredVariableFaceTakesItsWeightOnTheAxis() throws {
+        let fonts = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../")
+        let inter = try Data(contentsOf: fonts.appendingPathComponent("vendor/cosmic-text/fonts/InterVariable.ttf").standardized)
+        let first = (CTFontManagerCreateFontDescriptorsFromData(inter as CFData) as! [CTFontDescriptor])[0]
+        func wght(_ d: CTFontDescriptor) -> Double? {
+            (CTFontCopyVariation(CTFontCreateWithFontDescriptor(d, 16, nil)) as? [NSNumber: NSNumber])?[0x77676874 as NSNumber]?.doubleValue
+        }
+        XCTAssertEqual(wght(first), 100, "the file's first named instance is Thin")
+        // CoreText leaves an axis at its default (Inter's 400) out of the variation.
+        XCTAssertEqual(wght(TextEngine.declaredFace(first, weight: 400)) ?? 400, 400)
+        XCTAssertEqual(wght(TextEngine.declaredFace(first, weight: 600)), 600)
+        XCTAssertEqual(wght(TextEngine.declaredFace(first, weight: 1000)), 900, "clamped to the axis")
+        let dejavu = try Data(contentsOf: fonts.appendingPathComponent("scripts/fixtures/fonts/assets/DejaVuSans.ttf").standardized)
+        let plain = (CTFontManagerCreateFontDescriptorsFromData(dejavu as CFData) as! [CTFontDescriptor])[0]
+        XCTAssertTrue(TextEngine.declaredFace(plain, weight: 700) === plain)
+    }
+
     func testEllipsisEndsAnOverWideLineOnlyWhereItPaints() {
         var s = spec([run("a nowrap label that is much wider than its box")], whiteSpace: 2)
         s.ellipsis = true
