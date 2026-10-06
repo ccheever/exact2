@@ -982,9 +982,10 @@ impl<'a, B: Brush> BreakLines<'a, B> {
     /// its width and was not counted as trailing). Whitespace-only items at
     /// the end take the level; the last item that ends in whitespace is split.
     /// Runs before reordering, while the line's items are in logical order and
-    /// are the last ones in `line_items`.
+    /// are the last ones in `line_items`. The level is the line box's (CSS
+    /// `direction`) where the builder set one apart from the bidi base.
     fn reset_trailing_whitespace_level(&mut self, line_idx: usize) {
-        let base = self.layout.data.base_level;
+        let base = self.layout.data.line_level;
         let range = self.lines.lines[line_idx].item_range.clone();
         if range.is_empty() || range.end != self.lines.line_items.len() {
             return;
@@ -1113,8 +1114,8 @@ impl<'a, B: Brush> BreakLines<'a, B> {
         }
 
         // Compute size of line's trailing whitespace. "Trailing" is considered the right edge
-        // for LTR text and the left edge for RTL text.
-        let run = if self.layout.is_rtl() {
+        // for LTR text and the left edge for RTL text (the line box's direction).
+        let run = if self.layout.data.line_level & 1 != 0 {
             self.lines.line_items[line.item_range.clone()].first()
         } else {
             self.lines.line_items[line.item_range.clone()].last()

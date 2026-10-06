@@ -52,6 +52,7 @@ pub struct RangedBuilder<'a, B: Brush> {
     pub(crate) fcx: &'a mut FontContext,
     pub(crate) line_break_override: Option<&'a LineBreakOverrideFn>,
     pub(crate) base_direction: BaseDirection,
+    pub(crate) line_direction: BaseDirection,
 }
 
 impl<'b, B: Brush> RangedBuilder<'b, B> {
@@ -92,6 +93,17 @@ impl<'b, B: Brush> RangedBuilder<'b, B> {
         self.base_direction = direction;
     }
 
+    /// Sets the line box's direction where it differs from the bidi
+    /// paragraph's: a host that resolves levels by the first strong
+    /// character ([`BaseDirection::Auto`]) inside a box whose CSS
+    /// `direction` is known. Whitespace that ends a line (UAX #9 L1) takes
+    /// this direction's level and hangs at its end edge, and alignment's
+    /// start, end and overflow edges follow it. The default, `Auto`, is the
+    /// paragraph's own direction.
+    pub fn set_line_direction(&mut self, direction: BaseDirection) {
+        self.line_direction = direction;
+    }
+
     pub fn build_into(self, layout: &mut Layout<B>, text: impl AsRef<str>) {
         // Apply RangedStyleBuilder styles directly to style-table/style-run state.
         self.lcx
@@ -108,6 +120,7 @@ impl<'b, B: Brush> RangedBuilder<'b, B> {
             self.fcx,
             self.line_break_override,
             self.base_direction,
+            self.line_direction,
         );
     }
 
@@ -130,6 +143,7 @@ pub struct StyleRunBuilder<'a, B: Brush> {
     pub(crate) cursor: usize,
     pub(crate) line_break_override: Option<&'a LineBreakOverrideFn>,
     pub(crate) base_direction: BaseDirection,
+    pub(crate) line_direction: BaseDirection,
 }
 
 impl<'b, B: Brush> StyleRunBuilder<'b, B> {
@@ -201,6 +215,17 @@ impl<'b, B: Brush> StyleRunBuilder<'b, B> {
         self.base_direction = direction;
     }
 
+    /// Sets the line box's direction where it differs from the bidi
+    /// paragraph's: a host that resolves levels by the first strong
+    /// character ([`BaseDirection::Auto`]) inside a box whose CSS
+    /// `direction` is known. Whitespace that ends a line (UAX #9 L1) takes
+    /// this direction's level and hangs at its end edge, and alignment's
+    /// start, end and overflow edges follow it. The default, `Auto`, is the
+    /// paragraph's own direction.
+    pub fn set_line_direction(&mut self, direction: BaseDirection) {
+        self.line_direction = direction;
+    }
+
     pub fn build_into(self, layout: &mut Layout<B>, text: impl AsRef<str>) {
         assert!(
             self.cursor == self.len,
@@ -215,6 +240,7 @@ impl<'b, B: Brush> StyleRunBuilder<'b, B> {
             self.fcx,
             self.line_break_override,
             self.base_direction,
+            self.line_direction,
         );
     }
 
@@ -234,6 +260,7 @@ pub struct TreeBuilder<'a, B: Brush> {
     pub(crate) fcx: &'a mut FontContext,
     pub(crate) line_break_override: Option<&'a LineBreakOverrideFn>,
     pub(crate) base_direction: BaseDirection,
+    pub(crate) line_direction: BaseDirection,
 }
 
 impl<'b, B: Brush> TreeBuilder<'b, B> {
@@ -300,6 +327,17 @@ impl<'b, B: Brush> TreeBuilder<'b, B> {
         self.base_direction = direction;
     }
 
+    /// Sets the line box's direction where it differs from the bidi
+    /// paragraph's: a host that resolves levels by the first strong
+    /// character ([`BaseDirection::Auto`]) inside a box whose CSS
+    /// `direction` is known. Whitespace that ends a line (UAX #9 L1) takes
+    /// this direction's level and hangs at its end edge, and alignment's
+    /// start, end and overflow edges follow it. The default, `Auto`, is the
+    /// paragraph's own direction.
+    pub fn set_line_direction(&mut self, direction: BaseDirection) {
+        self.line_direction = direction;
+    }
+
     #[inline]
     pub fn build_into(self, layout: &mut Layout<B>) -> String {
         // Apply TreeStyleBuilder styles to LayoutContext.
@@ -318,6 +356,7 @@ impl<'b, B: Brush> TreeBuilder<'b, B> {
             self.fcx,
             self.line_break_override,
             self.base_direction,
+            self.line_direction,
         );
 
         text
@@ -340,6 +379,7 @@ fn build_into_layout<B: Brush>(
     fcx: &mut FontContext,
     line_break_override: Option<&LineBreakOverrideFn>,
     base_direction: BaseDirection,
+    line_direction: BaseDirection,
 ) {
     if text.is_empty() && lcx.style_runs.is_empty() {
         lcx.style_table.push(ResolvedStyle::default());
@@ -359,6 +399,7 @@ fn build_into_layout<B: Brush>(
     layout.data.scale = scale;
     layout.data.quantize = quantize;
     layout.data.base_level = lcx.bidi.base_level();
+    layout.data.line_level = line_direction.level().unwrap_or(layout.data.base_level);
     layout.data.text_len = text.len();
 
     let mut char_index = 0;

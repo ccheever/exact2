@@ -538,3 +538,30 @@ fn rtl_direction_sets_the_base_direction_and_start_alignment() {
         .unwrap();
     assert_eq!(crate::paint::text_spec(&style, text).align, TextAlign::Left);
 }
+
+/// Under `ltr` the first strong character still sets the bidi base (LLP 1001
+/// §1), but the line box keeps the CSS direction: a wrapped line's trailing
+/// space hangs at its right end, where Chrome puts it, not at the left before
+/// the visible text (LLP 1085.000 host parity, `bidi-ltr-starts-hebrew`).
+#[test]
+fn ltr_text_that_starts_rtl_hangs_its_trailing_spaces_at_the_right() {
+    let mut engine = compact_fixture_engine();
+    let text = "\u{5d0}\u{5d1}\u{5d2} \u{5d3}\u{5d4}\u{5d5} and then English words follow here";
+    let s = crate::paint::text_spec(&exact_kernel::StyleProps::default(), text);
+    let p = engine.paragraph(&s, Some(120.));
+    let runs: Vec<_> = p.layout_runs().collect();
+    assert!(runs.len() > 2, "wraps");
+    for (i, run) in runs.iter().enumerate() {
+        let last = run.glyphs.iter().max_by_key(|g| g.start).unwrap();
+        let space = &run.text[last.start as usize..last.end as usize] == " ";
+        let rightmost = run.glyphs.iter().all(|g| g.x <= last.x);
+        let left = run.glyphs.iter().map(|g| g.x).fold(f32::INFINITY, f32::min);
+        if i + 1 < runs.len() {
+            assert!(space && rightmost, "line {i}: trailing space at the right");
+        }
+        assert!(
+            left.abs() < 0.01,
+            "line {i} starts at the left edge: {left}"
+        );
+    }
+}

@@ -246,6 +246,14 @@ impl ShapedSource {
                 );
             }
             builder.set_base_direction(base);
+            // The line box keeps the CSS direction even where the first
+            // strong character set the bidi base: trailing whitespace hangs
+            // at its end edge, and an overflowing line starts at its start.
+            builder.set_line_direction(if base == BaseDirection::Rtl {
+                BaseDirection::Rtl
+            } else {
+                BaseDirection::Ltr
+            });
             builder.set_line_break_override(Some(CHROME));
             let mut layout = builder.build(&text);
             let inset = line_inset(&spec, &runs, &mut layout);
