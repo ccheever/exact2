@@ -258,6 +258,13 @@ fn numeral(rng: &mut Rng, x: f64) -> String {
             }
             s
         }
+        3 if rng.chance(1, 64) => {
+            // Past std's exponent reach (65,536), which `exact_num` shares:
+            // overflowing, underflowing and in range by the exponent.
+            let zeros = 65_000 + rng.below(6_000) as usize;
+            let e = zeros as i64 + rng.below(700) as i64 - 350;
+            format!("0.{}{}e{e}", "0".repeat(zeros), 1 + rng.below(9))
+        }
         _ => {
             let mut s = String::new();
             if rng.chance(1, 3) {
@@ -434,7 +441,13 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
         let rs: Vec<&str> = r.split(' ').collect();
         let ls: Vec<&str> = l.split(' ').collect();
         for k in 0..OPS.len() {
-            let field = if k < HEX { k } else { k + 1 - BITS + HEX };
+            let field = if k < HEX {
+                k
+            } else if k < BITS {
+                HEX
+            } else {
+                k - BITS + HEX + 1
+            };
             let (rv, lv) = if !(HEX..BITS).contains(&k) {
                 (
                     rs.get(field).copied().unwrap_or(""),

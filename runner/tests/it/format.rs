@@ -710,8 +710,10 @@ fn the_instant_is_clipped_before_it_is_shifted() {
 }
 
 /// `iso` (LLP 1102 §3.4) against `new Date(Math.trunc(ms) + offset * 60000)
-/// .toISOString().slice(0, 10)` in Bun 1.4.2: the date at the wall time,
-/// four-digit years; `""` outside years 1–9999 as every style (D7).
+/// .toISOString().slice(0, 10)` in Bun 1.4.2 at whole-minute offsets: the date
+/// at the wall time, four-digit years; `""` outside years 1–9999 as every
+/// style (D7). A fractional offset's wall time is not clipped again, as no
+/// style's is (`-0.000001` at the epoch is Dec 31, where `Date` says Jan 1).
 #[test]
 fn iso_dates_are_to_iso_string_s_date_part() {
     #[rustfmt::skip]

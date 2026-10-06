@@ -31,8 +31,8 @@ const isoDate = s => {
   return mo >= 1 && mo <= 12 && d >= 1 && d <= [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1] ? [y, mo, d] : null;
 };
 const before = (a, b) => a[0] < b[0] || a[0] === b[0] && (a[1] < b[1] || a[1] === b[1] && a[2] < b[2]);
-/** `calendarDiff`: whole years or months counted as an age is, negated when `to` is earlier; a zero count is +0, as the
- * runner's integer is. */
+/** `calendarDiff`: whole years or months counted as an age is (Temporal's `PlainDate.until`), negated when `to` is
+ * earlier; a zero count is +0, as the runner's integer is. */
 export const x_calendarDiff = (from, to, unit) => {
   let a = isoDate(from), b = isoDate(to), sign = 1;
   if (!a || !b) return null;

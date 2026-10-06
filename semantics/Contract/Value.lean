@@ -342,7 +342,8 @@ def dateLt (a b : Nat × Nat × Nat) : Bool :=
 
 /-- The whole years or months from `a` to a date `b` not before it: a period
 completes when `b`'s month and day reach `a`'s (years compare month then
-day, months the day), so Feb 29 completes a year on Mar 1 of a common year. -/
+day, months the day), so Feb 29 completes a year on Mar 1 of a common year, as Temporal's
+`PlainDate.until` counts with `largestUnit` years or months. -/
 def periods (a b : Nat × Nat × Nat) (months : Bool) : Int :=
   let (y1, m1, d1) := a
   let (y2, m2, d2) := b

@@ -438,9 +438,75 @@ pub fn parse_number(text: &str) -> Option<f64> {
     if i != b.len() {
         return None;
     }
-    let n = exact_num::parse_f64(t).ok()?;
+    // `exact_num` stops an exponent at 65,536 as std does, which a numeral
+    // of more digits than that can outrun (`0.`, 65,535 zeros, `1e655360`
+    // is past the largest finite), so a long one is read short first.
+    let n = if whole + fraction <= SHORT_DIGITS {
+        exact_num::parse_f64(t).ok()?
+    } else {
+        exact_num::parse_f64(&short_numeral(b, mantissa_end)).ok()?
+    };
     let nonzero = b[..mantissa_end].iter().any(|c| (b'1'..=b'9').contains(c));
     (n.is_finite() && (n != 0.0 || !nonzero)).then_some(n)
+}
+
+/// More significant digits than a halfway point between two doubles has
+/// (767): the rest only break a tie, as one sticky digit does.
+const SHORT_DIGITS: usize = 800;
+
+/// A numeral `parse_number` admitted, of the same value to the double it
+/// rounds to: its first `SHORT_DIGITS` significant digits, a `1` after them
+/// for any nonzero rest, and the exponent that keeps their place; past
+/// `10^±400`, `1e±400`, which overflows or underflows as the numeral does.
+fn short_numeral(b: &[u8], mantissa_end: usize) -> String {
+    let (sign, mantissa) = match b.first() {
+        Some(&c @ (b'+' | b'-')) => (c == b'-', &b[1..mantissa_end]),
+        _ => (false, &b[..mantissa_end]),
+    };
+    let point = mantissa
+        .iter()
+        .position(|&c| c == b'.')
+        .unwrap_or(mantissa.len());
+    let digits: Vec<u8> = mantissa
+        .iter()
+        .copied()
+        .filter(u8::is_ascii_digit)
+        .collect();
+    let mut out = String::from(if sign { "-" } else { "" });
+    let (Some(lead), Some(last)) = (
+        digits.iter().position(|&c| c != b'0'),
+        digits.iter().rposition(|&c| c != b'0'),
+    ) else {
+        out.push('0');
+        return out;
+    };
+    let rest = &b[(mantissa_end + 1).min(b.len())..];
+    let (negative, rest) = match rest.first() {
+        Some(&c @ (b'+' | b'-')) => (c == b'-', &rest[1..]),
+        _ => (false, rest),
+    };
+    // Saturated far past any reach a numeral within `MAX_STRING` has.
+    let exponent = rest
+        .iter()
+        .fold(0i64, |e, &c| (e * 10 + i64::from(c - b'0')).min(1 << 50));
+    let exponent = if negative { -exponent } else { exponent };
+    // The value is `0.D × 10^place`, `D` the significant digits.
+    let place = point as i64 - lead as i64 + exponent;
+    if !(-400..=400).contains(&place) {
+        out.push_str(if place > 0 { "1e400" } else { "1e-400" });
+        return out;
+    }
+    let significant = &digits[lead..=last];
+    let kept = &significant[..significant.len().min(SHORT_DIGITS)];
+    out.extend(kept.iter().map(|&c| char::from(c)));
+    let mut written = kept.len() as i64;
+    if kept.len() < significant.len() {
+        out.push('1');
+        written += 1;
+    }
+    out.push('e');
+    push_number((place - written) as f64, &mut out);
+    out
 }
 
 /// A `YYYY-MM-DD` date (years 0 through 9999, a real day of the month).
@@ -477,8 +543,9 @@ fn iso_date(s: &str) -> Option<(i64, i64, i64)> {
 /// `calendarDiff(from, to, unit)` (LLP 1102 §3.4): the whole years or months
 /// from `from` to `to`, counted as an age is — a period completes when the
 /// later date's month and day (for months, its day) reach the earlier
-/// date's — and negated when `to` is earlier. `None` for a date that is not
-/// `YYYY-MM-DD`.
+/// date's — and negated when `to` is earlier, as `Temporal.PlainDate.prototype
+/// .until` counts with `largestUnit` years or months. `None` for a date that
+/// is not `YYYY-MM-DD`.
 pub fn calendar_diff(from: &str, to: &str, months: bool) -> Option<i64> {
     let (a, b) = (iso_date(from)?, iso_date(to)?);
     let (early, late, sign) = if b < a { (b, a, -1) } else { (a, b, 1) };
@@ -922,6 +989,16 @@ mod tests {
             ("1,5", None),
             ("\u{85}9", None),
             ("\u{661}", None),
+            // Past `exact_num`'s exponent reach: read short.
+            (&format!("0.{}1e655360", "0".repeat(65_535)), None),
+            (&format!("0.{}1e70300", "0".repeat(70_000)), Some(1e299)),
+            (
+                &format!("-{}e-65630", "1".repeat(65_536)),
+                Some(-1.1111111111111112e-95),
+            ),
+            (&format!("{}e-1000", "0".repeat(70_000)), Some(0.0)),
+            (&format!("1{}", "0".repeat(400)), None),
+            (&format!("1{}e-655360", "0".repeat(65_535)), None),
         ] {
             assert_eq!(bits(parse_number(text)), bits(want), "{text:?}");
         }
@@ -950,6 +1027,8 @@ mod tests {
             ("2026-06-14", "1990-06-15", Some(-35), Some(-431)),
             ("2024-03-01", "2024-01-31", Some(0), Some(-1)),
             ("2024-05-05", "2024-05-05", Some(0), Some(0)),
+            // A reversed zero is +0 on the JS target too (`n && sign * n`).
+            ("2024-02-29", "2024-01-31", Some(0), Some(0)),
             ("0000-02-29", "9999-12-31", Some(9999), Some(119_998)),
             ("2025-02-29", "2026-01-01", None, None),
             ("2024-13-01", "2026-01-01", None, None),
