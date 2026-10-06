@@ -112,6 +112,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var clipBox: NSView?
     /// The box's border, gradient and image pixels as sublayers (`BoxLayerMac.swift`).
     var boxBorder: CALayer?
+    /// A focused field in the default look (LLP 1104 D4; `showFieldFocus`).
+    var fieldFocused = false { didSet { if fieldFocused != oldValue { applyBoxLayer(); needsDisplay = true } } }
     var boxFill: CALayer?
     /// `drawsPaint`, kept: AppKit asks `wantsUpdateLayer` of every view as it
     /// builds the layer tree each display cycle, and the decision reads

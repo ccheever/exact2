@@ -225,3 +225,20 @@ fn a_dressed_field_carries_its_mark_and_a_disabled_one_dims() {
     r.dispatch(flip, Event::Press).unwrap();
     assert_eq!(opacity(&r, "bound"), 1.0, "enabled again, undimmed");
 }
+
+#[test]
+fn an_authored_opacity_survives_a_bound_disabled_flip() {
+    // One binding a row: the author's replaces the sheet's, so a change of
+    // `disabled` re-emits nothing that could overwrite it.
+    let mut r = boot(
+        "style Faint\n  opacity=0.8\n",
+        "input disabled=on opacity=0.7 testId=\"own\"\ninput disabled=on class=Faint testId=\"classed\"\nbutton press=flip testId=\"flip\"\n  text \"Flip\"",
+    );
+    let opacity = |r: &Runner<NoData>, t: &str| r.kernel().node(id(r, t)).unwrap().style.opacity;
+    assert_eq!((opacity(&r, "own"), opacity(&r, "classed")), (0.7, 0.8));
+    let flip = id(&r, "flip");
+    r.dispatch(flip, Event::Press).unwrap();
+    assert_eq!((opacity(&r, "own"), opacity(&r, "classed")), (0.7, 0.8));
+    r.dispatch(flip, Event::Press).unwrap();
+    assert_eq!((opacity(&r, "own"), opacity(&r, "classed")), (0.7, 0.8));
+}

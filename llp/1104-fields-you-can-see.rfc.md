@@ -120,6 +120,11 @@ About two and a half lane-days.
   - three corpus fields opt out;
   - the tests assert exact colours.
 - r4, 2026-10-06: Charlie accepted the focus ring by a marker prop and the disabled dimming (§4 Q2); both built (§6).
+  Astra and Grok reviewed it blind; both said LAND WITH FIXES. Folded in:
+  - the macOS ring moved into the box painter (shape, resize, clip, appearance), cleared when disabled;
+  - Linux paints the ring on the presented box.
+
+  Declined: Grok's claim that a bound `disabled` overwrites an authored opacity. Lowering keeps one binding per row, and a test now proves it. Astra's "hide while the window is inactive" was also declined: the web keeps the ring.
 
 ## 6. As built
 
@@ -139,8 +144,8 @@ About two and a half lane-days.
 - **The mark.** A field in the default look carries `fieldStyle="default"` (prop 253). Contract sets it and no author can write it. It is needed because no CSS selector can see a style row, whether inline or in one of the JS target's static classes. The web writes it as `data-fieldstyle`.
 - **Focus.**
   - Web: `[data-fieldstyle]:focus-visible { outline: revert; outline-offset: 0 }`.
-  - macOS: a two-point `keyboardFocusIndicatorColor` ring layer over the border. It is shown when the field or textarea takes the focus and removed when its editor ends editing, even with no edit.
-  - Linux: a two-point ring in the node's `accent-color` (Chrome's `#0075ff` when unset), painted over the border of the focused field.
+  - macOS: the box painter (`boxPlan`) draws the border two points wide in `keyboardFocusIndicatorColor` while the field is focused, so the ring follows the box's shape, size, clip and appearance on every paint path. It is set when the field or textarea takes the focus and cleared when its editor ends editing (even with no edit) or the field becomes disabled. It stays while the window is inactive, as the web's `:focus-visible` ring does.
+  - Linux: a two-point ring in the node's `accent-color` (Chrome's `#0075ff` when unset), painted over the border of the focused field's presented box (a layout transition's surface).
   - iOS: the caret, as before.
   - Screenshots on the web, macOS and Linux show the ring moving from one field to the next and leaving the field it left.
 - **Disabled.** A field in the default look with `disabled` gets a sheet row `opacity` of 0.5, bound to the same expression. An authored `opacity` wins. Shown on the web, macOS, iOS and Linux.

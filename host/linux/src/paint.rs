@@ -1103,7 +1103,7 @@ impl Painter {
                     self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
                     if node.props.str(PropId::FieldStyle).is_some() {
                         let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
-                        self.field_ring(&outer, accent, ts);
+                        self.field_ring(&surface.outer, accent, ts);
                     }
                 }
             }

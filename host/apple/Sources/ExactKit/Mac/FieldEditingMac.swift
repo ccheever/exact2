@@ -38,22 +38,13 @@ extension NodeView {
         if !disabled { presenter?.typed(id, field?.stringValue ?? "", input: handlers.contains("input")) }
     }
     /// A field in its default look (`fieldStyle`, LLP 1104 D4) marks its
-    /// focus with a two-point ring in the accent colour over its border,
-    /// where the web draws its `:focus-visible` ring; a bare field draws
-    /// its own. Shown as the field takes the focus, gone as its editor
-    /// leaves.
+    /// focus as the web's `:focus-visible` ring does: its border, drawn by
+    /// the box painter (`boxPlan`), two points wide in the focus colour, so
+    /// it follows the box's shape, size, clip and appearance. A bare or
+    /// disabled field draws its own. Set as the field takes the focus,
+    /// cleared as its editor leaves.
     func showFieldFocus(_ on: Bool) {
-        let ring = layer?.sublayers?.first { $0.name == "exact.fieldFocus" }
-        guard on, props["fieldStyle"] != nil, let layer else { ring?.removeFromSuperlayer(); return }
-        let r = ring ?? CALayer()
-        r.name = "exact.fieldFocus"
-        r.frame = layer.bounds
-        r.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        r.cornerRadius = max(layer.cornerRadius, boxBorder?.cornerRadius ?? 0, boxFill?.cornerRadius ?? 0)
-        r.borderWidth = 2
-        r.borderColor = NSColor.keyboardFocusIndicatorColor.withAlphaComponent(1).cgColor
-        r.zPosition = 1
-        if ring == nil { layer.addSublayer(r) }
+        fieldFocused = on && props["fieldStyle"] != nil && !disabled
     }
 }
 #endif
