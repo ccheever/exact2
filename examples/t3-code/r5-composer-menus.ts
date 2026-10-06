@@ -87,6 +87,18 @@ export function runOnMenuWidth(presentation: Obj, labels: string[], workspace: s
   return cap(Math.max(MENU_MIN, content + ITEM + CHROME), viewport);
 }
 
+/**
+ * A menu's height from its rows as ComposerMenus draws them (4pt padding and a 1pt border each side;
+ * headers 26–28pt, dividers 9pt, notes 22pt, option rows 28pt or 44pt with a description), so the
+ * popup can open below its trigger when it fits there, as MenuPopup's side="bottom" does.
+ */
+export function traitsMenuHeight(items: Trait[]): number {
+  return items.reduce((sum, item) => sum + (item.kind === 'header' ? 28 : item.kind === 'divider' ? 9 : item.kind === 'note' ? 22
+    : item.kind === 'option' ? (item.description ? 44 : 28) : 0), 10);
+}
+/** The runtime Select's rows are 46pt (label and description). */
+export const runtimeMenuHeight = (runtimes: Runtime[]) => 10 + runtimes.length * 46;
+
 /** max-w-[calc(100vw-2rem)] once the viewport is known. */
 const cap = (width: number, viewport: number) => viewport > 0 ? Math.min(width, viewport - 32) : width;
 
@@ -99,6 +111,7 @@ export function composerMenus(presentation: Obj, view: { traits: Trait[]; runtim
     menuProbes: uniqueProbes([...menuProbes(view.traits, view.runtimes, runOn.length ? [...runOn, ...workspaceLabels(false), ...workspaceLabels(true)] : []), ...extra]),
     effortMenuWidth: effortMenuWidth(presentation, view.traits),
     runtimeMenuWidth: runtimeMenuWidth(presentation, view.runtimes),
+    effortMenuHeight: traitsMenuHeight(view.traits), runtimeMenuHeight: runtimeMenuHeight(view.runtimes),
   };
 }
 
