@@ -1036,3 +1036,22 @@ fn a_let_go_call_waiting_on_a_fetch_runs_its_continuation() {
     );
     assert_eq!(m.in_flight(), 0);
 }
+
+/// A stream's promise never settles, ended or let go: no second rejection
+/// after its mapper took the end (review of the let-go fix).
+#[test]
+fn a_let_go_stream_does_not_reject_its_fetch() {
+    use exact_runner::{DataSource, Target};
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource feed = events(\"0\") as shape string\n  view\n    text feed\n").unwrap());
+    let mut s = store();
+    let request = later(
+        m.answer_for(Target::Resource(0), &mut s, "events", &[Value::str("0")])
+            .unwrap(),
+    );
+    assert!(request.stream);
+    m.forgotten(&s, &[]);
+    assert_eq!(m.in_flight(), 0);
+    let logs = m.take_logs().join("\n");
+    assert!(!logs.contains("unhandled rejection"), "{logs}");
+}

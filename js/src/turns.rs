@@ -54,17 +54,32 @@ impl Module {
         let Some(engine) = self.engine.as_mut() else {
             return;
         };
-        let mut owed = false;
-        let forgot = !calls.is_empty();
+        let (mut owed, mut rejected) = (false, false);
         for call in calls {
-            owed |= engine
+            match engine
                 .call("__exact_forget", [&call.to_string(), "", ""])
-                .is_ok_and(|r| r == "storage");
+                .as_deref()
+            {
+                Ok("storage") => owed = true,
+                Ok("rejected") => rejected = true,
+                _ => {}
+            }
         }
         // The rejected fetches' continuations run now, their answers
         // discarded: what they set (a busy flag) is cleared, never stranded.
-        if forgot {
-            let _ = engine.drain();
+        // Between answers, as a let-go's steps run: storage they start is
+        // the background's, not refused as at bake.
+        if rejected {
+            self.host.between_answers = true;
+            let drained = engine.drain();
+            self.host.between_answers = false;
+            // A continuation another answer shared may have settled it: a
+            // waiter counts this as progress (`wake`).
+            self.progress += 1;
+            // An interrupted drain is over; its flag is not the next turn's.
+            if drained.is_err() {
+                self.watch.take();
+            }
         }
         if owed {
             self.finish_let_go();

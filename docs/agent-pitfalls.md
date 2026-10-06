@@ -257,11 +257,11 @@ guide's rules don't make obvious.
 
 ## Actions
 
-- **A superseded send's fetch rejects natively and completes on the web.** A
-  newer `send x = command(…)` replaces the pending one; natively its `await
-  fetch(…)` then rejects with a `FetchError` of kind `Aborted` though the
-  request may have been sent, while on the web the reply arrives and is
-  dropped. Clear a busy flag or lock in a `finally`, and don't retry on
+- **A superseded send's fetch rejects natively and completes on the web
+  build.** A newer `send x = command(…)` replaces the pending one; natively
+  (and in the web's wasm module realm) its `await fetch(…)` then rejects with
+  a `FetchError` of kind `Aborted` though the request may have been sent,
+  while on the web build (the JS target) the reply arrives and is dropped. Clear a busy flag or lock in a `finally`, and don't retry on
   `Aborted` (it would send twice); declare the mutation `queue` when every
   send's reply matters (LLP 1092). Until 2026-10-05 the continuation vanished
   natively, which held the Signal clone's sends forever (build 35).

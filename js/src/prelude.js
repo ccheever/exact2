@@ -1265,7 +1265,8 @@
     var dropped = [];
     for (var i = 0; i < call.tickets.length; i++) {
       var p = pending.get(call.tickets[i]);
-      if (p && p.call === call) { settled(call.tickets[i]); dropped.push(p); }
+      // A stream's promise never settles (LLP 1016.000), ended or let go.
+      if (p && p.call === call) { settled(call.tickets[i]); if (!p.stream) dropped.push(p); }
     }
     // Rejected now, run at the next drain with no answer current.
     dropped.forEach(function (p) {
@@ -1274,7 +1275,7 @@
     if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage"; }
     call.replied = true;
     calls.delete(call.id);
-    return "";
+    return dropped.length ? "rejected" : "";
   };
   global.__exact_let_go = function (failed, message) {
     var owed = false;

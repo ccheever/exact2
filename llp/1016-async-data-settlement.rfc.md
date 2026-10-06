@@ -255,11 +255,13 @@ uncommitted deferred calls. This does not extend the lifetime of forgotten fetch
 or work across unload (2026-10-05, authoring-bench lost-write repair).
 
 A forgotten call waiting on a fetch is not stranded either (2026-10-05, the
-Signal clone's stuck `flushing` flag): the native JavaScript executor rejects
-that fetch with a `FetchError` of kind `Aborted` and runs the continuation
+Signal clone's stuck `flushing` flag): the native JavaScript executor (and
+the web's wasm module realm, which runs its prelude) rejects that fetch with
+a `FetchError` of kind `Aborted` and runs the continuation between answers,
 with no answer current, so its `catch` and `finally` run; the reply is still
-dropped on arrival. The web build's fetch is the browser's, whose promise
-settles with the reply. A mutation that needs every reply is a `queue`
+dropped on arrival. A stream's fetch is not rejected: its promise never
+settles. The web build's fetch is the browser's, whose promise settles with
+the reply. A mutation that needs every reply is a `queue`
 mutation (LLP 1092).
 
 A reload (`boot_carrying`, LLP 1005 §6) drops every ticket; the carried
