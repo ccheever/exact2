@@ -8,8 +8,6 @@ final class T3WindowChrome {
     private weak var window: NSWindow?
     private var toolbar: NSToolbar?
     private var observations: [NSObjectProtocol] = []
-    /// r8-pointer (D14): the window's own frame record, outside agent runs (R8PointerWindowFrame.swift).
-    var frame: R8WindowFrame?
     /// desktop-shell-details: the full-screen fact (T3FullScreen.swift), published as `t3.status`.
     let fullScreen = T3FullScreen()
     var changed: (String) -> Void = { _ in } { didSet { fullScreen.changed = { [weak self] in self?.changed("t3.status") } } }
@@ -22,26 +20,32 @@ final class T3WindowChrome {
             destroy()
             self.window = window
             applyAppearance()
-            // AppKit's unified toolbar centers the real traffic lights at y=26.
-            // It remains empty: the Contract draws the entire header underneath.
-            let toolbar = NSToolbar(identifier: "com.exact.t3code.titlebar")
-            toolbar.displayMode = .iconOnly
-            toolbar.allowsUserCustomization = false
-            self.toolbar = toolbar
-            window.toolbar = toolbar
-            window.toolbarStyle = .unified
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
-            window.titlebarSeparatorStyle = .none
+            toolbar = Self.titleRow(window)
             for name in [NSWindow.didResizeNotification, NSWindow.didExitFullScreenNotification] {
                 observations.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
                     self?.positionControls()
                 })
             }
-            frame?.attach(window)
             fullScreen.attach(window)
         }
         positionControls()
+    }
+
+    /// AppKit's unified toolbar centers the real traffic lights at y=26.
+    /// It remains empty: the Contract draws the entire header underneath. With the
+    /// full-size content `viewport-fit=cover` gives, it leaves the window's frame as it
+    /// is, so the frame the host restored at launch (its autosave, #113) stays.
+    @discardableResult
+    static func titleRow(_ window: NSWindow) -> NSToolbar {
+        let toolbar = NSToolbar(identifier: "com.exact.t3code.titlebar")
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.titlebarSeparatorStyle = .none
+        return toolbar
     }
 
     func setAppearance(_ mode: String) {
@@ -61,7 +65,6 @@ final class T3WindowChrome {
         if let window, window.toolbar === toolbar { window.toolbar = nil }
         toolbar = nil
         window = nil
-        frame?.detach()
         fullScreen.detach()
     }
 
