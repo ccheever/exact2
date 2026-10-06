@@ -238,11 +238,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if ok, handlers.contains("blur") { presenter?.blur(id) }
         return ok
     }
-    // AppKit's default mask bounds are empty, even when a view draws a mask.
-    // The bounds and drawing must describe the same custom control.
-    override var focusRingMaskBounds: NSRect {
-        field == nil && pressable ? bounds : .zero
-    }
     override func drawFocusRingMask() {
         guard field == nil, pressable else { return }
         roundedPath(in: bounds).fill()
@@ -468,7 +463,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         self.kind = kind
         self.presenter = presenter
         super.init(frame: .zero)
-        focusRingType = .exterior
         wantsLayer = kind != "text"
         // A frame change during live resize repaints at the new width
         // instead of stretching stale pixels.
