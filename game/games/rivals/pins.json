@@ -1,24 +1,24 @@
 {
   "ticks": {
-    "0": "0x28a707e9f1c2eb74",
-    "1080": "0x7d42d4b2da3e7527"
+    "0": "0xe3632669cceec5ac",
+    "1080": "0xab16d96ef2d76bdf"
   },
   "saves": {
-    "continuation": "491a4caf0ce94f1f69d344b6209b977d4921dbd604f7efc88fb2308646b28341",
-    "mayhem": "4edc2712cdf2daee7afe4b19d0856ff6d5a1e45d0c618f691299347ef866c97f",
-    "mayhem-round": "8f6718fb988eb1d9fe1f7deb23f005fc93fa915b19eed08648760f99d44e2767",
-    "drill": "2bb9b0e45ecee15d8c31945a761601bf7b4362431cdb2b694f064a2902114c0c",
-    "bandage": "4d838d361ce2258d0be1095ed6324c1d6775466220e61667bb65a83c5796a833",
-    "quick-reload": "d182c8daec7086733336828c2360b4a1d1e7f081ff331734d09d3755066732f9",
-    "shot-feedback": "d936402cc12817aaebb6a54926a7030fdce0a6cd87f8333eb2b9549eb5588ae0"
+    "continuation": "c2d3a5e89a058fcfc612f509aab031e0632669765b06041c2797c87829935215",
+    "mayhem": "d35fe42d4ae6ec52e5cf590201922dd854a5c873d752660138b1f946993e5c0e",
+    "mayhem-round": "753a722ccf28c7c9d9a55bcc8cdd787e16d4f931425524e990ebd6881715567f",
+    "drill": "b1b2bfdc589deeb2783236f3c63644a923dfbded1c3fddc63e2bae6163634f09",
+    "bandage": "c9b53d9889011e5f1ec4daa03e9f6901a7aa1fa551a571c0b9e67cbc042f4da5",
+    "quick-reload": "169be1613684939d1671bf1cf69de0cc99c3428a1f2d95eaa7d031ba494d6825",
+    "shot-feedback": "f4226f89ae1d9adc2e5998b83abc84854700c5f8ec1104657a9ca881b00586d4"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "aad9d7b3c2613624aa54ce0d7bd5acc7d117a9d617490498979f2f0721802f91",
+  "inputs": "f8feb2f153494711a7e7b3314f4bce3580592bea339596946d007b0f80b084ce",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "cda3ff1d02f6dde5a9a41e60a79c3e179d217cad",
-  "reason": "Engine lanes of 2026-10-05: resources hash and save only non-default fields, saves omit default arguments and empty tables (lane 6); garden's looks are presentation (lane 2); wind-fixture's reed is a masked, LOD'd model (lane 3)"
+  "at": "a507f57b58d14557d3fb3ca2dc67df418b628ac6",
+  "reason": "Today's engine rounds and main's merge, plus levels: Game::LEVELS with checked and shown data reloading in place (LLP 1046.009 reconciled with the garden's data files); garden's balance is saved simulation data and its looks presentation data; tennis's rule state as a Contract program"
 }

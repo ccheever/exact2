@@ -1,22 +1,22 @@
 {
   "ticks": {
-    "0": "0x31dadf6b9f435126",
-    "5136": "0x1951100bfb0557a4"
+    "0": "0x0be8317ba6f50466",
+    "5136": "0xbd48043dcd31acfe"
   },
   "saves": {
-    "continuation": "33bf5deffafaff79ab095d92c6af79eeb819a5253d8ffc6660f62269d9e34c8d",
-    "market": "bb992249f5899754317320a6c981a0a92f737174a0daed0116528aeb4700ad48",
-    "recovery": "e64cc4b8da243a5d4ffa449889b77a201b2c867253890b9dd1c97eb3f53fed1c",
-    "watering": "791d1b81d74a506c0a107904e11c8631fafcc6300a04e4d8c3e69ea6cd62a052",
-    "compost": "82c17a014bebca996c66bd67420fdb8eebe3b334acd8f4b1464e52f77d7406a3"
+    "continuation": "07fa22c232ba0ba440e5f2bfdd06659123787d97af82705ab02bd85fbf574e34",
+    "market": "18d0da17e97b186d8554c90e24be9e8f9460bf1405d91720bc276f44fa3b8e0d",
+    "recovery": "5aa652d7087e64bc27a886c22bab1de40eff9919fa1e9f398667dd00de998d04",
+    "watering": "7d568f2ab462911de4eabdc16aff2910f8899e6806e811b135e7f8e78cacdb2a",
+    "compost": "143931bc89f19b61094a75fbb709e229d791c1487500e6abfeb462fbebd08810"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "accda8a0f1fbc9c0e7e02ad008f9e42873dff1f1eff7c20dd59ac3cb63429a03",
+  "inputs": "513bda91f81df9c753b5272cc758d0760acfc39302e75e0b8bca6318f0b56550",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "cda3ff1d02f6dde5a9a41e60a79c3e179d217cad",
-  "reason": "Engine lanes of 2026-10-05: resources hash and save only non-default fields, saves omit default arguments and empty tables (lane 6); garden's looks are presentation (lane 2); wind-fixture's reed is a masked, LOD'd model (lane 3)"
+  "at": "a507f57b58d14557d3fb3ca2dc67df418b628ac6",
+  "reason": "Today's engine rounds and main's merge, plus levels: Game::LEVELS with checked and shown data reloading in place (LLP 1046.009 reconciled with the garden's data files); garden's balance is saved simulation data and its looks presentation data; tennis's rule state as a Contract program"
 }

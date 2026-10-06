@@ -1,18 +1,18 @@
 {
   "ticks": {
-    "0": "0x8a1d96148a8eda43",
-    "60": "0x468cc930285d8d4e"
+    "0": "0x4ce07481bd72477c",
+    "60": "0x9e64292e46d7b183"
   },
   "saves": {
-    "continuation": "5eb47411af9235a5fee30ef2a7f6cc4b5e80cc0a21927ee4123372f6320629be"
+    "continuation": "beff530165b3bf01dc6671a559742e6a7943deb609511dc427892c3fca9e270f"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "526b39d6dcb1b5b882e9c19d54248d4b27121614c69f6121b269cae4b34ddc1b",
+  "inputs": "32161b770e39f286a8d341b11a05b86329b8313ff85b4d6e2cd28eada9b86464",
   "game": "asset-fixture",
   "generated": "bun game/prove.mjs asset-fixture --repin --hosts 'linux,web'",
-  "at": "cda3ff1d02f6dde5a9a41e60a79c3e179d217cad",
-  "reason": "Engine lanes of 2026-10-05: resources hash and save only non-default fields, saves omit default arguments and empty tables (lane 6); garden's looks are presentation (lane 2); wind-fixture's reed is a masked, LOD'd model (lane 3)"
+  "at": "a507f57b58d14557d3fb3ca2dc67df418b628ac6",
+  "reason": "Today's engine rounds and main's merge, plus levels: Game::LEVELS with checked and shown data reloading in place (LLP 1046.009 reconciled with the garden's data files); garden's balance is saved simulation data and its looks presentation data; tennis's rule state as a Contract program"
 }
