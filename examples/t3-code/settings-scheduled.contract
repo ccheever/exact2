@@ -21,6 +21,7 @@ use LucideRefreshCw from "./settings-icons.contract"
 
 shape TaskRowView
   id: string
+  environmentId: string
   title: string
   prompt: string
   status: string
@@ -31,6 +32,7 @@ shape TaskRowView
 shape TaskDraftView
   key: string
   id: string
+  environmentId: string
   title: string
   prompt: string
   enabled: bool
@@ -68,6 +70,16 @@ shape TaskModelMark
   driver: string
   badge: string
   accent: string
+// ScheduledTaskEnvironmentSection: `state` is disconnected, error, loading or ready.
+shape TaskSectionView
+  id: string
+  label: string
+  heading: bool
+  state: string
+  title: string
+  description: string
+  linkMissing: bool
+  tasks: list<TaskRowView>
 shape ScheduledPage
   available: bool
   writable: bool
@@ -77,6 +89,7 @@ shape ScheduledPage
   scope: string
   missing: bool
   tasks: list<TaskRowView>
+  sections: list<TaskSectionView>
   editors: list<TaskDraftView>
   projects: list<SelectOption>
   models: list<SelectOption>
@@ -108,31 +121,63 @@ component ScheduledPanel
           text "New task" font-size=12 font-weight=500 line-height="16px" color="light-dark(#71717b, #818181)"
       when error != ""
         text error font-size=12 line-height="18px" color="light-dark(#dc2626, #f87171)" role="alert" testId="scheduled-error" padding-left=16
-      column width="100%" box-sizing="border-box" border-radius=14 border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)" background-color="light-dark(#ffffff66, #11111166)" box-shadow="0 1px 2px #0000000d"
-        when data.error != ""
-          TaskMessage(title="Could not load scheduled tasks", description=data.error)
-        when data.available and length(data.tasks) == 0
-          TaskMessage(title="No scheduled tasks", description="No tasks match this environment and project selection.")
-        each item in data.tasks key=item.id
-          row width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=32 align-items="center" border-top-style="solid" border-top-width=(item.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)" testId=`task-row-${item.id}`
-            column flex=1 min-width=0 gap=4
-              text item.title font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
-              text item.prompt font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" max-width=576 line-clamp=2
-              row padding-top=2 gap=8 align-items="center" flex-wrap="wrap"
-                text item.status font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" testId=`task-status-${item.id}`
-                when item.runStatus != ""
-                  text item.runStatus font-size=12 font-weight=500 line-height="16px" padding-left=5 padding-right=5 border-radius=6 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" color=(item.runStatus == "failed" ? "light-dark(#dc2626, #f87171)" : (item.runStatus == "succeeded" ? "light-dark(#15803d, #4ade80)" : "light-dark(#27272a, #f5f5f5)"))
-                when item.runError != ""
-                  text item.runError font-size=12 line-height="16px" color="light-dark(#dc2626, #f87171)"
-            row flex-shrink=0 align-items="center" gap=8
-              SettingsSwitch(checked=item.enabled, label=`Enable ${item.title}`, disabled=(busy or not data.writable), switchId=`task-enabled-${item.id}`, toggle=rest("task", `action=toggle&id=${encodeURIComponent(item.id)}&enabled=${item.enabled ? "false" : "true"}`))
-              button popovertarget=`task-menu-${item.id}` disabled=(busy or not data.writable) aria-label=`Actions for ${item.title}` testId=`task-actions-${item.id}` width=28 height=28 border-width=0 border-radius=8 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
-                LucideEllipsis(size=16, color="light-dark(#27272a, #f5f5f5)")
-              SkPopup(menuId=`task-menu-${item.id}`, label=`Actions for ${item.title}`, width=160, list=false, endAlign=28)
-                TaskMenuItem(label="Edit", icon="edit", menuId=`task-menu-${item.id}`, itemId=`task-edit-${item.id}`, destructive=false, choose=open("task", item.id, item.title))
-                TaskMenuItem(label="Run now", icon="run", menuId=`task-menu-${item.id}`, itemId=`task-run-${item.id}`, destructive=false, choose=rest("task", `action=run&id=${encodeURIComponent(item.id)}`))
-                box height=1 margin-top=4 margin-bottom=4 margin-left=8 margin-right=8 background-color="light-dark(#e4e4e7, #ffffff0f)"
-                TaskMenuItem(label="Delete", icon="delete", menuId=`task-menu-${item.id}`, itemId=`task-delete-${item.id}`, destructive=false, choose=rest("task", `action=delete&id=${encodeURIComponent(item.id)}`))
+      when data.error != ""
+        TaskCard()
+          TaskMessage(title="Could not load scheduled tasks", description=data.error, status=false)
+      column width="100%" gap=32
+        each section in data.sections key=section.id
+          column width="100%" gap=10 testId=`task-section-${section.id}`
+            when section.heading
+              row min-height=20 padding-left=16 padding-right=16 gap=6 align-items="center" box-sizing="border-box"
+                LucideLaptop(size=14, color="light-dark(#71717b, #818181)")
+                text section.label font-size=12 font-weight=500 line-height="16px" color="light-dark(#71717b, #818181)" role="heading" aria-level=3 testId=`task-section-title-${section.id}`
+            TaskCard()
+              when section.state != "ready"
+                TaskMessage(title=section.title, description=section.description, status=(section.state == "loading"))
+              else
+                when section.linkMissing
+                  TaskMessage(title="Task unavailable", description="This task no longer exists or is outside the selected project scope.", status=true)
+                when length(section.tasks) == 0
+                  TaskMessage(title=section.title, description=section.description, status=false)
+                each item in section.tasks key=item.id
+                  TaskRow(item=item, data=data, busy=busy, open=open, rest=rest)
+
+// SettingsSection's card around one environment's rows.
+component TaskCard
+  slot
+  view
+    column width="100%" box-sizing="border-box" border-radius=14 border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)" background-color="light-dark(#ffffff66, #11111166)" box-shadow="0 1px 2px #0000000d"
+      children
+
+// ScheduledTaskRow: the switch and the Edit / Run now / Delete menu.
+component TaskRow
+  props
+    item: TaskRowView
+    data: ScheduledPage
+    busy: bool
+    open: action
+    rest: action
+  derive target = `id=${encodeURIComponent(item.id)}&environmentId=${encodeURIComponent(item.environmentId)}`
+  view
+    row width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=32 align-items="center" border-top-style="solid" border-top-width=(item.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)" testId=`task-row-${item.id}`
+      column flex=1 min-width=0 gap=4
+        text item.title font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+        text item.prompt font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" max-width=576 line-clamp=2
+        row padding-top=2 gap=8 align-items="center" flex-wrap="wrap"
+          text item.status font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" testId=`task-status-${item.id}`
+          when item.runStatus != ""
+            text item.runStatus font-size=12 font-weight=500 line-height="16px" padding-left=5 padding-right=5 border-radius=6 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" color=(item.runStatus == "failed" ? "light-dark(#dc2626, #f87171)" : (item.runStatus == "succeeded" ? "light-dark(#15803d, #4ade80)" : (item.runStatus == "running" ? "light-dark(#1447e6, #51a2ff)" : "light-dark(#27272a, #f5f5f5)"))) testId=`task-run-status-${item.id}`
+          when item.runError != ""
+            text item.runError font-size=12 line-height="16px" color="light-dark(#dc2626, #f87171)" testId=`task-run-error-${item.id}`
+      row flex-shrink=0 align-items="center" gap=8
+        SettingsSwitch(checked=item.enabled, label=`Enable ${item.title}`, disabled=(busy or not data.writable), switchId=`task-enabled-${item.id}`, toggle=rest("task", `action=toggle&${target}&enabled=${item.enabled ? "false" : "true"}`))
+        button popovertarget=`task-menu-${item.id}` disabled=(busy or not data.writable) aria-label=`Actions for ${item.title}` testId=`task-actions-${item.id}` width=28 height=28 border-width=0 border-radius=8 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+          LucideEllipsis(size=16, color="light-dark(#27272a, #f5f5f5)")
+        SkPopup(menuId=`task-menu-${item.id}`, label=`Actions for ${item.title}`, width=160, list=false, endAlign=28)
+          TaskMenuItem(label="Edit", icon="edit", menuId=`task-menu-${item.id}`, itemId=`task-edit-${item.id}`, destructive=false, choose=open("task", `${item.environmentId}|${item.id}`, item.title))
+          TaskMenuItem(label="Run now", icon="run", menuId=`task-menu-${item.id}`, itemId=`task-run-${item.id}`, destructive=false, choose=rest("task", `action=run&${target}`))
+          box height=1 margin-top=4 margin-bottom=4 margin-left=8 margin-right=8 background-color="light-dark(#e4e4e7, #ffffff0f)"
+          TaskMenuItem(label="Delete", icon="delete", menuId=`task-menu-${item.id}`, itemId=`task-delete-${item.id}`, destructive=false, choose=rest("task", `action=delete&${target}`))
 
 // A task row's menu item with its icon (Edit / Run now / Delete).
 component TaskMenuItem
@@ -160,10 +205,12 @@ component TaskMessage
   props
     title: string
     description: string
+    status: bool
   view
-    column width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=4
+    column width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=4 role=(status ? "status" : "group") aria-label=title testId="task-message"
       text title font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
-      text description font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" max-width=576
+      when description != ""
+        text description font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" max-width=576
 
 // ScheduledTaskEditorDialog. Per-instance state starts from the server's
 // draft each time the dialog opens (the draft row is new per opening).
@@ -354,7 +401,7 @@ component ScheduledEditor
         row gap=8 justify-content="flex-end" padding-left=24 padding-right=24 padding-top=16 padding-bottom=16 box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
           button press=close disabled=busy testId="cancel-scheduled-task" class=TkOutline
             text "Cancel" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
-          button press=rest("task", `action=save&id=${encodeURIComponent(draft.id)}&title=${encodeURIComponent(title)}&prompt=${encodeURIComponent(prompt)}&enabled=${enabled}&scheduleMode=${scheduleMode}&intervalMinutes=${encodeURIComponent(intervalMinutes)}&timeOfDay=${encodeURIComponent(timeOfDay)}&sunday=${sunday}&monday=${monday}&tuesday=${tuesday}&wednesday=${wednesday}&thursday=${thursday}&friday=${friday}&saturday=${saturday}&projectId=${encodeURIComponent(projectId)}&threadId=${encodeURIComponent(draft.threadId)}&workspaceMode=${workspaceMode}&baseRef=${encodeURIComponent(baseRef)}&startFromOrigin=${startFromOrigin}&path=${encodeURIComponent(path)}&modelKey=${encodeURIComponent(modelKey)}`) disabled=(busy or draft.missing or not data.available) testId="save-scheduled-task" display="flex" flex-direction="row" align-items="center" justify-content="center" height=28 padding-left=9 padding-right=9 border-radius=8 border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or draft.missing or not data.available ? 0.64 : 1)
+          button press=rest("task", `action=save&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}&title=${encodeURIComponent(title)}&prompt=${encodeURIComponent(prompt)}&enabled=${enabled}&scheduleMode=${scheduleMode}&intervalMinutes=${encodeURIComponent(intervalMinutes)}&timeOfDay=${encodeURIComponent(timeOfDay)}&sunday=${sunday}&monday=${monday}&tuesday=${tuesday}&wednesday=${wednesday}&thursday=${thursday}&friday=${friday}&saturday=${saturday}&projectId=${encodeURIComponent(projectId)}&threadId=${encodeURIComponent(draft.threadId)}&workspaceMode=${workspaceMode}&baseRef=${encodeURIComponent(baseRef)}&startFromOrigin=${startFromOrigin}&path=${encodeURIComponent(path)}&modelKey=${encodeURIComponent(modelKey)}`) disabled=(busy or draft.missing or not data.available) testId="save-scheduled-task" display="flex" flex-direction="row" align-items="center" justify-content="center" height=28 padding-left=9 padding-right=9 border-radius=8 border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or draft.missing or not data.available ? 0.64 : 1)
             text (draft.id == "" ? "Create task" : "Save task") font-size=14 font-weight=500 line-height="20px" color="#ffffff"
 
 fn projectLabel(options: list<SelectOption>, value: string): string = join(map(filter(options, option => option.value == value), option => option.label), "")

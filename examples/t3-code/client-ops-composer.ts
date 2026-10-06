@@ -2,6 +2,7 @@
 // models, Send (a new thread's launch, a follow-up, a fan-out), the model,
 // option and mode pickers, Stop, approvals and the provider's questions, and
 // Retry of a submission T3 may already have taken.
+import { projectCloneBlock } from './project-clones-live';
 import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
 import { forgetDraftThreadId, launchThreadId } from './r7-handoff-thread';
@@ -91,6 +92,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   if (!text.trim() && !this.snapshotDrafts.length) throw new ClientError('Write a message or attach an image first.');
   if (promptLengthMessage(text)) throw new ClientError(promptLengthMessage(text));
   if (!this.projectId) throw new ClientError('Choose or add a project first.');
+  if (projectCloneBlock(this)) throw new ClientError(`${projectCloneBlock(this)}. Send once the repository is cloned.`); // project-clones-live.ts
   if (!submission || submission.interactionMode === 'plan') this.local.drafts[this.draftKey] = text;
   const gesture = await this.call(native, { op: 'composerSendIntent' }).catch(() => ({}));
   const running = !!selection.threadId && threadPhase(this.projection) === 'running';

@@ -17,6 +17,7 @@ import { NO_SCRIPTS, cardScripts } from './r6-polish-scripts';
 import { gitDetails, EMPTY_GIT } from './r4-git-card'; // lane r4-git: branch picker, Git actions and dialogs
 import { environmentOptions } from './r4-git-env'; // lane r4-git: the environments that hold this project
 import { prRowsView, emptyPrRows } from './r5-panels-pr'; // lane r5-panels: the pull request rows under the branch
+import { threadAutomations, NO_AUTOMATIONS } from './thread-automations'; // ThreadAutomationsPanel
 
 /** EDITORS in contracts/editor.ts order; `file-manager` is Finder on macOS (editorLabelForPlatform). */
 export const EDITORS: [string, string][] = [['cursor', 'Cursor'], ['trae', 'Trae'], ['kiro', 'Kiro'], ['vscode', 'VS Code'], ['vscode-insiders', 'VS Code Insiders'],
@@ -81,7 +82,7 @@ const noLineage: LineageView = { lineageTitle: 'Lineage', lineage: [], showLinea
 const empty = { ready: false, inline: false, error: '', folderName: '', folderLabel: '', cwd: '', editorId: '', editorLabel: '', editors: [] as { id: string; label: string; selected: boolean }[], editorShortcut: '',
   isGit: false, branch: '', actionLabel: 'Commit', actionKind: 'show_hint', actionDisabled: true, actionHint: '', insertions: 0, deletions: 0,
   envModeSelect: false, envMode: 'local', envIcon: 'folder', previousLabel: '', actionIcon: 'git-commit', changesEnabled: false, diffScheme: 'red-green',
-  envShow: false, envLabel: '', envKind: 'server', git: EMPTY_GIT, prRows: emptyPrRows(), ...NO_SCRIPTS, ...noLineage };
+  envShow: false, envLabel: '', envKind: 'server', automations: NO_AUTOMATIONS, git: EMPTY_GIT, prRows: emptyPrRows(), ...NO_SCRIPTS, ...noLineage };
 const lastEditors = new WeakMap<T3Client, string>();
 export function rememberEditor(client: T3Client, editor: string): void { lastEditors.set(client, editor); }
 
@@ -137,6 +138,7 @@ export async function shellDetails(client: T3Client, native: Native | null | und
     diffScheme: client.local.clientSettings?.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green',
     git: await gitDetails(client, native, { status, error, cwd, root: str(project?.workspaceRoot), now, editor, envRow: env.envShow }),
     prRows: await prRowsView(client, native, { status, threadId, now, projectId: str(project?.id), rightGap, inline }), // lane r6-pr: the row's place in the window
+    automations: await threadAutomations(client, native, thread ? threadId : '', now), // thread-automations.ts: ThreadAutomationsPanel
     ...(thread ? lineageView(client.shell.threads, client.threadId === threadId ? client.projection : null, threadId, arr(client.config.providers), now) : noLineage),
   };
 }

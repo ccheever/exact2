@@ -4,6 +4,15 @@ Current as of the functional repair verification, 2026-10-06 (KST).
 
 ## Start here
 
+Live automations and tracked clones, PR #156: client implementation and partial UI
+verification only. The old `succeeded` screenshot does not prove a completed model
+response: the retained Codex provider log ends in HTTP 401 and a failed turn.
+Authenticated manual and scheduled execution remain unverified. Follow the
+[automation verification handoff](.exact/implementation/20261005-t3code-macos-parity/tasks/20261005-live-automations-and-clones.md#handoff-authenticated-automation-verification)
+for isolated backend authentication, run/turn correlation, real-time interval tests,
+failure/status investigation and cleanup. Tracked-clone runtime acceptance also remains
+open. Keep the task unverified until its required acceptance rows are satisfied.
+
 Read `rules/RULES.md`, `rules/DEFERRED.md`, then this app's `README.md` and
 `.exact/implementation/20261005-t3code-macos-parity/plan.md`.
 The round-12 source is now tracked and preserved in commit `1c6b4a12a`.
