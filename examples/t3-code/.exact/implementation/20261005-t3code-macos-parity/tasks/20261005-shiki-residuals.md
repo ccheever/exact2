@@ -7,7 +7,7 @@ delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
 branch: feat(example)/t3-code-shiki-residuals
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/154
 verified_commit: null
 ---
 
