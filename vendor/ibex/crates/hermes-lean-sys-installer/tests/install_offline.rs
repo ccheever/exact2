@@ -93,6 +93,39 @@ fn install_once_then_build_offline_and_report_an_actionable_miss() {
     );
     assert_success("offline build with installed cache", &success);
 
+    // `--check` accepts the installed bundle without the network, and refuses a
+    // pin whose bundle is absent, naming the install command.
+    let check = |pin_asset: &str, pin_digest: &str| {
+        Command::new(cargo())
+            .args(["run", "--offline", "--locked", "--manifest-path"])
+            .arg(&installer_manifest)
+            .args(["--", "--check", "--test-pin", &host, pin_asset, pin_digest])
+            .current_dir(&outside_workspace)
+            .env("CARGO_HOME", &cargo_home)
+            .env("CARGO_TARGET_DIR", &tool_target)
+            .env("HERMES_LEAN_SYS_MIRROR", &offline_mirror)
+            .env_remove("HERMES_LEAN_SYS_OFFLINE")
+            .output()
+            .expect("run installer --check through Cargo")
+    };
+    let checked = check(&asset, &archive_digest);
+    assert_success("installer --check with installed cache", &checked);
+    assert!(
+        output_text(&checked).contains("Verified"),
+        "--check did not report verification:\n{}",
+        output_text(&checked)
+    );
+    let unchecked = check("hermes-vanilla-missing.tar.gz", &"0".repeat(64));
+    assert!(
+        !unchecked.status.success(),
+        "--check must fail on a missing bundle"
+    );
+    assert!(
+        output_text(&unchecked).contains("cargo run --manifest-path"),
+        "--check miss does not name the install command:\n{}",
+        output_text(&unchecked)
+    );
+
     let missing_fixture = temporary.path().join("offline-missing");
     write_build_fixture(&missing_fixture, repository);
     let missing_digest = "0".repeat(64);

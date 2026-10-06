@@ -14,7 +14,20 @@
   var concat = String.prototype.concat;
   var canonicalize = Intl.getCanonicalLocales;
   var defineProperty = Object.defineProperty;
-  var defaultLocale = new Intl.NumberFormat().resolvedOptions().locale;
+  var NumberFormat = Intl.NumberFormat;
+  var resolvedOptions = NumberFormat.prototype.resolvedOptions;
+  // Resolved on first use, not at install: opening ICU's first number
+  // formatter costs about 6 ms on Windows's OS ICU, and a program that never
+  // maps case without a locale should not pay it.
+  // @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — first INTL install cost
+  var defaultLocale;
+
+  function currentDefaultLocale() {
+    if (defaultLocale === undefined) {
+      defaultLocale = apply(resolvedOptions, new NumberFormat(), []).locale;
+    }
+    return defaultLocale;
+  }
 
   function toString(value) {
     return apply(concat, "", [value]);
@@ -24,7 +37,7 @@
     // CanonicalizeLocaleList is observable and must run even when the string
     // being mapped is empty.
     var requested = apply(canonicalize, Intl, [locales]);
-    if (requested.length === 0) return defaultLocale;
+    if (requested.length === 0) return currentDefaultLocale();
     // ECMA-402 locale case mapping uses only the first requested locale. ICU
     // applies its casing-data fallback when that locale is unsupported; it is
     // incorrect to scan forward for a later locale supported by Collator.

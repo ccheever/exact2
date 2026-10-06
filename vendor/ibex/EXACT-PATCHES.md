@@ -3,7 +3,7 @@
 ## Snapshot and update recipe
 
 - Upstream: `https://github.com/expo/ibex.git` at
-  `ec949fef1cf4f92a8ce09bbc357ba8b150ec25a0` (2026-10-06).
+  `7f77c82a12f20a4cd3ebbe01fdaa7f22deb7c985` (2026-10-06).
 - Vendored: `crates/{ibex2,ibex2-sqlite,hermes-lean-sys,hermes-lean-sys-installer}`.
 - Minimum external inputs: `scripts/icu74-filter-{root-en,en-intl}.json`,
   embedded by `hermes-lean-sys`'s receipt tests, and
@@ -13,11 +13,13 @@
 - Hermes pin: Ibex release `hermes-vanilla-d412d3bd8512-v4`, whose attested
   artifacts carry Hermes `260318099.0.4` / source `d412d3bd…`.
 
-The `ec949fe` refresh replayed the complete Exact delta below from the former
-`0cd42c8` snapshot with the same stable patch id (`9d5dc416…`). Upstream's v4
-pin adds tvOS device and arm64 Simulator bundles, thin-at-build universal Apple
-Simulator archives, three Linux ICU data tiers, Windows OS-ICU Intl, and native
-Headers lifetime ownership. None replaces an Exact-only patch.
+The `7f77c82` refresh replayed the complete Exact delta below from the former
+`ec949fe` snapshot with the same stable patch id (`9d5dc416…`). Upstream now
+also exposes the resolver's offline validation as the installer's `--check`,
+makes its resolver fixture host-independent, and resolves the case-mapping
+default locale lazily. The v4 pin's tvOS bundles, universal Apple Simulator
+archives, Linux ICU tiers, Windows OS-ICU Intl, and native Headers lifetime
+ownership remain unchanged. None replaces an Exact-only patch.
 
 Stage an update without touching a live Ibex checkout, then review it as a
 three-way refresh against this ledger:

@@ -1143,55 +1143,82 @@ fn non_directory_cache_entry_is_rejected_before_use() {
 enum ArchiveEntry<'a> {
     Dir(&'a str),
     File(&'a str, &'a [u8]),
+    // Only the Unix permission-bit test builds one.
+    #[cfg(unix)]
     Executable(&'a str, &'a [u8]),
     Symlink(&'a str, &'a str),
 }
 
+/// Write `entries` as a gzipped GNU tar whose bytes are the same on every host.
+///
+/// Names go into the header's name field verbatim. `Builder::append_data` and
+/// `Header::set_path` take a `Path` and re-serialize it by the host's path
+/// rules: on Windows they wrote `dir\file` as `dir/file`, which the extractor
+/// rightly accepted, and refused to write `C:/file` or `\\?\C:\file` at all,
+/// so the refusal cases never reached the extractor there
+/// (issues/closed/20261006-hermes-lean-sys-windows-test-failures.md).
 fn write_archive(path: &Path, entries: &[ArchiveEntry<'_>]) {
+    fn append(
+        archive: &mut tar::Builder<GzEncoder<fs::File>>,
+        kind: tar::EntryType,
+        mode: u32,
+        name: &str,
+        contents: &[u8],
+        link: Option<&str>,
+    ) {
+        let mut header = tar::Header::new_gnu();
+        let field = &mut header.as_gnu_mut().expect("GNU header").name;
+        assert!(name.len() < field.len(), "fixture name too long: {name}");
+        field.fill(0);
+        field[..name.len()].copy_from_slice(name.as_bytes());
+        header.set_entry_type(kind);
+        header.set_mode(mode);
+        header.set_size(contents.len() as u64);
+        if let Some(target) = link {
+            header.set_link_name(target).expect("link target");
+        }
+        header.set_cksum();
+        archive.append(&header, contents).expect("archive entry");
+    }
+
     let file = fs::File::create(path).expect("archive file");
     let encoder = GzEncoder::new(file, Compression::default());
     let mut archive = tar::Builder::new(encoder);
     for entry in entries {
         match entry {
-            ArchiveEntry::Dir(name) => {
-                let mut header = tar::Header::new_gnu();
-                header.set_entry_type(tar::EntryType::Directory);
-                header.set_mode(0o755);
-                header.set_size(0);
-                header.set_cksum();
-                archive
-                    .append_data(&mut header, name, &[][..])
-                    .expect("directory entry");
-            }
-            ArchiveEntry::File(name, contents) => {
-                let mut header = tar::Header::new_gnu();
-                header.set_mode(0o644);
-                header.set_size(contents.len() as u64);
-                header.set_cksum();
-                archive
-                    .append_data(&mut header, name, *contents)
-                    .expect("regular entry");
-            }
-            ArchiveEntry::Executable(name, contents) => {
-                let mut header = tar::Header::new_gnu();
-                header.set_mode(0o755);
-                header.set_size(contents.len() as u64);
-                header.set_cksum();
-                archive
-                    .append_data(&mut header, name, *contents)
-                    .expect("executable entry");
-            }
-            ArchiveEntry::Symlink(name, target) => {
-                let mut header = tar::Header::new_gnu();
-                header.set_entry_type(tar::EntryType::Symlink);
-                header.set_mode(0o777);
-                header.set_size(0);
-                header.set_link_name(target).expect("link target");
-                header.set_cksum();
-                archive
-                    .append_data(&mut header, name, &[][..])
-                    .expect("link entry");
-            }
+            ArchiveEntry::Dir(name) => append(
+                &mut archive,
+                tar::EntryType::Directory,
+                0o755,
+                name,
+                &[],
+                None,
+            ),
+            ArchiveEntry::File(name, contents) => append(
+                &mut archive,
+                tar::EntryType::Regular,
+                0o644,
+                name,
+                contents,
+                None,
+            ),
+            #[cfg(unix)]
+            ArchiveEntry::Executable(name, contents) => append(
+                &mut archive,
+                tar::EntryType::Regular,
+                0o755,
+                name,
+                contents,
+                None,
+            ),
+            ArchiveEntry::Symlink(name, target) => append(
+                &mut archive,
+                tar::EntryType::Symlink,
+                0o777,
+                name,
+                &[],
+                Some(target),
+            ),
         }
     }
     let encoder = archive.into_inner().expect("finish tar");

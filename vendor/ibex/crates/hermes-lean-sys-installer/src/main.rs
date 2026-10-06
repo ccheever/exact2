@@ -14,13 +14,17 @@ use std::ffi::OsString;
 use std::process::Command;
 
 const USAGE: &str = "Install the pinned Hermes release bundles into Cargo's verified cache.\n\n\
-Usage:\n  hermes-lean-sys-installer [--target <rust-triple>]...\n\n\
+Usage:\n  hermes-lean-sys-installer [--check] [--target <rust-triple>]...\n\n\
 The host bundle is always installed. Each --target adds a cross-compilation\n\
-target; its host bundle supplies the executable hermesc.";
+target; its host bundle supplies the executable hermesc.\n\n\
+--check installs nothing and never uses the network: it runs the build\n\
+resolver's own validation on the cached bundles (receipt schema, digests,\n\
+target, compiler and bytecode version) and exits non-zero, naming the\n\
+install command, if any is missing or invalid.";
 
 fn main() {
     if let Err(error) = run(env::args_os().skip(1)) {
-        eprintln!("Hermes bundle installation failed: {error}");
+        eprintln!("Hermes bundle installation or check failed: {error}");
         std::process::exit(1);
     }
 }
@@ -35,7 +39,7 @@ fn run(arguments: impl Iterator<Item = OsString>) -> Result<(), String> {
         return Ok(());
     }
 
-    let (requested, test_pin) = parse_arguments(arguments)?;
+    let (requested, test_pin, check) = parse_arguments(arguments)?;
     let host = rustc_host()?;
     let mut targets = BTreeSet::from([host.clone()]);
     targets.extend(requested);
@@ -45,30 +49,42 @@ fn run(arguments: impl Iterator<Item = OsString>) -> Result<(), String> {
     // The installer IS the explicit online step. A consumer that forces
     // HERMES_LEAN_SYS_OFFLINE in its .cargo/config.toml [env] passes that value
     // to `cargo run` too, so the build's offline switch must not apply here.
-    options.offline = false;
+    // `--check` is the opposite: the same resolver path, cache only, so a
+    // setup check accepts exactly what an offline build would.
+    options.offline = check;
+    let (verb, done) = if check {
+        ("Checking", "Verified")
+    } else {
+        ("Installing", "Installed")
+    };
     println!(
-        "Installing Hermes pins {RELEASE_TAG} with {}",
+        "{verb} Hermes pins {RELEASE_TAG} with {}",
         installer_command(&options)
     );
 
-    println!("Installing pinned Hermes bundle for host {host}");
+    println!("{verb} pinned Hermes bundle for host {host}");
     let host_pin = selected_pin(&host, test_pin.as_ref())?;
     let validated_host = acquire_validated_host_bundle(host_pin, &options, &host, false)?;
-    println!("Installed {host} at {}", validated_host.root.display());
+    println!("{done} {host} at {}", validated_host.root.display());
 
+    // Cross targets are validated against the host bundle's compiler and
+    // bytecode version, exactly as a cross build resolves them.
     for target in targets.into_iter().filter(|target| target != &host) {
-        println!("Installing pinned Hermes bundle for target {target}");
+        println!("{verb} pinned Hermes bundle for target {target}");
         let pin = selected_pin(&target, test_pin.as_ref())?;
         let root = acquire_validated_target_bundle(pin, &options, &target, &validated_host, false)?;
-        println!("Installed {target} at {}", root.display());
+        println!("{done} {target} at {}", root.display());
     }
 
     Ok(())
 }
 
-fn parse_arguments(arguments: Vec<OsString>) -> Result<(Vec<String>, Option<BundlePin>), String> {
+type ParsedArguments = (Vec<String>, Option<BundlePin>, bool);
+
+fn parse_arguments(arguments: Vec<OsString>) -> Result<ParsedArguments, String> {
     let mut targets = Vec::new();
     let mut test_pin = None;
+    let mut check = false;
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
         let argument = argument
@@ -76,6 +92,7 @@ fn parse_arguments(arguments: Vec<OsString>) -> Result<(Vec<String>, Option<Bund
             .map_err(|_| "arguments must be UTF-8".to_owned())?;
         match argument.as_str() {
             "--target" => targets.push(value(&mut arguments, "--target")?),
+            "--check" => check = true,
             // This test-only override cannot weaken a real build: the build
             // resolver still admits only its compiled-in target and digest
             // table. It lets the end-to-end test exercise this executable
@@ -96,7 +113,7 @@ fn parse_arguments(arguments: Vec<OsString>) -> Result<(Vec<String>, Option<Bund
             _ => return Err(format!("unrecognized argument {argument:?}\n\n{USAGE}")),
         }
     }
-    Ok((targets, test_pin))
+    Ok((targets, test_pin, check))
 }
 
 fn value(arguments: &mut impl Iterator<Item = OsString>, option: &str) -> Result<String, String> {
@@ -144,7 +161,7 @@ mod tests {
 
     #[test]
     fn targets_are_repeatable_and_a_test_pin_is_explicit() {
-        let (targets, pin) = parse_arguments(
+        let (targets, pin, check) = parse_arguments(
             [
                 "--target",
                 "aarch64-apple-ios",
@@ -161,8 +178,23 @@ mod tests {
         )
         .expect("arguments");
         assert_eq!(targets, ["aarch64-apple-ios", "x86_64-unknown-linux-gnu"]);
+        assert!(!check, "--check is opt-in");
         let pin = pin.expect("test pin");
         assert_eq!(pin.target, "test-host");
         assert_eq!(pin.asset, "test.tar.gz");
+    }
+
+    #[test]
+    fn check_is_a_flag() {
+        let (targets, pin, check) = parse_arguments(
+            ["--check", "--target", "aarch64-apple-ios"]
+                .into_iter()
+                .map(OsString::from)
+                .collect(),
+        )
+        .expect("arguments");
+        assert!(check);
+        assert_eq!(targets, ["aarch64-apple-ios"]);
+        assert!(pin.is_none());
     }
 }
