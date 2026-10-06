@@ -1423,8 +1423,8 @@ fn refusals_from_the_app_diaries_name_the_fix() {
         ("substring(s, 1)", "write `slice(s, start, end)`"),
         ("padStart(s, 2, \"0\")", "LLP 1088 D2 defers it"),
         ("toUpperCase(s)", "`text-transform=\"uppercase\"`"),
-        ("parseInt(s)", "Contract does not parse numbers from text"),
-        ("Number(s)", "Contract does not parse numbers from text"),
+        ("parseInt(s)", "write `parseNumber(s)` for `parseInt`"),
+        ("Number(s)", "`none` for anything else"),
     ] {
         let (id, message) = idiom(call);
         assert_eq!(id, "type-refused-idiom", "{call}: {message}");

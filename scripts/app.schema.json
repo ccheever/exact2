@@ -287,6 +287,17 @@
                 "boolean"
               ]
             },
+            "appTransportSecurity": {
+              "description": "App Transport Security keys the build writes into the iOS Info.plist's `NSAppTransportSecurity`. Absent: no key, and ATS refuses cleartext `http://` to a named host. `localNetworking` adds `NSAllowsLocalNetworking` beside these.",
+              "type": "object",
+              "properties": {
+                "allowsArbitraryLoadsInWebContent": {
+                  "type": "boolean",
+                  "description": "`NSAllowsArbitraryLoadsInWebContent`: an `iframe` loads `http://` from any host, as a browser does. Web views only; a module's `URLSession` stays under ATS. Every build carries it, store builds too, and App Review may ask why."
+                }
+              },
+              "additionalProperties": false
+            },
             "backgroundModes": {
               "type": "array",
               "items": {
@@ -330,6 +341,17 @@
             "type": "string"
           }
         },
+            "appTransportSecurity": {
+              "description": "App Transport Security keys the build writes into the macOS Info.plist's `NSAppTransportSecurity`. Absent: no key, and ATS refuses cleartext `http://` to a named host.",
+              "type": "object",
+              "properties": {
+                "allowsArbitraryLoadsInWebContent": {
+                  "type": "boolean",
+                  "description": "`NSAllowsArbitraryLoadsInWebContent`: an `iframe` loads `http://` from any host, as a browser does. Web views only; a module's `URLSession` stays under ATS. Every build carries it, store builds too, and App Review may ask why."
+                }
+              },
+              "additionalProperties": false
+            },
             "team": {
               "type": "string"
             },

@@ -36,6 +36,11 @@ component A
   view
     text formatDate(0, 0, kind)
 ---
+== type-literal-digits
+component A
+  view
+    text toFixed(1.5, 101)
+---
 == type-list-item
 component A
   state xs = [1, "two"]

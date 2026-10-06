@@ -201,6 +201,8 @@ pub(crate) struct Collection {
     at_end: bool,
     /// Consecutive reports that said the port was travelling, while it opens.
     end_travel: u8,
+    /// The followed end last sent as a correction (`start::at_target`).
+    end_sent: f64,
     /// What a retiring row may be rebound to another item under (LLP 1078):
     /// `None` when no row of this list can be.
     reuse: Option<Rc<reuse::Reuse>>,
@@ -467,6 +469,7 @@ impl Collection {
             start_offset: 0.0,
             at_end,
             end_travel: 0,
+            end_sent: f64::NAN,
             reuse,
         });
         this.update_data(u, frames, true)?;
@@ -729,7 +732,10 @@ impl Collection {
                 .index
                 .restore_anchor(&anchor, g.port_main)
                 .map_err(index_error)?;
-            if (corrected - g.offset).abs() > 0.01 {
+            if !start::at_target(&anchor, corrected, g.offset, self.end_sent) {
+                if index::SizeIndex::follows_end(&anchor) {
+                    self.end_sent = corrected;
+                }
                 // Relative only where the anchor's row stayed put (an end
                 // followed or clamped is absolute: the host's own clamp has
                 // moved it). One not yet acknowledged by a report is still
@@ -1336,8 +1342,9 @@ impl Collection {
     ) -> Result<(), InstanceError> {
         let row = &self.mounted[by_view[&measurement.view]];
         let key = self.index.shared_key(row.position).unwrap().clone();
+        let size = self.index.denoised(row.position, measurement.size);
         self.index
-            .set_measured_height_at(row.position, row.token, measurement.size)
+            .set_measured_height_at(row.position, row.token, size)
             .map_err(index_error)?;
         if measurement.size == 0.0 {
             self.zero_heights.insert(key.to_string());
@@ -1391,8 +1398,7 @@ impl Collection {
             let row = &self.mounted[by_view[&m.view]];
             let key = self.index.key(row.position).unwrap();
             self.index.measurement_token(key) == Some(row.token)
-                && !(self.index.is_measured(key)
-                    && self.index.height(row.position) == Some(m.size)
+                && !(self.index.noise_at(row.position, m.size)
                     && (m.size == 0.0) == self.zero_heights.contains(key))
         };
         if feedback.measurements.iter().any(remeasures)
@@ -1428,7 +1434,7 @@ impl Collection {
             .index
             .restore_anchor(&anchor, g.port_main)
             .map_err(index_error)?;
-        if (corrected - feedback.offset).abs() > 0.01 {
+        if !start::at_target(&anchor, corrected, feedback.offset, self.end_sent) {
             return Ok(None);
         }
         let pins = self.pins();

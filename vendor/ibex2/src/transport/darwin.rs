@@ -36,6 +36,7 @@ extern "C" {
         body: *const c_uchar,
         body_len: usize,
         max_body: usize,
+        timeout_seconds: f64,
         out_error: *mut *mut c_char,
     ) -> *mut std::ffi::c_void;
     fn ibex2_darwin_http_headers(
@@ -232,6 +233,7 @@ impl Transport for DarwinTransport {
                 body.as_ptr(),
                 body.len(),
                 request.body_limit(),
+                request.timeout.map_or(0.0, |t| t.as_secs_f64()),
                 &mut error,
             )
         };

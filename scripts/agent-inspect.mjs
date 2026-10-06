@@ -144,7 +144,7 @@ export function identifyInspectedNode(reply, target) {
  *   state   the JSON, indented two spaces
  *   perf    {target} — seq [A..]B · clock [X..]Y ms · incarnation I [· partial: N walked]
  *           one row per site: component, file:line (or `site N`), then each counter the host has
- *   perf frames  period P ms (source) · presented N · late L · missed M · segments S, the window's
+ *   perf frames  period P ms (source) · presented N · late L · missed M [· overruns O] · segments S, the window's
  *           percentiles, then one line per late frame; `virtual clock: no frame was presented`
  *   others  the JSON on one line
  */
@@ -301,14 +301,14 @@ function renderPerf(r) {
   if (r.unavailable) return 'this host observes no presented frames';
   if (r.lifetime) {
     const w = r.window ?? {}, f = n => n == null ? '—' : `${n} ms`;
-    const out = [`period ${r.period.ms} ms (${r.period.source}) · presented ${r.lifetime.presented} · late ${r.lifetime.late} · missed ${r.lifetime.missed} · segments ${r.lifetime.segments}${r.covers?.length ? ` · covers ${r.covers.join(', ')}` : ''}`,
+    const out = [`period ${r.period.ms} ms (${r.period.source}) · presented ${r.lifetime.presented} · late ${r.lifetime.late} · missed ${r.lifetime.missed}${r.lifetime.overruns != null ? ` · overruns ${r.lifetime.overruns}` : ''} · segments ${r.lifetime.segments}${r.covers?.length ? ` · covers ${r.covers.join(', ')}` : ''}`,
       `window t=${w.from}..${w.to} · ${w.samples} samples (${w.dropped} dropped) · p50 ${f(w.p50)} · p95 ${f(w.p95)} · p99 ${f(w.p99)} · max ${f(w.max)}`];
     if (r.live) out.unshift(`live window ${r.live.ms} ms · clock ${r.live.from}..${r.live.to}`);
     for (const w of r.world ?? []) {
       const g = n => n == null ? '—' : `${Math.round(n * 100) / 100} ms`, ms = x => x ? `p50 ${g(x.p50)} p95 ${g(x.p95)} p99 ${g(x.p99)} mean ${g(x.mean)}` : '—';
       out.push(`  world ${w.canvas}: frame ${ms(w.perf.frameMs)} · tick ${ms(w.perf.tickMs)} · feed ${ms(w.perf.feedMs)} · encode ${ms(w.perf.encodeMs)}`);
     }
-    for (const l of r.late ?? []) out.push(`  t=${l.t} late: ${l.missed} missed (${l.interval} ms) · seq ${l.seq ? l.seq.join('..') : '—'}${l.apply != null ? ` · apply ${l.apply}` : ''}${l.layout != null ? ` · layout ${l.layout}` : ''}${l.loaf ? ` · loaf script ${l.loaf.script}${l.loaf.styleLayout != null ? ` style+layout ${l.loaf.styleLayout}` : ''}` : ''}`);
+    for (const l of r.late ?? []) out.push(`  t=${l.t} late: ${l.missed} missed (${l.interval} ms)${l.overrun ? ` · main ${l.overrun} ms past the target` : ''} · seq ${l.seq ? l.seq.join('..') : '—'}${l.apply != null ? ` · apply ${l.apply}` : ''}${l.layout != null ? ` · layout ${l.layout}` : ''}${l.loaf ? ` · loaf script ${l.loaf.script}${l.loaf.styleLayout != null ? ` style+layout ${l.loaf.styleLayout}` : ''}` : ''}`);
     return out.join('\n');
   }
   const round = x => typeof x === 'number' ? Math.round(x * 100) / 100 : x;
@@ -382,7 +382,7 @@ export function renderTrace(t) {
       while (from > 0 && at - from < 5 && !lines[from - 1].includes(' frame late at ')) from--;
       const near = at < 0 ? [] : lines.slice(from, at);
       const n = r.seq ? r.seq[1] - r.seq[0] + 1 : 0;
-      out.push(`  late at ${r.t}: ${r.missed} missed (${r.interval} ms) · ${n} transaction${n === 1 ? '' : 's'}${r.seq ? ` (seq ${r.seq.join('..')})` : ''}${r.apply ? ` · apply ${r.apply}` : ''}${r.layout != null ? ` · layout ${r.layout}` : ''}${r.paint != null ? ` · paint ${r.paint}` : ''}${r.loaf ? ` · loaf script ${r.loaf.script}${r.loaf.styleLayout != null ? ` style+layout ${r.loaf.styleLayout}` : ''}` : ''}${at < 0 ? ' · its journal line is gone (the ring turned over)' : ` · ${near.length} journal line${near.length === 1 ? '' : 's'} before it`}`);
+      out.push(`  late at ${r.t}: ${r.missed} missed (${r.interval} ms)${r.overrun ? ` · main ${r.overrun} ms past the target` : ''} · ${n} transaction${n === 1 ? '' : 's'}${r.seq ? ` (seq ${r.seq.join('..')})` : ''}${r.apply ? ` · apply ${r.apply}` : ''}${r.layout != null ? ` · layout ${r.layout}` : ''}${r.paint != null ? ` · paint ${r.paint}` : ''}${r.loaf ? ` · loaf script ${r.loaf.script}${r.loaf.styleLayout != null ? ` style+layout ${r.loaf.styleLayout}` : ''}` : ''}${at < 0 ? ' · its journal line is gone (the ring turned over)' : ` · ${near.length} journal line${near.length === 1 ? '' : 's'} before it`}`);
       for (const l of near) out.push(`    ${l}`);
     }
   } else if (t.frames) out.push('', renderPerf(t.frames));

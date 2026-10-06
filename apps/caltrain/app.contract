@@ -328,7 +328,7 @@ component Content
             DirectionCard(title="Southbound", board=southBoard, nowMs=nowMs, focusDeparture=focusDeparture, testId="board-south")
         else
           section role="region" aria-label="Stations" display="flex" flex-direction="column" gap=12 testId="stations-screen" background-color="#ffffffd9" border-radius=16 padding=14 box-sizing="border-box"
-            input value=query input=setQuery focus=focusSearch blur=blurSearch key=searchKey placeholder="Search stations" aria-label="Search stations" testId="station-search" padding=12 border-radius=10 border-style="solid" border-width=1 border-color="#cccccc"
+            input appearance="none" value=query input=setQuery focus=focusSearch blur=blurSearch key=searchKey placeholder="Search stations" aria-label="Search stations" testId="station-search" padding=12 border-radius=10 border-style="solid" border-width=1 border-color="#cccccc"
             when searchFocused
               text `searching · last key ${lastKey}` font-size="0.6875em" color="#999999" testId="search-hint"
             when query == ""

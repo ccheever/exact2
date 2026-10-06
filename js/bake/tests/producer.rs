@@ -1039,3 +1039,62 @@ fn a_slow_first_frame_source_bakes_whatever_the_wall_clock() {
         "the slow source's first frame is baked"
     );
 }
+
+/// The clock in the app's own code is refused at build, by file and line,
+/// in both compilers, so a Bun test (no guard there) cannot hide it from a
+/// device that refuses it on first use (LLP 1027.000).
+#[test]
+fn the_clock_in_a_data_module_is_refused_at_build_by_file_and_line() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    f.write(
+        "logic.ts",
+        "export const prefix = 'old: ';\nexport const stamp = () => Date.now();\n",
+    );
+    let error = bake(&f.0, &Tools::default())
+        .err()
+        .expect("Date.now() refused");
+    assert!(
+        error.contains("logic.ts:2:28: Date.now() is unavailable in data sources; pass time or a random seed as an argument"),
+        "{error}"
+    );
+    let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
+    assert!(producer
+        .bake(&f.0, None)
+        .err()
+        .unwrap()
+        .contains("logic.ts:2:28: Date.now()"));
+    // Through a global object, past `!`, after a CR line break.
+    f.write("logic.ts", "export const prefix = 'old: ';\rexport const a = () => globalThis.Date.now();\nexport const b = () => Date.now!();\nexport const c = () => window.setTimeout(() => {}, 1);\n");
+    let error = producer.bake(&f.0, None).err().unwrap();
+    assert!(error.contains("logic.ts:2:24: Date.now()"), "{error}");
+    assert!(error.contains("logic.ts:3:24: Date.now()"), "{error}");
+    assert!(
+        error.contains(
+            "logic.ts:4:24: setTimeout() is unavailable in data sources: there are no timers"
+        ),
+        "{error}"
+    );
+    // An angle-bracket assertion, a `declare`d class and a type-only
+    // namespace are erased: the global runs.
+    f.write("logic.ts", "export const prefix = 'old: ';\ndeclare class Date { static now(): number }\nnamespace Math { export type R = number }\nexport const a = () => (<any>Date).now() + Math.random();\n");
+    let error = producer.bake(&f.0, None).err().unwrap();
+    assert!(error.contains("logic.ts:4:24: Date.now()"), "{error}");
+    assert!(error.contains("logic.ts:4:44: Math.random()"), "{error}");
+    // An explicit date, a member named `now` elsewhere, a comment, and a
+    // `Date` or `performance` the module binds itself are fine.
+    f.write("logic.ts", "export const prefix = 'old: ';\n// Date.now() is refused\nexport const epoch = new Date(0).getTime() + ({ now: () => 1 }).now();\nexport const stamp = (performance: { now(): number }) => performance.now();\n");
+    assert!(
+        producer.bake(&f.0, None).is_ok(),
+        "{:?}",
+        producer.bake(&f.0, None).err()
+    );
+    f.write("logic.ts", "export const prefix = 'old: ';\nnamespace Date { export function now() { return 1; } }\nexport const local = () => Date.now();\n");
+    assert!(
+        producer.bake(&f.0, None).is_ok(),
+        "{:?}",
+        producer.bake(&f.0, None).err()
+    );
+}

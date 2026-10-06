@@ -1,0 +1,33 @@
+// formatDecimal (LLP 1102 §3.2, decided (c)): an integer count of a smallest
+// unit as a decimal, exactly: 1234 at 2 is "12.34", -5 at 2 is "-0.05", 7 at
+// 0 is "7", -0 is "0.00"; a count that is not an integer, or not finite, is
+// "", so money rounds first: formatDecimal(round(price * 100), 2).
+component App
+  state price = 19.995
+  state zero = 0
+  derive money = formatDecimal(round(price * 100), 2)
+  derive cases = `${formatDecimal(1234, 2)} ${formatDecimal(-5, 2)} ${formatDecimal(7, 0)} ${formatDecimal(-0, 2)} ${formatDecimal(5, 20)} ${formatDecimal(-1234567, 3)}`
+  derive big = `${formatDecimal(9007199254740993, 2)} ${formatDecimal(1000000000000000000000, 0)} ${formatDecimal(-1000000000000000000000, 4)}`
+  derive bad = `[${formatDecimal(12.5, 2)}][${formatDecimal(1 / zero, 2)}][${formatDecimal(zero / zero, 0)}]`
+  action set(v: number)
+    price = v
+  view
+    column
+      text money testId="money"
+      text cases testId="cases"
+      text big testId="big"
+      text bad testId="bad"
+      button "refund" press=set(-0.004) testId="refund"
+      button "cents" press=set(0.1 + 0.2) testId="cents"
+
+test "values"
+  expect text "money" == "20.00"
+  expect text "cases" == "12.34 -0.05 7 0.00 0.00000000000000000005 -1234.567"
+  expect text "big" == "90071992547409.92 1000000000000000000000 -100000000000000000.0000"
+  expect text "bad" == "[][][]"
+
+test "changed"
+  tap "refund"
+  expect text "money" == "0.00"
+  tap "cents"
+  expect text "money" == "0.30"

@@ -167,7 +167,7 @@ component Weatherlight
               button press=closeSearch testId="close-search" aria-label="Close city search" padding=8
                 text "Close ×" color="#536b78"
             row gap=8
-              input id="city-query" testId="city-query" value=query input=changeQuery key=searchKey placeholder="City or postal code" aria-label="City or postal code" flex=1 min-width=0 padding=12 border-radius=8 border-style="solid" border-width=1 border-color="#c7d2ce" font-size=16
+              input appearance="none" id="city-query" testId="city-query" value=query input=changeQuery key=searchKey placeholder="City or postal code" aria-label="City or postal code" flex=1 min-width=0 padding=12 border-radius=8 border-style="solid" border-width=1 border-color="#c7d2ce" font-size=16
               button press=search testId="search-city" padding=12 border-radius=8 background-color="#183444"
                 text "Search" color="#ffffff"
             when pending(places)

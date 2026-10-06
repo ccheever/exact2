@@ -38,7 +38,7 @@ final class RasterInput: @unchecked Sendable {
         guard !cancellation.isCancelled else { throw URLError(.cancelled) }
         // The app's own file (LLP 1069.002 D7): a picked photo's preview.
         if name.hasPrefix("app:/") {
-            guard let url = AppFiles.url(name) else { throw RasterFailure.decode }
+            guard let url = AppFiles.url(name) else { throw RasterFailure.unresolved }
             let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
             guard values.isRegularFile == true, let count = values.fileSize,
                   count > 0, count <= RasterMetadata.encodedLimit else { throw RasterFailure.encodedLimit }
@@ -48,17 +48,17 @@ final class RasterInput: @unchecked Sendable {
         // spooled like a download's, so metadata and decode read a file.
         if name.hasPrefix("data:") {
             guard name.utf8.count <= dataLimit, let bytes = dataURL(name), !bytes.isEmpty else { throw RasterFailure.decode }
-            let file = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-raster-\(UUID().uuidString)")
+            let file = try RasterSpool.file()
             try bytes.write(to: file, options: .atomic)
             return RasterInput(url: file, encodedBytes: bytes.count, temporary: true)
         }
         if let url = URL(string: name), let scheme = url.scheme {
-            guard scheme == "https" || scheme == "http" else { throw RasterFailure.decode }
+            guard scheme == "https" || scheme == "http" else { throw RasterFailure.unresolved }
             let download = try RasterDownload(url: url)
             let (file, count) = try download.run(cancellation)
             return RasterInput(url: file, encodedBytes: count, temporary: true)
         }
-        guard let url = resolver.url(name, maximumBytes: RasterMetadata.encodedLimit) else { throw RasterFailure.decode }
+        guard let url = resolver.url(name, maximumBytes: RasterMetadata.encodedLimit) else { throw RasterFailure.unresolved }
         let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
         guard values.isRegularFile == true, let count = values.fileSize,
               count > 0, count <= RasterMetadata.encodedLimit else { throw RasterFailure.encodedLimit }
@@ -100,6 +100,12 @@ final class RasterInput: @unchecked Sendable {
     }
 }
 
+/// A response that is not 2xx: its status is the image's `error` (LLP 1011 §4).
+struct RasterHTTPStatus: Error, CustomStringConvertible {
+    let code: Int
+    var description: String { "HTTP \(code)" }
+}
+
 private final class RasterDownload: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     // Encoded HTTP responses are separate from the decoded-raster ledger.
     // Keep them across process restarts without another in-memory image cache.
@@ -118,7 +124,7 @@ private final class RasterDownload: NSObject, URLSessionDataDelegate, @unchecked
     private var failure: Error?
     init(url: URL) throws {
         self.url = url
-        destination = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-raster-\(UUID().uuidString)")
+        destination = try RasterSpool.file()
         guard FileManager.default.createFile(atPath: destination.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw RasterFailure.decode }
         file = try FileHandle(forWritingTo: destination)
         super.init()
@@ -145,8 +151,10 @@ private final class RasterDownload: NSObject, URLSessionDataDelegate, @unchecked
     }
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        guard response.expectedContentLength <= RasterMetadata.encodedLimit,
-              (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? false else {
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            failure = RasterHTTPStatus(code: (response as? HTTPURLResponse)?.statusCode ?? 0); completionHandler(.cancel); return
+        }
+        guard response.expectedContentLength <= RasterMetadata.encodedLimit else {
             failure = RasterFailure.encodedLimit; completionHandler(.cancel); return
         }
         completionHandler(.allow)

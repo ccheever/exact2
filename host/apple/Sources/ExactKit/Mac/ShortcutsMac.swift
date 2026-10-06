@@ -62,7 +62,20 @@ private struct Shortcut {
                 characters = event.characters(byApplyingModifiers: event.modifierFlags.intersection([.shift, .capsLock, .option]))
             }
         }
-        return characters?.lowercased() == keyEquivalent.lowercased()
+        if characters?.lowercased() == keyEquivalent.lowercased() { return true }
+        // A key that types no Latin character (ㅠ on B under Korean 2-Set,
+        // Russian, Greek) is the one the ASCII-capable layout puts there, as
+        // the web falls back to `code`. A Latin layout's own character
+        // (AZERTY, Dvorak, German's ö) stays the key, so no chord fires twice.
+        guard let typed = characters, Self.typesNonLatin(typed),
+              let physical = KeyCodes.asciiCharacters(event.keyCode, shift: event.modifierFlags.contains(.shift),
+                                                       option: modifiers.contains(.option)) else { return false }
+        return physical.lowercased() == keyEquivalent.lowercased()
+    }
+    /// Characters outside ASCII, the Latin script and AppKit's function-key range.
+    static func typesNonLatin(_ characters: String) -> Bool {
+        characters.unicodeScalars.contains { $0.value > 0x7f && !(0xf700...0xf8ff).contains($0.value) }
+            && characters.range(of: "\\p{Latin}", options: .regularExpression) == nil
     }
     /// The chords a Mac's Edit menu holds (Apple's HIG): Undo, Redo, Cut,
     /// Copy, Paste, Select All, Duplicate, and Find with its next and
@@ -94,6 +107,17 @@ private struct Shortcut {
 /// (including Return on the highlighted item) retain AppKit's usual behavior.
 final class ShortcutMenu: NSMenu {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // AppKit compares the typed character with the item's, so a key that
+        // types no Latin one (ㅠ under Korean 2-Set) misses ⌘B: the item its
+        // physical key's chord names runs here instead (its action validates,
+        // and AppKit too takes a matching key for a disabled item).
+        if let typed = event.charactersIgnoringModifiers, Shortcut.typesNonLatin(typed),
+           let index = items.firstIndex(where: { item in
+               (item.target as? ShortcutHost)?.menuEquivalent(item, matching: event).isEmpty == false
+           }) {
+            performActionForItem(at: index)
+            return true
+        }
         // AppKit caches equivalents internally, so its stored value must be
         // cleared for the lookup. Restore from current declarations: a command
         // may synchronously update the plan and its menu while being dispatched.

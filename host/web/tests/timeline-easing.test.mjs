@@ -7,7 +7,7 @@
 // directions and keyframe easing included.
 import { test, expect } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -203,8 +203,11 @@ check('in Chrome, followers match timeline progress and stop when a consumer res
   const server = createServer((req, res) => {
     if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
     const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-    const file = path === '/motion-glue.js' || path === '/js/motion-glue.js' ? resolve(WEB, 'motion-glue.js')
-      : path.startsWith('/js/') ? resolve(WEB_JS, path.slice(4)) : null;
+    // names.js is a build's output (the plan's names), which rt.js reaches through perf.js since db825de7b; as presence.test.mjs serves it.
+    if (path === '/js/names.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end('export const sourceTypes = {};'); return; }
+    // As the JS target's build lays it out: host/web-js's modules, beside the host/web glue it copies in (build.mjs).
+    const name = path.startsWith('/js/') ? path.slice(4) : path === '/motion-glue.js' ? 'motion-glue.js' : null;
+    const file = name == null ? null : existsSync(resolve(WEB_JS, name)) ? resolve(WEB_JS, name) : resolve(WEB, name);
     if (!file) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(file));
   });

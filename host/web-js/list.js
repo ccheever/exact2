@@ -11,8 +11,16 @@
 import { sig, effect, scope, end, untracked, write, writeItem, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, adopting, adoptRow, settled, Refusal, Hosts, exitView, clock } from "./rt.js";
 
 const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 2, KEPT = 4096;
+// A port within half a point of a followed end already sent is at it: hosts round offsets to device pixels (start.rs `at_target`).
+const atTarget = (a, c, offset, sent) => { const gap = Math.abs(c - offset); return gap <= 0.01 || (a.follows && gap <= 0.5 && Math.abs(c - sent) <= 0.01); };
 const lead = (port, v) => { const extra = Math.min(Math.abs(v) * LEAD_SECONDS, port * 2); return v > 0 ? [port, port + extra] : [port + extra, port]; };
 const same = Object.is;
+// A row remeasured within this of the height it already has keeps that
+// height (mod.rs `MEASURE_NOISE`): a translated row reads float32 ulps off
+// (58 as 57.99997), and a revision bumped by that would refuse the drop a
+// gap was certified for (LLP 1094 D7).
+const MEASURE_NOISE = 0.01;
+const noise = (index, key, position, size) => index.measured(key) && (index.h[position] === 0) === (size === 0) && Math.abs(index.h[position] - size) <= MEASURE_NOISE;
 
 // ---------------------------------------------------------------- the size index (index.rs)
 // A sum tree over row heights; `me` is each leaf's measured epoch (0: an
@@ -179,7 +187,7 @@ class Collection {
     this.port = sizes.length ? Math.min(...sizes) : null;
     this.bootstrap = o.init ?? Math.max(1, Math.min(BOOTSTRAP_ROWS, Math.min(Math.ceil(BOOTSTRAP_ROWS * ESTIMATED / this.est), o.inRow && this.port ? Math.ceil(this.port / this.est) + 1 : Infinity)));
     Object.assign(this, { items: [], idents: [], dups: new Map(), mounted: [], spacers: [], children: [], revision: 0, nextEpoch: 0,
-      zeros: new Set(), geometry: null, correction: null, followEnd: false, edgeArmed: [true, true], pending: false, parent: null,
+      zeros: new Set(), geometry: null, correction: null, endSent: NaN, followEnd: false, edgeArmed: [true, true], pending: false, parent: null,
       kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, status: null, preview: null, atEnd: !!o.atEnd, endTravel: 0 });
     this.edges = [o.start, o.end];
   }
@@ -199,9 +207,13 @@ class Collection {
     if (compare && !rekeyed) { inPlace = []; items.forEach((it, p) => { if (!same(it, this.items[p])) inPlace.push(p); }); }
     if (rekeyed) { this.index.replace(idents); this.idents = idents; this.dups = dups; }
     const moved = rekeyed || !inPlace || inPlace.length;
-    if (this.preview && moved) this.endPreview();
     // A grouped session's offsets move with its rows, at once (LLP 1094 D8).
-    this.instant = !!(moved && (this.incoming || this.preview?.grouped));
+    const instant = !!(moved && (this.incoming || this.preview?.grouped));
+    // A held drop's row already left the index above, so its rows' offsets
+    // fall to zero here, in the commit that moved them: at once too. (The
+    // runner ends the preview before its index changes, mod.rs `update_data`.)
+    if (this.preview && moved) { if (this.preview.holding) this.instant = instant; this.endPreview(); }
+    this.instant = instant;
     if (moved) this.preparedMove?.();
     this.items = items;
     if (this.kept.size) for (const k of [...this.kept.keys()]) if (!this.index.pos.has(k.split("\0")[0])) this.kept.delete(k);
@@ -261,7 +273,8 @@ class Collection {
     const g = this.geometry;
     if (!a || !g) return;
     const c = this.index.restoreAnchor(a, g.port_main);
-    if (Math.abs(c - g.offset) > 0.01) {
+    if (!atTarget(a, c, g.offset, this.endSent)) {
+      if (a.follows) this.endSent = c;
       // An anchor's correction is relative where its row stayed put
       // (mod.rs `restore`): from where the anchor was taken, or from where
       // an unacknowledged one began.
@@ -497,7 +510,7 @@ class Collection {
   dims(f) { const g = this.geometry; return g && g.port_cross === f.port_cross && g.port_main === f.port_main && g.cross === f.cross && g.focus_view === f.focus_view && g.interaction_view === f.interaction_view; }
   measure(byView, r) {
     const m = this.mounted[byView.get(r.view)], key = this.index.order[m.position];
-    this.index.setMeasured(key, m.token, r.size);
+    this.index.setMeasured(key, m.token, noise(this.index, key, m.position, r.size) ? this.index.h[m.position] : r.size);
     if (r.size === 0) this.zeros.add(key); else this.zeros.delete(key);
   }
   feedback(f, byView, fill) {
@@ -542,11 +555,11 @@ class Collection {
     if (!g) return undefined;
     const remeasures = r => {
       const m = this.mounted[byView.get(r.view)], key = this.index.order[m.position];
-      return this.index.token(key) === m.token && !(this.index.measured(key) && this.index.h[m.position] === r.size && (r.size === 0) === this.zeros.has(key));
+      return this.index.token(key) === m.token && !(noise(this.index, key, m.position, r.size) && (r.size === 0) === this.zeros.has(key));
     };
     if (f.measurements.some(remeasures) || this.restoredAt || this.atEnd || this.target || this.pending || this.correction || !this.dims(f)) return undefined;
     const a = this.index.anchor(f.offset, g.port_main, this.followEnd);
-    if (Math.abs(this.index.restoreAnchor(a, g.port_main) - f.offset) > 0.01) return undefined;
+    if (!atTarget(a, this.index.restoreAnchor(a, g.port_main), f.offset, this.endSent)) return undefined;
     const pins = this.pins();
     const w = this.index.window(f.offset, f.port_main, lead(f.port_main, fill.velocity ?? 0), [this.pin(pins[0]), this.pin(pins[1])]);
     let k = 0;

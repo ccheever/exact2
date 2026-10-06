@@ -859,7 +859,7 @@ fn commands_exit_the_side_and_refusals_leave_the_kernel_untouched() {
 
     r.data().wrong_shape = true;
     let err = r.act("selectStation", vec![Value::str("pa")]).unwrap_err();
-    assert!(matches!(err, RunnerError::Shape { ref resource } if resource == "board"));
+    assert!(matches!(err, RunnerError::Shape { ref resource, .. } if resource == "board"));
     assert_eq!(
         r.kernel().export(None).unwrap(),
         before,

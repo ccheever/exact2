@@ -190,6 +190,35 @@ fn independent_fetch_is_explicit_bounded_and_keeps_each_invocation() {
     }
 }
 
+#[test]
+fn a_fetch_deadline_reaches_the_request_and_its_timeout_rejects_with_its_kind() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource result = timed(250) as shape string\n  view\n    text result\n").unwrap());
+    let mut s = store();
+    let args = [Value::Number(250.0)];
+    let request = later(m.answer(&mut s, "timed", &args).unwrap());
+    assert_eq!(request.timeout_ms, Some(250));
+    let timed_out = Outcome::Failed {
+        kind: exact_runner::FailureKind::Timeout,
+        message: "the request timed out after 250 ms".into(),
+    };
+    assert_eq!(
+        now(m.parse(&mut s, "timed", &args, timed_out).unwrap()),
+        Value::str("failed: Timeout: the request timed out after 250 ms")
+    );
+    // A deadline out of range is the fetch's TypeError, before any request.
+    for bad in [0.0, -1.0, 1.5, 3600001.0] {
+        let refused = now(m.answer(&mut s, "timed", &[Value::Number(bad)]).unwrap());
+        assert!(
+            refused.as_str().is_some_and(|m| m.contains(
+                "exactTimeout must be an integer number of milliseconds from 1 to 3600000"
+            )),
+            "{refused:?}"
+        );
+        assert_eq!(m.in_flight(), 0);
+    }
+}
+
 fn event(id: &str, data: &str, coalesced: u32) -> Outcome {
     Outcome::Message(exact_runner::Message {
         event: String::new(),
@@ -979,4 +1008,50 @@ fn a_worker_placed_answer_takes_a_large_reply_as_it_takes_a_small_one() {
         assert!(ok && username == "ada", "{size}");
         assert_eq!(text.len(), size, "{size}");
     }
+}
+
+/// A superseded send's continuation runs, never vanishes (the Signal
+/// clone's stuck `flushing` flag): the runner lets its request go, its fetch
+/// rejects as `Aborted`, and its `finally` clears what it set.
+#[test]
+fn a_let_go_call_waiting_on_a_fetch_runs_its_continuation() {
+    use exact_runner::{DataSource, Target};
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  mutation sent as shape string\n  resource busy = flushing() as shape string\n  action go(v: string)\n    send sent = flush(v)\n  view\n    text busy\n").unwrap());
+    let mut s = store();
+    let request = later(
+        m.answer_for(Target::Mutation(0), &mut s, "flush", &[Value::str("hi")])
+            .unwrap(),
+    );
+    assert_eq!(request.method, "POST");
+    assert_eq!(
+        now(m.answer(&mut s, "flushing", &[]).unwrap()),
+        Value::str("true ")
+    );
+    // A newer send replaced it: nothing of the first is in flight.
+    m.forgotten(&s, &[]);
+    assert_eq!(
+        now(m.answer(&mut s, "flushing", &[]).unwrap()),
+        Value::str("false Aborted: the answer was let go before this reply; the request may already have been sent")
+    );
+    assert_eq!(m.in_flight(), 0);
+}
+
+/// A stream's promise never settles, ended or let go: no second rejection
+/// after its mapper took the end (review of the let-go fix).
+#[test]
+fn a_let_go_stream_does_not_reject_its_fetch() {
+    use exact_runner::{DataSource, Target};
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource feed = events(\"0\") as shape string\n  view\n    text feed\n").unwrap());
+    let mut s = store();
+    let request = later(
+        m.answer_for(Target::Resource(0), &mut s, "events", &[Value::str("0")])
+            .unwrap(),
+    );
+    assert!(request.stream);
+    m.forgotten(&s, &[]);
+    assert_eq!(m.in_flight(), 0);
+    let logs = m.take_logs().join("\n");
+    assert!(!logs.contains("unhandled rejection"), "{logs}");
 }

@@ -144,10 +144,6 @@ struct Parked {
     last: bool,
 }
 
-/// The token of a resource the bake could not answer (storage refused at
-/// bake): its placeholder shows and the device asks it at launch. Never
-/// dispatched (see [`Module::answer_for`]).
-const UNASKED: u64 = u64::MAX;
 /// The ticket of an answer that awaits another answer's work (a fetch it
 /// shares, a queue behind another's storage): it waits while the module has
 /// work outstanding, and is asked again after each delivery (LLP
@@ -187,8 +183,6 @@ struct HostState {
     documents: bool,
     /// The bake's module ([`Module::inspect`]): storage refuses as `bake`.
     baking: bool,
-    /// Storage calls the bake refused so far (see [`Module::answer_for`]).
-    bake_refusals: u64,
     /// The runtime's own journal lines since the last take (LLP 1097 D8).
     journal: Vec<String>,
     /// Delivering between answers (a background round, a let-go call's

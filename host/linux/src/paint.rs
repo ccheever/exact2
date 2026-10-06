@@ -1101,6 +1101,10 @@ impl Painter {
                     );
                     let at_end = || exact_runner::FieldSelection::at_end(value);
                     self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
+                    if node.props.str(PropId::FieldStyle).is_some() {
+                        let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
+                        self.field_ring(&surface.outer, accent, ts);
+                    }
                 }
             }
             NodeType::Svg => self.svg(walk, node, rect, content, ts),

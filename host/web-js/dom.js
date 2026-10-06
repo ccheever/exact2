@@ -86,12 +86,12 @@ class Element extends Node {
   get classList() { const names = (this.getAttribute('class') ?? '').split(/\s+/).filter(Boolean); return Object.assign(names, { contains: c => names.includes(c) }); }
   set href(v) { this.setAttribute('href', v); }
   html(inheritedFont = 16) {
-    // Symbol images need a real natural size before adoption. Contract's
-    // font-size is numeric; static classes and live inline rows inherit it.
+    // Symbol images need a real natural size before adoption: the element's
+    // font size, from its static class or live inline row, else inherited.
     let font = inheritedFont;
-    for (const cls of (this.getAttribute('class') ?? '').split(/\s+/)) if (this.fonts?.has(cls)) font = this.fonts.get(cls);
+    for (const cls of (this.getAttribute('class') ?? '').split(/\s+/)) if (this.fonts?.has(cls)) font = fontPx(this.fonts.get(cls), inheritedFont);
     const ownFont = this.style.getPropertyValue('font-size');
-    if (ownFont !== '') font = parseFloat(ownFont);
+    if (ownFont !== '') font = fontPx(ownFont, inheritedFont);
     if (this.localName === 'img' && this.hasAttribute('data-symbol-source')) this.setAttribute('src', `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='${font}' height='${font}'/%3E`);
     // A head is the page's <head>, never an element in the root (as document.rs).
     if (this.localName === 'template') return '';
@@ -105,12 +105,21 @@ class Element extends Node {
   }
 }
 
+// A `font-size` in px, `em` (of the inherited size) or `rem` (of CSS's
+// initial 16: a render has no reader's setting), as the browser resolves it.
+const fontPx = (value, inherited) => {
+  const m = /^\s*([\d.]+)(px|em|rem)?\s*$/i.exec(value);
+  if (!m) return inherited;
+  const unit = (m[2] ?? 'px').toLowerCase();
+  return Number(m[1]) * (unit === 'em' ? inherited : unit === 'rem' ? 16 : 1);
+};
+
 /** A document for one render: `#exact-root` in a body, a head for metas. */
 export function createDocument(shell = '') {
   const fonts = new Map();
   for (const rule of shell.matchAll(/\.([\w-]+)\{([^}]+)\}/g)) {
-    const size = /(?:^|;)font-size:([\d.]+)px(?:;|$)/.exec(rule[2]);
-    if (size) fonts.set(rule[1], Number(size[1]));
+    const size = /(?:^|;)font-size:([^;]+)(?:;|$)/.exec(rule[2]);
+    if (size) fonts.set(rule[1], size[1]);
   }
   const doc = new Node(9);
   const root = new Element('div'); root.setAttribute('id', 'exact-root');

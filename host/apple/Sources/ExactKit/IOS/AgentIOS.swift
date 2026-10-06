@@ -367,6 +367,8 @@ extension Agent {
         }
         node["scroll"] = scroll
         node["clip"] = clip
+        // CSS `visibility: hidden` with nothing of it showing, or a hidden run (e28279b3b keeps the view).
+        if hiddenBy == nil, !host.accessibilityExposed || presenter.inlineText(UInt32(id))?.hidden == true { hiddenBy = "visibility" }
         var visible: [String: Any] = ["hidden": hiddenBy != nil, "inert": inertBy != nil, "inViewport": b.intersects(CGRect(origin: .zero, size: vp.bounds.size)), "clipped": clipped]
         if let hiddenBy { visible["hiddenBy"] = hiddenBy }
         if let inertBy { visible["inertBy"] = inertBy }
@@ -453,7 +455,7 @@ extension Agent {
         if let reply = canvasTap(req) { return reply }
         if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
-            guard node.window != nil, !node.inert, !node.disabled else { return ["error": "inline node #\(id) is unavailable"] }
+            guard node.window != nil, !node.inert, !node.disabled, !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
             if req["hover"] as? Bool == true {
                 presenter.hoverInline(run.handlers.contains("hover") ? id : nil)
                 return ["tapped": Int(id), "hover": true]
@@ -831,7 +833,7 @@ extension Agent {
                 } else if presenter.controls.radioKey(focus, name, held: held) { // x2apps survey #2
                 } else if focus.handlers.contains("press") || focus.defaultLink != nil, name == "Enter" || (name == " " && focus.props["href"] == nil) { presenter.press(focus.id) }
             }
-            return ["typed": Int(v.id), "key": key, "value": v.textArea?.text ?? v.field?.text ?? "", "delivery": "recognized"]
+            return ["typed": Int(v.id), "key": key, "value": Agent.shownValue(v.textArea?.text ?? v.field?.text ?? "", of: v), "delivery": "recognized"]
         }
         if let f = v.textArea {
             f.becomeFirstResponder()
@@ -847,7 +849,7 @@ extension Agent {
         f.becomeFirstResponder()
         f.selectAll(nil)
         f.insertText(text)
-        return ["typed": Int(v.id), "value": f.text ?? ""]
+        return ["typed": Int(v.id), "value": Agent.shownValue(f.text ?? "", of: v)]
     }
 
     /// A hardware keyboard's caret keys in a field, which UIKit performs and

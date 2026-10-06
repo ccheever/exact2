@@ -300,22 +300,14 @@ impl DataSource for Module {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
-        let refused = self.host.bake_refusals;
+        // A resource whose answer the bake's storage refusal ended (an
+        // uncaught `code: 'bake'`) is the device's to answer: that is
+        // `DeferredAtBake` (aab190948), and the runner shows its placeholder.
+        // An error the source raises itself stays fatal, even after a
+        // refusal it caught (kanban2 #5).
         let answer = self.begin(Some(store), Some(target), source, args);
         self.refresh_background();
-        // A resource whose answer failed after the bake refused it storage
-        // is the device's to answer, as one that fetches is: the bake shows
-        // its placeholder and a launch asks it (kanban2 #5: an uncaught
-        // `code: 'bake'` stopped the native build, where the web build's
-        // check asks at launch). The token is never dispatched.
-        match answer {
-            Err(DataError::Unavailable(_))
-                if self.host.bake_refusals > refused && matches!(target, Target::Resource(_)) =>
-            {
-                Ok(Answer::Later(Request::continuation(UNASKED)))
-            }
-            answer => answer,
-        }
+        answer
     }
 
     fn parse_for(

@@ -92,6 +92,40 @@ final class PresenceIOSTests: XCTestCase {
         p.reset()
     }
 
+    /// Measured again when what sizes it changes: a segment's title, the
+    /// text size, a hook's background image; not otherwise.
+    func testASegmentedTablistIsMeasuredAgainWhenWhatSizesItChanges() throws {
+        let p = tabBarFixture()
+        defer { p.reset() }
+        var reports: [CGSize?] = []
+        p.onIntrinsic = { sizes in
+            for (id, size) in sizes where id == 10 { reports.append(size) }
+        }
+        p.apply(wireBatch([
+            ["op": "children", "id": 11, "ids": [14]],
+            ["op": "children", "id": 12, "ids": [16]],
+        ]))
+        let control = try XCTUnwrap(p.segments.control(of: 10))
+        drainIntrinsicSizes()
+        XCTAssertEqual(reports.last ?? nil, control.intrinsicContentSize)
+        // A hook's background image, taller than the control.
+        let tall = UIGraphicsImageRenderer(size: CGSize(width: 4, height: 60)).image { _ in }
+        control.setBackgroundImage(tall, for: .normal, barMetrics: .default)
+        p.segments.sync()
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, control.intrinsicContentSize.height, "a hook's look is measured")
+        control.setBackgroundImage(nil, for: .normal, barMetrics: .default)
+        p.segments.sync()
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, control.intrinsicContentSize.height, "and again when it goes")
+        // A larger text size.
+        control.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge
+        control.updateTraitsIfNeeded()
+        p.segments.sync()
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, control.intrinsicContentSize.height, "the text size is in what it is measured from")
+    }
+
     func testSegmentsReportNativeHeightWithoutRepeatedOrStaleMeasurements() throws {
         let p = tabBarFixture()
         defer { p.reset() }

@@ -724,37 +724,16 @@ pub(crate) fn check_style_value(
                         );
                     }
                     if let Err(e) = probe.set_dynamic(*row, &v) {
-                        // A number written as a pixel string: say the number.
-                        let pixels = match (&e, value) {
-                            (StyleValueError::WrongKind { .. }, Expr::Str(text, _)) => text
-                                .trim()
-                                .strip_suffix("px")
-                                .and_then(|n| n.trim().parse::<f64>().ok())
-                                .map(|n| format!("; write `{}={n}` (a number is pixels)", a.name)),
-                            _ => None,
-                        };
-                        // A viewport-pinned box (authoring bench, t6-todo-more).
-                        let hint = pixels.or_else(|| {
-                            (a.name == "position"
-                                && matches!(value, Expr::Str(t, _) if t.trim() == "fixed"))
-                            .then(|| {
-                                "; `fixed` is not a row (LLP 1001): pin a box to the viewport \
-                                 with `absolute`, directly inside a viewport-sized root that \
-                                 does not scroll (its content scrolls in a `scroll` beside it)"
-                                    .to_string()
-                            })
-                        });
-                        // CSS's initial `none` on a maximum (r30 t4-kanban).
-                        let hint = hint.or_else(|| {
-                            (matches!(a.name.as_str(), "max-width" | "max-height")
-                                && matches!(value, Expr::Str(t, _) if t.trim() == "none"))
-                            .then(|| {
-                                format!(
-                                    "; no limit is the default, so leave `{}` out \
-                                     (an explicit no-limit is `auto` here)",
-                                    a.name
-                                )
-                            })
+                        // A viewport-pinned box (authoring bench, t6-todo-more). A pixel row
+                        // takes `14px` as CSS does (LLP 1102 §3.10), and a maximum takes
+                        // `none` (§3.11), so neither needs a hint here.
+                        let hint = (a.name == "position"
+                            && matches!(value, Expr::Str(t, _) if t.trim() == "fixed"))
+                        .then(|| {
+                            "; `fixed` is not a row (LLP 1001): pin a box to the viewport \
+                             with `absolute`, directly inside a viewport-sized root that \
+                             does not scroll (its content scrolls in a `scroll` beside it)"
+                                .to_string()
                         });
                         return err(
                             "lower-attr-value",
@@ -770,6 +749,22 @@ pub(crate) fn check_style_value(
                         );
                     }
                 }
+            }
+            // A number row with no text form refuses every string where it
+            // binds, as it refuses the literal; a browser would apply one
+            // (`opacity: 0.5`), so a host would disagree.
+            None if std::ptr::eq(value, &a.value)
+                && matches!(ty, Ty::String)
+                && !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) =>
+            {
+                return err(
+                    "lower-attr-type",
+                    format!(
+                        "`{}` takes a number where it is computed; this expression is `string`, which no native host reads on this row while a browser would apply it: bind the number itself (`{}=n` for a number `n`, not `` `${{n}}` ``)",
+                        a.name, a.name
+                    ),
+                    span,
+                );
             }
             None if std::ptr::eq(value, &a.value)
                 && !matches!(ty, Ty::Number | Ty::String | Ty::Unknown) =>

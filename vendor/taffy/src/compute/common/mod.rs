@@ -28,5 +28,7 @@ pub(crate) fn fit_content_width(
     }).size.width;
     let min = intrinsic(AvailableSpace::MinContent);
     let max = intrinsic(AvailableSpace::MaxContent);
-    available_width.max(min).min(max)
+    // CSS Sizing 3: max(min-content, min(max-content, available)); min-content
+    // wins when the two invert (a negative margin), as Chrome does.
+    min.max(available_width.min(max))
 }

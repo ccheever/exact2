@@ -1,0 +1,27 @@
+// Synthetic conformance plan (#136): `rem` and `em` lengths. The wasm page
+// writes the pixels the kernel resolves them to at each commit; the JS
+// target keeps no kernel, so its stylesheet holds them as CSS units
+// (css.rs `css_text_relative`) and the browser resolves them. `em` follows
+// the bound font size above it, `rem` the root's (`prefer root-font-size`),
+// on a static row and on a bound one alike; an `em` under no sized
+// ancestor follows the root size too (the page's `body` is `1rem`).
+component Rem
+  state size = 16
+  state wide = false
+  action pick(v: number)
+    size = v
+  action flip
+    wide = not wide
+  view
+    column testId="page"
+      text "unsized em" testId="unsized" font-size="1.25em" margin-left="-0.5em" padding-left="1em"
+      main testId="root" font-size=size padding=16
+        input type="range" min=12 max=20 step=1 value=size input=pick aria-label="Font size" testId="size"
+        view testId="box" width="10rem" height="2rem" background-color="#dddddd"
+          text "rem text" testId="label" font-size="1.5rem"
+        text "em text" testId="em" font-size="1.5em" line-height="1.25em"
+        view testId="pad" padding="0.5em" border-radius="0.25rem" border-width="0.125em" border-style="solid" background-color="#cccccc"
+          text "padded" testId="pad-text" letter-spacing="0.1em"
+        button press=flip testId="flip"
+          text "flip"
+        view testId="bound" width=(wide ? "12em" : "6rem") height="1em" background-color="#aaaaaa"

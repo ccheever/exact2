@@ -126,23 +126,69 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     // entitlements the platform's signature must carry.
     let mut usage = Map::new();
     let mut entitlements = Vec::new();
+    let keys_of = |device: &Device| match platform {
+        "ios" => device.ios,
+        "macos" => device.macos,
+        _ => &[],
+    };
     for grant in &devices {
-        let keys = match platform {
-            "ios" => grant.device.ios,
-            "macos" => grant.device.macos,
-            _ => &[],
-        };
-        for key in keys {
+        for key in keys_of(grant.device) {
             usage.insert((*key).into(), json!(purposes[grant.purpose]));
         }
-        // iOS needs none today; push's `aps-environment` joins when LLP 1069
-        // §5 #9 lands. `auth.*`'s associated domains are `reach.auth` (below).
-        if platform == "macos" {
-            entitlements.extend(grant.device.hardened);
+        // The platform's signing entitlements: macOS's hardened-runtime ones,
+        // iOS's capability ones (LLP 1069.008.000 D2; push's `aps-environment`
+        // joins when LLP 1069 §5 #9 lands). `auth.*`'s associated domains are
+        // `reach.auth` (below).
+        match platform {
+            "macos" => entitlements.extend(grant.device.hardened),
+            "ios" => entitlements.extend(grant.device.ios_entitlements),
+            _ => {}
+        }
+    }
+    // A key a granted row needs beside its own, written with that row's text
+    // when no granted row writes it (D1: one HealthKit direction still
+    // carries both keys). Only where the row writes keys at all.
+    for grant in &devices {
+        if let Some(key) = grant
+            .device
+            .companion
+            .filter(|_| !keys_of(grant.device).is_empty())
+        {
+            usage
+                .entry(key)
+                .or_insert_with(|| json!(purposes[grant.purpose]));
         }
     }
     entitlements.sort_unstable();
     entitlements.dedup();
+    // tvOS bakes the iOS plan; what a row not on TV derives there, the tvOS
+    // build drops (D5): every key and entitlement no TV row also needs.
+    let tv_omits = if platform == "ios" {
+        let on_tv = |key: &str| {
+            devices
+                .iter()
+                .filter(|g| g.device.tvos)
+                .any(|g| g.device.ios.contains(&key) || g.device.ios_entitlements.contains(&key))
+        };
+        let mut omit: Vec<&str> = devices
+            .iter()
+            .filter(|g| !g.device.tvos)
+            .flat_map(|g| {
+                g.device
+                    .ios
+                    .iter()
+                    .chain(g.device.ios_entitlements)
+                    .copied()
+                    .chain(g.device.companion)
+            })
+            .filter(|key| !on_tv(key))
+            .collect();
+        omit.sort_unstable();
+        omit.dedup();
+        omit
+    } else {
+        Vec::new()
+    };
     let auth = auth(&ceiling, platform, compat)?;
     compat.reach = json!({
         "base": base,
@@ -150,6 +196,7 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
         "rows": rows,
         "usage": usage,
         "entitlements": entitlements,
+        "tvOmits": tv_omits,
         "auth": auth,
     });
     Ok(())
@@ -386,6 +433,72 @@ mod tests {
             json!({"NSSpeechRecognitionUsageDescription": {"en": "Transcribes."}})
         );
         assert_eq!(ios.reach["entitlements"], json!([]));
+    }
+
+    #[test]
+    fn health_writes_both_keys_signs_on_ios_only_and_leaves_tvos_out() {
+        // LLP 1069.008.000 D1, D2, D5.
+        let dir = app(&[
+            (
+                "en",
+                r#"{"read": "Reads your runs.", "write": "Saves workouts."}"#,
+            ),
+            ("fr", r#"{"read": "Lit vos courses."}"#),
+        ]);
+        let derive_for = |grants: &str, platform: &str| {
+            let mut c = compat(grants);
+            derive(&dir.0, platform, &mut c).unwrap();
+            c.reach
+        };
+        let (share, update) = (
+            "NSHealthShareUsageDescription",
+            "NSHealthUpdateUsageDescription",
+        );
+        let read = json!({"en": "Reads your runs.", "fr": "Lit vos courses."});
+        let write = json!({"en": "Saves workouts.", "fr": "Saves workouts."});
+        // One direction: the other's key borrows its text, every locale's.
+        let ios = derive_for("device.health-read read", "ios");
+        assert_eq!(ios["usage"], json!({share: read, update: read}));
+        assert_eq!(
+            ios["entitlements"],
+            json!(["com.apple.developer.healthkit"])
+        );
+        assert_eq!(
+            ios["tvOmits"],
+            json!([
+                "NSHealthShareUsageDescription",
+                "NSHealthUpdateUsageDescription",
+                "com.apple.developer.healthkit"
+            ])
+        );
+        assert_eq!(
+            ios["rows"].as_array().unwrap().len(),
+            1,
+            "the reach table lists what was granted"
+        );
+        let ios = derive_for("device.health-write write", "ios");
+        assert_eq!(ios["usage"], json!({share: write, update: write}));
+        // Both: each key its own text.
+        let both = derive_for("device.health-read read\ndevice.health-write write", "ios");
+        assert_eq!(both["usage"], json!({share: read, update: write}));
+        // macOS: the keys, never the restricted entitlement.
+        let mac = derive_for("device.health-read read", "macos");
+        assert_eq!(mac["usage"], json!({share: read, update: read}));
+        assert_eq!(mac["entitlements"], json!([]));
+        // A row that is on TV leaves nothing to omit, beside Health or not.
+        let mixed = derive_for(
+            "device.health-read read\ndevice.speech-recognition write",
+            "ios",
+        );
+        assert!(!mixed["tvOmits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|k| k == "NSSpeechRecognitionUsageDescription"));
+        assert_eq!(
+            derive_for("device.speech-recognition write", "ios")["tvOmits"],
+            json!([])
+        );
     }
 
     #[test]

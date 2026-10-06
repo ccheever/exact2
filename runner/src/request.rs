@@ -102,7 +102,16 @@ pub struct Request {
     /// message as an [`Outcome::Message`], and anything else ends it.
     /// Set by [`Answer::stream`].
     pub stream: bool,
+    /// A deadline for the whole exchange, in milliseconds: headers and body.
+    /// The host cancels the request when it passes and replies
+    /// [`FailureKind::Timeout`]. `None` keeps the host's own limits (on Apple,
+    /// URLSession's 60-second idle timeout). A stream has no deadline.
+    /// Set by TypeScript's `fetch(url, {exactTimeout})` and [`Request::timeout`].
+    pub timeout_ms: Option<u32>,
 }
+
+/// The longest request deadline a source may ask for: one hour.
+pub const MAX_TIMEOUT_MS: u32 = 3_600_000;
 
 /// The URL of a long native call (`native.later` in TypeScript): not HTTP.
 /// A host hands its body to the source's [`crate::Native`] handler (the app's
@@ -127,6 +136,7 @@ impl Request {
             headers: Vec::new(),
             body,
             stream: false,
+            timeout_ms: None,
         }
     }
 
@@ -179,6 +189,7 @@ impl Request {
             headers: Vec::new(),
             body: Vec::new(),
             stream: false,
+            timeout_ms: None,
         }
     }
 
@@ -195,6 +206,7 @@ impl Request {
             headers: vec![("content-type".into(), "application/json".into())],
             body: json.as_bytes().to_vec(),
             stream: false,
+            timeout_ms: None,
         }
     }
 
@@ -285,6 +297,32 @@ impl Request {
     pub fn independent_http(mut self, max_response_bytes: u32) -> Self {
         self.http = HttpScheduling::Independent { max_response_bytes };
         self
+    }
+
+    /// With a deadline for the whole exchange (see [`Request::timeout_ms`]).
+    pub fn timeout(mut self, ms: u32) -> Self {
+        self.timeout_ms = Some(ms);
+        self
+    }
+
+    /// Why this request's deadline is refused, if it is: zero, over
+    /// [`MAX_TIMEOUT_MS`], on a stream, or on work that is not HTTP.
+    pub fn timeout_refusal(&self) -> Option<&'static str> {
+        let ms = self.timeout_ms?;
+        if ms == 0 || ms > MAX_TIMEOUT_MS {
+            Some("a request timeout must be 1 to 3600000 ms")
+        } else if self.stream {
+            Some("a stream has no timeout")
+        } else if self.storage.is_some()
+            || self.continuation.is_some()
+            || self.surface.is_some()
+            || self.is_native()
+            || self.is_auth()
+        {
+            Some("only HTTP takes a timeout")
+        } else {
+            None
+        }
     }
 
     /// Yield to a host-owned executor without inventing a network URL or grant.
@@ -413,6 +451,8 @@ pub enum FailureKind {
     Unsupported,
     /// The executor aborted it.
     Aborted,
+    /// Its deadline ([`Request::timeout_ms`]) passed; the host cancelled it.
+    Timeout,
 }
 
 /// Where a module instance runs (LLP 1027.002 D1): on the runner's thread,
@@ -578,13 +618,15 @@ mod summary_tests {
             FailureKind::Refused,
             FailureKind::Unsupported,
             FailureKind::Aborted,
+            FailureKind::Timeout,
         ] {
             // Every variant is listed: adding one breaks this match.
             match kind {
                 FailureKind::Network
                 | FailureKind::Refused
                 | FailureKind::Unsupported
-                | FailureKind::Aborted => {}
+                | FailureKind::Aborted
+                | FailureKind::Timeout => {}
             }
             let name = format!("{kind:?}");
             assert!(name.is_ascii(), "{name}");

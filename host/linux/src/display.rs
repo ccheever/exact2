@@ -417,6 +417,8 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                     return 1;
                 }
             }
+            // What the frame moved under the resting pointer is hovered (#139).
+            p.follow_pointer();
         }
         if p.module_pending() {
             p.first_pixel();

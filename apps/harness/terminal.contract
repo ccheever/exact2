@@ -1,0 +1,440 @@
+// Harness — a coding agent in the terminal, written for the terminal
+// (LLP 1101): the transcript is a `role="log"` whose settled entries an
+// inline terminal prints once into its own scrollback (so the terminal
+// scrolls, selects and copies them, tmux included); below it the live tail
+// — a streaming reply, a spinner, an approval, an animation, the prompt —
+// is redrawn. Printed entries are retired (LLP 1101.001 P1): the host says
+// what it printed through `exactSurface("terminal")`, and the data module
+// stops answering them, so a long session costs what a short one does.
+// The conversation, the models and the tools live in the Rust data module
+// (apps/harness/data); this file is only the screen.
+
+use Run, Line, Block, Entry, Approval, ModelChoice, Session, Frame, Ack from "./shapes.contract"
+
+shape Cmd
+  name: string
+  help: string
+
+// The terminal's size in layout pixels (a column is 8, a row 16).
+shape Viewport
+  width: number
+  height: number
+
+// The host's record (LLP 1101.001 P10): how it occupies the terminal, how
+// it draws images, its colour depth, which log it is printing (one more
+// for each new one), and the `id` of that log's last entry it printed into
+// scrollback. Entry ids never repeat here, so retiring reads `printed`
+// alone.
+shape Terminal
+  mode: string
+  images: string
+  colors: number
+  log: number
+  printed: string
+
+fn fg(c: string): string = c == "" ? "inherit" : c
+fn bg(c: string): string = c == "" ? "transparent" : c
+fn weight(r: Run): number = r.bold ? 700 : (r.dim ? 300 : 400)
+fn deco(r: Run): string = r.under ? (r.strike ? "underline line-through" : "underline") : (r.strike ? "line-through" : "none")
+fn frameOf(frames: list<string>, n: number): string = match at(frames, n % length(frames)) { case some(f) => f, case none => "" }
+fn spinner(n: number): string = frameOf(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"], n)
+fn star(n: number): string = frameOf(["✻", "✽", "✶", "✳", "✢", "·", "✢", "✳", "✶", "✽"], n)
+fn seconds(ticks: number): string = `${floor(ticks / 10)}s`
+fn statusColor(s: string): string = s == "ok" ? "#5fd75f" : (s == "error" ? "#ff5f5f" : (s == "denied" ? "#ffaf00" : (s == "waiting" ? "#ffaf00" : "#87afff")))
+fn phaseWord(p: string): string = p == "thinking" ? "Thinking" : (p == "streaming" ? "Writing" : (p == "tool" ? "Running" : (p == "waiting" ? "Waiting for you" : "Working")))
+fn kilo(n: number): string = n >= 1000 ? `${floor(n / 100) / 10}k` : `${n}`
+fn isCommand(s: string): bool = indexOf(s, "/") == 0
+fn matching(cmds: list<Cmd>, draft: string): list<Cmd> = filter(cmds, c => indexOf(c.name, trim(draft)) == 0)
+
+component Harness
+  resource session = session() as shape Session
+  resource terminal = exactSurface("terminal") as shape Terminal
+  mutation sent as shape Ack queue
+  mutation answered as shape Ack
+  mutation stopped as shape Ack
+  mutation chosen as shape Ack
+  mutation keyed as shape Ack
+  mutation retired as shape Ack
+  state draft = ""
+  state history = []
+  state back = -1
+  state sel = 0
+  state tick = 0
+  state anim = ""
+  state frameTick = 0
+  state quitArmed = false
+  state lastRetired = ""
+  // `/key`: an API key typed into a password field, straight to the data
+  // module (which saves it, 0600); never into the transcript or history.
+  state keyFor = "openrouter"
+  state keyDraft = ""
+  state commands = [
+    Cmd(name="/help", help="what this harness can do"),
+    Cmd(name="/model", help="choose a model (ctrl+o)"),
+    Cmd(name="/key", help="add an API key: OpenRouter, Anthropic, OpenAI"),
+    Cmd(name="/clear", help="start over"),
+    Cmd(name="/stress", help="flood the scrollback (try /stress 2000, or /stress 500 paced)"),
+    Cmd(name="/image", help="an image: kitty, iTerm2 or half-blocks"),
+    Cmd(name="/ascii", help="ASCII art"),
+    Cmd(name="/ansi", help="ANSI art in truecolour"),
+    Cmd(name="/unicode", help="wide, combining and emoji text"),
+    Cmd(name="/diff", help="a coloured diff"),
+    Cmd(name="/plasma", help="animation: plasma"),
+    Cmd(name="/fire", help="animation: fire"),
+    Cmd(name="/matrix", help="animation: digital rain"),
+    Cmd(name="/spinners", help="animation: every spinner"),
+    Cmd(name="/bars", help="animation: progress bars"),
+    Cmd(name="/donut", help="animation: the spinning ASCII donut"),
+    Cmd(name="/knot", help="animation: a torus knot in Braille"),
+    Cmd(name="/tesseract", help="animation: a 4D hypercube in Braille"),
+    Cmd(name="/warp", help="animation: warp-speed starfield"),
+    Cmd(name="/tunnel", help="animation: the demoscene tunnel"),
+    Cmd(name="/wave", help="animation: the waving logo"),
+    Cmd(name="/quit", help="leave"),
+  ]
+  derive matches = isCommand(draft) and not includes(draft, " ") ? matching(commands, draft) : []
+  derive animating = anim != ""
+  derive animations = ["/plasma", "/fire", "/matrix", "/spinners", "/bars", "/donut", "/knot", "/tesseract", "/warp", "/tunnel", "/wave"]
+  derive inline = terminal.mode != "fullscreen"
+  resource viewport = exactViewport() as shape Viewport
+  // Animations fill the width and most of the height, within reason.
+  derive animCols = max(20, min(160, floor(viewport.width / 8) - 2))
+  derive animRows = max(6, min(40, floor(viewport.height / 16) - 9))
+  resource frame = animation(anim, frameTick, animCols, animRows) as shape Frame
+
+  task spin when session.busy
+    every(100, step)
+  task play when animating key=anim
+    every(40, nextFrame)
+  task disarm when quitArmed
+    after(2000, unarm)
+  // What the terminal printed is the data module's to let go of.
+  task letGo when terminal.printed != "" and terminal.printed != lastRetired key=terminal.printed
+    after(1, retire)
+
+  action step
+    tick = tick + 1
+  action nextFrame
+    frameTick = frameTick + 1
+  action unarm
+    quitArmed = false
+  action retire
+    lastRetired = terminal.printed
+    send retired = retire(terminal.printed)
+  action write(value)
+    draft = value
+    back = -1
+    sel = 0
+  action sendText(text: string)
+    if text != ""
+      if text == "/quit"
+        close()
+      else
+        if text == "/key"
+          keyDraft = ""
+          showModal("keys")
+        else
+          if text == "/model"
+            showModal("models")
+          else
+            if includes(animations, text)
+              anim = slice(text, 1)
+            else
+              send sent = submit(text)
+        history = concat([text], history)
+        draft = ""
+        back = -1
+        sel = 0
+  action complete
+    match at(matches, sel)
+      case some(c)
+        draft = `${c.name} `
+      case none
+        draft = draft
+  // The prompt's keys. Enter sends (Shift+Enter breaks the line, the
+  // textarea's own default); Tab and the arrows drive completion, and the
+  // arrows recall history on a one-line draft (in a longer one they move
+  // the caret, the textarea's default); Esc and Ctrl-C interrupt; Ctrl-C
+  // twice on an empty prompt leaves. Each key it uses, it claims with
+  // preventDefault().
+  action onKey(key: string, e: KeyboardEvent)
+    if key == "Enter" and not e.shiftKey and not e.altKey
+      sendText(match at(matches, sel) { case some(c) => c.name, case none => trim(draft) })
+      preventDefault()
+    else
+      if key == "Tab" and length(matches) > 0
+        complete()
+        preventDefault()
+      else
+        if key == "ArrowDown" and length(matches) > 0
+          sel = (sel + 1) % length(matches)
+          preventDefault()
+        else
+          if key == "ArrowUp" and length(matches) > 0
+            sel = (sel + length(matches) - 1) % length(matches)
+            preventDefault()
+          else
+            if key == "ArrowUp" and back + 1 < length(history) and not includes(draft, "\n")
+              draft = match at(history, back + 1) { case some(h) => h, case none => draft }
+              back = back + 1
+              preventDefault()
+            else
+              if key == "ArrowDown" and back >= 0 and not includes(draft, "\n")
+                draft = match at(history, back - 1) { case some(h) => h, case none => "" }
+                back = back - 1
+                preventDefault()
+              else
+                if key == "Escape" and (animating or session.busy)
+                  if animating
+                    anim = ""
+                  else
+                    send stopped = interrupt()
+                  preventDefault()
+                else
+                  if key == "c" and e.ctrlKey
+                    preventDefault()
+                    if animating
+                      anim = ""
+                    else
+                      if session.busy
+                        send stopped = interrupt()
+                      else
+                        if draft != ""
+                          draft = ""
+                        else
+                          if quitArmed
+                            close()
+                          else
+                            quitArmed = true
+  action pickKeyFor(p: string)
+    keyFor = p
+  action writeKey(value)
+    keyDraft = value
+  // Escape or a click outside: a half-pasted key does not wait for the next
+  // open (HTML's `cancel`, LLP 1101.002 §0 P8).
+  action dropKey
+    keyDraft = ""
+  action saveKey
+    send keyed = setKey(keyFor, trim(keyDraft))
+    keyDraft = ""
+    close("keys")
+  action answer(choice: string)
+    send answered = approve(session.approval.id, choice)
+  action pickModel(id: string)
+    send chosen = setModel(id)
+  action stopAnimation
+    anim = ""
+
+  view
+    column width="100%" height=(inline ? "auto" : "100%")
+      // Inline, the transcript flows into the terminal's scrollback; full
+      // screen, it scrolls in place and follows its end.
+      // Keyed by the session's epoch: `/clear` makes a new log, and an
+      // inline terminal clears for a new log.
+      when inline
+        each epoch in [session.epoch] key=epoch
+          Transcript(entries=session.entries, tick=tick)
+      else
+        scroll flex=1 min-height=0 scrollFollowEnd=true testId="transcript-scroll"
+          each epoch in [session.epoch] key=epoch
+            Transcript(entries=session.entries, tick=tick)
+      // The live tail: everything below the log is redrawn in place.
+      column testId="live" flex-shrink=0
+        when session.busy and session.approval.id == ""
+          row margin-top="1lh" color="#d78700"
+            text `${star(tick)} ${phaseWord(session.phase)}…` font-weight=700
+            text ` (${seconds(tick)} · ↓ ${kilo(session.tokensOut)} tokens · esc to interrupt)` white-space="pre" color="#8a8a8a"
+        // An approval takes no default focus: Enter answers nothing, and a
+        // key typed before it appeared cannot press it (LLP 1101.001 P11).
+        when session.approval.id != ""
+          column margin-top="1lh" border="thin solid #ffaf00" border-radius="1ch" padding="0 1ch" testId="approval"
+            text session.approval.summary font-weight=700 color="#ffaf00"
+            column margin="1lh 0" padding-left="2ch"
+              each l, i in session.approval.lines key=i
+                Runs(runs=l.runs, pre=false)
+            text "Do you want to proceed? Press 1, 2 or 3."
+            button press=answer("yes") aria-keyshortcuts="1" testId="approve-yes" text-align="start"
+              text "1. Yes"
+            button press=answer("always") aria-keyshortcuts="2" testId="approve-always" text-align="start"
+              text `2. Yes, and don't ask again for ${session.approval.tool}`
+            button press=answer("no") aria-keyshortcuts="3 Escape" testId="approve-no" text-align="start"
+              text "3. No, and tell the model what to do differently (esc)"
+        when animating
+          column margin-top="1lh" border="thin solid #5f5fd7" border-radius="1ch" testId="animation"
+            row padding="0 1ch"
+              text frame.title font-weight=700 color="#8787ff"
+              button press=stopAnimation margin-left="auto" testId="stop-animation"
+                text "esc to stop" color="#6c6c6c"
+            each l, i in frame.lines key=i
+              Runs(runs=l.runs, pre=true)
+        when length(matches) > 0
+          column margin-top="1lh" testId="completions"
+            each c, i in matches key=c.name
+              button press=sendText(c.name) display="flex" text-align="start" background-color=(i == sel ? "#303050" : "transparent") padding="0 1ch" testId=`complete-${c.name}`
+                text c.name width="12ch" flex-shrink=0 color=(i == sel ? "#afafff" : "#87afff") font-weight=(i == sel ? 700 : 400)
+                text c.help color="#8a8a8a" white-space="nowrap" text-overflow="ellipsis" flex-shrink=1 min-width=0
+        when length(session.queued) > 0
+          column margin-top="1lh" color="#8a8a8a" padding="0 1ch" testId="queued"
+            each q, i in session.queued key=i
+              row
+                text "⏵ queued: " white-space="pre" flex-shrink=0
+                text q white-space="nowrap" text-overflow="ellipsis" min-width=0
+        row margin-top="1lh" border="thin solid #585858" border-radius="1ch" padding="0 1ch"
+          text "› " white-space="pre" color="#87afff" font-weight=700 flex-shrink=0
+          textarea value=draft appearance="none" input=write key=onKey disabled=(session.approval.id != "") autofocus=true placeholder=(session.busy ? "Type ahead — it runs when this turn ends" : "Ask anything, or / for commands") flex-grow=1 rows=min(8, length(split(draft, "\n"))) testId="prompt"
+        row padding="0 1ch" color="#6c6c6c" gap="2ch"
+          button commandfor="models" command="show-modal" aria-keyshortcuts="Control+o" testId="model-button" white-space="nowrap" flex-shrink=0
+            text `${session.model} (${session.provider})` color="#87afff"
+          text `${session.cwd}${session.branch == "" ? "" : ` (${session.branch})`}` white-space="nowrap" text-overflow="ellipsis" flex-shrink=1 min-width=0
+          text `↑ ${kilo(session.tokensIn)} ↓ ${kilo(session.tokensOut)} · ${floor(session.contextPct)}% context` margin-left="auto" white-space="nowrap"
+        when quitArmed
+          text "Press Ctrl-C again to exit" color="#ffaf00" padding="0 1ch"
+        when session.toast != ""
+          text session.toast color="#5fd75f" padding="0 1ch"
+      // Inline, the host anchors an open dialog to the bottom of the live
+      // region (above it is the terminal's scrollback); full screen, it
+      // centres it.
+      dialog id="models" closedby="any" left="2ch" border="thin solid #87afff" border-radius="1ch" padding="0 1ch" background-color="#1c1c1c" width="64ch" max-height=`${max(8, animRows - 2)}lh` display="flex" flex-direction="column" testId="model-dialog"
+        text "Choose a model" font-weight=700 color="#87afff"
+        text "↑/↓ to move · enter or click to choose · esc to cancel" color="#6c6c6c" margin-bottom="1lh"
+        scroll flex=1 min-height=0 testId="model-list"
+          each m in session.models key=m.id
+            button press=pickModel(m.id) commandfor="models" command="close" disabled=(not m.available) testId=`model-${m.id}` text-align="start" display="flex" gap="1ch"
+              text (m.id == session.model ? "●" : "○") color=(m.available ? "#87afff" : "#585858")
+              text m.label color=(m.available ? "inherit" : "#585858") flex-grow=1
+              text (m.available ? m.provider : `${m.provider} · no key`) color="#6c6c6c"
+      dialog id="keys" closedby="any" cancel=dropKey left="2ch" right="2ch" border="thin solid #5fd75f" border-radius="1ch" padding="0 1ch" background-color="#1c1c1c" testId="key-dialog"
+        text "Add an API key" font-weight=700 color="#5fd75f"
+        text "Saved to ~/.config/exact-harness/keys, readable only by you. It never enters the transcript." color="#6c6c6c"
+        row gap="2ch" margin-top="1lh"
+          button press=pickKeyFor("openrouter") testId="key-openrouter" white-space="pre"
+            text (keyFor == "openrouter" ? "● OpenRouter" : "○ OpenRouter")
+          button press=pickKeyFor("anthropic") testId="key-anthropic" white-space="pre"
+            text (keyFor == "anthropic" ? "● Anthropic" : "○ Anthropic")
+          button press=pickKeyFor("openai") testId="key-openai" white-space="pre"
+            text (keyFor == "openai" ? "● OpenAI" : "○ OpenAI")
+        row margin-top="1lh"
+          text "key › " white-space="pre" color="#5fd75f" flex-shrink=0
+          input type="password" value=keyDraft input=writeKey submit=saveKey autofocus=true placeholder="paste your key, then Enter" flex-grow=1 testId="key-input"
+        text "shift+tab or click for the provider · enter to save · esc to cancel" color="#6c6c6c"
+
+// The transcript: one log child per entry, each known by its `id` (which
+// the host reports back when it has printed it).
+component Transcript
+  props
+    entries: list<Entry>
+    tick: number
+  view
+    column role="log" testId="transcript"
+      each e in entries key=e.id
+        EntryView(e=e, tick=(e.busy ? tick : 0))
+
+// One paragraph of styled runs; it wraps unless `pre`.
+component Runs
+  props
+    runs: list<Run>
+    pre: bool
+  view
+    text white-space=(pre ? "pre" : "pre-wrap")
+      each r, i in runs key=i
+        text r.text color=fg(r.fg) background-color=bg(r.bg) font-weight=weight(r) font-style=(r.italic ? "italic" : "normal") text-decoration-line=deco(r) href=r.href
+
+// One block of rendered Markdown, or of pre-coloured lines.
+component BlockView
+  props
+    b: Block
+    first: bool
+  view
+    when b.kind == "h1"
+      column margin-top=(first ? "0" : "1lh") color="#61afef" font-weight=700 text-decoration-line="underline"
+        Runs(runs=b.runs, pre=false)
+    else when b.kind == "h2"
+      column margin-top=(first ? "0" : "1lh") color="#61afef" font-weight=700
+        Runs(runs=b.runs, pre=false)
+    else when b.kind == "h3"
+      column margin-top=(first ? "0" : "1lh") font-weight=700
+        Runs(runs=b.runs, pre=false)
+    else when b.kind == "li"
+      row padding-left=`${b.depth * 2}ch`
+        text `${b.marker} ` white-space="pre" color="#808080" flex-shrink=0
+        column flex-grow=1 min-width=0
+          Runs(runs=b.runs, pre=false)
+    else when b.kind == "quote"
+      row
+        text "▌ " white-space="pre" color="#5f5f87" flex-shrink=0
+        column flex-grow=1 min-width=0 font-style="italic" color="#a8a8a8"
+          Runs(runs=b.runs, pre=false)
+    else when b.kind == "code"
+      column margin=(first ? "0 0 1lh" : "1lh 0") padding="0 1ch" background-color="#1c1c1c" border-left="thin solid #3a3a3a"
+        when b.lang != ""
+          text b.lang color="#6c6c6c" font-style="italic"
+        each l, i in b.lines key=i
+          Runs(runs=l.runs, pre=false)
+    else when b.kind == "rule"
+      column height="1lh" border-top="thin solid #444444" margin-top=(first ? "0" : "1lh")
+    else when b.kind == "lines"
+      column
+        each l, i in b.lines key=i
+          Runs(runs=l.runs, pre=true)
+    else
+      column margin-top=(b.kind == "p" and not first ? "1lh" : "0")
+        Runs(runs=b.runs, pre=false)
+
+// A transcript entry. Its `aria-busy` says whether it can still change; its
+// `id` is how the host reports it printed. A reply streams in as one
+// "assistant" entry (with the ⏺) and "more" entries, one per finished
+// block, so a long reply scrolls by while it is written.
+component EntryView
+  props
+    e: Entry
+    tick: number
+  view
+    column id=e.id aria-busy=e.busy margin-top=(e.kind == "more" ? "0" : "1lh") testId=`entry-${e.id}`
+      when e.kind == "user"
+        row background-color="#262626" padding="0 1ch"
+          text "› " white-space="pre" color="#87afff" font-weight=700 flex-shrink=0
+          column flex-grow=1 min-width=0
+            each b, i in e.blocks key=i
+              BlockView(b=b, first=i == 0)
+      else when e.kind == "assistant"
+        row
+          text (e.busy ? `${star(tick)} ` : "⏺ ") white-space="pre" color=(e.busy ? "#d78700" : "#d0d0d0") flex-shrink=0
+          column flex-grow=1 min-width=0
+            // Which model answered: a turn keeps the one it started with
+            // (LLP 1101.002 §0 P12).
+            when e.model != ""
+              text e.model color="#6c6c6c" font-style="italic"
+            each b, i in e.blocks key=i
+              BlockView(b=b, first=i == 0)
+      else when e.kind == "more"
+        column padding-left="2ch"
+          each b, i in e.blocks key=i
+            BlockView(b=b, first=false)
+      else when e.kind == "tool"
+        column
+          row
+            text (e.status == "running" ? `${spinner(tick)} ` : "⏺ ") white-space="pre" color=statusColor(e.status) flex-shrink=0
+            text e.title font-weight=700 href=e.link
+            when e.status == "waiting"
+              text "  waiting for approval" white-space="pre" color="#ffaf00" font-style="italic"
+          row
+            text "  ⎿  " white-space="pre" color="#6c6c6c" flex-shrink=0
+            column flex-grow=1 min-width=0
+              each b, i in e.blocks key=i
+                BlockView(b=b, first=i == 0)
+              when e.more > 0
+                text `… +${e.more} lines` color="#6c6c6c"
+      else when e.kind == "banner"
+        column border="thin solid #d78700" border-radius="1ch" padding="0 1ch"
+          each b, i in e.blocks key=i
+            BlockView(b=b, first=i == 0)
+      else when e.kind == "image"
+        column
+          text e.title color="#808080"
+          image e.image width=`${e.cols}ch` height=`${e.rows}lh` aria-label=e.title
+      else
+        row color=(e.kind == "error" ? "#ff5f5f" : "#8a8a8a")
+          text (e.kind == "error" ? "✗ " : "· ") white-space="pre" flex-shrink=0
+          column flex-grow=1 min-width=0
+            each b, i in e.blocks key=i
+              BlockView(b=b, first=i == 0)

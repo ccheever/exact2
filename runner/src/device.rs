@@ -30,7 +30,32 @@ pub struct Device {
     pub hardened: Option<&'static str>,
     /// The web `Permissions-Policy` feature, where the feature is policy-controlled.
     pub web: Option<&'static str>,
+    /// iOS signing entitlements the device needs beside its usage strings
+    /// (LLP 1069.008.000 D2): HealthKit authorizes nothing without its own.
+    pub ios_entitlements: &'static [&'static str],
+    /// A usage key written with this row's text when no granted row writes it
+    /// (LLP 1069.008.000 D1): App Store Connect wants both HealthKit keys
+    /// beside the entitlement, and iOS shows only the prompt an app asks for.
+    pub companion: Option<&'static str>,
+    /// Whether the row applies on tvOS, which bakes the iOS plan (D5).
+    pub tvos: bool,
+    /// An app granting it keeps no answers across launches (D7): its data
+    /// must not sit in `exact.kept.*` outside the platform's protection.
+    pub keeps_no_answers: bool,
 }
+
+/// What a row has unless it says otherwise.
+const ROW: Device = Device {
+    name: "",
+    ios: &[],
+    macos: &[],
+    hardened: None,
+    web: None,
+    ios_entitlements: &[],
+    companion: None,
+    tvos: true,
+    keeps_no_answers: false,
+};
 
 /// Every device grant. Adding a row is one entry here and no host code.
 pub const DEVICES: &[Device] = &[
@@ -40,6 +65,7 @@ pub const DEVICES: &[Device] = &[
         macos: &["NSMicrophoneUsageDescription"],
         hardened: Some("com.apple.security.device.audio-input"),
         web: Some("microphone"),
+        ..ROW
     },
     // Camera stays deferred (`rules/DEFERRED.md`); the row exists so a native
     // module can declare it.
@@ -49,6 +75,7 @@ pub const DEVICES: &[Device] = &[
         macos: &["NSCameraUsageDescription"],
         hardened: Some("com.apple.security.device.camera"),
         web: Some("camera"),
+        ..ROW
     },
     Device {
         name: "geolocation",
@@ -59,6 +86,7 @@ pub const DEVICES: &[Device] = &[
         ],
         hardened: Some("com.apple.security.personal-information.location"),
         web: Some("geolocation"),
+        ..ROW
     },
     // iOS's prompt text is fixed and the web's is not policy-controlled; the
     // grant still gates the request.
@@ -68,6 +96,7 @@ pub const DEVICES: &[Device] = &[
         macos: &[],
         hardened: None,
         web: None,
+        ..ROW
     },
     // Deviation: the web has no name; its speech API is gated by `microphone`.
     Device {
@@ -76,6 +105,7 @@ pub const DEVICES: &[Device] = &[
         macos: &["NSSpeechRecognitionUsageDescription"],
         hardened: None,
         web: None,
+        ..ROW
     },
     // Deviation, same reason: saving to the library. PhotoKit under the
     // hardened runtime needs the library entitlement for a write too.
@@ -85,6 +115,32 @@ pub const DEVICES: &[Device] = &[
         macos: &["NSPhotoLibraryAddUsageDescription"],
         hardened: Some("com.apple.security.personal-information.photos-library"),
         web: None,
+        ..ROW
+    },
+    // HealthKit (LLP 1069.008.000): Apple only, a deviation (the web has no
+    // Health permission). Read and write are HealthKit's own share/update
+    // prompts, one key each; each carries the other's key as its companion,
+    // and the HealthKit entitlement on iOS. macOS writes the keys and signs
+    // with no entitlement, which is restricted there (D5). Not on tvOS.
+    Device {
+        name: "health-read",
+        ios: &["NSHealthShareUsageDescription"],
+        macos: &["NSHealthShareUsageDescription"],
+        ios_entitlements: &["com.apple.developer.healthkit"],
+        companion: Some("NSHealthUpdateUsageDescription"),
+        tvos: false,
+        keeps_no_answers: true,
+        ..ROW
+    },
+    Device {
+        name: "health-write",
+        ios: &["NSHealthUpdateUsageDescription"],
+        macos: &["NSHealthUpdateUsageDescription"],
+        ios_entitlements: &["com.apple.developer.healthkit"],
+        companion: Some("NSHealthShareUsageDescription"),
+        tvos: false,
+        keeps_no_answers: true,
+        ..ROW
     },
 ];
 
@@ -153,6 +209,12 @@ pub fn granted(spec: &str, name: &str) -> bool {
     device_grants(spec).is_ok_and(|all| all.iter().any(|g| g.device.name == name))
 }
 
+/// Whether `spec` grants a device whose app keeps no answers
+/// (LLP 1069.008.000 D7).
+pub fn keeps_no_answers(spec: &str) -> bool {
+    device_grants(spec).is_ok_and(|all| all.iter().any(|g| g.device.keeps_no_answers))
+}
+
 /// The served web's `Permissions-Policy` (D6): `feature=(self)` for each
 /// granted row with a web name, `feature=()` for every other one the table
 /// has. Built from the table's own names, so no app text reaches the header.
@@ -195,6 +257,24 @@ mod tests {
         assert!(errors[0].contains("not a device grant"));
         assert!(errors[2].contains("not a literal"));
         assert!(errors[4].contains("two purposes"));
+    }
+
+    #[test]
+    fn health_is_two_rows_that_keep_no_answers() {
+        // LLP 1069.008.000 D1, D7.
+        let spec = "device.health-read purpose.read\ndevice.health-write purpose.write";
+        let all = device_grants(spec).unwrap();
+        assert_eq!(
+            all.iter().map(|g| g.device.name).collect::<Vec<_>>(),
+            ["health-read", "health-write"]
+        );
+        assert!(all.iter().all(|g| !g.device.tvos && g.device.web.is_none()));
+        assert!(keeps_no_answers("device.health-read purpose.read"));
+        assert!(!keeps_no_answers("device.microphone purpose.mic"));
+        assert!(
+            device_grants("device.health purpose.read purpose.write").is_err(),
+            "the fork's one row with two keys"
+        );
     }
 
     #[test]

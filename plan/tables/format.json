@@ -1197,9 +1197,9 @@
     },
     {
       "name": "formatDate",
-      "params": ["number", "number", "\"medium\" | \"month-year\""],
+      "params": ["number", "number", "\"medium\" | \"month-year\" | \"iso\""],
       "returns": "string",
-      "_comment": "@ref LLP 1054.000.003 D2/D7/D8: the calendar date of (epochMs, utcOffset), as Intl.DateTimeFormat(\"en-US\") prints it: `medium` is { dateStyle: \"medium\" }, `month-year` is { month: \"long\", year: \"numeric\" }. The linked capability `format`."
+      "_comment": "@ref LLP 1054.000.003 D2/D7/D8: the calendar date of (epochMs, utcOffset), as Intl.DateTimeFormat(\"en-US\") prints it: `medium` is { dateStyle: \"medium\" }, `month-year` is { month: \"long\", year: \"numeric\" }. @ref LLP 1102 §3.4: `iso` is `YYYY-MM-DD`, the date at that wall time: `Date.prototype.toISOString`'s date part at a whole-minute offset (a fractional offset's wall time is not clipped to a millisecond again, as no style's is); outside years 1–9999 it prints `\"\"`, as every style does (D7). The linked capability `format`."
     },
     {
       "name": "formatNumber",
@@ -1279,6 +1279,42 @@
       "params": ["number", "number"],
       "returns": "option<string>",
       "_comment": "@ref LLP 1094 D10: DOM's `document.elementFromPoint(x, y)?.closest(\"[id]\")?.id` over `frame`'s boxes: the `id` of the front-most laid-out box at the viewport point (every scroll applied, no transforms; ancestors' overflow clips; `pointer-events: none`, `display: none` and `visibility: hidden` skipped; LLP 1083.000's paint order), or of its nearest ancestor with one; `none` where no box or ancestor has one. Actions only."
+    },
+    {
+      "name": "parseNumber",
+      "params": ["string"],
+      "returns": "option<number>",
+      "_comment": "@ref LLP 1102 §3.1: a decimal number in text, `some(n)`, else `none`. Surrounding whitespace is `trim`'s; then an optional sign, digits with an optional fraction or a fraction alone (`.5`; `5.` is 5), and an optional decimal exponent (`1e3`); nothing else (`\"\"`, hex, `Infinity`, `NaN`, `12px` are `none`). The value is the correctly rounded double, as `Number()` reads it; a result past the largest finite is `none`, as is a nonzero numeral that rounds to zero; `-0` is -0."
+    },
+    {
+      "name": "ceil",
+      "params": ["number"],
+      "returns": "number",
+      "_comment": "@ref LLP 1102 §3.2: JavaScript's `Math.ceil`, IEEE's ceiling (`ceil(-0.5)` is -0; NaN and the infinities are their own)."
+    },
+    {
+      "name": "round",
+      "params": ["number"],
+      "returns": "number",
+      "_comment": "@ref LLP 1102 §3.2: JavaScript's `Math.round`: the nearest integer, a tie toward +∞ (`round(-1.5)` is -1, `round(2.5)` is 3), and -0 for a negative input that rounds to zero (`round(-0.4)` is -0); NaN and the infinities are their own. Not Rust's `f64::round`, which breaks a tie away from zero."
+    },
+    {
+      "name": "calendarDiff",
+      "params": ["string", "string", "\"years\" | \"months\""],
+      "returns": "option<number>",
+      "_comment": "@ref LLP 1102 §0, §3.4: the whole calendar years or months from the first ISO date (`YYYY-MM-DD`, proleptic Gregorian, years 0 through 9999) to the second, counted as an age is: a period completes when the later date's month and day reach the earlier date's (years compare month then day, months compare the day), so a Feb 29 start completes a year on Mar 1 of a common year and a Jan 31 start completes a month on Mar 1, as the web's `Temporal.PlainDate.prototype.until` counts with `largestUnit` `\"years\"` or `\"months\"` (date-fns' `differenceInMonths` differs: it lets a month's last day complete a month). When the second date is earlier, the count from it to the first, negated. `none` when either is not a valid `YYYY-MM-DD` date."
+    },
+    {
+      "name": "toFixed",
+      "params": ["number", "0..=100"],
+      "returns": "string",
+      "_comment": "@ref LLP 1102 §0, §3.2 (decided (c)): JavaScript's `Number.prototype.toFixed(digits)`, the binary value rounded (`toFixed(1.005, 2)` is `\"1.00\"`, a tie away from zero on the exact value), `-0.001` at 2 is `\"-0.00\"`, a magnitude of `1e21` or more printed as `toString` prints it. One declared difference: a non-finite number prints `\"\"` (LLP 1054.000.003 D7), where JavaScript prints `NaN` or `Infinity`. `digits` is a whole-number literal from 0 to 100, JavaScript's range. A linked `format` entry."
+    },
+    {
+      "name": "formatDecimal",
+      "params": ["number", "0..=20"],
+      "returns": "string",
+      "_comment": "@ref LLP 1102 §0, §3.2 (decided (c)): an integer count of a smallest unit as a decimal with `digits` places, exactly (`formatDecimal(1234, 2)` is `\"12.34\"`, `formatDecimal(-5, 2)` is `\"-0.05\"`, `formatDecimal(7, 0)` is `\"7\"`); `-0` prints as `0`. A count that is not an integer, or not finite, prints `\"\"`: money is a count of cents, or `formatDecimal(round(price * 100), 2)` for a price of at most two decimals under a trillion. `digits` is a whole-number literal from 0 to 20. A linked `format` entry."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

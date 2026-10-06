@@ -805,11 +805,13 @@ export function gridValue(kind, value) {
   if (kind === "justify" && /^(?:last baseline|legacy(?: (?:left|right|center))?|(?:left|right|center) legacy)$/.test(lower)) return refuse("Taffy has no such alignment mode");
   return v;
 }
+// A row's CSS text; `auto` on a maximum is CSS's unbounded `none` (LLP 1102 §3.11).
+const cssText = (prop, unit, v) => { const t = v == null ? null : typeof v === "number" ? v + unit : String(v); return t === "auto" && (prop === "max-width" || prop === "max-height") ? "none" : t; };
 function css(e, prop, unit, v, rendered) {
   // The value this binding last wrote: the same again writes nothing (each
   // write was two style mutations, for every dynamic row of every row a
   // list update touched).
-  const last = e.$css ??= {}, t = v == null ? null : typeof v === "number" ? v + unit : String(v);
+  const last = e.$css ??= {}, t = cssText(prop, unit, v);
   if (last[prop] === t) return;
   last[prop] = t;
   // An adopted node's inline style is the renderer's: a value it already
@@ -856,7 +858,7 @@ export function Sm(e, prop, unit, f) {
   effect(() => {
     const v = f();
     // Held: the hold's authored style takes it, and what css() last wrote no longer says what shows.
-    if (Hooks.style?.(e, prop, v == null ? null : typeof v === "number" ? v + unit : String(v))) { if (e.$css) delete e.$css[prop]; }
+    if (Hooks.style?.(e, prop, cssText(prop, unit, v))) { if (e.$css) delete e.$css[prop]; }
     else css(e, prop, unit, v);
   });
 }
@@ -869,6 +871,14 @@ function guestOrigin(e) {
   let o; try { o = !src || src === "about:blank" ? location.origin : new URL(src, document.baseURI).origin; } catch { return undefined; }
   return o === "null" ? undefined : o;
 }
+// An image's `load` and `error` (LLP 1011 §2) as HTML `<img>` fires them, once per source, the error with its message (glue.js `imageEvents`); a symbol fires neither. A tinted raster paints
+// through its CSS mask (element.rs `host_css`), a CORS fetch: from an origin that sends no CORS headers it paints nothing, so a CORS probe of the source decides. An adopted page's image may have settled before this attached.
+const IMAGE_ERROR = "the image did not load", CORS_ERROR = "a tinted image from another origin needs CORS (Access-Control-Allow-Origin)", Probes = new Map();
+function imageEvent(e, kind, f) {
+  const probe = src => Probes.get(src) ?? (inflight.n++, Probes.set(src, new Promise(ok => { Object.assign(new Image(), { crossOrigin: "anonymous", onload: () => ok(true), onerror: () => ok(false) }).src = src; }).finally(() => inflight.n--)).get(src));
+  const settle = failed => { const src = e.currentSrc; if (!e.isConnected || e.hasAttribute("data-symbol-path") || e.$settled?.[kind] === src) return; (failed || !getComputedStyle(e).maskImage?.includes("url(") || /^(data|blob):/.test(src) || new URL(src, location.href).origin === location.origin ? Promise.resolve(!failed) : probe(src)).then(ok => { if (e.currentSrc !== src || !e.isConnected || (e.$settled ??= {})[kind] === src) return; e.$settled[kind] = src; if (ok ? kind === "load" : kind === "error") ok ? f() : f(failed ? IMAGE_ERROR : CORS_ERROR); }); };
+  e.addEventListener("load", () => settle(false)); e.addEventListener("error", () => settle(true)); if (e.complete && e.getAttribute("src")) setTimeout(() => e.complete && settle(!e.naturalWidth));
+}
 export function on(e, kind, f) {
   // The runner's dispatch_at fires what is due at the event's time first (a focus's `then` before the input); a refusal still lets the event run.
   const go = f, wall = !clock.agent;
@@ -878,6 +888,7 @@ export function on(e, kind, f) {
   if (e.$media && MEDIA_EVENTS.has(kind)) return mediaOn(e, kind, f); // media.js: the glue's reports
   // A module view hears its module's events, and the page's own input as any element does (glue.js `attach`): a click is its press.
   if (e.exactNative) { l("exact-native", ev => { if (ev.detail.kind === kind) f(...(ev.detail.value == null ? [] : [ev.detail.value])); }); if (kind === "message") return; }
+  if (e.localName === "img" && (kind === "load" || kind === "error")) return imageEvent(e, kind, f);
   switch (kind) {
     // A link with a press is the app's navigation: the browser's is prevented. A modified or other-button click, a `target` or `download`, is the browser's alone and the press does not run, with a router or without (`router`, input-glue.js).
     case "press": if (!e.matches("button, a[href], input, select, textarea, summary")) input(); /* the input piece presses it by key (input-glue.js `pressesByKey`) */ return l("click", ev => { const a = ev.target.closest?.("a[href]"); if (a && a !== e && e.contains(a)) return; if (e.localName === "a" && (ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || (e.target && e.target !== "_self") || e.hasAttribute("download"))) return; ev.stopPropagation(); if (e.localName === "a") ev.preventDefault(); f([ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); }); // a press action taking one more parameter hears the MouseEvent's modifiers (gallery F20)

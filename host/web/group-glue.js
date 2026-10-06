@@ -167,6 +167,7 @@ export function groupController({ views, collections, request, applyBatch, now, 
     d.phase = 'landing'; stopPump();
     const row = r.row != null ? views.get(r.row) : null, g = d.ghost;
     const done = () => finish(d, r);
+    d.landNow = done; // a new drag ends the landing at once (LLP 1102 §3.18): the move has shown
     if (d.keys) { done(); return; }
     let animation;
     if (row && r.ending !== 'gone') {
@@ -203,7 +204,8 @@ export function groupController({ views, collections, request, applyBatch, now, 
     setTimeout(() => doc.removeEventListener('click', stop, { capture: true }), 0);
   }
   function down(b, e, g) {
-    if (cur || inert(b.el)) return; // no lift while a session lives (D8)
+    if (cur?.phase === 'landing') cur.landNow();
+    if (cur || inert(b.el)) return; // no lift while a session holds (D8)
     pending?.();
     collections.reorderContact(b.el, e.pointerId);
     const start = [e.clientX, e.clientY], events = [];
@@ -236,7 +238,9 @@ export function groupController({ views, collections, request, applyBatch, now, 
   // The keys (D9): one listener on the document while a key session lives,
   // since the row hides when another list is the target.
   function keydown(b, e) {
-    if (e.target !== b.el || cur || e.key !== ' ' || e.repeat) return;
+    if (e.target !== b.el || e.key !== ' ' || e.repeat) return;
+    if (cur?.phase === 'landing') cur.landNow();
+    if (cur) return;
     // The keys' contact takes the row's interaction pin as a finger's does;
     // the mapping reports it before the pin is retained.
     collections.reorderContact(b.el, -1);

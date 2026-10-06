@@ -74,6 +74,11 @@ impl<D: DataSource> Storage<D> {
     ) -> Result<Answer, DataError> {
         let mut answer = result?;
         if let Answer::Later(request) = &mut answer {
+            // Storage becomes a continuation below: a deadline on it is
+            // refused, not dropped.
+            if let Some(why) = request.timeout_refusal() {
+                return Err(unavailable(why));
+            }
             if request.http != exact_runner::HttpScheduling::Ordered
                 && (request.storage.is_some() || request.continuation.is_some())
             {

@@ -194,7 +194,7 @@ fn a_live_tick_keys_and_checks_what_changed() {
     r.data().bad = true;
     let refused = r.act("tick", vec![]);
     assert!(
-        matches!(&refused, Err(RunnerError::Shape { resource }) if resource == "changed"),
+        matches!(&refused, Err(RunnerError::Shape { resource, .. }) if resource == "changed"),
         "{refused:?}"
     );
     assert_eq!(r.collections().pop().unwrap().count, COUNT + ticks + 1);

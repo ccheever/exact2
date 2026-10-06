@@ -159,9 +159,7 @@ impl<D: DataSource> Runner<D> {
         if self.conforms(value, row.ty) {
             Ok(())
         } else {
-            Err(RunnerError::Shape {
-                resource: self.plan.str(row.name).to_string(),
-            })
+            Err(self.shape(self.plan.str(row.name).to_string(), value, row.ty))
         }
     }
 

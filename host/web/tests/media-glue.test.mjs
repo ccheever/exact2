@@ -87,3 +87,17 @@ test('a player that already finished loading reports its seek and canplay once',
   el.fire('timeupdate');
   expect(el.sent).toEqual([...once, 'timeupdate\n0']);
 });
+
+test('a player with metadata but no data yet makes its opening seek on attaching', () => {
+  // The JS target attaches after a frame and a dynamic import; a cached
+  // source can have metadata by then (readyState 1), past the
+  // `loadedmetadata` the glue seeks at. It seeks now, so the app hears
+  // the opening seek as on the wasm host (synthetic-media in a full run).
+  const el = audio({ src: 'a.mp3', currentTime: '0' }, { readyState: 1, handlers: ['loadedmetadata', 'seeking', 'seeked'] });
+  expect(el.seeks).toEqual([0]);
+  expect(el.sent).toEqual(['loadedmetadata\n']);
+  el.fire('seeking'); el.fire('seeked');
+  expect(el.sent).toEqual(['loadedmetadata\n', 'seeking\n', 'seeked\n']);
+  // No bound time: no seek, as the wasm host makes none.
+  expect(audio({ src: 'a.mp3' }, { readyState: 1 }).seeks).toEqual([]);
+});

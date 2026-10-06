@@ -1,0 +1,69 @@
+# Code review: image spools in a per-process, lock-held directory, swept at launch (Apple), 2026-10-06 (grok)
+
+- **Family:** xAI. `grok-4.7` via the grok CLI, reasoning effort xhigh, `--no-subagents`, `--always-approve` with Edit and Write denied, `--cwd /tmp/bsky-rs-rv`.
+- **Method:** one brief (sha256 `4125618ef87b5df8d9efcdcffecf9e2c4eeb111e19fa8cf1ff819b6e4cf7b066`), shared with the other reviewer. Round 1, blind to the other review. Reviewed commit cb94d1a35 in a detached worktree. The author (Claude, for the Bluesky clone) is not a reviewer.
+- **Transcription:** the review's findings and verdict, unedited.
+- **Verdict:** NOT READY.
+- **Disposition (r2, b3a36408b):** All five taken: 1 as Astra 1, plus `O_NOFOLLOW` (ELOOP keeps); 2: a root that is a symlink is replaced by a real directory and entries that are symlinks are never swept or followed (test); 3 as Astra 2; 4 as Astra 4; 5 as Astra 5.
+
+# Round 1
+
+1. **High** — `host/apple/Sources/ExactKit/RasterSpool.swift:54`. Any failed `open` of `.lock` is treated as "no owner," and the directory is removed. `open` also fails with `EMFILE`, `ENFILE`, `EIO`, or `EACCES` while a live process holds that lock. `flock` is advisory, so `removeItem` does not care that the owner holds it. `RasterInput.metadata()` and `bytes()` reopen the spool by path (`RasterInput.swift:86`, `RasterInput.swift:92`), so those images fail on the next read. Delete only when `errno == ENOENT`. On any other errno, leave the directory. Open with `O_NOFOLLOW|O_CLOEXEC` and do not delete on `ELOOP`.
+
+2. **High** — `host/apple/Sources/ExactKit/RasterSpool.swift:16`. `sweep` lists `tmp/exact-raster` and `removeItem`s its children. Both calls walk a symlink in the last path component. Unsandboxed macOS gives every app of the user the same `NSTemporaryDirectory()`. If `exact-raster` is a symlink left by a script or swapped in between launches, the first spool deletes every subdirectory of the target older than 60 seconds whose `.lock` is missing or lockable. `createDirectory(..., withIntermediateDirectories: true)` then creates this process's spool directory in that same target. `lstat` the final component. If it is a symlink, unlink the link itself and `mkdir` a real directory. Sweep only a directory opened with `O_DIRECTORY|O_NOFOLLOW`.
+
+3. **Medium** — `host/apple/Sources/ExactKit/RasterSpool.swift:24`. `try?` drops a `createDirectory` failure, and the `flock` result is ignored. The URL is then used for every spool for the life of the process. If the directory was never created, `Data.write` and `createFile` fail and every `data:` and `http(s)` image fails (`RasterInput.swift:52`, `RasterInput.swift:128`). If the directory exists but `flock` did not return 0, this process writes there with no lock, and after the grace period a peer can take the lock and delete files this process is still decoding. Publish the directory only after `createDirectory` succeeds and `flock` returns 0. On failure, retry with a new UUID, or spool outside `exact-raster/` so a peer will not sweep it.
+
+4. **Medium** — `host/apple/Sources/ExactKit/RasterSpool.swift:26`. The lock fd is opened without `O_CLOEXEC`. On this Mac (APFS), `flock` is tied to the open file description: a second `open` plus `LOCK_EX|LOCK_NB` returns `EWOULDBLOCK`, and a `fork`/`exec` child that inherits a non-`CLOEXEC` fd keeps the exclusive lock after the parent closes. The lock releases when that child exits. The comment says the lock ends when this process ends. A helper that outlives a killed app pins the directory, so later sweeps leave it in place. A child that calls `flock(LOCK_UN)` on the inherited fd unlocks this process as well (dup and fork share one lock). Darwin `open` returns a raw `Int32`, so dropping the local does leave the fd open, and Swift's `static let` initializer runs once under its once-lock, so initialization itself is thread-safe. Store the fd in a static and pass `O_CLOEXEC|O_NOFOLLOW`.
+
+5. **Medium** — `host/apple/tests/ExactKitTests/RasterSpoolTests.swift:64`. `testThisProcessSpoolsInItsOwnLockedDirectory` sweeps the real `NSTemporaryDirectory()/exact-raster` with `now` one hour ahead. That bypasses the grace period for every sibling in the shared user temporary directory. A peer still between `createDirectory` and `flock`, and any unlocked directory younger than 60 seconds, is deleted when the test runs. The other two tests hit the right invariant: a second open file description in-process is a valid stand-in for another process. They never reach `errno`, init failure, or a symlink. Prove this process's lock by opening `.lock` and expecting `flock(LOCK_EX|LOCK_NB)` to fail. Keep sweep tests on a private root.
+
+Also checked, and holding:
+
+- Two honest sweepers are safe when `open` succeeds. Only the caller that gets `LOCK_EX` deletes. The grace period covers the window after `mkdir` and before `flock`, including the moment `.lock` exists but is not locked yet. Directory `mtime` on APFS moves when a child is created or removed, so an idle live process is protected by the lock, and a corpse younger than 60 seconds waits for a later launch. A day of fast relaunches stays bounded by about 60 seconds of debris. A single relaunch after a quiet minute sweeps the old directories.
+- iOS and tvOS app extensions and App Groups do not share `NSTemporaryDirectory()` (each container has its own tmp) unless the host points `TMPDIR` at the group container. `sweepLoose` is limited to those OS builds because that tmp holds only this app's files. Sandboxed macOS apps get a container-private tmp. A second instance or a same-container helper still shares it, so the lock is the right check there too. Unsandboxed macOS is the shared `/var/folders/.../T` case the comment describes.
+- Nothing else still reads or writes the loose `exact-raster-<uuid>` path. Both spool sites in `RasterInput` go through `RasterSpool.file()`. `Caches/exact-raster-http` is a directory outside tmp. `sweepLoose` only removes regular files, so `exact-raster-test-…` directories in the loader tests stay.
+
+**NOT READY**
+
+# Round 2
+
+- **Method:** one brief (sha256 `890596ad68ab6ccfcd02db9f2ea5e07608743509cb86ba8f39aa0d8ed8abf8bc`), blind to the other review, on b3a36408b with round 1's artifacts.
+- **Verdict:** NOT READY.
+- **Disposition (r3, HEAD):** Both taken: 1 as Astra 1 (unlink, not removeItem; the root checked real under the namespace lock); 2 as Astra 3. Its note on a paused creator: the held-namespace test now has a lock-less directory mid-creation and asserts it survives.
+
+1. **P1** — Replacing a symlinked `exact-raster` root is a check-then-`removeItem` outside the namespace lock, so a second launch can delete a live spool tree. `host/apple/Sources/ExactKit/RasterSpool.swift:42`
+
+`isSymbolicLink` is sampled, then `removeItem`, then `createDirectory`, and only then is `.namespace.lock` taken. `removeItem` on a symlink removes the link, but if the path is already a real directory it removes that directory. Advisory `flock` does not stop it. Two launches that both observe a symlink can interleave like this: the first replaces the link, finishes `establish`, caches the URL, and starts writing images; the second was preempted after the symlink check and its `removeItem` then deletes that live tree. The first process keeps the cached URL, so every later `data:` and `http(s)` spool fails until restart. On this OS `createDirectory` also returns success while leaving a symlink in place, and `open` of `root/.namespace.lock` follows that parent symlink (a probe created the lock file in the target). `contentsOfDirectory` on a symlink throws, so the sweep does not empty the target, but the following creates still write into it. `open(root, O_DIRECTORY|O_NOFOLLOW)` fails with `ENOTDIR` (20) for a symlink and succeeds for a real directory.
+
+Suggested fix: do not `removeItem` from a prior `resourceValues` check. `unlink` the final component (`EPERM` means it is already a directory, `ENOENT` means it is absent). `mkdir`, then `open` with `O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC`, and on any failure unlink and retry. Sweep and create the per-process directory relative to that directory fd. Add a regression with two overlapping `establish` calls on a symlinked root, one of which has already published a locked directory, and assert that directory and its file stay.
+
+2. **P3** — The close-on-exec assertion opens its own descriptor with `O_CLOEXEC` and checks that. `host/apple/tests/ExactKitTests/RasterSpoolTests.swift:73`
+
+`lockFile` does pass `O_CLOEXEC`, so the owner fd should be correct, but this test still passes if that flag is removed. `F_GETFD` is applied to an fd the test just opened, not to the leaked owner fd (sweep's fds are already closed). Inspect the owner descriptor, for example via `proc_pidfdinfo` or `/dev/fd`, and assert `FD_CLOEXEC` there.
+
+Round-1 items otherwise check out. Delete-on-any-`open`-failure is only `ENOENT` now; a mode-`000` lock stays (reopen here returns `EACCES`), and that `errno` read did not get clobbered across 8000 misses. The directory is published only after `establish` returns, so a throw leaves `established` nil and the next `file()` tries again. Creating and sweeping both run under `.namespace.lock`, which closes the old create-before-`flock` window for two current processes; a same-process second fd still cannot take a held lock. Every `RasterSpoolTests` root is private. Symlink entries are left alone (`isDirectory` is false, and `removeItem` of a link does not delete the target). `established` is touched only under `NSLock`; the two raster workers call `directory()` after releasing `RasterBackend.lock`, and the lock is not re-entered. A peer holding `.namespace.lock` stalls the waiter (and the other worker if it also enters `directory()`), but the holder takes per-directory locks with `LOCK_NB`, so this does not deadlock. If `tmp/exact-raster` cannot be created, `establish` throws and nothing is cached.
+
+`testAFailedEstablishThrows` never calls `directory()`, so it does not prove the static cache is skipped. There is no test that a creator paused before its per-directory `flock` is protected by `.namespace.lock`.
+
+NOT READY
+
+# Round 3
+
+- **Method:** one brief (sha256 `f38a4a655f46ff2e3cd12fb2235c45925468c41431d58da62084984cf08d536a`), blind to the other review, on 335aa6214 with rounds 1 and 2's artifacts.
+- **Verdict:** READY WITH CHANGES.
+- **Disposition:** 1 taken in part: a root link that cannot be unlinked (an immutable link, a read-only tmp) is checked before anything is opened through it, so nothing is created in its target (a test with a read-only tmp; it fails without the check). Opening the root once and working relative to its descriptor (`openat`) would also close a swap by another process of the same user between the checks and the sweep; that is an adversary who can already delete the files outright, so it is left for QUEUE. 2 taken, as Astra's r3.
+
+1. **P2** — A symlink `unlink` cannot remove is still followed, and `.namespace.lock` is created in its target. `host/apple/Sources/ExactKit/RasterSpool.swift:54`
+
+`establish` unlinks a symlink and ignores the result. `mkdir` on a symlink that is still there returns `EEXIST`, and that errno is treated as success. `lockFile` then opens `root/.namespace.lock` with `O_CREAT`. `O_NOFOLLOW` applies only to the final component, so the parent symlink is followed and the lock file is created in the target. On this Mac, a symlink with `UF_IMMUTABLE` (`chflags -h uchg`) makes `unlink` return `EPERM` and `mkdir` return `EEXIST`, and the following `open` creates `.namespace.lock` in the target. The same sequence happens when the parent is mode `0555`: `unlink` returns `EACCES` and `mkdir` still returns `EEXIST`. The `lstat` at line 58 then throws `ENOTDIR`, so the directory is not cached and `sweep` does not run, but the file is already in the target. Every later spool opens that file and, when a live owner holds it, spends the full retry budget (about 500 ms, with `directory()` holding `NSLock`) before failing again. The `lstat` also does not pin the inode that `sweep` and `mkdir` use at lines 59–61. `contentsOfDirectory` on a symlink throws `ENOTDIR`, so a link substituted for the root is left in place by `sweep`, while `mkdir` of the per-process directory follows a parent symlink and creates the spool in the target.
+
+**Fix:** Open the root with `O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC` before any child path is opened. Create and lock `.namespace.lock` with `openat` on that directory fd, and sweep and `mkdir` the per-process directory relative to it. If the open fails because the path is a symlink, `unlink` and retry a bounded number of times. If `unlink` fails, throw that errno and do not open a child path.
+
+2. **P3** — The symlink test does not cover the repair race it cites. `host/apple/tests/ExactKitTests/RasterSpoolTests.swift:133`
+
+`testSymlinksAreNeverFollowed` runs two `establish` calls one after the other. The second call sees a real directory, so it never unlinks. Restoring `removeItem` (the round-2 bug, where a second launch deletes the first launch's tree after both have observed the symlink) still passes. The fixture is also a removable symlink, so the stray `.namespace.lock` in finding 1 is invisible. `testEstablishingSweepsAndHoldsItsOwnLock` puts its dead directory outside `exact-raster` and asserts that directory is kept, so deleting `sweep(root)` from `establish` would not fail it.
+
+**Fix:** Overlap two `establish` calls on one symlinked root, with one already returned and holding its per-directory lock, and assert that spool file remains. Add an unremovable symlink and assert the target gains no `.namespace.lock`. Put a lock-less directory inside the root before `directory()` and assert that `establish` removes it.
+
+READY WITH CHANGES

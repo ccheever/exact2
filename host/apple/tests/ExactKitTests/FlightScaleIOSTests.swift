@@ -153,5 +153,95 @@ final class FlightScaleIOSTests: XCTestCase {
         XCTAssertNotNil(scene.card.superview)
         XCTAssertEqual(scene.card.convert(scene.card.bounds, to: nil), CGRect(x: 150, y: 331, width: 402, height: 714))
     }
+
+    private static func radii(_ tl: Double, _ tr: Double, _ br: Double, _ bl: Double) -> NodeStyle {
+        ["background_color": .array([.number(30), .number(110), .number(240), .number(255)]),
+         "border_radius_top_left": .number(tl), "border_radius_top_right": .number(tr), "border_radius_bottom_right": .number(br), "border_radius_bottom_left": .number(bl)]
+    }
+
+    /// The arriver's corners as its style says when it lands, not as they
+    /// were when it lifted: a style applied mid-flight, which the flight
+    /// holds off its layer (the clip is what flies rounded), is its own again
+    /// (a reply's bubble, square after its menu preview flew home: Signal
+    /// Clone build 39). The view's radius is not the flight's to keep.
+    func testALandedArriverTakesTheCornersItsStyleGaveItInFlight() throws {
+        let scene = Scene()
+        scene.card.applyStyle(Self.radii(0, 0, 0, 0)); scene.card.applyBoxLayer()
+        XCTAssertEqual(scene.card.layer.cornerRadius, 0)
+        scene.fly(0.5)
+        scene.card.applyStyle(Self.radii(18, 18, 18, 18))
+        scene.card.applyBoxLayer()
+        scene.p.landFlight(try XCTUnwrap(scene.p.flights[2]))
+        XCTAssertNil(scene.card.flightLook)
+        XCTAssertEqual(scene.card.layer.cornerRadius, 18, accuracy: 0.01, "the radius its style gave it while flying")
+        XCTAssertEqual(scene.card.layer.maskedCorners, [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner])
+    }
+
+    /// A radius that changed while flying: the new one, not the lift's. Its
+    /// corners grown unequal (a cluster's 4-pt joint), the box draws them and
+    /// the layer carries none; landed without its place, the same.
+    func testALandedArriverDropsTheRadiusItLiftedWith() throws {
+        let scene = Scene()
+        scene.card.applyStyle(Self.radii(18, 18, 18, 18)); scene.card.applyBoxLayer()
+        XCTAssertEqual(scene.card.layer.cornerRadius, 18, accuracy: 0.01)
+        scene.fly(0.5)
+        scene.card.applyStyle(Self.radii(18, 18, 18, 4))
+        scene.card.applyBoxLayer()
+        scene.p.landFlight(try XCTUnwrap(scene.p.flights[2]))
+        XCTAssertEqual(scene.card.layer.cornerRadius, 0, "unequal corners are the box's to draw")
+        let again = Scene()
+        again.card.applyStyle(Self.radii(0, 0, 0, 0)); again.card.applyBoxLayer()
+        again.fly(0.5)
+        again.card.applyStyle(Self.radii(18, 18, 18, 18)); again.card.applyBoxLayer()
+        let flight = try XCTUnwrap(again.p.flights[2])
+        flight.slot?.removeFromSuperview()
+        again.p.landFlight(flight)
+        XCTAssertEqual(again.card.layer.cornerRadius, 18, accuracy: 0.01, "landed without its place, its own corners too")
+    }
+
+    /// A one-gradient fill is a sublayer that copies the layer's radius when
+    /// the view displays: displayed in flight it copied the lift's, and with
+    /// the overflow visible nothing else rounds it, so landing displays again.
+    func testALandedGradientTakesItsCornersToo() throws {
+        let scene = Scene()
+        let gradient: BatchValue = .object(["linear": .number(180), "stops": .array([0, 5, 82, 240, 255, 1, 44, 107, 237, 255].map { .number($0) })])
+        func style(_ r: Double) -> NodeStyle {
+            ["background_image": gradient, "border_radius_top_left": .number(r), "border_radius_top_right": .number(r), "border_radius_bottom_right": .number(r), "border_radius_bottom_left": .number(r)]
+        }
+        scene.card.applyStyle(style(0)); scene.card.applyBoxLayer(); scene.card.layer.displayIfNeeded()
+        scene.fly(0.5)
+        scene.card.applyStyle(style(18)); scene.card.applyBoxLayer()
+        scene.card.setNeedsDisplay(); scene.card.layer.displayIfNeeded()
+        let g = try XCTUnwrap(scene.card.boxGradient, "the gradient's layer")
+        XCTAssertEqual(g.cornerRadius, 0, "in flight it copied the layer's, held at the lift's")
+        scene.p.landFlight(try XCTUnwrap(scene.p.flights[2]))
+        scene.card.layer.displayIfNeeded()
+        XCTAssertEqual(scene.card.layer.cornerRadius, 18, accuracy: 0.01)
+        XCTAssertEqual(g.cornerRadius, 18, accuracy: 0.01, "the gradient rounded with it")
+        XCTAssertTrue(g.masksToBounds)
+    }
+
+    /// Its clip as its style says when it lands: an image flies clipped by
+    /// its own layer and lands unclipped when its overflow is visible; a view
+    /// in a clip whose overflow changed in flight keeps the new one.
+    func testALandedArriverTakesTheClipItsStyleGivesIt() throws {
+        let scene = Scene()
+        let photo = NodeView(id: 6, kind: "image", presenter: scene.p)
+        scene.p.views[6] = photo; scene.screen.addSubview(photo)
+        photo.frame = CGRect(x: 0, y: 100, width: 402, height: 300)
+        scene.fly(from: 1, to: 6, 0.5)
+        XCTAssertTrue(photo.layer.masksToBounds, "flying clipped by its own layer")
+        scene.p.landFlight(try XCTUnwrap(scene.p.flights[6]))
+        XCTAssertFalse(photo.layer.masksToBounds, "its overflow is visible")
+        func overflow(_ o: String) -> NodeStyle { ["overflow_x": .string(o), "overflow_y": .string(o)] }
+        for (from, to) in [("hidden", "visible"), ("visible", "hidden")] {
+            let s = Scene()
+            s.card.applyStyle(overflow(from))
+            s.fly(0.5)
+            s.card.applyStyle(overflow(to))
+            s.p.landFlight(try XCTUnwrap(s.p.flights[2]))
+            XCTAssertEqual(s.card.layer.masksToBounds, to == "hidden", "\(from) → \(to) in flight")
+        }
+    }
 }
 #endif

@@ -36,7 +36,7 @@ pub use inline::{
     Instance, Owner,
 };
 pub use lexer::{Lexer, Token, TokenKind};
-pub use parser::{parse, parse_source, parse_source_all, SyntaxError};
+pub use parser::{is_launch, parse, parse_source, parse_source_all, same_launch, SyntaxError};
 pub use share::share_calls;
 pub use spans::VisitSpans;
 
@@ -104,6 +104,10 @@ pub const HOST_COMMANDS: &[&str] = &[
     "setScheme",
     // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
     "showPicker",
+    // @ref LLP 1101.001 P5 — `HTMLDialogElement.showModal()` by the dialog's
+    // `id`, from an action; `close(id)` closes it (bare `close()` is still
+    // the window's).
+    "showModal",
     "share",
     // Local notifications by the Notification API's names (rules/DEFERRED.md,
     // 2026-10-04): `showNotification(title=, body=, tag=, showTrigger=)` and

@@ -246,6 +246,26 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `fail fetch "https://api.example.com/" [times 2]` (LLP 1103): every
+    /// later fetch whose URL starts with the prefix fails as a refused
+    /// connection does, or the next `times` of them. Leading a test's steps
+    /// (or at a file's top level) it is armed before the app's first data
+    /// load, as a launch line; later it is a step.
+    FailFetch {
+        /// What a matching fetch's URL starts with.
+        prefix: String,
+        /// How many matching fetches fail; `None`, every one until `pass`.
+        times: Option<u32>,
+        /// Where.
+        span: Span,
+    },
+    /// `pass fetch "…"`: the prefix stops failing (LLP 1103).
+    PassFetch {
+        /// The prefix a `fail fetch` armed.
+        prefix: String,
+        /// Where.
+        span: Span,
+    },
     /// `seed 7`: the session's `exactTime().seed`, `--seed`.
     Seed {
         /// A whole number from 0 through 2^53 − 1.
@@ -1319,6 +1339,8 @@ impl Step {
             | Step::Locale { span, .. }
             | Step::Seed { span, .. }
             | Step::BeforeData { span }
+            | Step::FailFetch { span, .. }
+            | Step::PassFetch { span, .. }
             | Step::Type { span, .. }
             | Step::Key { span, .. }
             | Step::Pick { span, .. }

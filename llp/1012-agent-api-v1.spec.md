@@ -271,7 +271,10 @@ the Linux host implements this list, not that file):
   the enter/leave pair); on macOS and iOS the presenter's own hover path from
   the hit view up to the first node with a `hover` handler, leaving whatever
   was hovered (no public pointer synthesis on iOS; on macOS the same for
-  symmetry — a tracking area needs the window's real cursor). CLI:
+  symmetry — a tracking area needs the window's real cursor). The pointer
+  rests there: a layout or scroll that moves other content under it is
+  hovered at the next frame, as the browser's is (macOS and Linux, #139;
+  a macOS contact going down ends the rest). CLI:
   `tap X hover`. Browser Back/Forward (LLP 1038 D11) is `tap <navigation
   root> {"history":-1}` / `{"history":1}` (CLI also `history -1` / `history 1`).
   The web calls `history.go(n)` and handles its real `popstate`; `n` must be a

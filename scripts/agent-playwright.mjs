@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { launchFacts, refuseStale, staleError, warnStale, webChanges } from './agent-launch.mjs';
+import { launchFacts, refuseStale, staleError, warnStale, webChanges, withFaults } from './agent-launch.mjs';
 import { deliverClipboard, pasteChord } from './agent-keys.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { resolveApp, webBuildCommand, webDist as defaultWebDist } from './app.mjs';
@@ -303,13 +303,13 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       host: 'web', browser: name, phasedTouch: false, boot, hostLines, evaluate, launchFacts: facts,
       async gpuMs() { const ms = await page.locator('#exact-root').getAttribute('data-gpu-ms'); return ms == null ? null : Number(ms); },
       /** A fresh document on this page: its origin's storage emptied, or `keep`ing it (a test's `reload`, mail F19). */
-      async reset({ keep = false } = {}) {
+      async reset({ keep = false, failFetch } = {}) {
         await pointer.release();
         for (const keys of heldKeys.values()) for (const key of [...keys].reverse()) await page.keyboard.up(key).catch(() => {});
         heldKeys.clear();
         await page.evaluate(async (keep) => { sessionStorage.clear(); if (keep) return; localStorage.clear(); await Promise.all((await indexedDB.databases?.() ?? []).map(x => x.name && new Promise(ok => { const r = indexedDB.deleteDatabase(x.name); r.onsuccess = r.onerror = r.onblocked = ok; }))); }, keep);
         if (!keep) await context.clearCookies();
-        hostLines.length = 0; await page.goto(keep ? page.url() : address.href, { waitUntil: 'commit' }); this.boot = await waitForBoot(page, 'the reused page never booted');
+        hostLines.length = 0; await page.goto(withFaults(keep ? page.url() : address.href, failFetch), { waitUntil: 'commit' }); this.boot = await waitForBoot(page, 'the reused page never booted');
       },
       ask,
       async reveal(id) { const r = await ask({ op: 'reveal', id }); if (r.scrolled) await frame(); return r; },

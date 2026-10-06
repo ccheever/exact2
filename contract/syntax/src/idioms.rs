@@ -1,6 +1,6 @@
 //! What the web's list idioms become in Contract, for the refusals that meet
 //! them (LLP 1017.003 §Diagnostics): an agent or a web developer writes
-//! `xs.map(f)`, `xs.length`, `reduce`, `Math.min(...xs)` or `toFixed` first,
+//! `xs.map(f)`, `xs.length`, `reduce`, `Math.min(...xs)` or `toPrecision` first,
 //! and each refusal names the spelling that works or says what to do instead.
 
 /// The fix for `recv.name(…)`, or for `recv.name` read as a field of a value
@@ -23,6 +23,7 @@ pub fn method_fix(name: &str) -> String {
         "split" => "write `split(s, sep)`: the web's `split` with a string separator; Contract has no regular expressions".into(),
         "replace" | "replaceAll" => "write `replaceAll(s, find, with)`: the web's `replaceAll` with a string `find`; Contract has no regular expressions".into(),
         "at" => "write `at(xs, i)`: Contract spells the web's `xs.at(i)` as a roster function, `some` of the item or `none`".into(),
+        "toFixed" => "write `toFixed(x, digits)`, `digits` a whole-number literal from 0 to 100: the web's `x.toFixed(digits)` as a roster function; for money, `formatDecimal(cents, 2)` prints a count of cents exactly (`round(price * 100)` of a price of at most two decimals under a trillion) (LLP 1102 §3.2)".into(),
         _ => match refusal(name) {
             Some(why) => why,
             None => format!(
@@ -53,7 +54,7 @@ pub fn refusal(name: &str) -> Option<String> {
         ),
         "toUpperCase" => "display casing is CSS: `text-transform=\"uppercase\"`; Contract has no `toUpperCase` (LLP 1088 D2)".into(),
         "Number" | "parseInt" | "parseFloat" => format!(
-            "Contract does not parse numbers from text (`{name}`, LLP 1088 D2 defers it): have the data module answer a number, or keep the number in state and print it with `toString`"
+            "write `parseNumber(s)` for `{name}`: `some(n)` for a decimal number in the text (`\" 12.5 \"`, `\"-3\"`, `\"1e3\"`), `none` for anything else (`\"\"`, `\"12px\"`, hex), so `match parseNumber(s)` handles a field's text (LLP 1102 §3.1)"
         ),
         "len" => "write `length(x)`: Contract spells the web's `.length`, of text or of a list, as a roster function".into(),
         "min" | "max" => format!(
@@ -62,8 +63,8 @@ pub fn refusal(name: &str) -> Option<String> {
         // The roster's substring search under the web's name since
         // 2026-09-28; a hint, not a second spelling: `contains` does not compile.
         "contains" => "write `includes(s, t)`, or `includes(xs, x)` for a list: the roster's search wears the web's name, `String.prototype.includes` and `Array.prototype.includes` (LLP 1006 §Expressions, renamed from `contains` 2026-09-28); `startsWith(s, t)` and `endsWith(s, t)` are the web's too".into(),
-        "toFixed" | "toPrecision" => format!(
-            "`{name}` is refused (LLP 1017.003); round with `floor(v * 100 + 0.5) / 100` and print it with `toString` (or a template), or, for a count, `formatNumber(n, \"compact\")` prints `1.2K` (LLP 1054.000.003)"
+        "toPrecision" | "toExponential" => format!(
+            "`{name}` is not in Contract: `toFixed(x, digits)` is the web's fixed-decimal format (`toFixed(2.5, 1)` is `\"2.5\"`), `formatDecimal(cents, 2)` prints a count of cents exactly, and `formatNumber(n, \"compact\")` prints a count as `1.2K` (LLP 1102 §3.2)"
         ),
         _ => return None,
     })
