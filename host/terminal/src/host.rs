@@ -323,17 +323,26 @@ impl<D: DataSource> Host<D> {
             .roots()
             .iter()
             .filter_map(|r| kernel.node(*r))
-            .chain(self.layers.iter().filter_map(|(id, _)| kernel.node(*id)))
             .map(|n| ((n.frame.y + n.frame.height) / ROW).round().max(0.0) as usize)
             .max()
             .unwrap_or(0)
     }
 
+    /// The transcript's `role="log"` node: a new one (the app keyed its log
+    /// afresh, as `/clear` does) is a new transcript, and an inline
+    /// terminal clears for it.
+    ///
     /// The transcript (LLP 1101 D10): each child of the `role="log"` node,
     /// in order — its identity, its `id`, its bottom row, and whether it is
     /// `aria-busy`. A child before the first busy one is settled: in inline
     /// mode it is final (Exact's policy, LLP 1101.001 P1), printed once
     /// into the terminal's scrollback and never laid out for it again.
+    pub fn log_key(&self) -> Option<exact_kernel::NodeKey> {
+        let log = self.find(|n| n.props.str(PropId::AccessibilityRole) == Some("log"))?;
+        self.runner.kernel().node(log).map(|n| n.key)
+    }
+
+    /// The transcript's children (see [`LogChild`]).
     pub fn transcript(&self) -> Vec<LogChild> {
         let kernel = self.runner.kernel();
         let Some(log) = self.find(|n| n.props.str(PropId::AccessibilityRole) == Some("log")) else {
@@ -694,6 +703,13 @@ impl<D: DataSource> Host<D> {
             .find(|(_, r)| r.contains(x, y))
             .map(|(id, _)| *id);
         self.click_hit(hit);
+    }
+
+    /// The open top layer's height in rows, if one is open.
+    pub fn layer_rows(&self) -> Option<usize> {
+        let (top, _) = self.layers.last()?;
+        let n = self.runner.kernel().node(*top)?;
+        Some((n.frame.height / ROW).round().max(1.0) as usize)
     }
 
     /// Whether a dialog or popover is open.

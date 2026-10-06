@@ -222,11 +222,15 @@ component Harness
     column width="100%" height=(inline ? "auto" : "100%")
       // Inline, the transcript flows into the terminal's scrollback; full
       // screen, it scrolls in place and follows its end.
+      // Keyed by the session's epoch: `/clear` makes a new log, and an
+      // inline terminal clears for a new log.
       when inline
-        Transcript(entries=session.entries, tick=tick)
+        each epoch in [session.epoch] key=epoch
+          Transcript(entries=session.entries, tick=tick)
       else
         scroll flex=1 min-height=0 scrollFollowEnd=true testId="transcript-scroll"
-          Transcript(entries=session.entries, tick=tick)
+          each epoch in [session.epoch] key=epoch
+            Transcript(entries=session.entries, tick=tick)
       // The live tail: everything below the log is redrawn in place.
       column testId="live" flex-shrink=0
         when session.busy and session.approval.id == ""
@@ -280,7 +284,10 @@ component Harness
           text "Press Ctrl-C again to exit" color="#ffaf00" padding="0 1ch"
         when session.toast != ""
           text session.toast color="#5fd75f" padding="0 1ch"
-      dialog id="models" closedby="any" bottom="0" left="2ch" border="thin solid #87afff" border-radius="1ch" padding="0 1ch" background-color="#1c1c1c" width="64ch" max-height=`${max(8, animRows + 4)}lh` display="flex" flex-direction="column" testId="model-dialog"
+      // Inline, the host anchors an open dialog to the bottom of the live
+      // region (above it is the terminal's scrollback); full screen, it
+      // centres it.
+      dialog id="models" closedby="any" left="2ch" border="thin solid #87afff" border-radius="1ch" padding="0 1ch" background-color="#1c1c1c" width="64ch" max-height=`${max(8, animRows - 2)}lh` display="flex" flex-direction="column" testId="model-dialog"
         text "Choose a model" font-weight=700 color="#87afff"
         text "↑/↓ to move · enter or click to choose · esc to cancel" color="#6c6c6c" margin-bottom="1lh"
         scroll flex=1 min-height=0 testId="model-list"
@@ -289,7 +296,7 @@ component Harness
               text (m.id == session.model ? "●" : "○") color=(m.available ? "#87afff" : "#585858")
               text m.label color=(m.available ? "inherit" : "#585858") flex-grow=1
               text (m.available ? m.provider : `${m.provider} · no key`) color="#6c6c6c"
-      dialog id="keys" closedby="any" bottom="0" left="2ch" right="2ch" border="thin solid #5fd75f" border-radius="1ch" padding="0 1ch" background-color="#1c1c1c" testId="key-dialog"
+      dialog id="keys" closedby="any" left="2ch" right="2ch" border="thin solid #5fd75f" border-radius="1ch" padding="0 1ch" background-color="#1c1c1c" testId="key-dialog"
         text "Add an API key" font-weight=700 color="#5fd75f"
         text "Saved to ~/.config/exact-harness/keys, readable only by you. It never enters the transcript." color="#6c6c6c"
         row gap="2ch" margin-top="1lh"

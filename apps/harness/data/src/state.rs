@@ -285,6 +285,9 @@ pub struct State {
     /// Entries retired so far: the host printed them, the session no
     /// longer answers them (P1).
     pub retired: f64,
+    /// Which transcript this is: `/clear` starts a new one, and the screen
+    /// keys its log by it, so an inline terminal clears too.
+    pub epoch: f64,
 }
 
 impl State {

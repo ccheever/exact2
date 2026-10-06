@@ -57,10 +57,19 @@ fn run(shared: &Arc<Shared>, name: &str, rest: &str) -> bool {
     match name {
         "help" => notice_md(shared, art::HELP),
         "clear" => {
+            // A new transcript: a fresh banner under a new epoch, which the
+            // screen keys its log by so an inline terminal clears as well.
             let mut s = shared.lock();
-            s.entries.retain(|e| e.kind == "banner");
+            s.entries.clear();
             s.history.clear();
             s.round = None;
+            s.epoch += 1.0;
+            let blocks = art::banner(&s.model, &s.cwd, &s.branch);
+            s.push(Entry {
+                kind: "banner".into(),
+                blocks,
+                ..Entry::default()
+            });
         }
         "stress" => {
             let n = if rest.is_empty() {

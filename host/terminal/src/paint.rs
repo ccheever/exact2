@@ -83,15 +83,22 @@ fn placement(scene: &Scene<'_>, layer: ViewId, cols: usize, rows: usize, dy: f32
         return (0.0, dy);
     };
     let s = n.style;
+    let f = n.frame;
+    let h = (f.height / ROW).round();
+    if !scene.center {
+        // Inline: anchored to the bottom of the region painted, which the
+        // writer has made tall enough (it grows down into new rows, never
+        // up over what is already printed).
+        let gy = (rows as f32 - h).max(0.0);
+        return (0.0, f.y - gy * ROW);
+    }
     let auto = [s.top, s.right, s.bottom, s.left]
         .iter()
         .all(|d| *d == Dimension::Auto);
-    if !(scene.center && auto) {
+    if !auto {
         return (0.0, dy);
     }
-    let f = n.frame;
     let w = (f.width / COLUMN).round();
-    let h = (f.height / ROW).round();
     let gx = ((cols as f32 - w) / 2.0).floor().max(0.0);
     let gy = ((rows as f32 - h) / 2.0).floor().max(0.0);
     (f.x - gx * COLUMN, f.y - gy * ROW)

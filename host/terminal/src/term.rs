@@ -277,6 +277,10 @@ struct Inline {
     /// and the `id` of the last one, which the app reads to retire them.
     printed: std::collections::HashSet<exact_kernel::NodeKey>,
     through: String,
+    /// The log node the printed children belong to, and whether it has
+    /// printed any.
+    log: Option<exact_kernel::NodeKey>,
+    printed_any: bool,
     /// The live region's height and the cursor's row inside it.
     live: usize,
     cursor_row: usize,
@@ -303,6 +307,25 @@ impl Inline {
         let resized = self.shown.is_some_and(|(_, c, r)| (c, r) != (cols, rows));
         self.shown = Some((host.generation, cols, rows));
         let total = host.document_rows();
+        // A new log node is a new transcript: clear the screen and the
+        // scrollback, as `/clear` does in a terminal's own shell.
+        let log = host.log_key();
+        // Printed children are retired as they go, so remember that this log
+        // printed at all, not which children it still has.
+        let cleared = self.log.is_some() && log != self.log && self.printed_any;
+        if log != self.log {
+            self.printed_any = false;
+        }
+        self.log = log;
+        if cleared {
+            if self.cursor_row > 0 {
+                out.push_str(&format!("\x1b[{}A", self.cursor_row));
+            }
+            out.push_str("\x1b[H\x1b[2J\x1b[3J");
+            self.printed.clear();
+            self.cursor_row = 0;
+            self.last = None;
+        }
         let children = host.transcript();
         // Printed children are known by identity (LLP 1101.001 P1): those the
         // app has since retired, or cleared, are forgotten.
@@ -323,7 +346,7 @@ impl Inline {
             out.push_str(&format!("\x1b[{}A", self.cursor_row));
         }
         out.push('\r');
-        let mut fresh = resized;
+        let mut fresh = resized || cleared;
         let mut through = lead;
         if settled > lead {
             fresh = true;
@@ -335,13 +358,22 @@ impl Inline {
             }
             self.printed
                 .extend(children[lead..settled].iter().map(|c| c.key));
+            self.printed_any = true;
             through = settled;
             self.through = children[settled - 1].id.clone();
         }
         let top = bottom_of(through);
         let live_total = total.saturating_sub(top);
-        let show = live_total.min(rows.saturating_sub(1)).max(1);
-        let painted = host.render(total.saturating_sub(show).max(top), show);
+        // An open dialog is anchored to the region's bottom; the region
+        // grows down (new rows) to fit it, never up over printed rows.
+        // An open dialog goes below the live content, anchored to the
+        // region's bottom; the region grows down into new rows to hold it,
+        // never up over what is printed.
+        let layer = host.layer_rows().unwrap_or(0);
+        let show = (live_total + layer).min(rows.saturating_sub(1)).max(1);
+        let content = show.saturating_sub(layer);
+        let from = total.saturating_sub(content).max(top);
+        let painted = host.render(from, show);
         // The same region as last time: write only the cells that changed
         // (a spinner's tick is a few bytes). Otherwise repaint it whole.
         let row = match self
@@ -527,6 +559,8 @@ fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
     let mut inline = Inline {
         printed: std::collections::HashSet::new(),
         through: String::new(),
+        log: None,
+        printed_any: false,
         live: 0,
         cursor_row: 0,
         shown: None,
@@ -742,6 +776,8 @@ mod tests {
             Inline {
                 printed: std::collections::HashSet::new(),
                 through: String::new(),
+                log: None,
+                printed_any: false,
                 live: 0,
                 cursor_row: 0,
                 shown: None,

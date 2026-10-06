@@ -93,6 +93,8 @@ shape Session
   models: list<ModelChoice>
   retired: number
   queued: list<string>
+  // Which transcript: `/clear` starts a new one.
+  epoch: number
 
 // A running animation's frame (topic none: asked again on each tick).
 shape Frame

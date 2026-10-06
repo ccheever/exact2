@@ -144,6 +144,7 @@ pub fn session(st: &State) -> Value {
         Value::list(st.models.iter().map(model).collect()),
         Value::Number(st.retired),
         Value::list(st.queue.iter().map(|q| s(q)).collect()),
+        Value::Number(st.epoch),
     ])
 }
 

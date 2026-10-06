@@ -412,8 +412,13 @@ fn retire_drops_printed_entries_from_the_session() {
     assert!(after[0] > second.parse::<u64>().unwrap());
     assert!(send(&mut h, "retire", &[&last]));
     assert_eq!(h.shared.lock().entries.len(), 1);
+    // /clear starts a new transcript: a fresh banner under a new epoch.
     assert!(send(&mut h, "submit", &["/clear"]));
-    assert!(h.shared.lock().entries.is_empty());
+    {
+        let s = h.shared.lock();
+        assert_eq!(kinds(&s.entries), ["banner"]);
+        assert_eq!(s.epoch, 1.0);
+    }
     assert!(send(&mut h, "submit", &["/help"]));
     let id: u64 = h.shared.lock().entries[0].id.parse().unwrap();
     assert!(id > *after.last().unwrap(), "ids are never reused");
