@@ -484,11 +484,16 @@ impl Transport for RustlsHttpTransport {
         );
         let agent = &lease.slot.as_ref().unwrap().agent;
         // The request's own limit (`Request::timeout`) replaces the agent's
-        // 30 s total and 15 s waits, which would end a longer one first.
+        // 30 s total, 10 s connect and 15 s waits, any of which would end a
+        // longer one first. (Name resolution is the system's, unbounded by
+        // either: a caller's abort is seen once it returns.)
         let req = match request.timeout {
             Some(limit) => agent
                 .configure_request(req)
                 .timeout_global(Some(limit))
+                .timeout_connect(Some(limit))
+                .timeout_send_request(Some(limit))
+                .timeout_send_body(Some(limit))
                 .timeout_recv_response(Some(limit))
                 .timeout_recv_body(Some(limit))
                 .build(),

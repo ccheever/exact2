@@ -25,7 +25,7 @@ function deadlineOf(init) {
 }
 
 export async function fetchWith(set, input, init = {}) {
-  let value, asset, deadline;
+  let value, asset, deadline, signal;
   init ??= {};
   deadline = deadlineOf(init);
   try {
@@ -39,18 +39,27 @@ export async function fetchWith(set, input, init = {}) {
   if (!asset && !admitsNetwork(set, value, 'fetch')) throw new FetchError('Refused', refusal('net.fetch'));
   try {
     const { exactTimeout: _, ...rest } = init;
-    const signal = deadline ? (rest.signal ? AbortSignal.any([rest.signal, deadline.signal]) : deadline.signal) : rest.signal;
-    const response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...rest, ...(signal ? { signal } : {}), redirect: 'follow' });
+    // The caller's signal, from `init` or the input `Request`, beside the
+    // deadline: the combined signal keeps whichever reason came first.
+    const own = rest.signal ?? (typeof Request === 'function' && input instanceof Request ? input.signal : undefined);
+    signal = deadline ? (own ? AbortSignal.any([own, deadline.signal]) : deadline.signal) : rest.signal;
+    let response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...rest, ...(signal ? { signal } : {}), redirect: 'follow' });
     // A redirect that left the grants names where it led (podcast F5), as
     // the native executor does; the browser followed it to this last hop.
     if (response.url && (asset
       ? new URL(response.url).origin !== globalThis.location?.origin
       : !admitsNetwork(set, response.url, 'fetch'))) throw new FetchError('Refused', `${refusal('net.fetch')}: redirected to ${new URL(response.url).origin}`);
+    // The deadline covers the body too, as natively: read it here, so a
+    // stalled body is this fetch's Timeout, not a later read's AbortError.
+    if (deadline) {
+      const body = await response.arrayBuffer();
+      response = new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+    }
     return response;
   }
   catch (error) {
     if (error instanceof FetchError) throw error;
-    if (deadline?.signal.aborted && !init.signal?.aborted) throw new FetchError('Timeout', `the request timed out after ${deadline.ms} ms`);
+    if (deadline && signal?.reason?.name === 'TimeoutError') throw new FetchError('Timeout', `the request timed out after ${deadline.ms} ms`);
     throw new FetchError('Network', error?.message ?? error);
   }
 }

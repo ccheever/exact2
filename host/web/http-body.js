@@ -167,11 +167,13 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   let decodedBody;
   try { if (body) decodedBody = Uint8Array.from(atob(body), c => c.charCodeAt(0)); }
   catch (error) { return failed(4, `invalid request body: ${error}`); }
-  // A deadline for the whole exchange (Request::timeout_ms): kind 9 when it passes.
+  // A deadline for the whole exchange (Request::timeout_ms): kind 10 when it
+  // passes (9 is an auth session's delivery, glue.js).
   if (op.timeoutMs !== undefined && (!Number.isInteger(op.timeoutMs) || op.timeoutMs < 1 || op.timeoutMs > 3600000)) return failed(2, 'a request timeout must be 1 to 3600000 ms');
   const deadline = op.timeoutMs === undefined ? null : AbortSignal.timeout(op.timeoutMs);
   controllers.add(controller);
-  const init = { method, headers, redirect: 'follow', cache: cache === 'reload' ? 'reload' : 'default', signal: deadline ? AbortSignal.any([controller.signal, deadline]) : controller.signal };
+  const signal = deadline ? AbortSignal.any([controller.signal, deadline]) : controller.signal;
+  const init = { method, headers, redirect: 'follow', cache: cache === 'reload' ? 'reload' : 'default', signal };
   if (decodedBody) init.body = decodedBody;
   if (op.stream && !headers.some(([k]) => k.toLowerCase() === 'accept')) init.headers = [...headers, ['accept', 'text/event-stream']];
   try {
@@ -186,7 +188,8 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
       return await readEvents(response, op.maxResponseBytes ?? 1024 * 1024, message, controller);
     return { kind: 0, status: response.status, headers: [...response.headers].map(([k, v]) => `${k}: ${v}`).join('\n'), body: await boundedHttpBody(response, op.maxResponseBytes) };
   } catch (error) {
-    if (deadline?.aborted && !controller.signal.aborted) return failed(9, `the request timed out after ${op.timeoutMs} ms`);
+    // Whichever ended it first: the combined signal keeps the first reason.
+    if (deadline && signal.reason?.name === 'TimeoutError') return failed(10, `the request timed out after ${op.timeoutMs} ms`);
     return failed(controller.signal.aborted ? 4 : 1, error);
   }
   finally { controllers.delete(controller); }

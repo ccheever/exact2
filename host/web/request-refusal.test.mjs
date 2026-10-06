@@ -1066,12 +1066,25 @@ test('a request deadline cancels a server that never answers, on the wasm and Ty
   try {
     const started = Date.now();
     const timed = await request({ method: 'GET', url: origin.url.href, headers: [], timeoutMs: 150 }, { grantSet: set, controllers: new Set() });
-    expect([timed.kind, text(timed)]).toEqual([9, 'the request timed out after 150 ms']);
+    expect([timed.kind, text(timed)]).toEqual([10, 'the request timed out after 150 ms']);
     const refused = await request({ method: 'GET', url: origin.url.href, headers: [], timeoutMs: 0 }, { grantSet: set, controllers: new Set() });
     expect(refused.kind).toBe(2);
     const error = await fetchWith(set, origin.url.href, { exactTimeout: 150 }).catch(e => e);
     expect([error.name, error.kind, error.message]).toEqual(['FetchError', 'Timeout', 'the request timed out after 150 ms']);
     expect(Date.now() - started).toBeLessThan(5000);
     await expect(fetchWith(set, origin.url.href, { exactTimeout: 1.5 })).rejects.toThrow('exactTimeout must be an integer number of milliseconds from 1 to 3600000');
+  } finally { origin.stop(true); }
+});
+
+test('the web build\'s deadline covers a stalled body, and keeps the caller\'s own abort', async () => {
+  // Headers at once, then a body that never ends.
+  const origin = Bun.serve({ port: 0, idleTimeout: 0, fetch: () => new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('partial')); } })) });
+  const set = normalized(`net.fetch ${origin.url.origin}`);
+  try {
+    const stalled = await fetchWith(set, origin.url.href, { exactTimeout: 150 }).catch(e => e);
+    expect([stalled.name, stalled.kind, stalled.message]).toEqual(['FetchError', 'Timeout', 'the request timed out after 150 ms']);
+    const aborted = new AbortController(); aborted.abort();
+    const own = await fetchWith(set, new Request(origin.url.href, { signal: aborted.signal }), { exactTimeout: 5000 }).catch(e => e);
+    expect([own.name, own.kind]).toEqual(['FetchError', 'Network']);
   } finally { origin.stop(true); }
 });

@@ -207,6 +207,11 @@ impl Core {
         let ordered = r.request.is_ordered();
         let mut state = self.shared.state.lock().unwrap();
         let admitted = (|| {
+            // A deadline on work that cannot take one (a stream, a
+            // continuation, native work) is refused here, before any path.
+            if let Some(why) = r.request.timeout_refusal() {
+                return Err(why);
+            }
             let (lane, charge, limit) = reservation(&r.request)?;
             if self.disabled {
                 return Err("native executor worker limit reached");
@@ -864,7 +869,11 @@ fn execute(
     // The whole exchange, headers and body, ends by the deadline: the
     // platform's idle timeout alone would let a server that trickles bytes
     // hold the ordered lane for as long as it likes.
-    let deadline = timeout.map(|ms| Deadline::arm(ms, abort));
+    let deadline = match timeout.map(|ms| Deadline::arm(ms, abort)).transpose() {
+        Ok(deadline) => deadline,
+        // A deadline that cannot be kept is refused, never silently none.
+        Err(why) => return failed(FailureKind::Refused, why),
+    };
     let result = b
         .fetch
         .stream(req, &abort.signal())
@@ -892,26 +901,29 @@ struct Deadline {
 }
 
 impl Deadline {
-    fn arm(ms: u32, abort: &AbortController) -> Deadline {
+    fn arm(ms: u32, abort: &AbortController) -> Result<Deadline, String> {
         let (done, wait) = std::sync::mpsc::channel::<()>();
         let passed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (flag, abort) = (passed.clone(), abort.clone());
-        let spawned = std::thread::Builder::new()
+        std::thread::Builder::new()
             .name("exact-fetch-deadline".into())
             .spawn(move || {
+                // A request the caller already aborted (a newer answer, an
+                // unload) stays Aborted: the deadline did not end it.
                 if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
                     wait.recv_timeout(std::time::Duration::from_millis(ms.into()))
                 {
-                    flag.store(true, Ordering::Release);
-                    abort.abort();
+                    if !abort.signal().aborted() {
+                        flag.store(true, Ordering::Release);
+                        abort.abort();
+                    }
                 }
-            });
-        // Without a thread the platform's own timeout (set above) still holds.
-        drop(spawned);
-        Deadline {
+            })
+            .map_err(|e| format!("the request's deadline could not be armed: {e}"))?;
+        Ok(Deadline {
             passed,
             _done: done,
-        }
+        })
     }
 
     fn passed(&self) -> bool {

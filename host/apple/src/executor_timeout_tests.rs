@@ -46,25 +46,33 @@ fn a_request_that_answers_in_time_is_unaffected_by_its_deadline() {
 
 #[test]
 fn a_deadline_out_of_range_or_on_work_that_is_not_http_is_refused() {
-    let (core, fixture, woke) = setup();
+    // Refused at admission, before any path runs it (the host settles the
+    // refusal on the runner's ticket), and nothing reaches the server.
+    let (core, fixture, _woke) = setup();
     let mut zero = Request::get("https://example.test/read");
     zero.timeout_ms = Some(0);
-    core.run(job(1, zero), None).unwrap();
-    core.run(
-        job(
-            2,
-            Request::get("https://example.test/read").timeout(exact_runner::MAX_TIMEOUT_MS + 1),
+    assert_eq!(
+        core.run(job(1, zero), None),
+        Err("a request timeout must be 1 to 3600000 ms")
+    );
+    let (over, _, _) = setup();
+    assert_eq!(
+        over.run(
+            job(
+                2,
+                Request::get("https://example.test/read").timeout(exact_runner::MAX_TIMEOUT_MS + 1)
+            ),
+            None
         ),
-        None,
-    )
-    .unwrap();
-    for (_, outcome) in collect(&core, &woke, 2) {
-        assert!(
-            matches!(&outcome, Outcome::Failed { kind: FailureKind::Refused, message }
-                if message == "a request timeout must be 1 to 3600000 ms"),
-            "{outcome:?}"
-        );
-    }
+        Err("a request timeout must be 1 to 3600000 ms")
+    );
+    let (streams, _, _) = setup();
+    let mut stream = Request::get("https://example.test/events").timeout(10);
+    stream.stream = true;
+    assert_eq!(
+        streams.run(job(3, stream), None),
+        Err("a stream has no timeout")
+    );
     assert!(fixture.state.lock().unwrap().2.is_empty());
     assert_eq!(
         Request::native(vec![]).timeout(10).timeout_refusal(),

@@ -90,7 +90,7 @@ pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Out
                 2 => FailureKind::Refused,
                 3 => FailureKind::Unsupported,
                 4 => FailureKind::Aborted,
-                9 => FailureKind::Timeout,
+                10 => FailureKind::Timeout,
                 _ => FailureKind::Network,
             },
             message: String::from_utf8_lossy(&body).into_owned(),

@@ -215,7 +215,11 @@ is a later decision for both executors at once.
 > the exchange (and sets the platform's own limit, URLSession's
 > `timeoutInterval` or ureq's, a second past it so it never ends a request
 > first), the web's uses `AbortSignal.timeout`. A request without one keeps
-> the platform's limits; a stream, storage, native or auth work takes none.
+> the platform's limits; a stream, storage, native or auth work takes none,
+> and is refused by name. A separately loaded Rust module (LLP 1027.002's
+> seam) cannot pass one yet: the seam has no field for it, so such a request
+> is refused rather than sent without its deadline. Off Apple, a name lookup
+> is the system resolver's and the deadline is seen once it returns.
 
 ### D5 — One request per resource; the newest arguments win
 
