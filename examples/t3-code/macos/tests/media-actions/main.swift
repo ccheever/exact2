@@ -196,7 +196,8 @@ final class MediaActionsTests: XCTestCase {
 
     /// The rendered HTML preview loads assets from other hosts as the reference's sandboxed frame does:
     /// an http IP host (stylesheet, script, fetch), a named http host resolving to loopback
-    /// (localtest.me: this unbundled binary has no ATS; a bundle refuses it, #106), and, with the
+    /// (localtest.me: this unbundled binary has no ATS; the bundle allows it through app.json's
+    /// `appTransportSecurity`, exact2 #106), and, with the
     /// network, a public https image.
     func testRenderedHtmlLoadsExternalAssets() throws {
         _ = NSApplication.shared

@@ -70,6 +70,11 @@ component MarkdownMediaBody
     failed = true
   action retry
     failed = false
+  // ChatMarkdownImage failedSrc: the URL whose picture reported `error` (exact2 #121).
+  state brokenUrl = ""
+  action imageBroke(reason: string)
+    let ignored = reason
+    brokenUrl = url
   view
     MediaActions(source=source, tip=tip, local=local, testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))
       when kind == "video"
@@ -87,4 +92,7 @@ component MarkdownMediaBody
         else
           video url controls=true playsinline=true preload="metadata" aria-label=(alt != "" ? alt : "Video preview") error=broke width="100%" max-width=640 aspect-ratio="16 / 9" border-radius=8 background-color="#000000" object-fit="contain" testId="markdown-media-video"
       else
-        image url aria-label=alt max-width="100%" max-height=480 object-fit="contain" border-radius=8 testId="markdown-media-image"
+        when brokenUrl != "" and brokenUrl == url
+          MediaUnavailableLabel(alt=alt, video=false)
+        else
+          image url aria-label=alt error=imageBroke max-width="100%" max-height=480 object-fit="contain" border-radius=8 testId="markdown-media-image"

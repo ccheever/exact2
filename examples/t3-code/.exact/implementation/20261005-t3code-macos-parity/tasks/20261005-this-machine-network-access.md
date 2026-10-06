@@ -96,7 +96,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | [X21](../issues/20261005-x21-two-way-websocket.md) | `subscribeAuthAccess` stream through the Swift transport | existing transport | nonblocking | none |
 | [X19](../issues/20261005-x19-data-source-timers.md) | Per-second expiry tick, 60 s status cache | native/Contract tasks | nonblocking | follow the clone's time-as-argument pattern |
 | [X4](../issues/20261005-x04-bundle-helper-executables.md) | Server runtime in the bundle | upstream ticket | inherited | none here |
-| [X45](../issues/20261005-x45-app-relaunch.md) | App relaunch after an exposure change | X45 (unconfirmed) | blocking for the relaunch rows if X45 is confirmed missing (stopgap meanwhile: restart the server in place and reconnect; a visible difference) | use the relaunch when X45 is adopted |
+| [X45](../issues/20261005-x45-app-relaunch.md) | App relaunch after an exposure change | X45 (unconfirmed) | blocking for the relaunch rows if X45 is confirmed missing (stopgap meanwhile: restart the server in place and reconnect; a visible difference) | use the relaunch when X45 is adopted Update 2026-10-07 (adopt-main-fixes-shell): #122 was closed after main #170, which only moves `reload()`'s log to stderr; exact2 still has no process relaunch, so the relaunch rows stay blocked. |
 
 ## Implementation notes
 

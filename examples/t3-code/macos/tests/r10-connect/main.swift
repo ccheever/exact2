@@ -2,9 +2,9 @@ import AppKit
 import XCTest
 
 // Lane r10-connect (R10Connect.swift): ⌘/⌃ chords under a non-Latin source match by physical key,
-// the pull request dialog's field selects its text on open, and a still pointer hovers the row that
-// slides under it after the list re-renders. Real AppKit views in a real window; compiled with every
-// file in modules/apple.
+// and the pull request dialog's field selects its text on open. (A still pointer's hover after the
+// list re-renders is the host's own since exact2 #139.) Real AppKit views in a real window; compiled
+// with every file in modules/apple.
 
 private let r10Resolve: ExactHooks.ResolveFn = { _, _, _, _, _ in 0 }
 private let r10Act: ExactHooks.ActFn = { _, _, _ in 0 }
@@ -23,17 +23,6 @@ private func makeHooks() -> ExactHooks {
 private func tick(_ seconds: TimeInterval = 0.02) { let end = Date(timeIntervalSinceNow: seconds); while Date() < end { RunLoop.current.run(mode: .default, before: end) } }
 class Flipped: NSView { override var isFlipped: Bool { true } }
 
-/// A hover-tracked row, as Exact's node view with a `hover` handler tracks itself.
-final class Row: Flipped {
-    var enters = 0
-    let name: String
-    init(_ name: String, frame: NSRect) {
-        self.name = name; super.init(frame: frame)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
-    }
-    required init?(coder: NSCoder) { fatalError() }
-    override func mouseEntered(with event: NSEvent) { enters += 1 }
-}
 /// Records the menu equivalents it is sent, as the app menu's declared chords do.
 final class Target: NSObject { var fired: [String] = []; @objc func sidebar(_ sender: Any?) { fired.append("sidebar") }; @objc func palette(_ sender: Any?) { fired.append("palette") } }
 
@@ -106,39 +95,6 @@ final class R10ConnectTests: XCTestCase {
         r10.install(second); tick(0.15)
         XCTAssertTrue(other.currentEditor() != nil)
         XCTAssertEqual((other.currentEditor() as? NSTextView)?.selectedRange(), NSRange(location: 0, length: 3))
-        r10.destroy(); window.orderOut(nil)
-    }
-
-    func testAStillPointerHoversTheRowThatSlidesUnderIt() {
-        let list = Flipped(frame: NSRect(x: 0, y: 0, width: 240, height: 200))
-        window.contentView?.addSubview(list)
-        let a = Row("a", frame: NSRect(x: 0, y: 0, width: 240, height: 30)), b = Row("b", frame: NSRect(x: 0, y: 30, width: 240, height: 30))
-        let button = Row("a-settle", frame: NSRect(x: 200, y: 6, width: 18, height: 18))
-        a.addSubview(button); list.addSubview(a); list.addSubview(b)
-        window.orderFront(nil); tick()
-        let element = ExactElement(hook: .t3Rehover, id: "", node: 9, hooks: makeHooks())
-        element.view = list; element.platform = nil
-        let r10 = R10Connect(agent: true) // passes run by hand below; agent mode schedules none
-        var screen = NSPoint.zero
-        r10.pointer = { screen }; r10.mayHover = { _, _ in true }
-        r10.install(element)
-        func at(_ view: NSView, _ point: NSPoint) { screen = window.convertPoint(toScreen: view.convert(point, to: nil)) }
-        // The pointer rests on row a (not on its button).
-        at(a, NSPoint(x: 40, y: 15)); r10.pass()
-        XCTAssertEqual([a.enters, b.enters], [1, 0])
-        r10.pass(); XCTAssertEqual(a.enters, 1, "the same row under the pointer hears nothing more")
-        // Settle: row a leaves, row b slides up under the still pointer.
-        a.removeFromSuperview(); b.frame.origin.y = 0
-        r10.pass(); XCTAssertEqual(b.enters, 1, "the row that slid under the pointer is hovered")
-        // ⌘Z: row a comes back in its place; b moves down.
-        list.addSubview(a); b.frame.origin.y = 30
-        r10.pass(); XCTAssertEqual(a.enters, 2)
-        // Over the row's button the innermost tracked view is the button (its tooltip's hover).
-        at(a, NSPoint(x: 205, y: 12)); r10.pass()
-        XCTAssertEqual([button.enters, a.enters], [1, 2])
-        // Outside the hooked list nothing is sent.
-        at(list, NSPoint(x: 100, y: 190)); let before = r10.entered; r10.pass()
-        XCTAssertEqual(r10.entered, before)
         r10.destroy(); window.orderOut(nil)
     }
 

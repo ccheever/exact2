@@ -119,12 +119,17 @@ component ThemeResult
     busy: bool
     // The dialog's `change`: a finished install closes it (onInstalled → onOpenChange(false)).
     commit: action
+  // ThemeExtensionIcon: an icon that fails to load shows the palette glyph (its `error`, exact2 #121).
+  state iconFailed = ""
+  action iconBroke(reason: string)
+    let ignored = reason
+    iconFailed = ext.iconUrl
   view
     column flex=1 flex-basis=300 min-width=300 gap=12 padding=12 box-sizing="border-box" border-radius=12 border-width=1 border-style="solid" border-color=pal.border background-color=pal.card testId=`theme-result-${ext.id}`
       row gap=12 min-width=0 align-items="center"
         box width=40 height=40 border-radius=8 overflow="hidden" background-color=pal.highlight display="flex" align-items="center" justify-content="center" flex-shrink=0
-          when ext.iconUrl != ""
-            image ext.iconUrl width=40 height=40 object-fit="cover" aria-hidden=true
+          when ext.iconUrl != "" and iconFailed != ext.iconUrl
+            image ext.iconUrl error=iconBroke width=40 height=40 object-fit="cover" aria-hidden=true
           else
             CoreIcon(name="palette", size=16, color=pal.muted)
         column flex=1 min-width=0
