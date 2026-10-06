@@ -4,6 +4,7 @@
 // composerFooterLayout.ts (icon-only before overflow), TraitsPicker.tsx
 // (buildTraitsTriggerDisplay), ChatView.tsx (woke/parked/background banners,
 // tasks progress), threadSync.ts and ComposerTasksBadge.tsx.
+import { projectCloneBlock, projectCloneNotice } from './project-clones-live';
 import { arr, obj, str, num, type Obj } from './domain';
 import { activeRun, providerAvailable } from './protocol';
 import type { T3Client } from './client';
@@ -111,7 +112,7 @@ export function primaryAction(client: T3Client, phase: string) {
   const sending = client.busy && !!client.pending && str(client.pending.payload.type) === 'message.dispatch';
   // worktreeSetupBlocksSend (ChatView): a new worktree thread holds sends until its agent starts (lane r4-git).
   const preparing = !!client.threadId && threadWorktreeSetup(client).preparing;
-  const status = unavailable ? 'Environment disconnected' : machineChanging(client) ? 'Preparing machine' : preparing ? 'Preparing worktree' : connecting ? 'Connecting' : sending ? 'Submitting message' : '';
+  const status = unavailable ? 'Environment disconnected' : machineChanging(client) ? 'Preparing machine' : preparing ? 'Preparing worktree' : projectCloneBlock(client) || (connecting ? 'Connecting' : sending ? 'Submitting message' : '');
   const plan = planFollowUp(client);
   const alternate = followUp === 'queue' ? 'steer' : 'queue';
   // alternateShortcutLabel: composer.sendAlternate's effective binding, as formatShortcutLabel prints it (⌘Enter).
@@ -178,11 +179,14 @@ function backgroundWork(client: T3Client): ComposerNotice | null {
 }
 
 export function composerNotices(client: T3Client, now: number): ComposerNotice[] {
-  if (!client.threadId) return usageNotices(client, now);
+  // ChatView projectCloneBannerItem: a project added by cloning shows its clone where its draft is (project-clones-live.ts).
+  const clone = projectCloneNotice(client);
+  const cloneItem = clone ? [notice({ ...clone, icon: 'download', priority: clone.variant === 'info' ? 0 : 2 })] : [];
+  if (!client.threadId) return [...usageNotices(client, now), ...cloneItem];
   const shell = client.shell.threads.find(thread => thread.id === client.threadId) ?? {};
   const capabilities = obj(obj(client.config.environment).capabilities);
   // ChatView composerBannerItems order: limit recovery, usage limits, background work, woke, parked.
-  const items: ComposerNotice[] = [...usageNotices(client, now)];
+  const items: ComposerNotice[] = [...usageNotices(client, now), ...cloneItem];
   const background = backgroundWork(client);
   if (background) items.push(background);
   // resumeCompactionBannerItem: an idle Claude session offers to compact before resuming.
