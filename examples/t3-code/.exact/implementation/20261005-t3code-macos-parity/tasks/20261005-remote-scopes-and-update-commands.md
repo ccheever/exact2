@@ -1,14 +1,14 @@
 ---
 name: 20261005-remote-scopes-and-update-commands
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
-verification: stale
+implementation: implemented
+verification: passed
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-remote-scopes-and-update-commands
 pr_url: https://github.com/ccheever/exact2/pull/142
-verified_commit: null
+verified_commit: 759779342dd34fa516bec36924923e6beeb4c23a
 ---
 
 # Remote pairing asks for the standard scopes; update commands match the install
@@ -69,12 +69,12 @@ Port changes for file headers: `Effect` services become plain functions; `useCop
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` | pending |
+| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | [#147](https://github.com/ccheever/exact2/pull/147) | Merged into integration branch | Confirmed merged; included in local merge `759779342` |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | recorded decision | U12 (sessions with three scopes) | User answer 2026-10-06 | Existing sessions stay unchanged; new scopes require re-pairing | Confirmed by user after failure review |
-| conditional merged task PR | [20261005-environment-routes](20261005-environment-routes.md) | pending | Only if U12 chooses the re-pair notice | pending |
-| scheduling preference | Either order with `20261005-environment-routes` | none | Both edit `connections.ts` and the pairing code in `T3Transport.swift` | pending |
+| conditional merged task PR | [20261005-environment-routes](20261005-environment-routes.md) | [#148](https://github.com/ccheever/exact2/pull/148) | Notice prerequisite not applicable to confirmed U12 | Merged independently; route scope propagation integrated and tested |
+| scheduling preference | Either order with `20261005-environment-routes` | #148 | Both edit pairing paths | Integrated; Add route and SSH route keep the standard scope request |
 
 `20261005-terminal-drawer` and `20261005-server-update-banner` depend on this ticket.
 
@@ -167,38 +167,31 @@ pasteboard: npx t3@0.0.46-nightly.20261004.1   (the previous text pasteboard was
 | --- | --- | --- | --- | --- |
 | 1 (2026-10-06) | `bd18baeab` on base `d78ac86ff` | `bun test examples/t3-code` 1216 pass / 0 fail (base 1200; the four named reference tests pass, `ServerUpdateAction` table has 6 kinds); strict tsc clean; `contract build` 2158 slots, 42 resources, 48015 nodes; `cargo test -p t3-code-macos --lib` 10/0; AppKit `transport` 40 tests 0 failures (2 live skips), `fleet` 8/0, `ssh` 4 (1 skip); `git add -A && bun scripts/caps.mjs` pass; five checks pass (build, test 2927/0, clippy, fmt, caps, boot); `build.mjs t3-code-macos` bundle built | Live drive above; screenshots on `t3-code-evidence/remote-scopes-and-update-commands/` (01 refused Read only link, 02 relaunch tooltip and desktop sentence, 03 relaunch toast) | Not run: trace-diff T0 and oracle redemption (no oracle/trace tools on this branch, `20261005-desktop-oracle-and-trace` pending); light/dark and 840×620 pairs (no-pixel-loop rule); pasteboard failure forced live (unit test only); Tab/Space/Enter focus ring (attended); three-scope session launch from a pre-change fixture store (unit test of the projection only); npm-global / pnpm-dlx / bunx live (the reference server built from source reports no installation; unit tests cover all kinds) |
 
-## Next action
+## Verification close-out (2026-10-06)
 
-Verification failed on source `60a28292df26bda45397934b6598e2f55d5a3053`: the manual-update
-control receives keyboard focus and responds to Space/Return, but no visible focus ring
-appears. Independent review confirmed this acceptance failure. Repair and reverify the
-focus indicator before closing the task; its underlying cause has not been established.
+The user authorized repair and the remaining verification, and explicitly confirmed U12:
+retain existing three-scope sessions without a notice. Implementation is locally complete and
+this ticket's acceptance is verified on `759779342dd34fa516bec36924923e6beeb4c23a`.
 
-The [complete verification report](../evidence/20261005-remote-scopes-and-update-commands/20261006-complete-verification/README.md)
-contains normal macOS and actual Electron runtime evidence: matching ordered five-scope
-exchanges; read-only rejection with matching text and consumed links; 28 installation,
-size and theme cases per app; desktop-managed wording; keyboard activation; and the
-same message/approval flow with provider `accept` receipts. Root and app checks pass
-with pinned Bun. Full normalized T0 payload/result trace equivalence remains unproven;
-the report distinguishes semantic behavior and scope comparison from full trace parity.
+[Repair and full trace report](../evidence/20261005-remote-scopes-and-update-commands/20261006-repair-and-trace/README.md):
 
-Previous evidence is retained: [initial runtime review](../evidence/20261005-remote-scopes-and-update-commands/20261006-macos-runtime-review/README.md),
-[install kinds and pasteboard failure/retry](../evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/README.md),
-and [unlocked legacy-session chat/restart](../evidence/20261005-remote-scopes-and-update-commands/20261006-unlocked-legacy-session/README.md).
-The normal legacy-format fixture retains its same session and three scopes; no automatic
-permission migration occurs. U12 is still an included, unanswered decision. Recorded
-merge prerequisites remain unresolved. Earlier oracle/focus availability blockers were
-superseded by this attempt; the observed focus rendering defect remains.
+- Custom AppKit pressables expose their focus mask bounds and use an exterior ring. A screen-region
+  capture and an existing later window capture confirm the visible ring. The immediate post-input
+  image was insufficient evidence; the earlier screenshot-based failure conclusion was unreliable. Previous failed evidence is preserved, not overwritten.
+- Merged environment routes preserve all five scopes, including new Add route and SSH route paths.
+- Actual native and Electron T0 captures contain matching ordered scope requests/grants, successful
+  messages and approvals, and the assistant result. The full normalized comparison was executed.
+  It reports 176 differences with no blanket allow list; whole-stream equality is not claimed.
+  Differences include CORS, client identity, subscriptions/polling and trailing prompt whitespace.
+  The ticket's scope-exchange criterion passes; unrelated full-app parity remains separate.
+- TypeScript 1,829 pass/1 skip; root Rust 2,928 pass; app Rust 10 pass; final native button tests
+  4 pass; merged transport 47 tests/2 live skips/0 failures. Build, typecheck, lint, formatting,
+  caps and boot pass. Previously passing installation matrices and legacy-session evidence are reused.
 
-Product source was not changed during verification. Fixture processes, Keychain entries
-and preferences were cleaned up. Evidence and this task update are local and staged;
-no commit, PR publication or merge was performed.
+The two historical dependency records above still have no separate merged PR recorded. Direct
+runtime and trace evidence was produced for this user-authorized parallel implementation; this does
+not mark the broader clone-on-main or reusable-oracle tickets delivered. #147, #148 and #155 are
+confirmed merged into the integration base, now included locally.
 
-## Repair in progress (2026-10-06)
-
-The user authorized repairing the failed focus indicator and completing unfinished
-verification. U12 is now confirmed: retain existing sessions without a notice.
-AppKit defaults `focusRingMaskBounds` to an empty rectangle; the host draws a mask but
-never supplies its bounds. The repair gives custom pressables their local bounds and
-adds a host regression test. Actual normal-window evidence and full T0 trace comparison
-will follow; previous failed evidence remains unchanged.
+Fixture processes, Keychain accounts and preference domains are cleaned up. Repair commits and
+verification evidence are local; no remote push, PR update or merge was performed in this repair.
