@@ -188,3 +188,41 @@ when done:
 - **Measuring.** The `scrolled` signpost interval already exists; per-part
   intervals behind a flag (or in a profiling build) would make this
   breakdown a standing metric in `metrics.mjs`.
+
+## 8. A fast fling's first pass (2026-10-06)
+
+Charlie's report: a fast fling through rows not yet built steps. Measured
+on the iPhone 17 Pro simulator, Signal Clone, plain launch, with temporary
+in-app hooks: the chat opens at 4 s and 6000 pt/s flings set the offset each
+frame (no touches, no accessibility client). The sampler and per-batch
+timing were logged per frame. The simulator ran at 60 Hz.
+
+- **Where the time went.** Pass 1 (rows never built) applied 518 batches in
+  4 s, up to 10 in one frame, about 0.16 ms of main thread per node created
+  (a message row is about 9 nodes). A Time Profiler run of the scroll path
+  put `NavigationHost.sync` at 27% of `Presenter.apply`, `ControlHost.sync`
+  11%, `MenuHost.sync` 6%: per-batch passes that re-project the routes and
+  bars, run for every fill batch whatever it holds.
+- **What changed.**
+  - A batch that only builds, moves or drops a list's rows
+    (`Presenter.onlyListRows`, `ListRowsIOS.swift`) skips the route
+    projection. One that touches anything outside a list, or arrives while
+    a sync is owed (a transition, no window yet, a stack UIKit moved itself
+    since the last sync: `NavigationHost.syncOwed`), still syncs.
+  - `MenuHost.sync` and `ControlHost.sync` no longer set `isHidden` to the
+    value it already has: UIKit's setter walks the view's subtree even then.
+- **Before and after**, three runs each:
+
+| | pass-1 apply, sum | apply, worst frame | busy p95 | busy, worst frame | pass-2 apply, sum |
+|---|---|---|---|---|---|
+| before | 355–404 ms | 11.2–13.4 ms | 10.8–12.7 ms | 16.8–27.3 ms | 384–416 ms |
+| after | 280–287 ms | 7.5–8.3 ms | 8.9–9.5 ms | 13.2–14.4 ms | 306–311 ms |
+
+  The simulator missed no frames either way; a phone two or three times
+  slower misses them in the worst frames before. Tests:
+  `ListRowsIOSTests`; the navigation suites, which caught a pop UIKit
+  finishes on its own (`nativeMoved`).
+- **Not done.** A per-frame budget for the rows built ahead of a fast fling
+  (they land in bursts of up to 26 nodes in a frame), and a cheaper row
+  build. A device trace (Signal Clone build 34 carries the sampler's
+  overruns) should come first.

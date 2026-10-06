@@ -130,6 +130,14 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// Whether the session's view last took the whole of its own for a bar.
     var tookWholeView = false
     private var pendingSync = false
+    /// A sync was deferred (a transition ran, or there was no window yet)
+    /// and is still owed, or UIKit moved a stack itself (its back button, a
+    /// swipe) since the last one: the next batch syncs, whatever it holds.
+    var syncOwed: Bool {
+        pendingSync || changing || windowless || nativeMoved
+            || ([primaryNavigation].compactMap { $0 } + presentedNavigations).contains { $0.transitionCoordinator != nil }
+    }
+    private var windowless = false, nativeMoved = false
     private var interactiveSource: (node: NodeView, key: String)?
     /// The stack's depth when the interactive pop began, source included.
     private var interactiveDepth = 0
@@ -314,7 +322,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     func sync(_ batch: Batch) {
         // Installing or moving a controller can synchronously cause layout.
         // That layout must not start another containment handoff inside this one.
-        guard !syncing, presenter.session?.view?.window != nil else { return }
+        guard !syncing else { return }
+        windowless = presenter.session?.view?.window == nil
+        guard !windowless else { return }
+        nativeMoved = false
         syncing = true
         defer { syncing = false; presenter.flushPendingFocus() }
         guard let p = projection(batch) else { return }
@@ -710,6 +721,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard navigationController === navigation,
               navigationController.topViewController === viewController else { return }
         changing = false
+        nativeMoved = true
         stopRevealing()
         defer {
             // Tree updates during UIKit's transition retain their latest
