@@ -109,6 +109,14 @@ extension NodeView {
 
     var allowsInputSpellChecking: Bool { props["spellcheck"] != "false" }
 
+    /// What `autocorrect` and `spellcheck` ask of an editor: a textarea's
+    /// text view or an input's field editor.
+    func applyTextChecking(_ v: NSTextView) {
+        v.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
+        v.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
+        v.keepsTypedText(!allowsInputCorrection)
+    }
+
     func makeTextArea() {
         let f = TextArea(usingTextLayoutManager: true)
         f.owner = self
@@ -170,8 +178,7 @@ extension NodeView {
         writeValue(props["value"] ?? "", into: f)
         f.isEditable = !disabled && props["editable"] != "false"
         f.isSelectable = !disabled
-        f.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
-        f.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
+        applyTextChecking(f)
         f.contentType = Autofill.contentType(props["autocomplete"], fallback: nil)
         f.setAccessibilityLabel(props["accessibilityLabel"])
         f.setAccessibilityIdentifier(props["testId"])
@@ -234,6 +241,31 @@ extension NodeView {
     }
 }
 
+private var heldSubstitutions: UInt8 = 0
+
+extension NSTextView {
+    /// No correction keeps the text as typed, as HTML's `autocorrect="off"`
+    /// asks (#111): no smart quotes or dashes and no text replacement, which
+    /// AppKit would otherwise apply after a pause in typing. What the view
+    /// had (AppKit's, or the person's from the Substitutions menu) is held,
+    /// and given back once correction is allowed again: for the window's one
+    /// field editor, when a field that allows it takes the focus.
+    func keepsTypedText(_ keep: Bool) {
+        let held = objc_getAssociatedObject(self, &heldSubstitutions) as? [Bool]
+        if keep, held == nil {
+            objc_setAssociatedObject(self, &heldSubstitutions, [isAutomaticQuoteSubstitutionEnabled, isAutomaticDashSubstitutionEnabled, isAutomaticTextReplacementEnabled], .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            isAutomaticQuoteSubstitutionEnabled = false
+            isAutomaticDashSubstitutionEnabled = false
+            isAutomaticTextReplacementEnabled = false
+        } else if !keep, let held {
+            objc_setAssociatedObject(self, &heldSubstitutions, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            isAutomaticQuoteSubstitutionEnabled = held[0]
+            isAutomaticDashSubstitutionEnabled = held[1]
+            isAutomaticTextReplacementEnabled = held[2]
+        }
+    }
+}
+
 /// An input's field: `focus` when it takes the focus (its field editor then
 /// edits it), as the web fires it, not at its first edit
 /// (`controlTextDidBeginEditing`; jukebox F23). `blur` is
@@ -255,6 +287,8 @@ private func focused(_ delegate: NSTextFieldDelegate?, _ become: () -> Bool) -> 
     let ok = selections?.quietly(become) ?? become()
     if ok, let owner { selections?.focused(owner) }
     if ok { owner?.showFieldFocus(true) }
+    // The window's one field editor still has the last field's checking.
+    if ok, let owner, let editor = owner.field?.currentEditor() as? NSTextView { owner.applyTextChecking(editor) }
     if ok, let owner, owner.handlers.contains("focus") { owner.presenter?.focus(owner.id) }
     return ok
 }
