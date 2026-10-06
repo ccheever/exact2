@@ -8,12 +8,14 @@
 import { languageIconToken } from './timeline-files';
 import { htmlTokens } from './r7-polish-html-syntax';
 import { TsStatements, importWord } from './r11-misc-ts-decl';
-import { shikiLanguage, shikiTokens } from './r12-render-highlight';
+import { highlightDeferrals, shikiLanguage, shikiTokens } from './r12-render-highlight';
 
-export type Cls = '' | 'kw' | 'decl' | 'type' | 'fn' | 'var' | 'const' | 'param' | 'pyparam' | 'str' | 'esc' | 'num' | 'nul'
+type BaseCls = '' | 'kw' | 'decl' | 'type' | 'fn' | 'var' | 'const' | 'param' | 'pyparam' | 'str' | 'esc' | 'num' | 'nul'
   | 'op' | 'punct' | 'com' | 'key' | 'flag' | 'builtin' | 'interp' | 'heading' | 'bold' | 'tag' | 'attr'
   | 'regex' // lane r10-device: a regular expression's plain characters (r10-device-html-regex.ts)
   | 'deco'; // lane r12-render: a decorator (meta.decorator), the one pierre colour pair no other class had
+/** A class, with "+i" where the theme sets italic (shiki-residuals; markdown.contract synSlant). */
+export type Cls = BaseCls | `${BaseCls}+i`;
 export interface Token { text: string; cls: Cls }
 
 const words = (text: string) => new Set(text.split(' '));
@@ -407,7 +409,7 @@ export function messageCodeBlocks(markdownText: string): Highlighted[] {
   if (!markdownText.includes('```') && !markdownText.includes('~~~')) return [];
   const known = cache.get(markdownText);
   if (known) return known;
-  const blocks: Highlighted[] = [];
+  const blocks: Highlighted[] = [], deferrals = highlightDeferrals;
   const fence = /^( {0,3})(`{3,}|~{3,})([^\n`]*)\n([\s\S]*?)\n? {0,3}\2[`~]*[ \t]*(?:\n|$)/gm;
   for (const match of markdownText.matchAll(fence)) {
     const indent = match[1]!.length, language = match[3]!.trim().split(/\s+/)[0] ?? '';
@@ -417,6 +419,8 @@ export function messageCodeBlocks(markdownText: string): Highlighted[] {
     blocks.push({ id: String(blocks.length), code, icon: languageIconToken(language),
       tokens: tokens.map((token, index) => ({ id: String(index), text: token.text, cls: token.cls })) });
   }
+  // shiki-residuals: blocks still painted with the heuristic colours are asked again next time.
+  if (highlightDeferrals !== deferrals) return blocks;
   if (cache.size > 200) cache.delete(cache.keys().next().value!);
   cache.set(markdownText, blocks);
   return blocks;
