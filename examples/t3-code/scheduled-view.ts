@@ -1,67 +1,34 @@
-// Settings → Scheduled tasks view model (reference ScheduledTasksSettings.tsx and
-// scheduledTasksSettings.logic.ts): rows with schedule/status labels, and the
-// editor's draft, choices and branch refs. The editor never enables or runs a
-// task by itself; Enabled is the user's own switch.
+// Settings → Scheduled tasks view model (MIT reference, see LICENSE-T3; T3 Code 1e2ecbd975:
+// components/settings/ScheduledTasksSettings.tsx ScheduledTasksSettings,
+// ScheduledTaskEnvironmentSection, ScheduledTaskRow, ScheduledTaskEditorDialog): one section
+// per environment in scope (a heading only when there is more than one), each fed by its live
+// `scheduledTasks.subscribe` list (live-streams.ts) with its loading, error and "Environment
+// disconnected" states, the `taskId` deep link that opens the editor once, and the editor's
+// draft, choices and branch refs. The editor never enables or runs a task by itself; Enabled
+// is the user's own switch. Labels and the scope rule are scheduled-tasks.ts ports.
 import { arr, obj, str, num, type Obj } from './domain';
 import type { T3Client } from './client';
 import { providerAvailable, type Native } from './protocol';
 import { providerBadge } from './presentation';
-import { relativeTimeLabel } from './settings-data';
-
-const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+import { emptyDraft, matchesScheduledTaskScope, resolveTaskScope, scheduledTaskDefaultModel, taskStatus, taskToDraft, type TaskScope } from './scheduled-tasks';
+import { liveEnvironments, watchLive, type LiveEnvironment } from './live-streams';
 export const WORKSPACE_LABELS: Record<string, string> = { worktree: 'Create a new worktree', root: 'Use the project checkout', existing_worktree: 'Use a specific checkout' };
+export { scheduleLabel, relativeLabel as runLabel, taskStatus } from './scheduled-tasks';
 
-/** scheduleLabel */
-export function scheduleLabel(schedule: Obj): string {
-  if (schedule.type === 'interval') {
-    const minutes = num(schedule.everyMs) / 60000;
-    return Number.isInteger(minutes) ? `Every ${minutes} min` : `Every ${Math.round(num(schedule.everyMs) / 1000)} sec`;
-  }
-  const weekdays = Array.isArray(schedule.weekdays) ? schedule.weekdays.map(Number) : [];
-  const days = weekdays.length === 0 ? 'Daily' : weekdays.length === 5 && weekdays.every(day => day >= 1 && day <= 5) ? 'Weekdays' : weekdays.map(day => WEEKDAY_LABELS[day]).join(', ');
-  return `${days} at ${str(schedule.timeOfDay)}`;
-}
-/** relativeLabel: future instants read "in 5m". */
-export function runLabel(value: unknown, now: number): string {
-  if (!value) return 'Not scheduled';
-  const diff = Date.parse(str(value)) - now;
-  if (!Number.isFinite(diff)) return 'Not scheduled';
-  if (diff <= 0) return relativeTimeLabel(str(value), now) || 'Not scheduled';
-  const minutes = Math.ceil(diff / 60000);
-  if (minutes < 2) return 'in under a minute';
-  if (minutes < 60) return `in ${minutes}m`;
-  const hours = Math.round(minutes / 60);
-  return hours < 24 ? `in ${hours}h` : `in ${Math.round(hours / 24)}d`;
-}
-export function taskStatus(task: Obj, now: number): string {
-  return `${scheduleLabel(obj(task.schedule))} · ${task.enabled === true ? (task.nextRunAt ? `Next run ${runLabel(task.nextRunAt, now)}` : 'Not scheduled') : 'Paused'}`;
+/** The editor's Contract draft from taskToDraft / EMPTY_DRAFT. */
+export function editorDraft(task: Obj | undefined, projectId: string, modelKey: string, environmentId = '') {
+  const draft = task ? taskToDraft(task) : emptyDraft(projectId, modelKey);
+  const schedule = obj(task?.schedule);
+  return { id: draft.editingId, environmentId, title: draft.title, prompt: draft.prompt, enabled: draft.enabled, scheduleMode: draft.scheduleMode, intervalMinutes: draft.intervalMinutes,
+    timeOfDay: draft.timeOfDay, sunday: draft.sunday, monday: draft.monday, tuesday: draft.tuesday, wednesday: draft.wednesday, thursday: draft.thursday, friday: draft.friday,
+    saturday: draft.saturday, projectId: draft.projectId, threadId: draft.threadId, workspaceMode: draft.workspaceMode, baseRef: draft.baseRef, startFromOrigin: draft.startFromOrigin,
+    path: draft.existingWorktreePath, modelKey: draft.modelKey, legacyInterval: schedule.type === 'interval' && num(schedule.everyMs) < 60000 };
 }
 
-/** EMPTY_DRAFT / taskToDraft */
-export function editorDraft(task: Obj | undefined, projectId: string, modelKey: string) {
-  if (!task) return { id: '', title: '', prompt: '', enabled: true, scheduleMode: 'fixed', intervalMinutes: '15', timeOfDay: '09:00',
-    sunday: false, monday: true, tuesday: true, wednesday: true, thursday: true, friday: true, saturday: false,
-    projectId, threadId: '', workspaceMode: 'worktree', baseRef: 'main', startFromOrigin: true, path: '', modelKey, legacyInterval: false };
-  const schedule = obj(task.schedule), workspace = obj(task.workspaceStrategy), model = obj(task.modelSelection);
-  const days = schedule.type === 'fixed_time' && Array.isArray(schedule.weekdays) && schedule.weekdays.length ? schedule.weekdays.map(Number) : [0, 1, 2, 3, 4, 5, 6];
-  return { id: str(task.id), title: str(task.title), prompt: str(task.prompt), enabled: task.enabled === true, scheduleMode: schedule.type === 'interval' ? 'interval' : 'fixed',
-    intervalMinutes: schedule.type === 'interval' ? String(Math.max(1, num(schedule.everyMs) / 60000)) : '15', timeOfDay: schedule.type === 'fixed_time' ? str(schedule.timeOfDay, '09:00') : '09:00',
-    sunday: days.includes(0), monday: days.includes(1), tuesday: days.includes(2), wednesday: days.includes(3), thursday: days.includes(4), friday: days.includes(5), saturday: days.includes(6),
-    projectId: str(task.projectId), threadId: str(task.threadId), workspaceMode: str(workspace.type, 'worktree'), baseRef: workspace.type === 'worktree' ? str(workspace.baseRef, 'main') : 'main',
-    startFromOrigin: workspace.type === 'worktree' ? workspace.startFromOrigin === true : true, path: workspace.type === 'existing_worktree' ? str(workspace.worktreePath) : '',
-    modelKey: `${str(model.instanceId)}:${str(model.model)}`, legacyInterval: schedule.type === 'interval' && num(schedule.everyMs) < 60000 };
-}
-
-/** scheduledTaskDefaultModel over the advertised, authenticated catalog. */
-export function defaultModelKey(config: Obj, projectId: string): string {
-  const available = arr(config.providers).filter(provider => providerAvailable(provider) && obj(provider.auth).status !== 'unauthenticated');
-  const settings = obj(config.settings), override = obj(obj(settings.projectSettingsOverrides)[projectId]);
-  for (const selection of [obj(override.defaultModelSelection), obj(settings.defaultModelSelection)]) {
-    if (available.some(provider => provider.instanceId === selection.instanceId && arr(provider.models).some(model => model.slug === selection.model && model.isLegacy !== true))) return `${selection.instanceId}:${selection.model}`;
-  }
-  const models = available.flatMap(provider => arr(provider.models).filter(model => model.isLegacy !== true).map(model => ({ provider, model })));
-  const fallback = models.find(entry => entry.model.isDefault === true) || models[0];
-  return fallback ? `${fallback.provider.instanceId}:${fallback.model.slug}` : '';
+/** scheduledTaskDefaultModel as the picker's `instanceId:model` key. */
+export function defaultModelKey(config: Obj, projectId: string, project: Obj | null = null): string {
+  const selection = scheduledTaskDefaultModel(obj(config.settings), project ?? (projectId ? { id: projectId } : null), arr(config.providers));
+  return selection ? `${str(selection.instanceId)}:${str(selection.model)}` : '';
 }
 
 type Choice = { value: string; label: string; selected: boolean };
@@ -72,26 +39,69 @@ export function branchRef(ref: Obj, projectCwd: string): BranchRef {
   const badge = ref.current === true ? 'current' : worktree && projectCwd && worktree !== projectCwd ? 'worktree' : ref.isRemote === true ? 'remote' : ref.isDefault === true ? 'default' : '';
   return { value: name, label: name, search: name.toLowerCase(), badge };
 }
-export async function scheduledPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, editor: string, editingId: string, active: boolean, now = 0) {
+
+/** resolveSettingsScope for this page over every live environment (the groups are the focused environment's). */
+export function taskScope(client: T3Client, environments: { environmentId: string }[], machine: string, projectKey: string, checkout: string, projectId = ''): TaskScope {
+  const member = (project: Obj) => ({ environmentId: client.environmentId, id: str(project.id), physicalProjectKey: str(project.id) });
+  const groups = client.projectGroups().map(group => ({ projectKey: group.key, memberProjects: group.members.map(member) }));
+  // A bare project id (the Projects route's legacy target) is that project's checkout.
+  if (!projectKey && projectId) groups.push({ projectKey: `project:${projectId}`, memberProjects: client.shell.projects.filter(project => project.id === projectId).map(member) });
+  return resolveTaskScope({ machine, project: projectKey || (projectId ? `project:${projectId}` : ''), checkout: checkout || (!projectKey && projectId ? projectId : '') }, groups, environments);
+}
+
+/** Editing targets: `<environmentId>|<taskId>` from a row, `link|<environmentId>|<taskId>` from a deep link. */
+export function editTarget(value: string, fallbackEnvironment: string): { environmentId: string; taskId: string; link: boolean } {
+  const parts = value.split('|');
+  if (parts[0] === 'link' && parts.length >= 3) return { environmentId: parts[1] || fallbackEnvironment, taskId: parts.slice(2).join('|'), link: true };
+  if (parts.length >= 2) return { environmentId: parts[0] || fallbackEnvironment, taskId: parts.slice(1).join('|'), link: false };
+  return { environmentId: fallbackEnvironment, taskId: value, link: false };
+}
+
+export type TaskRow = { id: string; environmentId: string; title: string; prompt: string; status: string; runStatus: string; runError: string; enabled: boolean; first: boolean };
+export type TaskSection = { id: string; label: string; heading: boolean; state: string; title: string; description: string; linkMissing: boolean; tasks: TaskRow[] };
+
+/** ScheduledTaskEnvironmentSection: disconnected, error, loading, then the scoped rows. */
+export function taskSection(environment: LiveEnvironment, scope: TaskScope, heading: boolean, linkTaskId: string, now: number): TaskSection {
+  const base = { id: environment.environmentId, label: environment.label, heading, linkMissing: false, tasks: [] as TaskRow[] };
+  if (!environment.connected) return { ...base, state: 'disconnected', title: 'Environment disconnected', description: `Reconnect ${environment.label} to view its scheduled tasks.` };
+  if (environment.tasks.error) return { ...base, state: 'error', title: 'Could not load scheduled tasks', description: environment.tasks.error };
+  if (!environment.tasks.value) return { ...base, state: 'loading', title: 'Loading scheduled tasks…', description: '' };
+  const tasks = environment.tasks.value.filter(task => matchesScheduledTaskScope(scope, environment.environmentId, str(task.projectId)));
+  return { ...base, state: 'ready', title: tasks.length ? '' : 'No scheduled tasks', description: tasks.length ? '' : 'No tasks match this environment and project selection.',
+    linkMissing: !!linkTaskId && !tasks.some(task => task.id === linkTaskId),
+    tasks: tasks.map((task, index) => ({ id: str(task.id), environmentId: environment.environmentId, title: str(task.title), prompt: str(task.prompt), status: taskStatus(task, now),
+      runStatus: str(task.lastRunStatus) === 'never' ? '' : str(task.lastRunStatus), runError: str(task.lastRunError), enabled: task.enabled === true, first: index === 0 })) };
+}
+
+export async function scheduledPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, editor: string, editingId: string, active: boolean, now = 0, machine = '', projectKey = '', checkout = '') {
   const empty = { available: false, writable: false, error: '', loading: false, environment: '', scope: `${environmentId}:${projectId}`, missing: false,
-    tasks: [] as { id: string; title: string; prompt: string; status: string; runStatus: string; runError: string; enabled: boolean; first: boolean }[],
+    tasks: [] as TaskRow[], sections: [] as TaskSection[],
     editors: [] as (ReturnType<typeof editorDraft> & { key: string; missing: boolean })[], projects: [] as Choice[], models: [] as Choice[], workspaces: [] as Choice[], environments: [] as Choice[],
     branches: [] as { projectId: string; error: string; refs: BranchRef[] }[], marks: [] as { value: string; name: string; driver: string; badge: string; accent: string }[] };
   if (!active) return empty;
   try {
-    if (!native?.available || !client.ready || (environmentId !== "" && environmentId !== client.environmentId) || (projectId && !client.shell.projects.some(project => project.id === projectId))) throw new Error('This scope is unavailable. Choose a connected environment and an existing checkout.');
-    const access = client.restAccess(native);
-    const all = arr((await access.request('scheduledTasks.list', {})).tasks);
-    const tasks = all.filter(task => !projectId || task.projectId === projectId);
-    const config = client.config;
-    const projects = client.shell.projects.filter(project => !projectId || project.id === projectId);
-    const environment = str(obj(config.environment).label, str(obj(config.environment).environmentId, 'This environment'));
-    const base = { ...empty, available: true, writable: client.writable, environment,
-      tasks: tasks.map((task, index) => ({ id: str(task.id), title: str(task.title), prompt: str(task.prompt), status: taskStatus(task, now), runStatus: str(task.lastRunStatus) === 'never' ? '' : str(task.lastRunStatus), runError: str(task.lastRunError), enabled: task.enabled === true, first: index === 0 })) };
-    if (editor !== 'task') return base;
-    const task = editingId ? all.find(entry => entry.id === editingId) : undefined;
-    const firstProject = str(projects[0]?.id);
-    const draft = editorDraft(task, firstProject, defaultModelKey(config, firstProject));
+    if (!native?.available) throw new Error('Open this app on macOS to connect to T3 Code.');
+    await watchLive(client, native);
+    const environments = liveEnvironments(client, native);
+    if (!environments.length) throw new Error('Connect an environment to manage scheduled tasks.');
+    const scope = taskScope(client, environments, machine, projectKey, checkout, projectKey ? '' : projectId);
+    if (scope.kind === 'unavailable') throw new Error(scope.message);
+    const inScope = environments.filter(environment => scope.environmentIds.includes(environment.environmentId));
+    const fallback = (inScope.find(environment => environment.focused && environment.connected) ?? inScope.find(environment => environment.connected) ?? inScope[0])?.environmentId ?? '';
+    const target = editor === 'task' && editingId ? editTarget(editingId, fallback) : null;
+    const sections = inScope.map(environment => taskSection(environment, scope, inScope.length > 1, target?.link && target.environmentId === environment.environmentId ? target.taskId : '', now));
+    const editing = environments.find(environment => environment.environmentId === (target?.environmentId || fallback));
+    const base = { ...empty, available: !!editing?.connected, writable: !!editing?.connected && (!editing.focused || client.writable),
+      environment: editing?.label ?? '', sections, tasks: sections.flatMap(section => section.tasks) };
+    if (editor !== 'task' || !editing) return base;
+    const all = editing.tasks.value;
+    // A deep link opens the editor once its task is known; a missing one is the section's "Task unavailable".
+    if (target?.link && (!all || !all.some(task => task.id === target.taskId))) return base;
+    const task = target && all ? all.find(entry => entry.id === target.taskId) : undefined;
+    const config = editing.config;
+    const projects = editing.shell.projects.filter(project => matchesScheduledTaskScope(scope, editing.environmentId, str(project.id)));
+    const firstProject = projects[0] ?? null;
+    const draft = editorDraft(task, str(firstProject?.id), defaultModelKey(config, str(firstProject?.id), firstProject), editing.environmentId);
     const providers = arr(config.providers).filter(provider => providerAvailable(provider) && obj(provider.auth).status !== 'unauthenticated');
     const models = providers.flatMap(provider => arr(provider.models).filter(model => model.isUnavailable !== true && model.isLegacy !== true).map(model => ({ value: `${provider.instanceId}:${model.slug}`, label: `${str(model.name, str(model.slug))} · ${str(provider.displayName, str(provider.instanceId))}`, selected: false })));
     // The trigger shows the model's name with its provider mark (ProviderModelPicker).
@@ -104,15 +114,18 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     const branches = await Promise.all(projects.map(async project => {
       try {
         // VcsListRefsInput's query is optional and non-empty: an empty search omits it (usePaginatedBranches).
-        const refs = arr((await access.request('vcs.listRefs', { cwd: str(project.workspaceRoot), limit: 100 })).refs);
+        const refs = arr((await editing.request('vcs.listRefs', { cwd: str(project.workspaceRoot), limit: 100 })).refs);
         return { projectId: str(project.id), error: '', refs: refs.map(ref => branchRef(ref, str(project.workspaceRoot))) };
       } catch (error) { return { projectId: str(project.id), error: error instanceof Error ? error.message : 'Could not load refs.', refs: [] as BranchRef[] }; }
     }));
-    return { ...base, missing: Boolean(editingId) && !task,
-      editors: [{ ...draft, key: `${editingId || 'new'}`, missing: Boolean(editingId) && !task }],
+    // editingTaskMissing: the task went away while its editor was open.
+    const missing = !!target && !!all && !task;
+    return { ...base, missing,
+      editors: [{ ...draft, key: `${editing.environmentId}:${target?.taskId || 'new'}`, missing }],
       projects: projects.map(project => ({ value: str(project.id), label: str(project.title), selected: false })), models,
       workspaces: ['worktree', 'root', 'existing_worktree'].map(value => ({ value, label: WORKSPACE_LABELS[value], selected: false })),
-      environments: [{ value: environmentId, label: environment, selected: true }], branches, marks };
+      environments: environments.filter(environment => environment.connected).map(environment => ({ value: environment.environmentId, label: environment.label, selected: environment.environmentId === editing.environmentId })),
+      branches, marks };
   } catch (error) { return { ...empty, error: error instanceof Error ? error.message : 'Could not load scheduled tasks.' }; }
 }
 

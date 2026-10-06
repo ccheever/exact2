@@ -231,6 +231,7 @@ shape SnapshotDraft
   referenced: bool
 shape Snapshot
   timelineReadsNeeded: bool
+  highlightPending: bool // shiki-residuals: a code text waits for its Shiki tokens
   markdownSkills: list<MarkdownSkill>
   composer: ComposerView
   // r6-polish: the AlertStack wrapper's clip to its banners (r6-polish-measure.ts alertClip).
