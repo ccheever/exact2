@@ -24,7 +24,7 @@ final class T3Module: ExactModule {
     private let mermaid: T3TimelineMermaid // Mermaid fences laid out with the server's own Mermaid (T3TimelineMermaid.swift).
     private let snapShot: T3SnapShot
     private let chrome = T3WindowChrome()
-    private let exportsRoot: URL? // Agent runs export into the isolated data root (T3ContextMenu.saveText).
+    let exportsRoot: URL? // Agent runs export into the isolated data root (T3ContextMenu.saveText).
     private let menus = T3Menus() // Menu bar items, zoom and the ⌘Q hold (T3Menus.swift).
     private let notifications: T3Notifications // Thread notifications, sound, Dock badge (T3Notifications.swift).
     private let sidebar: T3Sidebar // Thread menu, modifier reads and jump hints (T3Sidebar.swift).
@@ -70,18 +70,13 @@ final class T3Module: ExactModule {
     override func later(_ request: [String: Any], reply: ExactReply) {
         if gate.began(request, answer: { reply.send($0) }) { return }
         if let key = request["fleet"] as? String { gate.sent(request); return fleet.perform(key, request) { [gate] in gate.answered(request); reply.send($0) } }
-        if request["op"] as? String == "contextMenu" { return T3ContextMenu.perform(request) { reply.send($0) } } // Settings context menus (T3ContextMenu.swift).
         if request["op"] as? String == "r8MeasureFrame" { DispatchQueue.main.async { [weak self] in reply.send(self?.measure.perform(request) ?? ["ok": false, "generation": 0]) }; return } // lane r8-keys
         if request["op"] as? String == "timelineSleep" { return T3TimelineTurns.sleep(request) { reply.send($0) } }
         if request["op"] as? String == "mermaidRender" { DispatchQueue.main.async { [weak self] in self?.mermaid.perform(request) { reply.send($0) } }; return }
         if request["op"] as? String == "timelineJump" { DispatchQueue.main.async { [weak self] in self?.turns.jump(request) { reply.send($0) } }; return }
         if request["op"] as? String == "imageAccent" { return T3ImageAccent.perform(request) { reply.send($0) } } // Image chip accents (T3ImageAccent.swift, lane r4-timeline).
-        if request["op"] as? String == "saveText" { return T3ContextMenu.saveText(request, exportsRoot: exportsRoot) { reply.send($0) } }
-        if request["op"] as? String == "openText" { return T3ContextMenu.openText(request, importsRoot: exportsRoot.map { $0.deletingLastPathComponent().appendingPathComponent("imports", isDirectory: true) }) { reply.send($0) } }
-        if request["op"] as? String == "fetchText" { return T3ContextMenu.fetchText(request) { reply.send($0) } }
         if request["op"] as? String == "r6DeviceInput" { DispatchQueue.main.async { [weak self] in reply.send(self?.devices.input(request) ?? ["ok": false, "generation": 0]) }; return } // lane r6-media
         if request["op"] as? String == "r6DeviceScreenshot" { return R6DeviceStreams.screenshot(request, access: { [transport] done in transport.deviceHubAccess(done) }, exportsRoot: exportsRoot) { reply.send($0) } }
-        if request["op"] as? String == "attachmentText" || request["op"] as? String == "attachmentSave" { return T3AttachmentFiles.perform(request, exportsRoot: exportsRoot) { reply.send($0) } } // lane r5-panels (T3PanelsNative.swift)
         if let op = request["op"] as? String, op.hasPrefix("sidebar") {
             DispatchQueue.main.async { [weak self] in self?.sidebar.perform(request) { reply.send($0) } }
             return
@@ -135,7 +130,7 @@ final class T3Module: ExactModule {
     /// Each area's ops (T3Module+<Area>.swift), in turn: an area answers the ops it owns and
     /// calls `next` for the rest; what no area owns goes to the transport. No two areas share
     /// an op. A feature adds its area's method in its own file and one entry here.
-    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps]
+    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps]
     private func route(_ request: [String: Any], reply: ExactReply, from index: Int) {
         guard index < Self.areas.count else { return forward(request, reply: reply) }
         Self.areas[index](self)(request, reply) { self.route(request, reply: reply, from: index + 1) }
