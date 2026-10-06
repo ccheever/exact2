@@ -101,6 +101,8 @@ shape DeviceTool
   error: string
 shape IntegrationsPage
   available: bool
+  // The settings scope the device switches write (settings-integrations-scope.ts): `machine|projectKey|checkout`.
+  deviceScope: string
   error: string
   project: bool
   scope: string
@@ -404,11 +406,11 @@ component IntegrationsPanel
           row min-height=28 padding-left=16 padding-right=16 align-items="center"
             SectionTitle(title="Devices")
           Card()
-            DeviceRow(row=data.deviceHub, tool=data.hubTool, busy=busy, rest=rest)
+            DeviceRow(row=data.deviceHub, tool=data.hubTool, scope=data.deviceScope, busy=busy, rest=rest)
             // 1e2ecbd975 (5318d054a5): Simulator support, revealed once the hub is ready or the local host lacks a platform.
             each support in data.simulatorSupport key=support.key
               SimulatorSupportSettingsRow(row=support, busy=busy, rest=rest)
-            DeviceRow(row=data.agentDevice, tool=data.agentTool, busy=busy, rest=rest)
+            DeviceRow(row=data.agentDevice, tool=data.agentTool, scope=data.deviceScope, busy=busy, rest=rest)
             DeviceHostsRow(view=data.deviceHosts, busy=busy, rest=rest)
               when data.hostsRow.summary != ""
                 Inheritance(row=data.hostsRow)
@@ -417,6 +419,7 @@ component DeviceRow
   props
     row: ScopedRow
     tool: DeviceTool
+    scope: string
     busy: bool
     rest: action
   view
@@ -430,7 +433,7 @@ component DeviceRow
         text row.description font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" max-width=576
       row flex-shrink=0 min-width=160 align-items="center" justify-content="flex-end" gap=8
         DeviceVersions(tool=tool, busy=busy, rest=rest)
-        ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.disabled), faded=(busy or row.disabled), on="light-dark(#1b4ed8, #346bf1)", off="light-dark(#d4d4d8, #ffffff14)", thumb="light-dark(#fcfcfc, #0a0a0a)", reduced=false, switchId=`device-${row.key}`, press=rest("device", `key=${row.key}&value=${row.mixed or not row.checked ? "true" : "false"}`))
+        ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.disabled), faded=(busy or row.disabled), on="light-dark(#1b4ed8, #346bf1)", off="light-dark(#d4d4d8, #ffffff14)", thumb="light-dark(#fcfcfc, #0a0a0a)", reduced=false, switchId=`device-${row.key}`, press=rest("device", `key=${row.key}&value=${row.mixed or not row.checked ? "true" : "false"}&scope=${scope}`))
 
 // IntegrationsSettings preview defaults: client-local and unavailable outside
 // the Electron desktop shell, shown as the reference shows them (inert at 64%).
