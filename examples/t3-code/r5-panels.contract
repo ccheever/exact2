@@ -198,7 +198,7 @@ component R5AttachmentBody
               R5CodeRow(line=line, gutter=att.gutter, wrap=att.wrap)
       when att.preview == "image"
         column flex=1 min-height=0 width="100%" padding=16 box-sizing="border-box" align-items="center" justify-content="center" overflow="hidden" testId="attachment-image"
-          image att.url aria-label=att.name max-width="100%" max-height="100%" width="100%" height="100%" object-fit="contain"
+          image att.url aria-label=att.name error=local("surface-r5-att-media-error", att.id) max-width="100%" max-height="100%" width="100%" height="100%" object-fit="contain"
       // lane r6-media: PDF, rendered HTML, audio and video (r6-media.contract).
       when att.preview == "pdf" or att.preview == "html" or att.preview == "audio" or att.preview == "video"
         R6MediaBody(att=att, local=local)

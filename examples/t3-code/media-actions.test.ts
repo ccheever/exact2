@@ -2,7 +2,7 @@
 // 1e2ecbd975, MIT; see LICENSE-T3) as media-actions.ts and media-views.ts port it.
 import { describe, expect, test } from 'bun:test';
 import { decodeMediaSource, encodeMediaSource, mediaFailureTitle, mediaFileName, mediaMenuItems, mediaTooltip, openMediaLink, resolveProtocolRelativeMediaUrl, showMediaMenu, type MediaActionSource } from './media-actions';
-import { filesMediaView, markdownImageHref, markdownImages, markdownMedia, markdownMediaChips, markdownMediaUrls, mediaLocal, videoFailed } from './media-views';
+import { filesMediaView, markdownImageHref, markdownImages, markdownMedia, markdownMediaChips, markdownMediaUrls, mediaFailed, mediaLocal } from './media-views';
 import { toasts } from './toast';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
@@ -162,13 +162,16 @@ describe('media views', () => {
     expect(rpcs.at(-1)).toMatchObject({ resource: { _tag: 'media-file', path: '/repo/media/clip.mp4' } });
     expect(video).toMatchObject({ kind: 'video', state: 'ready', failText: 'Video unavailable · media/clip.mp4', openLabel: 'Open in browser' });
     await mediaLocal(client, native, 'video-error', video.url, 'decode');
-    expect(videoFailed(client, video.url)).toBe(true);
+    expect(mediaFailed(client, video.url)).toBe(true);
     expect((await filesMediaView(client, native, 'media/clip.mp4', '/repo/media/clip.mp4', '/repo', '', 1000)).state).toBe('failed');
     const before = rpcs.length;
     await mediaLocal(client, native, 'retry', video.retryKey, video.url);
     expect(rpcs.length).toBe(before + 1);
-    expect(videoFailed(client, video.url)).toBe(false);
+    expect(mediaFailed(client, video.url)).toBe(false);
     expect(await filesMediaView(client, native, 'notes.txt', '/repo/notes.txt', '/repo', '', 1000)).toMatchObject({ kind: '' });
+    // WorkspaceImagePreview's onError: the picture's `error` (exact2 #121) is the failure state, menu kept.
+    await mediaLocal(client, native, 'image-error', image.url, 'HTTP 404');
+    expect(await filesMediaView(client, native, 'screens/logo.png', '/repo/screens/logo.png', '/repo', '', 1000)).toMatchObject({ state: 'failed', failText: 'Unable to load workspace image.' });
   });
   test('Files: a refused signature is the failure state, menu kept', async () => {
     const { client } = fakeClient(() => ({}), { rpc: async () => { throw new Error('denied'); } });
