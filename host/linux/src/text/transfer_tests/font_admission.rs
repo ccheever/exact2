@@ -20,64 +20,63 @@ fn broken_bytes(missing: bool) -> Vec<u8> {
     bytes
 }
 
-fn db_with_bad(missing: bool) -> (fontdb::Database, fontdb::ID, fontdb::ID) {
-    let mut db = fontdb::Database::new();
-    let good = db.load_font_source(fontdb::Source::Binary(Arc::new(GOOD.to_vec())))[0];
-    // Preserve valid face metadata to reach cosmic's admission boundary even
-    // when fontdb would itself reject a zero-head face on import.
-    let mut face = db.face(good).unwrap().clone();
-    face.source = fontdb::Source::Binary(Arc::new(broken_bytes(missing)));
-    face.families = vec![("Broken Face".into(), fontdb::Language::English_UnitedStates)];
-    face.post_script_name = "BrokenFace".into();
-    let bad = db.push_face_info(face);
-    db.set_sans_serif_family("DejaVu Sans");
-    db.set_monospace_family("DejaVu Sans");
-    (db, good, bad)
+/// The good face and a damaged copy of it (same family name), as one
+/// catalog's fonts: fontique refuses the copy at registration (LLP 1085.000
+/// G2), so the family keeps one face and text never reaches the copy.
+fn catalog_with_bad(missing: bool) -> catalog::Catalog {
+    let bad = broken_bytes(missing);
+    catalog::Catalog::from_bytes(&[GOOD, bad.as_slice()], "DejaVu Sans")
+}
+
+fn admitted(bytes: Vec<u8>) -> Option<fontique::FontInfo> {
+    let source = fontique::SourceInfo::new(
+        fontique::SourceId::new(),
+        fontique::SourceKind::Memory(fontique::Blob::new(Arc::new(bytes))),
+    );
+    fontique::FontInfo::from_source(source, 0)
 }
 
 #[test]
 fn missing_head_real_font_is_refused_at_admission() {
-    let mut db = fontdb::Database::new();
-    let ids = db.load_font_source(fontdb::Source::Binary(Arc::new(broken_bytes(true))));
-    assert_eq!(ids.len(), 1, "real font must reach cosmic admission");
-    assert!(cosmic_text::Font::new(&db, ids[0], Weight::NORMAL).is_none());
+    assert!(admitted(broken_bytes(true)).is_none());
 }
 
 #[test]
 fn zero_head_real_font_is_refused_and_good_face_stays_admitted() {
-    let (db, good, bad) = db_with_bad(false);
-    assert!(cosmic_text::Font::new(&db, bad, Weight::NORMAL).is_none());
-    let font = cosmic_text::Font::new(&db, good, Weight::NORMAL).unwrap();
-    assert_eq!(font.metrics().units_per_em, 2048);
+    assert!(admitted(broken_bytes(false)).is_none());
+    assert!(admitted(GOOD.to_vec()).is_some());
+    let font = swash::FontRef::from_index(GOOD, 0).unwrap();
+    assert_eq!(font.metrics(&[]).units_per_em, 2048);
 }
 
 #[test]
 fn failed_font_admission_continues_to_good_fallback() {
     for missing in [true, false] {
-        let (db, good, bad) = db_with_bad(missing);
-        let mut fonts = FontSystem::new_with_locale_and_db("en-US".into(), db);
-        let mut buffer = Buffer::new(&mut fonts, Metrics::new(13., 20.));
-        buffer.set_size(Some(572.), None);
-        buffer.set_text(
-            // The pinned subset covers Latin/accented text, not Arabic.
-            "office café",
-            &Attrs::new().family(Family::Name("Broken Face")),
-            Shaping::Advanced,
-            None,
-        );
-        buffer.shape_until_scroll(&mut fonts, false);
-        let glyphs: Vec<_> = buffer.layout_runs().flat_map(|r| r.glyphs).collect();
+        let mut catalog = catalog_with_bad(missing);
+        let family = catalog
+            .fonts
+            .collection
+            .family_by_name("DejaVu Sans")
+            .unwrap();
+        assert_eq!(family.fonts().len(), 1, "the damaged copy was not admitted");
+        catalog.families[0] = FamilyChoice::Declared("Broken Face".into());
+        let mut engine = TextEngine::with_catalog(catalog);
+        let mut spec = crate::paint::text_spec(&StyleProps::default(), "office café");
+        spec.runs[0].size = 13.;
+        let p = engine.paragraph(&spec, Some(572.));
+        let glyphs: Vec<_> = p
+            .layout_runs()
+            .flat_map(|r| r.glyphs.iter().copied())
+            .collect();
         assert!(!glyphs.is_empty());
+        let good = swash::FontRef::from_index(GOOD, 0).unwrap();
         assert!(
-            glyphs.iter().all(|g| g.font_id == good && g.glyph_id != 0),
-            "missing={missing} good={good:?} bad={bad:?} glyphs={:?}",
-            glyphs
-                .iter()
-                .map(|g| (g.start, g.end, g.font_id, g.glyph_id))
-                .collect::<Vec<_>>()
+            glyphs.iter().all(|g| g.glyph_id != 0
+                && p.lines().faces[g.face as usize].font.data.data() == GOOD
+                && good.charmap().map('o') != 0),
+            "missing={missing} glyphs={glyphs:?}"
         );
         assert!(glyphs.iter().all(|g| g.x.is_finite() && g.w.is_finite()));
-        assert!(fonts.get_font(bad, Weight::NORMAL).is_none());
     }
 }
 
@@ -109,9 +108,7 @@ fn assert_finite(p: &Paragraph) {
     assert!(p.layout_runs().all(|r| r.line_w.is_finite()
         && r.glyphs
             .iter()
-            .all(|g| [g.x, g.y, g.w, g.x_offset, g.y_offset, g.font_size]
-                .iter()
-                .all(|v| v.is_finite()))));
+            .all(|g| [g.x, g.y, g.w, g.font_size].iter().all(|v| v.is_finite()))));
 }
 
 #[test]
@@ -179,9 +176,7 @@ fn finite_font_glyphs_geometry_and_pixels_have_stock_oracle() {
 fn real_thread_code_transfer_matches_ordinary_geometry_glyphs_and_pixels() {
     // Only two owned font sources; this tests the real transfer path without
     // making a full system-font capture prerequisite for a small regression.
-    let (db, _, _) = db_with_bad(true);
-    let mut catalog =
-        catalog::Catalog::with_fonts(FontSystem::new_with_locale_and_db("en-US".into(), db));
+    let mut catalog = catalog_with_bad(true);
     catalog.families[5] = FamilyChoice::Declared("Broken Face".into());
     let mut engine = TextEngine::with_catalog(catalog);
     let (recipe, raster) = freeze_catalog(&engine).unwrap();
@@ -220,7 +215,6 @@ fn real_thread_code_transfer_matches_ordinary_geometry_glyphs_and_pixels() {
     };
     let input = prepare(&recipe, q, PaintContext::new(1.).unwrap(), None).unwrap();
     let job = input.clone();
-    let mapper = recipe.clone();
     let output = thread::spawn(move || FontWorker::new(recipe).unwrap().execute(job).unwrap())
         .join()
         .unwrap();
@@ -236,9 +230,6 @@ fn real_thread_code_transfer_matches_ordinary_geometry_glyphs_and_pixels() {
     assert_finite(actual);
     assert_eq!(p.metrics(), paragraph_metrics(&expected));
     assert_eq!(actual.baselines, expected.baselines);
-    assert_eq!(
-        glyphs(actual),
-        glyphs_mapped(&expected, |id| mapper.mapped_face(id).unwrap())
-    );
+    assert_eq!(glyphs(actual), glyphs(&expected));
     assert_eq!(pixels(&mut engine, actual), pixels(&mut engine, &expected));
 }

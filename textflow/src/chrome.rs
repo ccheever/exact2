@@ -54,3 +54,33 @@ pub(crate) fn breaks(before: char, after: char) -> bool {
     let (b, a) = (before as usize - 0x21, after as usize - 0x21);
     PAIRS[BEFORE[b] as usize] >> AFTER[a] & 1 == 1
 }
+
+/// The walker's choice between `before` and `after` where it does not defer
+/// to UAX #14: `None` defers. The host's ordinary paragraphs give this to
+/// their line breaker so both paths break alike (LLP 1085.000 G6): a break
+/// follows a space and never precedes one; `-` before a digit breaks only
+/// after a letter or digit (a URL, not a negative number); otherwise
+/// Chrome's Latin-1 pair table. Hard breaks and dictionary scripts defer.
+pub fn chrome_break(before_before: Option<char>, before: char, after: char) -> Option<bool> {
+    let space = |c: char| matches!(c, ' ' | '\t');
+    let hard = |c: char| {
+        matches!(
+            c,
+            '\n' | '\r' | '\u{c}' | '\u{85}' | '\u{2028}' | '\u{2029}'
+        )
+    };
+    let latin1 = |c: char| ('\u{21}'..='\u{ff}').contains(&c);
+    if hard(before) || hard(after) {
+        None
+    } else if space(after) {
+        Some(false)
+    } else if space(before) {
+        Some(true)
+    } else if before == '-' && after.is_ascii_digit() {
+        Some(before_before.is_some_and(|c| c.is_ascii_alphanumeric()))
+    } else if latin1(before) && latin1(after) && !(before == '-' && !after.is_ascii()) {
+        Some(breaks(before, after))
+    } else {
+        None
+    }
+}

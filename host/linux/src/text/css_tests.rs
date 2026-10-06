@@ -4,14 +4,9 @@ use super::*;
 use exact_kernel::{StyleProps, WhiteSpace};
 
 fn engine(font: &'static [u8], family: &str) -> TextEngine {
-    let mut db = fontdb::Database::new();
-    db.load_font_source(fontdb::Source::Binary(Arc::new(font.to_vec())));
-    db.set_sans_serif_family(family);
-    TextEngine::with_catalog(catalog::Catalog::with_fonts(
-        FontSystem::new_with_locale_and_db("en-US".into(), db),
-    ))
+    TextEngine::with_catalog(catalog::Catalog::from_bytes(&[font], family))
 }
-const INTER: &[u8] = include_bytes!("../../../../vendor/cosmic-text/fonts/Inter-Regular.ttf");
+const INTER: &[u8] = include_bytes!("../../tests/fonts/Inter-Regular.ttf");
 const DEJAVU: &[u8] = include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf");
 
 fn spec(text: &str, white_space: WhiteSpace) -> Spec {
@@ -279,11 +274,11 @@ fn document_language_replaces_the_shaping_catalog_and_cached_paragraphs() {
     let old = shared.borrow().catalog.clone();
     measurer.set_language("ar");
     let engine = shared.borrow();
-    assert_eq!(engine.catalog.borrow().fonts.locale(), "ar");
+    assert_eq!(engine.catalog.borrow().locale, "ar");
     assert!(!std::rc::Rc::ptr_eq(&old, &engine.catalog));
     drop(engine);
     measurer.set_language("en");
-    assert_eq!(shared.borrow().catalog.borrow().fonts.locale(), "en");
+    assert_eq!(shared.borrow().catalog.borrow().locale, "en");
 }
 
 /// The reader diary: a line broken at a soft hyphen shows one (the face's
@@ -293,7 +288,7 @@ fn document_language_replaces_the_shaping_catalog_and_cached_paragraphs() {
 fn a_line_broken_at_a_soft_hyphen_shows_the_faces_hyphen() {
     let mut e = engine(INTER, "Inter");
     let dash = e.paragraph(&spec("-", WhiteSpace::Normal), None);
-    let dash = dash.layout_runs().next().unwrap().glyphs[0].clone();
+    let dash = dash.layout_runs().next().unwrap().glyphs[0];
     let fits = e
         .paragraph(&spec("an incom-", WhiteSpace::Normal), None)
         .layout_runs()
@@ -304,9 +299,7 @@ fn a_line_broken_at_a_soft_hyphen_shows_the_faces_hyphen() {
         "an extra\u{ad}ordinary incom\u{ad}prehensibly",
         WhiteSpace::Normal,
     );
-    let shy = |l: &cosmic_text::LayoutRun<'_>, g: &cosmic_text::LayoutGlyph| {
-        &l.text[g.start..g.end] == "\u{ad}"
-    };
+    let shy = |l: &LayoutRun<'_>, g: &LayoutGlyph| &l.text[g.range()] == "\u{ad}";
     let wide = |e: &mut TextEngine, width: f32| {
         let s = spec("an incom\u{ad}prehensibly", WhiteSpace::Normal);
         let p = e.paragraph(&s, Some(width));
@@ -346,10 +339,7 @@ fn a_line_broken_at_a_soft_hyphen_shows_the_faces_hyphen() {
     let p = e.paragraph(&none, Some(fits + 0.5));
     let first = p.layout_runs().next().unwrap();
     assert!(
-        first
-            .glyphs
-            .iter()
-            .all(|g| &first.text[g.start..g.end] != "p"),
+        first.glyphs.iter().all(|g| &first.text[g.range()] != "p"),
         "the word moves whole"
     );
 }
@@ -410,7 +400,7 @@ fn a_markdown_list_items_lines_start_at_its_indent() {
         .layout_runs()
         .filter(|line| !line.glyphs.is_empty())
         .map(|line| {
-            let text = |g: &cosmic_text::LayoutGlyph| &s.runs[g.metadata];
+            let text = |g: &LayoutGlyph| &s.runs[g.run()];
             let marker = line
                 .glyphs
                 .iter()
@@ -426,7 +416,7 @@ fn a_markdown_list_items_lines_start_at_its_indent() {
                 .glyphs
                 .iter()
                 .find(|g| !text(g).hang)
-                .map_or(0, |g| g.start);
+                .map_or(0, |g| g.start as usize);
             (line.text[from..].trim().to_string(), first, marker)
         })
         .collect();

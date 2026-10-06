@@ -6,13 +6,9 @@ struct Fixture {
     weak: Vec<std::rc::Weak<Paragraph>>,
 }
 fn fixture(count: usize, widths: bool) -> Fixture {
-    let mut db = fontdb::Database::new();
-    db.load_font_source(fontdb::Source::Binary(Arc::new(
-        include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf").to_vec(),
-    )));
-    db.set_sans_serif_family("DejaVu Sans");
-    let mut engine = TextEngine::with_catalog(catalog::Catalog::with_fonts(
-        FontSystem::new_with_locale_and_db("en-US".into(), db),
+    let mut engine = TextEngine::with_catalog(catalog::Catalog::from_bytes(
+        &[include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf").as_slice()],
+        "DejaVu Sans",
     ));
     engine.paragraphs.trim_test_target(usize::MAX);
     let mut keys = Vec::new();

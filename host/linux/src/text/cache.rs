@@ -55,13 +55,13 @@ pub struct HandoffResidency {
 }
 
 /// Catalog-local paragraph storage. Vector/String capacities below are exact
-/// accessible storage, not allocator/RSS accounting. Cosmic private caches,
-/// font-system scratch, font data and glyph caches are outside this count.
+/// accessible storage, not allocator/RSS accounting. Parley's layout
+/// scratch, font data and glyph caches are outside this count.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Residency {
     /// Exact visible vector capacities of indexed paragraphs and canonical keys.
     pub owned_capacity_bytes: usize,
-    /// Zero for moved source Strings; private cosmic internals remain excluded.
+    /// Zero for moved source Strings.
     pub private_text_bytes_estimate: usize,
     /// Unique live width snapshots, including cache and painter owners.
     pub paragraphs: usize,
@@ -91,7 +91,7 @@ pub struct Residency {
 /// Accepted painter storage outside the current catalog's paragraph index.
 /// Source, layout and ink backings are each counted once, excluding backings
 /// already in the current catalog. Wrapper counts stay separate from bytes.
-/// This excludes keys, fonts, private cosmic caches, Arc headers, allocator
+/// This excludes keys, fonts, Parley's scratch, Arc headers, allocator
 /// overhead and other engines/callers. This is not total RSS.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RetiringResidency {
@@ -101,7 +101,7 @@ pub struct RetiringResidency {
     pub paragraphs: usize,
     /// Exact accessible vector capacities of those unique paragraph backings.
     pub owned_capacity_bytes: usize,
-    /// Zero for moved source Strings; private cosmic internals remain excluded.
+    /// Zero for moved source Strings.
     pub private_text_bytes_estimate: usize,
 }
 
@@ -120,7 +120,7 @@ impl From<Option<f32>> for Width {
 struct Payloads {
     sources: HashSet<*const super::shaping::ShapeData>,
     flows: HashSet<*const ShapedSource>,
-    lines: HashSet<*const Vec<Vec<cosmic_text::LayoutLine>>>,
+    lines: HashSet<*const super::Lines>,
     baselines: HashSet<*const Vec<f32>>,
     indexes: HashSet<*const super::ink::Index>,
 }
@@ -1019,16 +1019,9 @@ pub(super) fn capacities(paragraph: &Paragraph) -> usize {
     fn vector<T>(v: &Vec<T>) -> usize {
         v.capacity() * size_of::<T>()
     }
-    let mut bytes = paragraph.source.accessible_capacity_bytes
+    paragraph.source.accessible_capacity_bytes
         + vector(&paragraph.baselines)
         + vector(&paragraph.bottoms)
-        + vector(&paragraph.layouts)
-        + paragraph.flow.as_ref().map_or(0, |f| f.capacity_bytes());
-    for layouts in paragraph.layouts.iter() {
-        bytes += vector(layouts);
-        for line in layouts {
-            bytes += vector(&line.glyphs) + vector(&line.decorations);
-        }
-    }
-    bytes
+        + paragraph.layouts.capacity_bytes()
+        + paragraph.flow.as_ref().map_or(0, |f| f.capacity_bytes())
 }
