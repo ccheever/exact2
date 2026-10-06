@@ -1,12 +1,12 @@
 ---
 name: 20261005-remote-scopes-and-update-commands
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-remote-scopes-and-update-commands
 pr_url: null
 verified_commit: null
 ---
@@ -110,14 +110,65 @@ Required environment: Xcode 27.0, pinned Bun, reference oracle runtime, lane por
 
 ## Progress
 
-Planned.
+2026-10-06: implemented on `feat(example)/t3-code-remote-scopes-and-update-commands` (base `d78ac86ff`),
+in parallel with `20261005-hot-file-split` (user-authorized parallel wave; the merged-PR prerequisites
+remain pending, not satisfied). Reference `1e2ecbd975`.
+
+- Scopes: `remote-scopes.ts` holds `AUTH_STANDARD_CLIENT_SCOPES` (the five, reference order) and
+  `encodeOAuthScope`; `withStandardScope` adds `scope` to every request that carries a credential
+  (Add environment connected and not connected, `client.ts` connect, SSH pairing, outdated-host
+  pairing). `modules/apple/T3RemoteAuth.swift` builds the token-exchange form from the `scope` it is
+  given (omitted when absent, the embedded primary's case) and is used by `T3Transport.swift` (pairing
+  and connect exchange) and `T3Fleet.swift`. Swift names no scope.
+- Narrow link: the server answers HTTP 400 `{_tag: EnvironmentRequestInvalidError, reason:
+  scope_not_granted}` with no `message`; the clone now shows `mapRemoteEnvironmentError`'s text
+  "The environment rejected the authentication request." (was "The server returned HTTP 400.").
+  No retry with fewer scopes. The link is spent by the refusal (server behavior, confirmed live).
+  The text is read from the reference source, not from an oracle redemption (no oracle on this branch).
+- U12: default taken (sessions paired before this change are left as they are; no notice). Open for
+  the user to confirm.
+- Install-aware command: `server-installation.ts` ports `ServerInstallation`
+  (`ForwardCompatibleOptional`: unknown kind or npm-global without prefix decodes as absent),
+  `manualServerUpdateCommand`, the labels ("Copy update command" / "Copy relaunch command"), the
+  toasts, the failure toast ("Could not copy update command", ClipboardWriteError's text) and
+  `serverUpdateAriaLabel`. `connections.ts` uses them in the row and in `environment-update`; a
+  desktop-managed server without `desktopAppUpdate` shows "Update the desktop app on that machine
+  to update this server." in place of the button (`updateNote`, `connections.contract`).
+  `settings-b-outdated.ts` needed only the scope (its update paths are self-update only).
+- Exports for `20261005-server-update-banner`: `manualUpdateCopy`, `manualServerUpdateCommand`,
+  `serverUpdateActionLabel`, `serverUpdateAriaLabel`, `desktopManagedOnly`, `configInstallation`.
+- Shared-file edits (own commit `bebd6d4d4`): `client.ts` lines 57 (import) and 644 (connect spreads
+  `withStandardScope(target)`); `T3Transport.swift` line 47 (`exchangeScope`), 307 (set from the
+  request), 337 and 352 (pairing failure text and form), 400 (connect exchange form), 489–491 (HTTP
+  failure text).
+
+Live drive (macOS agent driver, drive lock held; isolated reference servers on 16140 "Lane box",
+web mode, and 16141 "Desk box", desktop mode; lane tool `target/t3-ui-parity/narrow-link.mjs`
+mints links through `POST /api/auth/pairing-token` with the server's desktop-bootstrap owner seed):
+
+```
+read-only link id: 3569dac3-…  (scopes ["orchestration:read"])   standard link id: a75cd7d6-… (five scopes)
+Text#1587 [connection-error] "The environment rejected the authentication request."
+Text#1568 [toast-title-2] "Could not add backend"
+links after: neither 3569dac3 nor a75cd7d6 is listed (both spent)
+clients: {"label":"standard-link","scopes":["orchestration:read","orchestration:operate","terminal:operate","review:write","relay:read"]}
+state: "update": "Copy relaunch command"  (Lane box: no serverSelfUpdate, no serverInstallation)
+state: "updateNote": "Update the desktop app on that machine to update this server."  (Desk box)
+Pressable#1742 [environment-update-8b7b…] label="Copy relaunch command for Lane box server"
+Text#1958 [environment-update-tip-…] "Copy relaunch command"
+Text#1968 [toast-title-6] "Relaunch command copied"
+Text#1969 [toast-description-6] "Stop t3 on Lane box server, then relaunch with `npx t3@0.0.46-nightly.20261004.1` using the same subcommand and options. This does not update an installed t3 command."
+pasteboard: npx t3@0.0.46-nightly.20261004.1   (the previous text pasteboard was restored)
+```
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (2026-10-06) | `bd18baeab` on base `d78ac86ff` | `bun test examples/t3-code` 1216 pass / 0 fail (base 1200; the four named reference tests pass, `ServerUpdateAction` table has 6 kinds); strict tsc clean; `contract build` 2158 slots, 42 resources, 48015 nodes; `cargo test -p t3-code-macos --lib` 10/0; AppKit `transport` 40 tests 0 failures (2 live skips), `fleet` 8/0, `ssh` 4 (1 skip); `git add -A && bun scripts/caps.mjs` pass; five checks pass (build, test 2927/0, clippy, fmt, caps, boot); `build.mjs t3-code-macos` bundle built | Live drive above; screenshots on `t3-code-evidence/remote-scopes-and-update-commands/` (01 refused Read only link, 02 relaunch tooltip and desktop sentence, 03 relaunch toast) | Not run: trace-diff T0 and oracle redemption (no oracle/trace tools on this branch, `20261005-desktop-oracle-and-trace` pending); light/dark and 840×620 pairs (no-pixel-loop rule); pasteboard failure forced live (unit test only); Tab/Space/Enter focus ring (attended); three-scope session launch from a pre-change fixture store (unit test of the projection only); npm-global / pnpm-dlx / bunx live (the reference server built from source reports no installation; unit tests cover all kinds) |
 
 ## Next action
 
-`prepare` after the three merged task PRs; ask U12 first. Close with clone checks green (bun test, strict tsc, contract build, `cargo test -p t3-code-macos --lib`, `transport` AppKit binary), `bun scripts/caps.mjs` after `git add -A`, the repository's five checks, and every moved matrix cell fixed or declared in `EXACT2-GAPS.md` with an issue link.
+Review the PR. Confirm U12 (default taken: leave three-scope sessions as they are). After
+`20261005-desktop-oracle-and-trace` merges, run trace-diff T0 and redeem a Read only link on the
+oracle to confirm the refusal text; then `verify`.
