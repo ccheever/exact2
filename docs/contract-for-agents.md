@@ -1511,8 +1511,13 @@ name is `alt` or `aria-label`; `enterkeyhint` labels a soft keyboard's enter
 key on the web and iOS. A bare number on a length row is pixels (except
 `line-height`, where it is CSS's multiple of the font size), and the row takes
 CSS's spellings too (`font-size="14px"`, `letter-spacing="-0.5px"`,
-`padding="1.5rem"`; `stroke-width="2px"` but no `rem` there); `max-width` and
-`max-height` take `none`, CSS's initial maximum, or `auto`, and the web writes
+`padding="1.5rem"`; `stroke-width="2px"` but no `rem` there), bound or literal
+(``font-size=`${size}px` ``). A row whose value is a number and no text
+(`opacity`, `flex-grow`, `z-index`, `font-weight`, `column-count`,
+`column-rule-width`) takes a number where it is computed: a string-typed
+expression there is refused, since the native hosts read no text on it (the
+literal keywords and `px` of `column-count` and `column-rule-width` compile to
+their numbers). `max-width` and `max-height` take `none`, CSS's initial maximum, or `auto`, and the web writes
 `none` for either. A number field's (`input type="number"`, written so)
 `min`, `max` and `step` take numbers, as a range's do; its `value` is its text.
 
