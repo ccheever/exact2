@@ -401,18 +401,26 @@ app reads.
 **Not taken.** A scheme for images or assets (an app still names a PNG per
 appearance); `color-scheme` on the root (an app's scheme is `setScheme`'s);
 CSS's `only` keyword. **Keyframe animations of `light-dark()` colours** in a
-`color-scheme` subtree follow a view's reports (LLP 1062 D4), not the commit,
-and only its first: on Apple a view's first report that differs from the
-session recolours what it plays (boot's correction); after that a playing
-animation keeps the half it started with when the subtree's scheme changes,
-including one that starts in the commit that changes it; and a report made
-outside a batch (UIKit's trait walk after the system's appearance changes) is
-said with the next batch. A subtree fixed to the scheme the session leaves is
-reported only when its views next change appearance. Transitions have none of
-this: they resolve by the commit. On Linux: a playing keyframe animation of a
-`light-dark()` colour inside an overridden subtree keeps resolving in the
-app's scheme (Linux reports no view appearance to the engine); a content
-region (LLP 1093) resolves its runs in the app's scheme; and a frame with a
-`color-scheme` subtree mounted repaints in full rather than by flow damage,
-the rule the painter already has for any node painting in an appearance of
-its own.
+`color-scheme` subtree follow a view's reports (LLP 1062 D4), not the commit.
+On Apple a report recolours what the view plays only when the engine held no
+report for it (boot's correction, and again each time it leaves agreeing with
+the session); otherwise a playing animation keeps the half it started with
+when the subtree's scheme changes, including one that starts in the commit
+that changes it. An inline run or SVG element has no view of its own to
+report, so its keyframes take the session's appearance. A report made outside
+a batch (UIKit's trait walk after the system's appearance changes) is said
+with the next batch that passes through `apply`; an idle session, or batches
+skipped as empty, hold it longer. When the session's scheme changes, every
+view in a `color-scheme` subtree is reported with it, so a subtree fixed to
+the scheme the session leaves starts later animations in its own. Slices
+landed ahead of a batch the owner already made leave their reports for that
+batch, so no later batch applies before it (amended 2026-10-05, round 4).
+Transitions resolve by the commit, except that clearing an authored scheme
+resolves through the view's old report until its new one arrives. On Linux: a
+keyframe animation of a `light-dark()` colour takes the session's appearance
+when it starts (Linux reports no view appearance to the engine) and keeps it
+across later session changes; a content region (LLP 1043.000) captures its runs,
+box fills, borders, gradients, shadows, material and image tints in the app's
+scheme; and flow damage is off for any frame in which a painted node's own
+appearance differs from the one the walk reached it with, the rule the painter
+already has for a view painting in an appearance of its own.

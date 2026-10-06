@@ -39,5 +39,24 @@ final class ColorSchemeMacTests: XCTestCase {
         XCTAssertNil(sheet.appearance)
         XCTAssertFalse(child.drawsDark)
     }
+
+    /// A subtree fixed `light` keeps its appearance when the session turns
+    /// dark, so no appearance callback says it: the session's scheme does,
+    /// for paint motion (LLP 1034 §8).
+    func testASessionSchemeChangeReportsAFixedSubtree() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "color-scheme-fixed-mac")
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        let view = NodeView(id: 99_998, kind: "view", presenter: session.presenter)
+        session.presenter.views[view.id] = view
+        session.presenter.root.addSubview(view)
+        view.applyStyle(["color_scheme": "light"])
+        session.scheme(dark: false)
+        XCTAssertNil(session.viewDark[view.id], "it agrees with the session")
+        session.scheme(dark: true)
+        XCTAssertFalse(view.drawsDark)
+        XCTAssertEqual(session.viewDark[view.id], false, "said light under a dark session")
+    }
 }
 #endif
