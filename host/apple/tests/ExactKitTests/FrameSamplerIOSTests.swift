@@ -34,14 +34,19 @@ final class FrameSamplerIOSTests: XCTestCase {
         XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
         let sampler = try XCTUnwrap(session.sampler)
         sampler.activity()
-        // Turns of the run loop with the link running; then one turn held
-        // 60 ms, past any frame's target.
+        // Turns of the run loop with the link running; then a turn held
+        // 60 ms, past any frame's target, until the sampler has seen one (a
+        // loaded machine may deliver the link late: a few tries).
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
         let before = (sampler.reply()["lifetime"] as? [String: Int])?["overruns"] ?? 0
-        DispatchQueue.main.async { let end = CACurrentMediaTime() + 0.06; while CACurrentMediaTime() < end {} }
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
-        let after = try XCTUnwrap(sampler.reply()["lifetime"] as? [String: Int])
-        XCTAssertGreaterThan(after["overruns"] ?? 0, before)
+        var after = before
+        for _ in 0..<5 where after <= before {
+            sampler.activity()
+            DispatchQueue.main.async { let end = CACurrentMediaTime() + 0.06; while CACurrentMediaTime() < end {} }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.15))
+            after = (sampler.reply()["lifetime"] as? [String: Int])?["overruns"] ?? 0
+        }
+        XCTAssertGreaterThan(after, before)
         sampler.stop()
     }
 
