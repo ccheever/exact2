@@ -116,3 +116,5 @@ Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverif
 | side (from X7) | [#135](https://github.com/ccheever/exact2/issues/135) | macOS: a bundled iframe page cannot load any `http:` sub-resource, even on loopback |
 | side (from X3) | [#136](https://github.com/ccheever/exact2/issues/136) | Web JS target bakes `rem` and `em` to px at build time |
 | side (from X3) | [#137](https://github.com/ccheever/exact2/issues/137) | A bound string `font-size` ("20px") works on web but macOS silently unsets it |
+
+Local draft: [macOS native module termination](20261006-native-module-termination.md) — reproduced by SSH acceptance; app workaround, upstream report not published.

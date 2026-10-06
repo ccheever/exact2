@@ -12,6 +12,7 @@ import type { T3Client } from './client';
 import { undoLive } from './sidebar-state';
 import { addStripShortcuts } from './composer-controls-branch';
 import { diffShown } from './r8-keys-chords'; // lane r8-keys: ⌘D
+import { openFavoriteEnabled } from './remote-open'; // the open-favorite key works only where the Open picker shows
 import { closeChordTarget } from './r9-input-panel'; // lane r9-input: ⌘W closes the active surface tab
 import { legacyTraversal } from './legacy-sidebar-view'; // legacy-sidebar: ⌘1-9 and ⇧⌘[ / ⇧⌘] follow its visible order
 
@@ -190,7 +191,7 @@ function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePr
   // thread.undo: the sidebar's live Undo notice (sidebar-commands.ts undoLatest).
   if (context.undoShown ?? undoLive(client)) add('thread.undo', 'command', 'sidebar:undo', 'Undo');
   const project = (client.shell?.projects ?? []).find(candidate => candidate.id === client.projectId);
-  if (project && favoriteEditor(client.config)) add('editor.openFavorite', 'flow', 'open-favorite', 'Open in Editor', str(thread?.worktreePath, str(project.workspaceRoot)));
+  if (project && favoriteEditor(client.config) && openFavoriteEnabled(client, str(project.title))) add('editor.openFavorite', 'flow', 'open-favorite', 'Open in Editor', str(thread?.worktreePath, str(project.workspaceRoot)));
 }
 /** The right panel: close, toggle, Diff, and Copy Thread ID. */
 function panelRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {

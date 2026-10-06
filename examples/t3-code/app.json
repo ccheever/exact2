@@ -20,6 +20,7 @@
   },
   "modules": [
     "t3-key-recorder",
+    "t3-ssh-password",
     "t3-terminal"
   ],
   "commands": {

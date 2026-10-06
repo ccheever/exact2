@@ -82,7 +82,8 @@ final class SshTests: XCTestCase {
     }
 }
 
-let suite = SshTests.defaultTestSuite
+let suite = XCTestSuite(name: "T3 ssh")
+suite.addTest(SshTests.defaultTestSuite); suite.addTest(SshAuthTests.defaultTestSuite) // auth.swift: password prompts, remote Open
 suite.run()
 let run = suite.testRun!
 print("T3 ssh: \(run.executionCount) tests, \(run.skipCount) skipped, \(run.totalFailureCount) failures")

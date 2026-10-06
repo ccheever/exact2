@@ -1,0 +1,24 @@
+{
+  "ready": true,
+  "cwd": "/home/tester/project",
+  "editors": [
+    {
+      "id": "cursor",
+      "label": "Cursor",
+      "selected": true
+    },
+    {
+      "id": "vscode",
+      "label": "VS Code",
+      "selected": false
+    },
+    {
+      "id": "zed",
+      "label": "Zed",
+      "selected": false
+    }
+  ],
+  "editorShow": true,
+  "editorUnavailable": "",
+  "editorHint": ""
+}

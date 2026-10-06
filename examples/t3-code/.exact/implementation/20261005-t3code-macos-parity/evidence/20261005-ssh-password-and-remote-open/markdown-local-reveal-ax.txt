@@ -1,0 +1,24 @@
+Filtered native Finder accessibility capture, 2026-10-06.
+Window: local-project
+App: com.apple.finder
+Only the fixture file list is retained; sidebar and unrelated navigation omitted.
+
+outline list view
+					91 outline row Name Date Modified Size Kind
+						92 cell Name Date Modified Size Kind
+							93 text Name
+							94 image go up
+							95 text Date Modified
+							96 text Size
+							97 text Kind
+					98 outline row (selected) Today at 7:05 PM 88 bytes Markdown Document
+						99 cell (selected)
+							100 image
+							101 text field (selected, settable), Value: README.md, Secondary Actions: open
+						102 cell (selected) Today at 7:05 PM
+							103 text Today at 7:05 PM
+						104 cell (selected) 88 bytes
+							105 text 88 bytes
+						106 cell (selected) Markdown Document
+							107 text Markdown Document
+			108 text 1 of 1 selected, 1.06 TB available

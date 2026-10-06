@@ -18,6 +18,7 @@ import { providerPage, providerWizard, acpRegistry, providerFieldValues } from '
 import { connectionsPage } from './connections';
 import { iconPicker } from './settings-b-icons';
 import { sshHostsView } from './settings-b-ssh';
+import { sshPromptSource, sshPromptAnswer } from './ssh-auth'; // the SSH password dialog
 import { pairingFields } from './r10-connect-pairing'; // lane r10-connect
 import { pagesHome } from './pages-home';
 import { usagePage, usageKeys, plotWidth } from './pages-usage';
@@ -74,6 +75,8 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'prList' || source === 'prDetail' || source === 'welcome') return pagesSource(client, native, source, args);
   if (source === 'connectionsPage') return connectionsPage(client, native, args[0] === true);
   if (source === 'pairingFields') return pairingFields(String(args[0] ?? '')); // lane r10-connect (r10-connect-pairing.ts)
+  if (source === 'sshPrompt') return sshPromptSource(native, Number(args[0]) || 0); // ssh-auth.ts: the password dialog's queue
+  if (source === 'sshPromptAnswer') return sshPromptAnswer(native, String(args[0] || ''), String(args[1] || ''));
   if (source === 'settingsBSshHosts') return sshHostsView(client, native, args[0] === true, String(args[1] ?? '')); // settings-b-ssh.ts
   if (source === 'settingsBPicker') return iconPicker(client, native, String(args[0] || ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), String(args[4] || ''), String(args[5] || ''), Number(args[6]) || 0); // settings-b-icons.ts
   if (source === 'providerPage') return providerPage(client, String(args[0] || ''), Number(args[3]) || 0);

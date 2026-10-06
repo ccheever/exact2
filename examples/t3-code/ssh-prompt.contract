@@ -1,0 +1,59 @@
+// SshPasswordPromptDialog (MIT reference, see LICENSE-T3: apps/web/src/components/desktop/
+// SshPasswordPromptDialog.tsx, ui/dialog.tsx, at 1e2ecbd975): one queued request at a time,
+// over every page. Title, the target in a code span, the request's prompt with its m:ss
+// countdown (destructive "Expired"), the password field, the keys hint (the error text
+// replaces it), Cancel (Dismiss once expired) and Continue. Enter submits; Escape and an
+// outside press cancel. No close button, no motion. The field is the module's secure
+// `t3-ssh-password` (T3SshAuth.swift; X35, upstream #134): Continue asks the module to read
+// it, so the password is never Contract state.
+shape SshPromptView
+  open: bool
+  requestId: string
+  target: string
+  prompt: string
+  remaining: string
+  expired: bool
+  error: string
+  hint: string
+  queued: number
+
+shape SshPromptAnswer
+  ok: bool
+  error: string
+
+component SshPasswordPrompt
+  props
+    prompt: SshPromptView
+    responding: bool
+    // answer(kind): "submit", "cancel" or "dismiss" for the shown request.
+    answer: action
+  action fieldKey(name: string)
+    if name == "Escape"
+      answer(prompt.expired ? "dismiss" : "cancel")
+  view
+    when prompt.open
+      box position="absolute" left=0 top=0 right=0 bottom=0 z-index=90 testId="ssh-password-layer"
+        // The backdrop: an outside press or Escape cancels (Dialog onOpenChange(false)).
+        button press=answer(prompt.expired ? "dismiss" : "cancel") disabled=responding aria-label="Cancel SSH password prompt" testId="ssh-password-backdrop" tabindex=-1 position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000052"
+        column position="absolute" left=0 top=0 right=0 bottom=0 align-items="center" justify-content="center" padding=16 box-sizing="border-box" inert=false
+          column width="100%" max-width=448 box-sizing="border-box" border-radius=16 border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-modal=true aria-label="SSH Password Required" testId="ssh-password-dialog"
+            column padding=24 padding-bottom=4 gap=8
+              text "SSH Password Required" font-size=20 line-height="20px" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 testId="ssh-password-title"
+              text font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" testId="ssh-password-description"
+                text "T3 needs your SSH password to connect to "
+                text prompt.target font-family="ui-monospace" font-size=13 color="light-dark(#27272a, #f5f5f5)"
+                text ". The password is passed to the local SSH process for this connection attempt and is not saved by T3 Code."
+            column padding-left=24 padding-right=24 padding-top=16 padding-bottom=24 gap=12
+              column gap=8
+                row gap=12 align-items="center" justify-content="space-between"
+                  text prompt.prompt flex=1 min-width=0 font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" testId="ssh-password-prompt"
+                  when prompt.remaining != ""
+                    text prompt.remaining flex-shrink=0 font-size=12 line-height="16px" font-weight=(prompt.expired ? 500 : 400) color=(prompt.expired ? "light-dark(#e7000b, #ff6467)" : "light-dark(#71717b, #818181)") testId="ssh-password-countdown"
+                row height=36 padding-left=12 padding-right=12 box-sizing="border-box" align-items="center" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff1a)" background-color="light-dark(#ffffff, #ffffff08)" opacity=(responding or prompt.expired ? 0.64 : 1)
+                  t3-ssh-password request=prompt.requestId prompt=prompt.prompt locked=(responding or prompt.expired ? "true" : "false") submit=answer("submit") key=fieldKey aria-label=prompt.prompt testId="ssh-password-field" flex=1 min-width=0 height=20
+              text prompt.hint font-size=14 line-height="20px" color=(prompt.error != "" ? "light-dark(#e7000b, #ff6467)" : "light-dark(#71717b, #818181)") role=(prompt.error != "" ? "alert" : "note") testId=(prompt.error != "" ? "ssh-password-error" : "ssh-password-hint")
+            row padding-left=24 padding-right=24 padding-top=16 padding-bottom=16 gap=8 justify-content="flex-end" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7a6, #ffffff10)" background-color="light-dark(#f4f4f580, #ffffff05)"
+              button press=answer(prompt.expired ? "dismiss" : "cancel") disabled=responding testId="ssh-password-cancel" aria-keyshortcuts="Escape" height=36 padding-left=14 padding-right=14 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff1a)" background-color="light-dark(#ffffff, #ffffff08)" display="flex" align-items="center" justify-content="center"
+                text (prompt.expired ? "Dismiss" : "Cancel") font-size=14 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+              button press=answer("submit") disabled=(responding or prompt.expired) testId="ssh-password-continue" height=36 padding-left=14 padding-right=14 box-sizing="border-box" border-radius=8 border-width=0 background-color="light-dark(#2451cc, #4475ed)" opacity=(responding or prompt.expired ? 0.64 : 1) display="flex" align-items="center" justify-content="center"
+                text "Continue" font-size=14 font-weight=500 color="#ffffff"

@@ -1,0 +1,5 @@
+{
+  "first": "SSH Password Required\n\nT3 needs your SSH password to connect to tester@oracle-first. The password is passed to the local SSH process for this connection attempt and is not saved by T3 Code.\n\nEnter the SSH password for tester@oracle-first.\n\n2:44\n\nUse SSH keys to avoid repeated password prompts on new SSH sessions.\n\nCancel\nContinue",
+  "second": "SSH Password Required\n\nT3 needs your SSH password to connect to tester@oracle-second. The password is passed to the local SSH process for this connection attempt and is not saved by T3 Code.\n\nEnter the SSH password for tester@oracle-second.\n\n3:00\n\nUse SSH keys to avoid repeated password prompts on new SSH sessions.\n\nCancel\nContinue",
+  "remainingDialogs": 1
+}

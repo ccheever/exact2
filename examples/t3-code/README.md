@@ -371,6 +371,9 @@ Mermaid build into an offscreen web view). The live transport tests skip unless
 for the reconnect policy, stream retries and outdated-host updates. The SSH tests read
 a temporary home, never `~/.ssh`; the live tunnel test skips unless `T3_SSH_COMMAND`
 names an ssh test double, and agent runs of the app read hosts only from `T3_SSH_HOME`.
+`macos/tests/ssh/fake-ssh.sh` is that double (its header lists the variables): the password
+prompt tests run against it always, the live test when `T3_SSH_COMMAND` names it and
+`FAKE_SSH_REMOTE_HOME` holds a running server's `.t3/userdata/server-runtime.json`.
 `T3_MENUS_EVIDENCE` set to a directory also renders the quit pill in both appearances.
 **Check for Updates...** (under About and in Help) reads the bundle's receipt: a build
 without an update store (`deploy.store` is `"0"`) shows the reference's "Automatic

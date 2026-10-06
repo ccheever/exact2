@@ -1,0 +1,89 @@
+App=com.exact.t3code.ssh157 (pid 88748)
+Window: "T3 Code (Exact)", App: T3 Code (Exact).
+
+0 standard window T3 Code (Exact)
+	1 scroll area, Secondary Actions: scroll up, scroll down
+		2 button Toggle sidebar
+		3 button Go to threads
+		4 text Search
+		5 text field (settable) Search threads
+		6 button Filter threads by project
+		7 button Add project
+		8 button New thread
+		9 scroll area, Secondary Actions: scroll up, scroll down
+			10 button Unavailable route acceptance, ccheever/exact2
+			11 button Local route acceptance, ccheever/exact2
+			12 button Toggle Settled
+		13 button Settings
+		14 button Pull Requests
+		15 button Usage
+		16 button New thread in Unavailable route fixture
+		17 text /
+		18 button Thread actions for Unavailable route acceptance
+		19 button (expanded) Toggle thread details panel
+		20 button (disabled) Toggle terminal drawer
+		21 button Toggle right panel
+		22 scroll area, Secondary Actions: scroll up, scroll down
+			23 text entry area (settable) Message
+			24 scroll bar (disabled) 0
+		25 button Choose provider and model
+		26 button Runtime mode
+		27 button Attach files
+		28 button (disabled) Submit message
+		29 scroll area, Secondary Actions: scroll up, scroll down
+			30 text Daehyeon’s MacBook Pro
+			31 text route-unavailable-project
+			32 button (disabled) Open in VS Code
+			33 button (expanded) Choose editor
+			34 button Add project script
+			35 button Branch: Select ref
+			36 container Git actions
+				37 button Git action options
+				38 button (disabled) Commit
+			39 button Changes +2924 -89
+			40 button Close editor menu
+			41 button (disabled) No SSH route to Daehyeon’s MacBook Pro
+			42 scroll bar 0
+				43 value indicator 0
+				44 increment arrow button
+				45 decrement arrow button
+				46 increment page button
+				47 decrement page button
+			48 scroll bar 0
+				49 value indicator 0
+				50 increment arrow button
+				51 decrement arrow button
+				52 increment page button
+				53 decrement page button
+		54 button Settings
+		55 button Command Palette
+		56 button Go to File
+		57 button Search Project Contents
+		58 button Change Theme
+		59 button Open Usage
+		60 button Toggle Theme Editor
+		61 button New Thread
+		62 button New Thread
+		63 button New Local Thread
+		64 button Appearance: Dark
+		65 button Previous Thread
+		66 button Next Thread
+		67 button Thread 1
+		68 button Thread 2
+		69 button Back
+		70 button Settle Thread
+		71 button Pin Thread
+		72 button Open in Editor
+		73 button Toggle Right Panel
+		74 button Toggle Diff
+		75 button Copy Thread ID
+		76 heading Some requests are slow
+		77 button Show requests
+		78 button Dismiss notification
+		79 button Terminal harness
+	80 toolbar
+	81 close button
+	82 full screen button, Secondary Actions: zoom the window
+	83 minimize button
+
+The focused UI element is 33 button (expanded) Choose editor.

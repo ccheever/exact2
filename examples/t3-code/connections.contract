@@ -408,7 +408,7 @@ component AddEnvironmentDialog
             when error != "" or sshHosts.error != ""
               row width="100%" box-sizing="border-box" gap=8 padding-top=10 padding-bottom=10 padding-left=12 padding-right=12 border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#fb2c3633, #ff646733)" background-color="light-dark(#fb2c360d, #ff64670d)" role="alert" testId="ssh-error"
                 text (error != "" ? error : sshHosts.error) font-size=14 line-height="20px" flex=1 min-width=0 color="light-dark(#c10007, #ff6467)"
-            button press=ssh("environment-ssh-add", sshHost, sshPayload) class=PvOutline width="100%" height=32 padding-left=11 padding-right=11 disabled=(busy or not available) testId="ssh-connect"
+            button press=ssh("environment-ssh-add", sshHost, sshPayload) class=PvOutline width="100%" height=32 padding-left=11 padding-right=11 disabled=(busy or not available) id="ssh-connect" testId="ssh-connect"
               PvIcon(name="plus", size=14, color="light-dark(#27272a, #f5f5f5)")
               text (busy ? "Adding…" : adding) font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
         // AutocompletePopup, laid over the fields as a direct child of the dialog so it takes hits.

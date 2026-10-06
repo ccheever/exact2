@@ -9,7 +9,13 @@
 //
 // Agent runs never read the real ~/.ssh or reach a real host: discovery reads
 // only T3_SSH_HOME and connecting requires the T3_SSH_COMMAND test double.
+//
+// Password hosts (tunnel.ts runWithSshAuthAttempt, at 1e2ecbd975): each run starts with
+// BatchMode=yes; a refused key asks for a password (T3SshAuth.swift, two prompts at most)
+// and the run is repeated with the askpass helper. The password is kept in memory for the
+// target's later runs and dropped when it fails.
 import Foundation
+import AppKit
 import CryptoKit
 import Darwin
 
@@ -21,12 +27,24 @@ final class T3Ssh: @unchecked Sendable {
     private var tunnels: [String: Process] = [:]
     private var memoryTargets: [String: [String: Any]] = [:]
     private var alive = true
+    let prompts: T3SshPrompts
+    private var secrets: [String: String] = [:] // authSecrets: by connection key, memory only
+    private var askpass: String?
+    private var terminationObserver: NSObjectProtocol?
     private let targetsKey = "t3.ssh.targets"
     static let defaultRemotePort = 3773
     static let readyTimeout: TimeInterval = 20
 
-    init(agent: Bool) {
+    /// `promptsAvailable`: a window can show the password dialog (the module); the AppKit tests have none.
+    init(agent: Bool, promptsAvailable: Bool = false, changed: @escaping (String) -> Void = { _ in }) {
         self.agent = agent
+        let timeout = agent ? (ProcessInfo.processInfo.environment["T3_SSH_PROMPT_TIMEOUT_MS"].flatMap(Double.init).map { $0 / 1000 } ?? T3SshPrompts.defaultTimeout) : T3SshPrompts.defaultTimeout // agent-only expiry seam
+        prompts = T3SshPrompts(available: promptsAvailable, timeout: timeout, changed: { changed("t3.ssh-prompt") })
+        // ExactMac can terminate before its deferred window teardown runs. Keep
+        // this app's SSH children owned through normal app termination as well.
+        terminationObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.destroy()
+        }
         // A saved SSH environment's transport retries its loopback origin; reopening the
         // tunnel in the background lets that retry land (DesktopSshEnvironment reconnect).
         if !agent { queue.async { [weak self] in self?.reopenSaved() } }
@@ -56,6 +74,11 @@ final class T3Ssh: @unchecked Sendable {
                     completion(Self.success(try resolve(alias: request["alias"] as? String ?? "")))
                 case "sshConnect":
                     completion(Self.success(try connect(Self.target(request), pair: request["pair"] as? Bool ?? true)))
+                case "sshPromptState":
+                    completion(Self.success(prompts.state()))
+                case "sshPromptResolve":
+                    let result = prompts.resolve(id: request["requestId"] as? String ?? "", answer: request["answer"] as? String ?? "cancel")
+                    completion(result.ok ? Self.success(["resolved": true]) : Self.failure(T3Failure(kind: "Prompt", message: result.message)))
                 case "sshForget":
                     forget(origin: request["origin"] as? String ?? "")
                     completion(Self.success(["forgotten": true]))
@@ -67,8 +90,57 @@ final class T3Ssh: @unchecked Sendable {
     }
 
     func destroy() {
-        lock.lock(); alive = false; let all = Array(tunnels.values); tunnels.removeAll(); lock.unlock()
+        if let observer = terminationObserver { NotificationCenter.default.removeObserver(observer); terminationObserver = nil }
+        prompts.closeAll(windowClosed: true) // "SSH authentication was cancelled because the app window closed."
+        lock.lock(); alive = false; let all = Array(tunnels.values); tunnels.removeAll(); secrets.removeAll(); let helper = askpass; askpass = nil; lock.unlock()
         for process in all where process.isRunning { process.terminate() }
+        if let helper { try? FileManager.default.removeItem(atPath: ((helper as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent) }
+    }
+
+    // MARK: Authentication (tunnel.ts runWithSshAuthAttempt / handleSshAuthFailure / promptForPassword)
+
+    struct Auth { let batch: Bool; let environment: [String: String]? }
+
+    private func askpassHelper() throws -> String {
+        lock.lock(); defer { lock.unlock() }
+        if let askpass { return askpass }
+        do { let path = try T3SshAuth.makeAskpassHelper(); askpass = path; return path }
+        catch { throw T3Failure(kind: "Ssh", message: "Failed to prepare SSH authentication helpers.") }
+    }
+
+    /// The options for one attempt: no secret yet runs with BatchMode=yes while a dialog can ask
+    /// (interactive askpass without a secret otherwise); a secret runs interactively through the helper.
+    func authOptions(secret: String?) throws -> Auth {
+        if secret == nil && prompts.available { return Auth(batch: true, environment: nil) }
+        return Auth(batch: false, environment: T3SshAuth.childEnvironment(base: environment, interactive: true, askpass: try askpassHelper(), secret: secret))
+    }
+
+    /// runWithSshAuth: the operation, asked again with a password after an authentication failure.
+    func withAuth<T>(_ target: Target, _ operation: (Auth) throws -> T) throws -> T {
+        let key = Self.connectionKey(target)
+        lock.lock(); var secret = secrets[key]; lock.unlock()
+        var promptCount = 0
+        while true {
+            do { return try operation(try authOptions(secret: secret)) }
+            catch {
+                let message = (error as? T3Failure)?.message ?? error.localizedDescription
+                guard T3SshAuth.isAuthFailure(message), prompts.available else { throw error }
+                if secret != nil { lock.lock(); secrets.removeValue(forKey: key); lock.unlock() }
+                if promptCount >= 2 { throw error }
+                promptCount += 1
+                let password = try promptForPassword(target, attempt: promptCount)
+                lock.lock(); secrets[key] = password; lock.unlock()
+                secret = password
+            }
+        }
+    }
+
+    private func promptForPassword(_ target: Target, attempt: Int) throws -> String {
+        let hostSpec = Self.hostSpec(target)
+        let destination = target.alias.isEmpty ? target.hostname : target.alias
+        let outcome = prompts.request(destination: destination, username: target.username, prompt: "Enter the SSH password for \(hostSpec).", attempt: attempt)
+        if case .password(let password) = outcome { return password }
+        throw T3Failure(kind: "Ssh", message: T3SshPrompts.message(outcome, destination: destination))
     }
 
     // MARK: Discovery (@t3tools/ssh config.ts discoverSshHosts)
@@ -195,8 +267,8 @@ final class T3Ssh: @unchecked Sendable {
     static func connectionKey(_ target: Target) -> String { "\(target.alias)\u{0}\(target.hostname)\u{0}\(target.username ?? "")\u{0}\(target.port.map(String.init) ?? "")" }
     static func stateKey(_ target: Target) -> String { String(SHA256.hash(data: Data(connectionKey(target).utf8)).map { String(format: "%02x", $0) }.joined().prefix(16)) }
     static func hostSpec(_ target: Target) -> String { target.username.map { "\($0)@\(target.alias)" } ?? target.alias }
-    private func baseArgs(_ target: Target) -> [String] {
-        configArgs() + ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"] + (target.port.map { ["-p", String($0)] } ?? [])
+    private func baseArgs(_ target: Target, _ auth: Auth) -> [String] {
+        configArgs() + ["-o", "BatchMode=\(auth.batch ? "yes" : "no")", "-o", "ConnectTimeout=10"] + (target.port.map { ["-p", String($0)] } ?? [])
     }
     /// A stable loopback port per target, so the saved origin survives relaunches.
     static func preferredPort(_ target: Target) -> Int {
@@ -214,22 +286,22 @@ final class T3Ssh: @unchecked Sendable {
             origin = "http://127.0.0.1:\(port)"
         } else {
             existing?.terminate()
-            remote = try launchRemote(command, target)
+            remote = try withAuth(target) { try launchRemote(command, target, $0) }
             var local = Self.preferredPort(target)
             for _ in 0..<64 where !Self.portFree(local) { local = 41_000 + (local - 41_000 + 1) % 8_000 }
-            let process = try openTunnel(command, target, local: local, remote: remote.port)
+            let process = try withAuth(target) { try openTunnel(command, target, local: local, remote: remote.port, $0) }
             lock.lock(); tunnels[key] = process; let stillAlive = alive; lock.unlock()
             if !stillAlive { process.terminate(); throw T3Failure(kind: "Closed", message: "The window was closed.") }
             origin = "http://127.0.0.1:\(local)"
         }
         remember(origin: origin, target: target)
         var value: [String: Any] = ["origin": origin, "alias": target.alias, "remotePort": remote.port, "serverKind": remote.kind]
-        value["credential"] = pair ? try issuePairingToken(command, target) : ""
+        value["credential"] = pair ? try withAuth(target) { try issuePairingToken(command, target, $0) } : ""
         return value
     }
 
-    private func launchRemote(_ command: String, _ target: Target) throws -> (port: Int, kind: String) {
-        let result = try run(command, baseArgs(target) + [Self.hostSpec(target), "sh", "-l", "-s", "--", Self.stateKey(target)], stdin: Self.launchScript, timeout: 60)
+    private func launchRemote(_ command: String, _ target: Target, _ auth: Auth) throws -> (port: Int, kind: String) {
+        let result = try run(command, baseArgs(target, auth) + [Self.hostSpec(target), "sh", "-l", "-s", "--", Self.stateKey(target)], stdin: Self.launchScript, timeout: 60, environment: auth.environment)
         guard result.status == 0 else { throw T3Failure(kind: "Ssh", message: Self.sshError(result.stderr, fallback: "SSH could not start T3 Code on \(target.alias).")) }
         guard let json = Self.jsonObject(result.stdout), let port = json["remotePort"] as? Int, (1...65_535).contains(port) else {
             throw T3Failure(kind: "Ssh", message: "SSH launch did not return a remote port.")
@@ -237,10 +309,11 @@ final class T3Ssh: @unchecked Sendable {
         return (port, json["serverKind"] as? String ?? "managed")
     }
 
-    private func openTunnel(_ command: String, _ target: Target, local: Int, remote: Int) throws -> Process {
+    private func openTunnel(_ command: String, _ target: Target, local: Int, remote: Int, _ auth: Auth) throws -> Process {
         let process = Process(), errors = Pipe()
         process.executableURL = URL(fileURLWithPath: command)
-        process.arguments = baseArgs(target) + ["-o", "ExitOnForwardFailure=yes", "-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ControlPersist=no",
+        if let environment = auth.environment { process.environment = environment }
+        process.arguments = baseArgs(target, auth) + ["-o", "ExitOnForwardFailure=yes", "-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ControlPersist=no",
                                                 "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-n", "-N", "-L", "\(local):127.0.0.1:\(remote)", Self.hostSpec(target)]
         process.standardInput = FileHandle.nullDevice; process.standardOutput = FileHandle.nullDevice; process.standardError = errors
         try process.run()
@@ -257,8 +330,8 @@ final class T3Ssh: @unchecked Sendable {
         throw T3Failure(kind: "Ssh", message: "The T3 server on \(target.alias) did not answer through the SSH tunnel.")
     }
 
-    private func issuePairingToken(_ command: String, _ target: Target) throws -> String {
-        let result = try run(command, baseArgs(target) + [Self.hostSpec(target), "sh", "-l", "-s"], stdin: Self.pairingScript, timeout: 60) // login shell: t3 on the remote PATH
+    private func issuePairingToken(_ command: String, _ target: Target, _ auth: Auth) throws -> String {
+        let result = try run(command, baseArgs(target, auth) + [Self.hostSpec(target), "sh", "-l", "-s"], stdin: Self.pairingScript, timeout: 60, environment: auth.environment) // login shell: t3 on the remote PATH
         guard result.status == 0 else { throw T3Failure(kind: "Ssh", message: Self.sshError(result.stderr, fallback: "SSH pairing failed on \(target.alias).")) }
         guard Self.lastLine(result.stdout) != nil else { throw T3Failure(kind: "Ssh", message: "SSH pairing did not return a credential.") }
         guard let json = Self.jsonObject(result.stdout) else { throw T3Failure(kind: "Ssh", message: "SSH pairing returned unparseable output.") }
@@ -307,9 +380,10 @@ final class T3Ssh: @unchecked Sendable {
 
     struct Output { let status: Int32; let stdout: String; let stderr: String }
 
-    private func run(_ command: String, _ arguments: [String], stdin: String?, timeout: TimeInterval) throws -> Output {
+    func run(_ command: String, _ arguments: [String], stdin: String?, timeout: TimeInterval, environment: [String: String]? = nil) throws -> Output {
         let process = Process(), output = Pipe(), errors = Pipe(), input = Pipe()
         process.executableURL = URL(fileURLWithPath: command)
+        if let environment { process.environment = environment }
         process.arguments = arguments
         process.standardOutput = output; process.standardError = errors
         process.standardInput = stdin == nil ? FileHandle.nullDevice : input
