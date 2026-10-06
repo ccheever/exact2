@@ -7,7 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
 import { autoShowDevices, EMPTY_DEVICE_STATE, resetLaunch, visibleMini } from './r12-threads-device';
-import { closeMiniDevice, floatMiniDevice, miniDeviceOf, r6DeviceMini } from './r6-media-device';
+import { closeMiniDevice, floatMiniDevice, miniDeviceOf, miniStoreOf, r6DeviceMini } from './r6-media-device';
 
 const iphone = { hostId: 'local', id: 'IPHONE', platform: 'ios', name: 'iPhone 18 Pro', version: 'iOS 26.0' };
 const pixel = { hostId: 'nucbox', id: 'emulator-5580', platform: 'android', name: 'Pixel', version: 'Android 16' };
@@ -33,11 +33,12 @@ describe('previewMiniPlayerStore (device sources)', () => {
     const client = thread('thread-A');
     floatMiniDevice(client, 'thread-A', { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: 'iPhone 18 Pro' });
     floatMiniDevice(client, 'thread-A', { hostId: 'nucbox', deviceId: 'emulator-5580', platform: 'android', name: 'Pixel' });
-    const floating = miniDeviceOf(client, 'thread-A');
-    expect(floating).toMatchObject({ deviceId: 'emulator-5580' });
+    const floating = miniStoreOf(client).get('thread-A');
+    expect(miniDeviceOf(client, 'thread-A')).toMatchObject({ deviceId: 'emulator-5580' });
     // The same device under a new label is still the same floating source.
     floatMiniDevice(client, 'thread-A', { hostId: 'nucbox', deviceId: 'emulator-5580', platform: 'android', name: 'Renamed' });
-    expect(miniDeviceOf(client, 'thread-A')).toBe(floating!);
+    expect(miniStoreOf(client).get('thread-A')).toBe(floating);
+    expect(miniDeviceOf(client, 'thread-A')).toMatchObject({ name: 'Pixel' });
   });
 });
 

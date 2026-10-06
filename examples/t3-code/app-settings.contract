@@ -38,6 +38,7 @@ use ConnectionsPanel from "./connections.contract"
 use ConnectionsPage from "./connections.contract"
 use AddEnvironmentDialog from "./connections.contract"
 use EnvironmentRemoveDialog from "./connections.contract"
+use RouteRemoveDialog from "./connections-routes.contract"
 use ProjectsPanel from "./settings-projects.contract"
 use ProjectsPage from "./settings-projects.contract"
 use ProjectActionDialog from "./settings-b-actions.contract"
@@ -148,6 +149,7 @@ component SettingsWindow
     connectionAskRemove: action
     connectionMenu: string
     connectionToggleMenu: action
+    openRoute: action
     providerPage: ProviderPage
     providerDialog: string
     providerUi: action
@@ -162,15 +164,15 @@ component SettingsWindow
     when settingsOpen
       row position="absolute" left=0 top=0 width="100%" height="100%" background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) inert=(connecting or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen) role="dialog" aria-label="Settings" testId="settings-dialog"
         when data.sidebarOpen
-          SettingsNav(nav=settingsNavigation, route=settingsRoute, query=settingsQuery, width=max(max(208, data.sidebarMinWidth), min(sidebarWidth, viewport.width / 5)), pal=settingsCore.palette, active=0, artwork=data.look.artwork, menuOpen=(settingsMenu != "" or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen), edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch, back=closeModal, toggle=toggleSidebar)
+          SettingsNav(controlsLeft=data.controlsLeft, nav=settingsNavigation, route=settingsRoute, query=settingsQuery, width=max(max(208, data.sidebarMinWidth), min(sidebarWidth, viewport.width / 5)), pal=settingsCore.palette, active=0, artwork=data.look.artwork, menuOpen=(settingsMenu != "" or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen), edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch, back=closeModal, toggle=toggleSidebar)
         column flex=1 min-width=0 height="100%" box-sizing="border-box"
-          SettingsTopBar(route=settingsRoute, crumb=settingsCore.breadcrumb, pal=settingsCore.palette, busy=commandPending, restorable=(settingsCore.restoreCount > 0), navOpen=data.sidebarOpen, toggle=toggleSidebar, restore=coreRestoreOpen)
+          SettingsTopBar(controlsLeft=data.controlsLeft, route=settingsRoute, crumb=settingsCore.breadcrumb, pal=settingsCore.palette, busy=commandPending, restorable=(settingsCore.restoreCount > 0), navOpen=data.sidebarOpen, toggle=toggleSidebar, restore=coreRestoreOpen)
           scroll flex=1 min-height=0 width="100%" padding-left=6 padding-right=6 box-sizing="border-box" id="settings-content-scroll" scrollTop=settingsScrollTop scroll-behavior="smooth" testId="settings-content-scroll"
             column gap=18 width="100%" max-width=(settingsRoute == "diagnostics" ? 1152 : (settingsRoute == "providers" or settingsRoute == "connections" ? 1024 : 896)) min-width=0 margin-left="auto" margin-right="auto" padding-left=24 padding-right=24 padding-top=24 padding-bottom=48 box-sizing="border-box" position="relative" id="settings-content-column"
               when settingsMenu != ""
                 button press=coreMenuClose position="absolute" left=0 top=0 width="100%" height="100%" z-index=40 background-color="#00000000" aria-label="Close menu" aria-keyshortcuts="Escape" testId="settings-menu-backdrop"
               when settingsCore.showScope or settingsRoute == "general" or settingsRoute == "appearance"
-                SettingsCoreBody(core=settingsCore, route=settingsRoute, busy=commandPending, menu=settingsMenu, legacyOpen=settingsLegacyOpen, toggleLegacy=coreLegacy, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate, choose=coreScope, dialog=coreThemeDialog)
+                SettingsCoreBody(reduced=viewport.prefersReducedMotion, core=settingsCore, route=settingsRoute, busy=commandPending, menu=settingsMenu, legacyOpen=settingsLegacyOpen, toggleLegacy=coreLegacy, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate, choose=coreScope, dialog=coreThemeDialog)
               when settingsRoute == "source-control"
                 SourceControlPanel(data=sourceControl, busy=commandPending, error=modalError, rest=rest, restInput=restInput, restLocal=restLocal)
               when settingsRoute == "integrations"
@@ -190,7 +192,7 @@ component SettingsWindow
               when settingsRoute == "diagnostics"
                 DiagnosticsPanel(data=diagnostics, busy=commandPending, selectPeriod=selectDiagnosticPeriod, reload=refreshSettings, copy=copyDiagnostic, rest=rest, local=restLocal)
               when settingsRoute == "connections"
-                ConnectionsPanel(page=connectionsPage, width=min(1024, viewport.width - (data.sidebarOpen ? max(208, min(sidebarWidth, viewport.width / 5)) : 0) - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu)
+                ConnectionsPanel(page=connectionsPage, width=min(1024, viewport.width - (data.sidebarOpen ? max(208, min(sidebarWidth, viewport.width / 5)) : 0) - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
               when settingsRoute == "providers"
                 ProvidersPanel(page=providerPage, width=min(1024, viewport.width - (data.sidebarOpen ? max(208, min(sidebarWidth, viewport.width / 5)) : 0) - 12) - 48, height=viewport.height, busy=commandPending, error=(providerDialog == "" ? modalError : ""), select=providerUi("select"), op=providerOp, accent=providerAccent, ui=providerUi)
               when settingsRoute == "projects"
@@ -276,11 +278,13 @@ component SettingsModals
     connectionRemove: string
     connectionsPage: ConnectionsPage
     connectionAskRemove: action
+    routeTarget: string
+    routeLabel: string
   view
     when snapshotSetupOpen
       SnapshotSetup(data=snapshotSettings, busy=commandPending, error=modalError, wasEnabled=snapshotSetupWasEnabled, close=showSnapshotSetup(false), toggle=toggleSnapshots, change=changeSnapshot, record=recordSnapshotShortcut, saveShortcut=saveSnapshotShortcut)
     when connecting
-      AddEnvironmentDialog(origin=origin, credential=credential, pairFields=pairFields, connected=data.connected, available=data.available, viewportHeight=viewport.height, busy=commandPending, error=modalError, sshHosts=sbSshHosts, sshHost=sbSshHost, editOrigin=editOrigin, editCredential=editCredential, submit=connectionOp("environment-add", origin, credential), set=sbSet, ssh=connectionOp, close=closeConnection)
+      AddEnvironmentDialog(origin=origin, credential=credential, pairFields=pairFields, connected=data.connected, available=data.available, viewportHeight=viewport.height, busy=commandPending, error=modalError, sshHosts=sbSshHosts, sshHost=sbSshHost, editOrigin=editOrigin, editCredential=editCredential, submit=connectionOp("environment-add", origin, credential), set=sbSet, ssh=connectionOp, close=closeConnection, routeTarget=routeTarget, routeLabel=routeLabel)
     when providerDialog == "add"
       each session in providerWizard.sessions key=session.key
         AddProviderDialog(wizard=providerWizard, acp=acpAgents, step=wizardStep, attempted=wizardAttempted, labelSet=wizardLabelSet, label=wizardLabel, idSet=wizardIdSet, id=wizardId, query=acpQuery, manual=wizardManual, viewportHeight=viewport.height, busy=commandPending, error=modalError, ui=providerUi, add=providerAdd, op=providerOp)
@@ -298,3 +302,7 @@ component SettingsModals
       each environment in connectionsPage.environments key=environment.key
         when environment.key == connectionRemove
           EnvironmentRemoveDialog(environment=environment, busy=commandPending, cancel=connectionAskRemove(""), confirm=connectionOp("environment-forget", environment.origin, environment.environmentId))
+        // Lane environment-routes: "Remove <label> route?" for one of its routes.
+        each route in environment.routes key=route.id
+          when route.target == connectionRemove
+            RouteRemoveDialog(route=route, busy=commandPending, cancel=connectionAskRemove(""), confirm=connectionOp("environment-route-remove", environment.key, route.id))

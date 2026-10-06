@@ -225,7 +225,7 @@ component PrUnavailable
       row flex-wrap="wrap" justify-content="center" gap=8 flex-shrink=0
         PrdOutline(icon="refresh-cw", label="Retry", press=reload, testId="pull-request-retry")
         when detail.githubUrl != ""
-          link href=detail.githubUrl testId="pull-request-open-github" height=28 padding-left=7 padding-right=9 box-sizing="border-box" gap=4 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
+          link cursor="pointer" href=detail.githubUrl testId="pull-request-open-github" height=28 padding-left=7 padding-right=9 box-sizing="border-box" gap=4 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
             PgIcon(name="external-link", size=14, color="light-dark(#71717b, #818181)")
             text "Open on GitHub" font-size=14 line-height="20px" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
 
@@ -272,7 +272,7 @@ component PrdHeader
       row height=28 width="100%" align-items="center" gap=4
         row min-width=0 flex=1 align-items="center" gap=4
           text detail.repository font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
-          link href=detail.url aria-label=`Open pull request ${detail.numberLabel} on host` testId="pull-request-open-host" display="flex" flex-direction="row" align-items="center" gap=2 flex-shrink=0
+          link cursor="pointer" href=detail.url aria-label=`Open pull request ${detail.numberLabel} on host` testId="pull-request-open-host" display="flex" flex-direction="row" align-items="center" gap=2 flex-shrink=0
             text detail.numberLabel font-size=12 line-height="16px" font-weight=500 color=prdTone(detail.state)
             PgIcon(name="external-link", size=10, color=prdTone(detail.state))
         PrdMore(detail=detail, scheme=scheme, reload=reload, act=act, copy=copy)
@@ -380,7 +380,7 @@ component PrdLinkItem
     href: string
     label: string
   view
-    link href=href role="menuitem" testId="pr-more-open-host" width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 display="flex" flex-direction="row" align-items="center"
+    link cursor="pointer" href=href role="menuitem" testId="pr-more-open-host" width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 display="flex" flex-direction="row" align-items="center"
       PgIcon(name="arrow-up-right", size=14, color="light-dark(#71717b, #818181)")
       text label font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 white-space="nowrap"
 

@@ -202,7 +202,7 @@ describe('remembered shelves (useLocalStorage t3code:sidebar:*-expanded)', () =>
     const saved = JSON.parse(JSON.stringify({ sidebar: { ...defaultSidebarPrefs(), settledExpanded: true, workingExpanded: true, scope: 'g2', visited: { a: '2026-10-04T10:00:00.000Z', b: 'nope' } } }));
     const local = {};
     adoptSidebarPrefs(local, saved);
-    expect(sidebarPrefs({ local } as unknown as T3Client)).toEqual({ settledExpanded: true, snoozedExpanded: false, workingExpanded: true, scope: 'g2', visited: { a: '2026-10-04T10:00:00.000Z' } });
+    expect(sidebarPrefs({ local } as unknown as T3Client)).toEqual({ settledExpanded: true, snoozedExpanded: false, workingExpanded: true, scope: 'g2', visited: { a: '2026-10-04T10:00:00.000Z' }, projectExpanded: {}, projectOrder: [] });
     const fresh = {};
     adoptSidebarPrefs(fresh, { sidebar: 'garbage' });
     expect(sidebarPrefs({ local: fresh } as unknown as T3Client)).toEqual(defaultSidebarPrefs());

@@ -8,21 +8,28 @@ import type { T3Client } from './client';
 export const SETTLED_TAIL_INITIAL_COUNT = 10;
 export const SETTLED_TAIL_PAGE_COUNT = 25;
 
-/** Shelf expansion (t3code:sidebar:*-expanded), project scope (sidebarProjectScopeKey) and local visits. */
+/**
+ * Shelf expansion (t3code:sidebar:*-expanded), project scope (sidebarProjectScopeKey) and local visits;
+ * legacy-sidebar: the persisted UI store's projectExpandedById and projectOrder (uiStateStore.ts).
+ */
 export interface SidebarPrefs {
   settledExpanded: boolean; snoozedExpanded: boolean; workingExpanded: boolean;
   scope: string; visited: Record<string, string>;
+  projectExpanded: Record<string, boolean>; projectOrder: string[];
 }
 export function defaultSidebarPrefs(): SidebarPrefs {
-  return { settledExpanded: false, snoozedExpanded: false, workingExpanded: false, scope: '', visited: {} };
+  return { settledExpanded: false, snoozedExpanded: false, workingExpanded: false, scope: '', visited: {}, projectExpanded: {}, projectOrder: [] };
 }
 export function decodeSidebarPrefs(value: unknown): SidebarPrefs {
   const saved = obj(value), visited: Record<string, string> = {};
   for (const [key, stamp] of Object.entries(obj(saved.visited)).slice(-500)) {
     if (typeof stamp === 'string' && Number.isFinite(Date.parse(stamp))) visited[key] = stamp;
   }
+  const projectExpanded: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(obj(saved.projectExpanded)).slice(-1000)) if (key && typeof value === 'boolean') projectExpanded[key] = value;
+  const projectOrder = [...new Set((Array.isArray(saved.projectOrder) ? saved.projectOrder : []).filter((key): key is string => typeof key === 'string' && key.length > 0))].slice(0, 1000);
   return { settledExpanded: saved.settledExpanded === true, snoozedExpanded: saved.snoozedExpanded === true,
-    workingExpanded: saved.workingExpanded === true, scope: str(saved.scope).slice(0, 2000), visited };
+    workingExpanded: saved.workingExpanded === true, scope: str(saved.scope).slice(0, 2000), visited, projectExpanded, projectOrder };
 }
 /** The client's preferences carry the sidebar block; older files decode to the defaults. */
 export function sidebarPrefs(client: T3Client): SidebarPrefs {

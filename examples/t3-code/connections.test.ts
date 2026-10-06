@@ -43,6 +43,15 @@ class FakeTransport implements Native {
   }
 }
 
+test('adding a route requests the standard scopes while checking the existing environment', async () => {
+  const native = new FakeTransport();
+  await runConnectionOp(native, 'environment-route-add', 'env-a https://route.example.com', 'ROUTECODE', false);
+  expect(native.calls.find(call => call.op === 'pairEnvironment')).toEqual({
+    op: 'pairEnvironment', origin: 'https://route.example.com', credential: 'ROUTECODE', expectedEnvironmentId: 'env-a',
+    scope: 'orchestration:read orchestration:operate terminal:operate review:write relay:read',
+  });
+});
+
 test('status copy follows savedBackendStatus and connectionStatusText', () => {
   expect(savedStatus(true, 'connected', '')).toEqual({ text: 'Connected', tone: 'muted' });
   expect(savedStatus(false, 'connected', '')).toEqual({ text: 'Off', tone: 'muted' });

@@ -33,7 +33,9 @@ import { prepareTimeline, refreshTimelineReads } from './timeline-prepare';
 import { paletteCommand } from './palette-commands';
 import { shellView } from './shell';
 import { shellDetails } from './shell-details';
+import { chatCanvasView } from './chat-canvas-view'; // floating-device-player
 import { sidebarLaunchWidth } from './r4-polish-sidebar-width';
+import { highlightSlice, startHighlightTurn } from './r12-render-highlight';
 
 export const appId = 'com.exact.t3code.macos';
 export const grants = '';
@@ -43,6 +45,8 @@ const client = new T3Client();
 // that the module is available, after its ordinary first-frame adoption.
 export async function answer(source: string, args: unknown[], _store: unknown, _storage: Files, native: Native | null | undefined) {
   const storage = native?.available ? nativeFiles(native) : _storage;
+  if (source === 'highlightSlice') return highlightSlice(); // shiki-residuals: a background highlight turn
+  startHighlightTurn(); // shiki-residuals: any other answer tokenizes code within one turn's budget
   if (source === 'snapshot') {
     noteNow(client, Number(args[0]) || 0);
     await client.refresh(native, storage);
@@ -79,12 +83,12 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'providerAdd') return client.command('provider-add', String(args[2] || ''), JSON.stringify({ driver: args[0], label: args[1], accentColor: args[3], fields: providerFieldValues(String(args[0] || ''), args.slice(4, 9).map(value => String(value ?? ''))) }), 0, native, storage);
   if (source === 'keybindingSettings') return keybindingSettings(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[3] || ''), String(args[4] || ''), String(args[5] || ''), String(args[6] || ''));
   if (source === 'saveKeybinding') return client.command('keybinding-save', String(args[0]), JSON.stringify({ previous: args[1], command: args[2], key: args[3], when: args[4] }), 0, native, storage);
-  if (source === 'scheduledSettings') return scheduledPage(client, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), args[4] === true, Number(args[5]) || 0);
+  if (source === 'scheduledSettings') return scheduledPage(client, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), args[4] === true, Number(args[5]) || 0, String(args[8] || ''), String(args[9] || ''), String(args[10] || '')); // live-automations: the scope's machine, project and checkout
   if (source === 'saveScheduledTask') return client.command('task-save', String(args[0]), JSON.stringify(taskFromArguments(args)), 0, native, storage);
   if (source === 'sourceControlPage') return sourceControlPage(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, viewState(client).rescan, viewState(client).reveal);
   if (source === 'keyboardDispatch') return keyboardDispatchSource(client, args);
   if (source === 'projectsView') { const legacy = String(args[2] || ''); const group = !args[0] && legacy ? client.projectGroups().find(candidate => candidate.members.some(member => member.id === legacy)) : undefined; return projectsView(client, group ? group.key : String(args[0] || ''), group ? legacy : String(args[1] || ''), args[3] === true, native); }
-  if (source === 'integrationsPage') return integrationsPage(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true);
+  if (source === 'integrationsPage') return integrationsPage(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[5] || ''), String(args[6] || ''), String(args[7] || ''));
   if (source === 'settingsNavigation') return settingsNavigation(String(args[0] || ''), searchContext(client.config, client.ready, String(args[1] || 'all')), Number(args[2]) || 0);
   if (source === 'settingsCore') return settingsCore(client, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), String(args[4] || ''), String(args[5] || ''), args[6] === true, String(args[9] || ''), String(args[10] || ''), String(args[11] || 'embedded'), args[12] === true);
   if (source === 'settings') {
@@ -102,6 +106,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'paletteCommand') return paletteCommand(client, native, storage, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''));
   if (source === 'shellDetails') return shellDetails(client, native, args[0] === true, String(args[1] || ''), args[3] === true, Number(args[4]) || 0, Number(args[5]) || 0); // args[3]: the card docks inline; args[4]: wall time; args[5]: the window right of the canvas (lane r6-pr)
   if (source === 'sidebarLaunchWidth') return sidebarLaunchWidth(client, Number(args[0]) || 0, !!native?.available); // r4-polish: the width fixed at load
+  if (source === 'chatCanvas') return chatCanvasView(client, native, { width: Number(args[1]) || 0, viewportHeight: Number(args[2]) || 0, detailsInline: args[3] === true, chatMax: Number(args[4]) || 0, overlaid: args[5] === true, gesture: String(args[6] || '') }); // floating-device-player: args[7..8] re-ask when the player changes
   if (source === 'shellView') return shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true);
   if (source === 'command') return client.command(String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), Number(args[3]) || 0, native, storage);
   throw new Error(`Unknown T3 source: ${source}`);

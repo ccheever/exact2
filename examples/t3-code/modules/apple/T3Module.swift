@@ -34,7 +34,8 @@ final class T3Module: ExactModule {
     private let r9: R9Input // lane r9-input: composer focus and composing text, the transcript's remembered position (R9Input.swift).
     private let r10: R10Connect // lane r10-connect: wake, select on open, chords by physical key, hover under a still pointer (R10Connect.swift).
     // Settings → Keybindings capture field (T3KeyRecorder.swift).
-    override class var views: [String: ExactNativeFactory] { ["t3-key-recorder": ExactNativeFactory { props, events in T3KeyRecorder(props: props, events: events) }] }
+    override class var views: [String: ExactNativeFactory] { ["t3-key-recorder": ExactNativeFactory { props, events in T3KeyRecorder(props: props, events: events) },
+                                                              "t3-terminal": T3TerminalView.factory] } // terminal-surface (T3TerminalView.swift)
 
     required init(context: ExactModuleContext) {
         let gate = T3ReadGate(changed: context.changed); self.gate = gate
@@ -64,6 +65,7 @@ final class T3Module: ExactModule {
         exportsRoot = context.agent ? T3Storage.dataRoot(agent: true, contextData: context.data).appendingPathComponent("exports", isDirectory: true) : nil
         super.init(context: context)
         composer.launcher = launcher
+        chrome.changed = gated // desktop-shell-details: full screen publishes t3.status (T3FullScreen.swift)
         if !context.agent { chrome.frame = R8WindowFrame() } // r8-pointer D14: the window keeps its frame across launches
         DispatchQueue.main.async { [sidebar] in sidebar.install() }
     }
@@ -75,7 +77,7 @@ final class T3Module: ExactModule {
     /// Each area's ops (T3Module+<Area>.swift), in turn: an area answers the ops it owns and
     /// calls `next` for the rest; what no area owns goes to the transport. No two areas share
     /// an op. A feature adds its area's method in its own file and one entry here.
-    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.timelineOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps, T3Module.composerOps, T3Module.windowOps]
+    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.timelineOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps, T3Module.composerOps, T3Module.windowOps, T3Module.shellOps]
     private func route(_ request: [String: Any], reply: ExactReply, from index: Int) {
         guard index < Self.areas.count else { return forward(request, reply: reply) }
         Self.areas[index](self)(request, reply) { self.route(request, reply: reply, from: index + 1) }
@@ -89,7 +91,7 @@ final class T3Module: ExactModule {
                 DispatchQueue.main.async {
                     var result = response
                     var value = result["value"] as? [String: Any] ?? [:]
-                    value["presentation"] = (self?.timeline.status ?? [:]).merging(self?.composer.status ?? [:]) { first, _ in first }.merging(self?.intent.status ?? [:]) { first, _ in first }.merging(self?.frames.status ?? [:]) { first, _ in first }.merging(self?.scrollEnds.status ?? [:]) { first, _ in first }.merging(self?.sidebar.status ?? [:]) { first, _ in first }.merging(self?.media.status ?? [:]) { first, _ in first }.merging(self?.devices.status ?? [:]) { first, _ in first }
+                    value["presentation"] = (self?.timeline.status ?? [:]).merging(self?.composer.status ?? [:]) { first, _ in first }.merging(self?.intent.status ?? [:]) { first, _ in first }.merging(self?.frames.status ?? [:]) { first, _ in first }.merging(self?.scrollEnds.status ?? [:]) { first, _ in first }.merging(self?.sidebar.status ?? [:]) { first, _ in first }.merging(self?.media.status ?? [:]) { first, _ in first }.merging(self?.devices.status ?? [:]) { first, _ in first }.merging(self?.chrome.status ?? [:]) { first, _ in first }.merging(T3Terminals.shared.status) { first, _ in first }
                     var turned: [String: Any] = value["presentation"] as? [String: Any] ?? [:]
                     let turnStatus: [String: Any] = self?.turns.status ?? [:]
                     for (key, entry) in turnStatus { turned[key] = entry }

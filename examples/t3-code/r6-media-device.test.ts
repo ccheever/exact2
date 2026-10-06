@@ -96,10 +96,10 @@ describe('the Device surface after onboarding (lane r6-media)', () => {
     expect(r6DeviceMini(c, state).show).toBe(false);
     expect(await r6DeviceLocal(c, native, state, 'p', 'float', '')).toBe('hide');
     const mini = r6DeviceMini(c, state);
-    // resolveDeviceMiniPlayerSourceSize before the first frame: a 9:19.5 phone inside 320 × 320.
-    expect([mini.show, mini.name, mini.description, mini.width, mini.height]).toEqual([true, 'iPhone 17 Pro', 'This Mac · iOS 26.0', 148, 320]);
+    // The player's frame is the chat canvas's (chat-canvas-view.test.ts); this is its source and stream.
+    expect([mini.show, mini.name, mini.description, mini.sourceKey]).toEqual([true, 'iPhone 17 Pro', 'This Mac · iOS 26.0', 'device:local:SIM-1']);
     (c.presentation as Obj).deviceStreams = { [KEY]: { status: 'streaming', inputConnected: true, width: 1206, height: 2622 } };
-    expect([r6DeviceMini(c, state).width, r6DeviceMini(c, state).stream.status]).toEqual([147, 'streaming']);
+    expect(r6DeviceMini(c, state).stream.status).toBe('streaming');
     expect(await r6DeviceLocal(c, native, state, 'p', 'mini-restore', '')).toBe('reopen');
     expect(r6DeviceMini(c, state).show).toBe(false);
     await r6DeviceLocal(c, native, state, 'p', 'float', '');

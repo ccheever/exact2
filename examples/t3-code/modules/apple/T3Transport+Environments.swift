@@ -28,12 +28,13 @@ extension T3Transport {
                 throw arguments("forgetEnvironment requires origin and environmentId.")
             }
             let saved = try T3Endpoint.origin(raw)
-            try credentials.forget(origin: saved.absoluteString, environment: environment)
-            savedEnvironments.forget(origin: saved.absoluteString, environment: environment)
+            let gone = savedEnvironments.forget(origin: saved.absoluteString, environment: environment)
+            for owner in T3SavedEnvironments.credentialOrigins(gone) + [saved.absoluteString] { try credentials.forget(origin: owner, environment: environment) }
             let focusedId = descriptor["environmentId"] as? String ?? ""
-            let focused = origin == saved && (focusedId == environment || focusedId.isEmpty)
+            // One entry per environment: its focus may be any of its routes.
+            let focused = focusedId == environment || (focusedId.isEmpty && (origin == saved || routes.environmentId == environment))
             if focused {
-                wantsConnection = false; reconnect?.cancel(); reconnect = nil
+                wantsConnection = false; reconnect?.cancel(); reconnect = nil; routes.stop()
                 retire(T3Failure(kind: "Disconnected", message: "Disconnected from the server.", uncertain: true))
                 generation += 1; inbox.reset(); token = ""
                 setStatus("disconnected", "Disconnected.")
@@ -81,6 +82,11 @@ extension T3Transport {
         send("/.well-known/t3/environment", body: nil) { [self] descriptor in
             guard let environment = descriptor["environmentId"] as? String, !environment.isEmpty else {
                 return finish(completion, failure: T3Failure(kind: "Protocol", message: "The server did not identify its environment."))
+            }
+            // Adding a route to a saved machine: checked before the one-time code is spent (onboarding.ts).
+            if let expected = request["expectedEnvironmentId"] as? String, !expected.isEmpty, environment != expected {
+                let place = request["ssh"] as? Bool == true ? "host" : "address"
+                return finish(completion, failure: T3Failure(kind: "Pairing", message: "That \(place) reaches \(descriptor["label"] as? String ?? "another environment"), a different machine. Add it as its own environment instead."))
             }
             // The message names the direction (compatibility.ts); T3Fleet's fleetOutdatedPair saves an
             // outdated host that can update itself, so this one never exchanges the credential.

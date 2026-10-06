@@ -140,6 +140,8 @@ component HeroMenu
 // Empty state centred in the rest.
 component PagesLanding
   props
+    // desktop-shell-details: --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
+    controlsLeft: number
     home: PagesHome
     scheme: string
     sidebarOpen: bool
@@ -151,12 +153,15 @@ component PagesLanding
     openConnections: action
   view
     column position="absolute" left=0 top=0 right=0 bottom=0 background-color="light-dark(#fcfcfc, #0a0a0a)" testId=`landing-${home.landing}`
-      row height=52 flex-shrink=0 width="100%" padding-left=(sidebarOpen ? 20 : 130) padding-right=13 box-sizing="border-box" align-items="center" gap=8 position="relative" border-bottom-width=(home.landing == "no-environment" ? 1 : 0) border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)"
+      row height=52 flex-shrink=0 width="100%" padding-left=(sidebarOpen ? 20 : controlsLeft + 40) padding-right=13 box-sizing="border-box" align-items="center" gap=8 position="relative" border-bottom-width=(home.landing == "no-environment" or home.landing == "no-thread" ? 1 : 0) border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)"
         when not sidebarOpen
-          button press=toggleSidebar position="absolute" left=91 top=12 width=28 height=28 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar"
+          button press=toggleSidebar position="absolute" left=(controlsLeft + 1) top=12 width=28 height=28 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar"
             Icon(name="panel-left", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
         when home.landing == "no-environment"
           text "T3 Code" font-size=14 line-height="20px" font-weight=500 color="light-dark(#71717b99, #81818199)"
+        // composer-fidelity G15: NoActiveThreadState's desktop header.
+        when home.landing == "no-thread"
+          text "No active thread" font-size=12 line-height="16px" color="light-dark(#71717b80, #81818180)" testId="no-active-thread-header"
       column flex=1 min-height=0 width="100%" padding=48 box-sizing="border-box" align-items="center" justify-content="center"
         when home.landing == "no-projects"
           column width="100%" max-width=512 padding-left=32 padding-right=32 padding-top=48 padding-bottom=48 box-sizing="border-box" align-items="center"
@@ -166,6 +171,10 @@ component PagesLanding
               LandingButton(scheme=scheme, label="Add project", icon="plus", primary=true, busy=false, press=addProject, testId="landing-add-project")
               when home.scratchStart
                 LandingButton(scheme=scheme, label="Start without a project", icon="message-square-dashed", primary=false, busy=busy, press=command("pages:hero-scratch", "", "", 0), testId="landing-start-without-project")
+        when home.landing == "no-thread"
+          column width="100%" max-width=512 padding-left=32 padding-right=32 padding-top=48 padding-bottom=48 box-sizing="border-box" align-items="center" testId="no-active-thread"
+            text "Pick a thread to continue" font-size=20 line-height="28px" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1
+            text "Select an existing thread or create a new one to get started." margin-top=4 font-size=14 line-height="20px" text-align="center" color="light-dark(#71717b, #818181)"
         when home.landing == "start-error"
           column width="100%" max-width=448 align-items="center"
             text "Couldn’t start a new thread" font-size=20 line-height="28px" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1

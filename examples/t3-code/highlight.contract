@@ -1,0 +1,7 @@
+// shiki-residuals: the background highlighter turn's reply (r12-render-highlight.ts highlightSlice).
+// A long code text paints with the heuristic colours first; the root's highlightPump task runs
+// highlightSlice turns of at most 50 ms while data or shell reports highlightPending, and refreshes
+// both when a text's Shiki tokens are done.
+shape HighlightStep
+  finished: bool
+  pending: bool
