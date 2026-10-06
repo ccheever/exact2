@@ -324,12 +324,14 @@ pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
 /// 1069.001 D4: the props are strings on the wire, typed per control).
 /// `None` when nothing needs rewriting.
 pub(crate) fn range_attrs(
+    tag: &str,
     control: Option<&str>,
     attrs: &[contract_syntax::Attr],
 ) -> Option<Vec<contract_syntax::Attr>> {
     // A number field's bounds take numbers as a range's do (LLP 1102 §3.12). Its
     // `value` stays its text: the field edits text, and `1.` is on the way to `1.5`.
     let number = control.is_none()
+        && tag == "input"
         && attrs
             .iter()
             .any(|a| a.name == "type" && matches!(&a.value, Expr::Str(t, _) if t == "number"));

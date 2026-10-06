@@ -580,7 +580,7 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         first = false;
         quote(row.name(), &mut s);
         s.push_str(":{\"value\":");
-        row::row_json(node.computed(row), &mut s);
+        row::row_json(row, node.computed(row), &mut s);
         if own && dynamic(row) {
             s.push_str(",\"source\":\"dynamic\"}");
         } else if own {

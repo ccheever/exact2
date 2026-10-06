@@ -1268,16 +1268,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     )
     .unwrap();
     // `14px` on a row that reads a bare number as pixels (LLP 1102 §3.10).
-    writeln!(
-        w,
-        "        let pixels = crate::style::relative::pixels_text(id, value)?;"
-    )
-    .unwrap();
-    writeln!(
-        w,
-        "        let value = provisional.as_ref().or(pixels.as_ref()).unwrap_or(value);"
-    )
-    .unwrap();
+    w.push_str("        let pixels = crate::style::relative::pixels_text(id, value)?;\n        let value = provisional.as_ref().or(pixels.as_ref()).unwrap_or(value);\n");
     writeln!(w, "        match id {{").unwrap();
     // Rows that convert alike share one conversion, then store by row: the
     // conversion (and its refusal) is written once per codec, not per row.

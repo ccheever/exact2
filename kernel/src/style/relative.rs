@@ -173,7 +173,10 @@ pub(crate) fn pixels_text(
     let StyleValue::Text(text) = value else {
         return Ok(None);
     };
-    if matches!(id.codec(), StyleCodec::Dimension | StyleCodec::LineHeight) || !admits_relative(id)
+    // SVG's stroke lengths read a bare number as pixels too, and CSS takes `2px` there.
+    let stroke = matches!(id, StyleId::StrokeWidth | StyleId::StrokeDashoffset);
+    if matches!(id.codec(), StyleCodec::Dimension | StyleCodec::LineHeight)
+        || !(admits_relative(id) || stroke)
     {
         return Ok(None);
     }
@@ -184,7 +187,7 @@ pub(crate) fn pixels_text(
     let Some(n) = super::parse_pixel_length(t).filter(|_| px) else {
         return Ok(None);
     };
-    if n < 0.0 && nonnegative(id) {
+    if n < 0.0 && (nonnegative(id) || id == StyleId::StrokeWidth) {
         return Err(StyleValueError::WrongKind {
             style: id,
             expected: "a nonnegative length",
@@ -273,6 +276,16 @@ mod tests {
         s.set_dynamic(StyleId::LetterSpacing, &StyleValue::Text(" -0.5PX ".into()))
             .unwrap();
         assert_eq!(s.letter_spacing, -0.5);
+        // SVG's stroke lengths too; a stroke width is never negative.
+        s.set_dynamic(StyleId::StrokeWidth, &StyleValue::Text("2px".into()))
+            .unwrap();
+        assert_eq!(s.stroke_width, 2.0);
+        s.set_dynamic(StyleId::StrokeDashoffset, &StyleValue::Text("-3px".into()))
+            .unwrap();
+        assert_eq!(s.stroke_dashoffset, -3.0);
+        assert!(s
+            .set_dynamic(StyleId::StrokeWidth, &StyleValue::Text("-1px".into()))
+            .is_err());
         // CSS refuses a negative font size; a unitless text and a non-pixel row stay refused.
         for (row, text) in [
             (StyleId::FontSize, "-2px"),

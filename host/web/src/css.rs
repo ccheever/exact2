@@ -547,6 +547,12 @@ fn dashed(out: &mut String, name: &str) {
 /// A [`lowered`] row's CSS value, appended.
 fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
     match value {
+        // CSS's unbounded maximum is `none`; `max-width: auto` is no value (LLP 1102 §3.11).
+        RowValue::Dimension(Dimension::Auto)
+            if matches!(id, StyleId::MaxWidth | StyleId::MaxHeight) =>
+        {
+            out.push_str("none")
+        }
         RowValue::Dimension(d) => dimension(out, *d),
         RowValue::Color(c) => rgba_into(out, *c),
         // The browser resolves this one (LLP 1034 D2): handed the function

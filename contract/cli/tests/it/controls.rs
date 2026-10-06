@@ -470,6 +470,11 @@ fn a_number_fields_bounds_take_numbers_as_a_ranges_do() {
     r.dispatch(team, Event::Input("4.".into())).unwrap();
     let node = r.kernel().node(team).unwrap();
     assert_eq!(node.props.str(PropId::Value), Some("4."));
+    // Only an `input` is a number field: elsewhere a numeric `min` is no bound and stays refused.
+    for tag in ["textarea", "view"] {
+        let src = format!("component App\n  view\n    {tag} type=\"number\" min=2\n");
+        assert!(contract::compile(&src).is_err(), "{tag}");
+    }
 }
 
 const VOLUME: &str = r#"component App

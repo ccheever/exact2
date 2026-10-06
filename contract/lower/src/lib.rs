@@ -748,7 +748,7 @@ impl<'a> Lowerer<'a> {
                 }
                 controls::check_nesting(tag, parent_tag, *span)?;
                 self.check_menu_shapes(tag, expanded, children, *span)?;
-                let numeric = controls::range_attrs(control, expanded);
+                let numeric = controls::range_attrs(tag, control, expanded);
                 let expanded = numeric.as_deref().unwrap_or(expanded);
                 // @ref LLP 1084 D1, D3 — a grouped list's sheet, before its
                 // author's rows, and its sections' shape.

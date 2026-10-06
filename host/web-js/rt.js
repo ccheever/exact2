@@ -809,7 +809,9 @@ function css(e, prop, unit, v, rendered) {
   // The value this binding last wrote: the same again writes nothing (each
   // write was two style mutations, for every dynamic row of every row a
   // list update touched).
-  const last = e.$css ??= {}, t = v == null ? null : typeof v === "number" ? v + unit : String(v);
+  const last = e.$css ??= {};
+  let t = v == null ? null : typeof v === "number" ? v + unit : String(v);
+  if (t === "auto" && (prop === "max-width" || prop === "max-height")) t = "none"; // CSS's unbounded maximum (LLP 1102 §3.11)
   if (last[prop] === t) return;
   last[prop] = t;
   // An adopted node's inline style is the renderer's: a value it already
