@@ -124,8 +124,18 @@ export type AutoBalanceState = {
   fetch: string;
 };
 
+/**
+ * The load the root task is running, while it runs: its fetch key holds, so the task keeps its
+ * command (a changed key would let the command's answer go mid-move, X19: the load is a task's command).
+ */
+const loading = new WeakMap<T3Client, string>();
+
 /** ChatView's automatic-environment state for the focused draft, at `now`. */
 export function autoBalanceState(client: T3Client, now = composerNow(client), source: EnvironmentFleet = fleet): AutoBalanceState {
+  const state = currentState(client, now, source), held = loading.get(client);
+  return held ? { ...state, fetch: held } : state;
+}
+function currentState(client: T3Client, now: number, source: EnvironmentFleet): AutoBalanceState {
   const none: AutoBalanceState = { offered: false, automatic: false, needs: false, pending: false, failed: false, chosen: '', choice: null, candidates: [], logical: [], label: '', fetch: '' };
   if (client.threadId || !client.projectId || !client.ready) return none;
   const logical = machines(client, source);
@@ -186,7 +196,11 @@ const moving = new WeakMap<T3Client, Promise<void>>();
  */
 export async function loadHostResources(client: T3Client, native: Native, fetch: string, now: number, source: EnvironmentFleet = fleet): Promise<string> {
   const before = autoBalanceState(client, now, source);
-  if (!before.needs || !fetch || before.fetch !== fetch || moving.has(client)) return '';
+  if (!before.needs || !fetch || before.fetch !== fetch || loading.has(client) || moving.has(client)) return '';
+  loading.set(client, fetch);
+  try { return await loadAndResolve(client, native, before, now, source); } finally { loading.delete(client); }
+}
+async function loadAndResolve(client: T3Client, native: Native, before: AutoBalanceState, now: number, source: EnvironmentFleet): Promise<string> {
   const key = client.draftKey;
   await Promise.all(before.logical.filter(machine => before.candidates.includes(machine.id)).map(machine => {
     const entry = resources.get(machine.id);

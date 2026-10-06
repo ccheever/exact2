@@ -286,9 +286,12 @@ describe('Auto balance (ChatView automaticEnvironment, useLoadBalancedEnvironmen
     const gate = new Promise<void>(resolve => { release = resolve; });
     let connecting = false;
     hooks.connect = () => { connecting = true; return gate; };
-    const load = loadHostResources(client, native, autoBalanceState(client, NOW, source).fetch, NOW, source);
+    const fetch = autoBalanceState(client, NOW, source).fetch;
+    const load = loadHostResources(client, native, fetch, NOW, source);
     for (let turn = 0; turn < 100 && !connecting; turn++) await Promise.resolve();
     expect(connecting).toBe(true);
+    // The root task's key holds while its command moves the draft, so Exact keeps that command's answer.
+    expect(autoBalanceState(client, NOW, source).fetch).toBe(fetch);
     let sentFrom = '';
     const send = autoBalanceSend(client, native, async () => { sentFrom = client.environmentId; }, source);
     await Promise.resolve();
@@ -296,6 +299,7 @@ describe('Auto balance (ChatView automaticEnvironment, useLoadBalancedEnvironmen
     release();
     await Promise.all([load, send]);
     expect(sentFrom).toBe('c');
+    expect(autoBalanceState(client, NOW, source).fetch).toBe('');
   });
 
   test('a draft with no provider chosen yet balances over the requested driver (Codex)', () => {
