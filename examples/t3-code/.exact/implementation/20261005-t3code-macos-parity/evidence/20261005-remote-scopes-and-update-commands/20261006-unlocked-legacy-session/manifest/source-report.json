@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "status": "blocked",
+  "source": {
+    "digest": "04454aad63111ed5bcf7d6a6662270e2af511552",
+    "algorithm": "git-tree-sha1",
+    "commit": "60a28292df26bda45397934b6598e2f55d5a3053",
+    "implementation_unchanged_since_build": true
+  },
+  "platform": "macOS 26.6.2, arm64, normal native launch without EXACT_AGENT",
+  "passed": [
+    "Stored legacy-format three-scope bearer reconnects after unlock",
+    "Native composer submits prompt to reference server and local deterministic Codex mock returns LEGACY_SCOPE_OK",
+    "Normal app restart reconnects the same session ID and retains exactly the same three scopes",
+    "Thread prompt and response remain visible after restart"
+  ],
+  "blocked": [
+    "Normal-window keyboard traversal and Space/Enter activation: Orca cannot recognize a focused window, including with restore-window; awaiting manual focus",
+    "Reference desktop oracle and trace comparison: prerequisite unavailable"
+  ],
+  "not_claimed": [
+    "Original pre-PR executable used to create the credential (fixture uses old exchange scope and saved-store format)",
+    "Real external LLM invocation (local protocol mock used)",
+    "Automatic legacy-scope migration",
+    "All legacy-session features or full parity"
+  ]
+}

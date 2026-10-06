@@ -1,0 +1,7 @@
+boot — modules reachable before first pixel: 2 (host/web/glue.js, host/web/navigation.js); wasm references: 8
+  reachable JavaScript: 196700 B; page: 10026 B (diagnostic sizes, no byte budget)
+  interaction document: 1 host module (14937 B), no imports
+  served documents: 1 inline host script, host/web/capture.js (995 B of 1024; sha256 9f2f1e8ebbc83b2c2f928627384bceb66d94dc174a8a284360765cdf30d10a55, pinned)
+  host/web/glue.js: 116968 B; sha256 336bf444ba4d8eeac7a8933b4e8937f652376debe9c15624030742c7b92ec12e
+  host/web/navigation.js: 79732 B; sha256 69806bbb165f5cdf296bcf8959e360599d0b07880318d26527db05e747c094f5
+Allowed import paths only. This does not prove generic content, constant startup work, or absence of runtime-loaded code; metrics measures built artifacts and browser work.

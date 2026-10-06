@@ -170,7 +170,7 @@ final class TransportTests: XCTestCase {
                 let body = String(decoding: bytes, as: UTF8.self)
                 let fields = URLComponents(string: "http://fixture/?" + body)!.queryItems!
                 XCTAssertEqual(fields.first { $0.name == "subject_token" }?.value, pairing)
-                XCTAssertEqual(fields.first { $0.name == "scope" }?.value, "orchestration:read orchestration:operate review:write")
+                XCTAssertEqual(fields.first { $0.name == "scope" }?.value, "orchestration:read orchestration:operate terminal:operate review:write relay:read")
                 return (200, ["access_token": access, "token_type": "Bearer", "expires_in": 3600])
             case "/api/auth/websocket-ticket":
                 XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer " + access)
@@ -182,7 +182,7 @@ final class TransportTests: XCTestCase {
             }
         }
         let transport = makeTransport(); defer { transport.destroy() }
-        let response = call(transport, ["op": "connect", "origin": "http://127.0.0.1:4318", "credential": pairing])
+        let response = call(transport, ["op": "connect", "origin": "http://127.0.0.1:4318", "credential": pairing, "scope": "orchestration:read orchestration:operate terminal:operate review:write relay:read"])
         XCTAssertEqual(response["ok"] as? Bool, false)
         XCTAssertEqual((response["error"] as? [String: Any])?["kind"] as? String, "Authentication")
         let status = call(transport, ["op": "status"])
@@ -556,8 +556,9 @@ final class ForgetOriginTests: XCTestCase {
 }
 
 // R3TransportTests (r3.swift): reconnect policy, read gate, stream retries. ForgetOriginTests: F5, removal leaves no origin.
+// RemoteScopeTests (remote-scopes.swift): the exchange sends the scope TS names; a narrow link is refused.
 // RouteTests (routes.swift): one environment, several routes.
-let suites = [TransportTests.defaultTestSuite, R3TransportTests.defaultTestSuite, ForgetOriginTests.defaultTestSuite, RouteTests.defaultTestSuite]
+let suites = [TransportTests.defaultTestSuite, R3TransportTests.defaultTestSuite, ForgetOriginTests.defaultTestSuite, RemoteScopeTests.defaultTestSuite, RouteTests.defaultTestSuite]
 var executed = 0, failures = 0, succeeded = true
 for suite in suites {
     suite.run()

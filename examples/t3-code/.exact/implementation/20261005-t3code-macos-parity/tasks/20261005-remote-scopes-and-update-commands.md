@@ -1,14 +1,14 @@
 ---
 name: 20261005-remote-scopes-and-update-commands
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
+implementation: implemented
+verification: passed
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
-verified_commit: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-remote-scopes-and-update-commands
+pr_url: https://github.com/ccheever/exact2/pull/142
+verified_commit: 759779342dd34fa516bec36924923e6beeb4c23a
 ---
 
 # Remote pairing asks for the standard scopes; update commands match the install
@@ -69,12 +69,12 @@ Port changes for file headers: `Effect` services become plain functions; `useCop
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` | pending |
+| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | [#147](https://github.com/ccheever/exact2/pull/147) | Merged into integration branch | Confirmed merged; included in local merge `759779342` |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
-| recorded decision | U12 (sessions with three scopes) | none | Answered at `prepare` | pending |
-| conditional merged task PR | [20261005-environment-routes](20261005-environment-routes.md) | pending | Only if U12 chooses the re-pair notice | pending |
-| scheduling preference | Either order with `20261005-environment-routes` | none | Both edit `connections.ts` and the pairing code in `T3Transport.swift` | pending |
+| recorded decision | U12 (sessions with three scopes) | User answer 2026-10-06 | Existing sessions stay unchanged; new scopes require re-pairing | Confirmed by user after failure review |
+| conditional merged task PR | [20261005-environment-routes](20261005-environment-routes.md) | [#148](https://github.com/ccheever/exact2/pull/148) | Notice prerequisite not applicable to confirmed U12 | Merged independently; route scope propagation integrated and tested |
+| scheduling preference | Either order with `20261005-environment-routes` | #148 | Both edit pairing paths | Integrated; Add route and SSH route keep the standard scope request |
 
 `20261005-terminal-drawer` and `20261005-server-update-banner` depend on this ticket.
 
@@ -110,14 +110,88 @@ Required environment: Xcode 27.0, pinned Bun, reference oracle runtime, lane por
 
 ## Progress
 
-Planned.
+2026-10-06: implemented on `feat(example)/t3-code-remote-scopes-and-update-commands` (base `d78ac86ff`),
+in parallel with `20261005-hot-file-split` (user-authorized parallel wave; the merged-PR prerequisites
+remain pending, not satisfied). Reference `1e2ecbd975`.
+
+- Scopes: `remote-scopes.ts` holds `AUTH_STANDARD_CLIENT_SCOPES` (the five, reference order) and
+  `encodeOAuthScope`; `withStandardScope` adds `scope` to every request that carries a credential
+  (Add environment connected and not connected, `client.ts` connect, SSH pairing, outdated-host
+  pairing). `modules/apple/T3RemoteAuth.swift` builds the token-exchange form from the `scope` it is
+  given (omitted when absent, the embedded primary's case) and is used by `T3Transport.swift` (pairing
+  and connect exchange) and `T3Fleet.swift`. Swift names no scope.
+- Narrow link: the server answers HTTP 400 `{_tag: EnvironmentRequestInvalidError, reason:
+  scope_not_granted}` with no `message`; the clone now shows `mapRemoteEnvironmentError`'s text
+  "The environment rejected the authentication request." (was "The server returned HTTP 400.").
+  No retry with fewer scopes. The link is spent by the refusal (server behavior, confirmed live).
+  The text is read from the reference source, not from an oracle redemption (no oracle on this branch).
+- U12: confirmed by the user on 2026-10-06 after failure review: keep existing sessions
+  unchanged, with no notice; extra permissions arrive when the user pairs again.
+- Install-aware command: `server-installation.ts` ports `ServerInstallation`
+  (`ForwardCompatibleOptional`: unknown kind or npm-global without prefix decodes as absent),
+  `manualServerUpdateCommand`, the labels ("Copy update command" / "Copy relaunch command"), the
+  toasts, the failure toast ("Could not copy update command", ClipboardWriteError's text) and
+  `serverUpdateAriaLabel`. `connections.ts` uses them in the row and in `environment-update`; a
+  desktop-managed server without `desktopAppUpdate` shows "Update the desktop app on that machine
+  to update this server." in place of the button (`updateNote`, `connections.contract`).
+  `settings-b-outdated.ts` needed only the scope (its update paths are self-update only).
+- Exports for `20261005-server-update-banner`: `manualUpdateCopy`, `manualServerUpdateCommand`,
+  `serverUpdateActionLabel`, `serverUpdateAriaLabel`, `desktopManagedOnly`, `configInstallation`.
+- Shared-file edits (own commit `bebd6d4d4`): `client.ts` lines 57 (import) and 644 (connect spreads
+  `withStandardScope(target)`); `T3Transport.swift` line 47 (`exchangeScope`), 307 (set from the
+  request), 337 and 352 (pairing failure text and form), 400 (connect exchange form), 489–491 (HTTP
+  failure text).
+
+Live drive (macOS agent driver, drive lock held; isolated reference servers on 16140 "Lane box",
+web mode, and 16141 "Desk box", desktop mode; lane tool `target/t3-ui-parity/narrow-link.mjs`
+mints links through `POST /api/auth/pairing-token` with the server's desktop-bootstrap owner seed):
+
+```
+read-only link id: 3569dac3-…  (scopes ["orchestration:read"])   standard link id: a75cd7d6-… (five scopes)
+Text#1587 [connection-error] "The environment rejected the authentication request."
+Text#1568 [toast-title-2] "Could not add backend"
+links after: neither 3569dac3 nor a75cd7d6 is listed (both spent)
+clients: {"label":"standard-link","scopes":["orchestration:read","orchestration:operate","terminal:operate","review:write","relay:read"]}
+state: "update": "Copy relaunch command"  (Lane box: no serverSelfUpdate, no serverInstallation)
+state: "updateNote": "Update the desktop app on that machine to update this server."  (Desk box)
+Pressable#1742 [environment-update-8b7b…] label="Copy relaunch command for Lane box server"
+Text#1958 [environment-update-tip-…] "Copy relaunch command"
+Text#1968 [toast-title-6] "Relaunch command copied"
+Text#1969 [toast-description-6] "Stop t3 on Lane box server, then relaunch with `npx t3@0.0.46-nightly.20261004.1` using the same subcommand and options. This does not update an installed t3 command."
+pasteboard: npx t3@0.0.46-nightly.20261004.1   (the previous text pasteboard was restored)
+```
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (2026-10-06) | `bd18baeab` on base `d78ac86ff` | `bun test examples/t3-code` 1216 pass / 0 fail (base 1200; the four named reference tests pass, `ServerUpdateAction` table has 6 kinds); strict tsc clean; `contract build` 2158 slots, 42 resources, 48015 nodes; `cargo test -p t3-code-macos --lib` 10/0; AppKit `transport` 40 tests 0 failures (2 live skips), `fleet` 8/0, `ssh` 4 (1 skip); `git add -A && bun scripts/caps.mjs` pass; five checks pass (build, test 2927/0, clippy, fmt, caps, boot); `build.mjs t3-code-macos` bundle built | Live drive above; screenshots on `t3-code-evidence/remote-scopes-and-update-commands/` (01 refused Read only link, 02 relaunch tooltip and desktop sentence, 03 relaunch toast) | Not run: trace-diff T0 and oracle redemption (no oracle/trace tools on this branch, `20261005-desktop-oracle-and-trace` pending); light/dark and 840×620 pairs (no-pixel-loop rule); pasteboard failure forced live (unit test only); Tab/Space/Enter focus ring (attended); three-scope session launch from a pre-change fixture store (unit test of the projection only); npm-global / pnpm-dlx / bunx live (the reference server built from source reports no installation; unit tests cover all kinds) |
 
-## Next action
+## Verification close-out (2026-10-06)
 
-`prepare` after the three merged task PRs; ask U12 first. Close with clone checks green (bun test, strict tsc, contract build, `cargo test -p t3-code-macos --lib`, `transport` AppKit binary), `bun scripts/caps.mjs` after `git add -A`, the repository's five checks, and every moved matrix cell fixed or declared in `EXACT2-GAPS.md` with an issue link.
+The user authorized repair and the remaining verification, and explicitly confirmed U12:
+retain existing three-scope sessions without a notice. Implementation is locally complete and
+this ticket's acceptance is verified on `759779342dd34fa516bec36924923e6beeb4c23a`.
+
+[Repair and full trace report](../evidence/20261005-remote-scopes-and-update-commands/20261006-repair-and-trace/README.md):
+
+- Custom AppKit pressables expose their focus mask bounds and use an exterior ring. A screen-region
+  capture and an existing later window capture confirm the visible ring. The immediate post-input
+  image was insufficient evidence; the earlier screenshot-based failure conclusion was unreliable. Previous failed evidence is preserved, not overwritten.
+- Merged environment routes preserve all five scopes, including new Add route and SSH route paths.
+- Actual native and Electron T0 captures contain matching ordered scope requests/grants, successful
+  messages and approvals, and the assistant result. The full normalized comparison was executed.
+  It reports 176 differences with no blanket allow list; whole-stream equality is not claimed.
+  Differences include CORS, client identity, subscriptions/polling and trailing prompt whitespace.
+  The ticket's scope-exchange criterion passes; unrelated full-app parity remains separate.
+- TypeScript 1,829 pass/1 skip; root Rust 2,928 pass; app Rust 10 pass; final native button tests
+  4 pass; merged transport 47 tests/2 live skips/0 failures. Build, typecheck, lint, formatting,
+  caps and boot pass. Previously passing installation matrices and legacy-session evidence are reused.
+
+The two historical dependency records above still have no separate merged PR recorded. Direct
+runtime and trace evidence was produced for this user-authorized parallel implementation; this does
+not mark the broader clone-on-main or reusable-oracle tickets delivered. #147, #148 and #155 are
+confirmed merged into the integration base, now included locally.
+
+Fixture processes, Keychain accounts and preference domains are cleaned up. Repair commits and
+verification evidence are local; no remote push, PR update or merge was performed in this repair.

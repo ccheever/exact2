@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "status": "blocked",
+  "source": {
+    "digest": "04454aad63111ed5bcf7d6a6662270e2af511552",
+    "algorithm": "git-tree-sha1",
+    "commit": "60a28292df26bda45397934b6598e2f55d5a3053",
+    "working_tree_clean_at_capture": true
+  },
+  "platform": "macOS 26.6.2 (25G83), arm64",
+  "capture": "native agent drive plus separately launched saved-session fixture",
+  "assertions": [
+    "readonly link refused; no saved environment",
+    "standard session connected with exactly five scopes",
+    "manual command copied with relaunch toast",
+    "desktop-managed row has note and no update button"
+  ],
+  "limits": [
+    "Legacy normal-launch fixture blocks at SecItemCopyMatching; no successful reconnect or message send established.",
+    "Normal-window AX inspection returned permission_denied despite permissions reported granted.",
+    "Other installation kinds, clipboard failure, keyboard activation and oracle comparison not exercised live."
+  ]
+}
