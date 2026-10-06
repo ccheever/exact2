@@ -108,7 +108,7 @@ Checked sources and time: {{at prepare}}; draft records only.
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X7](../issues/20261005-x07-ats-keys.md) | ATS keys from `app.json`, so rendered HTML can load `http://` assets from host names | `EXACT2-GAPS.md` X7; r12-render finding | **blocking for the "Rendered HTML, http host" criterion only** (no workaround gives the reference result; the draft record says the same); nonblocking for every other criterion | Reproduce; keep the criterion in the plan as blocked until X7 is fixed or waived |
+| [X7](../issues/20261005-x07-ats-keys.md) | ATS keys from `app.json`, so rendered HTML can load `http://` assets from host names | `EXACT2-GAPS.md` X7; r12-render finding. Update 2026-10-07: fixed on main #173, adopted by adopt-main-fixes-shell (`app.json` `appTransportSecurity`). | **blocking for the "Rendered HTML, http host" criterion only** (no workaround gives the reference result; the draft record says the same); nonblocking for every other criterion | Reproduce; keep the criterion in the plan as blocked until X7 is fixed or waived |
 | [X26](../issues/20261005-x26-app-menu-control.md) | Menu at a given point (keyboard-opened menu) | X26 | nonblocking (workaround: native menu helper takes a rect) | none |
 | [X29](../issues/20261005-x29-video-pdf-app-files.md) | `video` from `app:/` files | X29 | nonblocking (workaround: AVPlayerView) | none |
 | [X30](../issues/20261005-x30-ts-announce-readback-picker.md) | Bytes, image transcode and save picker | X30 | nonblocking (workaround: native modules) | none |
@@ -146,7 +146,7 @@ Every row, attended or not, runs a lane build with `T3_LOCAL_HOME=<lane>/t3-home
 | Menu keyboard, Escape and motion | Any media | Menu key opens the menu at the element's corner; arrows and Enter pick; reopen and press Escape; set prefers-reduced-motion | Focus returns to the media after the menu closes; `aria-label` on every icon button (Retry, open link); toasts appear without movement under reduced motion | macOS | `tree --ax`; film (`over 300 every 30`) in both modes; `(attended session)` for real keys |
 | Tooltip and focus | Any media | Tab to it; hover (attended) | Focus ring and tooltip show path/URL/name; menu opening hides it | macOS | `tree --ax`; screenshot |
 | Rendered HTML | Local fixture server on 127.0.0.1:16xxx serving a page that loads an https asset, an http IP asset, a script and a fetch | Open the page in Files | Each case loads or is refused exactly as in the oracle; the stale README text is corrected | macOS | screenshots; oracle comparison; server request log |
-| Rendered HTML, http host | Page loading `http://<named host>/…` | Open | Loads as in the oracle | macOS | **blocked on X7**; record, do not claim |
+| Rendered HTML, http host | Page loading `http://<named host>/…` | Open | Loads as in the oracle | macOS | unblocked 2026-10-07: X7 fixed on main #173 and adopted (adopt-main-fixes-shell); a drive of the assembled `.app` loaded `style.css` and `badge.png` from `localtest.me` |
 | Clone checks | `git add -A` | Usual list, `bun scripts/caps.mjs`, five checks | Green; every moved matrix cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
 
 States covered: loading (progress toasts, Retrying…), empty (no source), error (every message above),
@@ -199,4 +199,5 @@ bundle (#106, #135).
 
 Review the PR. Attended checks: a real right click and the Menu key on each surface, the Save panel's folder and name,
 Escape returning focus to the media, reduced motion. Oracle and trace-diff rows: not run (no oracle). The "Rendered
-HTML, http host" row stays blocked on X7 (#106).
+HTML, http host" row was blocked on X7 (#106); main #173 fixed it and adopt-main-fixes-shell adopted it (2026-10-07). The broken-image
+limit (#121) is adopted there too: the Files, chat Markdown, expanded and attachment images show the reference's failure text.

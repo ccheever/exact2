@@ -128,7 +128,8 @@ component ImagePreviewDialog
     windowWidth: number
     windowHeight: number
     local: action
-  // MediaVideoPlayer failedSrc: the URL the player refused; Retry video signs the attachment again.
+  // MediaVideoPlayer failedSrc / ExpandedImageDialog failedImageSrc: the URL the player or the picture
+  // refused (an `image` `error`, exact2 #121); Retry video signs the attachment again.
   state failedUrl = ""
   derive videoFailed = failedUrl != "" and failedUrl == url
   action broke(reason: string)
@@ -153,10 +154,10 @@ component ImagePreviewDialog
                   else
                     box width=min(windowWidth * 0.92 - 96, 512) height=192 border-radius=8 background-color="#000000" role="status" aria-label="Loading video"
               else
-                when url != ""
-                  image url aria-label=name max-width=(windowWidth * 0.92 - 96) max-height=min(windowHeight * 0.86, windowHeight - 160) object-fit="contain" border-radius=8
+                when url != "" and not videoFailed
+                  image url aria-label=name error=broke max-width=(windowWidth * 0.92 - 96) max-height=min(windowHeight * 0.86, windowHeight - 160) object-fit="contain" border-radius=8 testId="image-preview-picture"
                 else
-                  when failed
+                  when failed or videoFailed
                     column role="alert" width=min(windowWidth * 0.92 - 96, 512) height=192 padding=24 box-sizing="border-box" gap=12 align-items="center" justify-content="center" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0d)" background-color="#000000" testId="image-preview-unavailable"
                       text "Image unavailable. The file may have been moved or deleted." text-align="center" font-size=14 line-height="20px" color="#ffffff"
                   else

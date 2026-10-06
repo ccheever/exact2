@@ -5,7 +5,8 @@ import AppKit
 /// Hook a pointer-events:none button inside the timeline Tip trigger wrapper.
 /// Its press toggles Contract's dismissed state. Native changes no Exact view
 /// properties: only actual clip origin changes dismiss; physical mouse motion
-/// resets the latch, so t3-rehover cannot reopen a stationary pointer's tip.
+/// resets the latch, so the host hovering a resting pointer again after a scroll (exact2 #139)
+/// cannot reopen a stationary pointer's tip.
 final class T3TimelineTooltip {
     private final class Entry {
         weak var element: ExactElement?

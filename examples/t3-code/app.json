@@ -43,7 +43,6 @@
     "t3-launcher",
     "t3-measure",
     "t3-select-on-open",
-    "t3-rehover",
     "t3-tool-icon",
     "t3-timeline-tip"
   ],
@@ -53,6 +52,9 @@
   "host": {
     "macos": {
       "minimumOS": "14.0",
+      "appTransportSecurity": {
+        "allowsArbitraryLoadsInWebContent": true
+      },
       "window": {
         "width": 1280,
         "height": 840,
