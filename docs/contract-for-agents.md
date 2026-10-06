@@ -594,7 +594,10 @@ has a complete `app.ts`: synchronous, `fetch` and SQLite sources, the grants
 each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https://…'].join('\n')`;
 `net.fetch` takes an `http` or `https` origin, `http://127.0.0.1:8080` too; on iOS
 cleartext `http` reaches only a local host, and only with `app.json`'s
-`host.ios.localNetworking` set),
+`host.ios.localNetworking` set; an `iframe` of `http://` from a named host needs
+`host.macos.appTransportSecurity` or `host.ios.appTransportSecurity` set to
+`{ "allowsArbitraryLoadsInWebContent": true }`, which relaxes web views only and
+not an `http:` sub-resource of the app's own `assets/` page),
 and how to drive it with storage.
 The compiler accepting a source call does not provide its implementation. Check
 its arguments, declared result, grants, storage access, and bake-time behavior.
