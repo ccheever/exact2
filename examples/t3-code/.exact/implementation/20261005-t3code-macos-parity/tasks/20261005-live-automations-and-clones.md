@@ -1,17 +1,21 @@
 ---
 name: 20261005-live-automations-and-clones
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+branch: feat(example)/t3-code-live-automations-and-clones
+pr_url: https://github.com/ccheever/exact2/pull/156
 verified_commit: null
 ---
 
 # Live automations and tracked project clones
+
+Current acceptance: client implementation and partial UI verification only.
+Authenticated Codex completion, real-time scheduled execution and the tracked-clone
+runtime flow remain unverified. PR #156 must not be described as end-to-end complete.
 
 ## Outcome
 
@@ -91,14 +95,113 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, oracle build, isolated 
 
 ## Progress
 
-Planned. No branch.
+Implemented 2026-10-06 on `feat(example)/t3-code-live-automations-and-clones` (from the feature
+branch after hot-file-split #147). Verification: unverified (no independent review, no oracle).
+
+- `scheduled-tasks.ts`: ports of `matchesScheduledTaskScope`, `resolveSettingsScope` (as
+  `resolveTaskScope`), `validateScheduledTasksSearch`, `taskToDraft`, `scheduledTaskDefaultModel`,
+  `scheduleLabel`, `relativeLabel`; `now` is an argument (X19 #124). The reference's 8 logic tests are
+  ported with their names (`scheduled-tasks.test.ts`, 22 cases with the `each` rows).
+- `live-streams.ts`: `scheduledTasks.subscribe` and `subscribeProjectClones` (clones only with
+  `projectCloneTracking`) per environment: the focused one over T3Client's transport (one dispatch line
+  in `client.ts` drain), every background one over its fleet transport (`liveFleetEvent` in the fleet
+  drain, `liveFleetPass` after it). Two more streams per transport (16-stream cap, X21 #126). A write
+  checks the live list; `scheduledTasks.list` runs only before a stream's first value.
+- Settings › Scheduled tasks (`scheduled-view.ts`, `settings-scheduled.contract`): a section per
+  environment in scope (heading only above one), loading / error / "Environment disconnected", the
+  scope filter, the `link|<env>|<task>` deep link that opens the editor once ("Task unavailable" when
+  missing), 60 s refresh from the existing clock; row writes go to the task's own environment
+  (`scheduled-tasks-commands.ts`).
+- Thread details › Automations (`thread-automations.ts/.contract`) between Version Control and
+  Lineage: status dot (pulses while running, still under reduced motion), title, schedule line,
+  Manage scheduled tasks, Edit (deep link), Run now (disabled while running or busy), Pause/Resume
+  switch; failures toast "Could not run automation" / "Could not update automation".
+- Tracked clones (`project-clones.ts`, `project-clones-live.ts`): the palette calls
+  `projectClone.start` when the server tracks clones, closes and opens the draft; the toast
+  coordinator runs from the shell build (loading + Cancel, 8 s success + Open project, error / info +
+  Retry + Remove project, steps aside while the draft is open); the composer banner and the send
+  block ("Cloning repository", "Repository not cloned"); Remove project is an unforced
+  `project.delete`. `updateToast` now patches kind, timeout, second button and copy button; a changed
+  timeout restarts the toast's timer.
+
+Left / limits: the editor's "Runs on" does not switch environment for a new task; Open project on a
+background environment's clone toast is not offered (no focus-a-project path; the reference opens
+it); action buttons close a toast here, so a toast closed by Retry returns on the next change; icon
+buttons have no tooltips; hover and focus rings unverified (attended, X13); a deep link that found no
+task leaves `restEditor` set until the next settings write.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (2026-10-06) | `0c0a95a4a` on `da40e6590` | `bun test examples/t3-code` 1364 pass / 0 fail (base 1321); strict tsc clean; `contract build` 2196 slots, 43 resources, 48535 nodes; `cargo test -p t3-code-macos --lib` 10 pass; caps within budget; five checks green (build, test, clippy, fmt, caps, boot); macOS bundle builds. No Swift changed, so no AppKit binary is touched | Live drive (lane servers 16170 after / 16171 before, isolated HOME, a seeded thread with two bound tasks): Automations section rows `Nightly triage` "Every 60 min · next in 278d" (agent clock), `Weekly summary` "Weekdays at 09:00 · paused", labels Edit / Run … now / Pause / Resume; `tap details-automation-run-…` started the run on the thread and Settings › Scheduled tasks then showed `succeeded` from the stream with no reload; Edit opened the editor through the deep link (`scheduled-task-dialog`, "Edit task", its fields). Before/after pairs 01 and 02 in the PR | Tracked clone live flow unverified: both drives stopped before it (drive 1: the sidebar was inert after the welcome import; drive 2: `tap add-project` did not open the palette after Settings closed, op 32/48). Clone toasts, banner, send block, Cancel/Retry/Remove covered by unit tests only. Not run: oracle and trace-diff (desktop-oracle-and-trace not built), second environment, old-server path, keyboard focus and reduced-motion transcript, attended rows |
 
 ## Next action
 
-`prepare` after the two prerequisites merge; check fleet stream delivery first, then `implement`.
+### Evidence correction (2026-10-06)
+
+The earlier `succeeded` observation proves the scheduled-task status reached the UI,
+not that a provider completed the prompt. The retained lane-after provider log
+(`target/lane-after/t3-home/userdata/logs/provider/events.fa62d03f-0b88-408f-9fb2-a1ae6a85aec5.log`,
+lines 18–30) records the Codex run on `automations-demo` failing with HTTP 401,
+`Missing bearer or basic authentication in header`, followed by `turn/completed`
+with status `failed`. An authenticated provider completion and a timed interval
+execution remain unverified. The unit tests in `live-automations.test.ts` use a
+recording fake client, including its `authenticated` provider state; they require
+no connected provider account.
+
+Merge validation against `origin/feat(example)/t3-code`: both `projectCloneBlock`
+and `highlightPending` imports are retained in `presentation.ts`. With the pinned
+Bun 1.4.2 the app suite has 1421 passing tests, one skipped generator test and no
+failures. The initial run used PATH's Bun 1.3.14, which failed one HTML comment
+highlighting test on both this merge and an isolated export of the base branch;
+using the already installed pinned version resolves that failure.
+Strict TypeScript checking, Contract build, the five repository checks, 2928
+repository Rust tests and 10 macOS Rust tests pass. The macOS application bundle
+also builds. These merge checks do not add authenticated provider or timed-run
+coverage to the original evidence.
+
+### Handoff: authenticated automation verification
+
+Resume from [PR #156](https://github.com/ccheever/exact2/pull/156). Read its current
+verification note and this task's acceptance table. Keep `verification: unverified`
+until the remaining required acceptance rows pass. Provider execution and scheduling
+belong to the T3 server; a missing credential is not evidence of an Exact framework bug.
+
+1. Build the current app with Bun 1.4.2 and start an isolated T3 backend. Previous
+   fixture ports were 16170/16171 and its data was under `target/lane-after` and
+   `target/lane-before`; these ignored artifacts may no longer exist. Recreate the
+   disposable project/thread/tasks if needed. Do not use the production `~/.t3` or
+   port 3773. Record app/server revisions, origin, provider instance/model and UTC time.
+2. Check authentication in the exact provider process and credential home used by
+   that backend. A signed-in interactive Codex session elsewhere does not prove this
+   process is authenticated. Complete sign-in with the user if required; do not copy
+   credentials from another agent or include tokens in evidence. First send a bounded
+   ordinary prompt such as `Reply exactly AUTOMATION_OK; do not run tools or edit files.`
+   Require an actual assistant response and successful provider completion.
+3. Create a disposable task bound to the test thread with that prompt. Run it from
+   both Thread details > Automations and Settings > Scheduled tasks. Record task,
+   thread and provider turn IDs, RPC, final assistant response, provider terminal
+   status, server run status and UI updates without reload. A successful `runNow`
+   RPC or a `succeeded` label alone does not meet the completion criterion.
+4. Enable a short interval task and observe a real server-clock deadline without
+   pressing Run now. Record scheduled time, actual start, completed response,
+   run count and next run. The UI agent's `clock` changes do not advance the backend
+   scheduler. Pause across a due interval and verify no new turn; resume and verify
+   the next due run. Disable/delete only the test tasks after the check.
+5. In a separate disposable unauthenticated environment, reproduce an authentication
+   failure. Correlate the task/run/thread/turn IDs and timestamps with the server
+   stream and both UI views. Investigate the earlier `succeeded`/provider `failed`
+   discrepancy; its cause and whether the records name the same run are unknown.
+   Determine whether the server status means dispatch or actual provider completion.
+   If a change is needed, fix the owning layer and verify against the reference;
+   do not invent a client success state or claim a server fix without evidence.
+6. Preserve sanitized transcripts and evidence links in the PR and this task,
+   including remaining failures. Logs under `target/` are local and not durable
+   handoff artifacts. Never infer current account identity from the old 401 log.
+
+Automation acceptance requires real manual and scheduled provider completions plus
+consistent, understood status/error behavior. It does not close the other task rows:
+tracked-clone success/cancel/failure/retry/remove, a second environment, the old-server
+path, keyboard/Escape/reduced-motion and reference/trace checks remain open as listed
+above. Resume those separately after authentication is available.

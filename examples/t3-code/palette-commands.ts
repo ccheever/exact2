@@ -13,6 +13,8 @@ import { activeTarget } from './palette-files';
 import { favoriteEditor } from './keyboard-dispatch';
 import { linkPullRequest } from './palette-linkpr';
 import { openScratchProject } from './r11-upstream-scratch';
+import { startTrackedClone } from './project-clones-live';
+import { cloneTracking } from './live-streams';
 
 export type PaletteResult = { revision: number; ok: boolean; close: boolean; page: string; query: string; project: string; thread: string; message: string };
 const message = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
@@ -134,6 +136,14 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
         return stay(client, false);
       }
       const destinationPath = resolvePath(raw, cwd), name = inferTitle(destinationPath);
+      // The server creates the project and clones in the background (projectCloneTracking): the
+      // palette closes once git runs; progress is the clone's toast and its draft's banner.
+      if (cloneTracking(client.config)) {
+        const started = await startTrackedClone(client, native, clone.remoteUrl, destinationPath, name); // project-clones-live.ts
+        if (!started.ok) return stay(client, false, started.message);
+        flow.clone = null;
+        return done(client, started.projectId);
+      }
       // The blocking clone (servers without clone tracking): the palette waits for git,
       // then adds the project; progress shows as the reference's clone toasts.
       const loading = pushToast(client, { kind: 'loading', title: `Cloning ${name}`, description: `${SOURCE_LABELS[clone.source] ?? 'Git'} · ${destinationPath}` });

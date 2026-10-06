@@ -3,6 +3,8 @@
 // "Update", OpenInPicker) and the toasts the reference raises around the
 // main window's actions. `shell:` ops write to the server through the
 // client's generation-guarded access; `shelllocal:` ops never do.
+import { cloneCommand } from './project-clones-live';
+import { automationCommand } from './scheduled-tasks-commands';
 import type { T3Client } from './client';
 import { pushToast } from './toast';
 import { obj, str } from './domain';
@@ -29,6 +31,8 @@ export function resolveRenameCommit(title: string, originalTitle: string): { act
 
 export async function shellCommand(client: T3Client, native: Native, storage: Files, op: string, id: string, value: string): Promise<string> {
   if (op.startsWith('surface-')) return surfaceCommand(client, native, storage, op.slice(8), id, value); // r4-surfaces-panel.ts
+  if (op.startsWith('clone-')) return cloneCommand(client, native, storage, op, id, value); // project-clones-live.ts
+  if (op.startsWith('automation-')) return automationCommand(client, native, op.slice(11), id, value); // scheduled-tasks-commands.ts
   const access = client.restAccess(native);
   if (op === 'provider-update') {
     // server.updateProvider per one-click candidate, in order (runUpdates),
