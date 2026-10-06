@@ -9,12 +9,13 @@ import type { T3Client } from './client';
 import type { Files, Native } from './protocol';
 import { connectionOps } from './client-ops-connection';
 import { snapshotOps } from './client-ops-snapshot';
+import { settingsOps, settingsWrites } from './client-ops-settings';
 
 export type OpOut = { message: string; id: string; value: string };
 export type OpGroup = (this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut) => Promise<boolean>;
 
-export const READ_OPS: OpGroup[] = [connectionOps, snapshotOps];
-export const WRITE_OPS: OpGroup[] = [];
+export const READ_OPS: OpGroup[] = [connectionOps, snapshotOps, settingsOps];
+export const WRITE_OPS: OpGroup[] = [settingsWrites];
 
 /** Runs `op` in the first group that owns it; false when none does. */
 export async function runOps(client: T3Client, groups: OpGroup[], op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {

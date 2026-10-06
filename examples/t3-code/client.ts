@@ -1,10 +1,7 @@
 import { forgetDraftThreadId, launchThreadId } from './r7-handoff-thread'; // lane r7-handoff
 import { snapshotShortcut } from './snapshot-shortcut';
 import { snapshotIdentity, snapshotDefaultProject, snapshotDestinationExists, withoutSnapshot, snapshotNoProjectMessage, snapshotFailureMessage } from './snapshot-adopt';
-import { bindingId, shortcutInput, whenExpression, validShortcut, validWhen } from './keybinding-settings';
-import { validateTaskInput } from './scheduled-settings';
-import { scopedSettingPatch } from './scoped-settings';
-import { applyCoreSetting, applyDeviceSetting, decodeClientPrefs, type ClientPrefs } from './settings-core';
+import { decodeClientPrefs, type ClientPrefs } from './settings-core';
 import { decodeCustomThemes, type CustomTheme } from './settings-themes';
 import { restCommand, restLocal } from './settings-rest-commands';
 import { chatCommand } from './chat-commands';
@@ -31,7 +28,7 @@ import { startThreadSearch } from './sidebar-presentation';
 import { sidebarCommand, sidebarLocal, sidebarSelecting, sidebarOpened, sidebarRefreshed } from './sidebar-commands';
 import { reconnectOnLaunch, launchFocus } from './r8-pointer-reconnect';
 import { adoptSidebarPrefs } from './sidebar-state';
-import { runProviderOp, PROVIDER_OPS } from './providers';
+import { PROVIDER_OPS } from './providers';
 import { CONNECTION_OPS } from './connections';
 import { READ_OPS, WRITE_OPS, runOps, type OpOut } from './client-ops';
 import { fleet, parseFleetThreadId, focusFleetThread } from './settings-b-fleet';
@@ -54,7 +51,7 @@ import { VCS_STATUS_KEY, vcsStatusEvent } from './shell-vcs';
 import { DEVICE_STATE_KEY, deviceStateEvent } from './r4-surfaces-device';
 import { WORKTREE_SETUP_KEY, worktreeSetupEvent } from './timeline-worktree';
 import { GIT_ACTION_KEY, gitActionEvent } from './r4-git-actions';
-import { effectiveWorktreeRules, obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThread, mergeHistory,
+import { obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThread, mergeHistory,
   readyCheckpoint, messages, type Obj, type Shell, type ThreadState } from './domain';
 import { ClientError, bridgeReply, activeRun, providerAvailable, modelSelection, sendPayload,
   launchPayload, applyConfig, type Native, type Files } from './protocol';
@@ -164,7 +161,7 @@ export class T3Client {
     }
     return obj(response.value);
   }
-  private async http(native: Native, path: string, expected = this.generation) {
+  async http(native: Native, path: string, expected = this.generation) {
     return this.call(native, { op: 'http', path }, expected);
   }
   async request(native: Native, method: string, payload: Obj, expected = this.generation, write = false) {
@@ -414,7 +411,7 @@ export class T3Client {
     if (selected) this.projectId = str(selected.projectId);
     if (!this.shell.projects.some(project => project.id === this.projectId)) this.projectId = mostRecentProjectId(this.shell);
   }
-  private chooseDefaults(): void {
+  chooseDefaults(): void {
     const project = this.shell.projects.find(project => project.id === this.projectId);
     const settings = obj(this.config.settings);
     const overrides = obj(obj(settings.projectSettingsOverrides)[this.projectId]);
@@ -653,15 +650,9 @@ export class T3Client {
         if (!message) throw new ClientError('That message is no longer available.');
         await this.call(native, { op: 'copyText', text: message.body });
         resultMessage = 'Copied message';
-      } else if (op === 'copy-diagnostic') {
-        if (!value || value.length > 256) throw new ClientError('That trace ID is unavailable.');
-        await this.call(native, { op: 'copyText', text: value });
-        resultMessage = 'Copied trace ID';
       } else if (op === 'grouping-mode') {
         if (!groupingModes.includes(value)) throw new ClientError('Unsupported grouping mode.');
         this.local.groupingMode = value;
-      } else if (op === 'device-setting') {
-        if (!applyDeviceSetting(this.local, id, value)) throw new ClientError('Unsupported device setting.');
       } else if (op === 'grouping-override') {
         const project = this.shell.projects.find(project => project.id === id);
         if (!project) throw new ClientError('That project is no longer available.');
@@ -713,8 +704,7 @@ export class T3Client {
             await this.openThread(native, this.threadId);
           }
         }
-      } else if (op === 'settings-core') resultMessage = await applyCoreSetting(this, native, id, value);
-      else {
+      } else {
         this.requireWrite();
         if (await runOps(this, WRITE_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
         else if (op === 'fork-message') {
@@ -733,20 +723,12 @@ export class T3Client {
         else if (op === 'send') await this.send(native, storage, value);
         else if (op === 'add-project') await this.addProject(native, storage, id, value);
         else if (op === 'rename-project' || op === 'remove-project') await this.manageProject(native, storage, op, id, value);
-        else if (op === 'keybinding-save' || op === 'keybinding-remove') await this.manageKeybinding(native, id, value, op);
-        else if (['task-save', 'task-toggle', 'task-delete', 'task-run'].includes(op)) await this.manageScheduledTask(native, id, value, op);
-        else if (op === 'setting-scoped') await this.setScopedSetting(native, id, value);
-        else if (op === 'setting-storage') await this.setStorageSettings(native, id, value);
-        else if (op === 'unarchive-thread' || op === 'delete-archived-thread') await this.manageArchivedThread(native, storage, op, id);
-        else if (op === 'setting-model') await this.setModelDefault(native, id, value);
-        else if (op === 'setting-permissions') await this.setPermissionDefault(native, id, value);
         else if (op === 'rename-group' || op === 'remove-group') await this.manageGroup(native, storage, op, id, value);
         else if (op === 'remove-group-member') {
           this.shell = applyShell(this.shell, await this.http(native, '/api/orchestration/shell'));
           if (!this.projectGroups().some(group => group.key === value && group.members.some(member => member.id === id))) throw new ClientError('Project group membership changed. Reopen its settings.');
           await this.manageProject(native, storage, 'remove-project', id, '');
         }
-        else if (PROVIDER_OPS.includes(op)) { resultMessage = await runProviderOp(this, native, op, id, value); if (!this.threadId) this.chooseDefaults(); this.error = ''; }
         else if (op === 'provider' || op === 'model') await this.changeModel(native, storage, op, id, value);
         else if (op === 'model-option') await this.changeModelOption(native, storage, id, value);
         else if (op === 'runtime' || op === 'interaction') await this.changeMode(native, storage, op, value);
@@ -1077,7 +1059,7 @@ export class T3Client {
     if (!this.ready) throw new ClientError('Connect and synchronize to load the server notices.');
     return this.http(native, '/third-party-licenses.json');
   }
-  private async manageArchivedThread(native: Native, storage: Files, op: string, scope: string): Promise<void> {
+  async manageArchivedThread(native: Native, storage: Files, op: string, scope: string): Promise<void> {
     const [environmentId, projectId, id, extra] = scope.split(':');
     if (extra !== undefined || !id || environmentId !== this.environmentId) throw new ClientError('That environment or thread is no longer selected.');
     const archived = applyShell(initialShell(), await this.readSettings(native, 'orchestration.getArchivedShellSnapshot'));
@@ -1091,148 +1073,6 @@ export class T3Client {
       delete this.subscriptions.thread;
     }
     if (op === 'delete-archived-thread') delete this.local.drafts[`${this.environmentId}:${id}`];
-  }
-  private async manageKeybinding(native: Native, environmentId: string, text: string, op: string): Promise<void> {
-    if (!environmentId || environmentId !== this.environmentId) throw new ClientError('That environment is no longer selected.');
-    const input = obj(JSON.parse(text)), config = await this.request(native, 'server.getConfig', {});
-    const previous = str(input.previous) ? arr(config.keybindings).find(binding => bindingId(binding) === input.previous) : undefined;
-    if ((op === 'keybinding-remove' || input.previous) && !previous) throw new ClientError('That keybinding is no longer available.');
-    const target = previous ? { key: shortcutInput(obj(previous.shortcut)), command: str(previous.command), ...(previous.whenAst ? { when: whenExpression(previous.whenAst) } : {}) } : {};
-    let payload: Obj;
-    if (op === 'keybinding-remove') payload = target;
-    else {
-      const key = str(input.key).trim(), command = str(input.command).trim(), when = str(input.when).trim();
-      if (!key || key.length > 64 || !command || when.length > 256) throw new ClientError('Enter a command, shortcut (up to 64 characters) and valid condition (up to 256 characters).');
-      if (!validShortcut(key)) throw new ClientError('Enter one key with supported shortcut modifiers.');
-      if (!validWhen(when)) throw new ClientError('Enter a valid shortcut condition.');
-      payload = { key, command, ...(when ? { when } : {}), ...(previous ? { replace: target } : {}) };
-    }
-    const result = await this.request(native, op === 'keybinding-remove' ? 'server.removeKeybinding' : 'server.upsertKeybinding', payload, this.generation, true);
-    this.config = { ...this.config, keybindings: result.keybindings };
-  }
-  private async manageScheduledTask(native: Native, scope: string, text: string, op: string): Promise<void> {
-    const [environmentId, projectScope, extra] = scope.split(':');
-    if (extra !== undefined || environmentId !== this.environmentId) throw new ClientError('That environment is no longer selected.');
-    const shell = applyShell(initialShell(), await this.http(native, '/api/orchestration/shell'));
-    if (projectScope && !shell.projects.some(project => project.id === projectScope)) throw new ClientError('That checkout is no longer available.');
-    const input = obj(JSON.parse(text)), tasks = arr((await this.request(native, 'scheduledTasks.list', {})).tasks);
-    const task = tasks.find(task => task.id === input.id);
-    if ((op !== 'task-save' || input.id) && (!task || (projectScope && task.projectId !== projectScope))) throw new ClientError('This scheduled task no longer exists in the selected scope.');
-    let payload: Obj, method: string;
-    if (op === 'task-save') {
-      payload = validateTaskInput(input); method = 'scheduledTasks.upsert';
-      if (input.id) payload.requireExisting = true;
-      if (!shell.projects.some(project => project.id === payload.projectId) || (projectScope && payload.projectId !== projectScope)) throw new ClientError('Choose an existing project in this scope.');
-      if (payload.threadId && !shell.threads.some(thread => thread.id === payload.threadId && thread.projectId === payload.projectId)) throw new ClientError('Choose a thread belonging to the selected project.');
-      const selection = obj(payload.modelSelection), config = await this.request(native, 'server.getConfig', {});
-      const provider = arr(config.providers).find(provider => provider.instanceId === selection.instanceId && providerAvailable(provider));
-      if (!provider || !arr(provider.models).some(model => model.slug === selection.model && model.isUnavailable !== true)) throw new ClientError('Choose an available provider and model.');
-      // Edits retain canonical provider options when the selection is unchanged.
-      const original = obj(task?.modelSelection);
-      if (original.instanceId === selection.instanceId && original.model === selection.model) payload.modelSelection = original;
-    } else {
-      method = op === 'task-toggle' ? 'scheduledTasks.setEnabled' : op === 'task-delete' ? 'scheduledTasks.delete' : 'scheduledTasks.runNow';
-      payload = { id: str(input.id), ...(op === 'task-toggle' ? { enabled: input.enabled === true } : {}) };
-    }
-    await this.request(native, method, payload, this.generation, true);
-  }
-  private async setScopedSetting(native: Native, scope: string, text: string): Promise<void> {
-    const [environmentId, projectId, extra] = scope.split(':');
-    if (extra !== undefined || !environmentId || environmentId !== this.environmentId) throw new ClientError('That environment is no longer selected.');
-    const shell = applyShell(initialShell(), await this.http(native, '/api/orchestration/shell'));
-    if (projectId && !shell.projects.some(project => project.id === projectId)) throw new ClientError('That checkout is no longer available.');
-    const input = obj(JSON.parse(text));
-    const config = await this.request(native, 'server.getConfig', {});
-    const capabilities = obj(obj(config.environment).capabilities);
-    if (projectId && capabilities.projectSettingsOverrides !== true) throw new ClientError('Update the selected environment to configure project overrides.');
-    const settings = await this.request(native, 'server.getSettings', {});
-    const root = str(input.key).split('.')[0];
-    if (!(root in settings)) throw new ClientError('Update the selected environment to configure this setting.');
-    if (root === 'continueThreadsAfterServerUpdate' && capabilities.threadRestartContinuation !== true) throw new ClientError('Update the selected environment to configure restart continuation.');
-    if (root === 'enableAgentDeviceAccess' && settings.enableDeviceSupport !== true) throw new ClientError('Enable the device hub before changing agent device access.');
-    const patch = scopedSettingPatch(settings, projectId, str(input.key), input.value, input.inherit === true);
-    const updated = await this.request(native, 'server.updateSettings', { patch }, this.generation, true);
-    this.config = { ...this.config, settings: updated };
-  }
-  private async setStorageSettings(native: Native, scope: string, text: string): Promise<void> {
-    const [environmentId, projectId, extra] = scope.split(':');
-    if (extra !== undefined || environmentId !== this.environmentId) throw new ClientError('That environment is no longer selected.');
-    const shell = applyShell(initialShell(), await this.http(native, '/api/orchestration/shell'));
-    if (projectId && !shell.projects.some(project => project.id === projectId)) throw new ClientError('That checkout is no longer available.');
-    const capabilities = obj(obj((await this.request(native, 'server.getConfig', {})).environment).capabilities);
-    if (capabilities.storageCleanup !== true || (projectId && capabilities.projectWorktreeCleanup !== true)) throw new ClientError('Update the selected environment to configure storage cleanup.');
-    const input = obj(JSON.parse(text)), key = str(input.key), value = input.value;
-    const booleans = ['worktreeOnDelete', 'worktreeOnMerge', 'worktreeUnchanged'];
-    const retention = ['worktreeAfterDays', 'browserArtifactsAfterDays', 'logsAfterDays'];
-    if (key === 'mode') {
-      if (!projectId || !['inherit', 'off', 'custom'].includes(str(value))) throw new ClientError('Unsupported worktree cleanup mode.');
-    } else if (booleans.includes(key)) {
-      if (typeof value !== 'boolean') throw new ClientError('Choose On or Off.');
-    } else if (retention.includes(key)) {
-      if (value !== null && (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 3650)) throw new ClientError('Retention must be between 1 and 3650 days.');
-    } else throw new ClientError('Unsupported storage rule.');
-    if (projectId && !['mode', ...booleans, 'worktreeAfterDays'].includes(key)) throw new ClientError('Artifact and log retention belongs to the environment.');
-    const settings = await this.request(native, 'server.getSettings', {});
-    let patch: Obj;
-    if (projectId) {
-      const current = { ...obj(obj(settings.projectSettingsOverrides)[projectId]) };
-      const worktree = obj(current.worktreeCleanup);
-      if (key === 'mode') {
-        if (value === 'inherit') delete current.worktreeCleanup;
-        else current.worktreeCleanup = value === 'off' ? { mode: 'off' } : { mode: 'custom', rules: effectiveWorktreeRules(settings, current) };
-      } else {
-        if (worktree.mode !== 'custom') throw new ClientError('Choose Custom before changing project cleanup rules.');
-        current.worktreeCleanup = { mode: 'custom', rules: { ...effectiveWorktreeRules(settings, current), [key]: value } };
-      }
-      patch = { projectSettingsOverrides: { [projectId]: Object.keys(current).length ? current : null } };
-    } else patch = { storageCleanup: { ...obj(settings.storageCleanup), [key]: value } };
-    const result = await this.request(native, 'server.updateSettings', { patch }, this.generation, true);
-    this.config = { ...this.config, settings: result }; this.error = '';
-  }
-  private async setModelDefault(native: Native, scope: string, value: string): Promise<void> {
-    const separator = scope.indexOf(':');
-    const environmentId = scope.slice(0, separator), projectId = scope.slice(separator + 1);
-    if (separator < 0 || environmentId !== this.environmentId) throw new ClientError('That environment is no longer selected.');
-    if (!['current', 'inherit', 'automatic'].includes(value) || (!projectId && value === 'inherit') || (projectId && value === 'automatic')) throw new ClientError('Unsupported model default action.');
-    const shell = applyShell(initialShell(), await this.http(native, '/api/orchestration/shell'));
-    if (projectId && !shell.projects.some(project => project.id === projectId)) throw new ClientError('That project is no longer available.');
-    // Validate the advertised catalog again; a removed/disabled provider must not
-    // become a new default from a stale chat selection.
-    const config = await this.request(native, 'server.getConfig', {});
-    const provider = arr(config.providers).find(provider => provider.instanceId === this.providerId && providerAvailable(provider));
-    if (value === 'current' && (!provider || !arr(provider.models).some(model => model.slug === this.modelId))) throw new ClientError('The selected model is no longer available.');
-    const settings = await this.request(native, 'server.getSettings', {});
-    const selection = { instanceId: this.providerId, model: this.modelId, options: this.modelOptions };
-    let patch: Obj = { defaultModelSelection: value === 'automatic' ? null : selection };
-    if (projectId) {
-      const current = { ...obj(obj(settings.projectSettingsOverrides)[projectId]) };
-      if (value === 'inherit') delete current.defaultModelSelection;
-      else current.defaultModelSelection = selection;
-      patch = { projectSettingsOverrides: { [projectId]: Object.keys(current).length ? current : null } };
-    }
-    const updated = await this.request(native, 'server.updateSettings', { patch }, this.generation, true);
-    this.config = { ...this.config, settings: updated };
-    if (!this.threadId) this.chooseDefaults();
-  }
-  private async setPermissionDefault(native: Native, scope: string, value: string): Promise<void> {
-    const separator = scope.indexOf(':');
-    const environmentId = scope.slice(0, separator), projectId = scope.slice(separator + 1);
-    if (separator < 0 || environmentId !== this.environmentId) throw new ClientError('That environment is no longer selected.');
-    if (!['approval-required', 'full-access', 'inherit'].includes(value)) throw new ClientError('Unsupported permissions default.');
-    if (projectId && !this.shell.projects.some(project => project.id === projectId)) throw new ClientError('That project is no longer available.');
-    if (!projectId && value === 'inherit') throw new ClientError('Choose an environment default.');
-    const settings = obj(this.config.settings);
-    let patch: Obj = { defaultRuntimeMode: value };
-    if (projectId) {
-      const current = { ...obj(obj(settings.projectSettingsOverrides)[projectId]) };
-      if (value === 'inherit') delete current.defaultRuntimeMode;
-      else current.defaultRuntimeMode = value;
-      patch = { projectSettingsOverrides: { [projectId]: Object.keys(current).length ? current : null } };
-    }
-    const updated = await this.request(native, 'server.updateSettings', { patch }, this.generation, true);
-    this.config = { ...this.config, settings: updated };
-    if (!this.threadId) this.chooseDefaults();
-    this.error = '';
   }
   private async manageProject(native: Native, storage: Files, op: string, id: string, title: string): Promise<void> {
     const project = this.shell.projects.find(project => project.id === id);
