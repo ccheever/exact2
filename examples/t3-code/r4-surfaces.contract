@@ -285,7 +285,7 @@ component R4LinkedRowView
         box width=1 height=24 margin-left=-8 flex-shrink=0 background-color="light-dark(#e4e4e7b3, #ffffff12)"
       box width=16 flex-shrink=0 position="relative" aria-label=(row.waiting ? "Waiting for host state" : row.stateLabel)
         PgIcon(name=(row.waiting ? "git-pull-request-arrow" : prStateIcon(row.state)), size=16, color=(row.waiting ? "light-dark(#71717b, #818181)" : prStateTone(row.state)))
-      link href=row.url flex=1 min-width=0 display="flex" flex-direction="column" testId=`linked-pr-open-${row.number}`
+      link cursor="pointer" href=row.url flex=1 min-width=0 display="flex" flex-direction="column" testId=`linked-pr-open-${row.number}`
         row min-width=0 align-items="center" gap=6
           text `#${row.number}` flex-shrink=0 font-family="ui-monospace" font-size=12 line-height="16px" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" aria-label=row.sourceLabel
           text row.title min-width=0 font-size=14 line-height="20px" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#262626, #f5f5f5)"
@@ -340,7 +340,7 @@ component R4LinkedMenu
   view
     column position="absolute" right=10 top=(row.index * 44 + 52) padding=4 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label=`Actions for #${row.number}` testId=`linked-pr-menu-${row.number}`
       R4MenuItem(icon="link", label="Copy link", test="copy", press=local("surface-pr-copy", row.key, ""))
-      link href=row.url role="menuitem" testId="linked-pr-menu-open" width="100%" height=28 padding-left=8 padding-right=8 box-sizing="border-box" gap=8 border-radius=6 display="flex" flex-direction="row" align-items="center"
+      link cursor="pointer" href=row.url role="menuitem" testId="linked-pr-menu-open" width="100%" height=28 padding-left=8 padding-right=8 box-sizing="border-box" gap=8 border-radius=6 display="flex" flex-direction="row" align-items="center"
         R4Icon(name="arrow-up-right", size=14, color="light-dark(#71717b, #818181)")
         text "Open" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
       when row.canWatch

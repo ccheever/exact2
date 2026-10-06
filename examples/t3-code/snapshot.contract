@@ -28,6 +28,7 @@ style SnapStatus
 style SnapInk
   color="light-dark(#27272a, #f5f5f5)"
 style SnapOutlineXs
+  cursor="pointer"
   display="flex" flex-direction="row" align-items="center" justify-content="center" gap=4
   box-sizing="border-box" height=24 padding-left=7 padding-right=7 border-radius=8
   border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)"
@@ -47,6 +48,7 @@ style SnapPrimary
 style SnapButtonText
   font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
 style SnapMenuItem
+  cursor="pointer"
   display="flex" flex-direction="row" align-items="center" box-sizing="border-box" height=28
   padding-left=8 padding-right=8 border-radius=6 border-width=0 font-size=14 line-height="20px"
 
