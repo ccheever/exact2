@@ -7,7 +7,7 @@ delivery: open
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-terminal-layout
-pr_url: pending
+pr_url: https://github.com/ccheever/exact2/pull/187
 verified_commit: null
 ---
 
