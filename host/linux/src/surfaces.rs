@@ -114,6 +114,12 @@ impl Abi {
                     .get::<*const ()>(name.as_bytes())
                     .map_err(|e| format!("GPU ABI {name}: {e}"))?;
             }
+            // Its pages go with the app's own once boot is done (it stays
+            // loaded while this host lives).
+            #[cfg(target_os = "android")]
+            if let Ok(at) = abi.library.get::<*const ()>(b"gpu_load_headless") {
+                crate::android::release_module_pages_too(*at as *const std::ffi::c_void);
+            }
             if abi.rendered {
                 for name in ["gpu_load", "gpu_readback", "gpu_seekable", "gpu_lifecycle"] {
                     abi.library

@@ -91,14 +91,14 @@ pub fn redirect_stdio() {
         .ok();
 }
 
-/// Let go of this library's read-only pages (its code, constants and the
-/// bytes it carries, such as the plan): each is dropped from this process's
+/// Let go of the read-only pages of the library holding `at` (its code,
+/// constants and the bytes it carries, such as the plan): each is dropped from this process's
 /// page tables and comes back, from the page cache, the next time it is
 /// touched. What boot alone touched (decoding the plan, the app's baked
 /// data, one-time setup) then stops counting toward the process. The
 /// writable segments (relocated data, `.data`, `.bss`) are left alone.
 /// Returns the bytes let go of.
-pub fn release_library_pages() -> usize {
+fn release_pages_of(at: *const c_void) -> usize {
     /// The loader's view of an ELF64 file header, up to the program headers.
     #[repr(C)]
     struct Header {
@@ -121,10 +121,9 @@ pub fn release_library_pages() -> usize {
     // the first page of every library in the process, ~11 MB of mappings).
     // SAFETY: `Dl_info` is plain pointers, for which zero is a valid value.
     let mut info: libc::Dl_info = unsafe { std::mem::zeroed() };
-    // SAFETY: `dladdr` fills `info` for an address inside a loaded object.
-    if unsafe { libc::dladdr(release_library_pages as *const c_void, &mut info) } == 0
-        || info.dli_fbase.is_null()
-    {
+    // SAFETY: `dladdr` fills `info` for an address inside a loaded object
+    // (`at` is in one: this library, or a module it opened and keeps).
+    if unsafe { libc::dladdr(at, &mut info) } == 0 || info.dli_fbase.is_null() {
         return 0;
     }
     let base = info.dli_fbase as usize;
@@ -161,6 +160,29 @@ pub fn release_library_pages() -> usize {
         {
             released += end - start;
         }
+    }
+    released
+}
+
+/// The libraries this app loads besides its own (the GPU module, LLP 1009),
+/// each by an address inside it: their read-only pages go too.
+static MODULES: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
+
+/// `at`'s library is the app's and stays loaded: [`release_library_pages`]
+/// lets go of its pages too.
+pub fn release_module_pages_too(at: *const c_void) {
+    MODULES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(at as usize);
+}
+
+/// [`release_pages_of`] this library and the modules registered with
+/// [`release_module_pages_too`]; the bytes let go of.
+pub fn release_library_pages() -> usize {
+    let mut released = release_pages_of(release_library_pages as *const c_void);
+    for at in MODULES.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+        released += release_pages_of(*at as *const c_void);
     }
     released
 }
