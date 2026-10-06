@@ -1,10 +1,15 @@
 // Lane settings-core: settings shell, General and Appearance logic.
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
 import type { Native } from './protocol';
 import { applyCoreSetting, applyDeviceSetting, changedDeviceLabels, clientValue, decodeClientPrefs, effectiveSetting, generalSections, parseCoreTarget,
-  parseProjectFile, resolveScope, restoreLabels, serverContext, serverValue, settingPatch } from './settings-core';
+  parseProjectFile, resolveScope, restoreLabels, serverContext, serverValue, settingPlan } from './settings-core';
+import { toasts } from './toast';
+import { fleet } from './settings-b-fleet';
+
+// The app's one fleet is shared across test files; these cases are single-environment unless they add entries.
+beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
 import { appearanceSections, mix, modeTiles, palette, themeCards, themeRoles } from './settings-appearance';
 import { breadcrumbLabel, commandLabel, scopeAvailable, searchSettings, settingsNavigation } from './settings-search';
 import { settingsCore } from './settings-core-view';
@@ -96,11 +101,12 @@ describe('scope', () => {
     const client = as(fake({ projectSettingsOverrides: { p1: { defaultAutoPull: true } } }));
     const scope = resolveScope(client, '', 'repo', '');
     const settings = client.config.settings as Obj;
-    expect(settingPatch(settings, scope, 'defaultRuntimeMode', 'auto', false)).toEqual({ projectSettingsOverrides: { p1: { defaultAutoPull: true, defaultRuntimeMode: 'auto' }, p2: { defaultRuntimeMode: 'auto' } } });
-    expect(settingPatch(settings, scope, 'defaultAutoPull', undefined, true)).toEqual({ projectSettingsOverrides: { p1: null, p2: null } });
-    expect(() => settingPatch(settings, scope, 'snoozeLimitedThreads', true, false)).toThrow('Environment-wide');
-    expect(settingPatch(settings, resolveScope(client, '', '', ''), 'snoozeLimitedThreads', true, false)).toEqual({ snoozeLimitedThreads: true });
-    expect(settingPatch(settings, resolveScope(client, '', '', ''), 'defaultThreadEnvMode', undefined, true)).toEqual({ defaultThreadEnvMode: null });
+    const patches = (key: string, value: unknown, clear: boolean, target = scope) => settingPlan(client, target, key, value as never, clear, settings).serverWrites.map(write => write.patch);
+    expect(patches('defaultRuntimeMode', 'auto', false)).toEqual([{ projectSettingsOverrides: { p1: { defaultAutoPull: true, defaultRuntimeMode: 'auto' }, p2: { defaultRuntimeMode: 'auto' } } }]);
+    expect(patches('defaultAutoPull', undefined, true)).toEqual([{ projectSettingsOverrides: { p1: null, p2: null } }]);
+    expect(settingPlan(client, scope, 'snoozeLimitedThreads', true, false, settings).unavailableReason).toBe('This setting is environment-wide and cannot be overridden by a project.');
+    expect(patches('snoozeLimitedThreads', true, false, resolveScope(client, '', '', ''))).toEqual([{ snoozeLimitedThreads: true }]);
+    expect(patches('defaultThreadEnvMode', undefined, true, resolveScope(client, '', '', ''))).toEqual([{ defaultThreadEnvMode: null }]);
   });
 });
 
@@ -165,12 +171,19 @@ describe('writes through the command', () => {
     expect((client.local.clientSettings as Obj).diffLayout).toBe('split');
     await applyCoreSetting(as(client), native, 'diff-layout:reset|||', 'diffLayout');
     expect((client.local.clientSettings as Obj).diffLayout).toBe('stacked');
-    await expect(applyCoreSetting(as(client), native, 'snooze-limited-threads:||gone|', 'true')).rejects.toThrow('no longer available');
-    await expect(applyCoreSetting(as(client), native, 'snooze-limited-threads:||repo|', 'true')).rejects.toThrow('Environment-wide');
+    // useRunScopedPlan: a refused plan writes nothing and warns "Setting not saved" with the reason.
+    const before = client.writes.length;
+    await applyCoreSetting(as(client), native, 'snooze-limited-threads:||gone|', 'true');
+    expect(toasts(as(client)).at(-1)).toMatchObject({ kind: 'warning', title: 'Setting not saved', description: 'This project is no longer available.' });
+    await applyCoreSetting(as(client), native, 'snooze-limited-threads:||repo|', 'true');
+    expect(toasts(as(client)).at(-1)).toMatchObject({ kind: 'warning', description: 'This setting is environment-wide and cannot be overridden by a project.' });
+    expect(client.writes.length).toBe(before);
   });
   test('disconnected server rows refuse; restore resets device and environment values', async () => {
     const offline = fake({}, false);
-    await expect(applyCoreSetting(as(offline), native, 'snooze-limited-threads:|||', 'true')).rejects.toThrow('Reconnect');
+    await applyCoreSetting(as(offline), native, 'snooze-limited-threads:|||', 'true');
+    expect(offline.writes).toEqual([]);
+    expect(toasts(as(offline)).at(-1)).toMatchObject({ kind: 'warning', title: 'Setting not saved', description: 'Connect an environment to save this setting.' });
     const client = fake({ snoozeLimitedThreads: true, responseStreamingMode: 'turn' });
     applyDeviceSetting(client.local as never, 'chatWidth', 'full');
     expect(restoreLabels(client.local as never, client.config.settings as Obj, true)).toEqual(['Chat width', 'Snooze limited threads', 'Response streaming']);
