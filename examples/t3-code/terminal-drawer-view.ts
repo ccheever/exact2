@@ -21,7 +21,7 @@ import type { OpOut } from './client-ops';
 import type { DispatchAdd } from './keyboard-dispatch';
 import { arr, obj, str, type Obj } from './domain';
 import { activeRun, ClientError, type Files, type Native } from './protocol';
-import { terminalLayout, terminalSplitLabel, type TerminalPaneView, type TerminalTabView } from './terminal-layout';
+import { terminalLayout, terminalSplitLabel, terminalTabs, type TerminalPaneView, type TerminalTabView } from './terminal-layout';
 import { focusedTerminal, recordTerminalFocus, clearTerminalFocus, terminalFocused } from './terminal-focus';
 import { chordWinners } from './keyboard-dispatch';
 import { terminalPanelIds, terminalPanelRetained } from './terminal-panel';
@@ -106,6 +106,11 @@ export async function ensureTerminalRef(client: T3Client, native: Native): Promi
 export function revealTerminal(client: T3Client, ref: ScopedThreadRef, terminalId: string): void {
   terminalUiStore(client).getState().ensureTerminal(ref, terminalId, { open: true, active: true });
   drawerState(client).focusRequest++;
+}
+
+/** ChatView terminalShortcutLabelOptions: terminal action labels resolve with terminalFocus and the drawer's open state. */
+export function terminalShortcut(client: T3Client, command: string): string {
+  return commandShortcut(client.config, command, { terminalFocus: true, terminalOpen: terminalOpen(client) });
 }
 
 /** The active thread's drawer is open. */
@@ -257,17 +262,13 @@ export async function terminalDrawerView(client: T3Client, native: Native | null
   const summary = ref && terminalId ? knownSessions(client, ref).find(session => session.target.terminalId === terminalId)?.state.summary : null;
   const label = terminalId ? resolveTerminalSessionLabel(terminalId, summary) : '';
   const [closeTitle, closeBody] = terminalCloseConfirmMessage([label || getTerminalLabel(terminalId)]);
-  const keyNew = commandShortcut(client.config, 'terminal.new'), keyClose = commandShortcut(client.config, 'terminal.close'), keyToggle = commandShortcut(client.config, 'terminal.toggle');
+  const keyNew = terminalShortcut(client, 'terminal.new'), keyClose = terminalShortcut(client, 'terminal.close'), keyToggle = commandShortcut(client.config, 'terminal.toggle');
   const layout = terminalLayout(ui.terminalIds, ui.terminalGroups, terminalId, ui.activeTerminalGroupId);
   const threadKey = ref ? scopedThreadKey(ref) : '';
   const labelFor = (id: string) => resolveTerminalSessionLabel(id, ref ? knownSessions(client, ref).find(session => session.target.terminalId === id)?.state.summary : null);
   const panes = layout.visible.map(id => ({ terminalId: id, label: labelFor(id), sessionKey: ref ? sessionKey(ref, id) : '', active: id === terminalId,
     focusRequest: ui.terminalOpen && id === terminalId ? drawer.focusRequest : 0, target: `${threadKey}|${id}` }));
-  const tabs = ui.terminalGroups.flatMap(group => group.terminalIds.map((id, index) => {
-    const label = labelFor(id), [closeTitle, closeBody] = terminalCloseConfirmMessage([label]);
-    return { id, label, heading: layout.showHeaders && index === 0 ? group.terminalIds.length === 1 ? 'Single' : group.splitDirection === 'vertical' ? 'Stacked' : 'Side by side' : '',
-      count: group.terminalIds.length, active: id === terminalId, target: `${threadKey}|${id}`, closeTitle, closeBody };
-  }));
+  const tabs = terminalTabs(ui.terminalGroups, terminalId, layout.showHeaders, threadKey, labelFor, ui.terminalOpen ? keyClose : '');
   return {
     available: terminalAvailable(client), open: !!launch && ui.terminalOpen, threadKey: ref ? scopedThreadKey(ref) : '', environmentId: ref?.environmentId ?? '', threadId: ref?.threadId ?? '',
     terminalId, label, cwd: launch?.cwd ?? '', worktree: launch?.worktreePath ?? '', env: JSON.stringify(launch?.env ?? {}),
@@ -280,8 +281,8 @@ export async function terminalDrawerView(client: T3Client, native: Native | null
     failure: drawer.failure,
     commandPrefix: 'terminallocal', surface: 'drawer', keybindings: terminalKeybindings(client), panes, tabs,
     direction: layout.direction, showTabs: layout.showTabs, splitDisabled: layout.splitDisabled,
-    splitLabel: terminalSplitLabel(false, layout.splitDisabled, commandShortcut(client.config, 'terminal.split')),
-    splitVerticalLabel: terminalSplitLabel(true, layout.splitDisabled, commandShortcut(client.config, 'terminal.splitVertical')),
+    splitLabel: terminalSplitLabel(false, layout.splitDisabled, terminalShortcut(client, 'terminal.split')),
+    splitVerticalLabel: terminalSplitLabel(true, layout.splitDisabled, terminalShortcut(client, 'terminal.splitVertical')),
   };
 }
 

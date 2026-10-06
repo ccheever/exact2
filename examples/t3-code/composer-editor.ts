@@ -20,6 +20,7 @@ import { imageChipContexts, imageContextRecords } from './composer-editor-attach
 import { composerDrawer, composerStackHold, NO_DRAWER, type ComposerDrawer, type StackHold } from './composer-editor-drawer';
 import { WorkspaceDiscovery, workspaceValues } from './composer-workspace-snapshots';
 import { parseTerminalContext, formatTerminalContextReference, saveTerminalContext, terminalMessageRecords, terminalDraftRecords } from './terminal-integrations';
+import { terminalOpen } from './terminal-drawer-view'; // terminal-layout: the real terminalOpen
 import { videoOp } from './r4-composer-attachments';
 
 export type ComposerMenuRow = Omit<MenuRow, 'insert'>;
@@ -351,7 +352,7 @@ async function restoreStash(client: T3Client, native: Native, id: string): Promi
 }
 /** The chord a keybinding command currently resolves to, as aria-keyshortcuts. */
 function commandChord(client: T3Client, command: string, fallback: string): string {
-  return commandChords(client.config, command, fallback);
+  return commandChords(client.config, command, fallback, false, { terminalOpen: terminalOpen(client) });
 }
 
 /** addReviewComment (diff-review.ts): the line comment's record goes behind a chip inserted at the caret. */
