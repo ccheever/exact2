@@ -104,10 +104,19 @@ most 11 live terminal views (the visible thread plus 10 hidden, about 430 MB); a
 that drops its views and replays the server's retained output when it returns (the drawer's
 reattach path). Splits of one thread could share one page later if the number is too high.
 
-**Live drive.** Two `agent.mjs macos` drives (no server: the harness is local) tapped the
-1-point toggle at the window's corner, where the rounded corner takes no click, so the harness
-never opened. The toggle now sits at `left=240 bottom=6`; the drive rule allowed no third run,
-so the in-app harness is unverified. `tree` showed `terminal-harness-toggle` (view 300).
+**Live drive** (`agent.mjs macos --size 1280x840`, no server: the harness is local). The first
+two drives tapped the 1-point toggle at a rounded window corner, which takes no click; it now sits
+at `left=240 bottom=6`. The after drive (ADDENDUM 7 pair, base `da40e6590`) opened the harness
+(`View#377 [terminal-harness]`, `NativeView#388 [terminal-harness-view] label="Terminal" [focused]`),
+`type … echo hello` / `key Enter` were delivered `native-module`, and `key Meta+K` came back from
+the page as a declined chord (`terminal-harness-status` "focused · 5 messages ·
+{"key":"k","code":"KeyK",…,"metaKey":true,"type":"chord"}"). The canvas never repainted after its
+first frame: the agent's window was occluded, so WebKit hid the page and stopped
+requestAnimationFrame. Under the agent the view now turns WebKit's occlusion detection off
+(`b9e4d15a8`; the AppKit test takes that path and paints); not re-driven (drive limit). The
+palette did not open from ⌘K on the welcome screen; whether the resent chord reaches the menu in
+an active app stays unverified (attended). The harness takes `scheme` from
+`viewport.prefersColorScheme`, so it drew dark while the app showed light under the agent.
 
 **Ported tests** (`bun test examples/t3-code/terminal-host examples/t3-code/terminal-links.test.ts`,
 136 pass): `surface.test.ts` 54 (every describe, the DOM-bound visibility suite too: it stubs its
@@ -116,7 +125,7 @@ it lacks), `selectionActions.test.ts` 32 (`resolveSelectionActionPosition` and
 `observeSelectionActions`), `terminal-links.test.ts` 19, `runtimeAbi.test.ts` 9,
 `renderer.test.ts` 8, `core.test.ts` 6 of 13 (below), `keyCodes.test.ts` 5, `entry.test.ts` 3.
 
-**Left / limits.** X31 (new): the bundle build does not run `terminal-host/build.mjs`; run it
+**Left / limits.** X46 (new): the bundle build does not run `terminal-host/build.mjs`; run it
 first. `core.test.ts`'s seven session-buffer tests move to the drawer task with
 `state/terminal.ts`. Mouse, wheel, drag selection, links, right-click, scrollbar drag and
 resize need real input (X8); render pair against the Electron oracle not run (no oracle).

@@ -79,7 +79,7 @@ Exact repository root:
 ```sh
 bun install --frozen-lockfile
 export EXACT_APP_DIR="$PWD/examples/t3-code"
-bun examples/t3-code/terminal-host/build.mjs   # the terminal page into assets/ (ignored; EXACT2-GAPS X31)
+bun examples/t3-code/terminal-host/build.mjs   # the terminal page into assets/ (ignored; EXACT2-GAPS X46)
 bun host/apple/build.mjs t3-code-macos --bundle --run
 ```
 
