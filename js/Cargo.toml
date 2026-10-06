@@ -11,7 +11,7 @@ crate-type = ["rlib"]
 
 [dependencies]
 ibex2-sqlite = { path = "../vendor/ibex/crates/ibex2-sqlite" }
-ibex2 = { path = "../vendor/ibex/crates/ibex2", default-features = false, features = ["bindings", "crypto"] }
+ibex2 = { path = "../vendor/ibex/crates/ibex2", default-features = false, features = ["bindings", "crypto", "intl"] }
 hermes-lean-sys = { path = "../vendor/ibex/crates/hermes-lean-sys", default-features = false, features = ["link-lean"] }
 exact-data = { path = "../data" }
 exact-js-value = { path = "value" }

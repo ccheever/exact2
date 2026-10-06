@@ -214,7 +214,11 @@ void *exact_js_create(uint32_t max_heap_bytes, HostFn host, BytesFn bytes, void 
     options.defer_intrinsic_snapshot = true;
     constexpr auto groups = ibex2::jsi_adapter::GROUP_PURE |
                             ibex2::jsi_adapter::GROUP_CRYPTO |
-                            ibex2::jsi_adapter::GROUP_ABORT;
+                            ibex2::jsi_adapter::GROUP_ABORT
+#if defined(__linux__) || defined(_WIN32)
+                            | ibex2::jsi_adapter::GROUP_INTL
+#endif
+                            ;
     state->adapter->install_with(groups, bindings, scripts, script_count, options);
     return state.release();
   } catch (...) {

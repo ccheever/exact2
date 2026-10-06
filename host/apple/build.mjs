@@ -742,7 +742,6 @@ async function main(args) {
   const development = cargoEnv.EXACT_UPDATE_TRUST === 'development' && args.includes('--url') ? developmentAdmission(app, launchEnv.EXACT_DEV_PLAN) : null;
   cargoEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, cargoEnv);
   if (ios && existsSync(resolve(app.dir, 'app.ts'))) {
-    if (tv) throw new Error('TypeScript on tvOS is not available in the pinned Hermes v3 release; E2 re-vendors v4 with tvOS bundles. Build without app.ts or select iOS instead.');
     if (cargoEnv.EXACT_JS_ENGINE !== 'stub') {
       const bundle = hermesBundle(target, cargoEnv);
       if (!bundle.installed) throw new Error(`the pinned Hermes bundle for ${target} is not installed. Install it once with:\n  ${bundle.fix}`);

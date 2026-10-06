@@ -140,6 +140,8 @@ mod real {
             hermes_lean_sys::ensure_linked();
             use ibex2::bindings::Groups;
             let groups = Groups::PURE | Groups::CRYPTO | Groups::ABORT;
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            let groups = groups | Groups::INTL;
             let compiled =
                 ibex2::bindings::compiled_scripts(groups).map_err(|error| error.to_string())?;
             let names = compiled
