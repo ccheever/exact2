@@ -227,7 +227,7 @@ extension NodeView {
         // is made again from the range it broke at (`LineGeometry.clamped`).
         guard isParagraph && flowShapes.isEmpty && columnRecord == nil && !Capture.capturing && window != nil && backgroundClip != "text"
             && bounds.width > 0 && bounds.height > 0 else { return false }
-        return canvasAbove == nil
+        return canvasAbove == nil && !paintsVisibleInlineRun
     }
     /// The whole paragraph's pixels are up for its current text and box: a
     /// refresh has nothing to do for it until a change clears its key

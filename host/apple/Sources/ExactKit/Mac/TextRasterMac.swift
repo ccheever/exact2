@@ -199,7 +199,7 @@ extension NodeView {
               window != nil, readerParagraph == nil, let presenter else { return false }
         if presenter.selection.isActive, let selected = presenter.selection.range(self), selected.length > 0 { return false }
         if presenter.session?.regions.owns(self) == true { return false }
-        return canvasAbove == nil
+        return canvasAbove == nil && !paintsVisibleInlineRun
     }
 
     /// Too few pixels to repay a surface. Such text draws whole rather than in

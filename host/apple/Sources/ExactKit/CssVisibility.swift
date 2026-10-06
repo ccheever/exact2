@@ -12,6 +12,14 @@ extension NodeView {
     /// Computed `visibility: hidden`. Absent is the initial `visible`.
     var cssVisibilityHidden: Bool { style["visibility"]?.string == "hidden" }
 
+    /// A hidden paragraph that still has an inline run computing `visible`.
+    /// A paragraph that is not hidden answers false without walking its runs,
+    /// so a visible paragraph's raster decision does not scan them.
+    var paintsVisibleInlineRun: Bool {
+        guard cssVisibilityHidden else { return false }
+        return inlineText.contains { $0.paints && !$0.run(dark: drawsDark).hidden }
+    }
+
     /// This node's own platform content. Child node views keep their own
     /// computed visibility, and so does a scroll or clip that holds them.
     func applyCssVisibility() {
@@ -26,6 +34,22 @@ extension NodeView {
         #if os(macOS)
         textAreaScroll?.isHidden = hidden
         symbolClip?.isHidden = hidden
+        #endif
+        // The bitmap `invalidateText` left up. A fully hidden paragraph may
+        // raster blank afterwards; a visible run draws through TextEngine.
+        if hidden, isParagraph { retireHiddenText() }
+    }
+
+    /// Take down the text bitmap this paragraph was already showing.
+    /// `dropTextRaster` clears the layer only while the paragraph still
+    /// rasters. A visible run makes it stop, and the old surface would stay.
+    func retireHiddenText() {
+        dropTextRaster()
+        #if os(macOS)
+        layer?.contents = nil
+        needsDisplay = true
+        #else
+        setNeedsDisplay()
         #endif
     }
 
