@@ -7,7 +7,7 @@ delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-right-panel-tab-menu
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/169
 verified_commit: null
 ---
 
