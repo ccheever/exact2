@@ -16,7 +16,7 @@ final class TerminalDrawerTests: XCTestCase {
         window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 720, height: 420), styleMask: [.titled], backing: .buffered, defer: false)
         window.orderFrontRegardless()
         transport = T3Transport(persistent: false, signals: false, changed: { _ in })
-        sessions = T3TerminalSessions(transport: transport)
+        sessions = T3TerminalSessions.of(transport)
         sessions.detachGrace = 0.1
         drawerMessages = []
     }
@@ -150,6 +150,17 @@ final class TerminalDrawerTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         XCTAssertEqual(drawerMessages.count, 1, "the exit is reported once")
         XCTAssertEqual(text(view).filter { $0 == "[terminal] Process exited" }.count, 1)
+    }
+
+    /// The module's status reply carries every terminal's status; with a view shown it must stay JSON
+    /// (an ArraySlice there failed the whole status read: "the reply was not JSON").
+    func testTheStatusOfShownTerminalsIsJSON() {
+        let view = mount()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let status = T3Terminals.shared.status
+        XCTAssertTrue(JSONSerialization.isValidJSONObject(status), "\(status)")
+        XCTAssertEqual((status["terminalSessions"] as? [[String: Any]])?.first?["terminalId"] as? String, "term-1")
+        XCTAssertNotNil(view.session)
     }
 
     func testAMountedThreadKeepsItsSessionWithoutAViewAndAnUnmountedOneLetsGo() {
