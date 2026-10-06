@@ -13,6 +13,7 @@ import { chordWinners } from './keyboard-dispatch';
 import { linkMode } from './palette-linkpr';
 import { scratchRoot, isScratchProject } from './pages-home';
 import { pickerProjects } from './r4-polish-palette-projects'; // r4-polish: Project order
+import { openPanelPullRequestUrl, threadReferenceTarget } from './thread-reference';
 
 export type PalettePart = { id: string; text: string; hit: boolean; cls: string };
 export type PaletteRow = {
@@ -202,7 +203,8 @@ export function rootActions(client: T3Client): Item[] {
   if (str(client.config.scratchWorkspaceRoot)) action('new-thread-without-project', ['new thread', 'no project', 'without project', 'none', 'chat'],
     { op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'New thread without a project', shortcut: commandShortcut(client, 'chat.newWithoutProject') });
   if (thread) {
-    action('copy-thread-reference', ['copy', 'pull request', 'pr link', 'thread id', 'reference'], { op: 'copy-thread', icon: 'link', title: 'Copy thread ID', description: str(thread.id), shortcut: commandShortcut(client, 'thread.copyReference') });
+    const reference = threadReferenceTarget(client, openPanelPullRequestUrl(client)); // thread-commands-and-keys: Copy PR link or thread ID
+    if (reference) action('copy-thread-reference', ['copy', 'pull request', 'pr link', 'thread id', 'reference'], { op: 'copy-thread', icon: 'link', title: reference.kind === 'pull-request' ? 'Copy PR link' : 'Copy thread ID', description: reference.value, shortcut: commandShortcut(client, 'thread.copyReference') });
     if (linkMode(client.config) !== 'unsupported') action('link-pull-request', ['link', 'pull request', 'pr', 'attach', 'stack'], { op: 'page', arg: 'link-pr', icon: 'pull-request-link', title: 'Link pull request to thread' });
     if (capabilities(client).threadPullRequests === true) {
       const linked = arr(thread.pullRequests).length > 0;
