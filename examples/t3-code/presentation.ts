@@ -1,6 +1,7 @@
 import { legacySidebarSnapshot } from './legacy-sidebar-view';
 import { timelineReadsNeeded } from './timeline-prepare';
 import { projectCloneBlock } from './project-clones-live';
+import { highlightPending } from './r12-render-highlight';
 import { markdownSkills } from './r4-timeline-chips';
 import { workspaceValues } from './composer-workspace-snapshots';
 import { workspaceCwd } from './composer-editor';
@@ -22,7 +23,8 @@ import { composerOverlaySnapshot } from './r4-composer-overlay';
 import { composerVideoSnapshot } from './r4-composer-attachments';
 import { alertClip } from './r6-polish-measure'; // r6-polish
 import { tableMenuSnapshot } from './r8-keys-table-menu'; // lane r8-keys
-import { sidebarMinimumWidth } from './r12-sidebar-width'; // lane r12-sidebar
+import { sidebarMinimumWidth, workspaceControlsLeft } from './r12-sidebar-width'; // lane r12-sidebar
+import { adoptHostLocale } from './timestamp-format'; // desktop-shell-details: the Mac's locale, from the status presentation (T3Locale.swift)
 
 const modes: Record<string, string> = {
   'approval-required': 'Ask for approval', 'auto-accept-edits': 'Auto-accept edits',
@@ -102,6 +104,8 @@ export function providerBanner(provider: Obj | undefined) {
 /** T3's timeline rows (timeline-presentation.ts transcriptRows). */
 export function transcriptPresentation(client: T3Client): Message[] { return [...subagentLead(client), ...transcriptRows(client)]; }
 export function snapshot(client: T3Client, now = 0) {
+  adoptHostLocale(client.presentation.systemLocale);
+  const fullScreen = client.presentation.fullScreen === true; // T3FullScreen.swift
   const project = client.shell.projects.find(project => project.id === client.projectId);
   const providers = arr(client.config.providers);
   const provider = providers.find(provider => provider.instanceId === client.providerId);
@@ -130,7 +134,7 @@ export function snapshot(client: T3Client, now = 0) {
     status: connectionMessage, serverUrl: client.origin,
     uncertain: pending?.uncertain === true,
     uncertainMessage: pending?.uncertain ? `${pending.description} may already have reached T3. Reconnect and check the thread before retrying.` : '',
-    sidebarWidth: client.local.sidebarWidth, sidebarMinWidth: sidebarMinimumWidth(client.local.clientSettings?.fontSizeInterface), sidebarOpen: client.local.sidebarOpen, query: client.query,
+    sidebarWidth: client.local.sidebarWidth, sidebarMinWidth: sidebarMinimumWidth(client.local.clientSettings?.fontSizeInterface, fullScreen), controlsLeft: workspaceControlsLeft(client.local.clientSettings?.fontSizeInterface, fullScreen), sidebarOpen: client.local.sidebarOpen, query: client.query,
     projectId: client.projectId, projectName: str(project?.title, 'Choose a project'), threadId: client.threadId,
     threadTitle: str(obj(client.projection.thread).title, 'New thread'),
     // The header title keyed by its text: a reused one-line text keeps drawing the previous title clipped to the new width.
@@ -165,6 +169,7 @@ export function snapshot(client: T3Client, now = 0) {
     composer: composerSnapshot(client, now),
     look: look(client),
     ...tableMenuSnapshot(client), // lane r8-keys: a table's Copy popup over every layer
+    highlightPending: highlightPending(), // shiki-residuals: last, after every code text above asked for its tokens
   };
 }
 

@@ -231,6 +231,7 @@ shape SnapshotDraft
   referenced: bool
 shape Snapshot
   timelineReadsNeeded: bool
+  highlightPending: bool // shiki-residuals: a code text waits for its Shiki tokens
   markdownSkills: list<MarkdownSkill>
   composer: ComposerView
   // r6-polish: the AlertStack wrapper's clip to its banners (r6-polish-measure.ts alertClip).
@@ -254,6 +255,8 @@ shape Snapshot
   sidebarWidth: number
   // r12-sidebar: resolveThreadSidebarMinimumWidth at the Interface font size (r12-sidebar-width.ts).
   sidebarMinWidth: number
+  // desktop-shell-details: --workspace-controls-left, 90 beside the traffic lights, 0.75rem in full screen (r12-sidebar-width.ts).
+  controlsLeft: number
   sidebarOpen: bool
   query: string
   projectId: string

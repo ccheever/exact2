@@ -9,6 +9,16 @@
 // dropdown-glass card has a 22pt radius and no shadow; rows are 32pt, 10pt
 // radius, 13pt medium foreground/80 with a 16pt muted glyph; only Lineage keeps
 // its 11pt heading.
+//
+// Window z scale (1e2ecbd975, e19a48d220: popover variant="panel" sits at --z-sheet,
+// below the floating preview player and every dialog). The reference: docked sheets
+// 46, floating player 47-49, dialogs and other popovers 50 and up. Here: the inline
+// card 20; right-panel sheets 10/11; menus with click-away backdrops 29-31; this
+// popover 35; the floating device player 40; dialogs 40 and up (snooze, confirm,
+// revert, plan save 40; device setup and media previews 45; palette and title menu
+// 60; Git, pull request and checkout dialogs 72-82); toasts 100; table menu 130;
+// tooltips 140. exact2: menus stay under the popover (they close on any outside
+// press, so the two do not show together); the reference puts them over it.
 use ShellDetails from "./shell-shapes.contract"
 use ShellLineage from "./shell-shapes.contract"
 use ShellEditor from "./shell-shapes.contract"
@@ -36,7 +46,7 @@ component ThreadDetailsPanel
     // prefers-reduced-motion: the running automation's dot stays still.
     still: bool
   view
-    box position="absolute" left=0 top=0 right=0 bottom=0 z-index=50 testId="thread-details-layer"
+    box position="absolute" left=0 top=0 right=0 bottom=0 z-index=35 testId="thread-details-layer"
       button press=act("toggle", "", "") aria-label="Close thread details" aria-keyshortcuts="Escape" testId="thread-details-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000"
       column position="absolute" top=60 right=right width=264 max-height=maxHeight box-sizing="border-box" border-radius=22 border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="dialog" aria-label="Thread details" testId="thread-details"
         DetailsBody(details=details, maxHeight=maxHeight, editorsOpen=editorsOpen, act=act, local=local, still=still)

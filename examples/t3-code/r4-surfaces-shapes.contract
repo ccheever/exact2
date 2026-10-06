@@ -197,6 +197,8 @@ shape R4Device
   refreshable: bool
   // lane r6-media: the opened device and its workspace (r6-media-device.ts).
   r6: R6DeviceView
+  // 1e2ecbd975 (5318d054a5): a local host has no available platform (device-support.ts).
+  localPlatformsUnavailable: bool
 shape R4Panel
   open: bool
   kind: string
