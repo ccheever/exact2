@@ -1,0 +1,2 @@
+body { background: #1a7f37; color: #fff; font: 20px system-ui; margin: 8px; }
+#m { visibility: hidden; } body::after { content: "style.css loaded"; }

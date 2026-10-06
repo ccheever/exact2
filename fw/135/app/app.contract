@@ -1,0 +1,11 @@
+component X135
+  view
+    column testId="root" padding=12 gap=4 box-sizing="border-box" width="100%" color="#111111" background-color="#ffffff"
+      text "D: app page + http://localtest.me:18735/style.css"
+      iframe src="assets/local.html" testId="local-named" width=380 height=44
+      text "E: app page + http://127.0.0.1:18735/style.css"
+      iframe src="assets/local-ip.html" testId="local-ip" width=380 height=44
+      text "F: app page + http://localhost:18735/style.css"
+      iframe src="assets/local-localhost.html" testId="local-localhost" width=380 height=44
+      text "G: app page + http://[::1]:18735/style.css"
+      iframe src="assets/local-v6.html" testId="local-v6" width=380 height=44

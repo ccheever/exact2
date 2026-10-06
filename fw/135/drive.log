@@ -1,0 +1,53 @@
+exact2 #135 drive log. macOS 26.6.2, iPhone 18 Pro simulator. App: app/ (bundled pages D-G link http://<host>:18735/style.css).
+Server: python3 -I site/serve.py site 18735 (dual-stack, logs each request with Host and Referer).
+Each run: bun exact.mjs agent <host> --size 420x320 "clock +3000 real" tree logs "screenshot ..."
+(.app runs: bun exact.mjs mac --bundle, then EXACT_MAC_BIN=<X135.app>/Contents/MacOS/ExactMac)
+
+## Chrome (agent web), dev page http://127.0.0.1:57705
+GET /style.css?local HTTP/1.1 Host=localtest.me:18735 Referer=http://127.0.0.1:57705/
+GET /style.css?local-ip HTTP/1.1 Host=127.0.0.1:18735 Referer=http://127.0.0.1:57705/
+GET /style.css?local-localhost HTTP/1.1 Host=localhost:18735 Referer=http://127.0.0.1:57705/
+GET /style.css?local-v6 HTTP/1.1 Host=[::1]:18735 Referer=http://127.0.0.1:57705/
+
+## before (origin/main 2ce193976): agent macos, macOS .app, agent ios
+server: no requests in any of the three runs; logs: only "ApplePersistence=NO"
+tree: every frame [guest] p#m "unstyled: style.css did not load"
+
+## after (this branch): agent macos (bare executable, no Info.plist, so no ATS)
+GET /style.css?local-ip HTTP/1.1 Host=127.0.0.1:18735 Referer=http://exact.localhost/
+GET /style.css?local-v6 HTTP/1.1 Host=[::1]:18735 Referer=http://exact.localhost/
+GET /style.css?local-localhost HTTP/1.1 Host=localhost:18735 Referer=http://exact.localhost/
+GET /style.css?local HTTP/1.1 Host=localtest.me:18735 Referer=http://exact.localhost/
+
+## after: macOS .app (no appTransportSecurity in app.json)
+GET /style.css?local-ip HTTP/1.1 Host=127.0.0.1:18735 Referer=http://exact.localhost/
+GET /style.css?local-localhost HTTP/1.1 Host=localhost:18735 Referer=http://exact.localhost/
+GET /style.css?local-v6 HTTP/1.1 Host=[::1]:18735 Referer=http://exact.localhost/
+logs:
+  app: exact: iframe assets/local.html: http://localtest.me:18735/style.css?local did not load (App Transport Security refuses http: to a named host; app.json's host.macos.appTransportSecurity can allow it)
+
+## after: macOS .app with host.macos.appTransportSecurity = { allowsArbitraryLoadsInWebContent: true }
+GET /style.css?local-v6 HTTP/1.1 Host=[::1]:18735 Referer=http://exact.localhost/
+GET /style.css?local HTTP/1.1 Host=localtest.me:18735 Referer=http://exact.localhost/
+GET /style.css?local-localhost HTTP/1.1 Host=localhost:18735 Referer=http://exact.localhost/
+GET /style.css?local-ip HTTP/1.1 Host=127.0.0.1:18735 Referer=http://exact.localhost/
+logs: no "did not load" line
+
+## after: agent ios (simulator app bundle)
+GET /style.css?local-ip HTTP/1.1 Host=127.0.0.1:18735 Referer=http://exact.localhost/
+GET /style.css?local-v6 HTTP/1.1 Host=[::1]:18735 Referer=http://exact.localhost/
+GET /style.css?local-localhost HTTP/1.1 Host=localhost:18735 Referer=http://exact.localhost/
+logs:
+  app: exact: iframe assets/local.html: http://localtest.me:18735/style.css?local did not load (App Transport Security refuses http: to a named host; app.json's host.ios.appTransportSecurity can allow it)
+
+## Cause probe (standalone WKWebView, loadSimulatedRequest of the bundled page at each origin; stylesheet on 127.0.0.1)
+https://exact.invalid  => origin https://exact.invalid, isSecureContext true,  body bg rgba(0,0,0,0)  (blocked: mixed content)
+http://exact.invalid   => origin http://exact.invalid,  isSecureContext false, body bg rgb(26,127,55)
+http://exact.localhost => origin http://exact.localhost, isSecureContext true, body bg rgb(26,127,55), crypto.subtle present
+(same result for localhost, [::1] and localtest.me stylesheets; the probe binary has no Info.plist, so no ATS)
+
+## Smoke (httpFrameSmoke, extended): local.html links http://127.0.0.1:<port>/style.css and /missing.css (404)
+origin/main WebArm:  FAIL macos local-http: expected rgb(26, 127, 55) secure true, got "rgba(0, 0, 0, 0) secure true"
+                     FAIL macos a bundled page's failed sub-resource was not logged
+                     FAIL ios   (same two)
+this branch:         PASS macos, PASS ios
