@@ -48,6 +48,13 @@ shape R4CodeLine
   id: string
   number: string
   runs: list<R4CodeRun>
+  // diff-review: a code line ("line"), or a saved ("note") or draft comment under its last line; line selection.
+  kind: string
+  line: number
+  selected: bool
+  entry: string
+  text: string
+  label: string
 shape R4Editor
   id: string
   label: string
@@ -74,6 +81,7 @@ shape R4Files
   previewError: string
   crumbs: list<R4Crumb>
   lines: list<R4CodeLine>
+  commentOpen: bool
   text: string
   textKey: string
   gutter: number

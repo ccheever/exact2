@@ -14,7 +14,8 @@
 import { arr, obj, str } from './domain';
 import { bridgeReply, type Native } from './protocol';
 import { buildRemoteOpenUrl, REMOTE_CAPABLE_EDITOR_IDS, remoteSchemeForEditor } from './editors';
-import { isLoopback, trimOrigin } from './settings-b-fleet';
+import { fleet, isLoopback, trimOrigin } from './settings-b-fleet';
+import { savedRoutes } from './connection-routes';
 import { sshTargets } from './settings-b-ssh';
 import type { T3Client } from './client';
 
@@ -131,7 +132,9 @@ export type RemoteOpen = { state: RemoteOpenState; resolved: boolean; primary: b
 /** useRemoteOpenResolution for the focused environment, from what is known now (sync: the keyboard dispatch reads it). */
 export function remoteOpenFor(client: T3Client): RemoteOpen {
   const origin = trimOrigin(str(client.origin));
-  const alias = aliases?.[origin] ?? null;
+  const saved = fleet.saved.find(entry => str(entry.environmentId) === client.environmentId);
+  const sshRoute = saved ? savedRoutes(saved).find(route => route.kind === 'ssh') : undefined;
+  const alias = sshRoute?.ssh?.alias || (sshRoute ? aliases?.[trimOrigin(sshRoute.origin)] : null) || aliases?.[origin] || null;
   const target: RemoteTarget | null = !client.environmentId || !origin ? null : alias ? { kind: 'ssh' } : isLoopback(origin) ? { kind: 'primary', httpBaseUrl: origin } : { kind: 'bearer' };
   const advertised = Array.isArray(obj(client.config).remoteOpenTargets)
     ? arr(obj(client.config).remoteOpenTargets).map(entry => ({ kind: str(entry.kind), host: str(entry.host).trim() })).filter(entry => entry.host) : undefined;

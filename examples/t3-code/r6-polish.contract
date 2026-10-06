@@ -1,7 +1,7 @@
 // Lane r6-polish: texts the app places things by, measured from laid-out text
 // instead of estimated (as r5-composer.contract's probes): each probe is drawn
-// once, invisible and inert (a box takes presses natively whatever its
-// pointer-events), and reports [x, width] through the t3-anchor hook
+// once, invisible and passing the pointer through (`pointer-events="none"`,
+// which the macOS host honours on boxes since 652a6c865), and reports [x, width] through the t3-anchor hook
 // (T3Composer.swift); r5-composer-menus.ts `measured` reads it back.
 use R5Probe from "./r5-composer.contract"
 use ShellDetails from "./shell-shapes.contract"
@@ -13,7 +13,7 @@ component R6TextProbes
   props
     probes: list<R5Probe>
   view
-    column position="absolute" left=0 top=0 opacity=0 inert=true aria-hidden=true align-items="flex-start" testId="r6-text-probes"
+    column position="absolute" left=0 top=0 opacity=0 pointer-events="none" aria-hidden=true align-items="flex-start" testId="r6-text-probes"
       each probe in probes key=probe.key
         box hook="t3-anchor" data-anchor=probe.key display="flex" flex-direction="row" flex-shrink=0
           text probe.text font-size=probe.size font-weight=probe.weight line-height=`${probe.size + 4}px` white-space="nowrap" flex-shrink=0

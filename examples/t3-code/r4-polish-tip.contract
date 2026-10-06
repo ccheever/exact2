@@ -48,19 +48,19 @@ component SidebarEdgeTips
     newThreadDetail: string
     pullRequests: bool
   view
-    row position="absolute" left=(width + 11) top=0 bottom=0 align-items="center" pointer-events="none" inert=true z-index=140
+    row position="absolute" left=(width + 11) top=0 bottom=0 align-items="center" pointer-events="none" z-index=140
       TipCard(label="Drag to resize sidebar", shown=(hoverId == "sidebar-rail"))
-    row position="absolute" left=(width - 278) width=400 top=0 height=58 align-items="flex-end" justify-content="center" pointer-events="none" inert=true z-index=140
+    row position="absolute" left=(width - 278) width=400 top=0 height=58 align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Filter threads by project", shown=(hoverId == "sidebar-filter"))
-    row position="absolute" left=(width - 250) width=400 top=0 height=58 align-items="flex-end" justify-content="center" pointer-events="none" inert=true z-index=140
+    row position="absolute" left=(width - 250) width=400 top=0 height=58 align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Add project", shown=(hoverId == "sidebar-add-project"))
-    row position="absolute" left=(width - 222) width=400 top=0 height=58 align-items="flex-end" justify-content="center" pointer-events="none" inert=true z-index=140
+    row position="absolute" left=(width - 222) width=400 top=0 height=58 align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
       TipCard2(label=newThread, detail=newThreadDetail, shown=(hoverId == "sidebar-new-thread"))
-    row position="absolute" left=8 bottom=40 pointer-events="none" inert=true z-index=140
+    row position="absolute" left=8 bottom=40 pointer-events="none" z-index=140
       TipCard(label="Settings", shown=(hoverId == "sidebar-settings"))
-    row position="absolute" left=-140 width=400 bottom=40 justify-content="center" pointer-events="none" inert=true z-index=140
+    row position="absolute" left=-140 width=400 bottom=40 justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Pull Requests", shown=(hoverId == "sidebar-pull-requests"))
-    row position="absolute" left=(pullRequests ? -104 : -140) width=400 bottom=40 justify-content="center" pointer-events="none" inert=true z-index=140
+    row position="absolute" left=(pullRequests ? -104 : -140) width=400 bottom=40 justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Usage", shown=(hoverId == "sidebar-usage"))
 
 // SidebarProviderUpdatePill: an update in flight or its outcome; the body opens Settings › Providers.

@@ -48,3 +48,9 @@ apps/expose/local.ts
 
 # Declarations the dev producer writes beside each example app.ts.
 examples/*/app.contract.d.ts
+# The T3 Code example's terminal page, built by examples/t3-code/terminal-host/build.mjs.
+examples/t3-code/assets/terminal-host.html
+examples/t3-code/assets/terminal-host.js
+examples/t3-code/assets/terminal-ghostty-vt.wasm
+examples/t3-code/assets/terminal-ghostty-write-pty.wasm
+examples/t3-code/assets/terminal-symbols-nerd-font-mono.woff2

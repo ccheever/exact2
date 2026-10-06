@@ -17,6 +17,7 @@ import { telemetryCommand, telemetryLocal } from './settings-a-telemetry';
 import { openLogsFolder } from './diagnostics-view';
 import { bitbucketCommand } from './settings-a-bitbucket';
 import { deviceHostsCommand } from './settings-a-hosts';
+import { deviceScopedCommand } from './settings-integrations-scope';
 
 /** Contract sends `a=encodeURIComponent(x)&b=…`; Hermes has no URLSearchParams. */
 export function params(value: string): Record<string, string> {
@@ -124,6 +125,8 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
     return '';
   }
   if (op === 'task') return scheduledTaskCommand(client, native, scope, input); // scheduled-tasks-commands.ts: the live list, any environment
+  // Integrations device switches across the settings scope (settings-integrations-scope.ts).
+  if (op === 'device' && input.scope !== undefined) return deviceScopedCommand(client, native, input.scope, str(input.key), str(input.value));
   if (op === 'scoped' || op === 'fetch-interval' || op === 'device') {
     // ProjectDefaultsSettings / SourceControlWritingSettings / BranchNamingSettings /
     // GitFetchIntervalSettings / DeviceIntegrationControls writes.

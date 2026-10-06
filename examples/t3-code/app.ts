@@ -91,7 +91,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'sourceControlPage') return sourceControlPage(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, viewState(client).rescan, viewState(client).reveal);
   if (source === 'keyboardDispatch') return keyboardDispatchSource(client, args);
   if (source === 'projectsView') { const legacy = String(args[2] || ''); const group = !args[0] && legacy ? client.projectGroups().find(candidate => candidate.members.some(member => member.id === legacy)) : undefined; return projectsView(client, group ? group.key : String(args[0] || ''), group ? legacy : String(args[1] || ''), args[3] === true, native); }
-  if (source === 'integrationsPage') return integrationsPage(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true);
+  if (source === 'integrationsPage') return integrationsPage(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[5] || ''), String(args[6] || ''), String(args[7] || ''));
   if (source === 'settingsNavigation') return settingsNavigation(String(args[0] || ''), searchContext(client.config, client.ready, String(args[1] || 'all')), Number(args[2]) || 0);
   if (source === 'settingsCore') return settingsCore(client, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), String(args[4] || ''), String(args[5] || ''), args[6] === true, String(args[9] || ''), String(args[10] || ''), String(args[11] || 'embedded'), args[12] === true);
   if (source === 'settings') {

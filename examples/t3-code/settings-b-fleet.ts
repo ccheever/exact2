@@ -10,6 +10,7 @@ import { obj, str, num, arr, initialShell, applyShell, type Obj, type Shell } fr
 import { bridgeReply, applyConfig, type Native } from './protocol';
 import { announceJobs } from './settings-b-outdated';
 import type { T3Client } from './client';
+import { learnRoutes } from './connection-routes-ops';
 import { liveFleetEvent, liveFleetPass } from './live-streams';
 
 export type FleetPhase = 'available' | 'connecting' | 'reconnecting' | 'connected' | 'error' | 'unsupported';
@@ -18,10 +19,17 @@ export interface FleetEntry {
   phase: FleetPhase; message: string; traceId: string;
   generation: number; synchronized: number; lastEvent: number; subscriptions: Record<string, string>;
   config: Obj; shell: Shell; scopes: string[]; error: string; requested: boolean; busy?: boolean;
+  /** The route this environment's transport connected over (lane environment-routes). */
+  activeRouteId?: string;
 }
 export interface FocusedHost { origin: string; environmentId: string; connection: string }
 
 export const trimOrigin = (origin: string) => origin.trim().replace(/\/+$/, '');
+/**
+ * A saved environment's key: its home origin (the address it was first saved under,
+ * T3SavedEnvironments) and its id. One entry per environment id holds every route, so the
+ * focused connection (whose origin is the route in use) is matched by id, never by this key.
+ */
 export const environmentKey = (origin: string, environmentId: string) => `${trimOrigin(origin)}\n${environmentId}`;
 const LOOPBACK = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\]|::1)$/i;
 /** A loopback origin is this machine: the reference's primary environment. */
@@ -58,9 +66,10 @@ export class EnvironmentFleet {
 
   /** Saved environments this device keeps switched on, other than the focused one. */
   wanted(focused: FocusedHost): Obj[] {
-    const focusKey = focused.environmentId ? environmentKey(focused.origin, focused.environmentId) : '';
+    // The focus may be any of its environment's routes, so it is matched by id (lane environment-routes).
     return this.saved.filter(entry => entry.enabled !== false && str(entry.environmentId)
-      && environmentKey(str(entry.origin), str(entry.environmentId)) !== focusKey).slice(0, 8);
+      && !(focused.environmentId && str(entry.environmentId) === focused.environmentId)
+      && !(!focused.environmentId && focused.origin && trimOrigin(str(entry.origin)) === trimOrigin(focused.origin))).slice(0, 8);
   }
 
   /**
@@ -88,6 +97,8 @@ export class EnvironmentFleet {
       if (!entry) { entry = fresh(key, str(saved.origin), str(saved.environmentId)); this.entries.set(key, entry); this.revision++; }
       await this.syncOne(native, entry, epoch).catch(error => { entry!.error = error instanceof Error ? error.message : 'The environment failed.'; });
     }
+    // Lane environment-routes: each connected environment's reported addresses become learned routes.
+    await learnRoutes(native, this, focused).catch(() => {});
     // Outdated-host updates (settings-b-outdated.ts) finish in the background: toast each result once.
     await announceJobs(native, 'local' in focused ? focused as unknown as T3Client : null).catch(() => {});
   }
@@ -110,8 +121,8 @@ export class EnvironmentFleet {
       void native.later({ op: 'connect', fleet: entry.key, origin: entry.origin, credential: '' }).catch(() => {});
       return;
     }
-    if (next.phase !== entry.phase || next.message !== entry.message || next.traceId !== entry.traceId) {
-      entry.phase = next.phase; entry.message = next.message; entry.traceId = next.traceId; this.revision++;
+    if (next.phase !== entry.phase || next.message !== entry.message || next.traceId !== entry.traceId || str(value.activeRouteId) !== (entry.activeRouteId ?? '')) {
+      entry.phase = next.phase; entry.message = next.message; entry.traceId = next.traceId; entry.activeRouteId = str(value.activeRouteId); this.revision++;
     }
     if (status.generation !== entry.generation) {
       entry.generation = status.generation; entry.synchronized = -1; entry.lastEvent = 0; entry.subscriptions = {};

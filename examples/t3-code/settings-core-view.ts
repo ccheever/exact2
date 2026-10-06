@@ -7,7 +7,7 @@ import { decodeClientPrefs, generalSections, memberFiles, resolveScope, restoreL
 import { appearanceSections, fontStack, modeTiles, palette } from './settings-appearance';
 import { breadcrumbLabel, scopeAvailable, searchTargetScope } from './settings-search';
 import type { CustomTheme } from './settings-themes';
-import { scopeMachine, environmentScopeChoices, environmentScopeIcon } from './settings-b-scope';
+import { scopeMachine, singleEnvironmentRoute } from './settings-b-scope';
 import { backgroundDialog } from './settings-a-background';
 import { archiveConfirmation } from './settings-a-archive';
 import { editorView, previewTheme, syncDraft } from './settings-appearance-editor';
@@ -22,6 +22,7 @@ const keyedLabel = (label: string) => ({ id: `label:${label}`, label, mark: '', 
 
 // Pages whose every row is saved on this client; they have no scope sentence (SETTINGS_DEVICE_ONLY_PATHS).
 const DEVICE_ONLY = new Set(['appearance', 'snap-shot', 'connections']);
+const EDITOR_KINDS = new Set(['create', 'edit', 'duplicate']);
 
 export async function settingsCore(client: T3Client, native: Native | null | undefined, machine: string, projectKeyInput: string, checkoutInput: string, legacyProjectId: string, route: string, target: string, active: boolean, dialogKind = '', dialogSubject = '', deliveryStream = 'embedded', deliveryStaged = false) {
   rememberDelivery(client, deliveryStream, deliveryStaged); // settings-a-about.ts
@@ -32,12 +33,13 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   const machineAxis = scopeMachine(client, route, machine); // settings-b: Providers is single-environment
   const scope = resolveScope(client, machineAxis, projectKey, checkout);
   const project = scope.kind === 'project' || scope.kind === 'checkout';
-  const files = active && project && route === 'general' ? await memberFiles(client, native, scope.members) : new Map<string, Obj | null>();
+  const files = active && project && route === 'general' ? await memberFiles(client, native, scope.members, scope) : new Map<string, Obj | null>();
   const context = serverContext(client, scope, files);
   const device = client.local.deviceSettings;
   const custom = (client.local as unknown as { customThemes?: CustomTheme[] }).customThemes || [];
-  // The theme editor's draft (settings-appearance-editor.ts) paints the settings while it is open.
-  const draft = syncDraft(client, active ? dialogKind : '', dialogSubject, prefs.themeLight, prefs.themeDark, device.appearanceMode === 'dark' ? 'dark' : 'light');
+  // The theme editor's session (D16): the window's create/edit/duplicate dialog names it whether
+  // or not Settings is open, and its draft paints the whole app (settings-appearance-editor.ts).
+  const draft = syncDraft(client, EDITOR_KINDS.has(dialogKind) || active ? dialogKind : '', dialogSubject, prefs, device.appearanceMode === 'dark' ? 'dark' : 'light');
   const preview = previewTheme(client);
   if (dialogKind !== 'import') resetImport(client);
   const paintCustom = preview ? [...custom, preview] : custom;
@@ -55,7 +57,8 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   return {
     ready: active, route, breadcrumb: breadcrumbLabel(route), showScope: !DEVICE_ONLY.has(route), kind: scope.kind, message: unavailableMessage, notice,
     environmentLabel: scope.environmentLabel, projectLabel: scope.projectLabel, projectMark: scope.projectMark, projectInk: scope.projectInk, projectSurface: scope.projectSurface,
-    connective: scope.connective, environmentChoices: environmentScopeChoices(client, route, scope.environmentChoices), environmentIcon: environmentScopeIcon(client, machineAxis), projectChoices: scope.projectChoices,
+    connective: scope.connective, // Every known environment, each with its own machine icon; a single-environment route drops "All environments".
+    environmentChoices: singleEnvironmentRoute(route) ? scope.environmentChoices.filter(choice => choice.id) : scope.environmentChoices, environmentIcon: scope.environmentIcon, projectChoices: scope.projectChoices,
     environmentKeyed: [keyedLabel(scope.environmentLabel)], projectKeyed: [keyedLabel(scope.projectLabel)],
     representative: String(scope.members[0]?.id ?? ''), scopeKey: `${machine}|${projectKey}|${checkout}`,
     sections, restoreCount: labels.length, restoreText: labels.length ? `This will reset: ${labels.join(', ')}.` : '',
@@ -68,6 +71,6 @@ export async function settingsCore(client: T3Client, native: Native | null | und
     hostEditor: hostEditorView(client), hostChecks: hostChecks(client),
     // Any settings-a dialog the root must mount (SettingsADialogs).
     saOpen: updateConfirmation(client) || killConfirmation(client).pid !== '' || hostEditorView(client).open,
-    background: backgroundDialog(obj(client.config.settings), client.ready && !!client.environmentId && scope.kind !== 'unavailable'),
+    background: backgroundDialog(obj(client.config.settings), client.ready && !!client.environmentId && scope.kind !== 'unavailable' && scope.selected.length === 1),
   };
 }
