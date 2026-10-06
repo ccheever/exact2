@@ -273,11 +273,11 @@ fn a_logical_box_property_names_its_physical_longhands() {
         ),
         (
             "margin-inline-start=4",
-            "`margin-inline-start` is not admitted: write `margin-left`",
+            "`margin-inline-start` is not admitted: write `margin-left` in a left-to-right flow",
         ),
         (
             "inset-inline=0",
-            "`inset-inline` is not admitted: write `left` and `right`",
+            "`inset-inline` is not admitted: write `left` and `right` in a left-to-right flow",
         ),
     ] {
         let src = format!("component App\n  view\n    column {attr}\n      text \"a\"\n");

@@ -104,11 +104,15 @@ fn logical(name: &str) -> Option<String> {
     };
     Some(match rest {
         "-block" => format!("{} and {}", side("top"), side("bottom")),
-        "-inline" => format!("{} and {}", side("left"), side("right")),
+        "-inline" => format!(
+            "{} and {} in a left-to-right flow",
+            side("left"),
+            side("right")
+        ),
         "-block-start" => side("top"),
         "-block-end" => side("bottom"),
-        "-inline-start" => side("left"),
-        "-inline-end" => side("right"),
+        "-inline-start" => format!("{} in a left-to-right flow", side("left")),
+        "-inline-end" => format!("{} in a left-to-right flow", side("right")),
         _ => return None,
     })
 }
