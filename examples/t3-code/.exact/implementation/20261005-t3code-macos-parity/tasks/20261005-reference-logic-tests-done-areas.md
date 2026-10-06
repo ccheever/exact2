@@ -1,12 +1,12 @@
 ---
 name: 20261005-reference-logic-tests-done-areas
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
-branch: null
+branch: feat(example)/t3-code-reference-logic-tests-done-areas
 pr_url: null
 verified_commit: null
 ---
@@ -123,13 +123,39 @@ Required environment: the read-only reference checkout for the map and title che
 
 ## Progress
 
-Planned.
+Implemented 2026-10-06 on `feat(example)/t3-code-reference-logic-tests-done-areas` (rebased on
+`feat(example)/t3-code` after hot-file-split #147); verification: unverified.
+
+- `REFERENCE-TESTS.md`: 734 file rows (web 431, client-runtime 121, shared 76, desktop 106) plus
+  the two group rows; classes: done-equivalent 2, port 235, swift 90, n/a-ui 99, n/a-server 20,
+  n/a-excluded 150, later-ticket 138 (33 tickets). 805 lines.
+- `done-equivalent`: `rpc/requestLatencyState.test.ts` → `request-latency.test.ts` (9/9 titles,
+  3 clone-only) and `state/projectCommands.test.ts` → `r13-threads.test.ts` (2/2, 18 clone-only).
+  The title scan found 8 reference files with any title in a clone test; the other 6 are `port`
+  rows whose notes say how many titles are present.
+- Plan gaps (no clone counterpart, no owner ticket; reported to the user):
+  `desktop/permissions/MacPermissionHelper`, `MacSettingsWindow`,
+  `web/components/permissions/usePermissionStatus` (the reference's macOS permission helper),
+  `chat/composerScrollGesture` (composer collapse on scroll), `chat/pageScrollController`
+  (Page Up/Down hand-off), `composer-undo-grouping`, `workspaceBasenameLookup` (bare-filename
+  link lookup).
+- Decisions made here: mobile-only modules (`voice-input/controller`, `state/threadSubagents`)
+  are `n/a-excluded`; Effect-end-to-end client-runtime atoms and sync are `n/a-ui` with the
+  reason; Markdown rows whose clone logic is Rust (`macos/src/markdown.rs`) go to
+  `20261005-upstream-timeline-and-markdown`; `apps/server` counts 473 test files at the pin
+  (the ticket estimate said 468).
+- `test-map.mjs` (U2 pending) is not committed: it ran from a scratch directory and is on the
+  evidence branch (`reference-logic-tests-done-areas/test-map.mjs`, with `check.log`).
+- Not run: live macOS drive (no app behavior changed; the brief allows none for this task),
+  `mermaid` AppKit binary (needs a T3 server), `timeline-keyboard` (separate recipe), desktop
+  oracle and trace-diff rows (desktop-oracle-and-trace will not be built).
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1, 2026-10-06 | base `7f692c9a1`, map commits `6fc72c125`, `eed1582be` | `test-map.mjs check`: 734 files, 736 rows, 0 unmapped, 0 duplicate, every note and ticket name present, OK; 2 done-equivalent proofs. `bun test examples/t3-code` 1200 pass 0 fail (117 files); strict tsc clean; contract build 2158 slots, 42 resources, 1984 actions; `cargo test -p t3-code-macos --lib` 10 pass; AppKit binaries 27 pass (mermaid skipped, timeline-keyboard not run); `caps` pass; five checks pass (cargo test 2928 pass 0 fail 18 ignored, clippy, fmt, boot); macOS bundle build pass | evidence branch `t3-code-evidence/reference-logic-tests-done-areas/check.log`; command: `T3_REF=<ref> T3_REPO=<repo> bun test-map.mjs check examples/t3-code/REFERENCE-TESTS.md` | U2 (commit the script) open |
+| Spot check, 2026-10-06 | map before resolution | A second agent classified 30 random files without the map. Agreed on 19; 11 disagreements. Adopted 8 (and the client-runtime twin of one): `ui/switch.test.tsx` → settings-scoped-controls-and-theme-editor (D15 mixed switch); `state/threadSubagents` → n/a-excluded (mobile only); `providerAuthReturnUrl` → managed-codex-chatgpt (that ticket ports it); `ElectronShell` → ssh-password-and-remote-open (named there); web `state/usage.test.tsx` and client-runtime `state/usage.test.ts` → usage-pooled-view; `connection/desktopLocal` → n/a-excluded (WSL secondary backends); `ProviderStatusBanner.test.ts` clone module `presentation.ts`; `workspaceBasenameLookup` → plan gap. Kept 3: `ipc/methods/sshEnvironment` in `ssh` (T3Ssh's own binary, not `transport`); `DesktopClientSettings.diagnostics` stays with local-primary-environment (U7 decides the client settings file); `ModelPickerContent` stays `port` (the clone has its picker-ready cases) with a note for its provider-setup cases. A follow-up scan of every test file a ticket names added "cases named by" notes to 51 rows | this table | none |
 
 ## Next action
 
