@@ -11,6 +11,7 @@ import { taskInput } from './scheduled-view';
 import { currentTasks, liveEnvironment, type LiveEnvironment } from './live-streams';
 import { matchesScheduledTaskScope } from './scheduled-tasks';
 import { pushToast } from './toast';
+import { letGo } from './let-go';
 
 function environmentFor(client: T3Client, native: Native, environmentId: string): LiveEnvironment {
   const environment = liveEnvironment(client, native, environmentId);
@@ -72,6 +73,7 @@ export async function automationCommand(client: T3Client, native: Native, op: st
       await environment.request('scheduledTasks.setEnabled', { id, enabled: enabled === 'true' }, true);
     } else throw new ClientError('Unsupported automation action.');
   } catch (error) {
+    if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title, description: error instanceof Error ? error.message : String(error), stacked: true });
   } finally { busy.delete(client); }
   return '';

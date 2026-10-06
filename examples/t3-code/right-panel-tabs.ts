@@ -6,6 +6,7 @@ import type { DeviceTarget } from './r6-media-device';
 import type { Native } from './protocol';
 import { obj, str } from './domain';
 import { pushToast } from './toast';
+import { letGo } from './let-go';
 export type TabAction = 'rename' | 'copy-path' | 'toggle-mute' | 'close' | 'close-others' | 'close-to-right' | 'close-all';
 export type TabMenuItem = { id: TabAction; label: string; disabled?: boolean };
 /** A tab's menu row as the tab strip's `contextPopover` shows it (R4Tab.menu): every flag spelled out. */
@@ -111,7 +112,7 @@ export async function copyTabPath(client: T3Client, native: Native, surface: Sur
     const result = obj(await client.restAccess(native).call({ op: 'copyText', text: surface.path }));
     if (result.copied === false) throw new Error('Clipboard API unavailable.');
     pushToast(client, { kind: 'success', title: 'Path copied', description: surface.path });
-  } catch (error) { pushToast(client, { kind: 'error', title: 'Failed to copy path', description: error instanceof Error && error.message ? error.message : 'Clipboard API unavailable.' }); }
+  } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy path', description: error instanceof Error && error.message ? error.message : 'Clipboard API unavailable.' }); }
 }
 export async function showTabMenu(client: T3Client, native: Native, state: PanelState, id: string, keyboard = false): Promise<string> {
   const surface = state.surfaces.find(entry => entry.id === id);

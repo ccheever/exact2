@@ -12,6 +12,7 @@ import { arr, obj, str, type Obj, type Shell } from './domain';
 import { bridgeReply, ClientError, type Native } from './protocol';
 import { subscriptionSerial } from './shell-vcs';
 import { EnvironmentFleet, fleet, type FleetEntry } from './settings-b-fleet';
+import { letGo } from './let-go';
 
 export const SCHEDULED_TASKS_KEY = 'scheduled-tasks';
 export const PROJECT_CLONES_KEY = 'project-clones';
@@ -68,7 +69,7 @@ export async function watchLive(client: T3Client, native: Native | null | undefi
       const serial = subscriptionSerial(str(reply.id));
       stream.maxSeen = Math.max(stream.maxSeen, serial);
       if (serial > stream.floor && (!stream.id || serial > subscriptionSerial(stream.id))) stream.id = str(reply.id);
-    } catch (error) { stream.tried = false; stream.error = error instanceof Error ? error.message : 'Could not subscribe.'; }
+    } catch (error) { stream.tried = false; if (!letGo(error)) stream.error = error instanceof Error ? error.message : 'Could not subscribe.'; }
   }
 }
 
@@ -92,7 +93,7 @@ export async function liveFleetPass(call: (request: Obj) => Promise<Obj>, entry:
       const serial = subscriptionSerial(str(reply.id));
       stream.maxSeen = Math.max(stream.maxSeen, serial);
       if (serial > stream.floor && (!stream.id || serial > subscriptionSerial(stream.id))) stream.id = str(reply.id);
-    } catch (error) { stream.tried = false; stream.error = error instanceof Error ? error.message : 'Could not subscribe.'; }
+    } catch (error) { stream.tried = false; if (!letGo(error)) stream.error = error instanceof Error ? error.message : 'Could not subscribe.'; }
   }
 }
 

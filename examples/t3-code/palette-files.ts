@@ -6,6 +6,7 @@ import { arr, num, obj, str, type Obj } from './domain';
 import type { Native } from './protocol';
 import { closedView, flatten, row, type PalettePart, type PaletteRow, type PaletteView } from './palette';
 import { highlight } from './timeline-highlight';
+import { letGo } from './let-go';
 
 export const FILE_RESULT_LIMIT = 200;
 export const CONTENT_RESULT_LIMIT = 500;
@@ -67,7 +68,7 @@ async function cached(store: WeakMap<T3Client, Cache>, client: T3Client, native:
   if (hit && hit.key === key) return hit;
   let entry: Cache;
   try { entry = { key, value: await client.restAccess(native).request(method, payload), error: '' }; }
-  catch (failure) { entry = { key, value: {}, error: failure instanceof Error ? failure.message : 'Search failed.' }; }
+  catch (failure) { if (letGo(failure)) throw failure; entry = { key, value: {}, error: failure instanceof Error ? failure.message : 'Search failed.' }; }
   store.set(client, entry);
   return entry;
 }

@@ -12,6 +12,7 @@ import { cloneTracking, liveEnvironment, liveEnvironments, watchLive } from './l
 import { syncCloneToasts, projectCloneBanner, projectCloneSendBlockReason, type TrackedToast, type ToastPort } from './project-clones';
 import { dismissToast, pushToast, toasts, updateToast } from './toast';
 import { composerNow } from './composer-controls';
+import { letGo } from './let-go';
 
 const trackedByClient = new WeakMap<T3Client, Map<string, Map<string, TrackedToast>>>();
 function trackedFor(client: T3Client, environmentId: string): Map<string, TrackedToast> {
@@ -82,6 +83,7 @@ export async function cloneCommand(client: T3Client, native: Native, storage: Fi
       await environment.request('projects.mutate', { type: 'project.delete', commandId, projectId }, true);
     }
   } catch (error) {
+    if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title, description: error instanceof Error ? error.message : 'An error occurred.', stacked: true });
   }
   return '';
@@ -101,6 +103,7 @@ export async function startTrackedClone(client: T3Client, native: Native, remote
   try {
     await access.request('projectClone.start', { projectId, title, createdAt: new Date(now).toISOString(), remoteUrl, destinationPath }, true);
   } catch (error) {
+    if (letGo(error)) throw error;
     const text = error instanceof Error ? error.message : 'An error occurred.';
     pushToast(client, { kind: 'error', title: 'Clone failed', description: text, stacked: true });
     return { ok: false, projectId: '', message: text };

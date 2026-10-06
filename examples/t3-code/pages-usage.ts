@@ -10,6 +10,7 @@ import { pagesPrefs, type UsagePrefs } from './pages-prefs';
 import { emptyPrices, presentPrices } from './pages-usage-prices';
 import { checkMenu, uniqueProbes, type Probe } from './r5-composer-menus';
 import { emptyDetail, modelDetail, modelKey, modelRows, openModel, pageShares, setOpenModel, type ModelRowView, type ShareBarView } from './pages-usage-detail';
+import { letGo } from './let-go';
 
 export const USAGE_CONTRACT_VERSION = 6;
 const MERGE_COMPATIBLE_SINCE = 4;
@@ -391,7 +392,7 @@ async function usageView(client: T3Client, native: Native | null | undefined, st
       const payload: Obj = { sinceDay: window.sinceDay, untilDay: window.untilDay, timeZone: window.timeZone, resolution: window.resolution };
       if (window.sinceTime) { payload.sinceTime = window.sinceTime; payload.untilTime = window.untilTime; }
       cached.summary = await client.rpc(native, 'server.getUsageSummary', payload);
-    } catch (error) { cached.error = error instanceof Error ? error.message : 'Usage could not be read.'; }
+    } catch (error) { if (letGo(error)) throw error; cached.error = error instanceof Error ? error.message : 'Usage could not be read.'; }
     summaries.set(client, cached);
   }
   if (!cached.summary) { page.error = cached.error; page.environmentStatus = 'Unavailable'; page.empty = `${page.environmentName} could not report usage.`; return page; }

@@ -25,6 +25,7 @@ import { mediaLocal } from './media-views'; // media-actions: the media menu, a 
 import { closeTableMenu, tableMenuAction } from './r8-keys-table-menu'; // lane r8-keys: the table Copy popup
 import { preparationFailureRunId, retryableActivities } from './r11-upstream-retry'; // lane r11-upstream: Retry a failed workspace preparation
 import { numericDateFormatter, timestampFormatter } from './timestamp-format'; // desktop-shell-details: the host's locale
+import { letGo } from './let-go';
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
 export function shortTime(value: unknown, format: string): string {
@@ -83,7 +84,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     const threadId = client.threadId;
     view.historyError.delete(threadId);
     try { await client.history(native); }
-    catch (error) { view.historyError.set(threadId, error instanceof Error && error.message ? error.message : 'Could not load earlier turns.'); }
+    catch (error) { if (letGo(error)) throw error; view.historyError.set(threadId, error instanceof Error && error.message ? error.message : 'Could not load earlier turns.'); }
     return '';
   }
   if (op.startsWith('plan-')) return planAction(client, native, op, id, value);
@@ -115,7 +116,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     if (!text || text.length > 1_000_000) throw new ClientError(op === 'copy-code' ? 'That code block is unavailable.' : 'That message is no longer available.');
     const key = op === 'copy' ? id : `code:${id}`;
     try { await client.restAccess(native).call({ op: 'copyText', text }); }
-    catch (error) { view.copies.set(key, { nonce: ++view.nonce, ok: false }); throw error; }
+    catch (error) { if (!letGo(error)) view.copies.set(key, { nonce: ++view.nonce, ok: false }); throw error; }
     view.copies.set(key, { nonce: ++view.nonce, ok: true });
     if (op === 'copy-code') view.codeCopy = { threadId: client.threadId, text, nonce: view.nonce };
     return op === 'copy' ? 'Copied message' : 'Copied code';

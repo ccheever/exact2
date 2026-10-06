@@ -2,6 +2,7 @@
 import { arr, obj, str, num, type Obj } from './domain';
 import { bridgeReply, type Native } from './protocol';
 import type { ProviderHost } from './providers';
+import { letGo } from './let-go';
 export function terminalTranscriptUpdate(written: number, output: string, outputOffset = output.length) {
   const delta = outputOffset - written;
   return { written: outputOffset, reset: delta !== 0 && !(delta > 0 && delta <= output.length), data: delta === 0 ? '' : delta > 0 && delta <= output.length ? output.slice(-delta) : output };
@@ -73,5 +74,5 @@ export async function providerAuthOp(host: ProviderHost, native: Native, op: str
       if (event.type === 'link-error') value.error = 'Could not open the provider link.';
       if (event.type === 'error') value.error = 'Could not load the sign-in terminal. Cancel and retry sign-in.';
     }
-  } catch (error) { value.error = error instanceof Error ? error.message : 'Could not send input to the provider sign-in terminal.'; }
+  } catch (error) { if (letGo(error)) throw error; value.error = error instanceof Error ? error.message : 'Could not send input to the provider sign-in terminal.'; }
 }
