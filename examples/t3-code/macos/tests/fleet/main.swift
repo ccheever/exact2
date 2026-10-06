@@ -307,12 +307,73 @@ final class OutdatedHostTests: XCTestCase {
         _ = fleetCall(fleet, key, ["op": "fleetOutdatedUpdate", "targetVersion": "0.0.46"])
         XCTAssertTrue(waitFor(3) { self.jobs(fleet)[key]?["message"] as? String == "Update T3 Code on Old box manually; it cannot update itself." })
     }
+
+    /// Task server-update-banner: a connected server older than this client runs the same job
+    /// (mode "connected"): its config's capabilities and continuation flag travel with the request,
+    /// the restart ends when the descriptor reports the target version, and its switch stays on.
+    func testConnectedServerUpdateWaitsForTargetVersionAndKeepsItsSwitch() throws {
+        let server = try OutdatedSocketServer()
+        defer { server.stop() }
+        let origin = "http://127.0.0.1:\(server.port)"
+        let lock = NSLock()
+        var updated = false, fail = false, payloads: [[String: Any]] = []
+        server.answer = { frame, send, _ in
+            guard frame["_tag"] as? String == "Request", let id = frame["id"] else { return }
+            XCTAssertEqual(frame["tag"] as? String, "server.updateServerWithProgress")
+            lock.lock(); payloads.append(frame["payload"] as? [String: Any] ?? [:]); let failing = fail; lock.unlock()
+            send(["_tag": "Chunk", "requestId": id, "values": [["type": "progress", "stage": "downloading"]]])
+            if failing {
+                send(["_tag": "Exit", "requestId": id, "exit": ["_tag": "Failure", "cause": [["_tag": "Fail", "error": ["_tag": "ServerSelfUpdateError", "reason": "The package could not be verified."]]]]])
+                return
+            }
+            send(["_tag": "Chunk", "requestId": id, "values": [["type": "progress", "stage": "installing"]]])
+            send(["_tag": "Chunk", "requestId": id, "values": [["type": "complete", "result": ["targetVersion": "0.0.46", "method": "respawn"]]]])
+            send(["_tag": "Exit", "requestId": id, "exit": ["_tag": "Success", "value": NSNull()]])
+            lock.lock(); updated = true; lock.unlock()
+        }
+        FleetHTTP.reset { request in
+            switch request.url!.path {
+            case "/.well-known/t3/environment":
+                lock.lock(); let done = updated; lock.unlock()
+                // A connected server already speaks protocol 2; only its version tells the restart apart.
+                return (200, ["environmentId": "env", "label": "Studio", "serverVersion": done ? "0.0.46" : "0.0.45", "orchestrationProtocolVersion": 2, "capabilities": [:]])
+            case "/api/auth/websocket-ticket": return (200, ["ticket": "ticket-1"])
+            default: return (404, [:])
+            }
+        }
+        let credentials = T3Credentials(persistent: false), saved = T3SavedEnvironments(persistent: false)
+        try credentials.save("bearer", origin: origin, environment: "env")
+        saved.remember(origin: origin, descriptor: ["environmentId": "env", "label": "Studio"])
+        let fleet = T3Fleet(persistent: false, credentials: credentials, saved: saved, configuration: configuration, changed: { _ in })
+        defer { fleet.destroy() }
+        fleet.outdated.pollInterval = 0.05
+        let key = "\(origin)\nenv"
+        let request: [String: Any] = ["op": "fleetOutdatedUpdate", "mode": "connected", "targetVersion": "0.0.46", "fromVersion": "0.0.45", "label": "Studio",
+                                      "capabilities": ["serverSelfUpdate": "respawn", "serverSelfUpdateProgress": true], "extras": ["continueRunningThreads": true, "ignored": 1]]
+        lock.lock(); fail = true; lock.unlock()
+        let first = fleetCall(fleet, key, request)["value"] as? [String: Any] ?? [:]
+        XCTAssertTrue(waitFor(5) { self.jobs(fleet)[key]?["status"] as? String == "failed" })
+        XCTAssertEqual(jobs(fleet)[key]?["message"] as? String, "Server update failed: The package could not be verified.")
+        XCTAssertEqual(jobs(fleet)[key]?["stage"] as? String, "downloading", "A failure keeps the stage it reached")
+        lock.lock(); fail = false; lock.unlock()
+        let second = fleetCall(fleet, key, request)["value"] as? [String: Any] ?? [:]
+        XCTAssertNotEqual(first["attempt"] as? String, second["attempt"] as? String, "Each attempt has its own identity")
+        XCTAssertTrue(waitFor(5) { self.jobs(fleet)[key]?["status"] as? String == "done" }, "\(jobs(fleet))")
+        let job = jobs(fleet)[key] ?? [:]
+        XCTAssertEqual(job["mode"] as? String, "connected")
+        XCTAssertEqual(job["resultVersion"] as? String, "0.0.46")
+        XCTAssertEqual(job["fromVersion"] as? String, "0.0.45")
+        lock.lock(); let sent = payloads.last ?? [:]; lock.unlock()
+        XCTAssertEqual(sent["continueRunningThreads"] as? Bool, true)
+        XCTAssertNil(sent["ignored"], "Only the continuation flag travels with the update")
+        XCTAssertEqual(saved.all.first?["enabled"] as? Bool, true, "A connected server's switch is left alone")
+    }
 }
 
 let suite = XCTestSuite(name: "T3 fleet")
 suite.addTest(FleetTests.defaultTestSuite)
 suite.addTest(OutdatedHostTests.defaultTestSuite)
 suite.run()
-guard let run = suite.testRun, run.executionCount == 8 else { exit(1) }
+guard let run = suite.testRun, run.executionCount == 9 else { exit(1) }
 print("T3 fleet: \(run.executionCount) tests, \(run.totalFailureCount) failures")
 exit(run.hasSucceeded ? 0 : 1)
