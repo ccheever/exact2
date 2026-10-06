@@ -12,7 +12,7 @@
 
 | § | Question | Decision |
 |---|---|---|
-| §3.1, §3.2, §3.4, §3.6, §3.10–§3.12 | `parseNumber`, `ceil`, `round` (`Math.round`), the `"iso"` date style, `autocomplete`, `px` strings, `none` on `max-*`, number-input bounds as numbers | **Accepted.** Build them. §3.1 `parseNumber`, §3.2 `ceil` and `round`, §3.4 `"iso"`: **built e6e9ea5e7** (review fixes aad86ff08, c768b5442). |
+| §3.1, §3.2, §3.4, §3.6, §3.10–§3.12 | `parseNumber`, `ceil`, `round` (`Math.round`), the `"iso"` date style, `autocomplete`, `px` strings, `none` on `max-*`, number-input bounds as numbers | **Accepted.** Build them. §3.1 `parseNumber`, §3.2 `ceil` and `round`, §3.4 `"iso"`: **built e6e9ea5e7** (review fixes aad86ff08, c768b5442). §3.10 `px` strings (pixel rows and SVG's stroke lengths), §3.11 `none` (kept beside `auto`; every writer prints `none`), §3.12 number-field bounds: **built 170291022** (review fixes f19e25768, 62a328bb7). §3.6 `autocomplete`: **built bff8c035d** (review fixes f1db65327, de87adf03): HTML's grammar; `off` clears; `on`, a refused list, or a name with no Apple type keeps the type-derived content type. |
 | §3.2 | Money: `toFixed` or a cents-based function | **Open.** Charlie wants to think more. |
 | §3.4 | `calendarDiff` | **Accepted, narrowly:** whole years and months between two ISO dates, `option<number>`. "Nice to have; let's try adding it for now." **Built e6e9ea5e7**: counted as Temporal's `PlainDate.until` counts (a Feb 29 start completes a year on Mar 1 of a common year, a Jan 31 start a month on Mar 1). |
 | §3.3 | Source faults (`fail`, `hold`) as a failed host request | **Accepted** as recommended: a small RFC, resources first, then build. |
