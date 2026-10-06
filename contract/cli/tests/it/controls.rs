@@ -470,7 +470,7 @@ fn autocomplete_names_a_field_to_autofill() {
         assert_eq!(node.props.str(PropId::Autocomplete), Some(want), "{id}");
     }
     // React Native's names point at it.
-    for name in ["textContentType", "autoComplete"] {
+    for name in ["textContentType", "autoComplete", "autoCompleteType"] {
         let src = format!("component App\n  view\n    input {name}=\"email\"\n");
         let e = format!("{:?}", contract::compile(&src).unwrap_err());
         assert!(e.contains("autocomplete"), "{name}: {e}");

@@ -1093,8 +1093,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             let type = props["type"] ?? "text"
             f.isSecureTextEntry = type == "password"
             // `autocomplete` names the field to AutoFill over what `type` implies (LLP 1102 §3.6).
-            f.textContentType = Autofill.contentType(props["autocomplete"], fallback: type == "password" ? .password : type == "email" ? .emailAddress : nil)
-            let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking
+            let content = Autofill.contentType(props["autocomplete"], fallback: type == "password" ? .password : type == "email" ? .emailAddress : nil)
+            let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking || f.textContentType != content
+            f.textContentType = content
             f.autocapitalizationType = inputCapitalization
             f.autocorrectionType = inputCorrection
             f.spellCheckingType = inputSpellChecking

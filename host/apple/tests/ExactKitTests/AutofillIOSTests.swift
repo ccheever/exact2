@@ -18,13 +18,16 @@ final class AutofillIOSTests: XCTestCase {
             ("username", UITextContentType.username), ("section-a billing given-name", .givenName),
             ("tel", .telephoneNumber), ("ONE-TIME-CODE", .oneTimeCode), ("cc-exp", .creditCardExpiration),
             ("work email webauthn", .emailAddress), ("address-line1", .streetAddressLine1),
+            ("shipping\r\nmobile tel", .telephoneNumber), ("section-x\u{c}shipping postal-code", .postalCode),
         ] {
             node.applyProps(set: ["autocomplete": value], clear: [])
             XCTAssertEqual(field.textContentType, expected, value)
         }
         node.applyProps(set: ["autocomplete": "off"], clear: [])
         XCTAssertNil(field.textContentType)
-        for value in ["on", "impp"] {
+        // HTML's grammar, ASCII only: `off` must stand alone, a contact kind
+        // comes before a contact field, and a Kelvin sign is no `k`.
+        for value in ["on", "impp", "off webauthn", "home name", "garbage username", "nic\u{212A}name"] {
             node.applyProps(set: ["autocomplete": value], clear: [])
             XCTAssertEqual(field.textContentType, .emailAddress, value)
         }

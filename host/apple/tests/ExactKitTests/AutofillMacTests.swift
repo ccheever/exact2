@@ -20,11 +20,12 @@ final class AutofillMacTests: XCTestCase {
                 ("username", NSTextContentType.username), ("section-login current-password", .password),
                 ("shipping postal-code", .postalCode), ("ONE-TIME-CODE", .oneTimeCode),
                 ("work email webauthn", .emailAddress), ("new-password", .newPassword),
+                ("billing\r\nwork tel", .telephoneNumber),
             ] {
                 node.applyProps(set: ["autocomplete": value], clear: [])
                 XCTAssertEqual(content(), expected, "\(kind) \(value)")
             }
-            for value in ["off", "on", "impp", ""] {
+            for value in ["off", "on", "impp", "", "garbage username", "nic\u{212A}name"] {
                 node.applyProps(set: ["autocomplete": value], clear: [])
                 XCTAssertNil(content(), "\(kind) \(value)")
             }
