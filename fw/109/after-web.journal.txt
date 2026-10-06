@@ -1,0 +1,24 @@
+t=0 boot: 3 nodes, epoch 1
+t=200.00033299999996 changed x: ticket 1 (snap) lands first, then it is asked again
+t=400.00041699999974 reply 1; wall 749 ms
+t=400.00041699999974 snap: asked again, a watched topic changed while ticket 1 was in flight
+t=471.91049999999996 changed x: ticket 2 (snap) lands first, then it is asked again
+t=942.2192500000001 reply 2; wall 501 ms
+t=942.2192500000001 snap: asked again, a watched topic changed while ticket 2 was in flight
+t=1117.3940420000004 changed x: ticket 3 (snap) lands first, then it is asked again
+t=1387.429166 reply 3; wall 501 ms
+t=1387.429166 snap: asked again, a watched topic changed while ticket 3 was in flight
+t=1717.0998750000003 reply 4; wall 502 ms
+  console.log: x14 module: later #1 (ask 1)
+  console.log: x14 module: changed x (1)
+  console.log: x14 module: reply to ask 1
+  console.log: x14 module: later #2 (ask 2)
+  console.log: x14 module: changed x (2)
+  console.log: x14 module: changed x (3)
+  console.log: x14 module: reply to ask 2
+  console.log: x14 module: later #3 (ask 3)
+  console.log: x14 module: changed x (4)
+  console.log: x14 module: changed x (5)
+  console.log: x14 module: reply to ask 3
+  console.log: x14 module: later #4 (ask 4)
+  console.log: x14 module: reply to ask 4

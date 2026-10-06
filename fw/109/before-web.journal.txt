@@ -1,0 +1,34 @@
+t=0 boot: 3 nodes, epoch 1
+t=259.48529199999984 forget ticket 1 (snap)
+t=470.7313750000003 reply 1; wall 988 ms
+t=470.7313750000003 dropped reply for snap: ticket 1 is no longer held
+t=574.0335 forget ticket 2 (snap)
+t=770.703708 reply 2; wall 500 ms
+t=770.703708 dropped reply for snap: ticket 2 is no longer held
+t=800.0002910000003 forget ticket 3 (snap)
+t=1000.0003340000003 reply 3; wall 502 ms
+t=1000.0003340000003 dropped reply for snap: ticket 3 is no longer held
+t=1120.3861669999997 forget ticket 4 (snap)
+t=1322.0199169999996 reply 4; wall 502 ms
+t=1322.0199169999996 dropped reply for snap: ticket 4 is no longer held
+t=1400 forget ticket 5 (snap)
+t=1452.796375 reply 5; wall 503 ms
+t=1452.796375 dropped reply for snap: ticket 5 is no longer held
+t=1758.5620829999998 reply 6; wall 501 ms
+  console.log: x14 module: later #1 (ask 1)
+  console.log: x14 module: changed x (1)
+  console.log: x14 module: later #2 (ask 2)
+  console.log: x14 module: reply to ask 1
+  console.log: x14 module: changed x (2)
+  console.log: x14 module: later #3 (ask 3)
+  console.log: x14 module: reply to ask 2
+  console.log: x14 module: changed x (3)
+  console.log: x14 module: later #4 (ask 4)
+  console.log: x14 module: reply to ask 3
+  console.log: x14 module: changed x (4)
+  console.log: x14 module: later #5 (ask 5)
+  console.log: x14 module: reply to ask 4
+  console.log: x14 module: changed x (5)
+  console.log: x14 module: later #6 (ask 6)
+  console.log: x14 module: reply to ask 5
+  console.log: x14 module: reply to ask 6

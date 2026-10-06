@@ -1,0 +1,13 @@
+<worktree>/target/repro/x14-native-reply-reask/target/web-dist/.gen: app.js 748 B, app.css 222 B, 0 warnings
+<worktree>/target/repro/x14-native-reply-reask/target/web-dist: built
+{"clock":0,"inflight":1,"diagnostic":"1 request still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for it; `clock settle` lands them, and `state` lists them under pending"}
+{"clock":1400,"inflight":1,"real":1401}
+epoch 7 · incarnation 1 · clock 1400 ms · 3 nodes
+View#1 [root]
+  Text#2 [snap] "reply to ask 2 (asks so far: 2)"
+  Text#3 [pending] "pending"
+{"clock":2900,"real":1508}
+epoch 10 · incarnation 1 · clock 2900 ms · 3 nodes
+View#1 [root]
+  Text#2 [snap] "reply to ask 4 (asks so far: 4)"
+  Text#3 [pending] "idle"

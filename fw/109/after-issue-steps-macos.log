@@ -1,0 +1,11 @@
+{"epoch":2,"clock":0,"inflight":1,"incarnation":1,"diagnostic":"1 request still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for it; `clock settle` lands them, and `state` lists them under pending"}
+{"inflight":1,"clock":1400,"incarnation":1,"epoch":5,"real":1402}
+epoch 5 · incarnation 1 · clock 1400 ms · 3 nodes
+View#1 [root]
+  Text#2 [snap] "reply to ask 3 (asks so far: 3)"
+  Text#3 [pending] "pending"
+{"clock":2900,"incarnation":1,"epoch":6,"real":1517}
+epoch 6 · incarnation 1 · clock 2900 ms · 3 nodes
+View#1 [root]
+  Text#2 [snap] "reply to ask 4 (asks so far: 4)"
+  Text#3 [pending] "idle"

@@ -1,0 +1,49 @@
+t=0 boot: 3 nodes, epoch 1
+t=0 snap shows its build-time answer until its source answers
+t=0 native loading <worktree>/target/repro/x14-native-reply-reask/target/clients/07ac8bc3d5b08551097c9850/com.example.x14-native-reply-reask/macos/aarch64-apple-darwin/embedded/development/standalone/libexact_modules.dylib 2.9 ms after first pixel
+t=0 native loaded libexact_modules.dylib in 2399.1 ms: 
+t=0 native module instance made (agent true)
+t=0 hook: connected
+t=0 query snap: snapshot
+t=0 request 1 (snap): POST exact-native:
+t=0 data_ready (1 asked again) → epoch 2 (+0 −0 ~1)
+t=252.64141599999948 query snap: snapshot
+t=252.64141599999948 forget request 1 (snap)
+t=252.64141599999948 request 2 (snap): POST exact-native:
+t=252.64141599999948 changed (1 asked again) → epoch 2 (+0 −0 ~0)
+t=556.6717090000002 query snap: snapshot
+t=556.6717090000002 forget request 2 (snap)
+t=556.6717090000002 request 3 (snap): POST exact-native:
+t=556.6717090000002 changed (1 asked again) → epoch 2 (+0 −0 ~0)
+t=851.847667 query snap: snapshot
+t=851.847667 forget request 3 (snap)
+t=851.847667 request 4 (snap): POST exact-native:
+t=851.847667 changed (1 asked again) → epoch 2 (+0 −0 ~0)
+t=1104.3571659999998 query snap: snapshot
+t=1104.3571659999998 forget request 4 (snap)
+t=1104.3571659999998 request 5 (snap): POST exact-native:
+t=1104.3571659999998 changed (1 asked again) → epoch 2 (+0 −0 ~0)
+t=1452.5111669999997 query snap: snapshot
+t=1452.5111669999997 forget request 5 (snap)
+t=1452.5111669999997 request 6 (snap): POST exact-native:
+t=1452.5111669999997 changed (1 asked again) → epoch 2 (+0 −0 ~0)
+t=1958.6440000000002 snap answered: replaces its build-time answer
+t=1958.6440000000002 store exact.kept.snap
+t=1958.6440000000002 fulfil 6 (snap) [HTTP 200, 9 bytes; wall 524 ms] → epoch 3 (+0 −0 ~2)
+  app: 2026-10-07 02:26:13.671 ExactMac[41391:118374602] x14 module: later #1 (ask 1)
+  app: 2026-10-07 02:26:13.985 ExactMac[41391:118374602] x14 module: changed x (1)
+  app: 2026-10-07 02:26:13.986 ExactMac[41391:118374602] x14 module: later #2 (ask 2)
+  app: 2026-10-07 02:26:14.194 ExactMac[41391:118374602] x14 module: reply to ask 1
+  app: 2026-10-07 02:26:14.298 ExactMac[41391:118374602] x14 module: changed x (2)
+  app: 2026-10-07 02:26:14.298 ExactMac[41391:118374602] x14 module: later #3 (ask 3)
+  app: 2026-10-07 02:26:14.511 ExactMac[41391:118374602] x14 module: reply to ask 2
+  app: 2026-10-07 02:26:14.614 ExactMac[41391:118374602] x14 module: changed x (3)
+  app: 2026-10-07 02:26:14.615 ExactMac[41391:118374602] x14 module: later #4 (ask 4)
+  app: 2026-10-07 02:26:14.823 ExactMac[41391:118374602] x14 module: reply to ask 3
+  app: 2026-10-07 02:26:14.896 ExactMac[41391:118374602] x14 module: changed x (4)
+  app: 2026-10-07 02:26:14.896 ExactMac[41391:118374602] x14 module: later #5 (ask 5)
+  app: 2026-10-07 02:26:15.139 ExactMac[41391:118374602] x14 module: reply to ask 4
+  app: 2026-10-07 02:26:15.244 ExactMac[41391:118374602] x14 module: changed x (5)
+  app: 2026-10-07 02:26:15.244 ExactMac[41391:118374602] x14 module: later #6 (ask 6)
+  app: 2026-10-07 02:26:15.419 ExactMac[41391:118374602] x14 module: reply to ask 5
+  app: 2026-10-07 02:26:15.769 ExactMac[41391:118374602] x14 module: reply to ask 6
