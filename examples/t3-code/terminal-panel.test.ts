@@ -32,7 +32,8 @@ describe('right-panel terminals', () => {
 });
 
 import { T3Client } from './client';
-import { addTerminalSurface, terminalPanelLocal, terminalPanelOps, terminalPanelIds, terminalPanelRetained } from './terminal-panel';
+import { addTerminalSurface, terminalPanelLocal, terminalPanelOps, terminalPanelIds, terminalPanelRetained, terminalPanelView } from './terminal-panel';
+import { emptyTerminalDrawerView } from './terminal-drawer-view';
 import { focusedTerminal } from './terminal-focus';
 import { panelState, surfaceLocal, surfaceStore } from './r4-surfaces-panel';
 import { terminalUiStore } from './terminal-ui-state';
@@ -151,4 +152,17 @@ describe('rightPanelStore', () => {
     removePanelTerminal(state, openTerminalSurface(state, 'term-1'), 'term-1');
     expect(state).toMatchObject({ visible: false, active: '', surfaces: [] });
   });
+});
+
+test('panel split view shows the tab list and labels its actions with terminal-focus shortcuts', async () => {
+  const { client, native } = clientFixture();
+  const focus = { type: 'identifier', name: 'terminalFocus' };
+  client.config.keybindings = [{ command: 'terminal.split', shortcut: { key: 'd', modKey: true }, whenAst: focus },
+    { command: 'terminal.close', shortcut: { key: 'w', modKey: true }, whenAst: focus }];
+  await addTerminalSurface(client, native);
+  await terminalPanelLocal(client, native, 'split-vertical', 'env:thread|term-1', '');
+  const surface = panelState(client).surfaces[0]!, view = terminalPanelView(client, emptyTerminalDrawerView(), surface);
+  expect(view).toMatchObject({ showTabs: true, direction: 'column', splitLabel: 'Split Terminal Horizontally (⌘D)' });
+  expect(view.tabs.map(tab => [tab.id, tab.heading, tab.count, tab.closeLabel])).toEqual([
+    ['term-1', 'Stacked', 2, 'Close Terminal 1'], ['term-2', '', 2, 'Close Terminal 2 (⌘W)']]);
 });

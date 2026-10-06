@@ -1,5 +1,4 @@
 import { terminalLayout, terminalSplitLabel, terminalTabs } from './terminal-layout';
-import { commandShortcut } from './shell';
 import { recordTerminalFocus, clearTerminalFocus } from './terminal-focus';
 // T3 Code 1e2ecbd975 rightPanelStore and ChatView terminal surface actions.
 import type { T3Client } from './client';
@@ -8,7 +7,7 @@ import type { Files, Native } from './protocol';
 import { obj, str } from './domain';
 import { panelState, surfaceStore, type PanelState, type Surface } from './r4-surfaces-panel';
 import { closeSurface, registerSurfaceClose } from './right-panel-tabs';
-import { activeRef, ensureTerminalRef, launchFor, knownSessions, allocatableIds, openTerminal, closeTerminalSession, handleTerminalMessage, terminalKeybindings, terminalCommandAction, terminalOps, type TerminalDrawerView } from './terminal-drawer-view';
+import { activeRef, ensureTerminalRef, launchFor, knownSessions, allocatableIds, openTerminal, closeTerminalSession, handleTerminalMessage, terminalKeybindings, terminalShortcut, terminalCommandAction, terminalOps, type TerminalDrawerView } from './terminal-drawer-view';
 import { nextTerminalId, resolveTerminalSessionLabel } from './terminal-labels';
 import { terminalCloseConfirmMessage } from './terminal-close';
 import { parseScopedThreadKey, scopedThreadKey, terminalUiStore, type ScopedThreadRef } from './terminal-ui-state';
@@ -152,7 +151,7 @@ export function terminalPanelView(client: T3Client, base: TerminalDrawerView, su
   // RightPanelTerminalSurface: the surface is the drawer component's one group, so 2+ panes show the tab list.
   const groups = [{ id: surface.id, terminalIds: terminal.terminalIds, splitDirection: terminal.splitDirection }];
   const layout = terminalLayout(terminal.terminalIds, groups, terminalId, surface.id);
-  const keyClose = commandShortcut(client.config, 'terminal.close'), keyNew = commandShortcut(client.config, 'terminal.new');
+  const keyClose = terminalShortcut(client, 'terminal.close'), keyNew = terminalShortcut(client, 'terminal.new');
   const tabs = layout.showTabs ? terminalTabs(groups, terminalId, layout.showHeaders, threadKey, id => panelTerminalLabel(client, id), keyClose) : [];
   return { ...base, open: !!launch, available: !!launch, threadKey, environmentId: ref.environmentId, threadId: ref.threadId,
     terminalId, label, cwd: launch?.cwd ?? '', worktree: launch?.worktreePath ?? '', env: JSON.stringify(launch?.env ?? {}),
@@ -160,8 +159,8 @@ export function terminalPanelView(client: T3Client, base: TerminalDrawerView, su
     closeLabel: keyClose ? `Close Terminal (${keyClose})` : 'Close Terminal', newLabel: keyNew ? `New Terminal (${keyNew})` : 'New Terminal',
     keybindings: terminalKeybindings(client), commandPrefix: 'terminalpanellocal', surface: surface.id, panes, tabs, direction: layout.direction,
     showTabs: layout.showTabs, splitDisabled: layout.splitDisabled,
-    splitLabel: terminalSplitLabel(false, layout.splitDisabled, commandShortcut(client.config, 'terminal.split')),
-    splitVerticalLabel: terminalSplitLabel(true, layout.splitDisabled, commandShortcut(client.config, 'terminal.splitVertical')) };
+    splitLabel: terminalSplitLabel(false, layout.splitDisabled, terminalShortcut(client, 'terminal.split')),
+    splitVerticalLabel: terminalSplitLabel(true, layout.splitDisabled, terminalShortcut(client, 'terminal.splitVertical')) };
 }
 
 export async function terminalPanelOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {

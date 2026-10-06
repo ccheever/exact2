@@ -12,9 +12,9 @@ import { ariaChord, chordWinners, type DispatchContext } from './keyboard-dispat
 const DEFAULT_CONTEXT: DispatchContext = { composerFocus: false, editableFocus: false, turnRunning: false, modelPickerOpen: false, draftThreadRoute: false, modalOpen: false, settingsOpen: false, diffOpen: false };
 
 /** The shortcut the command answers to in the default context, or null. */
-export function effectiveShortcut(config: Obj, command: string): Obj | null {
+export function effectiveShortcut(config: Obj, command: string, context: Partial<DispatchContext> = {}): Obj | null {
   const bindings = arr(config.keybindings);
-  const winners = chordWinners(bindings, DEFAULT_CONTEXT);
+  const winners = chordWinners(bindings, { ...DEFAULT_CONTEXT, ...context });
   for (const binding of [...bindings].reverse()) {
     if (str(binding.command) !== command) continue;
     const chord = ariaChord(obj(binding.shortcut));
