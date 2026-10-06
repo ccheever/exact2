@@ -106,11 +106,15 @@ export function adoptSidebarPrefs(local: object, saved: { sidebar?: unknown }): 
   (local as { sidebar?: SidebarPrefs }).sidebar = decodeSidebarPrefs(saved.sidebar);
 }
 /**
- * The runtime clock where one exists (the bake has none). It is never an instant on its own: the data runtime
- * refuses `Date.now()` (this returns the fallback), and the agent's clock counts from 0. `wall` below turns it
- * into one by measuring from the window's wall time; r8-pointer-clock's `wallIso` is the rule for stored stamps.
+ * The runtime clock where one exists. Data modules have none: the bake refuses a direct `Date.now()` (exact2
+ * 8be2b2623) and the data runtime refused it before that, so in the app this returns the fallback. Bun tests
+ * stand in for a host clock with `setRuntimeClock`. It is never an instant on its own (the agent's clock counts
+ * from 0); `wall` below turns it into one by measuring from the window's wall time; r8-pointer-clock's
+ * `wallIso` is the rule for stored stamps.
  */
-export const clock = (fallback = 0): number => { try { const time = Date.now(); return Number.isFinite(time) && time > 0 ? time : fallback; } catch { return fallback; } };
+let runtimeClock: () => number = () => Number.NaN;
+export function setRuntimeClock(read: () => number): void { runtimeClock = read; }
+export const clock = (fallback = 0): number => { try { const time = runtimeClock(); return Number.isFinite(time) && time > 0 ? time : fallback; } catch { return fallback; } };
 /**
  * The wall clock for sidebar commands. The window passes its wall time with
  * each sidebar command (exactTime's epoch plus the window clock); the runtime

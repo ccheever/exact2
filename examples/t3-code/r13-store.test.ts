@@ -5,7 +5,7 @@
 //   launch   — a clock counting from launch (the round-12 report's reading of a normal run);
 //   virtual  — the agent's virtual clock, which counts from 0.
 // The window's time (app.contract: wallTime.epochAtZero + now()) is the only wall time in either case.
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import './client';
 import type { Obj } from './domain';
@@ -14,10 +14,14 @@ import { EPOCH_FLOOR, epochNow, isEpoch, wallEpoch, wallIso } from './r8-pointer
 import { pagesPrefs } from './pages-prefs';
 import { importProjects, welcomeLocal, welcomeShowing, welcomeView } from './pages-welcome';
 import { storedCompletion } from './r9-connect-onboarding';
-import { adoptCommandTime, clock, wall } from './sidebar-state';
+import { adoptCommandTime, clock, wall, setRuntimeClock } from './sidebar-state';
 import { sidebarCommand } from './sidebar-commands';
 import { editorLocal } from './composer-editor';
 import { stashEntries } from './composer-editor-stash';
+
+// The data runtime has no clock (sidebar-state.ts `clock`); these tests stand in for a host clock that reads Date.now.
+beforeEach(() => setRuntimeClock(() => Date.now()));
+afterEach(() => setRuntimeClock(() => Number.NaN));
 
 const REAL = Date.parse('2026-10-05T10:11:12.345Z');
 const iso = (time: number) => new Date(time).toISOString();

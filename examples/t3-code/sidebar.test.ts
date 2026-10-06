@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
 import type { Files, Native } from './protocol';
@@ -8,7 +8,11 @@ import { ageLabel, effectiveSnoozed, isWoke, orderKeyBetween, planReorder, reced
 import { bulkMenuItems, nativeTemplate, threadMenuItems } from './sidebar-menu';
 import { sidebarSnapshot } from './sidebar-view';
 import { sidebarCommand, sidebarLocal, sidebarSelecting, undoLatest, visitOpenThread } from './sidebar-commands';
-import { resolveCustomSnooze, sidebarPrefs, sidebarSession } from './sidebar-state';
+import { resolveCustomSnooze, sidebarPrefs, sidebarSession, setRuntimeClock } from './sidebar-state';
+
+// The data runtime has no clock (sidebar-state.ts `clock`); these tests stand in for a host clock that reads Date.now.
+beforeEach(() => setRuntimeClock(() => Date.now()));
+afterEach(() => setRuntimeClock(() => Number.NaN));
 
 const NOW = Date.parse('2026-10-04T12:00:00.000Z');
 const iso = (offset: number) => new Date(NOW + offset).toISOString();

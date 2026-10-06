@@ -1,7 +1,8 @@
 // Lane r8-pointer: real-input pointer/state defects D9, D14, D15, D16 and the
 // ⌘] minor, at the logic level (the AppKit halves are macos/tests/sidebar and
 // macos/tests/r8-pointer).
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { setRuntimeClock } from './sidebar-state';
 import { T3Client } from './client';
 import { epochNow } from './r8-pointer-clock';
 import { launchFocus, launchFocusKey, reconnectOnLaunch, relaunchTarget } from './r8-pointer-reconnect';
@@ -13,6 +14,10 @@ import { welcomeView } from './pages-welcome';
 import { pagesPrefs } from './pages-prefs';
 import { obj, type Message, type Obj } from './domain';
 import type { Native } from './protocol';
+
+// The data runtime has no clock (sidebar-state.ts `clock`); these tests stand in for a host clock that reads Date.now.
+beforeEach(() => setRuntimeClock(() => Date.now()));
+afterEach(() => setRuntimeClock(() => Number.NaN));
 
 class Fake implements Native {
   available = true; calls: Obj[] = [];

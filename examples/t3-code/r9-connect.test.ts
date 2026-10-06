@@ -1,7 +1,8 @@
 // Lane r9-connect: Settings › Connections lists every paired server as a saved
 // environment, a failed pairing saves nothing, and a 1970 onboarding time from an
 // older build reads as unset; the branch picker checks a pull request out (PullRequestThreadDialog).
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { setRuntimeClock } from './sidebar-state';
 import { connectionsProjection, runConnectionOp, type ConnectionHost } from './connections';
 import { fleet } from './settings-b-fleet';
 import { adoptPagesPrefs, pagesPrefs } from './pages-prefs';
@@ -11,6 +12,10 @@ import { obj, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import type { T3Client } from './client';
 import { checkoutConfirm, checkoutItems, checkoutLocal, checkoutView, checkoutState } from './r9-connect-checkout';
+
+// The data runtime has no clock (sidebar-state.ts `clock`); these tests stand in for a host clock that reads Date.now.
+beforeEach(() => setRuntimeClock(() => Date.now()));
+afterEach(() => setRuntimeClock(() => Number.NaN));
 
 /** A transport whose pairing exchange refuses one code, as the server's /oauth/token does. */
 class Transport implements Native {
