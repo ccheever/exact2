@@ -489,6 +489,16 @@ guide's rules don't make obvious.
   own page (`src="assets/…"`) that links an `http:` sub-resource (#135).
   (Issue #106, 2026-10-06.)
 
+- **A focus ring never shows in an `agent macos` screenshot.** `type save key Tab`
+  moves the focus (`state` reads it in `focus.logical`), yet neither `screenshot`
+  nor `screenshot … window` shows AppKit's ring. Cause: the agent's app is an
+  accessory whose window is ordered front but never key, and AppKit draws a focus
+  ring only in the key window; nor can a script activate a dev build here (macOS
+  refuses `activate` from the background). Fix: read the focus from `state`, and
+  for the ring itself make the presenter's window an `NSPanel` with
+  `.nonactivatingPanel` in an XCTest (it becomes key without activating the app)
+  and read its pixels with `CGWindowListCreateImage`. (Issue #179, 2026-10-07.)
+
 - **A drive script kept in the app folder makes the build stale.** Editing
   `verify.mjs` beside `app.contract` made the driver refuse the next drive until
   `bun exact.mjs web-build`. Cause: a file in the app folder counts as a build input
