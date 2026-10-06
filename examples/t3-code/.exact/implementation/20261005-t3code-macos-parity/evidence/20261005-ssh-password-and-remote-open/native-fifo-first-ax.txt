@@ -1,0 +1,11 @@
+App=com.exact.t3code.ssh157 (pid 36366)
+Window: "T3 Code (Exact)", App: T3 Code (Exact).
+
+0 window
+	1 scroll area, Secondary Actions: scroll up, scroll down
+		2 table Auto-Complete 1 Result
+			3 table row Passwords…
+				4 cell Passwords…
+					5 text Passwords…
+
+No UI element is currently focused.
