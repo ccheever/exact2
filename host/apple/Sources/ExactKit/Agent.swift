@@ -702,3 +702,14 @@ extension ExactSession {
         return a
     }
 }
+
+public extension ExactEnv {
+    /// `EXACT_AGENT_CHROME=platform` (opt-in; splitter rough 4, 11): under
+    /// the agent, the native navigation bar and tab bar show as a person
+    /// sees them, their items pressing the authored controls they stand for.
+    /// The default paints the authored header and tablist in their place.
+    static let agentChrome = environment["EXACT_AGENT_CHROME"] ?? "agent"
+    /// Whether the authored header and tablist paint instead of UIKit's
+    /// bars: the agent's default chrome.
+    static let authoredChrome = agentMode && agentChrome != "platform"
+}
