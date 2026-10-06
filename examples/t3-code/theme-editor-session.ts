@@ -57,9 +57,11 @@ export function toggleThemeEditorForTheme(store: ThemeEditorStore, input: { them
   store.openThemeEditor({ editingThemeId: null, seedThemeId, seedName: null, initialAppearance: input.initialAppearance });
 }
 
-/** The window's editor dialog (kind, subject) as a session input; null for any other dialog. */
-export function sessionInputFor(kind: string, subject: string, prefs: { theme: string; themeLight: string; themeDark: string }, appearance: ThemeAppearance,
+/** The window's editor dialog (kind, `<subject>#<request>`) as a session input; null for any other dialog. */
+export function sessionInputFor(kind: string, request: string, prefs: { theme: string; themeLight: string; themeDark: string }, appearance: ThemeAppearance,
   custom: readonly CustomTheme[]): ThemeEditorSessionInput | null {
+  // The window names a request as `<theme id>#<request number>`; theme ids never contain '#'.
+  const subject = request.split('#')[0] ?? '';
   if (kind === 'edit') {
     const own = custom.find(theme => theme.id === subject);
     return { editingThemeId: subject, seedThemeId: null, seedName: null, initialAppearance: own?.appearance ?? appearance };

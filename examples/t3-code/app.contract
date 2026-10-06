@@ -430,7 +430,7 @@ component T3Code
   state diagnosticPeriod = "15m"
   resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute) as shape list<KeyDispatch>
   resource sourceControl = sourceControlPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "source-control", settingsRefresh, data.revision) as shape SourceControlPage
-  resource integrations = integrationsPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "integrations", settingsRefresh, data.revision) as shape IntegrationsPage
+  resource integrations = integrationsPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "integrations", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape IntegrationsPage
   resource storageSettings = storageSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "storage", settingsRefresh, data.revision) as shape StoragePage
   resource archives = archivedSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "archived", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision) as shape ArchivePage
   resource licenses = licenseSettings(licenseQuery, licenseExpanded, licenseRetry, settingsOpen and settingsRoute == "open-source-licenses", data.revision) as shape LicenseSettings
@@ -454,6 +454,7 @@ component T3Code
   state settingsRestoreOpen = false
   state settingsThemeDialog = ""
   state settingsThemeSubject = ""
+  state settingsThemeRequest = 0
   resource delivery = exactDelivery() as shape AboutDelivery // the binary's own update facts (settings-a-about)
   resource settingsCore = settingsCore(settingsMachine, settingsProjectKey, settingsCheckout, settingsProjectId, settingsRoute, settingsFocusTarget, settingsOpen, settingsRefresh, data.revision, settingsThemeDialog, settingsThemeSubject, delivery.stream, delivery.staged) as shape SettingsCore
   resource settings = settings(settingsEnvironmentId, settingsProjectId, data.revision, composerFocused, modal, data.running, data.threadId != "", modelsOpen) as shape Settings
@@ -853,7 +854,9 @@ component T3Code
       send changed = command("settings-core", `restore-device-defaults:|${settingsCore.scopeKey}`, "", 0)
   action coreThemeDialog(kind: string, theme: string)
     settingsThemeDialog = kind
-    settingsThemeSubject = theme
+    // openThemeEditor: each request is a new session (its id), so Create while a create is open restarts the draft.
+    settingsThemeRequest = settingsThemeRequest + 1
+    settingsThemeSubject = kind == "create" or kind == "edit" or kind == "duplicate" ? `${theme}#${settingsThemeRequest + 1}` : theme
     modalError = ""
   action coreThemeChange(row: string, part: string, value: string)
     if not commandPending
