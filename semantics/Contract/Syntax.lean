@@ -44,7 +44,9 @@ inductive Expr where
   | str (s : String)
   | bool (b : Bool)
   | none
-  | emptyList
+  /-- `[a, b, c]`, its items left to right; `[]` is `list []` (LLP 1088
+  §9.1). -/
+  | list (items : List Expr)
   | some (e : Expr)
   /-- A template string: each part is printed with `toString` and the
   results concatenated. A literal part is a `str`. -/
@@ -154,6 +156,9 @@ structure MutationDecl where
   ty : Ty
   refreshes : List String := []
   andThen : Option String := .none
+  /-- `queue` (LLP 1092 D1): a send waits while an earlier one of this
+  mutation waits, and is asked by an `advance`'s drain. -/
+  queue : Bool := false
   deriving Repr, Inhabited
 
 structure ActionDecl where
@@ -173,6 +178,10 @@ structure TaskDecl where
   kind : TaskKind
   ms : Expr
   action : String
+  /-- `when cond` (LLP 1092 D7): the timer exists while it holds. -/
+  gate : Option Expr := .none
+  /-- `key=expr`: a new key restarts the timer, as a new `each` key a row. -/
+  key : Option Expr := .none
   deriving Repr, Inhabited
 
 /-- A row of the `routes` table (LLP 1038 D2), in declaration order: the

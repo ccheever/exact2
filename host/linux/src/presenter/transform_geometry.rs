@@ -1,4 +1,6 @@
 //! Untransformed local geometry; mapping identity is distinct from event dimensions.
+//! And the element resize event's rounds after layout (`exact_runner`'s
+//! `resize`), the other event layout itself raises.
 use super::*;
 use exact_kernel::{NodeKey, TransformDragBinding};
 
@@ -25,6 +27,9 @@ pub(super) struct State {
     entries: BTreeMap<NodeKey, Entry>,
     next: u64,
     busy: bool,
+    /// A resize round is delivering: its handlers' commits lay out, and the
+    /// round that follows is this loop's, not a nested one.
+    resizing: bool,
 }
 impl<D: DataSource> Presenter<D> {
     fn transform_geometry(&self, binding: TransformDragBinding) -> Option<Geometry> {
@@ -193,6 +198,36 @@ impl<D: DataSource> Presenter<D> {
         // A second callback can change mapping; refuse/cancel immediately even
         // though its dimensions are intentionally deferred to an external turn.
         self.retire_pointer();
+        error
+    }
+
+    /// The element resize event after layout, as the browser's loop runs
+    /// it (Resize Observer 1 §3.4.1): every `resize` node whose content box
+    /// changed, each round deeper than the last one's shallowest, each
+    /// handler's commit laid out before the next round looks.
+    pub(super) fn deliver_resizes(&mut self) -> Option<String> {
+        if self.transform_geometry.resizing {
+            return None;
+        }
+        self.transform_geometry.resizing = true;
+        let mut error = None;
+        let mut depth = 0;
+        loop {
+            let due = self.host.runner().resize_due(depth);
+            let Some(&(_, _, shallowest)) = due.first() else {
+                break;
+            };
+            depth = shallowest + 1;
+            for (view, rect, _) in due {
+                self.host.runner_mut().resize_delivered(view, rect);
+                let now = self.host.now();
+                let dispatched = self.host.dispatch_at(view, Event::Resize(rect), now);
+                let after = self.after_commit();
+                error = error.or(dispatched).or(after);
+            }
+        }
+        self.host.runner_mut().resize_settled();
+        self.transform_geometry.resizing = false;
         error
     }
 }

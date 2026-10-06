@@ -452,7 +452,7 @@ impl<D: DataSource> Host<D> {
     fn transform_refused(&self) -> String {
         format!(
             "{{\"accepted\":false,\"batch\":{}}}",
-            self.finish(Batch::new(), None)
+            self.refused(Batch::new(), None)
         )
     }
 

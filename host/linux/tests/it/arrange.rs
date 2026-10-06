@@ -408,17 +408,15 @@ fn edge_scroll_authored_deletion_and_width_reflow_still_cancel_before_drop() {
 
 #[test]
 fn eager_and_disabled_grips_do_not_admit_physical_reorder() {
-    for source in [
-        APP.replace("virtualized=true", "virtualized=false"),
-        APP.replace("state disabled = false", "state disabled = true"),
-    ] {
-        let mut p = boot_source(&source);
-        let rect = p.rect_of(id(&p, "grip-0")).unwrap();
-        p.pointer_down(rect.0 + 10., rect.1 + 10., 0.).unwrap();
-        assert!(!p.pointer_move(rect.0 + 10., rect.1 + 40., 10.).unwrap());
-        assert!(!p.pointer_up(rect.0 + 10., rect.1 + 40., 20.).unwrap());
-        assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(0.)));
-    }
+    // An eager list never reorders: the compiler refuses it (3f8cbb165).
+    let eager = contract::compile(&APP.replace("virtualized=true", "virtualized=false"));
+    assert_eq!(eager.unwrap_err().id, "lower-reorder-collection");
+    let mut p = boot_source(&APP.replace("state disabled = false", "state disabled = true"));
+    let rect = p.rect_of(id(&p, "grip-0")).unwrap();
+    p.pointer_down(rect.0 + 10., rect.1 + 10., 0.).unwrap();
+    assert!(!p.pointer_move(rect.0 + 10., rect.1 + 40., 10.).unwrap());
+    assert!(!p.pointer_up(rect.0 + 10., rect.1 + 40., 20.).unwrap());
+    assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(0.)));
 }
 
 #[test]
@@ -471,4 +469,105 @@ fn typing_under_empty_when_arms_preserves_mapping_hold_and_exactly_one_drop() {
     p.tick(5000.);
     p.frame();
     assert!(p.collection_interaction().is_none());
+}
+
+// Dropping across lists (LLP 1094) through the same contact path: two
+// grouped lists side by side; a row carried from one to the other drops
+// once, on the target, then its ghost lands and the session finishes.
+struct Cards(Vec<(String, String)>);
+impl DataSource for Cards {
+    fn query(&mut self, name: &str, args: &[Value]) -> Result<Value, DataError> {
+        if name == "move" {
+            let (item, col, at) = (
+                args[0].as_str().unwrap(),
+                args[1].as_str().unwrap(),
+                args[2].as_str().unwrap(),
+            );
+            let from = self.0.iter().position(|(id, _)| id == item).unwrap();
+            let card = self.0.remove(from);
+            let at = self
+                .0
+                .iter()
+                .position(|(id, _)| id == at)
+                .unwrap_or(self.0.len());
+            self.0.insert(at, (card.0, col.to_owned()));
+        }
+        if name == "columns" {
+            return Ok(Value::list(vec![Value::str("a"), Value::str("b")]));
+        }
+        Ok(Value::list(
+            self.0
+                .iter()
+                .map(|(id, col)| Value::record(vec![Value::str(id), Value::str(col)]))
+                .collect(),
+        ))
+    }
+}
+const CARDS: &str = r#"shape Card
+  id: string
+  col: string
+component App
+  state log = ""
+  resource columns = columns() as shape list<string>
+  resource initial = cards() as shape list<Card>
+  mutation changed as shape list<Card>
+  derive cards = match changed { case some(value) => value, case none => initial }
+  action dropCard(col: string, item: string, before: option<string>)
+    log = `${item}>${col}@${match before { case some(k) => k, case none => "" }}`
+    send changed = move(item, col, match before { case some(k) => k, case none => "" })
+  view
+    row gap=20
+      each col in columns key=col
+        list id=`col-${col}` testId=`list-${col}` virtualized=true reorderGroup="cards" reorderdrop=dropCard(col) width=150 height=200
+          each card in filter(cards, k => k.col == col) key=card.id
+            box testId=`grip-${card.id}` height=40 reorderFor=`col-${col}` touch-action="none"
+              text card.id
+"#;
+#[test]
+fn a_grouped_row_crosses_to_another_list_and_its_session_finishes() {
+    let cards = ["a1", "a2", "b1"].map(|id| (id.to_owned(), id[..1].to_owned()));
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(CARDS).unwrap().encode(),
+        Cards(cards.to_vec()),
+        (400., 500.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    for _ in 0..3 {
+        p.frame();
+    }
+    let at = |p: &mut Presenter<Cards>, name: &str| {
+        let k = p.host().kernel().find_by_test_id(name)[0];
+        let id = p.host().kernel().node_by_key(k).unwrap().id;
+        let r = p.rect_of(id).unwrap();
+        (r.0 + r.2 / 2., r.1 + r.3 / 2.)
+    };
+    let (a1, b1) = (at(&mut p, "grip-a1"), at(&mut p, "grip-b1"));
+    assert!(p.pointer_down(a1.0, a1.1, 0.).unwrap());
+    // Sideways past the slop: a grouped row lifts in any direction.
+    p.pointer_move(a1.0 + 12., a1.1, 10.).unwrap();
+    p.pointer_move(b1.0, b1.1 + 25., 20.).unwrap();
+    assert!(p
+        .host()
+        .runner()
+        .reorder_json()
+        .contains("\"to\":\"col-b\",\"before\":null"));
+    assert!(p.pointer_up(b1.0, b1.1 + 25., 30.).unwrap());
+    assert_eq!(p.host().runner().slot("log"), Some(&Value::str("a1>b@")));
+    assert!(p.needs_animation_frame(), "the ghost springs onto the row");
+    for t in [50., 100., 400., 1500.] {
+        p.tick(t);
+    }
+    assert!(!p.needs_animation_frame());
+    assert_eq!(p.host().runner().reorder_json(), "null");
+    let grip = p.host().kernel().find_by_test_id("grip-a1")[0];
+    let wrapper = p.host().kernel().node_by_key(grip).unwrap().parent.unwrap();
+    assert_eq!(
+        p.host().kernel().node(wrapper).unwrap().style.visibility,
+        exact_kernel::Visibility::Visible,
+        "the row shows once the ghost has landed"
+    );
 }

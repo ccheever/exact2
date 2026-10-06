@@ -107,3 +107,72 @@ fn closing_mid_flight_ends_the_first_flight_and_starts_the_reverse() {
     let rest = host.tick(600.0);
     assert!(rest.contains("\"motion\":false"), "{rest}");
 }
+
+/// A spring flight lands where UIKit's spring animators finish (within
+/// 1/1000 of its travel, moving under 1/20 of it a second): 0.37 s for
+/// Signal's photo zoom spring (critically damped, response 0.25), which the
+/// engine's own rest would have run to 0.78 s.
+#[test]
+fn a_spring_flight_lands_as_uikits_spring_finishes() {
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contract/corpus/shared-elements.contract"
+    ))
+    .unwrap()
+    .replace(
+        "layout-transition=\"300ms ease\"",
+        "layout-transition=\"spring(631.655, 50.265, 1)\"",
+    );
+    assert!(src.contains("spring(631.655"));
+    let plan = contract::compile(&src).unwrap();
+    let (mut host, _) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let toggle = view(&host, "toggle").unwrap();
+    host.dispatch_at(toggle, Event::Press, 100.0);
+    let large = view(&host, "large").unwrap();
+    let land = format!("{{\"op\":\"land\",\"id\":{large}}}");
+    let early = host.tick(440.0);
+    assert!(!early.contains(&land), "still flying at 0.34 s: {early}");
+    let p = progress(&early, large).expect("progress at 0.34 s");
+    assert!(p > 0.99 && p < 0.9995, "nearly there: {p}");
+    let done = host.tick(520.0);
+    assert!(done.contains(&land), "landed by 0.42 s: {done}");
+}
+
+/// A slow, lightly damped spring crosses its target slowly long before it
+/// settles: a flight on it lands only once it stays within the bounds, and
+/// a seek past the first such crossing does not land it early.
+#[test]
+fn a_flight_on_a_bouncy_spring_lands_only_once_it_stays_settled() {
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contract/corpus/shared-elements.contract"
+    ))
+    .unwrap()
+    .replace(
+        "layout-transition=\"300ms ease\"",
+        "layout-transition=\"spring(1, 1, 1)\"",
+    );
+    let plan = contract::compile(&src).unwrap();
+    let (mut host, _) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let toggle = view(&host, "toggle").unwrap();
+    host.dispatch_at(toggle, Event::Press, 100.0);
+    let large = view(&host, "large").unwrap();
+    let land = format!("{{\"op\":\"land\",\"id\":{large}}}");
+    // Past the slow crossing near 6 s, the next excursion is 2% of the travel.
+    let seek = host.tick(6600.0);
+    assert!(!seek.contains(&land), "not landed mid-oscillation: {seek}");
+}

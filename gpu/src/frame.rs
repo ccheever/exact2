@@ -122,6 +122,7 @@ impl Module {
             period_ms: self.period_ms,
             children_generation: inst.children_generation,
             shader_generation: shaders::shader_generation(),
+            headroom: if inst.hdr { inst.headroom } else { 1.0 },
             ..*frame
         };
         let open = self.open.get_or_insert_with(|| Open {

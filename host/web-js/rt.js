@@ -1,4 +1,4 @@
-import { renderMarkup, reportPlace, onSelection } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
+import { renderMarkup, reportPlace, onSelection, textField, settleRadios } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq, equal } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { media, mediaProp, mediaOn, mediaPiece, MEDIA_EVENTS } from "./media.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
@@ -91,11 +91,29 @@ const tooLong = name => new Refusal(`StringTooLong { name: ${JSON.stringify(name
 const Settle = [];
 /** A derive: lazy, cached, equal results keep their object; settled at
  * every commit before the tree; its value conforms to its type. */
-export function memo(fn, t) {
+export function memo(fn, t, name) {
   // Against its last value, which conformed: an unchanged part is not checked again.
-  const n = node(t ? last => { const v = fn(); if (!conforms(v, t, [0], last)) throw new Refusal("a derive's value does not conform to its type"); return v; } : fn);
+  const n = node(t ? last => {
+    let v;
+    try { v = fn(); } catch (e) { if (name && e?.typeRefusal) e.message = `derive ${JSON.stringify(name)}: ${e.message}`; throw e; }
+    if (!conforms(v, t, [0], last)) {
+      const r = n.resource;
+      const error = new Refusal(`${r ? `resource ${JSON.stringify(r.name)} (source ${JSON.stringify(r.source)})` : `derive${name ? ` ${JSON.stringify(name)}` : ""}`}: value does not conform to its type${r?.error ? `; source failed: ${r.error}` : ""}`);
+      if (!r && name) {
+        const seen = new Set(), visit = s => {
+          if (seen.has(s)) return; seen.add(s);
+          const upstream = s.resource;
+          if (upstream?.error) error.message += `; read resource ${JSON.stringify(upstream.name)} (source ${JSON.stringify(upstream.source)}) failed: ${upstream.error}`;
+          for (const input of s.src) visit(input);
+        };
+        for (const input of n.src) visit(input);
+      }
+      error.typeRefusal = true; throw error;
+    }
+    return v;
+  } : fn);
   Settle.push(n);
-  return () => read(n);
+  const g = () => read(n); g.n = n; return g;
 }
 export function effect(fn) { const n = node(fn, undefined, 1); if (Mask) n.m = Mask; fresh(n); return n; }
 /** A scope whose effects `dispose` ends, owned by `parent` (a region's
@@ -125,7 +143,9 @@ export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTi
 export class Refusal extends Error {}
 /** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
 class Failed extends Refusal {}
-let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null;
+let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null, Sched = null;
+/** Queued sends and gated tasks (schedule.js, LLP 1092), installed by a plan that declares them; the last commit's refusal. */
+export const useSchedule = s => { Sched = s; }, refused = () => Refused;
 export const journal = Object.assign([], { start: 0, push(...l) { const over = Array.prototype.push.apply(this, l) - 4096; if (over > 0) this.start += this.splice(0, over).length; return this.length; } }); // the runner's ring (JOURNAL_RING): `start` is the oldest line's index
 const say = line => journal.push(`t=${clock.now} ${line}`);
 /** A write inside an action: collected, applied at commit. */
@@ -142,9 +162,9 @@ function settle() { for (const n of Settle) fresh(n); }
 export function commit(f, what = "commit") {
   if (Writes) return f();
   if (Poisoned) return say(`refused ${what}: the runner is poisoned; reload`);
-  Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = [];
+  Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = []; Refused = null;
   time();
-  const was = Now.v, undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save();
+  const was = Now.v, undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save(), queued = Sched?.save();
   let ok = true;
   try {
     untracked(f);
@@ -155,17 +175,18 @@ export function commit(f, what = "commit") {
       undo.push([n, n.v]); write(n, v);
       if (n.m && !n.landing) n.m.forget(undo);
     }
-    for (const [m, source, args] of Sends) m.send(source, args, undo);
+    for (const [m, source, args, own] of Sends) m.send(source, args, undo, own);
     for (const r of Refresh) r.force(undo);
     if (!routerValid()) throw new Refusal("invalid router value"); // runner/src/runner/router.rs `change`
     settle();
     // A store write re-asks the resources that read the store, until quiet.
     for (let k = 0; Store.dirty && k < 4; k++) { Store.dirty = false; for (const r of Resources) if (r.store) r.revise(undo); settle(); }
+    Sched?.gates(); // gated tasks over the settled state, inside the rollback (LLP 1092 D8)
   } catch (e) {
     ok = false;
     for (const [n, v] of undo.reverse()) write(n, v);
     if (Now.v !== was) { Now.v = was; for (const o of Now.obs) stale(o, DIRTY); } // nor its time: the clock's readers read as they did
-    Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; });
+    Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; }); Sched?.restore(queued);
     Store.restore(store);
     Out = []; Commands = []; Landed = []; Refused = e;
     say(`refused ${what}: ${e.message}`);
@@ -180,12 +201,13 @@ export function commit(f, what = "commit") {
   const tail = () => { // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
     for (const f of Before) f();
     Pres?.before({ ops: [] }, Views); // presence measures what it tracks before the tree changes (LLP 1063)
-    try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
-    settled(); if (!ok) return false;
+    try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
+    settled(); if (!ok) return Sched?.scan(false), false;
     clock.epoch++; Store.persist();
-    for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c);
+    for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds);
     // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
     for (const m of landed) if (m.then) { m.due = clock.now; if (!clock.agent) drive(); }
+    Sched?.scan(true); // a free queue's waiting send is due (LLP 1092 D3)
     return true;
   };
   return Sh && ok ? Sh.commit(tail, Queue, inflight, After) : tail();
@@ -238,9 +260,12 @@ export const Hosts = {
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), /* LLP 1077 D14: vibration where the browser has it */ scrollIntoView: (id, block, inline, behavior) => { const e = document.getElementById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, // an element's, by id (minesweeper F3); list.js takes a row's
 };
 let KeyEvent = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { if (KeyEvent) KeyEvent.$stopped = true; }; // the keydown, wheel or beforeunload whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
+/** The voice table's commands (LLP 1096 D5): the runtime's own, never a host's; sounds.js applies a commit's once it stood. */
+export const Sounds = { apply: null, own: new Set(["playSound", "playSounds", "stopSounds"]) };
 function command(name, args) {
   const f = Hosts[name];
   say(`command ${name}`);
+  if (Sounds.own.has(name)) return;
   if (f) f(...args); else say(`refused: ${name} is not a command this runtime carries`);
 }
 // ---------------------------------------------------------------- the clock and timers
@@ -258,9 +283,10 @@ function tick() { if (Now.v !== clock.now) { Now.v = clock.now; for (const o of 
 // A release build never enters agent mode (LLP 1069.007 D2): its build
 // writes this false, as the wasm host's files are gated.
 const AGENT_ADMITTED = true;
-/** A timer: `every(ms, action, once)`, due from mount. */
-export function every(ms, action, once) {
-  clock.timers.push({ due: clock.now + ms, ms, action, once });
+/** A timer: `every(ms, action, once)`, due from mount; `i` its plan order, which breaks ties (schedule.js inserts by it). */
+let Order = 0; export const order = () => Order++, Tasks = []; // every task, for the agent's `state.tasks`
+export function every(ms, action, once, name) {
+  clock.timers.push({ due: clock.now + ms, ms, action, once, name, i: Order++ }); Tasks.push(clock.timers.at(-1));
   if (!clock.agent) drive();
 }
 // A frame task (LLP 1073): once per presented frame, never caught up; on the
@@ -269,8 +295,8 @@ export function every(ms, action, once) {
 // `virtual_frame`: sixty frames are exactly a second.
 const vf = (base, k) => base + k * 1000 / 60;
 /** `every(frame, action)`. */
-export function frames(action) {
-  clock.timers.push({ due: vf(clock.now, 1), base: clock.now, k: 1, frame: true, action });
+export function frames(action, name) {
+  clock.timers.push({ due: vf(clock.now, 1), base: clock.now, k: 1, frame: true, action, name, i: Order++ }); Tasks.push(clock.timers.at(-1));
   if (!clock.agent) paint();
 }
 /** Move the clock to `to`, firing each due timer and armed `then` at its own time, in order; a seek fires frame
@@ -283,15 +309,18 @@ export function advance(to, wall, stop, timers = true) {
   if (!Number.isFinite(to)) return say(`refused advance: NonFiniteClock (${to})`), journal.at(-1);
   let fired = 0, stopped = false;
   for (;;) {
-    let next = null, then = null;
+    let next = null, then = null, head = null;
     if (timers) for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due)) next = t;
-    // An answer's `then` goes before a timer due at the same time: the answer landed first.
+    // An answer's `then` goes before a timer due at the same time: the answer landed first; a queue's `next` between them (LLP 1092 D3).
     for (const m of Mutations) if (m.due <= to && (!then || m.due < then.due) && (!next || m.due <= next.due)) then = m;
-    if (!next && !then) break;
+    for (const m of Mutations) if (m.next <= to && (!head || m.next < head.next) && (!next || m.next <= next.due) && (!then || m.next < then.due)) head = m;
+    if (head) then = null;
+    if (!next && !then && !head) break;
     if (fired === 4096) return say("refused advance: 4096 commits in one advance (TIMER_FIRE_LIMIT)"), journal.at(-1);
-    if (then) { clock.now = Math.max(clock.now, then.due); then.due = Infinity; }
+    if (head) clock.now = Math.max(clock.now, head.next);
+    else if (then) { clock.now = Math.max(clock.now, then.due); then.due = Infinity; }
     else { clock.now = next.due; if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else next.due = next.frame ? vf(next.base, ++next.k) : next.due + next.ms; }
-    if (fire(then ? () => commit(then.then, `${then.name} then`) : next.action) !== true) return journal.at(-1);
+    if (fire(head ? () => Sched.next(head) : then ? () => commit(then.then, `${then.name} then`) : next.action) !== true) return journal.at(-1);
     fired++;
     if (stop?.()) { stopped = true; break; }
   }
@@ -304,16 +333,17 @@ export function advance(to, wall, stop, timers = true) {
 }
 function fire(f) { for (const c of Clocked) c(); Timing = true; try { return f(); } finally { Timing = false; } }
 let driving = 0, start = 0, painting = 0;
-function drive() {
+export function drive() {
   clearTimeout(driving);
   let next = Infinity;
   for (const t of [...clock.timers, ...Mutations]) if (!t.frame && t.due < next) next = t.due;
+  for (const m of Mutations) if (m.next < next) next = m.next;
   if (!isFinite(next)) return;
   driving = setTimeout(() => { advance(performance.now() - start, true); drive(); }, Math.max(0, next - (performance.now() - start)));
 }
 // Presented frames: before each paint, timers due by the frame's time, then
 // every frame task once at it (Runner::frame).
-function paint() {
+export function paint() {
   if (painting || typeof requestAnimationFrame !== "function") return;
   painting = requestAnimationFrame(function frame(ts) {
     painting = 0;
@@ -322,7 +352,8 @@ function paint() {
     advance(Math.max(clock.now, ts - start), true);
     const at = clock.now, rev = Rev, ticket = Ticket;
     NowRead = false;
-    for (const t of clock.timers) if (t.frame) { t.base = at; t.k = 1; t.due = vf(at, 1); fire(t.action); }
+    // A frame task's commit may arm or drop one (a gate, LLP 1092 D10): each armed at the frame's start fires once.
+    for (const t of clock.timers.filter(t => t.frame)) if (clock.timers.includes(t)) { t.base = at; t.k = 1; t.due = vf(at, 1); fire(t.action); }
     // Frames whose tasks changed nothing and read no clock would change
     // nothing again until state does: the loop parks until a commit writes
     // (skipping a frame that would commit nothing is unobservable).
@@ -409,7 +440,7 @@ function reply(t, name, source, held, f, next, gone) {
       f(p, o);
     }, `${o.more ? "message" : "reply"} ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed) || !held()) return;
     say(`request ${t.id} (${name}) failed and is no longer pending: ${next}`);
-    gone(); commit(() => {}, "a failed request");
+    gone(Refused.message); commit(() => {}, "a failed request");
   };
 }
 const revalidated = (name, same) => `${name} answered: ${same ? "equal to its build-time answer" : "replaces its build-time answer"}`; // runner lines.rs
@@ -437,16 +468,16 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   // that re-asks (a cursor across a gap) is a new ticket, the old one closed with the commit (`Open`).
   const land = t => reply(t, name, source, () => r.ticket === t, (p, o) => {
     if (p.req) { if (o.more) { const n = { id: ++Ticket, args: t.args, req: p.req, r }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
-    if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args); r.failed = null; if (!o.more) r.ticket = null;
+    if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args); r.failed = null; r.error = undefined; if (!o.more) r.ticket = null;
     W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
-  }, "it keeps its last value", () => { r.ticket = null; r.failed = t.args; write(pend.n, false); write(fail.n, t.args); });
+  }, "it keeps its last value", error => { r.ticket = null; r.failed = t.args; r.error = error; write(pend.n, false); write(fail.n, t.args); });
   const m = memo(() => {
     ver();
     const a = args();
     const forced = r.forced, reread = r.reread, rev = r.rev;
     r.forced = r.reread = r.rev = false;
     // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs). `fail` follows.
-    if (r.failed && (forced || !equal(a, r.failed))) r.failed = null;
+    if (r.failed && (forced || !equal(a, r.failed))) { r.failed = null; r.error = undefined; }
     flag(fail, r.failed);
     if (r.failed) return r.value;
     const baked = r.baked; r.baked = false;
@@ -460,7 +491,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     catch (e) {
       if (e instanceof Refusal) throw e;
       if (e.refuse) throw new Failed(`resource ${name}: ${e.message}`);
-      r.failed = a; flag(fail, a); say(`resource ${name} failed: ${e.message}`); return r.value;
+      r.failed = a; r.error = e.message; flag(fail, a); say(`resource ${name} failed: ${e.message}`); return r.value;
     }
     if (ans && ans.store) r.store = true;
     if (ans && "v" in ans) {
@@ -491,8 +522,8 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     return r.value;
   }, type);
   Object.assign(r, {
-    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked],
-    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) r.ticket.args = x[3]; r.store = x[4]; r.failed = x[5]; r.baked = x[6]; },
+    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error],
+    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) r.ticket.args = x[3]; r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; },
     force: undo => { r.forced = true; flag(ver, ver.n.v + 1, undo); },
     reread_: undo => { r.reread = true; flag(ver, ver.n.v + 1, undo); },
     revise: undo => { r.rev = true; flag(ver, ver.n.v + 1, undo); },
@@ -501,46 +532,59 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   Resources.push(r);
   m.p = () => (m(), pend());
   m.f = () => (m(), fail() != null);
+  m.n.resource = r;
   m.r = r;
   return m;
 }
-/** A mutation (LLP 1016): its slot, resources, and newest-winning ticket. */
+/** A mutation (LLP 1016): its slot, resources, and newest-winning ticket — or, a `queue` (LLP 1092), one ticket
+ * and the sends waiting their turn (`wait`, schedule.js), each asked at its `next`. */
 export const Mutations = [];
-export function mut(name, slot, refreshes, type) {
+export function mut(name, slot, refreshes, type, queue) {
   const pend = sig(false);
-  const m = { name, ticket: null, then: null, due: Infinity };
+  const m = { name, ticket: null, then: null, due: Infinity, next: Infinity, queue: !!queue, pend };
   Mutations.push(m);
   slot.n.m = m;
-  const landWrite = (v, undo) => { slot.n.landing = 1; try { undo.push([slot.n, slot.n.v]); write(slot.n, v); } finally { slot.n.landing = 0; } Landed.push(m); };
+  // An answer now lands before the action's own writes, as the runner's do: an assignment in the same action wins.
+  const landWrite = (v, undo) => { if (!Writes.some(w => w[0] === slot.n)) { slot.n.landing = 1; try { undo.push([slot.n, slot.n.v]); write(slot.n, v); } finally { slot.n.landing = 0; } } Landed.push(m); };
   // A reply the source cannot take ends it unsent: its slot as it was, its `then` unarmed (`reply`).
   const land = t => reply(t, name, t.source, () => m.ticket === t, (p, o) => {
     if (p.req) { if (o.more) { const n = { id: ++Ticket, source: t.source, args: t.args, req: p.req }; m.ticket = n; send(n, land(n)); } else { t.req = p.req; send(t, land(t)); } return; }
     if (type && !conforms(p.v, type, [0], m.checked)) throw new Failed(`${name}: the answer does not conform to its shape`);
     m.checked = p.v;
-    if (!o.more) m.ticket = null; W(pend, false);
+    if (!o.more) m.ticket = null; W(pend, !!m.wait?.length);
     slot.n.landing = 1; W(slot, p.v); Landed.push(m);
     for (const r of refreshes) R(r.r);
     queueMicrotask(() => { slot.n.landing = 0; });
-  }, "it ends unsent", () => { m.ticket = null; write(pend.n, false); });
+  }, "it ends unsent", () => { m.ticket = null; write(pend.n, !!m.wait?.length); });
   Object.assign(m, {
-    forget(undo) { if (m.ticket) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } },
-    send(source, args, undo) {
-      const a = ask(source, args, name);
-      if (a && "v" in a) {
-        if (type && !conforms(a.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+    // A queue's assignment forgets nothing (LLP 1092 D4).
+    forget(undo) { if (m.ticket && !m.wait) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } },
+    send(source, args, undo, own) {
+      // A queue's send waits unless the mutation is free; `own` is a `next`'s, whose ask refusing drops it (LLP 1092 D3).
+      if (m.wait && !own && Sched.hold(m, source, args, undo)) return;
+      let a;
+      try {
+        a = ask(source, args, name);
+        if (!a || !("v" in a || a.req || a.promise || a.stream)) throw new Refusal(`${name}: its source is not ready`);
+        if ("v" in a && type && !conforms(a.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+      } catch (e) { if (own) Sched.own = e; throw e; }
+      if ("v" in a) {
         m.checked = a.v;
         landWrite(a.v, undo);
-      } else if (a && (a.req || a.promise || a.stream)) {
+        if (m.wait && pend.n.v !== !!m.wait.length) { undo.push([pend.n, pend.n.v]); write(pend.n, !!m.wait.length); } // a queue: pending while one waits
+      } else {
         const t = { id: ++Ticket, source, args, req: a.req, promise: a.promise, stream: a.stream };
         m.ticket = t; undo.push([pend.n, pend.n.v]); write(pend.n, true); send(t, land(t));
-      } else throw new Refusal(`${name}: its source is not ready`);
-      for (const r of refreshes) r.r.reread_(undo);
+      }
+      // Answered at once, it has landed: what it changes is forced, as a reply's landing forces it (a re-read
+      // drops a source that answers later, and no reply would come to ask again; runner commit.rs `landed_now`).
+      for (const r of refreshes) if ("v" in a) R(r.r); else r.r.reread_(undo);
     },
   });
   m.p = () => pend();
   return m;
 }
-export function M(m, source, args) { Sends.push([m, source, args]); }
+export function M(m, source, args, own) { Sends.push([m, source, args, own]); }
 // ---------------------------------------------------------------- the DOM
 const SVG = "http://www.w3.org/2000/svg";
 /** An element under `p`: its static class, attributes and text. */
@@ -624,7 +668,7 @@ export function P(e, name, f) {
     // link loses its `href`, an iframe shows about:blank.
     if (v != null && (name === "href" || (name === "src" && e.localName === "iframe")) && !navigable(v)) v = name === "src" ? "about:blank" : null;
     if (PropHooks[name]?.(e, v)) return;
-    if (e.$media) mediaProp(e, name, v); // media.js: `paused`, `volume`, `currentTime` … are the glue's
+    if (e.$media && mediaProp(e, name, v)) return; // media.js: `paused`, `volume`, `currentTime` … are the glue's; an `app:/` source its own
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
     else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } if (e.value !== (v ?? "")) e.value = v ?? ""; }
     else if (name === "scrollTop" || name === "scrollLeft") { if (v != null) (Scrolls.get(e) ?? Scrolls.set(e, {}).get(e))[name] = Number(v); }
@@ -683,7 +727,7 @@ export function gs(e, name, values) {
     const pending = x.pendingSurfaces ??= [], queued = pending.find(p => p.id === id);
     if (queued) queued.values = v; else pending.push({ id, name, values: v, generation: 0 });
     if (!Gpu && typeof requestAnimationFrame === "function" && !globalThis.__exactRender) {
-      x.views = Views; x.generation = 0; x.devAssets = null; x.root = document.getElementById("exact-root");
+      x.views = Views; x.generation = 0; x.devAssets = null; x.root = document.getElementById("exact-root"); x.assetURL = v => rel("src", v); // a release's asset path, as the wasm glue's `localAssetURL` (LLP 1098 D6)
       // A surface's published record (LLP 1009 D6), as the glue hands it to
       // the wasm host: `name` or `name\0json`, to `exactSurface` readers
       // (facts.js); dropped where no resource reads one.
@@ -721,6 +765,11 @@ export function c2(e, name, values, types, names) {
 /** When native code may load (LLP 1024 D7): after the browser's first paint entry, or two frames and 250 ms where it records none (glue.js `afterNativePaint`). */
 let Painted = null, Native = null;
 export const painted = () => Painted ??= new Promise(r => { let o; const done = () => { o?.disconnect(); r(); }; try { o = new PerformanceObserver(() => requestAnimationFrame(done)); o.observe({ type: "paint", buffered: true }); } catch {} requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 250))); });
+/** A context menu's popover (LLP 1021 §5.1): after the node's own `contextmenu` (both fire), the popover its `contextpopover` names opens anchored to it,
+ * the browser's own menu prevented and no ancestor hearing the event (macOS consumes the click too); a field's edit menu stays the browser's, and a disabled or inert node opens nothing. */
+export function cp(e) {
+  e.addEventListener("contextmenu", ev => { if (ev.$cp || !e.getAttribute("contextpopover") || ev.target.closest("input,textarea,[contenteditable]") || e.matches(":disabled") || e.closest("[inert]")) return; ev.$cp = 1; ev.preventDefault(); ev.stopPropagation(); setTimeout(() => { if (!e.isConnected || e.matches(":disabled") || e.closest("[inert]")) return; const p = document.getElementById(e.getAttribute("contextpopover") ?? ""); try { if (p && !p.matches(":popover-open")) p.showPopover({ source: e }); } catch {} }); });
+}
 /** A native module's element (LLP 1024 D3): the real custom element, empty until the web host's adapter (`native.js`)
  * and the app's module artifact load (`painted`); the module renders into it, its events reaching the handlers as `exact-native` events (`on`). */
 export function nm(e) {
@@ -821,6 +870,9 @@ function guestOrigin(e) {
   return o === "null" ? undefined : o;
 }
 export function on(e, kind, f) {
+  // The runner's dispatch_at fires what is due at the event's time first (a focus's `then` before the input); a refusal still lets the event run.
+  const go = f, wall = !clock.agent;
+  f = (...a) => { const to = wall && start ? Math.max(clock.now, performance.now() - start) : clock.now; if (clock.timers.some(t => t.due <= to && !(wall && t.frame)) || Mutations.some(m => m.due <= to || m.next <= to)) advance(to, wall); return go(...a); };
   const l = (t, g) => e.addEventListener(t, g);
   if (OnHooks.file && e.localName === "input" && e.type === "file" && OnHooks.file(e, kind, f)) return;
   if (e.$media && MEDIA_EVENTS.has(kind)) return mediaOn(e, kind, f); // media.js: the glue's reports
@@ -829,16 +881,25 @@ export function on(e, kind, f) {
   switch (kind) {
     // A link with a press is the app's navigation: the browser's is prevented. A modified or other-button click, a `target` or `download`, is the browser's alone and the press does not run, with a router or without (`router`, input-glue.js).
     case "press": if (!e.matches("button, a[href], input, select, textarea, summary")) input(); /* the input piece presses it by key (input-glue.js `pressesByKey`) */ return l("click", ev => { const a = ev.target.closest?.("a[href]"); if (a && a !== e && e.contains(a)) return; if (e.localName === "a" && (ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || (e.target && e.target !== "_self") || e.hasAttribute("download"))) return; ev.stopPropagation(); if (e.localName === "a") ev.preventDefault(); f([ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); }); // a press action taking one more parameter hears the MouseEvent's modifiers (gallery F20)
-    // A checkbox's value is whether it is checked; the platform flips the
-    // box at once, and an action that refuses snaps it back (glue.js). A
-    // host's change carries its own text (files.js: a picker's lines, which
-    // an input's value would flatten). A range's is a number (the events table).
-    case "change": case "input": return l(kind, ev => { if (ev instanceof CustomEvent) return f(ev.detail); if (e.type !== "checkbox") return f(e.type === "range" ? Number(e.value) : e.value); f(e.checked); if (e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked; });
+    // A checkbox's value is whether it is checked, a radio's its `value`; the
+    // platform moves the control at once, and an action that refuses snaps
+    // the box or the radio group back (glue.js, navigation.js). A host's
+    // change carries its own text (files.js: a picker's lines, which an
+    // input's value would flatten). A range's is a number (the events table).
+    // An action taking one more parameter hears the `InputEvent` (x2apps
+    // codeedit #2, survey #2).
+    case "change": case "input": return l(kind, ev => {
+      if (ev instanceof CustomEvent) return f(ev.detail);
+      const box = e.type === "checkbox", radio = e.type === "radio", v = box ? e.checked : e.type === "range" ? Number(e.value) : e.value;
+      f(v, inputRecord(e, box || radio ? e.value : String(v), box ? e.checked : radio));
+      if (box && e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked;
+      if (radio) settleRadios(e, r => r.$checked);
+    });
     case "hover": l("pointerenter", () => f(true)); return l("pointerleave", () => f(false));
     case "key": return l("keydown", ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }); // it bubbles to every ancestor's handler; an action taking one more parameter hears the KeyboardEvent record too (contract/types selection.rs's order)
     // The window's, heard by every connected element that declares it (studio diary R17).
     case "beforeunload": return addEventListener("beforeunload", ev => { if (!e.isConnected) return; const outer = KeyEvent; KeyEvent = ev; try { f(); } finally { KeyEvent = outer; } });
-    case "submit": return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing && !ev.$submit) { ev.$submit = true; addEventListener("keydown", w => { if (w === ev && !ev.defaultPrevented) setTimeout(f); }, { once: true }); } }); // Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it, and after the browser's own default, HTML's `change` on Enter (gallery F26)
+    case "submit": return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing && !ev.$submit) { ev.$submit = true; addEventListener("keydown", w => { if (w !== ev || ev.defaultPrevented) return; const run = () => { if (run.done) return; run.done = true; e.removeEventListener("keydown", run, true); e.removeEventListener("beforeinput", run, true); f(); }; e.addEventListener("keydown", run, true); if (ev.target.localName !== "textarea" && !ev.target.isContentEditable) e.addEventListener("beforeinput", run, true); setTimeout(run); }, { once: true }); } }); // Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it, and after the browser's own default, HTML's `change` on Enter (gallery F26); the field's next key or edit (before it applies; an Enter from a textarea or an editor edits itself) runs it first, so the action reads the text Enter submitted (r27 t2: typing at once after Enter submitted the next text)
     // Only from the origin of the src the app committed (glue.js
     // `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is
     // not heard; an opaque sandbox's origin is "null".
@@ -855,8 +916,10 @@ export function on(e, kind, f) {
     case "wheel": return e.addEventListener("wheel", ev => { if (e.matches(":disabled") || e.closest("[inert]")) return; const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false });
     // Files dropped from outside, each a `doc:` handle (files.js, documents-glue.js; studio diary R19).
     case "drop": return OnHooks.drop?.(e, f);
-    // Chrome blurs an element it is removing (still connected); a retired view's blur is dropped (glue.js).
-    case "blur": return l(kind, () => queueMicrotask(() => e.isConnected && f())); case "copy": case "cut": case "paste": return l(kind, ev => { ev.stopPropagation(); f([ev.clipboardData?.getData("text/plain") ?? ""]); }); // the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds
+    // Chrome blurs an element it is removing (still connected); a retired view's blur is dropped (glue.js). A `focus`
+    // waits the same microtask, so moving the focus runs the old field's `blur` before the new one's `focus`, in DOM
+    // order: undeferred, `type` into a second field ran its `focus` first and the first's `blur` undid it (splitter rough 13).
+    case "blur": case "focus": return l(kind, () => queueMicrotask(() => e.isConnected && f())); case "copy": case "cut": case "paste": return l(kind, ev => { ev.stopPropagation(); f([ev.clipboardData?.getData("text/plain") ?? ""]); }); // the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds
     case "selectionchange": return onSelection(e, (text, a, b) => f([text, a, b])); // its part of the page's selection, the `Selection` record (navigation.js)
     default: return l(kind, () => f());
   }
@@ -949,7 +1012,12 @@ export function onTRelease(e, f, t, c) { e.$trelease = f; motion(m => m.transfor
  * over the list's preview (list.js) and the motion piece (arrange.js). The
  * grip names its view (`data-view`): the list's browser half pins the row
  * a contact on it holds by that name (collection-glue.js `liveView`). */
-export function onReorder(e, l) { e.$reorderList = l; e.dataset.view = viewId(e); motion(m => m.reorderHandle(e)); }
+export function onReorder(e, l) {
+  const id = viewId(e);
+  e.$reorderList = l; e.dataset.view = id;
+  onEnd(() => motion(m => m.gone(id)));
+  motion(m => m.reorderHandle(e));
+}
 export function onDrop(e, f) { e.$reorderdrop = f; motion(() => {}); }
 /** `pan`: the web host's input piece's (input-glue.js), after first paint. */
 export function onPan(e, f) {
@@ -977,6 +1045,18 @@ export function wf(e, f) {
     .then(m => { Fl = m; Before.push(() => Fl.before()); After.push(() => Fl.after()); (globalThis.exact ??= {}).flowSettle = () => Fl.settle(); Fl.after(); })
     .catch(err => say(`text flow: ${err.message}`)).finally(() => inflight.n--);
 }
+/** `resize=action`, the element resize event: the browser's ResizeObserver
+ * (the web host's own resize-glue.js, fetched after first paint by a plan
+ * with one), the action hearing the content box's width and height, then
+ * its `DOMRectReadOnly` record. */
+let Resizes = null;
+export function onResize(e, f) {
+  if (typeof ResizeObserver !== "function" || globalThis.__exactRender) return;
+  inflight.n++;
+  (Resizes ??= new Promise(r => requestAnimationFrame(() => r())).then(() => import("./resize-glue.js")))
+    .then(m => m.observeResize(e, r => { if (e.isConnected) f(r.width, r.height, [r.x, r.y, r.width, r.height, r.top, r.right, r.bottom, r.left]); }))
+    .catch(err => say(`resize: ${err.message}`)).finally(() => inflight.n--);
+}
 /** `frame(id)` and `measure(id)` (LLP 1051.000): the page's answers, from
  * the web host's own geometry-glue.js, fetched after first paint by a plan
  * whose actions read geometry (`geo`); unavailable until it is (D5). The
@@ -995,6 +1075,10 @@ function geoRead(op, id) {
   return bits & 1 ? [out[0], out[1], out[2], out[3], !!(bits & 2), false] : [0, 0, 0, 0, false, true];
 }
 export const x_frame = id => geoRead(0, id), x_measure = id => geoRead(1, id);
+/** `elementFromPoint(x, y)` (LLP 1094 D10): the `id` nearest the front-most
+ * of the same untransformed boxes at the viewport point; `none` until the
+ * reader has loaded. */
+export const x_elementFromPoint = (x, y) => { const root = document.getElementById("exact-root"), n = Geo?.point(x, y)?.closest("[id]"); return n && n !== root && root.contains(n) && n.id || null; };
 /** A Markdown text field (LLP 1045 D5): the web host's own editor
  * (markup-editor.js over its wasm), fetched at the first one; it replaces
  * the textarea, which then forwards to it what this runtime writes and
@@ -1022,8 +1106,16 @@ export function mde(e) {
     });
   }).catch(err => say(`markup editor: ${err.message}`)).finally(() => inflight.n--);
 }
-/** `select`: the editor's facts at each selection change (runner Event::Select). */
-export function onSelect(e, f) { e.$select = f; }
+/** `select`: the editor's facts at each selection change (runner Event::Select);
+ * a text field's own, HTML's, its `InputEvent` (x2apps codeedit #2). */
+export function onSelect(e, f) { e.$select = f; e.addEventListener("select", () => { if (textField(e)) f(inputRecord(e, e.value, false)); }); }
+/** The `InputEvent` record (contract/types selection.rs's order): the value,
+ * whether checked, and a text field's selection (UTF-16, the DOM's); a type
+ * with none has its caret after its text, a control 0, 0, `none`. */
+function inputRecord(e, value, checked) {
+  const n = e.value?.length ?? 0, field = textField(e);
+  return [value, checked, field ? e.selectionStart ?? n : 0, field ? e.selectionEnd ?? n : 0, field ? e.selectionDirection ?? "none" : "none"];
+}
 /** Press feedback (LLP 1061): the web host's input piece shows it, from
  * the node's own `--exact-press` (css.rs). */
 export const pressFeedback = () => input();
@@ -1391,3 +1483,4 @@ export function language(slot) {
   effect(() => { const t = table(slot()) ?? Texts[0]; document.documentElement.lang = t[0]; document.documentElement.dir = t[1] ? "rtl" : "ltr"; });
 }
 export * from "./router.js"; import { routerValid } from "./router.js"; // the router (LLP 1038), its own file
+export { queues, gated } from "./schedule.js"; // queued sends and gated tasks (LLP 1092), their own file

@@ -21,6 +21,8 @@ public final class ExactView: NSView {
     private var lastSize = CGSize.zero
     private var lastDisplayScale: CGFloat = 0
     private var shortcutMonitor: Any?
+    /// Screen changes and HDR suppression: HDR pictures re-plan (LLP 1100 D9).
+    private var rangeObservers: [NSObjectProtocol] = []
     /// The adapter's hook for the first root's `viewport-fit` (window chrome
     /// is the window's business, LLP 1008 §9); the insets themselves are
     /// computed here.
@@ -54,6 +56,20 @@ public final class ExactView: NSView {
             self?.syncInsets()
             self?.onViewportFit?()
         }
+        var names: [Notification.Name] = [NSWindow.didChangeScreenNotification, NSApplication.didChangeScreenParametersNotification]
+        if #available(macOS 26, *) {
+            names += [.NSApplicationShouldBeginSuppressingHighDynamicRangeContent,
+                      .NSApplicationShouldEndSuppressingHighDynamicRangeContent]
+        }
+        rangeObservers = names.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                MainActor.assumeIsolated {
+                    guard let self, note.object == nil || note.object as AnyObject? === self.window || note.object is NSApplication else { return }
+                    self.session.tellPreferences()
+                    self.session.rasters.displayChanged()
+                }
+            }
+        }
     }
 
     /// Whether this session's shortcuts and `key` handlers hear the window's
@@ -83,6 +99,7 @@ public final class ExactView: NSView {
 
     deinit {
         if let shortcutMonitor { NSEvent.removeMonitor(shortcutMonitor) }
+        rangeObservers.forEach(NotificationCenter.default.removeObserver)
         session.presenter.menus.reset()
         session.presenter.dialogs.reset()
         session.presenter.toolbar.detach()

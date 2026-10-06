@@ -402,6 +402,8 @@ export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = a
     dict.NSLocalNetworkUsageDescription = typeof ios.localNetworking === 'string' ? ios.localNetworking : 'Connects to your dev server on the local network.';
   }
   if (ios.backgroundModes?.length) dict.UIBackgroundModes = ios.backgroundModes;
+  // @ref LLP 1096 D8 — the audio session's category, which ExactKit's one owner reads.
+  if (app.manifest.audio_session) dict.ExactAudioSession = app.manifest.audio_session;
   // The manifest's `file_handlers`, as on the Mac, opened in place from
   // Files ("Open in", LLP 1069.010 slice 4), and the non-system types they
   // name (Markdown) imported so Files can match them.
@@ -670,6 +672,7 @@ async function main(args) {
     built: `lib${app.crate(`gpu-${name}`).replace(/-/g, '_')}.dylib`, load: `libexact_gpu_${name.replace(/-/g, '_')}.dylib` }));
   const webLoadName = 'libexact_web.dylib';
   const videoLoadName = 'libexact_video.dylib';
+  const soundLoadName = 'libexact_sound.dylib';
   const svgLoadName = 'libexact_svg.dylib';
   const webBuildDir = mkdtempSync(resolve(tmpdir(), 'exact-webarm-'));
   cleanup.push(webBuildDir);
@@ -714,8 +717,7 @@ async function main(args) {
   let bakedPlan, paths;
   const development = cargoEnv.EXACT_UPDATE_TRUST === 'development' && args.includes('--url') ? developmentAdmission(app, launchEnv.EXACT_DEV_PLAN) : null;
   cargoEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, cargoEnv);
-  if (tv && existsSync(resolve(app.dir, 'app.ts')) && cargoEnv.EXACT_JS_ENGINE !== 'stub') throw new Error(`--tvos: ${app.name} has app.ts, and Hermes is not built for tvOS yet; set EXACT_JS_ENGINE=stub`);
-  if (ios && !tv && existsSync(resolve(app.dir, 'app.ts')) && cargoEnv.EXACT_JS_ENGINE !== 'stub') provisionHermesIos(device ? 'ios' : 'ios-simulator');
+  if (ios && existsSync(resolve(app.dir, 'app.ts')) && cargoEnv.EXACT_JS_ENGINE !== 'stub') provisionHermesIos(tv ? 'tvos-simulator' : device ? 'ios' : 'ios-simulator');
   // What the bake is expected to decide (the manifest's store level). The
   // shared Swift scratch is the same whatever it decides; the composition and
   // capture directory name the Swift host's environment before the bake ends.
@@ -941,10 +943,14 @@ async function main(args) {
   // build carries all four: a development plan or a later bundle may reach
   // one. Nothing is refused for a module left out: each loader says by name
   // that its module is absent, and a canvas then draws with Core Graphics.
+  // @ref LLP 1098 D8 — the lock screen and Control Center show only a non-mixable playback session's media, and the audio
+  // stops at the lock without the background mode: an app that claims the media session states both.
+  const iosModes = app.manifest.host?.ios?.backgroundModes ?? [];
+  if (ios && !tv && buildReceipt.graph.mediaSession && !(app.manifest.audio_session === 'playback' && iosModes.includes('audio'))) throw new Error('host/apple: a media session needs `audio_session: "playback"` and `"audio"` in `host.ios.backgroundModes` in app.json on iOS: the lock screen shows only a playback session\'s media');
   const reaches = buildReceipt.graph.loads;
   const settled = cargoProfile === 'release' && level === '0' && Array.isArray(reaches);
   const carries = (module) => !settled || reaches.includes(module);
-  const leftOut = settled ? ['canvas', 'svg', 'video', 'web'].filter((module) => !reaches.includes(module)) : [];
+  const leftOut = settled ? ['canvas', 'svg', 'video', 'web', 'sound'].filter((module) => !reaches.includes(module)) : [];
   if (leftOut.length) console.log(`host/apple: the plan cannot change (production, store level 0) and reaches no ${leftOut.join(', ')} module: left out of this build`);
   const canvasGpu = metal && carries('canvas');
   const lateCrates = fixedPlan && !embedOnly ? [...(carries('svg') ? ['exact-svg-raster'] : []), ...(canvasGpu ? ['exact-canvas-vello'] : [])] : [];
@@ -1005,8 +1011,25 @@ async function main(args) {
   const hasWeb = !tv && carries('web'), hasVideo = carries('video'), hasSvg = carries('svg');
   if (hasWeb) arms.push(arm(webArgs, resolve(root, 'host/apple/webarm/WebArm.swift'), webBuilt));
   const videoBuilt = resolve(webBuildDir, videoLoadName);
-  const videoArgs = webArgs.map(value => value === 'ExactWebArm' ? 'ExactVideoArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? resolve(root, 'host/apple/videoarm/VideoArm.swift') : value === webBuilt ? videoBuilt : value === 'WebKit' ? 'AVKit' : value);
-  if (hasVideo) arms.push(arm(videoArgs, resolve(root, 'host/apple/videoarm/VideoArm.swift'), videoBuilt));
+  // The video arm and its media session (LLP 1098 D7): both sources are its key and its inputs, with MediaPlayer.
+  const video = ['VideoArm.swift', 'NowPlaying.swift'].map(f => resolve(root, 'host/apple/videoarm', f));
+  const videoArgs = webArgs.flatMap(value => value === 'ExactWebArm' ? ['ExactVideoArm'] : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? video : value === webBuilt ? [videoBuilt] : value === 'WebKit' ? ['AVKit', '-framework', 'MediaPlayer'] : [value]);
+  if (hasVideo) arms.push(arm(videoArgs, video, videoBuilt));
+  // The sound arm (LLP 1096 D8): Swift over a C mixer, so the render thread
+  // runs no Swift. The C is compiled first to an object named by its content,
+  // and linked into the one dylib with its header imported.
+  const hasSound = carries('sound'), soundBuilt = resolve(webBuildDir, soundLoadName);
+  if (hasSound) {
+    const sound = (f) => resolve(root, 'host/apple/soundarm', f), triple = webArgs[webArgs.indexOf('-target') + 1];
+    const object = resolve(swiftBuildRoot, 'arms', `sound_render-${createHash('sha256').update(readFileSync(sound('sound_render.c'))).update(readFileSync(sound('sound_render.h'))).update(`${triple} ${sdk}`).digest('hex').slice(0, 16)}.o`);
+    if (!existsSync(object)) {
+      mkdirSync(dirname(object), { recursive: true });
+      run('xcrun', ['--sdk', sdkName, 'clang', '-c', '-O2', '-target', triple, sound('sound_render.c'), '-o', `${object}.${process.pid}.tmp`]);
+      renameSync(`${object}.${process.pid}.tmp`, object);
+    }
+    const soundArgs = [...webArgs.map(value => value === 'ExactWebArm' ? 'ExactSoundArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? sound('SoundArm.swift') : value === webBuilt ? soundBuilt : value === 'WebKit' ? 'AVFoundation' : value), '-import-objc-header', sound('sound_render.h'), object];
+    arms.push(arm(soundArgs, [sound('SoundArm.swift'), sound('sound_render.c'), sound('sound_render.h')], soundBuilt));
+  }
   // @ref LLP 1024 D3/D8.4 — the app's one module artifact, only when the app
   // has modules (the GPU gate): the host's table glue and the app's own
   // `modules/apple/*.swift`, one dylib under one load name. A release build
@@ -1175,12 +1198,14 @@ async function main(args) {
     rmSync(gpuDest, { force: true });
     if (hasGpu) copyFileSync(resolve(libDir, dylib), gpuDest);
     for (const m of moduleDylibs) { rmSync(resolve(binDir, m.load), { force: true }); copyFileSync(resolve(libDir, m.built), resolve(binDir, m.load)); }
-    const loaded = [...(hasWeb ? [webLoadName] : []), ...(hasVideo ? [videoLoadName] : []), ...(hasSvg ? [svgLoadName] : [])];
+    const loaded = [...(hasWeb ? [webLoadName] : []), ...(hasVideo ? [videoLoadName] : []), ...(hasSvg ? [svgLoadName] : []), ...(hasSound ? [soundLoadName] : [])];
     const webDest = resolve(binDir, webLoadName);
     rmSync(webDest, { force: true });
     if (hasWeb) copyFileSync(webBuilt, webDest);
     rmSync(resolve(binDir, videoLoadName), { force: true });
     if (hasVideo) copyFileSync(videoBuilt, resolve(binDir, videoLoadName));
+    rmSync(resolve(binDir, soundLoadName), { force: true });
+    if (hasSound) copyFileSync(soundBuilt, resolve(binDir, soundLoadName));
     rmSync(resolve(binDir, modulesLoadName), { force: true });
     if (modulesBuilt) copyFileSync(modulesBuilt, resolve(binDir, modulesLoadName));
     rmSync(resolve(binDir, svgLoadName), { force: true });
@@ -1279,6 +1304,7 @@ async function main(args) {
   for (const m of moduleDylibs) copyFileSync(resolve(libDir, m.built), resolve(bundle, 'Frameworks', m.load));
   if (hasWeb) copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
   if (hasVideo) copyFileSync(videoBuilt, resolve(bundle, 'Frameworks', videoLoadName));
+  if (hasSound) copyFileSync(soundBuilt, resolve(bundle, 'Frameworks', soundLoadName));
   if (modulesBuilt) copyFileSync(modulesBuilt, resolve(bundle, 'Frameworks', modulesLoadName));
   if (hasSvg) copyFileSync(svgBuilt, resolve(bundle, 'Frameworks', svgLoadName));
   if (svgFilterBuilt) copyFileSync(svgFilterBuilt, resolve(bundle, svgFilterLibraryName));
@@ -1312,7 +1338,7 @@ async function main(args) {
       entitlements: readFileSync(ent, 'utf8'), gpu: hasGpu ? dylib : null, development: host ? null : development });
     writeFileSync(resolve(assembled, 'receipt.json'), ipa ? shippedReceipt(whole) : whole);
     if (ipa) { mkdirSync(dirname(ipa), { recursive: true }); writeFileSync(`${ipa.replace(/\.ipa$/, '')}.receipt.json`, whole); }
-    if (ipa) for (const [loose, name] of [[webLoadName, 'ExactWeb'], [videoLoadName, 'ExactVideo']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app);
+    if (ipa) for (const [loose, name] of [[webLoadName, 'ExactWeb'], [videoLoadName, 'ExactVideo'], [soundLoadName, 'ExactSound']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app);
     for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => f !== loadName && !moduleDylibs.some(m => m.load === f))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), assembled], { stdio: 'ignore' });
   }
@@ -1336,7 +1362,7 @@ async function main(args) {
       run('xcrun', ['devicectl', 'device', 'install', 'app', '--device', ph.udid, placed]);
     } else install(dev, placed, app, host);
   }
-  console.log(`host/apple: ${paths.bundle} on ${dev.name} (${timing()}); GPU: ${gpuNote}${ios && !svgFilterBuilt ? '; no SVG filter kernels (no Metal toolchain)' : ''}; web arm: ${hasWeb ? webLoadName : 'none'}${modulesBuilt ? `; modules: ${modulesLoadName} (Frameworks, signed)` : ''}`);
+  console.log(`host/apple: ${paths.bundle} on ${dev.name}${dev.udid ? ` ${dev.udid}` : ''} (${timing()}); GPU: ${gpuNote}${ios && !svgFilterBuilt ? '; no SVG filter kernels (no Metal toolchain)' : ''}; web arm: ${hasWeb ? webLoadName : 'none'}${modulesBuilt ? `; modules: ${modulesLoadName} (Frameworks, signed)` : ''}`);
   if (args.includes('--run')) {
     if (device) run('xcrun', deviceLaunchArgs(ph.udid, app.id, launchEnv));
     else {

@@ -210,6 +210,8 @@ fn a_colour_parses_as_css_writes_it() {
         "rgb(255, 0, 0",
         "reddish",
         "lightgoldenrodyellowish",
+        "blurple",
+        "oklch(0.7 0.1 200)",
     ] {
         assert_eq!(Color::parse(text), None, "{text}");
     }
@@ -223,12 +225,56 @@ fn a_colour_parses_as_css_writes_it() {
         Color::parse("hsl(326, 55%, 52%)"),
         Some(Color::rgba(0xc8, 0x41, 0x8e, 255))
     );
-    // The wide forms, clipped to sRGB, once linked.
-    crate::style::link_wide_colors();
+    // A wide form keeps its space (LLP 1100 D2); it resolves to its sRGB clip.
+    assert_eq!(Color::parse("oklch(0.7 0.1 200 / 0.5)"), None);
     assert_eq!(
-        Color::parse("oklch(0.7 0.1 200 / 0.5)"),
-        Some(Color::rgba(64, 177, 183, 128))
+        ColorValue::parse_light_dark("oklch(0.7 0.1 200 / 0.5)")
+            .unwrap()
+            .resolve(false),
+        Color::rgba(64, 177, 183, 128)
     );
+}
+
+#[test]
+fn a_modern_colour_keeps_its_space_and_its_text() {
+    use super::wide::wide;
+    let p3 = ColorValue::parse_light_dark("color(display-p3 1 0 0)").unwrap();
+    let ColorValue::Wide(id) = p3 else {
+        panic!("{p3:?}")
+    };
+    let w = wide(id).unwrap();
+    assert_eq!(&*w.text, "color(display-p3 1 0 0)");
+    assert_eq!(w.light.space, exact_color::Space::DisplayP3);
+    assert!(!p3.is_scheme_aware());
+    assert_eq!(
+        ColorValue::parse_light_dark(" color(display-p3 100% 0 0) "),
+        Some(p3)
+    );
+    assert_eq!(p3.resolve(false), Color::rgba(255, 0, 0, 255));
+    let pair = ColorValue::parse_light_dark("light-dark(oklch(0.9 0.05 200), #000)").unwrap();
+    let ColorValue::Wide(id) = pair else {
+        panic!("{pair:?}")
+    };
+    assert_eq!(
+        &*wide(id).unwrap().text,
+        "light-dark(oklch(0.9 0.05 200), #000000ff)"
+    );
+    assert!(pair.is_scheme_aware());
+    assert_eq!(pair.resolve(true), Color::rgba(0, 0, 0, 255));
+    // Two legacy halves stay an 8-bit pair.
+    assert!(matches!(
+        ColorValue::parse_light_dark("light-dark(red, hsl(0 0% 0%))"),
+        Some(ColorValue::LightDark(..))
+    ));
+    let mut css = String::new();
+    crate::gradient::color_css(&mut css, p3);
+    assert_eq!(css, "color(display-p3 1 0 0)");
+    let mut w = crate::wire::codec::Writer::new();
+    w.color_value(pair);
+    let bytes = w.into_vec();
+    assert_eq!(bytes[0], 4);
+    let mut r = crate::wire::codec::Reader::new(&bytes);
+    assert_eq!(r.color_value().unwrap(), pair);
 }
 
 #[test]
@@ -692,4 +738,55 @@ fn a_bare_node_s_colour_is_the_platform_s_text_colour_and_its_tint_the_accent() 
         Color::parse_hex("#ffffff").unwrap()
     );
     assert!(s.text_color.is_scheme_aware());
+}
+
+/// LLP 1100 D3.
+#[test]
+fn a_profiles_colour_is_the_platforms_to_draw() {
+    use super::profiled::{declarations, profiled, Source};
+    let dci = ColorValue::parse_light_dark("color(--dci-p3 1 0.5 0)").unwrap();
+    let ColorValue::Profiled(id) = dci else {
+        panic!("{dci:?}")
+    };
+    let p = profiled(id).unwrap();
+    assert_eq!(p.source, Source::Named("kCGColorSpaceDCIP3"));
+    assert_eq!(&*p.text, "color(--dci-p3 1 0.5 0)");
+    assert_eq!(dci.fallback(), ColorValue::Fixed(Color::TRANSPARENT));
+    assert!(
+        ColorValue::parse_light_dark("color(--dci-p3 1 0.5)").is_none(),
+        "three components"
+    );
+    assert!(
+        ColorValue::parse_light_dark("color(--nobody 1 0 0)").is_none(),
+        "undeclared"
+    );
+    let _profiles = declarations([("--kernel-test-cmyk", "assets/cmyk.icc", "perceptual")]);
+    let cmyk =
+        ColorValue::parse_light_dark("color(--kernel-test-cmyk 0.1 0.8 0.2 0.05 / 50%)").unwrap();
+    let ColorValue::Profiled(id) = cmyk else {
+        panic!("{cmyk:?}")
+    };
+    let p = profiled(id).unwrap();
+    assert_eq!(
+        p.source,
+        Source::Icc {
+            src: "assets/cmyk.icc".into(),
+            intent: "perceptual".into()
+        }
+    );
+    assert_eq!((p.components.len(), p.alpha), (4, 0.5));
+    let mut w = crate::wire::codec::Writer::new();
+    w.color_value(cmyk);
+    let bytes = w.into_vec();
+    assert_eq!(bytes[0], 6);
+    assert_eq!(
+        crate::wire::codec::Reader::new(&bytes)
+            .color_value()
+            .unwrap(),
+        cmyk
+    );
+    let why =
+        crate::gradient::BackgroundImage::check("linear-gradient(red, color(--dci-p3 1 0 0))")
+            .unwrap_err();
+    assert!(why.contains("never mixed"), "{why}");
 }

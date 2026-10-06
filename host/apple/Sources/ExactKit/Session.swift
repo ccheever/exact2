@@ -382,6 +382,8 @@ public final class ExactSession {
     let natives = NativeViews()
     /// The file picker (LLP 1069.002).
     lazy var picker = Picker(session: self)
+    /// The voice table's output (LLP 1096 D8), made at the first `sound` op.
+    lazy var sound = SoundOutput(self)
     let frames: Frames
     /// A development session's presented frames (LLP 1079 D3); a production bake has none.
     private(set) var sampler: FrameSampler?
@@ -433,6 +435,9 @@ public final class ExactSession {
     private var canvasOwed = false
     private var canvasAsked = false
     private var landing = false
+    /// Landing slices ahead of a batch already made: their appearance
+    /// reports wait for it, so no batch made later applies before it.
+    private var holdingReports = false
     /// Slices build off main on iOS unless the agent drives the app, or
     /// `EXACT_FILL_SYNC=1` asks for the synchronous path (LLP 1072 T12).
     /// macOS follows once physical scrolling there is measured (stage 5).
@@ -686,8 +691,17 @@ public final class ExactSession {
             apply(batch)
         }
         presenter.onPress = { [unowned self] id in apply(runtime.press(id, held: presenter.pressHeld, now: now())) }
-        presenter.onChange = { [unowned self] id, value in apply(runtime.change(id, documentValue(id, value), now: now())) }
-        presenter.onInput = { [unowned self] id, value in apply(runtime.input(id, value, now: now())) }
+        // A text field's `input` and `change` carry the selection the edit
+        // left, its `select` the one the person or a script made (x2apps
+        // codeedit #2, `FieldSelections`).
+        presenter.onChange = { [unowned self] id, value in
+            let value = documentValue(id, value)
+            apply(runtime.change(id, value, selection: presenter.fieldSelections.reported(id, value), now: now()))
+        }
+        presenter.onInput = { [unowned self] id, value in
+            apply(runtime.input(id, value, selection: presenter.fieldSelections.reported(id, value), now: now()))
+        }
+        presenter.fieldSelections.onSelect = { [unowned self] id, value, selection in apply(runtime.fieldSelect(id, value, selection, now: now())) }
         // @ref LLP 1069.001 D4 — a toggle is HTML's `input` then `change`,
         // each where the node hears it.
         presenter.onChecked = { [unowned self] id, on in
@@ -701,6 +715,7 @@ public final class ExactSession {
             if change, handlers.contains("change") { apply(runtime.change(id, value, now: now())) }
         }
         presenter.selectOptions = { [unowned self] id in runtime.selectOptions(id) }
+        presenter.controls.radioGroup = { [unowned self] id in runtime.radioGroup(id) }
         presenter.buttonFace = { [unowned self] id in runtime.buttonFace(id) }
         presenter.onIntrinsic = { [unowned self] sizes in whenIdle { [unowned self] in apply(runtime.intrinsics(sizes)) } }
         #if os(iOS)
@@ -731,7 +746,7 @@ public final class ExactSession {
         presenter.onPanRelease = { [unowned self] id, vx, vy in apply(runtime.panRelease(id, vx: vx, vy: vy, now: now())) }
         presenter.onPanSample = { [unowned self] first, x, y, t in runtime.panSample(first: first, x: x, y: y, t: t) }
         presenter.panVelocity = { [unowned self] t in runtime.panVelocity(at: t) }
-        presenter.onScroll = { [unowned self] id, metrics in apply(runtime.scroll(id, metrics: metrics, now: now())) }
+        presenter.onScroll = { [unowned self] id, metrics in applyUnlessEmpty(runtime.scroll(id, metrics: metrics, now: now()), scrolled: true) }
         presenter.onScrolled = { [unowned self] id, left, top in runtime.scrolled(id, left: left, top: top) }
         #if canImport(AppKit)
         presenter.onListIndex = { [unowned self] id, key in runtime.listIndex(id, key: key) }
@@ -774,6 +789,7 @@ public final class ExactSession {
             }
         }
         let cp = text.checkpoint()
+        runtime.setProfileResolver(app.resolver)
         let batch = runtime.boot(width: size.width, height: size.height)
         if batch.error != nil { text.restore(cp) }
         return finishBoot(batch, started: t)
@@ -785,6 +801,7 @@ public final class ExactSession {
         let t = CACurrentMediaTime()
         primePreferences()
         let cp = text.checkpoint()
+        runtime.setProfileResolver(app.resolver)
         let batch = runtime.bootPlan(bytes, width: size.width, height: size.height)
         if batch.error == nil { updateToken = 0; app.invalidateDevGeneration() }
         if batch.error != nil { text.restore(cp) }
@@ -802,7 +819,7 @@ public final class ExactSession {
             // replaced its host.
             routerOp = nil
             generation += 1
-            if booted { presenter.reset() }
+            if booted { presenter.reset(); forgetAppearances() }
             booted = true
             text.commitFonts()
             AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
@@ -837,6 +854,8 @@ public final class ExactSession {
         // The running tree's focus, read before the candidate replaces it.
         keptFocus = booted ? presenter.focusPlace(tree: agent("{\"op\":\"tree\"}")) : nil
         let module = module ?? app.lastModule
+        runtime.setProfileResolver(resolver)
+        defer { runtime.setProfileResolver(app.resolver) }
         let candidate = TextEngine.pair(resolve: { resolver.url($0) }, read: { resolver.bytes($0) }, bundled: { resolver.bundledURL($0) })
         runtime.setMeasure(TextEngine.measureText, ctx: candidate.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: candidate.measuring.opaque)
@@ -867,6 +886,7 @@ public final class ExactSession {
 
     func commit(_ candidate: Prepared) -> Batch {
         text = candidate.text
+        runtime.setProfileResolver(candidate.resolver)
         updateToken = candidate.token
         runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
@@ -882,6 +902,7 @@ public final class ExactSession {
         let restart = booted, kept = keptFocus
         keptFocus = nil
         presenter.reset()
+        forgetAppearances()
         booted = true
         app.lifecycle?.generationStarted(app, token: updateToken)
         autofocusHeld = restart
@@ -928,26 +949,38 @@ public final class ExactSession {
             && batch.canvas == frames.canvas2d && batch.frames == frames.tasks
     }
 
-    /// A timer's batch. An app's timer that writes nothing (a poll that finds
-    /// no news) still commits a batch, with only its next deadline: that one
-    /// only moves the clock, as fills and list feedback already skip theirs,
-    /// instead of running the presenter's whole pass four times a second.
-    func applyTick(_ batch: Batch) {
+    /// A batch from a timer or a scroll event: one that changes nothing only
+    /// moves the clock. An app's timer that writes nothing (a poll that
+    /// finds no news) and a `scroll=` handler whose writes show nowhere
+    /// (every frame of a fling) still commit, and the presenter's whole pass
+    /// cost ~4.5 ms a batch on the simulator, which a fling paid every
+    /// frame. Fills and list feedback already skip theirs. Other events
+    /// still apply an empty batch: a native control that changed itself
+    /// before its handler ran is reconciled by the pass (a refused tab), and
+    /// the agent's clock seeks native animations through it.
+    func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false) {
         guard !applying, !(fillInFlight || tickInFlight || canvasInFlight), changesNothing(batch) else { apply(batch); return }
         // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
         sampler?.batch(batch.seq, ms: 0)
         timerDue = batch.timerDueMs
         scheduleClock(due: batch.timerDueMs)
+        // What the pass did that a scroll moves (`scrolledWithoutPass`).
+        if scrolled { presenter.scrolledWithoutPass() }
     }
 
-    /// Batches that reached `apply` (`applyTick`'s tests read it).
+    /// Batches that reached `apply` (`IdleTickTests` read it).
     private(set) var appliedBatches = 0
 
     func apply(_ batch: Batch) {
         guard state != .destroyed else { return }
         appliedBatches += 1
         // A slice the owner committed before this batch applies first (T4).
-        if !applying, !landing, fillInFlight || tickInFlight || canvasInFlight, hasPublished { landFill() }
+        if !applying, !landing, fillInFlight || tickInFlight || canvasInFlight, hasPublished {
+            // What the landed slices leave owed is asked after this batch,
+            // which the owner made after them (T4; LLP 1034 §8).
+            holdingReports = true; landFill(); holdingReports = false
+            guard state != .destroyed else { return }
+        }
         let outermost = !applying
         applying = true
         // What applying it cost, with its transactions, for the next sampled frame (LLP 1079 D3).
@@ -969,6 +1002,7 @@ public final class ExactSession {
         regions.prepare(batch)
         #endif
         for op in batch.ops where op.op == .surfaceWork { pendingSurfaceWork.append((op.payload, generation)) }
+        if !ExactEnv.agentMode { for op in batch.ops where op.op == .sound { sound.apply(op.payload) } } // LLP 1096 D8: the voice table's ops, never under the agent's clock
         // Opened once the batch is applied, off this session's window (LLP 1069.006 D3).
         for op in batch.ops where op.op == .auth {
             let payload = op.payload
@@ -977,7 +1011,7 @@ public final class ExactSession {
         presenter.apply(batch)
         if !batch.canvasImages.isEmpty { presenter.canvas2d.load(batch.canvasImages) }
         AnimatedRasters.shared.poke()
-        for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)) }
+        for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)); presenter.reorderGroup?.observe(ReorderGroupState(op.payload)) }
         presenter.reorder?.raiseLifted()
         frames.motion = batch.motion
         frames.spatial = batch.spatial
@@ -992,7 +1026,7 @@ public final class ExactSession {
                 let (name, json) = pendingSurfaceRecords.removeFirst()
                 apply(runtime.surfaceRecord(name, json))
             }
-            while !pendingViewDark.isEmpty {
+            while !holdingReports, !pendingViewDark.isEmpty {
                 let (id, dark) = pendingViewDark.removeFirst()
                 apply(runtime.viewScheme(id, dark: dark))
             }
@@ -1058,12 +1092,20 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.focusElement(args, selectText: name == "selectText") }
                     continue
                 }
+                if name == "setSelectionRange" {
+                    app.deliver { [weak self] in self?.presenter.fieldSelections.setSelectionRange(args) }
+                    continue
+                }
                 if name == "blur" {
                     app.deliver { [weak self] in self?.presenter.blurElement(args) }
                     continue
                 }
                 if name == "scrollIntoView" {
                     app.deliver { [weak self] in self?.presenter.scrollElementIntoView(args) }
+                    continue
+                }
+                if name == "fastSeek" || name == "load" {
+                    app.deliver { [weak self] in self?.presenter.mediaCommand(name, args) }
                     continue
                 }
                 if name == "showPicker" {
@@ -1082,6 +1124,7 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.formatElement(args) }
                     continue
                 }
+                if ["playSound", "playSounds", "stopSounds"].contains(name) { continue } // the runner's own: its voice table's `sound` op plays them (LLP 1096 D8)
                 if app.handleCommand(name) { continue }
                 app.deliver { [weak self] in guard let self else { return }; delegate?.exactSession(self, command: name, args: args) }
             }
@@ -1172,7 +1215,7 @@ public final class ExactSession {
             clockTimer = SessionClockTimer.schedule(after: delay / 1000) { [weak self] _ in
                 guard let self, state != .destroyed else { return }
                 clockTimer = nil
-                whenIdle { [weak self] in guard let self, state != .destroyed else { return }; followOffset(); applyTick(runtime.advance(now: now())) }
+                whenIdle { [weak self] in guard let self, state != .destroyed else { return }; followOffset(); applyUnlessEmpty(runtime.advance(now: now())) }
             }
         }
         frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
@@ -1240,7 +1283,7 @@ public final class ExactSession {
         #else
         let dark = DisplayPreferences.systemDark
         #endif
-        return DisplayPreferences.bits(systemDark: dark)
+        return DisplayPreferences.bits(systemDark: dark, view: view)
     }
     /// @ref LLP 1069.000 D2 — told after every boot and on each change; a
     /// change while iOS suspends the process lands with the foreground
@@ -1266,7 +1309,25 @@ public final class ExactSession {
     /// The platform's colours are reported first: before the first scheme
     /// that fills the kernel's table without motion, so nothing eases from a
     /// fallback to the platform's colour at startup (LLP 1095 D9).
-    public func scheme(dark: Bool) { guard booted, state != .destroyed else { return }; schemeDark = dark; reportColors(); apply(runtime.scheme(dark: dark)) }
+    public func scheme(dark: Bool) {
+        guard booted, state != .destroyed else { return }
+        let first = schemeDark == nil
+        schemeDark = dark
+        reportColors()
+        // Views found painting in an appearance of their own before the
+        // session had a scheme (a `color-scheme` subtree at boot, LLP 1034
+        // §8): queued now, and said in the scheme's own batch, after it.
+        if first {
+            let early = unreported; unreported.removeAll()
+            for id in early { if let v = presenter.views[id] { noteAppearance(v) } }
+        }
+        // A subtree with a `color-scheme` of its own keeps its appearance
+        // when the session's changes, so no trait callback says it: said
+        // here, after the scheme. Its views' appearance is the row's, already
+        // settled, whatever the platform's walk has reached.
+        for v in presenter.views.values where v.style["color_scheme"] != nil { noteAppearance(v) }
+        apply(runtime.scheme(dark: dark))
+    }
     /// @ref LLP 1095 D9 — the platform's resolution of every reference the
     /// kernel paints itself, with the app's tint read here, on main: one
     /// for every session (`SystemColor.appTint`), since the table is the
@@ -1289,11 +1350,21 @@ public final class ExactSession {
     /// A view painting motion: when its own appearance is not the one its
     /// node's colours resolve by, say so after the batch (LLP 1062 D4).
     func noteAppearance(_ view: NodeView) {
-        guard let session = schemeDark else { return }
+        guard let session = schemeDark else { unreported.insert(view.id); return }
         let dark = view.drawsDark
         guard dark != viewDark[view.id] ?? session else { return }
         viewDark[view.id] = dark == session ? nil : dark
         pendingViewDark.append((view.id, dark))
+    }
+    /// Views noted before the session had a scheme.
+    private var unreported = Set<UInt32>()
+    /// A new runtime has heard no view's appearance: forget what was said,
+    /// and say it again after its first scheme (LLP 1062 D4, LLP 1034 §8).
+    private func forgetAppearances() {
+        schemeDark = nil
+        viewDark = [:]
+        pendingViewDark = []
+        unreported = []
     }
     /// The agent API's runner half (LLP 1012): `tree`, `state`, `logs`, `settle`.
     public func agent(_ request: String) -> String { runtime.agent(request) }
@@ -1332,6 +1403,17 @@ public final class ExactSession {
         let location = runtime.location(of: url.absoluteString)
         if !booted { runtime.launch(location); return true }
         return navigate(location)
+    }
+    /// A link the reader followed — a `link href`, a text run's `href`, a
+    /// Markdown link. A path naming one of the app's routes is a location
+    /// for the navigation root, as the web's same-document link is (LLP 1038
+    /// §7); anything else — a page, a file beside a document — is the
+    /// containing app's to open (`openURL`).
+    @discardableResult public func follow(_ href: String) -> Bool {
+        guard state != .destroyed, !href.isEmpty else { return false }
+        if href.hasPrefix("/"), !href.hasPrefix("//"), booted, runtime.routeMatches(href) { return navigate(href) }
+        delegate?.exactSession(self, command: "openURL", args: [href])
+        return true
     }
     @discardableResult public func navigate(_ location: String) -> Bool {
         guard state != .destroyed, booted else { return false }

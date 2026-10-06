@@ -13,6 +13,11 @@ pub struct LayoutMotion {
 }
 
 impl LayoutMotion {
+    /// Whether no node declares a layout transition.
+    pub fn is_empty(&self) -> bool {
+        self.tracked.is_empty()
+    }
+
     /// Remember the tree's declared layout transitions at boot. Their first
     /// post-layout observation takes the value without motion.
     pub fn adopt(&mut self, kernel: &Kernel, keys: impl IntoIterator<Item = NodeKey>) {
@@ -62,6 +67,31 @@ impl LayoutMotion {
         engine: &mut Engine,
         snap: bool,
     ) -> Vec<NodeKey> {
+        self.observe_as(kernel, key, engine, snap, false)
+    }
+
+    /// Observe a box a list moved for no author: its window or a
+    /// measurement placed rows before it (LLP 1010). An idle box takes its
+    /// place with no transition, as UIKit's self-sizing does; the list keeps
+    /// what shows still by its scroll offset. One already moving still
+    /// moves.
+    pub fn observe_unauthored(
+        &mut self,
+        kernel: &Kernel,
+        key: NodeKey,
+        engine: &mut Engine,
+    ) -> Vec<NodeKey> {
+        self.observe_as(kernel, key, engine, false, true)
+    }
+
+    fn observe_as(
+        &mut self,
+        kernel: &Kernel,
+        key: NodeKey,
+        engine: &mut Engine,
+        snap: bool,
+        unauthored: bool,
+    ) -> Vec<NodeKey> {
         let mut keys = vec![key];
         if let Some(node) = kernel.node_by_key(key) {
             if node.props.str(PropId::ListItemKey).is_some() {
@@ -94,7 +124,17 @@ impl LayoutMotion {
             if snap && engine.remove_property(node, Property::Layout) {
                 retired.push(key);
             }
-            observe_box(engine, key, value);
+            if unauthored {
+                let observed = engine.observe_settled(Change {
+                    node,
+                    property: Property::Layout,
+                    value,
+                    velocity: None,
+                });
+                debug_assert!(observed.is_ok(), "layout is finite");
+            } else {
+                observe_box(engine, key, value);
+            }
         }
         retired
     }

@@ -1,0 +1,36 @@
+// A gated frame task (LLP 1092 D8, D10): its virtual frames start again
+// from the commit that arms it, a frame every 1000/60 ms after it.
+component App
+  state on = false
+  state frames = 0
+  state last = -1
+  action start
+    on = true
+  action stop
+    on = false
+  action tick
+    frames = frames + 1
+    last = now()
+  task f when on
+    every(frame, tick)
+  view
+    column
+      text `${frames}` testId="frames"
+      button "start" press=start testId="start"
+      button "stop" press=stop testId="stop"
+
+test "re-armed where the gate turns true"
+  clock +10
+  tap "start"
+  clock +16
+  expect state frames == 0
+  clock +1
+  expect state frames == 1
+  tap "stop"
+  clock +100
+  expect state frames == 1
+  tap "start"
+  clock +16
+  expect state frames == 1
+  clock +1
+  expect state frames == 2

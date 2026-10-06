@@ -52,12 +52,17 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
     let mut changed = Vec::new();
     let mut updated = Vec::new();
     let mut exclusions = Vec::new();
+    // @ref LLP 1093 D7 — a box in a multi-column flow is published at its
+    // place in the flow thread plus its placement: its column's translation,
+    // relative to the container's own (`base`), or a straddling box's union.
+    // `t` is the translation its subtree inherits; (ox, oy) stay flow-thread
+    // origins, so a child is placed from its parent's unfragmented box.
     let mut stack = if full || has_sources {
-        vec![(root, 0.0, 0.0, false, full, false)]
+        vec![(root, 0.0, 0.0, false, full, false, Shift::default())]
     } else {
         Vec::new()
     };
-    while let Some((slot, ox, oy, hidden, full, parent_moved)) = stack.pop() {
+    while let Some((slot, ox, oy, hidden, full, parent_moved, shift)) = stack.pop() {
         #[cfg(test)]
         {
             tree.publication_visits += 1;
@@ -75,6 +80,19 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
         let inline = arena.is_inline_run(slot);
         let old = arena.frame(slot);
         let old_content = arena.content(slot);
+        let placement = arena
+            .frag
+            .placements
+            .get(&slot)
+            .copied()
+            .filter(|_| !hidden);
+        let shift = match placement {
+            Some(p) => Shift {
+                t: (shift.base.0 + p.dx, shift.base.1 + p.dy),
+                ..shift
+            },
+            None => shift,
+        };
         let frame = if hidden {
             arena.set_content(slot, (0.0, 0.0));
             Frame {
@@ -89,19 +107,40 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
                 continue;
             };
             let l = tree.layout(node);
-            arena.set_content(
-                slot,
-                (
-                    l.scrollable_overflow_rect.right,
-                    l.scrollable_overflow_rect.bottom,
-                ),
-            );
+            // A multi-column container's overflow is its columns' (D7), which
+            // a multi-column `text`, a leaf to the engine, never reports.
+            let o = arena
+                .frag
+                .multicol
+                .get(&slot)
+                .and_then(|m| m.overflow)
+                .unwrap_or(l.scrollable_overflow_rect);
+            arena.set_content(slot, (o.right, o.bottom));
+            let (width, height) = placement
+                .and_then(|p| p.size)
+                .unwrap_or((l.size.width, l.size.height));
             Frame {
-                x: ox + l.location.x,
-                y: oy + l.location.y,
-                width: l.size.width,
-                height: l.size.height,
+                x: ox + l.location.x + shift.t.0,
+                y: oy + l.location.y + shift.t.1,
+                width,
+                height,
             }
+        };
+        let (fx, fy) = match arena.taffy(slot).filter(|_| !hidden && !inline) {
+            Some(node) => {
+                let l = tree.layout(node);
+                (ox + l.location.x, oy + l.location.y)
+            }
+            None => (frame.x, frame.y),
+        };
+        let republish = arena.frag.republish.remove(slot);
+        let shift = if arena.frag.multicol.contains_key(&slot) {
+            Shift {
+                base: shift.t,
+                ..shift
+            }
+        } else {
+            shift
         };
         let flags = arena.flags(slot);
         let first = flags.has(NodeFlags::CREATED);
@@ -111,7 +150,9 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
         // A changed child list visits every child; a child that arrived
         // (created, or moved from another parent: a Text subtree switching
         // into/out of inline runs) is published whole, a kept one sparsely.
-        let full = full || hidden;
+        // A multi-column cut that changed publishes this subtree whole
+        // (LLP 1093): placements moved without each child's layout bit.
+        let full = full || hidden || republish;
         let descend_all = full || origin_moved || flags.has(NodeFlags::CHILDREN_DIRTY);
         arena.set_frame(slot, frame);
         arena.consume_layout_flags(slot);
@@ -125,11 +166,11 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
         if descend_all {
             for &child in arena.children(slot).iter().rev() {
                 let full = full || arena.flags(child).has(NodeFlags::ATTACHED);
-                stack.push((child, frame.x, frame.y, hidden, full, origin_moved));
+                stack.push((child, fx, fy, hidden, full, origin_moved, shift));
             }
         } else if let Some(children) = paths.get(&slot) {
             for &(_, child) in children.iter().rev() {
-                stack.push((child, frame.x, frame.y, hidden, false, origin_moved));
+                stack.push((child, fx, fy, hidden, false, origin_moved, shift));
             }
         }
     }
@@ -152,7 +193,16 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
         updated,
         flow_changed,
         flow_skipped,
+        fragment_skipped: crate::fragment::skipped(arena),
         flow_passes: 0,
         flow_comparisons: 0,
     }
+}
+
+/// The translation publication adds under a multi-column container: `t` for
+/// this subtree, `base` the container's own, which placements are relative to.
+#[derive(Clone, Copy, Default)]
+struct Shift {
+    t: (f32, f32),
+    base: (f32, f32),
 }

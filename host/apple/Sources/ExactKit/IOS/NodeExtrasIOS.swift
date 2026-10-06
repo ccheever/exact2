@@ -9,13 +9,25 @@ import UIKit
 /// scroller's bookkeeping — held apart and made on the first write that is
 /// not a default (`NodeView.more`). A list's rows set none of it, so each
 /// row's view is about 500 bytes smaller.
+/// A fixed gradient as last aimed: its layer, style, appearance and boxes,
+/// and the gradient and stops made from them.
+struct AimedGradient {
+    weak var layer: CAGradientLayer?
+    let source: BatchValue, dark: Bool, bounds: CGRect, box: CGRect
+    let gradient: Gradient, stops: ([CGFloat], [CGColor])
+}
+
 final class NodeExtras {
     var inlinePressed: UInt32?
+    /// A Markdown link pressed in this text: its target, followed on release over it.
+    var linkPressed: String?
     var svgPressed: UInt32?
     var clipPath: CGPath?
     var clipRule: CGPathFillRule = .winding
     /// A `background-image` gradient Core Animation paints (LLP 1066).
     var boxGradient: CAGradientLayer?
+    /// What a fixed gradient was last aimed with (`reaimFixedGradient`).
+    var aimedGradient: AimedGradient?
     /// `box-shadow` and the clip it casts outside (`BoxShadow.swift`).
     var shadowCaster: ShadowCaster?
     /// Inset `box-shadow`s (LLP 1077 D4).
@@ -111,10 +123,12 @@ extension NodeView {
         return made
     }
     var inlinePressed: UInt32? { get { extras?.inlinePressed } set { if newValue != nil || extras != nil { more.inlinePressed = newValue } } }
+    var linkPressed: String? { get { extras?.linkPressed } set { if newValue != nil || extras != nil { more.linkPressed = newValue } } }
     var svgPressed: UInt32? { get { extras?.svgPressed } set { if newValue != nil || extras != nil { more.svgPressed = newValue } } }
     var clipPath: CGPath? { get { extras?.clipPath } set { if newValue != nil || extras != nil { more.clipPath = newValue } } }
     var clipRule: CGPathFillRule { get { extras?.clipRule ?? .winding } set { if newValue != .winding || extras != nil { more.clipRule = newValue } } }
     var boxGradient: CAGradientLayer? { get { extras?.boxGradient } set { if newValue != nil || extras != nil { more.boxGradient = newValue } } }
+    var aimedGradient: AimedGradient? { get { extras?.aimedGradient } set { if newValue != nil || extras != nil { more.aimedGradient = newValue } } }
     var shadowCaster: ShadowCaster? { get { extras?.shadowCaster } set { if newValue != nil || extras != nil { more.shadowCaster = newValue } } }
     var insetCaster: InsetShadowCaster? { get { extras?.insetCaster } set { if newValue != nil || extras != nil { more.insetCaster = newValue } } }
     var clipBox: PlainView? { get { extras?.clipBox } set { if newValue != nil || extras != nil { more.clipBox = newValue } } }
@@ -197,5 +211,18 @@ extension NodeView {
     /// top is the bar's bottom, whatever its height (UIKit keeps the offset
     /// plus that inset fixed while the title collapses) — else 0.
     func scrollTopInset(_ sv: UIScrollView) -> CGFloat { scrollOrigin > 0 ? sv.adjustedContentInset.top : 0 }
+}
+extension NodeView {
+    /// Whether a scroll animation ended at the running animation's target,
+    /// clamped to the content as it is now (`CollectionHost.animationEnded`);
+    /// nil with no target.
+    func endedAtTarget(_ scrollView: UIScrollView) -> Bool? {
+        presenter?.collections.animationTargets[id].map { t -> Bool in
+            let o = scrollView.contentOffset, i = scrollView.adjustedContentInset
+            let x = min(max(t.x, -i.left), max(-i.left, scrollView.contentSize.width + i.right - scrollView.bounds.width))
+            let y = min(max(t.y, -i.top), max(-i.top, scrollView.contentSize.height + i.bottom - scrollView.bounds.height))
+            return abs(o.x - x) + abs(o.y - y) <= 1
+        }
+    }
 }
 #endif

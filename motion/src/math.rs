@@ -28,6 +28,13 @@ pub fn cos(x: f64) -> f64 {
     libm::cos(x)
 }
 
+/// Deterministic software natural logarithm (LLP 1099 D2, amending LLP 1003
+/// §7): UIKit spring conversions solve with it.
+#[inline]
+pub fn ln(x: f64) -> f64 {
+    libm::log(x)
+}
+
 /// IEEE 754 binary64 square root — correctly rounded by the standard, so the
 /// platform intrinsic is already architecture-independent for finite inputs.
 #[inline]
@@ -66,5 +73,6 @@ mod tests {
         assert_eq!(exp(1.0).to_bits(), libm::exp(1.0).to_bits());
         assert_eq!(sin(1.0).to_bits(), libm::sin(1.0).to_bits());
         assert_eq!(cos(1.0).to_bits(), libm::cos(1.0).to_bits());
+        assert_eq!(ln(2.0).to_bits(), libm::log(2.0).to_bits());
     }
 }

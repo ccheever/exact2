@@ -72,12 +72,6 @@ impl Gen<'_> {
             .any(|(_, t)| matches!(t, Ty::List(_)))
     }
 
-    /// Whether an expression of `t` can be written here: a list nothing
-    /// pins needs a list in scope to map from.
-    pub(crate) fn makeable(&self, env: &Env, t: &Ty, pinned: bool) -> bool {
-        pinned || !t.needs_list() || self.has_list(env)
-    }
-
     /// The element type of an option (`opt`) or list in scope, most often;
     /// else any base type. Matching and mapping what the program holds
     /// beats matching `some(literal)`.
@@ -97,14 +91,10 @@ impl Gen<'_> {
         }
     }
 
-    /// A random type an unpinned expression here can have.
-    pub(crate) fn pick_ty(&mut self, env: &Env) -> Ty {
-        loop {
-            let t = self.any_ty();
-            if self.makeable(env, &t, false) {
-                return t;
-            }
-        }
+    /// A random type an unpinned expression here can have: any, since a
+    /// list literal makes a list of any type (LLP 1088 §9.1).
+    pub(crate) fn pick_ty(&mut self, _env: &Env) -> Ty {
+        self.any_ty()
     }
 
     /// An expression of type `t`. `pinned`: the context fixes the type, so
@@ -216,8 +206,12 @@ impl Gen<'_> {
                 }
             }
             Ty::List(elem) => {
-                if (pinned && self.rng.chance(1, 2)) || !self.has_list(env) {
+                if pinned && self.rng.chance(1, 3) {
                     "[]".into()
+                } else if !self.has_list(env) || self.rng.chance(1, 3) {
+                    self.literal(env, elem, pinned, |g, env, t, pinned| {
+                        g.leaf(env, t, pinned)
+                    })
                 } else {
                     let (src, src_elem) = self.list_path(env);
                     let (head, inner) = self.arrow_head(env, &src_elem);
@@ -244,6 +238,28 @@ impl Gen<'_> {
             }
             _ => self.lit(t, pinned),
         }
+    }
+
+    /// `[a, b]` of `elem`, each item made by `item` (LLP 1088 §9.1): one
+    /// to three of them, or none where the context pins the type; the first
+    /// item pins the rest, as a list's items unify.
+    fn literal(
+        &mut self,
+        env: &Env,
+        elem: &Ty,
+        pinned: bool,
+        mut item: impl FnMut(&mut Self, &Env, &Ty, bool) -> String,
+    ) -> String {
+        let n = self.rng.range(if pinned { 0 } else { 1 }, 3);
+        let items: Vec<String> = (0..n)
+            .map(|k| item(self, env, elem, pinned || k > 0))
+            .collect();
+        let comma = if n > 0 && self.rng.chance(1, 8) {
+            ","
+        } else {
+            ""
+        };
+        format!("[{}{comma}]", items.join(", "))
     }
 
     /// A list-typed path in scope and its element type.
@@ -280,13 +296,7 @@ impl Gen<'_> {
             Ty::Bool => self.bool_expr(env, d),
             Ty::Opt(inner) => {
                 let list = Ty::list((**inner).clone());
-                let from_list = self.makeable(env, &list, false);
-                match self.rng.weighted(&[
-                    5,
-                    if pinned { 2 } else { 0 },
-                    2 * from_list as u64,
-                    2 * from_list as u64,
-                ]) {
+                match self.rng.weighted(&[5, if pinned { 2 } else { 0 }, 2, 2]) {
                     0 => format!("some({})", self.expr(env, inner, d, pinned)),
                     1 => "none".into(),
                     2 => format!("first({})", self.expr(env, &list, d, false)),
@@ -297,34 +307,56 @@ impl Gen<'_> {
                     }
                 }
             }
-            Ty::List(elem) => {
-                let has = self.has_list(env);
-                match self.rng.weighted(&[
-                    5 * has as u64,
-                    3 * has as u64,
-                    if pinned { 1 } else { 0 },
-                ]) {
-                    0 => {
-                        let src_ty = loop {
-                            let u = self.held(env, false);
-                            if self.makeable(env, &Ty::list(u.clone()), false) {
-                                break u;
-                            }
-                        };
-                        let src = self.expr(env, &Ty::list(src_ty.clone()), d, false);
-                        let (head, inner) = self.arrow_head(env, &src_ty);
-                        let body = self.expr(&inner, elem, d, false);
-                        format!("map({src}, {head} {body})")
-                    }
-                    1 => {
-                        let src = self.expr(env, t, d, false);
-                        let (head, inner) = self.arrow_head(env, elem);
-                        let body = self.expr(&inner, &Ty::Bool, d, false);
-                        format!("filter({src}, {head} {body})")
-                    }
-                    _ => "[]".into(),
+            Ty::List(elem) => match self.rng.weighted(&[
+                5,
+                3,
+                if pinned { 1 } else { 0 },
+                3,
+                2,
+                2,
+                if **elem == Ty::Str { 2 } else { 0 },
+            ]) {
+                0 => {
+                    let src_ty = self.held(env, false);
+                    let src = self.expr(env, &Ty::list(src_ty.clone()), d, false);
+                    let (head, inner) = self.arrow_head(env, &src_ty);
+                    let body = self.expr(&inner, elem, d, false);
+                    format!("map({src}, {head} {body})")
                 }
-            }
+                1 => {
+                    let src = self.expr(env, t, d, false);
+                    let (head, inner) = self.arrow_head(env, elem);
+                    let body = self.expr(&inner, &Ty::Bool, d, false);
+                    format!("filter({src}, {head} {body})")
+                }
+                2 => "[]".into(),
+                3 => self.literal(env, elem, pinned, |g, env, t, pinned| {
+                    g.expr(env, t, d, pinned)
+                }),
+                // LLP 1088 §9.1: the first list says the type; the second
+                // may be `[]`.
+                4 => {
+                    let a = self.expr(env, t, d, pinned);
+                    let b = self.expr(env, t, d, true);
+                    format!("concat({a}, {b})")
+                }
+                5 => {
+                    let l = self.expr(env, t, d, pinned);
+                    let a = self.expr(env, &Ty::Num, d, false);
+                    if self.rng.chance(1, 3) {
+                        format!("slice({l}, {a})")
+                    } else {
+                        format!("slice({l}, {a}, {})", self.expr(env, &Ty::Num, d, false))
+                    }
+                }
+                // `split` over code units: an empty separator cuts an astral
+                // character into two U+FFFD (LLP 1088 §9.1).
+                _ => {
+                    let s = self.expr(env, &Ty::Str, d, false);
+                    let sep = self.expr(env, &Ty::Str, d, false);
+                    format!("split({s}, {sep})")
+                }
+            },
             Ty::Rec(i) => {
                 let shape = self.shapes[*i].clone();
                 if self.rng.chance(1, 2) {
@@ -350,7 +382,7 @@ impl Gen<'_> {
     }
 
     fn num_expr(&mut self, env: &Env, d: usize) -> String {
-        match self.rng.weighted(&[8, 1, 3, 1, 2]) {
+        match self.rng.weighted(&[8, 1, 3, 1, 2, 1]) {
             0 => {
                 let op = *self.rng.pick(&["+", "-", "*", "/", "%", "+", "-", "*"]);
                 let a = self.expr(env, &Ty::Num, d, false);
@@ -360,6 +392,19 @@ impl Gen<'_> {
             1 => format!("(-{})", self.expr(env, &Ty::Num, d, false)),
             2 => format!("length({})", self.sized(env, d)),
             3 => format!("floor({})", self.expr(env, &Ty::Num, d, false)),
+            // `indexOf` over a list of strings, numbers or bools by strict
+            // equality, or over text in code units (LLP 1088 §9.1).
+            5 if self.rng.chance(1, 2) => {
+                let t = self.scalar_ty();
+                let l = self.expr(env, &Ty::list(t.clone()), d, false);
+                let x = self.expr(env, &t, d, false);
+                format!("indexOf({l}, {x})")
+            }
+            5 => {
+                let a = self.expr(env, &Ty::Str, d, false);
+                let b = self.expr(env, &Ty::Str, d, false);
+                format!("indexOf({a}, {b})")
+            }
             _ => {
                 let f = *self.rng.pick(&["max", "min"]);
                 let a = self.expr(env, &Ty::Num, d, false);
@@ -504,6 +549,14 @@ impl Gen<'_> {
                 format!("({op}{})", self.expr(env, &Ty::Bool, d, false))
             }
             4 => format!("isEmpty({})", self.sized(env, d)),
+            // `includes` over a list of strings, numbers or bools, by
+            // SameValueZero (LLP 1088 §9.1), or over text.
+            _ if self.rng.chance(1, 3) => {
+                let t = self.scalar_ty();
+                let l = self.expr(env, &Ty::list(t.clone()), d, false);
+                let x = self.expr(env, &t, d, false);
+                format!("includes({l}, {x})")
+            }
             _ => {
                 let f = *self.rng.pick(&["includes", "startsWith", "endsWith"]);
                 let a = self.expr(env, &Ty::Str, d, false);

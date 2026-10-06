@@ -11,7 +11,7 @@
 
 use super::{Painter, Rect4};
 use crate::text::{Paragraph, RunPaint};
-use exact_kernel::{Kernel, NodeRef, StyleId};
+use exact_kernel::{Kernel, NodeRef, StyleId, ViewId};
 use std::sync::Arc;
 use tiny_skia::Transform;
 
@@ -24,13 +24,23 @@ struct RunLook {
 }
 
 impl Painter {
-    fn run_looks(&self, kernel: &Kernel, palette: &[RunPaint]) -> Vec<RunLook> {
+    fn run_looks(
+        &self,
+        kernel: &Kernel,
+        palette: &[RunPaint],
+        reveal: Option<ViewId>,
+    ) -> Vec<RunLook> {
         palette
             .iter()
             .map(|run| {
                 let Some(node) = kernel.node(run.source) else {
                     return RunLook::default();
                 };
+                // A shadow or stroke is the run's own paint. `only` would
+                // redraw a hidden run in the shadow colour if the look stayed.
+                if !super::paints(kernel, run.source, reveal) {
+                    return RunLook::default();
+                }
                 // Each row where it is set: no whole style copied per run.
                 let shadow = node
                     .computed_row(StyleId::TextShadow, |s| s.text_shadow.shadow().copied())
@@ -64,8 +74,9 @@ impl Painter {
         origin: (f32, f32),
         rect: Rect4,
         ts: Transform,
+        reveal: Option<ViewId>,
     ) {
-        let looks = self.run_looks(kernel, palette);
+        let looks = self.run_looks(kernel, palette, reveal);
         // Stretches of adjacent runs that look alike, in run order.
         let mut steps: Vec<(usize, usize)> = Vec::new();
         for i in 0..looks.len() {
@@ -78,7 +89,7 @@ impl Painter {
             // One look: one pass, CSS's order — the box's background
             // clipped to the glyphs, the shadow, the fill, the stroke.
             let look = looks.first().copied().unwrap_or_default();
-            self.text_clip(node, kernel, paragraph, palette, origin, rect, ts);
+            self.text_clip(node, kernel, paragraph, palette, origin, rect, ts, reveal);
             if let Some(shadow) = look.shadow {
                 self.shadow_pass(
                     paragraph,
@@ -102,7 +113,7 @@ impl Painter {
         }
         // The box's background, clipped to the glyphs, is under all of its
         // inline content, shadows included.
-        self.text_clip(node, kernel, paragraph, palette, origin, rect, ts);
+        self.text_clip(node, kernel, paragraph, palette, origin, rect, ts, reveal);
         for (start, end) in steps {
             let look = looks[start];
             if let Some(shadow) = look.shadow {

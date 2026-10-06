@@ -169,6 +169,16 @@ impl<'a> NodeRef<'a> {
         }
     }
 
+    /// The colour scheme this node's subtree asks for (LLP 1034 §8): its
+    /// computed `color-scheme`, `None` for `normal`, the surrounding one.
+    pub fn color_scheme_dark(&self) -> Option<bool> {
+        match self.computed_row(StyleId::ColorScheme, |s| s.color_scheme) {
+            crate::ColorScheme::Normal => None,
+            crate::ColorScheme::Light => Some(false),
+            crate::ColorScheme::Dark => Some(true),
+        }
+    }
+
     /// Whether this text node is an inline run owned by a Text parent.
     pub fn is_inline_run(&self) -> bool {
         self.arena.is_inline_run(self.slot)
@@ -312,6 +322,13 @@ impl Kernel {
     /// The arena, for readers that want the columns directly.
     pub fn arena(&self) -> &NodeArena {
         &self.arena
+    }
+
+    /// The arena, the engine tree and the measurer, for the multicol probe.
+    #[cfg(test)]
+    pub(crate) fn parts(&mut self) -> (&NodeArena, &LayoutTree, &mut dyn TextMeasurer) {
+        let tree = self.layout.as_deref().and_then(LayoutMirror::tree_ref);
+        (&self.arena, tree.expect("laid out"), self.measurer.as_mut())
     }
 
     /// Root wire ids in attach order.

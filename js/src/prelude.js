@@ -51,10 +51,54 @@
   function noTimers(api) {
     return function () { throw new Error(api + " is unavailable in data sources: there are no timers; pass time as an argument"); };
   }
-  ["setTimeout", "setInterval", "requestAnimationFrame", "requestIdleCallback"].forEach(function (name) {
+  // The runtime's own journal line (LLP 1097 D8): a failed storage
+  // operation, an unhandled rejection. Natively it is the runner's journal
+  // (`logs`) as it is; a realm without that door writes it to its console.
+  function journal(line) {
+    var written;
+    try { written = host(13, String(line), ""); } catch (e) { written = undefined; }
+    if (written !== "1" && global.console) global.console.error(String(line));
+  }
+  function errorText(e) {
+    try { return e && typeof e === "object" && e.message !== undefined ? String(e.message) : String(e); }
+    catch (_) { return "(an error that cannot be read)"; }
+  }
+  // Every unhandled rejection in the module reaches the journal, as a
+  // page's `unhandledrejection` reaches its console (LLP 1097 D8). Hermes's
+  // tracker schedules its report with the global `setTimeout`, which a data
+  // source has none of: the prelude's runs the tracker's own callback alone,
+  // at the next checkpoint (`checkpoint` below), which is when a browser
+  // fires the event, and refuses every other.
+  var reports = [], nextReport = 1;
+  var tracker = global.HermesInternal;
+  if (tracker && typeof tracker.enablePromiseRejectionTracker === "function") {
+    tracker.enablePromiseRejectionTracker({
+      allRejections: true,
+      onUnhandled: function (id, error) { journal("data: unhandled rejection: " + errorText(error)); },
+      onHandled: function () {},
+    });
+  }
+  function checkpoint() {
+    while (reports.length) {
+      var report = reports.shift();
+      try { report.run(); } catch (e) { /* the tracker's own; nothing to tell */ }
+    }
+  }
+  var refuseTimeout = noTimers("setTimeout()");
+  fixed(global, "setTimeout", function setTimeout(callback, delay) {
+    if (typeof callback === "function" && callback.name === "bound onUnhandled") {
+      reports.push({ id: nextReport, run: callback });
+      return nextReport++;
+    }
+    return refuseTimeout();
+  });
+  fixed(global, "clearTimeout", function clearTimeout(id) {
+    reports = reports.filter(function (r) { return r.id !== id; });
+  });
+  ["setInterval", "requestAnimationFrame", "requestIdleCallback"].forEach(function (name) {
     fixed(global, name, noTimers(name + "()"));
   });
-  ["clearTimeout", "clearInterval", "cancelAnimationFrame", "cancelIdleCallback"].forEach(function (name) {
+  ["clearInterval", "cancelAnimationFrame", "cancelIdleCallback"].forEach(function (name) {
     fixed(global, name, function () {});
   });
   fixed(global, "performance", Object.freeze({ now: function () { return refuseAmbient("performance.now()"); } }));
@@ -88,6 +132,195 @@
       fixed(dateFormat, "formatToParts", explicitFormat(dateFormat.formatToParts, "formatToParts"));
     }
   }
+
+  // Intl.NumberFormat's `notation: "compact"` where the engine ignores it:
+  // Hermes's Apple Intl printed `9,274,743` where a browser prints `9.3M`
+  // (x2apps stocks #3). The short forms are ICU's, as Chrome 154 formats
+  // `10^e` (formatToParts) for e = 3…14: per locale, each magnitude's power
+  // of ten and suffix (`~` a no-break space), "" where it is not
+  // abbreviated. ICU's steps follow (CompactHandler): the unrounded
+  // magnitude picks the power, the scaled value rounds (half-expand, from
+  // its shortest digits) to an integer but two significant digits, or to
+  // the app's own digit options, and a carry into the next magnitude picks
+  // again. Digits, signs and separators are the engine's own. A locale or
+  // `compactDisplay: "long"` not here is formatted in full, and said once.
+  (function () {
+    var Native = global.Intl && global.Intl.NumberFormat;
+    try { if (!Native || new Native("en-US", { notation: "compact" }).format(1000) === "1K") return; } catch (e) { return; }
+    var SHORT = {
+      "en": "3K|3K|3K|6M|6M|6M|9B|9B|9B|12T|12T|12T",
+      "en-GB": "3k|3k|3k|6m|6m|6m|9bn|9bn|9bn|12tn|12tn|12tn",
+      "en-IN": "3K|3K|5L|5L|7Cr|7Cr|7Cr|10KCr|10KCr|12LCr|12LCr|12LCr",
+      "de": "|||6~Mio.|6~Mio.|6~Mio.|9~Mrd.|9~Mrd.|9~Mrd.|12~Bio.|12~Bio.|12~Bio.",
+      "fr": "3~k|3~k|3~k|6~M|6~M|6~M|9~Md|9~Md|9~Md|12~Bn|12~Bn|12~Bn",
+      "fr-CA": "3~k|3~k|3~k|6~M|6~M|6~M|9~G|9~G|9~G|12~T|12~T|12~T",
+      "es": "3~mil|3~mil|3~mil|6~M|6~M|6~M|6~M|9~mil~M|9~mil~M|12~B|12~B|12~B",
+      "es-MX": "3~k|3~k|3~k|6~M|6~M|6~M|6~M|9~mil~M|9~mil~M|12~B|12~B|12~B",
+      "it": "3K|3K|3K|6~Mln|6~Mln|6~Mln|9~Mld|9~Mld|9~Mld|12~Bln|12~Bln|12~Bln",
+      "pt": "3~mil|3~mil|3~mil|6~mi|6~mi|6~mi|9~bi|9~bi|9~bi|12~tri|12~tri|12~tri",
+      "pt-PT": "3~mil|3~mil|3~mil|6~M|6~M|6~M|9~mM|9~mM|9~mM|12~Bi|12~Bi|12~Bi",
+      "nl": "3K|3K|3K|6~mln.|6~mln.|6~mln.|9~mld.|9~mld.|9~mld.|12~bln.|12~bln.|12~bln.",
+      "sv": "3~tn|3~tn|3~tn|6~mn|6~mn|6~mn|9~md|9~md|9~md|12~bn|12~bn|12~bn",
+      "da": "3~t|3~t|3~t|6~mio.|6~mio.|6~mio.|9~mia.|9~mia.|9~mia.|12~bio.|12~bio.|12~bio.",
+      "nb": "3k|3k|3k|6~mill.|6~mill.|6~mill.|9~mrd.|9~mrd.|9~mrd.|12~bill.|12~bill.|12~bill.",
+      "fi": "3~t.|3~t.|3~t.|6~milj.|6~milj.|6~milj.|9~mrd.|9~mrd.|9~mrd.|12~bilj.|12~bilj.|12~bilj.",
+      "pl": "3~tys.|3~tys.|3~tys.|6~mln|6~mln|6~mln|9~mld|9~mld|9~mld|12~bln|12~bln|12~bln",
+      "ru": "3~тыс.|3~тыс.|3~тыс.|6~млн|6~млн|6~млн|9~млрд|9~млрд|9~млрд|12~трлн|12~трлн|12~трлн",
+      "uk": "3~тис.|3~тис.|3~тис.|6~млн|6~млн|6~млн|9~млрд|9~млрд|9~млрд|12~трлн|12~трлн|12~трлн",
+      "cs": "3~tis.|3~tis.|3~tis.|6~mil.|6~mil.|6~mil.|9~mld.|9~mld.|9~mld.|12~bil.|12~bil.|12~bil.",
+      "tr": "3~B|3~B|3~B|6~Mn|6~Mn|6~Mn|9~Mr|9~Mr|9~Mr|12~Tn|12~Tn|12~Tn",
+      "ja": "|4万|4万|4万|4万|8億|8億|8億|8億|12兆|12兆|12兆",
+      "zh": "|4万|4万|4万|4万|8亿|8亿|8亿|8亿|12万亿|12万亿|12万亿",
+      "zh-TW": "|4萬|4萬|4萬|4萬|8億|8億|8億|8億|12兆|12兆|12兆",
+      "ko": "3천|4만|4만|4만|4만|8억|8억|8억|8억|12조|12조|12조",
+      "hi": "3~हज़ार|3~हज़ार|5~लाख|5~लाख|7~क॰|7~क॰|9~अ॰|9~अ॰|11~ख॰|11~ख॰|13~नील|13~नील",
+      "he": "3K‏|3K‏|3K‏|6M‏|6M‏|6M‏|9B‏|9B‏|9B‏|12T‏|12T‏|12T‏",
+      "id": "3~rb|3~rb|3~rb|6~jt|6~jt|6~jt|9~M|9~M|9~M|12~T|12~T|12~T",
+      "th": "3K|3K|3K|6M|6M|6M|9B|9B|9B|12T|12T|12T",
+      "vi": "3~N|3~N|3~N|6~Tr|6~Tr|6~Tr|9~T|9~T|9~T|12~NT|12~NT|12~NT",
+    };
+    var said = {};
+    function table(locale) {
+      var parts = String(locale).split("-u-")[0].split("-"), lang = parts[0], region = "", script = "";
+      for (var i = 1; i < parts.length; i++) {
+        if (parts[i].length === 4) script = parts[i];
+        else if (parts[i].length === 2 && !region) region = parts[i].toUpperCase();
+      }
+      var names = [lang + (region ? "-" + region : ""), lang === "zh" && (script === "Hant" || region === "HK" || region === "MO") ? "zh-TW" : "", lang];
+      for (var j = 0; j < names.length; j++) {
+        var row = names[j] && SHORT[names[j]];
+        if (row) return row.split("|").map(function (cell) {
+          var m = /^(\d+)(.*)$/.exec(cell);
+          return m ? { power: Number(m[1]), suffix: m[2].replace(/~/g, " ") } : null;
+        });
+      }
+      return null;
+    }
+    // A non-negative number's shortest digits, never exponential.
+    function plain(x) {
+      var s = String(x), e = s.indexOf("e");
+      if (e < 0) return s;
+      var mantissa = s.slice(0, e).split("."), digits = mantissa[0] + (mantissa[1] || ""), point = mantissa[0].length + Number(s.slice(e + 1));
+      if (point <= 0) return "0." + new Array(1 - point).join("0") + digits;
+      return point >= digits.length ? digits + new Array(point - digits.length + 1).join("0") : digits.slice(0, point) + "." + digits.slice(point);
+    }
+    // `x` (≥ 0) moved `shift` places left, rounded half-expand to `fraction`
+    // digits after the point (a negative one rounds to tens, hundreds…),
+    // as a decimal string.
+    function roundAt(x, shift, fraction) {
+      var s = plain(x).split("."), int = s[0], frac = s[1] || "";
+      while (int.length <= shift - fraction) int = "0" + int;
+      frac = int.slice(int.length - shift) + frac; int = int.slice(0, int.length - shift);
+      var digits = (int + frac + new Array(Math.max(fraction, 0) + 2).join("0")).split("").map(Number), keep = int.length + fraction;
+      var up = digits[keep] >= 5;
+      digits.length = keep;
+      for (var i = keep - 1; up && i >= 0; i--) { digits[i]++; up = digits[i] === 10; if (up) digits[i] = 0; }
+      var text = (up ? "1" : "") + digits.join("") + new Array(Math.max(-fraction, 0) + 1).join("0");
+      var cut = text.length - Math.max(fraction, 0), head = text.slice(0, cut).replace(/^0+(?=\d)/, "") || "0";
+      return fraction > 0 ? head + "." + text.slice(cut) : head;
+    }
+    // Apple's engine has no `formatToParts`: the whole string is one part.
+    function partsOf(format, n) {
+      return typeof format.formatToParts === "function" ? format.formatToParts(n) : [{ type: "literal", value: format.format(n) }];
+    }
+    function Compact(locales, options) {
+      this.native = new Native(locales, options);
+      this.options = options;
+      var resolved = this.native.resolvedOptions();
+      this.cells = options.compactDisplay === "long" || resolved.style !== "decimal" ? null : table(resolved.locale);
+      if (!this.cells && !said[resolved.locale] && global.console) {
+        said[resolved.locale] = true;
+        global.console.error("Intl.NumberFormat: notation \"compact\" (" + (options.compactDisplay || "short") + ", " + resolved.style + ") in " +
+          resolved.locale + " is not available on this host; numbers are formatted in full");
+      }
+    }
+    Compact.prototype = Object.create(Native.prototype);
+    Compact.prototype.constructor = Compact;
+    // The rounded scaled value as a decimal string, and its cell.
+    Compact.prototype.scale = function (x) {
+      var cells = this.cells, o = this.options;
+      var cell = function (magnitude) { return magnitude < 3 ? null : cells[Math.min(magnitude, 14) - 3]; };
+      var digits = function (shifted) {
+        var int = shifted.split(".")[0].length;
+        if (o.maximumSignificantDigits !== undefined || o.minimumSignificantDigits !== undefined) {
+          var sd = o.maximumSignificantDigits !== undefined ? o.maximumSignificantDigits : 21;
+          var zeros = /^0\.(0*)/.exec(shifted);
+          return zeros ? zeros[1].length + sd : sd - int;
+        }
+        if (o.maximumFractionDigits !== undefined || o.minimumFractionDigits !== undefined)
+          return o.maximumFractionDigits !== undefined ? o.maximumFractionDigits : Math.max(o.minimumFractionDigits, 3);
+        // Compact rounding: an integer, but two significant digits.
+        if (int >= 2 && shifted[0] !== "0") return 0;
+        var lead = /^0\.0*/.exec(shifted);
+        return lead ? lead[0].length - 1 + 1 : 1;
+      };
+      var magnitude = x === 0 ? 0 : plain(x).split(".")[0].replace(/^0+$/, "").length - 1;
+      if (magnitude < 0) magnitude = 0;
+      var c = cell(magnitude), shift = c ? c.power : 0;
+      var unrounded = roundAt(x, shift, 30).replace(/\.?0+$/, "");
+      var rounded = roundAt(x, shift, digits(unrounded));
+      // A carry into the next magnitude picks its cell again.
+      if (rounded.split(".")[0].length + shift - 1 > magnitude) {
+        var next = cell(magnitude + 1);
+        if ((next ? next.power : 0) !== shift) {
+          c = next; shift = next ? next.power : 0;
+          rounded = roundAt(x, shift, digits(roundAt(x, shift, 30).replace(/\.?0+$/, "")));
+        }
+      }
+      return { text: rounded, cell: c };
+    };
+    Compact.prototype.parts = function (n) {
+      n = Number(n);
+      if (!this.cells || !isFinite(n)) return partsOf(this.native, n);
+      var s = this.scale(Math.abs(n)), o = this.options, text = s.text;
+      // Trailing zeros go, down to the app's minimum.
+      var least = o.minimumFractionDigits !== undefined ? o.minimumFractionDigits : 0;
+      if (o.minimumSignificantDigits === undefined)
+        while (text.indexOf(".") >= 0 && text.split(".")[1].length > least && /0$/.test(text)) text = text.slice(0, -1);
+      text = text.replace(/\.$/, "");
+      var fraction = (text.split(".")[1] || "").length, value = Number(text);
+      // Grouping as compact's (`min2`): only from five integer digits.
+      var digits = partsOf(new Native(this.native.resolvedOptions().locale, {
+        minimumFractionDigits: fraction, maximumFractionDigits: fraction,
+        useGrouping: value >= 10000, signDisplay: o.signDisplay,
+      }), n < 0 || (n === 0 && 1 / n < 0) ? -value : value);
+      if (!s.cell) return digits;
+      var suffix = s.cell.suffix, space = /^[\s  ]*/.exec(suffix)[0], tail = /[‎‏]*$/.exec(suffix)[0];
+      var word = suffix.slice(space.length, suffix.length - tail.length);
+      if (space) digits.push({ type: "literal", value: space });
+      digits.push({ type: "compact", value: word });
+      if (tail) digits.push({ type: "literal", value: tail });
+      return digits;
+    };
+    Compact.prototype.formatToParts = function (n) { return this.parts(n); };
+    Compact.prototype.resolvedOptions = function () {
+      var r = this.native.resolvedOptions();
+      if (this.cells) { r.notation = "compact"; r.compactDisplay = "short"; }
+      return r;
+    };
+    Object.defineProperty(Compact.prototype, "format", {
+      configurable: true,
+      get: function () {
+        var self = this;
+        return function (n) { return self.parts(n).map(function (p) { return p.value; }).join(""); };
+      },
+    });
+    function NumberFormat(locales, options) {
+      if (options && options.notation === "compact") return new Compact(locales, options);
+      return new.target ? construct(Native, [locales, options], new.target) : Native(locales, options);
+    }
+    NumberFormat.prototype = Native.prototype;
+    NumberFormat.supportedLocalesOf = Native.supportedLocalesOf;
+    Object.defineProperty(global.Intl, "NumberFormat", { value: NumberFormat, writable: true, configurable: true });
+    var toLocale = Number.prototype.toLocaleString;
+    Object.defineProperty(Number.prototype, "toLocaleString", {
+      writable: true, configurable: true,
+      value: function toLocaleString(locales, options) {
+        if (options && options.notation === "compact") return new Compact(locales, options).format(Number(this));
+        return toLocale.call(this, locales, options);
+      },
+    });
+  })();
 
   // --- crypto (LLP 1069.005): digests are pure; entropy is a device read ---
   // Each draw inside an answer counts as an external read (op 8), as a secret
@@ -420,6 +653,52 @@
     call.storage--;
     if (!call.storage) storing.delete(call);
   }
+
+  // --- background work (LLP 1097 D1–D3) ------------------------------------
+  // An answer replies when its value is ready, as in a browser: storage it
+  // started and did not await moves to `background`, the module's own owner,
+  // never replied to, let go or claimed. The executor runs it under a ticket
+  // of its own and delivers it with `currentCall = background`. Only on the
+  // main thread (D6): a worker placement's answer still waits for its
+  // storage, so the flag is set by the executor that runs inline alone.
+  var moving = false;
+  var background = { id: 0, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, background: true };
+  // The module's storage operations that landed and failed, and the last
+  // failure's line (`state.background`, LLP 1097 D8).
+  var storageCounts = { done: 0, failed: 0, last: null };
+  // Set before the first answer, never after: an app cannot turn it on.
+  global.__exact_main_thread = function () { if (initializing) moving = true; };
+  // Where a completion's count lives: the call that issued it, or the
+  // background once that call's storage moved there.
+  function owner(call) { return call.moved ? background : call; }
+  // One queue for every storage operation of the module (D3), in the order
+  // issued; one in flight at a time. So only the issuer of the operation in
+  // flight waits on the store's shared completions: one completion wakes one
+  // waiter, and the next answer's read sees the write issued before it.
+  var MAX_QUEUED = 256;
+  var queue = [];
+  var head = null;
+  function issue(op) {
+    head = op;
+    var promise;
+    try { promise = op.run(); } catch (e) { promise = Promise.reject(e); }
+    promise.then(function (value) { landed(op, true, value); }, function (error) { landed(op, false, error); });
+  }
+  function landed(op, ok, value) {
+    // A late completion of an operation already failed (a timed-out
+    // continuation the store then finishes) must not clear the new head.
+    if (op.settled) return;
+    op.settled = true;
+    if (head === op) {
+      head = null;
+      // The next operation was issued before anything this one's reaction
+      // issues: it starts first.
+      if (queue.length) issue(queue.shift());
+    }
+    op.settle(ok, value);
+  }
+  // The operation in flight's owner, or null.
+  function headOwner() { return head ? owner(head.call) : null; }
   var abortHooks = global.__ibex2_abort;
   delete global.__ibex2_abort;
   function watchAbort(signal, aborted) {
@@ -484,6 +763,13 @@
       var refused = new Error("fetch() called outside an answer: it was never run. Start a fetch inside an answer");
       if (global.console) global.console.error(refused.message);
       return Promise.reject(refused);
+    }
+    // No fetch from background work (LLP 1097 D2; a background fetch is
+    // deferred, §7): no answer waits for its reply, and no ticket is owed.
+    if (call === background) {
+      var orphan = new Error("fetch() called from background work: it was never run. Fetch inside an answer");
+      journal("data: " + orphan.message);
+      return Promise.reject(orphan);
     }
     if (call.letGo) return Promise.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this fetch" }));
     var method = init && init.method ? String(init.method).toUpperCase() : "GET";
@@ -615,12 +901,14 @@
   }
   function storageCall(receiver, method, args, convert) {
     var call = currentCall;
-    // An answer's work, awaited or not, lands before its reply (see `settle`),
-    // so nothing can reach here after it; if something does, say so loudly
-    // rather than lose a write in a rejection nobody handles (kanban F22).
+    // Storage issued after its answer replied (a `.then` chained on a save,
+    // a write begun when a background one lands) is background work (D2).
+    // Before any answer, during module evaluation, it is refused, as it is
+    // on a worker placement, where answers wait for their storage.
+    if (moving && (call ? call.replied : !initializing)) call = background;
     if (!call || call.replied) {
       var refused = storageError("storage." + method + "() called outside an answer: it was never run. Start storage inside an answer");
-      if (global.console) global.console.error(refused.message);
+      journal("storage refused: " + refused.message);
       return Promise.reject(refused);
     }
     var refused;
@@ -630,21 +918,49 @@
     try { refused = host(5, path, "") || (receiver ? undefined : "unsupported"); }
     catch (e) { refused = "bake"; } // no filesystem or database effects during bake
     if (refused) return Promise.reject(storageError(REFUSED[refused], refused));
+    var what = method + (path ? " " + path : "");
+    // The bound (D3): refusal is the overload policy (LLP 1041 D2).
+    if (head && queue.length >= MAX_QUEUED) {
+      journal("storage refused: full (" + what + ")");
+      return Promise.reject(storageError("storage queue full: " + MAX_QUEUED + " operations wait", "full"));
+    }
     call.storage++;
     storing.add(call);
-    var promise;
-    try { promise = receiver[method].apply(receiver, args); }
-    catch (e) { promise = Promise.reject(e); }
-    return promise.then(function (value) {
-      currentCall = call;
-      unstore(call);
-      return convert ? convert(value) : value;
-    }, function (error) {
-      currentCall = call;
-      unstore(call);
-      if (!error || !error.kind) throw storageError(error && error.message || String(error), error && error.code);
-      if (!error.code) try { error.code = storageCode(String(error.message)); } catch (_) { /* a frozen error keeps its own */ }
-      throw error;
+    // The web realm attributes the cell now, while this answer is current.
+    // The adapter runs at issue, and a background round may be current then
+    // (LLP 1097 D7). Hermes has no hook and runs the adapter at the call.
+    var held = null;
+    if (typeof global.__exact_reserve_storage === "function") held = global.__exact_reserve_storage();
+    var argv = Array.prototype.slice.call(args);
+    return new Promise(function (resolve, reject) {
+      var op = { call: call, run: function () {
+        try { return receiver[method].apply(receiver, argv); }
+        catch (e) {
+          if (held != null && typeof global.__exact_abandon_storage === "function") global.__exact_abandon_storage(held);
+          throw e;
+        }
+      } };
+      op.settle = function (ok, value) {
+        var at = owner(op.call);
+        currentCall = at;
+        unstore(at);
+        if (ok) {
+          storageCounts.done++;
+          try { resolve(convert ? convert(value) : value); } catch (e) { reject(e); }
+          return;
+        }
+        var error = value;
+        if (!error || !error.kind) error = storageError(error && error.message || String(error), error && error.code);
+        else if (!error.code) try { error.code = storageCode(String(error.message)); } catch (_) { /* a frozen error keeps its own */ }
+        // Every failed operation is journaled, an answer's or the
+        // background's, so one nobody catches is still seen (D8).
+        var line = "storage failed: " + what + ": " + error.code + " " + errorText(error);
+        journal(line);
+        storageCounts.failed++; storageCounts.last = line;
+        reject(error);
+      };
+      if (head) queue.push(op);
+      else issue(op);
     });
   }
   function statement(raw) {
@@ -718,7 +1034,7 @@
     var kind = e && typeof e === "object" ? e.kind : undefined;
     if (kind !== "UnknownSource" && kind !== "BadArguments" && kind !== "Unavailable") kind = "Unavailable";
     var message = e && typeof e === "object" && e.message !== undefined ? e.message : e;
-    return JSON.stringify({ tag: 2, kind: kind, message: String(message) });
+    return JSON.stringify({ tag: 2, kind: kind, code: e && e.code, message: String(message) });
   }
   // Natively, liveness is the module's, as a browser's event loop has it
   // (LLP 1027.003.000 §13; hn-reader F7): an answer awaiting a promise
@@ -731,9 +1047,10 @@
   // A continuation runs as the answer whose reply settled the promise it
   // awaited, so a fetch an answer makes after awaiting another's lands among
   // that other's tickets (hn-reader F7, review finding 1). A fetch no settle
-  // has handed the executor yet, or a storage step a settled answer left in
-  // flight, is the module's: the next answer to settle without work of its
-  // own claims it and waits on it, so no request is left behind.
+  // has handed the executor yet is the module's: the next answer to settle
+  // without work of its own claims it and waits on it, so no request is left
+  // behind. Storage a settled answer left is the background's (LLP 1097 D2),
+  // which no answer claims.
   var moduleWide = bytesDoor !== undefined;
   function claim(call, ticket) {
     var p = pending.get(ticket);
@@ -749,19 +1066,19 @@
     }
     return call.storage > 0 && !call.lost;
   }
-  // The answer is given once the work it started has landed, awaited or not:
-  // a browser runs a write nobody awaits to its end, and a host only runs an
-  // answer's steps while that answer is in flight, so an answer that replied
-  // first would strand them (kanban F22: an edit answered at once, its save
-  // queued behind it, never written on macOS).
+  // An answer is given when its value is ready, as in a browser (LLP 1097
+  // D1): the storage it started and did not await finishes after it, as the
+  // background's, so nothing is stranded (kanban F22's reason to wait). On a
+  // worker placement, which runs one turn to its end, it still waits.
   function reply(call, text) {
     call.replied = true;
     calls.delete(call.id);
     return text;
   }
   function settle(call, final) {
-    // Its own work first, awaited or not: a fetch it made that no settle
-    // has handed out, then its storage steps. A fetch made while it was in
+    // Its own work first: a fetch it made that no settle has handed out,
+    // then its storage steps, which move to the background once its value
+    // is ready. A fetch made while it was in
     // flight is its own (an unawaited POST), and it claims it whoever else
     // is pending. One made only after it finished ran in a continuation it
     // settled for another answer: with another answer in flight, which may
@@ -774,7 +1091,22 @@
       var own = pending.get(call.tickets[i]);
       if (own && !own.claimed && own.call === call && (own.early || !others)) return claim(call, call.tickets[i]);
     }
-    if (call.storage > 0 && !call.lost) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
+    if (call.storage > 0 && !call.lost) {
+      if (finished && moving) {
+        // Its value is ready: what it started and did not await is the
+        // background's (D1, D2), and it replies now.
+        background.storage += call.storage; call.storage = 0;
+        storing.delete(call); storing.add(background);
+        call.moved = true;
+      } else {
+        // It waits on its own storage: the one continuation is its when its
+        // operation is in flight; queued behind another owner's, it waits
+        // with the module and is asked again after each delivery (D3).
+        var at = headOwner();
+        if (!at || at === call) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
+        return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
+      }
+    }
     if (finished) {
       // A fetch of its own already handed out and still in flight: asked
       // again once it lands (natively; the module realm runs one at a time).
@@ -788,9 +1120,16 @@
       pending.forEach(function (p, ticket) { if (unclaimed === undefined && !p.claimed && !p.stream) unclaimed = ticket; });
       if (unclaimed !== undefined) return claim(call, unclaimed);
       var left = false;
-      storing.forEach(function (c) { if (!calls.has(c.id)) left = true; });
+      // Never the background's: only its own round holds the storage
+      // ticket (D2); an answer awaiting it waits with the module below.
+      storing.forEach(function (c) { if (c !== background && !calls.has(c.id)) left = true; });
       if (left) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
       if (!final && (pending.size || storing.size)) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
+    } else if (moving && !final && background.storage > 0) {
+      // The page's realm runs one answer at a time, but background work
+      // goes on beside it: an answer awaiting it parks and is asked again
+      // after a background delivery (LLP 1097 D7).
+      return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
     }
     call.replied = true;
     calls.delete(call.id);
@@ -802,8 +1141,8 @@
       "fetch, or share the resolved value rather than the promise. Storage is different: an answer queued behind another's " +
       "storage turn waits for it"));
   }
-  // The executor: `__exact_call(source, argsJson)` → tag 0/2 at once, or
-  // tag 3 with a call id — then it drains microtasks and asks
+  // The executor: `__exact_call(source, argsJson)` → tag 3 with a call id
+  // (a value given at once too: see its end) — then it drains microtasks and asks
   // `__exact_settle(id)`, which is tag 0/2, or tag 1 with the ticket of the
   // fetch the answer is waiting on (0: its storage; 0 and `waiting`: another
   // answer's work). `__exact_fulfill(ticket, outcomeJson)` resolves that
@@ -816,6 +1155,10 @@
     currentCall = call;
     try {
       var nativeCall = function (request) {
+        if (currentCall === background) {
+          journal("data: native.call() called from background work: it was never run");
+          throw new Error("native.call() called from background work: it was never run. Call it inside an answer");
+        }
         if (!currentCall || currentCall.status !== "pending") throw new Error("native call outside an answer");
         return JSON.parse(host(6, "call", JSON.stringify(request)));
       };
@@ -849,27 +1192,32 @@
       result = global.exact.answer(source, JSON.parse(argsJson), store, storage, native);
     }
     catch (e) {
-      currentCall = null;
-      if (!owes(call)) { call.replied = true; return fail(e); }
       calls.set(call.id, call);
       call.status = "failed"; call.error = e;
       return JSON.stringify({ tag: 3, call: call.id });
     }
     if (result && typeof result.then === "function") {
       calls.set(call.id, call);
-      result.then(function (v) { call.status = "done"; call.value = v; }, function (e) { call.status = "failed"; call.error = e; });
+      result.then(function (v) {
+        if (call.lost) return;
+        call.status = "done"; call.value = v;
+      }, function (e) {
+        if (call.lost) return;
+        call.status = "failed"; call.error = e;
+      });
       return JSON.stringify({ tag: 3, call: call.id });
     }
-    currentCall = null;
-    // A value given at once while a write it started is still in flight
-    // waits for the write, as a promised one does (`settle`).
-    if (owes(call)) {
-      calls.set(call.id, call);
-      call.status = "done"; call.value = result;
-      return JSON.stringify({ tag: 3, call: call.id });
-    }
-    call.replied = true;
-    return ok(result);
+    // A value given at once is replied after the microtask checkpoint that
+    // follows the call, as a browser runs one after each task, and work the
+    // answer queued there is its own and lands first: a save chained behind
+    // a resolved promise was never run on macOS, with nothing in the logs
+    // (drums R10), because a reply given here left it queued with no answer
+    // in flight to run it. The owner stays installed while that turn drains.
+    // (The reply is serialized at `settle`, as a promised value is: the
+    // engine keeps one call's large strings.)
+    calls.set(call.id, call);
+    call.status = "done"; call.value = result;
+    return JSON.stringify({ tag: 3, call: call.id });
   };
   // Canvas 2D (LLP 1056 D1): the module's draw seam, when it exports `draw`.
   // Text is measured and image handles are answered where the draw runs
@@ -887,6 +1235,7 @@
     return "";
   };
   global.__exact_settle = function (id, final) {
+    checkpoint();
     currentCall = null;
     var call = calls.get(Number(id));
     return call ? settle(call, final === "final") : fail(new Error("no such call"));
@@ -918,7 +1267,12 @@
       if (c.storage > 0 && !c.lost) owed = true;
       else { c.replied = true; calls.delete(c.id); }
     });
-    return owed ? "storage" : "";
+    if (!owed) return "";
+    // Deliver only when the operation in flight is the let-go call's.
+    // One queued behind a live answer stays there: delivering it here would
+    // run the live answer's step with no store (a934686a0).
+    var at = headOwner();
+    return at && at.letGo ? "storage" : "queued";
   };
   // One message of the stream answer `id` began, or its end: the mapper's
   // value, now — a stream's answer never awaits (LLP 1016.000 D1). The end
@@ -939,10 +1293,32 @@
     } catch (e) { return fail(e); }
     finally { currentCall = null; }
   };
+  // The module's storage, after a call or a delivery (LLP 1097 D5, D8):
+  // whether the operation in flight is the background's (`head`), the
+  // operations queued behind it and in flight, an answer's or the
+  // background's, and what landed and failed.
+  global.__exact_background = function () {
+    checkpoint();
+    currentCall = null;
+    return JSON.stringify({ head: headOwner() === background, queued: queue.length, inFlight: head ? 1 : 0,
+      done: storageCounts.done, failed: storageCounts.failed, last: storageCounts.last });
+  };
+  // A background round delivers with the background current: what its
+  // completion's reaction issues is the background's too.
+  global.__exact_enter_background = function () { currentCall = background; };
   global.__exact_storage_failed = function (id, outcomeJson) {
     var call = calls.get(Number(id));
-    // Its storage steps will not land: refuse the answer without them.
-    if (call) { call.status = "failed"; call.lost = true; storing.delete(call); call.error = storageError(JSON.parse(outcomeJson).failed.message, "failed"); }
+    if (!call) return;
+    // The continuation will not land. Settle the head now, as a failed
+    // operation, so the queue advances. `lost` first: the answer's own
+    // rejection must not report success, and a later delivery of this same
+    // operation is ignored.
+    var message = JSON.parse(outcomeJson).failed.message;
+    call.lost = true;
+    if (head && head.call === call) landed(head, false, storageError(message, "failed"));
+    call.status = "failed";
+    storing.delete(call);
+    call.error = storageError(message, "failed");
   };
   global.__exact_fulfill = function (ticket, outcomeJson) {
     var p = settled(Number(ticket));

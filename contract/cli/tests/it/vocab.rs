@@ -88,6 +88,21 @@ fn contextual_attributes_are_refused_elsewhere() {
         ("reachend", "view", "reachend=done"),
         ("text-transform", "input", "text-transform=\"uppercase\""),
         ("selectionchange", "view", "selectionchange=done"),
+        ("name", "view", "name=\"station\""),
+        ("markup", "view", "markup=\"markdown\""),
+        (
+            "metadata",
+            "view",
+            "metadata=MediaMetadata(title=\"a\", artist=\"\", album=\"\", artwork=\"\")",
+        ),
+        ("seekbackward", "view", "seekbackward=done"),
+        ("seekforward", "view", "seekforward=done"),
+        ("seekto", "view", "seekto=done"),
+        ("previoustrack", "view", "previoustrack=done"),
+        ("nexttrack", "view", "nexttrack=done"),
+        ("stop", "view", "stop=done"),
+        ("seekbackwardOffset", "view", "seekbackwardOffset=15"),
+        ("seekforwardOffset", "view", "seekforwardOffset=15"),
     ];
     let listed: Vec<&str> = contract_lower::vocab::CONTEXTUAL
         .iter()
@@ -101,4 +116,16 @@ fn contextual_attributes_are_refused_elsewhere() {
         let error = contract::compile(&source).unwrap_err();
         assert_eq!(error.id, "lower-attr-tag", "{tag} {attr}: {error}");
     }
+}
+
+#[test]
+fn a_hyphenated_name_no_built_in_has_says_so_before_the_module_note() {
+    let out = stdout(&vocab(&["outline-width"]));
+    assert!(
+        out.starts_with("outline-width: not a built-in tag or attribute, so a built-in tag refuses an attribute of that name; a hyphenated tag"),
+        "{out}"
+    );
+    let data = stdout(&vocab(&["data-row"]));
+    assert!(data.starts_with("data-row: `data-<word>`"), "{data}");
+    assert!(!data.contains("built-in"), "{data}");
 }

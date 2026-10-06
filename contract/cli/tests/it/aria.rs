@@ -151,6 +151,11 @@ fn form_states_and_haspopup_lower_by_their_aria_names() {
             "`aria-haspopup` takes a bool or \"true\", \"false\", \"menu\", \"listbox\", \"tree\", \"grid\" or \"dialog\"",
         ),
         ("aria-required", "\"yes\"", "`aria-required` takes a bool"),
+        (
+            "aria-current",
+            "\"here\"",
+            "`aria-current` takes a bool or \"true\", \"false\", \"page\", \"step\", \"location\", \"date\" or \"time\"",
+        ),
     ] {
         let e = contract::compile(&format!(
             "component App\n  view\n    input {attr}={value}\n"
@@ -165,6 +170,57 @@ fn form_states_and_haspopup_lower_by_their_aria_names() {
 /// Rough 3) on any element and on a module tag's box: `tabindex` is the
 /// kernel's `tabIndex`, absent when unwritten, and may follow state; its
 /// DOM-property spelling is refused naming the attribute.
+/// A navigation link's `aria-current` (Depot): its ARIA word, or a bool
+/// written as `true`/`false`, following state.
+#[test]
+fn aria_current_lowers_by_its_aria_name() {
+    let mut r = boot(
+        "component App\n  state onHome = true\n  action away\n    onHome = false\n  view\n    column\n      button press=away aria-current=(onHome ? \"page\" : \"false\") testId=\"home\"\n        text \"Home\"\n      button press=away aria-current=onHome testId=\"step\"\n        text \"Step\"\n",
+    );
+    assert_eq!(
+        prop(&r, "home", PropId::AccessibilityCurrent).as_deref(),
+        Some("page")
+    );
+    assert_eq!(
+        prop(&r, "step", PropId::AccessibilityCurrent).as_deref(),
+        Some("true")
+    );
+    let home = view_of(&r, "home");
+    r.dispatch(home, Event::Press).unwrap();
+    assert_eq!(
+        prop(&r, "home", PropId::AccessibilityCurrent).as_deref(),
+        Some("false")
+    );
+    assert_eq!(
+        prop(&r, "step", PropId::AccessibilityCurrent).as_deref(),
+        Some("false")
+    );
+}
+
+/// An `aria-*` name Contract refuses says whether ARIA has it, and lists
+/// the ones Contract carries (Depot met `aria-current` with no list).
+#[test]
+fn an_unknown_aria_name_lists_the_carried_ones() {
+    let refused = |attr: &str| {
+        contract::compile(&format!(
+            "component App\n  view\n    button {attr}=\"x\"\n      text \"a\"\n"
+        ))
+        .unwrap_err()
+        .to_string()
+    };
+    let sort = refused("aria-sort");
+    assert!(
+        sort.contains("`aria-sort` is ARIA's, and Contract does not carry it yet; Contract carries aria-checked, "),
+        "{sort}"
+    );
+    assert!(sort.contains("aria-current"), "{sort}");
+    let typo = refused("aria-curent");
+    assert!(
+        typo.contains("`aria-curent` is not ARIA's (did you mean `aria-current`?)"),
+        "{typo}"
+    );
+}
+
 #[test]
 fn tabindex_and_labelledby_bind_by_their_html_names() {
     let mut r = boot(

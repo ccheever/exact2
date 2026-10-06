@@ -422,6 +422,7 @@ fn a_draw_crosses_the_seam_and_its_recorder_lives_for_its_generation() {
             },
             current_color: None,
             rtl: false,
+            p3: false,
         };
         session
             .draw(&mut recorders, &draw::draw_request(&request).unwrap())

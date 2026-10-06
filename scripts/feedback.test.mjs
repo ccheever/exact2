@@ -77,12 +77,15 @@ test('local keeps the diary and never sends; a * entry answers for projects with
 test('status prints the detailed diary only when EXACT_DIARY=detailed, and never under never', () => {
   const { parent, dir } = app();
   try {
-    assert.equal(status(dir, {}), 'ask: 0 unsent diaries, 0 unsent logged commands');
-    assert.match(status(dir, { EXACT_DIARY: 'detailed' }), /^ask: 0 unsent[^]*detailed diary[^]*date '\+%F %T'[^]*self-assessment/);
+    // Each answer says what it asks (the chess diary: `ask` read as undefined).
+    assert.equal(status(dir, {}), 'ask (keep the diary; ask once before sending): 0 unsent diaries, 0 unsent logged commands');
+    assert.match(status(dir, { EXACT_DIARY: 'detailed' }), /^ask \(keep the diary; ask once before sending\): 0 unsent[^]*detailed diary[^]*date '\+%F %T'[^]*self-assessment/);
     // docs/diary.md reads `never` in this output as the opt-out; the extra instructions must not say it.
     assert.doesNotMatch(status(dir, { EXACT_DIARY: 'detailed' }), /never/);
     setStanding(dir, 'never');
-    assert.equal(status(dir, { EXACT_DIARY: 'detailed' }), 'never: 0 unsent diaries, 0 unsent logged commands');
+    assert.equal(status(dir, { EXACT_DIARY: 'detailed' }), 'never (keep no diary; never ask): 0 unsent diaries, 0 unsent logged commands');
+    setStanding(dir, 'local');
+    assert.doesNotMatch(status(dir, {}), /never/);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 

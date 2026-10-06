@@ -1322,3 +1322,49 @@ fn a_refresh_with_equal_arguments_reaches_a_placed_member_of_a_set() {
     assert!(!r.has_pending());
     assert_eq!(r.data().staged_keys(), 0);
 }
+
+#[test]
+fn mixed_and_placed_forward_logs_from_successful_and_refused_turns_once() {
+    #[derive(Clone, Default)]
+    struct Logging(Vec<String>);
+    impl DataSource for Logging {
+        fn app_id(&self) -> &str {
+            "test.logs"
+        }
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            self.0.push(format!("console {source}"));
+            if source == "fail" {
+                Err(DataError::Unavailable("refused".into()))
+            } else {
+                Ok(Value::str("answer"))
+            }
+        }
+        fn take_logs(&mut self) -> Vec<String> {
+            std::mem::take(&mut self.0)
+        }
+    }
+    for placement in [Placement::Main, Placement::Worker] {
+        let mut placed = Mixed::new(
+            Placed::new(Logging::default(), placement),
+            Placed::new(Logging::default(), placement),
+            &["js"],
+            &["rust", "fail"],
+        )
+        .unwrap();
+        placed.activate().unwrap();
+        let mut store = Store::default();
+        for source in ["js", "rust", "fail"] {
+            let answer = placed.answer(&mut store, source, &[]);
+            let result = match answer {
+                Ok(Answer::Later(request)) => {
+                    let outcome = run(placed.dispatch(request.continuation.unwrap(), &store));
+                    placed.parse(&mut store, source, &[], outcome)
+                }
+                other => other,
+            };
+            assert_eq!(result.is_err(), source == "fail");
+            assert_eq!(placed.take_logs(), [format!("console {source}")]);
+            assert!(placed.take_logs().is_empty());
+        }
+    }
+}

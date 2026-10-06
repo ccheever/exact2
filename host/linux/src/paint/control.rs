@@ -1,7 +1,8 @@
 //! Form controls, painted (LLP 1069.001 D7): Linux has no platform
-//! controls, so a checkbox is Chrome's rounded square and a switch a pill
-//! with a thumb, filled with `accent-color`. `appearance: none` draws
-//! nothing here: the author's box is the whole look (D6).
+//! controls, so a checkbox is Chrome's rounded square, a radio its circle
+//! and a switch a pill with a thumb, filled with `accent-color`.
+//! `appearance: none` draws nothing here: the author's box is the whole
+//! look (D6).
 
 use super::{rgba, Backend, Rect4, Shape};
 use exact_kernel::{Appearance, NodeRef, PropId, StyleMask};
@@ -9,6 +10,47 @@ use tiny_skia::Transform;
 
 /// Chrome's default accent, `#0075ff`, where `accent-color` is `auto`.
 const ACCENT: [u8; 4] = [0x00, 0x75, 0xff, 0xff];
+
+/// A control's choice while its bound value is the one it had when the
+/// person chose, as the web build writes an input's `value` only when the
+/// bound value changes (LLP 1069.001 D4, amended 2026-10-04; kanban2 #5).
+pub(crate) fn choice<'a>(
+    node: &NodeRef<'_>,
+    chosen: Option<&'a (String, String)>,
+) -> Option<&'a str> {
+    let bound = node.props.str(PropId::Value).unwrap_or("");
+    chosen
+        .filter(|(_, at)| at == bound)
+        .map(|(c, _)| c.as_str())
+}
+
+/// What a date control shows: its [`choice`], else the bound value, HTML's
+/// placeholder form when empty.
+pub(super) fn date_text<'a>(node: &NodeRef<'a>, chosen: Option<&'a (String, String)>) -> &'a str {
+    let value = choice(node, chosen).unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""));
+    match (value, node.props.str(PropId::Type)) {
+        ("", Some("date")) => "yyyy-mm-dd",
+        ("", Some("time")) => "--:--",
+        ("", _) => "yyyy-mm-ddT--:--",
+        (v, _) => v,
+    }
+}
+
+/// A select's label: its [`choice`]'s option, else the bound one's.
+pub(super) fn select_label(
+    kernel: &exact_kernel::Kernel,
+    node: &NodeRef<'_>,
+    chosen: Option<&(String, String)>,
+) -> Option<String> {
+    match choice(node, chosen) {
+        Some(v) => kernel
+            .select_choices(node.id)
+            .into_iter()
+            .find(|c| c.value == v)
+            .map(|c| c.label),
+        None => kernel.select_chosen(node.id).map(|c| c.label),
+    }
+}
 
 /// A node's `accent-color`, where it sets one.
 pub(crate) fn accent(node: &NodeRef<'_>, dark: bool) -> Option<[u8; 4]> {
@@ -96,7 +138,13 @@ impl super::Painter {
 
     /// A range (LLP 1069.001 D7): Chrome's track, filled with the accent to
     /// a 16 px thumb at the value.
-    pub(super) fn range_control(&mut self, node: &NodeRef<'_>, content: Rect4, ts: Transform) {
+    pub(super) fn range_control(
+        &mut self,
+        node: &NodeRef<'_>,
+        content: Rect4,
+        ts: Transform,
+        chosen: Option<&(String, String)>,
+    ) {
         if node.style.appearance == Appearance::None {
             return;
         }
@@ -109,7 +157,9 @@ impl super::Painter {
             c
         };
         let range = exact_kernel::Range::of(node.props);
-        let value = range.shown(node.props);
+        let value = choice(node, chosen)
+            .and_then(|c| c.parse::<f64>().ok())
+            .map_or_else(|| range.shown(node.props), |v| range.sanitize(v));
         let t = if range.max > range.min {
             ((value - range.min) / (range.max - range.min)) as f32
         } else {
@@ -137,7 +187,14 @@ impl super::Painter {
     /// A select's open menu, over everything (LLP 1069.001 D7).
     pub(super) fn menu(&mut self, menu: &MenuPaint) {
         let ts = Transform::identity();
-        let dark = self.dark;
+        // Painted after the walk: the select's own scheme (LLP 1034 §8), as
+        // its inherited style computes it, else the app's.
+        let dark = match menu.style.color_scheme {
+            exact_kernel::ColorScheme::Dark => true,
+            exact_kernel::ColorScheme::Light => false,
+            exact_kernel::ColorScheme::Normal => self.dark,
+        };
+        let previous = std::mem::replace(&mut self.dark, dark);
         let panel = Shape::new(menu.rect, [6.0; 4]);
         self.backend.fill(&panel, [0, 0, 0, 0x40], ts);
         let bg = if dark {
@@ -174,6 +231,7 @@ impl super::Painter {
             self.backend
                 .text(&mut engine, &paragraph, &palette, (x + 12.0, oy), ts);
         }
+        self.dark = previous;
     }
 }
 
@@ -219,6 +277,22 @@ pub(super) fn paint(
         backend.fill(&thumb, dim([0xff, 0xff, 0xff, 0xff]), ts);
         return;
     }
+    let (border, fill) = if dark {
+        ([0x85, 0x85, 0x85, 0xff], [0x3b, 0x3b, 0x3b, 0xff])
+    } else {
+        ([0x76, 0x76, 0x76, 0xff], [0xff, 0xff, 0xff, 0xff])
+    };
+    // A radio is Chrome's circle (x2apps survey #2): checked, an accent
+    // ring around the field's own fill and an accent dot a fifth in.
+    if node.props.str(PropId::Type) == Some("radio") {
+        let circle = Shape::new(content, [w.min(h) / 2.0; 4]);
+        backend.fill(&circle, dim(if on { accent } else { border }), ts);
+        backend.fill(&circle.inset(1.0), dim(fill), ts);
+        if on {
+            backend.fill(&circle.inset(w.min(h) * 0.2), dim(accent), ts);
+        }
+        return;
+    }
     let square = Shape::new(content, [2.0; 4]);
     if on {
         backend.fill(&square, dim(accent), ts);
@@ -240,11 +314,6 @@ pub(super) fn paint(
             ts.pre_concat(long),
         );
     } else {
-        let (border, fill) = if dark {
-            ([0x85, 0x85, 0x85, 0xff], [0x3b, 0x3b, 0x3b, 0xff])
-        } else {
-            ([0x76, 0x76, 0x76, 0xff], [0xff, 0xff, 0xff, 0xff])
-        };
         backend.fill(&square, dim(border), ts);
         backend.fill(&square.inset(1.0), dim(fill), ts);
     }

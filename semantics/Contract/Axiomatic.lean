@@ -423,7 +423,7 @@ theorem runAction_commit {p o c name args rows c' out}
     (h : runAction p o c name args rows = (c', out)) (hout : ∀ e, out ≠ .refused e) :
     ∃ a fx answered, p.actions.find? (·.name == name) = .some a ∧
       ExecR (actionEnv p c rows) (actionLocals a args) a.body {} fx ∧
-      Answered o fx.sends answered ∧
+      Answered o (splitSends p c fx.sends).1 answered ∧
       c'.slots = applyWrites c.slots (answered ++ fx.writes) ∧
       c'.commands = c.commands ++ fx.commands := by
   have refused : ∀ {e}, (c, Outcome.refused e) = (c', out) → False := fun h' => by
@@ -443,8 +443,10 @@ theorem runAction_commit {p o c name args rows c' out}
   next fx hx =>
   split at h
   · exact (refused h).elim
+  split at h
+  · exact (refused h).elim
   next answered hans =>
-  have hA : Answered o fx.sends answered := Answered.of_mapM (by
+  have hA : Answered o (splitSends p c fx.sends).1 answered := Answered.of_mapM (by
     intro m src vs r hr
     simp only [Except.bind_ok_iff] at hr
     obtain ⟨v, hv, hr⟩ := hr
@@ -458,6 +460,9 @@ theorem runAction_commit {p o c name args rows c' out}
   · exact (refused h).elim
   split at h
   · exact (refused h).elim
+  split at h
+  · exact (refused h).elim
+  split at h
   · simp only [Prod.mk.injEq] at h; obtain ⟨rfl, -⟩ := h
     exact ⟨a, fx, answered, ha, exec_sound hx, hA, rfl, rfl⟩
   · simp only [Prod.mk.injEq] at h; obtain ⟨rfl, -⟩ := h
@@ -547,7 +552,7 @@ theorem runAction_last_write {p o c name args rows c' out x v}
     (hs : (lookup x c.slots).isSome) :
     ∃ a fx answered, p.actions.find? (·.name == name) = .some a ∧
       ExecR (actionEnv p c rows) (actionLocals a args) a.body {} fx ∧
-      Answered o fx.sends answered ∧
+      Answered o (splitSends p c fx.sends).1 answered ∧
       (lookup x (answered ++ fx.writes).reverse = .some v → lookup x c'.slots = .some v) ∧
       (lookup x (answered ++ fx.writes) = .none → lookup x c'.slots = lookup x c.slots) := by
   obtain ⟨a, fx, ans, ha, hx, hA, hsl, -⟩ := runAction_commit h hout

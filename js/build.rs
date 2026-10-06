@@ -5,8 +5,9 @@
 //! The engine is the vanilla Hermes build the ibex repo produces
 //! (`ios/Frameworks-vanilla/`, receipt beside it): the bytecode-only
 //! `hermesvmlean` archive, JSI, and the headers. iOS uses matching lean CMake
-//! builds, one per platform, which `host/apple/build.mjs --ios` builds once per
-//! machine into `~/.cache/exact/hermes/<pin>-lean-ios/{ios,ios-simulator}`
+//! builds, one per platform, which `host/apple/build.mjs --ios` (and `--tvos`)
+//! builds once per machine into
+//! `~/.cache/exact/hermes/<pin>-lean-ios/{ios,ios-simulator,tvos,tvos-simulator}`
 //! (EXACT_HERMES_IOS_DIR overrides; LLP 1027 D6, LLP 1036.001 D5).
 //! All linked engine archives are captured in OUT_DIR for the bake receipt.
 //! On macOS, iOS, Linux and Windows a missing engine is a build error naming how to
@@ -154,6 +155,8 @@ fn main() {
             })
     };
     let linux = ibex.join("linux-vanilla");
+    // tvOS's lean builds sit beside iOS's, one directory per SDK.
+    let apple_mobile = matches!(target_os.as_str(), "ios" | "tvos");
     let (headers, static_dir, engine_lib_name, extra_libs) = if let Some(install) = &windows {
         (
             install.headers.clone(),
@@ -161,15 +164,15 @@ fn main() {
             "hermesvmlean_a".to_owned(),
             install.archives[1..].to_vec(),
         )
-    } else if target_os == "ios" {
+    } else if apple_mobile {
+        let simulator = target.ends_with("-sim") || target.starts_with("x86_64-");
         let static_dir = ios()
-            .join(
-                if target.ends_with("-sim") || target.starts_with("x86_64-") {
-                    "ios-simulator"
-                } else {
-                    "ios"
-                },
-            )
+            .join(match (target_os.as_str(), simulator) {
+                ("tvos", true) => "tvos-simulator",
+                ("tvos", false) => "tvos",
+                (_, true) => "ios-simulator",
+                (_, false) => "ios",
+            })
             .join("lib");
         let build = static_dir.parent().expect("iOS build directory");
         (
@@ -213,14 +216,17 @@ fn main() {
     // Provisioning an iOS engine after a stub build must invalidate it.
     // macOS's external SDK archives are captured in OUT_DIR below, not
     // traversed as repository source directories by the bake receipt.
-    if target_os == "ios" {
+    if apple_mobile {
         println!("cargo:rerun-if-changed={}", static_dir.display());
     }
     let engine_archive = windows.as_ref().map_or_else(
         || static_dir.join(format!("lib{engine_lib_name}.a")),
         |install| install.archives[0].clone(),
     );
-    let hermes_target = matches!(target_os.as_str(), "macos" | "ios" | "linux" | "windows");
+    let hermes_target = matches!(
+        target_os.as_str(),
+        "macos" | "ios" | "tvos" | "linux" | "windows"
+    );
     // The explicit selection wins before any engine input is inspected.
     let provisioned =
         headers.is_dir() && engine_archive.is_file() && extra_libs.iter().all(|lib| lib.is_file());
@@ -257,7 +263,7 @@ fn main() {
     // The normal bake receipt inventories OUT_DIR archives. Capture all three
     // actual linked inputs there, including the engine, not just our shim.
     for source in library_paths {
-        if target_os == "ios" {
+        if apple_mobile {
             println!("cargo:rerun-if-changed={}", source.display());
         }
         std::fs::copy(&source, out.join(source.file_name().expect("archive name")))

@@ -402,6 +402,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             if model.sections.last?.footer != nil, let below = model.spaceBelow { inset.bottom += below }
             assign(collection, \.contentInset, inset)
             assign(collection, \.verticalScrollIndicatorInsets, scroll.verticalScrollIndicatorInsets)
+            // A short list bounces, as Settings does; UICollectionView's own
+            // default would not.
+            assign(collection, \.alwaysBounceVertical, scroll.scrollsY)
+            assign(collection, \.bounces, owner.style["overscroll_behavior_y"]?.string != "none")
         }
         assign(collection, \.frame, owner.bounds)
         for cell in collection.visibleCells {

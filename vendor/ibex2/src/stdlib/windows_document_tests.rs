@@ -2,7 +2,7 @@
 use super::*;
 use std::os::windows::ffi::OsStrExt;
 use std::process::Command;
-use windows_sys::Win32::Security::Authorization::{SE_FILE_OBJECT, SetNamedSecurityInfoW};
+use windows_sys::Win32::Security::Authorization::{SetNamedSecurityInfoW, SE_FILE_OBJECT};
 use windows_sys::Win32::Security::*;
 
 struct Dacl {
@@ -117,16 +117,14 @@ fn document_read_uses_handle_type_and_keeps_physical_paths_private() {
     let never = |_: &str| -> Result<Document, String> {
         panic!("a refused grant must not resolve the document")
     };
-    assert!(
-        run_document(
-            &GrantSet::none(),
-            Some(&never),
-            FsOp::ReadFile,
-            "doc:/1/chosen",
-            None
-        )
-        .is_err()
-    );
+    assert!(run_document(
+        &GrantSet::none(),
+        Some(&never),
+        FsOp::ReadFile,
+        "doc:/1/chosen",
+        None
+    )
+    .is_err());
 }
 
 #[test]

@@ -527,7 +527,7 @@ component App
           text "Hide"
         button press=outside testId="outside"
           text "Outside"
-      input value=draft change=edit testId="composer" height=32
+      input value=draft input=edit testId="composer" height=32
       text replying testId="replying" height=20
       view id="owner" width=360.25 height=200.5 overflow-x="hidden" overflow-y="hidden"
         list id="content" testId="transcript" virtualized=true width=360.25 height=200.5 padding-left=1.3 border-width=0.7 border-style="solid" box-sizing="border-box"

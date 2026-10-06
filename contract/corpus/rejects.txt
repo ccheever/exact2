@@ -36,6 +36,12 @@ component A
   view
     text formatDate(0, 0, kind)
 ---
+== type-list-item
+component A
+  state xs = [1, "two"]
+  view
+    text "a"
+---
 == type-operand
 component A
   derive x = 1 + "a"
@@ -260,6 +266,48 @@ component A
   view
     text "a"
 ---
+== syntax-task-start
+component A
+  state n = 1
+  action tick
+    n = n + 1
+  task t
+    after(60, tick)
+  view
+    text "a"
+---
+== type-task-gate
+component A
+  state toast = ""
+  action tick
+    toast = ""
+  task t when toast
+    after(60, tick)
+  view
+    text "a"
+---
+== type-task-key
+shape P
+  x: number
+component A
+  state p = P(x=1)
+  action tick
+    p = P(x=2)
+  task t key=p
+    after(60, tick)
+  view
+    text "a"
+---
+== analyze-task-gate-clock
+component A
+  state n = 1
+  action tick
+    n = n + 1
+  task t when now() < 1000
+    every(60, tick)
+  view
+    text "a"
+---
 == lower-leaf-children
 component A
   state q = ""
@@ -451,12 +499,6 @@ fn f(n: number): number = f(n)
 component A
   view
     text `${f(1)}`
----
-== contract-fn-shadows-roster
-fn floor(n: number): number = n
-component A
-  view
-    text `${floor(1)}`
 ---
 == syntax-expected-step
 test "t"
@@ -1075,6 +1117,15 @@ component A
     button press=go
       text "a"
 ---
+== type-save-file-argument
+# A file to copy or the text to save, not both (x2apps notes #4).
+component A
+  action go
+    saveFile("out", "app:/data/a.json", text="a", suggestedName="a.md")
+  view
+    button press=go
+      text "a"
+---
 == lower-animation-name
 component A
   view
@@ -1163,6 +1214,18 @@ component A
     column
       map(xs, x => text x)
 ---
+== syntax-else-keyword
+# An action branches with `if`, a view with `when`: `else if` here.
+component A
+  state n = 0
+  action a
+    if n > 0
+      n = 1
+    else when n < 0
+      n = 2
+  view
+    text "a" press=a
+---
 == syntax-callback-view
 component A
   resource xs = xs() as shape list<string>
@@ -1202,6 +1265,14 @@ fn roomOf(id: string): number = frame(id).height
 component A
   view
     text toString(roomOf("x"))
+---
+== type-geometry-outside-action
+# LLP 1094 D10: `elementFromPoint` reads `frame`'s boxes, so only an action may.
+component A
+  derive under = elementFromPoint(10, 10)
+  view
+    column id="box"
+      text match under { case some(id) => id, case none => "" }
 ---
 == type-measure-literal-id
 # The runner answers `measure` before the action runs, so its id is a literal.
@@ -1308,3 +1379,82 @@ component A
         row
           box reorderFor="cities" width=24 height=24
           text city
+---
+== type-set-selection-range
+component A
+  state at = 0
+  action jump(k: string)
+    setSelectionRange("editor", "4")
+  view
+    textarea id="editor" value="text" key=jump
+---
+== type-sound-undeclared
+# LLP 1096 D2: a literal source names a declared sound.
+component A
+  action go
+    playSound("assets/kick.wav")
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A literal gain outside 0–1, as a literal `volume` is.
+component A
+  action go
+    playSound(src, gain=1.5)
+  state src = "assets/kick.wav"
+  view
+    button "go" press=go
+---
+== type-play-sound
+# An option `playSound` does not take.
+component A
+  state src = "assets/kick.wav"
+  action go
+    playSound(src, rate=2)
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A hit without `at`: `playSounds` reads a hit's fields by position.
+shape Hit
+  src: string
+  gain: number
+  group: string
+fn noHits(): list<Hit> = []
+component A
+  state hits = noHits()
+  action go
+    playSounds(hits)
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A hit whose gain is a string.
+shape Hit
+  src: string
+  at: number
+  gain: string
+  group: string
+fn noHits(): list<Hit> = []
+component A
+  state hits = noHits()
+  action go
+    playSounds(hits)
+  view
+    button "go" press=go
+---
+== type-play-sound
+# `stopSounds` takes only `group=`.
+component A
+  action go
+    stopSounds("hat")
+  view
+    button "go" press=go
+---
+== lower-media-session
+component A
+  state seek = 0
+  action skip
+    seek = seek + 30
+  view
+    audio "assets/a.mp3" seekforward=skip

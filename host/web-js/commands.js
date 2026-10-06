@@ -2,7 +2,11 @@
 // wasm web host runs it (host/web/glue.js, navigation.js), so a command the
 // compiler admits (contract/types/src/checks.rs `HOST_COMMANDS`) is one this
 // runtime carries (files diary F5: `selectText` was refused here).
+import { setFieldSelection } from "./navigation.js";
 export const commands = say => ({
+  // The field's own method, by its id (x2apps codeedit #2); commands run
+  // once the commit's tree is in place, so a value set beside it is there.
+  setSelectionRange: (...args) => setFieldSelection(document.getElementById(args[0]), args, say),
   // Focus, then the field's whole text selected, as `select()` does
   // (navigation.js `runFocusCommands`).
   selectText: id => {
@@ -38,4 +42,13 @@ export const commands = say => ({
   // loaded the newest root, and nothing is ever staged.
   deliveryCheck: () => say("delivery: no update store on the web; the page loaded the newest root"),
   deliveryActivate: () => say("delivery: nothing is staged"),
+  // A media element's, by HTML's method names (podcast F8, F18): media.js
+  // queues them for the web host's media glue (media-glue.js `run`).
+  fastSeek: (id, seconds) => media(say, id, "fastSeek", seconds),
+  load: id => media(say, id, "load"),
 });
+function media(say, id, name, seconds) {
+  const e = document.getElementById(id);
+  if (!e?.$media) return say(`${name} "${id}" refused: ${e ? "not a video or audio" : "no live node with that id"}`);
+  e.$media.command(name, seconds);
+}

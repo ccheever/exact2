@@ -665,11 +665,11 @@ extension Canvases.Entry {
     }
 }
 
-// ExactKit owns session policy once per process, only after a live surface asks.
+// A live surface asks for the session once per process; its category is the
+// app's, set by its one owner (`AudioSession`, LLP 1096 D8).
 private enum CanvasAudio {
     nonisolated(unsafe) static var active = false
     nonisolated(unsafe) static var wanted = false
-    nonisolated(unsafe) static var configured = false
     nonisolated(unsafe) static var interrupted = false
     nonisolated(unsafe) static var resumeBlocked = false
     @discardableResult static func activate() -> Bool {
@@ -679,11 +679,7 @@ private enum CanvasAudio {
         wanted = true
         guard !active else { return true }
         #if os(iOS) || os(tvOS)
-        do {
-            let session = AVAudioSession.sharedInstance()
-            if !configured { try session.setCategory(.ambient); configured = true }
-            try session.setActive(true)
-        } catch { fputs("exact audio session: \(error)\n", stderr); return false }
+        do { try AudioSession.activate() } catch { fputs("exact audio session: \(error)\n", stderr); return false }
         #endif
         active = true
         return true

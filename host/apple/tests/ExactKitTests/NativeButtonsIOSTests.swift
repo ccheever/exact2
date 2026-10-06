@@ -42,6 +42,23 @@ final class NativeButtonsIOSTests: XCTestCase {
         try XCTUnwrap(p.controls.controls[id] as? NativeButtonIOS)
     }
 
+    /// b6 review B7: a cleared date reads as no date until a value is
+    /// applied or chosen, as the Mac's `DateField.empty`; a `UIDatePicker`
+    /// always holds some date, so the picker records it.
+    func testAClearedDateReadsEmptyUntilAValueComes() throws {
+        let p = presenter([["op": "create", "id": 10, "kind": "control", "props": ["type": "date", "value": "2026-06-01"], "handlers": ["change"], "style": [:]],
+                           ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 140.0, "h": 34.0], ["op": "roots", "ids": [10]]])
+        let node = try XCTUnwrap(p.views[10]), picker = try XCTUnwrap(p.controls.controls[10] as? UIDatePicker)
+        XCTAssertEqual(p.controls.valueObservation(picker)?["value"] as? String, "2026-06-01")
+        let cleared = try XCTUnwrap(p.controls.type(node, ""))
+        XCTAssertNil(cleared["error"], "\(cleared)")
+        XCTAssertEqual(p.controls.valueObservation(picker)?["value"] as? String, "", "cleared reads empty")
+        XCTAssertNotNil(p.controls.type(node, "2026-07-04"))
+        XCTAssertEqual(p.controls.valueObservation(picker)?["value"] as? String, "2026-07-04")
+        p.apply(wireBatch([["op": "props", "id": 10, "set": ["value": ""]]]))
+        XCTAssertEqual(p.controls.valueObservation(picker)?["value"] as? String, "", "an empty bound value")
+    }
+
     func testItIsUIKitsButtonWithItsFaceAndStyle() throws {
         let p = presenter(box(1) + native(2, ["testId": "send"]) + native(3) + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]],
                           faces: [2: face("Send", symbol: "paperplane", style: "filled", ios: "filled"), 3: face("Next", style: "plain", ios: "plain")])
@@ -164,6 +181,87 @@ final class NativeButtonsIOSTests: XCTestCase {
         _ = p.endExit(2)
         p.apply(wireBatch([]))
         XCTAssertNil(p.controls.controls[2])
+    }
+
+    /// A face is asked for once, then again only when a batch says the
+    /// control's contents changed (`controls`) or touches the node: the
+    /// batches of a fling ask nothing.
+    func testAFaceIsAskedForOnlyWhenItCanHaveChanged() throws {
+        var faces: [UInt32: ButtonFace] = [2: face("Send")]
+        var asked = 0
+        let p = presenter(box(1) + native(2) + box(3) + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]])
+        p.buttonFace = { asked += 1; return faces[$0] ?? ButtonFace() }
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["testId": "send"]]]))
+        XCTAssertEqual(asked, 1, "a touched button is asked again")
+        XCTAssertEqual(try button(p, 2).configuration?.title, "Send")
+        for _ in 0..<5 { p.apply(wireBatch([["op": "frame", "id": 3, "x": 0.0, "y": 40.0, "w": 300.0, "h": 40.0]])) }
+        XCTAssertEqual(asked, 1, "batches that leave it alone ask nothing")
+        faces[2] = face("Sent")
+        var contents = wireBatch([["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 300.0, "h": 40.0]])
+        contents.controls = true
+        p.apply(contents)
+        XCTAssertEqual(asked, 2)
+        XCTAssertEqual(try button(p, 2).configuration?.title, "Sent", "a batch that changed its contents shows the new face")
+        // Its natural size is measured again for a new face, not kept.
+        let short = try button(p, 2).naturalSize
+        faces[2] = face("Sent to everyone in the group")
+        p.apply(contents)
+        XCTAssertGreaterThan(try button(p, 2).naturalSize.width, short.width)
+        let measured = try button(p, 2).intrinsicContentSize
+        XCTAssertEqual(try button(p, 2).naturalSize, CGSize(width: ceil(measured.width), height: ceil(measured.height)), "what UIKit measures, rounded up")
+        // And for a larger text size.
+        let regular = try button(p, 2).naturalSize
+        try button(p, 2).traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraLarge
+        try button(p, 2).layoutIfNeeded()
+        XCTAssertGreaterThan(try button(p, 2).naturalSize.height, regular.height)
+    }
+
+    func testNativeWorldLayoutFollowsAnEqualBoundsChildsAncestor() {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        let ancestor = UIView(frame: CGRect(x: 20, y: 100, width: 200, height: 100))
+        let child = NativeWorldLayoutProbe(frame: CGRect(x: 10, y: 20, width: 14, height: 14))
+        window.addSubview(ancestor); ancestor.addSubview(child)
+        child.layoutIfNeeded()
+        var geometry = NativeWorldLayout()
+        geometry.refresh(child); child.layoutIfNeeded()
+        let before = child.layouts.count, bounds = child.bounds
+        geometry.refresh(child); child.layoutIfNeeded()
+        XCTAssertEqual(child.layouts.count, before, "unchanged geometry does no layout work")
+        ancestor.frame.origin.y += 1.0 / 6.0
+        child.layoutIfNeeded()
+        XCTAssertEqual(child.bounds, bounds)
+        XCTAssertEqual(child.layouts.count, before, "UIKit does not lay out the fixed child for an ancestor move")
+        geometry.refresh(child); child.layoutIfNeeded()
+        XCTAssertEqual(child.layouts.count, before + 1)
+        XCTAssertEqual(child.layouts.last?.minY ?? 0, 120 + 1.0 / 6.0, accuracy: 0.0001)
+    }
+
+    func testNativeWorldLayoutRearmsAfterDetachAndDoesNotRetainAWindow() {
+        var geometry = NativeWorldLayout()
+        let child = NativeWorldLayoutProbe(frame: CGRect(x: 10, y: 20, width: 14, height: 14))
+        weak var released: UIWindow?
+        autoreleasepool {
+            let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+            released = window
+            window.addSubview(child)
+            geometry.refresh(child); child.layoutIfNeeded()
+            child.removeFromSuperview()
+            geometry.refresh(child)
+            window.addSubview(child); child.layoutIfNeeded()
+            let before = child.layouts.count
+            geometry.refresh(child); child.layoutIfNeeded()
+            XCTAssertEqual(child.layouts.count, before + 1, "same coordinates after a detach are a fresh layout")
+            child.removeFromSuperview()
+        }
+        XCTAssertNil(released, "the cached window identity must not retain the window")
+    }
+}
+
+private final class NativeWorldLayoutProbe: UIView {
+    var layouts: [CGRect] = []
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layouts.append(convert(bounds, to: window))
     }
 }
 #endif

@@ -3,6 +3,7 @@
 //! carousel (LLP 1070 H2).
 use super::{err, values::numeric_literal, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Node, Span};
+use contract_types::{Scope, Ty};
 
 fn literal<'a>(attrs: &'a [Attr], name: &str) -> Option<&'a Attr> {
     attrs.iter().find(|a| a.name == name)
@@ -28,6 +29,7 @@ impl Lowerer<'_> {
         attrs: &[Attr],
         children: &[Node],
         span: Span,
+        scope: &Scope,
     ) -> Result<(), LowerError> {
         // Reorder is a collection's (LLP 1010 §6, LLP 1043.000): every host
         // drags only a virtualized list's measured rows, so anywhere else
@@ -42,6 +44,7 @@ impl Lowerer<'_> {
                 return err("lower-reorder-collection", format!("`reorderdrop` reorders a virtualized list's rows, and every host drags only those: write `list virtualized=true` with one `each`, and give each row a handle with `reorderFor` naming the list's `id`; on {} it would never fire", if tag == "list" { "a list that is not virtualized".to_string() } else { format!("`{tag}`") }), reorder.span);
             }
         }
+        self.check_group(virtualized, attrs, children, scope)?;
         let Some(opt) = attrs.iter().find(|a| a.name == "virtualized") else {
             return Ok(());
         };
@@ -93,6 +96,48 @@ impl Lowerer<'_> {
             expanded.extend(rows);
         }
         self.collection_flow(&expanded, None)
+    }
+
+    /// `reorderGroup` (@ref LLP 1094 D1): lists that share one exchange rows,
+    /// so each takes the drop (`reorderdrop`), is named by its `id` in the
+    /// drop's `ReorderEvent`, and keys its rows by strings, the keys a row
+    /// carries from one list to another. A row list and a nested list are
+    /// refused by their own reorder rules (LLP 1094 §7).
+    fn check_group(
+        &self,
+        virtualized: bool,
+        attrs: &[Attr],
+        children: &[Node],
+        scope: &Scope,
+    ) -> Result<(), LowerError> {
+        let Some(group) = attrs.iter().find(|a| a.name == "reorderGroup") else {
+            return Ok(());
+        };
+        let has = |name: &str| attrs.iter().any(|a| a.name == name);
+        if !virtualized || !has("reorderdrop") || !has("id") {
+            return err("lower-reorder-group", "`reorderGroup` joins lists that take a drop: give this `list virtualized=true` a `reorderdrop` and an `id`", group.span);
+        }
+        let [Node::Each {
+            var,
+            index,
+            list,
+            key,
+            ..
+        }] = children
+        else {
+            return Ok(());
+        };
+        let shapes = &self.types.shapes;
+        let item = match contract_types::infer(list, scope, shapes) {
+            Ok(Ty::List(item)) => *item,
+            _ => Ty::Unknown,
+        };
+        let mut inner = scope.clone();
+        inner.push_each(var, index.as_deref(), item);
+        match contract_types::infer(key, &inner, shapes) {
+            Ok(t) if t != Ty::String && t.is_complete() => err("lower-reorder-group", format!("a grouped list's rows move between lists by their keys, so its `each` is keyed by a string, not a {t}: key it by the item's string id"), key.span()),
+            _ => Ok(()),
+        }
     }
 
     /// The rules that make a list's axis CSS's and keep its index's starts

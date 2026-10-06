@@ -1,0 +1,35 @@
+// The voice table's commands (LLP 1096 D11) are commands to the semantics:
+// issued after the commit, in statement order, with their arguments in the
+// runner's positions (`none` where one is left to its default). The table
+// itself (ids, cuts, the bound) is the runner's, tested there.
+sound "assets/tick.wav"
+
+component App
+  state n = 0
+  state d = 1
+  action tick
+    playSound("assets/tick.wav")
+    playSound("assets/tick.wav", at=now() + 100, gain=0.5, group="hat")
+    n = n + 1
+  action stop
+    stopSounds(group="hat")
+    stopSounds()
+  action broken
+    playSound("assets/tick.wav")
+    n = n / (d - 1)
+  view
+    column
+      text `${n}` testId="n"
+      button "tick" press=tick testId="tick"
+      button "stop" press=stop testId="stop"
+      button "broken" press=broken testId="broken"
+
+test "sounds are commands, in order"
+  tap "tick"
+  tap "stop"
+  expect state n == 1
+  expect sound has "assets/tick.wav" at 100 by cancelled
+
+test "a refused action issues no sound"
+  tap "broken"
+  expect state n == 0

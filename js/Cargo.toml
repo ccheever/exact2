@@ -26,6 +26,8 @@ sha2 = "0.10"
 
 [dev-dependencies]
 caltrain-data = { path = "../apps/caltrain/data" }
+# The storage composer a host stacks over the module (LLP 1097 D5).
+exact-data-host = { path = "../data/host" }
 contract = { path = "../contract/cli" }
 exact-kernel = { path = "../kernel" }
 # The render server uses Unix sockets/poll; direct executor interrupt tests

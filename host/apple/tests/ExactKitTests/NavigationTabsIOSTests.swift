@@ -94,6 +94,30 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("the overlay closes") { overlayNode() == nil }
     }
 
+    /// A root toast after the tablist, positioned with no `z-index` (the
+    /// toast of contract/corpus/tabs.contract): the tab container paints at
+    /// the routes' place, so the later positioned sibling paints and takes
+    /// the touch over it, as CSS paints positioned siblings in tree order
+    /// (splitter rough 3: on iOS such a toast was never seen).
+    func testARootToastAfterTheTablistIsOverTheNativeTabs() throws {
+        let session = try fixture("tabs-toast")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        session.presenter.press(try node(session, "say").id)
+        let toastNode = { session.presenter.views.values.first { $0.props["testId"] == "root-toast" } }
+        until("the toast mounts") { toastNode() != nil }
+        let toast = try node(session, "root-toast")
+        XCTAssertTrue(tabs.view.superview === toast.superview, "the toast and the tab container are siblings")
+        let siblings = try XCTUnwrap(toast.superview).subviews
+        XCTAssertGreaterThan(siblings.firstIndex { $0 === toast }!, siblings.firstIndex { $0 === tabs.view }!, "the toast is after the container")
+        XCTAssertGreaterThanOrEqual(toast.layer.zPosition, tabs.view.layer.zPosition, "and no lower")
+        let middle = toast.convert(CGPoint(x: toast.bounds.midX, y: toast.bounds.midY), to: nil)
+        let hit = try XCTUnwrap(toast.window?.hitTest(middle, with: nil))
+        XCTAssertTrue(hit.isDescendant(of: toast), "it takes the touch: \(type(of: hit))")
+        let reply = Agent(session: session).tap(["id": Int(toast.id)])
+        XCTAssertEqual(reply["pressed"] as? Int, Int(toast.id), "\(reply)")
+        until("the toast closes") { toastNode() == nil }
+    }
+
     func testEveryTabKeepsItsStackItsScrollAndItsDraftAndReselectPopsToRoot() throws {
         let session = try fixture("tabs")
         let navigation = session.presenter.navigation

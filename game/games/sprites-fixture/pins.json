@@ -3,14 +3,14 @@
     "300": "0x04bd5b984fb15ee6"
   },
   "saves": {
-    "continuation": "d738570c7b35f4c46fc3b5044ebf45e6403c4c0791c64de5f2f2e25d1ebdf8ea"
+    "continuation": "81af51c431c2fd9b0d27f1b9dfd76e49dda6aab431f405ba791fe31a8206320c"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "3999ccb37f239ac2c1a37b386e90dfee32aa75eade1c93496d6e38076fde9e66",
+  "inputs": "bbea76faf0acf15ed30b329373387a042ecd54b6d3a9403484b110461f4147dc",
   "game": "sprites-fixture",
   "generated": "bun game/prove.mjs sprites-fixture --repin --hosts 'linux,web'",
-  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
+  "at": "2c19c834853f9a169c70704b58f0ed255a8d7daa"
 }

@@ -1,8 +1,11 @@
 // @ref LLP 1069.001 D5 — `input type="date|time|datetime-local"` is an
 // `NSDatePicker`, a text field and stepper, formatted in the reported
 // locale. HTML's values carry no zone, so the picker reads and writes them
-// at UTC and never converts; an edit is HTML's `input` then `change`, and
-// the committed value is what it shows after the action (D4).
+// at UTC and never converts; an edit is HTML's `input` then `change`. The
+// bound value is written into it when it changes, as the web build writes
+// an input's `value` and this host a select's or a text field's: an action
+// that has not written it yet (a `send` whose reply is in flight) leaves the
+// person's choice showing, where it used to clear it (x2apps kanban2 #5).
 #if os(macOS)
 import AppKit
 
@@ -20,20 +23,28 @@ extension ControlHost {
         let kind = kinds[owner.id] ?? "date"
         picker.minDate = owner.props["min"].flatMap { DateValue.parse(kind, $0) }
         picker.maxDate = owner.props["max"].flatMap { DateValue.parse(kind, $0) }
-        let value = owner.props["value"].flatMap { DateValue.parse(kind, $0) }
-        if let field = picker as? DateField {
-            field.placeholder = DateField.placeholder(kind, picker.locale ?? .current)
-            field.kind = kind
-            field.empty = value == nil
-        }
+        let bound = owner.props["value"] ?? ""
+        let value = DateValue.parse(kind, bound)
+        guard let field = picker as? DateField else { return }
+        field.placeholder = DateField.placeholder(kind, picker.locale ?? .current)
+        field.kind = kind
+        guard field.applied != bound else { return }
+        field.applied = bound
+        field.empty = value == nil
         if let value, picker.dateValue != value {
             picker.dateValue = value
         }
     }
 
+    /// What it shows, in HTML's format: `""` while empty.
+    func shownDate(_ picker: NSDatePicker, _ kind: String) -> String {
+        (picker as? DateField)?.empty == true ? "" : DateValue.format(kind, picker.dateValue)
+    }
+
     func dateChanged(_ picker: NSDatePicker) {
         let id = UInt32(picker.tag)
         guard presenter.views[id] != nil, let kind = kinds[id] else { return }
+        (picker as? DateField)?.empty = false
         presenter.controlValue(id, DateValue.format(kind, picker.dateValue), input: true, change: true)
         if let owner = presenter.views[id] { configureDate(picker, owner, accent: nil) }
     }
@@ -43,20 +54,16 @@ extension ControlHost {
     func typeDate(_ picker: NSDatePicker, _ node: NodeView, _ text: String) -> [String: Any] {
         let kind = kinds[node.id] ?? "date"
         // An empty value clears it, as deleting every segment does on the web.
-        if text.isEmpty {
-            presenter.controlValue(node.id, "", input: true, change: true)
-            if let owner = presenter.views[node.id] { configureDate(picker, owner, accent: nil) }
-            return ["typed": Int(node.id), "value": presenter.views[node.id]?.props["value"] ?? "", "delivery": "host-activation", "native": "control"]
-        }
-        guard let date = DateValue.parse(kind, text) else {
+        guard text.isEmpty || DateValue.parse(kind, text) != nil else {
             return ["error": "\"\(text)\" is not a \(kind) value (HTML's format, as 2026-09-27, 14:30 or 2026-09-27T14:30)"]
         }
-        picker.dateValue = date
+        if let date = DateValue.parse(kind, text) { picker.dateValue = date }
+        (picker as? DateField)?.empty = text.isEmpty
         presenter.controlValue(node.id, text, input: true, change: true)
-        let shown = presenter.views[node.id]?.props["value"] ?? ""
         if let owner = presenter.views[node.id] { configureDate(picker, owner, accent: nil) }
-        if shown != text { return ["error": "\(kind) #\(node.id) refused \"\(text)\" (see logs); it shows \"\(shown)\""] }
-        return ["typed": Int(node.id), "value": shown, "delivery": "host-activation", "native": "control"]
+        // What it shows, as the web's reply says: the choice, or what the
+        // action wrote over it.
+        return ["typed": Int(node.id), "value": shownDate(picker, kind), "delivery": "host-activation", "native": "control"]
     }
 }
 
@@ -67,6 +74,8 @@ extension ControlHost {
 final class DateField: NSDatePicker {
     var kind = "date"
     var placeholder = ""
+    /// The bound value last written into it (`configureDate`).
+    var applied: String?
     var empty = false { didSet { if empty != oldValue { refresh() } } }
     private var editing: Bool {
         guard let responder = window?.firstResponder as? NSView else { return false }

@@ -20,7 +20,7 @@ impl DataSource for Granted {
 #[test]
 fn an_export_is_held_answered_with_a_path_and_refused_outside_its_grant() {
     let plan = contract::compile(
-        "component App\n  state saved = \"none\"\n  state cancels = 0\n  action save\n    saveFile(\"out\", \"app:/data/out/a.json\", \"a.json\")\n  action stray\n    saveFile(\"out\", \"app:/data/secret.json\", \"s.json\")\n  action done(name)\n    saved = name\n  action cancelled\n    cancels = cancels + 1\n  view\n    column width=300 height=300\n      input id=\"out\" testId=\"out\" display=\"none\" change=done cancel=cancelled\n      button press=save testId=\"save\" width=100 height=40\n        text \"Save\"\n      button press=stray testId=\"stray\" width=100 height=40\n        text \"Stray\"\n",
+        "component App\n  state saved = \"none\"\n  state cancels = 0\n  action save\n    saveFile(\"out\", \"app:/data/out/a.json\", \"a.json\")\n  action stray\n    saveFile(\"out\", \"app:/data/secret.json\", \"s.json\")\n  action note\n    saveFile(\"out\", text=`# ${saved}`, suggestedName=\"n.md\")\n  action done(name)\n    saved = name\n  action cancelled\n    cancels = cancels + 1\n  view\n    column width=300 height=300\n      input id=\"out\" testId=\"out\" display=\"none\" change=done cancel=cancelled\n      button press=save testId=\"save\" width=100 height=40\n        text \"Save\"\n      button press=stray testId=\"stray\" width=100 height=40\n        text \"Stray\"\n      button press=note testId=\"note\" width=100 height=40\n        text \"Note\"\n",
     )
     .unwrap();
     let (mut p, _) = Presenter::boot_with(
@@ -90,5 +90,21 @@ fn an_export_is_held_answered_with_a_path_and_refused_outside_its_grant() {
         !logs.contains("chosen.json\""),
         "the path is never journalled"
     );
+    // `text=` (x2apps notes #4): the text itself, no app file and no grant.
+    let note = id(&p, "note");
+    handle(&mut p, &format!(r#"{{"op":"tap","id":{note}}}"#));
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    let held = state["pending"][0].clone();
+    assert_eq!(held["device"]["args"]["text"], "# chosen.json", "{state}");
+    let t = held["ticket"].as_u64().unwrap();
+    let written = dir.join("n.md");
+    let path = serde_json::Value::from(written.to_string_lossy().into_owned());
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"type","ticket":{t},"text":{path}}}"#),
+    );
+    assert_eq!(std::fs::read_to_string(&written).unwrap(), "# chosen.json");
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert_eq!(state["slots"]["saved"], "n.md", "{state}");
     let _ = std::fs::remove_dir_all(dir);
 }

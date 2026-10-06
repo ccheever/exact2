@@ -153,11 +153,15 @@ long-reply drive are in `/tmp/messages-line-clamp/verification.json`. Mixed-run
 token styling still differs from the browser's paragraph-styled ellipsis, and
 the browser fixture does not show the token on a right-aligned line; full text raster
 parity remains open. `overflow-wrap` travels through `ExactMeasureRequest`
-and the paragraph cache. Normal uses public Unicode line-break boundaries
-so CoreText's emergency word split becomes overflow; `break-word` retains
-that split. `anywhere` additionally measures min-content by composed-character
-clusters; the other modes retain the widest word. A forward cursor consumes
-line boundaries once rather than searching the whole list for every line.
+and the paragraph cache. Normal and `break-word` break at the last public
+Unicode line-break boundary whose content fits (CoreText's own opportunities
+differ); when none fits, normal lets the word overflow and `break-word`
+splits it at the last cluster that fits. `anywhere` keeps CoreText's
+breaking and measures min-content by composed-character clusters; the other
+modes measure the widest piece between those same Unicode boundaries, not
+only between spaces (2026-10-05: a URL in a chat bubble had sized its box to
+the whole URL, then overflowed it). A forward cursor consumes line
+boundaries once rather than searching the whole list for every line.
 The normal/break-word/anywhere/restored fixture agrees with the browser's
 finite-width and flex minimum behavior (`/tmp/messages-overflow-wrap/`).
 Native editing controls keep their existing UIKit/AppKit wrapping policy;
@@ -1341,7 +1345,9 @@ into the tvOS binary alone.
   `aarch64-apple-tvos-sim` (arm64 only; `rustup target add` it), the
   manifest's iOS section and deployment target, and device family 3. No
   device builds, icons or iframe arm (tvOS has no WebKit). An app with
-  `app.ts` needs `EXACT_JS_ENGINE=stub` until Hermes is built for tvOS.
+  `app.ts` links the pinned lean Hermes built once per machine for
+  `tvos-simulator`; tvOS bakes the iOS plan. Photo Editor and Recorder refuse
+  tvOS builds because they require a touchscreen or microphone.
 - **The Siri Remote.** Node views join UIKit's focus engine. A node takes
   focus when a keyboard could focus it or when it is an enabled press target.
   Each move dispatches `focus` and `blur` and shows the ring, drawn 10 pt
@@ -1352,6 +1358,11 @@ into the tvOS binary alone.
   removed, so Menu leaves the app, as tvOS requires at an app's root.
   A canvas's overlay stays at alpha 1 behind the Metal picture, because tvOS
   never focuses a view at alpha 0. Nothing fires `pointerdown`/`pointerup`.
+- **Focus guides.** `focusGuide="auto"` on a container installs a UIKit focus
+  guide over its box. A move entering from outside returns to the descendant
+  that last held focus, or its first focusable descendant; moves inside keep
+  UIKit's geometry. Other hosts ignore it. When a focused node is replaced,
+  the session prefers the shown, focusable replacement with the same `testId`.
 - **Interaction media.** Hosts send CSS's `pointer` (`fine`, `coarse`,
   `none`) and `hover` (`hover`, `none`) as preference bits 5–7, and
   `exactViewport` names them. Zero is a mouse, so a host that sends nothing

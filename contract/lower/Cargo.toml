@@ -25,6 +25,8 @@ exact-num = { path = "../../num" }
 
 # CLDR script direction is baked per table; no locale data ships in a host.
 icu_locale = "=2.3.0"
+# A declared sound's digest in the plan (LLP 1096 D1).
+sha2 = "0.10"
 
 [build-dependencies]
 # The kernel schema's style defaults, for `contract vocab`.

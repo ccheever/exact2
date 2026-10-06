@@ -179,6 +179,43 @@ fn random_style(rng: &mut Rng, node_type: NodeType) -> Box<StyleProps> {
         s.overflow_y = *rng.pick(&[Overflow::Hidden, Overflow::Scroll]);
         s.mask.set(StyleId::OverflowY);
     }
+    // LLP 1093: multi-column containers and the rows that break their flow,
+    // drawn from the side stream so the named seeds' trees stay as they were.
+    if node_type != NodeType::Text && rng.side(5) == 0 {
+        if rng.side(3) != 1 {
+            s.column_count = 1 + rng.side(3) as u16;
+            s.mask.set(StyleId::ColumnCount);
+        }
+        if rng.side(3) != 0 {
+            s.column_width = Dimension::Points(40.0 + rng.side(80) as f32);
+            s.mask.set(StyleId::ColumnWidth);
+        }
+        if rng.side(2) == 0 {
+            s.column_fill = exact_kernel::ColumnFill::Auto;
+            s.mask.set(StyleId::ColumnFill);
+        }
+        if rng.side(3) == 0 {
+            s.column_gap = rng.side(12) as f32;
+            s.mask.set(StyleId::ColumnGap);
+        }
+    }
+    if rng.side(6) == 0 {
+        s.break_before = *rng.pick(&[
+            exact_kernel::BreakBetween::Column,
+            exact_kernel::BreakBetween::Avoid,
+        ]);
+        s.mask.set(StyleId::BreakBefore);
+    }
+    if rng.side(8) == 0 {
+        s.break_inside = exact_kernel::BreakInside::Avoid;
+        s.mask.set(StyleId::BreakInside);
+    }
+    if node_type == NodeType::Text && rng.side(3) == 0 {
+        s.widows = 1 + rng.side(3) as u16;
+        s.orphans = 1 + rng.side(3) as u16;
+        s.mask.set(StyleId::Widows);
+        s.mask.set(StyleId::Orphans);
+    }
     if node_type == NodeType::Text {
         s.font_size = *rng.pick(&[10.0, 12.0, 16.0, 20.0]);
         s.mask.set(StyleId::FontSize);
@@ -601,6 +638,49 @@ fn compare(seed: u64, rounds: usize, mut world: World, first: Vec<Op>) {
 fn incremental_relayout_is_result_equal_to_full_relayout() {
     for seed in [1, 2, 3, 5, 8, 13, 21, 34] {
         run(seed, 40);
+    }
+}
+
+/// LLP 1093 D5: a tree under a multi-column root, its cut's resume point
+/// and used height moving as the content does, equals a fresh replay and a
+/// rehydration bit for bit.
+#[test]
+fn multicol_relayout_is_result_equal_to_full_relayout() {
+    for seed in 1..=16 {
+        let mut world = World {
+            rng: Rng::new(seed),
+            next_id: 1,
+            live: Vec::new(),
+            children: Vec::new(),
+            log: Vec::new(),
+            fixed: Vec::new(),
+        };
+        let mut first = world.initial();
+        let mut s = StyleProps::default();
+        s.display = exact_kernel::Display::Block;
+        s.column_count = 2 + world.rng.side(2) as u16;
+        s.column_gap = 8.0;
+        for row in [StyleId::Display, StyleId::ColumnCount, StyleId::ColumnGap] {
+            s.mask.set(row);
+        }
+        match world.rng.side(3) {
+            0 => {
+                s.height = Dimension::Auto;
+                s.mask.set(StyleId::Height);
+            }
+            1 => {
+                s.column_fill = exact_kernel::ColumnFill::Auto;
+                s.mask.set(StyleId::ColumnFill);
+            }
+            _ => {}
+        }
+        let patch = vec![Op::SetStyle {
+            id: 1,
+            patch: Box::new(s),
+        }];
+        first.extend(patch.clone());
+        world.log.last_mut().unwrap().extend(patch);
+        compare(seed, 30, world, first);
     }
 }
 

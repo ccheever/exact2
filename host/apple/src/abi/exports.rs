@@ -49,6 +49,17 @@ macro_rules! host {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.measure = measure; e.hooks.ctx = ctx; });
         }
 
+        /// A paragraph's line boxes (LLP 1093 D6), called with the context
+        /// `exact_set_measure` was given; `None` keeps paragraphs whole in a
+        /// multi-column flow.
+        #[no_mangle]
+        pub extern "C" fn exact_set_lines(
+            rt: u32,
+            lines: ::std::option::Option<$crate::measure::LinesFn>,
+        ) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.lines = lines; });
+        }
+
         /// The Canvas 2D text measurer (LLP 1056 D8): called on the runtime's
         /// thread with the context `exact_set_measure` was given.
         #[no_mangle]
@@ -145,6 +156,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_location_of(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.location_of(len), |n| n)
+        }
+
+        /// Whether the input location names a declared route. @ref LLP 1038 §7
+        #[no_mangle]
+        pub extern "C" fn exact_route_matches(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.route_matches(len), |_| 0)
         }
 
         /// Supply the launch location before the first boot. @ref LLP 1038 D5/D8
@@ -332,6 +349,31 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_reorder_end(rt: u32, token: u64, drop: u32, dy: f64, scroll_top: f64, inside: u32, velocity: f64, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_end(token, drop, dy, scroll_top, inside, velocity, now_ms), |n| n)
+        }
+        /// Dropping across lists (LLP 1094): lift a grouped grip, with a ghost or for keys.
+        #[no_mangle]
+        pub extern "C" fn exact_reorder_group_begin(rt: u32, handle: u32, scroll_top: f64, ghost: u32, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_group_begin(handle, scroll_top, ghost, now_ms), |n| n)
+        }
+        /// The ghost's centre at `content_y` in `target`'s content (LLP 1094 D5).
+        #[no_mangle]
+        pub extern "C" fn exact_reorder_move_into(rt: u32, token: u64, target: u32, content_y: f64, target_scroll_top: f64, inside: u32, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_move_into(token, target, content_y, target_scroll_top, inside, now_ms), |n| n)
+        }
+        /// A key's or custom action's step: 1 earlier, 2 later, 3 previous list, 4 next (LLP 1094 D9).
+        #[no_mangle]
+        pub extern "C" fn exact_reorder_step(rt: u32, token: u64, step: u32, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_group_step(token, step, now_ms), |n| n)
+        }
+        /// The grouped contact ended: drop (nonzero) into the target, or cancel.
+        #[no_mangle]
+        pub extern "C" fn exact_reorder_group_end(rt: u32, token: u64, drop: u32, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_group_end(token, drop, now_ms), |n| n)
+        }
+        /// The ghost landed or faded: the session ends and the row shows.
+        #[no_mangle]
+        pub extern "C" fn exact_reorder_group_finish(rt: u32, token: u64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_group_finish(token, now_ms), |n| n)
         }
         /// Check before dispatching an authored completion.
         #[no_mangle]
@@ -579,6 +621,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.select_options(view), |n| n)
         }
 
+        /// A radio's group and the radios its arrows move to (x2apps
+        /// survey #2), JSON; returns its length.
+        #[no_mangle]
+        pub extern "C" fn exact_radio_group(rt: u32, view: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.radio_group(view), |n| n)
+        }
+
         /// A command's data (`share`, LLP 1069.003; `saveFile`, LLP
         /// 1069.010), JSON in the input buffer; returns the ruling's length
         /// (`refused`, `ticket`, `present`).
@@ -597,4 +646,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.svg_islands(), |_| 0)
         }
     };
+}
+
+/// `exact_gesture_constant`: a threshold by index, NaN past the end.
+pub fn gesture_constant(which: u32) -> f64 {
+    exact_motion::gesture::CONSTANTS
+        .get(which as usize)
+        .copied()
+        .unwrap_or(f64::NAN)
 }

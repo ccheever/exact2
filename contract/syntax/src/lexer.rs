@@ -273,10 +273,21 @@ impl Lexer {
                 }
                 if c.is_ascii_digit() {
                     let start = pos;
-                    while pos < bytes.len()
-                        && ((bytes[pos] as char).is_ascii_digit() || bytes[pos] == b'.')
+                    while pos < bytes.len() && (bytes[pos] as char).is_ascii_digit() {
+                        pos += 1;
+                    }
+                    // A dot is the decimal point only when a digit follows, so
+                    // `rows.0.steps` is an index and then a field, not the
+                    // number `0.` (drums R7).
+                    if bytes.get(pos) == Some(&b'.')
+                        && bytes
+                            .get(pos + 1)
+                            .is_some_and(|n| (*n as char).is_ascii_digit())
                     {
                         pos += 1;
+                        while pos < bytes.len() && (bytes[pos] as char).is_ascii_digit() {
+                            pos += 1;
+                        }
                     }
                     let text = &trimmed[start..pos];
                     let n: f64 = text.parse().map_err(|_| LexError {
@@ -429,16 +440,19 @@ impl Lexer {
         let mut chars = text[start + 1..].char_indices();
         while let Some((i, c)) = chars.next() {
             match c {
-                '\\' => match chars.next().and_then(|(_, c)| escaped(c)) {
-                    Some(c) => out.push(c),
-                    None => {
-                        return Err(LexError {
-                            id: "syntax-bad-escape",
-                            message: "unknown escape".into(),
-                            span,
-                        })
+                '\\' => {
+                    let next = chars.next().map(|(_, c)| c);
+                    match next.and_then(escaped) {
+                        Some(c) => out.push(c),
+                        None => {
+                            return Err(LexError {
+                                id: "syntax-bad-escape",
+                                message: bad_escape(next),
+                                span,
+                            })
+                        }
                     }
-                },
+                }
                 c if c == quote => return Ok((out, start + 1 + i + 1)),
                 c => out.push(c),
             }
@@ -448,6 +462,15 @@ impl Lexer {
             message: "string never closes".into(),
             span,
         })
+    }
+}
+
+/// The message for a `\` no escape follows: it names the escapes a string accepts.
+pub(crate) fn bad_escape(next: Option<char>) -> String {
+    let accepted = "a string accepts \\n \\t \\\" \\\\ \\` \\$";
+    match next {
+        Some(c) => format!("unknown escape `\\{c}`; {accepted}"),
+        None => format!("a `\\` ends the line, escaping nothing; {accepted}"),
     }
 }
 

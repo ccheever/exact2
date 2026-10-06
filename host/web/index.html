@@ -46,10 +46,10 @@
   /* The UA's own reset, which \`all: unset\` undid: a field shows what was
      typed, as the kernel measures it and native fields draw it (LLP 1064 D6). */
   input, textarea { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }
-  /* A checkbox, range or date control is the platform's again (LLP 1069.001 D3, D6): its
+  /* A checkbox, radio, range or date control is the platform's again (LLP 1069.001 D3, D6): its
      size is the UA's; `appearance: none` on the node hands it to the author. */
-  input[type="checkbox"], input[type="file"], input[type="range"], input[type="date"], input[type="time"], input[type="datetime-local"] { appearance: auto; cursor: default; -webkit-user-select: none; user-select: none; }
-  input[type="checkbox"] { box-sizing: border-box; }
+  input[type="checkbox"], input[type="radio"], input[type="file"], input[type="range"], input[type="date"], input[type="time"], input[type="datetime-local"] { appearance: auto; cursor: default; -webkit-user-select: none; user-select: none; }
+  input[type="checkbox"], input[type="radio"] { box-sizing: border-box; }
   /* A native button (LLP 1069.011 D8): the browser's own button where the reset took it, its chrome inside its
      box, the inherited typography reset, its face one row whose title truncates. Its looks read --exact-accent (written
      wherever accent-color is; the browser's AccentColor otherwise); the glass looks copy the materials table's
@@ -77,7 +77,7 @@
   /* Gesture feedback is decorative, including when its opacity is zero. */
   [swipeIndicator="true"] { pointer-events: none; }
   /* Modal dimming belongs to the host; UIKit supplies its own backdrop. It dims the route the
-     sheet covers (navigation.js marks it), so the sheet's own background paints undimmed (recipes F6). */
+     sheet covers (the navigation glue marks it), so the sheet's own background paints undimmed (recipes F6). */
   [navigationPresentation="modal"] { isolation: isolate; position: relative; }
   [data-exact-covered]::after { content: ""; position: absolute; inset: 0; background: #00000033; pointer-events: none; }
   /* `all: unset` would inherit the field's color onto the placeholder. */

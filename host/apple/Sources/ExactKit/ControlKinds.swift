@@ -6,13 +6,14 @@ import MachO
 
 enum ControlKinds {
     /// The chrome index's keys for the controls the presenter projects.
-    static let indexed = ["type:checkbox", "type:select", "type:range", "type:date", "type:time", "type:datetime-local", "type:button"]
+    static let indexed = ["type:checkbox", "type:radio", "type:select", "type:range", "type:date", "type:time", "type:datetime-local", "type:button"]
     static let dates: Set<String> = ["date", "time", "datetime-local"]
-    /// `switch`, `checkbox` or the `type` prop's value.
+    /// `switch`, `checkbox`, or the `type` prop's value (`radio`, a select, …).
     static func kind(_ props: [String: String]) -> String {
         switch props["type"] {
         case "button": return "button" // LLP 1069.011 D3: before the checkbox default
         case "select": return "select"
+        case "radio": return "radio" // x2apps survey #2
         case "range": return "range"
         case let t? where dates.contains(t): return t
         default: return props["accessibilityRole"] == "switch" ? "switch" : "checkbox"

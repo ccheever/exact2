@@ -108,6 +108,9 @@ final class Recorder: ExactModule {
         let engine = AVAudioEngine()
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
+        // No input device: a tap on a 0 Hz format raises an exception that
+        // ends the app, so refuse first.
+        guard format.sampleRate > 0, format.channelCount > 0 else { throw ExactNativeRefusal("no microphone is available") }
         let folder = try self.folder()
         fileName = "take-\(list().count + 1).caf"
         file = try AVAudioFile(forWriting: folder.appendingPathComponent(fileName), settings: format.settings)

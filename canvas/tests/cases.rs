@@ -310,6 +310,19 @@ fn query(ctx: &Context2d, q: &str) -> String {
     }
 }
 
+/// A fresh context for a case: a `display-p3` canvas's when its name ends
+/// `(display-p3)` (LLP 1100 D12a).
+fn context(name: &str) -> Context2d {
+    let ctx = Context2d::new();
+    if name.ends_with("(display-p3)") {
+        ctx.set_env(exact_canvas::Env {
+            p3: true,
+            ..Default::default()
+        });
+    }
+    ctx
+}
+
 /// Every case's lists from the Rust recorder, by case name.
 fn rust_lists(text: &str) -> Vec<(String, Vec<Vec<u8>>)> {
     let mut out: Vec<(String, Vec<Vec<u8>>)> = Vec::new();
@@ -322,7 +335,7 @@ fn rust_lists(text: &str) -> Vec<(String, Vec<Vec<u8>>)> {
                 last.1 = ctx.take_lists();
             }
             out.push((n.to_string(), Vec::new()));
-            ctx = Context2d::new();
+            ctx = context(n);
             g = None;
             continue;
         }
@@ -419,7 +432,7 @@ fn the_shared_cases_hold_for_the_rust_recorder() {
         let line = raw.trim();
         if let Some(n) = line.strip_prefix("## ") {
             name = n;
-            ctx = Context2d::new();
+            ctx = context(n);
             g = None;
             continue;
         }
@@ -496,4 +509,42 @@ fn a_cycled_palette_records_what_a_fresh_parse_records() {
         want.extend(colours(&fresh));
     }
     assert_eq!(got, want);
+}
+
+/// A `display-p3` canvas (LLP 1100 D12a) records Display P3 bytes: sRGB red
+/// converted, P3 red as written, and an sRGB `ImageData`'s pixels converted
+/// as they are put. `recorder.test.mjs` holds the TypeScript recorder to the
+/// same numbers.
+#[test]
+fn a_display_p3_canvas_records_display_p3_bytes() {
+    exact_canvas::color::link_wide();
+    let ctx = context("(display-p3)");
+    assert_eq!(ctx.color_space(), exact_canvas::ColorSpace::DisplayP3);
+    ctx.set_fill_style_str("red");
+    ctx.fill_rect(0.0, 0.0, 1.0, 1.0);
+    ctx.set_fill_style_str("color(display-p3 1 0 0)");
+    ctx.fill_rect(0.0, 0.0, 1.0, 1.0);
+    let srgb =
+        exact_canvas::ImageData::new_with_u8_clamped_array_and_sh(vec![255, 0, 0, 255], 1, None)
+            .unwrap();
+    ctx.put_image_data(&srgb, 0.0, 0.0).unwrap();
+    let mine = ctx.create_image_data_with_sw_and_sh(1.0, 1.0).unwrap();
+    assert_eq!(mine.color_space, exact_canvas::ColorSpace::DisplayP3);
+    let lists = ctx.take_lists();
+    let records = list::records(&lists[0]).unwrap();
+    let colors: Vec<Vec<f64>> = records
+        .iter()
+        .filter(|r| r.op == list::Op::FillColor)
+        .map(|r| r.operands().collect())
+        .collect();
+    assert_eq!(
+        colors,
+        [vec![234.0, 51.0, 35.0, 1.0], vec![255.0, 0.0, 0.0, 1.0]]
+    );
+    let put = records
+        .iter()
+        .find(|r| r.op == list::Op::PutImageData)
+        .unwrap();
+    let pixel = put.operands().nth(4).unwrap() as u32;
+    assert_eq!(pixel.to_be_bytes(), [234, 51, 35, 255]);
 }

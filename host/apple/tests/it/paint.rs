@@ -304,6 +304,32 @@ fn a_view_in_its_own_appearance_resolves_by_it() {
     );
 }
 
+/// LLP 1034 §8: a subtree whose `color-scheme` turns dark moves its
+/// `light-dark()` colours under their transitions, as an appearance change
+/// does; the view's report that follows (what UIKit's override makes it say)
+/// is a confirmation, not a first report's correction, so it does not snap.
+#[test]
+fn a_color_scheme_change_moves_and_its_report_does_not_snap_it() {
+    let mut host = boot(
+        "component App\n  state dark = false\n  action flip\n    dark = not dark\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n      column color-scheme=(dark ? \"dark\" : \"light\")\n        column testId=\"page\" height=10 background-color=\"light-dark(#ffffff, #000000)\" transition=\"background-color 1s linear\"\n",
+    );
+    let (flip, page) = (view(&host, "flip"), view(&host, "page"));
+    host.set_scheme(false);
+    host.tick(100.0);
+    let flipped = host.dispatch_at(flip, Event::Press, 100.0);
+    assert!(flipped.contains("\"motion\":true"), "{flipped}");
+    let report = host.set_view_scheme(page, true);
+    assert!(
+        style(&report, page).is_none() || !report.contains("[0,0,0,255]"),
+        "not snapped: {report}"
+    );
+    let mid = host.tick(600.0);
+    assert!(
+        shows(&mid, page, "background_color", "[128,128,128,255]"),
+        "halfway to dark: {mid}"
+    );
+}
+
 /// CSS: a side that stays `currentcolor` never transitions on its own — its
 /// computed value is the keyword — so it follows `color` even under a faster
 /// `border-color` transition; a side that becomes `currentcolor` from a

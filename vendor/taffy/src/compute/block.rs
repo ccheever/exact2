@@ -366,8 +366,13 @@ pub fn compute_block_layout(
     // independent formatting context. <https://drafts.csswg.org/css-align-3/#distribution-block>
     // Layout and paint containment also establish an independent formatting context.
     // <https://drafts.csswg.org/css-contain-2/#containment-layout>
-    let establishes_new_bfc =
-        is_scroll_container || style.align_content().is_some() || contain.establishes_independent_formatting_context();
+    // EXACT PATCH 27: a multi-column container establishes an independent
+    // formatting context (CSS Multi-column Layout 1 §2), so it shares no
+    // floats with its parent.
+    let establishes_new_bfc = is_scroll_container
+        || style.align_content().is_some()
+        || contain.establishes_independent_formatting_context()
+        || style.multicol().is_some();
     let padding = style.padding().resolve_or_zero(parent_size.width, |val, basis| tree.calc(val, basis));
     let border = style.border().resolve_or_zero(parent_size.width, |val, basis| tree.calc(val, basis));
     let padding_border_size = (padding + border).sum_axes();
@@ -509,13 +514,16 @@ fn compute_inner(
         height: known_dimensions.height.filter(|_| inputs.known_dimensions_are_definite.height)
             .or_else(|| crate::compute::ratio::percentage_height(&style, padding_border_size, known_dimensions.width)),
     };
-    let container_content_box_size = percentage_basis_dimensions.maybe_sub(content_box_inset.sum_axes());
+    let mut container_content_box_size = percentage_basis_dimensions.maybe_sub(content_box_inset.sum_axes());
 
     let overflow = style.overflow();
     let is_scroll_container = overflow.x.is_scroll_container() || overflow.y.is_scroll_container();
+    // EXACT PATCH 27: and its first child's top margin stays inside it.
+    let multicol = style.multicol();
     let establishes_new_bfc = is_scroll_container
         || style.align_content().is_some()
-        || style.contain().establishes_independent_formatting_context();
+        || style.contain().establishes_independent_formatting_context()
+        || multicol.is_some();
 
     // Determine margin collapsing behaviour
     let own_margins_collapse_with_children = Line {
@@ -545,6 +553,18 @@ fn compute_inner(
     let text_align = style.text_align();
     let align_content = style.align_content();
     drop(style);
+    // EXACT PATCH 27: a multi-column container's children resolve percentage
+    // widths against the column width. A height its columns size (the
+    // caller's `used_height`) is no basis for percentage heights, even where
+    // a parent hands it back as known (an absolute box's solver, a stretched
+    // flex item): it was not definite before the flow thread was laid out.
+    let columns_size_height = multicol.is_some_and(|m| m.used_height.is_some());
+    if let (Some(m), Some(u)) = (multicol, container_content_box_size.width) {
+        container_content_box_size.width = Some(m.columns(u.max(0.0)).1);
+    }
+    if columns_size_height {
+        container_content_box_size.height = None;
+    }
 
     // 1. Generate items
     let mut items = generate_item_list(tree, node_id, container_content_box_size);
@@ -567,8 +587,10 @@ fn compute_inner(
         return LayoutOutput::from_outer_size(Size { width: container_outer_width, height: 0.0 });
     }
 
-    let container_percentage_resolution_height =
-        percentage_basis_dimensions.height.or(size.height.maybe_max(min_size.height));
+    let container_percentage_resolution_height = match columns_size_height {
+        true => None,
+        false => percentage_basis_dimensions.height.or(size.height.maybe_max(min_size.height)),
+    };
 
     // 3. Perform final item layout and return content height
     //
@@ -582,6 +604,18 @@ fn compute_inner(
     let resolved_border =
         raw_border.resolve_or_zero(Some(percentage_resolution_width), |val, basis| tree.calc(val, basis));
     let resolved_content_box_inset = resolved_padding + resolved_border + scrollbar_gutter;
+    // EXACT PATCH 27: a multi-column container lays its children out as one
+    // column of the used column width W (CSS Multi-column Layout 1 §3.4 over
+    // its content-box width U), the flow thread, which is also their basis
+    // for percentage widths. A content-sized U is the content's width as one
+    // column (Exact declares that), which the columns then divide.
+    let flow_outer_width = match multicol {
+        Some(m) => {
+            let inset = resolved_content_box_inset.horizontal_axis_sum();
+            m.columns((container_outer_width - inset).max(0.0)).1 + inset
+        }
+        None => container_outer_width,
+    };
     #[cfg_attr(not(feature = "content_size"), allow(unused_mut))]
     let (
         mut inflow_overflow_rect,
@@ -593,7 +627,7 @@ fn compute_inner(
         tree,
         run_mode,
         &mut items,
-        container_outer_width,
+        flow_outer_width,
         container_percentage_resolution_height,
         content_box_inset,
         resolved_content_box_inset,
@@ -612,9 +646,16 @@ fn compute_inner(
         intrinsic_outer_height = intrinsic_outer_height.max(block_ctx.floated_content_height_contribution());
     }
 
+    // EXACT PATCH 27: once the caller has cut the flow thread, an automatic
+    // height is the columns' height plus the box's own vertical inset,
+    // clamped as any automatic height is.
+    let intrinsic_or_columns = match multicol.and_then(|m| m.used_height) {
+        Some(columns) => columns + resolved_content_box_inset.vertical_axis_sum(),
+        None => intrinsic_outer_height,
+    };
     let container_outer_height = known_dimensions
         .height
-        .unwrap_or(intrinsic_outer_height.maybe_clamp(min_size.height, max_size.height))
+        .unwrap_or(intrinsic_or_columns.maybe_clamp(min_size.height, max_size.height))
         .maybe_max(Some(padding_border_size.height));
     let final_outer_size = Size { width: container_outer_width, height: container_outer_height };
 
@@ -762,6 +803,10 @@ fn compute_inner(
             inflow_overflow_rect.bottom += resolved_padding.bottom;
         }
         output.scrollable_overflow_rect = inflow_overflow_rect.union(absolute_overflow_rect);
+        // EXACT PATCH 27: the columns' overflow, not the flow thread's.
+        if let Some(overflow) = multicol.and_then(|m| m.overflow) {
+            output.scrollable_overflow_rect = overflow;
+        }
     }
 
     // 5. Perform hidden layout on hidden children

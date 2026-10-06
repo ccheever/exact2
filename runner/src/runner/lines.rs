@@ -80,6 +80,16 @@ pub(super) fn forgot(ticket: u64, name: &str) -> String {
     text!("forget request {} ({})", ticket, name)
 }
 
+/// Sends that waited and were never asked (LLP 1092 D4).
+pub(super) fn forgot_waiting(n: usize, name: &str) -> String {
+    text!(
+        "forgot {} waiting send{} ({})",
+        n,
+        if n == 1 { "" } else { "s" },
+        name
+    )
+}
+
 pub(super) fn enqueued(ticket: u64, name: &str, request: &Request) -> String {
     match request.continuation {
         Some(token) => text!(
@@ -108,6 +118,18 @@ pub(super) fn dropped(ticket: u64, summary: &str) -> String {
         "reply {} dropped: no such request in flight [{}]",
         ticket,
         summary
+    )
+}
+
+pub(super) fn unsent(name: &str) -> String {
+    text!("send {}: waits until the data source is ready", name)
+}
+
+pub(super) fn unsent_refused(name: &str, error: &str) -> String {
+    text!(
+        "send {}, made before the data source was ready, refused: {}",
+        name,
+        error
     )
 }
 

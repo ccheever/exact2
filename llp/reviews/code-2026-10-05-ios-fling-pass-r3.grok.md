@@ -1,0 +1,19 @@
+# Code review r3: iOS, a fling no longer pays the presenter's whole pass per batch (5b33306bc..8fca848db), 2026-10-05 (grok)
+
+- **Family:** xAI. `grok-4.7` via `~/.grok/bin/grok`, reasoning effort xhigh, `--no-subagents`, `--cwd` a detached worktree at `8fca848db`, plain output.
+- **Method:** one brief (sha256 `66f443c00ba867d9abc1d39403931a35fa4fe65ce35016915cdf515194259ce1`), shared with astra. Round 3, the last, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the review's findings and verdict, unedited.
+- **Verdict:** LAND.
+- **Disposition (landed):** 1 taken (as astra's 2). 2 DEFERRED: `positionContexts` leaves no trace a session test can read without a live preview, which is round 2's deferred test. 3 taken.
+
+---
+
+LAND
+
+Round 1 and round 2 dispositions hold. The empty-batch skip is only `applyUnlessEmpty` (`Session.swift:940`), called from the timer (`Session.swift:1183`) and from `onScroll` with `scrolled: true` (`Session.swift:734`). A skipped scroll still calls `positionContexts` (`Session.swift:948`); press (`Session.swift:688`), scheme (`Session.swift:1277`), and every other event still `apply`. An in-flight fill, tick, canvas, or nested `applying` falls through to `apply` (`Session.swift:941`). `TitleSegments.fit` keys titles, content-size category, and legibility weight and sizes from the trait callback (`NavigationBarIOS.swift:269-282`). Header-title early return includes `testId` (`NavigationTitleIOS.swift:214`). Face cache drops on `batch.controls` or a touched id (`ControlsIOS.swift:128-129`); the kernel sets `controls` for a button's face and for any control's children (`paragraph.rs:240`, `paragraph.rs:311`, `paragraph.rs:369`). `reaimFixedGradient` returns only when layer, source, appearance, bounds, and box all match (`BoxLayerIOS.swift:184-185`); a moved box reuses stops and `Gradient.apply` still places them (`Gradient.swift:223-248`). Idle-tick r3 stays closed: `requestProjectionSync` is grouped lists, then segments, then `controls.sync()` with `contents` true and no `prepare()` (`PresenterIOS.swift:35-37`); `applyGeometry` still calls `prepare()` before the frame (`PresenterIOS.swift:1022-1024`). Scroll-driven stickies, collections, transforms, video, gradient re-aim, and the pump still run in `scrollViewDidScroll` before the handler batch (`NodeViewIOS.swift:637-642`). Touched sources are under 1,500 lines (`Session.swift` 1,425, `PresenterIOS.swift` 1,393, `PresenterMac.swift` 1,354). No concrete batch, trait change, recycled view, nested apply, or fill in flight shows a different result.
+
+1. MINOR — The tablist test pins the cache key, which `fit` writes before it sizes. `NavigationBarIOS.swift:280` stores `sized` and only then calls `sizeToFit` and the 90 pt floor (`NavigationBarIOS.swift:281-282`). `NavigationBarIOSTests.swift:174-178` asserts `segments.sized?.traits` after a content-size and Bold Text change. A `fit` that records the traits and returns still passes. Fix: assert `control.frame.width` grows from a regular baseline to `.accessibilityExtraLarge` and to `.bold`, titles unchanged.
+
+2. MINOR — The scroll flag is unpinned. `IdleTickTests.swift:41-43` names the batch `scrolled` and calls `applyUnlessEmpty` with the default `scrolled: false`, then asserts only `appliedBatches`. Deleting `scrolled: true` at `Session.swift:734` leaves that green, so `positionContexts` (`Session.swift:948`) can disappear without a failure. The live-preview case stays deferred, as round 2 disposed. Fix: pass `scrolled: true` and fail unless positioning ran.
+
+3. NIT — `ControlHost.reset` (`ControlsIOS.swift:268-275`) clears `controls`, `reported`, `kinds`, `menus`, and `lastRange` and leaves `faces`. A later `sync(contents: false)` can hand back the pre-reset face for an id the batch did not touch. Fix: `faces.removeAll()` with the other maps.

@@ -386,6 +386,9 @@ extension Presenter {
             : names.contains("button") ? "button" : names.contains("image") ? "image" : names.contains("adjustable") ? "adjustable"
             : names.contains("tabBar") ? "tablist" : names.contains("staticText") ? "text" : "unknown")
         if e["role"] as? String == "checkbox" { states["checked"] = value == "checked" }
+        // UIKit has no radio trait: the drawn radio (x2apps survey #2) says
+        // what it is by its class, its state by `selected`.
+        if let radio = obj as? ExactRadio, forced == nil { e["role"] = "radio"; states["checked"] = radio.isOn }
         e["interactive"] = forced == nil && (o.accessibilityRespondsToUserInteraction || editable || names.contains("button") || names.contains("link") || names.contains("adjustable"))
         if let actions = o.accessibilityCustomActions, !actions.isEmpty { e["actions"] = actions.prefix(16).compactMap { cut($0.name) } }
         native["role"] = names

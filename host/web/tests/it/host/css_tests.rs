@@ -43,6 +43,23 @@ fn style_rows_lower_to_css_by_their_names() {
         .unwrap();
     s.set_dynamic(StyleId::Hyphens, &StyleValue::Text("auto".into()))
         .unwrap();
+    // LLP 1093: multi-column layout reaches CSS by its own names.
+    for (row, value) in [
+        (StyleId::ColumnCount, StyleValue::Number(3.0)),
+        (StyleId::ColumnWidth, StyleValue::Number(120.0)),
+        (StyleId::ColumnFill, StyleValue::Text("auto".into())),
+        (StyleId::ColumnRuleWidth, StyleValue::Number(1.0)),
+        (StyleId::ColumnRuleStyle, StyleValue::Text("solid".into())),
+        (StyleId::Widows, StyleValue::Number(3.0)),
+        (StyleId::Orphans, StyleValue::Number(1.0)),
+        (StyleId::BreakBefore, StyleValue::Text("column".into())),
+        (
+            StyleId::BreakInside,
+            StyleValue::Text("avoid-column".into()),
+        ),
+    ] {
+        s.set_dynamic(row, &value).unwrap();
+    }
     s.set_dynamic(
         StyleId::PaddingTop,
         &StyleValue::Text("env(safe-area-inset-top)".into()),
@@ -91,6 +108,15 @@ fn style_rows_lower_to_css_by_their_names() {
         "letter-spacing:1.2px;",
         "text-indent:-24px;",
         "hyphens:auto;",
+        "column-count:3;",
+        "column-width:120px;",
+        "column-fill:auto;",
+        "column-rule-width:1px;",
+        "column-rule-style:solid;",
+        "widows:3;",
+        "orphans:1;",
+        "break-before:column;",
+        "break-inside:avoid-column;",
         "padding-top:env(safe-area-inset-top);",
         "padding-bottom:calc(env(safe-area-inset-bottom) + 12px);",
         "margin-left:calc(env(safe-area-inset-left) - 2px);",
@@ -188,4 +214,55 @@ fn the_transition_row_lowers_to_css_transition_and_springs_are_named() {
     assert!(css.starts_with("transition:opacity 0.25s"));
     assert_eq!(skipped.len(), 1);
     assert!(skipped[0].reason.contains("spring"));
+}
+
+#[test]
+fn dynamic_unavailable_colors_take_the_initial_value() {
+    struct NoData;
+    impl exact_runner::DataSource for NoData {
+        fn query(
+            &mut self,
+            _: &str,
+            _: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, exact_runner::DataError> {
+            unreachable!()
+        }
+    }
+    let plan = contract::compile(
+        r#"component A
+  state ink = "red"
+  action hdr
+    ink = "color(rec2100-linear 4 4 4)"
+  action profile
+    ink = "color(--dci-p3 1 0 0)"
+  view
+    column
+      box testId="paint" background-color=ink
+      button testId="hdr" press=hdr
+        text "HDR"
+      button testId="profile" press=profile
+        text "Profile"
+"#,
+    )
+    .unwrap();
+    let (mut host, _) = Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
+    for target in ["hdr", "profile"] {
+        let id = view_with_test_id_any(&host, target);
+        let batch = host.dispatch(id, Event::Press);
+        let paint = view_with_test_id_any(&host, "paint");
+        assert_eq!(
+            host.runner()
+                .kernel()
+                .node(paint)
+                .unwrap()
+                .style
+                .background_color,
+            exact_kernel::StyleProps::default().background_color,
+            "{batch}"
+        );
+        assert!(
+            !batch.contains("rec2100") && !batch.contains("--dci-p3"),
+            "{batch}"
+        );
+    }
 }

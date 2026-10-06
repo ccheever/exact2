@@ -104,7 +104,9 @@ slot; outside cancellation preserves selection, first Escape closes confirmation
 and second Escape cancels selection (`/tmp/messages-modal-confirmation/`).
 
 **Symbols** (LLP 1035.004, 2026-09-10) remain `img` leaves. The Rust host
-supplies the schema-generated `data-symbol-path` and decorative `alt=""`.
+supplies the schema-generated `data-symbol-path` and decorative `alt=""`, unless the
+author named the image (`alt`, `aria-label`; 2026-10-04), whose name it keeps; the JS
+target's symbol hook keeps it too.
 The glue intercepts `symbol:` sources without a network request, supplies a
 transparent SVG sized from computed `font-size`, and paints the generated path
 as a CSS mask. Font weight changes its stroke; `tint-color` supplies its colour
@@ -126,7 +128,8 @@ values are already CSS spellings), with the exceptions a table names
 `backdrop_blur`→`backdrop-filter: blur()`). Units by rule: dimensions and
 lengths in `px`, percentages, `auto`; unitless where CSS is (`flex-grow`,
 `opacity`, `z-index`, `font-weight`, `scale`); `rotate` in `deg`;
-`translate` as two lengths. Rows the host does not lower are returned as
+`translate` as two lengths or percentages (a `calc()` of the two where an
+axis has both). Rows the host does not lower are returned as
 `Skipped { row, reason }`: gradients and grid rows in v1. `line_clamp`
 uses the browser's legacy box only for
 non-scrolling blocks. On flex, grid, `display:none`, or either scrolling axis,

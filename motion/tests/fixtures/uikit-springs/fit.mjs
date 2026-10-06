@@ -65,7 +65,8 @@ export function caSettle(k, c, v0) {
 // P(T) = −1 + (v0 − ω)·T. P is linear, so f has at most two lobes: one from
 // 0, and, when v0 > ω, a second after P's zero T0 = 1/(v0 − ω), peaking at
 // T0 + 1/ω. The last crossing is on the falling side of the last lobe whose
-// peak exceeds ε; bisect there (each falling side is monotone).
+// peak exceeds ε; bisect there (each falling side is monotone). This is LLP
+// 1099 D3's procedure: hi from max(lo, 1/ω), doubling while F(hi) > 0.
 export function criticalSettle(w, v0) {
   const f = (T) => Math.abs(-1 + (v0 - w) * T) * Math.exp(-w * T) - EPS;
   const bisect = (lo, hi) => { for (let i = 0; i < 200; i++) { const m = (lo + hi) / 2; if (f(m) > 0) lo = m; else hi = m; } return lo; };
@@ -74,7 +75,7 @@ export function criticalSettle(w, v0) {
     const T0 = 1 / (v0 - w), peak = T0 + 1 / w;
     if (f(peak) > 0) return bisect(peak, far(peak));
     // First lobe: P = −1 + (v0 − ω)T falls in magnitude from 1 at 0 to 0 at T0.
-    return f(0) > 0 ? bisect(0, T0) : 0;
+    return f(0) > 0 ? bisect(0, far(0)) : 0;
   }
   // v0 ≤ ω: |P| = 1 + (ω − v0)T; f peaks at T = max(0, 1/ω − 1/(ω − v0)) then falls.
   const peak = v0 < w ? Math.max(0, 1 / w - 1 / (w - v0)) : 0;

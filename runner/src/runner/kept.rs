@@ -18,6 +18,25 @@ use exact_plan::Value;
 pub(super) const MAX_KEPT_BYTES: usize = 8 * 1024;
 
 /// The store name a resource's kept answer lives under.
+/// The kept entries in `snapshot` no declared reader of `plan` seeds. A
+/// cold boot seeds a first frame only from declared readers' kept answers,
+/// so any other entry (a reader made transient, a resource removed) is
+/// forgotten on disk, not carried forever. A reload's carried readers are
+/// checked for compatibility instead.
+pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, String)]) -> Vec<String> {
+    snapshot
+        .iter()
+        .filter_map(|(name, _)| {
+            let resource = name.strip_prefix(Store::KEPT)?;
+            (!plan
+                .resources
+                .iter()
+                .any(|r| r.reader && plan.str(r.name) == resource))
+            .then(|| name.clone())
+        })
+        .collect()
+}
+
 pub(super) fn kept_name(resource: &str) -> String {
     let mut name = String::from(Store::KEPT);
     name.push_str(resource);
@@ -144,15 +163,108 @@ impl<D: DataSource> Runner<D> {
 
     /// The data source is ready — a host loaded its TypeScript module after
     /// the first pixel (LLP 1027 D4): every deferred resource shown
-    /// from a placeholder is asked again, in one commit. `None` when nothing
-    /// was waiting, or when the source is still not ready.
+    /// from a placeholder is asked again, and every send made before now
+    /// is sent, in one commit. `None` when nothing was waiting, or when the
+    /// source is still not ready.
     pub fn data_ready(&mut self) -> Result<Option<CommitReceipt>, RunnerError> {
         if !self.data.ready() {
             self.log("data_ready: the data source is not ready");
             return Ok(None);
         }
         let stale: Vec<usize> = (0..self.stale.len()).filter(|i| self.stale[*i]).collect();
-        self.recommit(stale, "data_ready")
+        if self.unsent.is_empty() {
+            return self.recommit(stale, "data_ready");
+        }
+        let what = format!(
+            "data_ready ({} asked again, {} sent)",
+            stale.len(),
+            self.unsent.len()
+        );
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(false);
+        self.refresh_next.extend(stale);
+        let result = if self.poisoned {
+            Err(RunnerError::Poisoned)
+        } else {
+            let later = self.send_unsent();
+            // The gate step joins this settlement as every commit's (LLP
+            // 1092 D8; b6 review A2): a gate the sent answers open arms its
+            // task, and a key that is no key refuses this commit.
+            match self
+                .router_change()
+                .and_then(|_| self.settle(false))
+                .and_then(|_| self.gate_step())
+            {
+                Ok(()) => {
+                    for (m, source, args, request) in later {
+                        self.enqueue(super::Target::Mutation(m), source, args, request, false);
+                    }
+                    self.update()
+                }
+                Err(e) => {
+                    self.discard_later(&later);
+                    Err(e)
+                }
+            }
+        };
+        self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_then(result.is_ok());
+        self.arm_next(result.is_ok());
+        self.log_outcome(&what, &result, was_poisoned);
+        result.map(Some)
+    }
+
+    /// Each waiting send asks its source now, as the action would have: an
+    /// answer lands in the mutation's slot (its `then` armed, what it
+    /// refreshes asked again); a request is returned, to go out once the
+    /// commit stands. The action that made it committed long ago, so a
+    /// source's refusal ends that one send, said in the journal, as a
+    /// refused reply does — never this commit.
+    #[allow(clippy::type_complexity)]
+    fn send_unsent(&mut self) -> Vec<(usize, String, Vec<Value>, super::Request)> {
+        let mut later = Vec::new();
+        for (m, source, args) in std::mem::take(&mut self.unsent) {
+            let target = super::Target::Mutation(m);
+            let name = self.plan.str(self.plan.mutations[m].name).to_string();
+            let refused = match self
+                .data
+                .answer_for(target, &mut self.store, &source, &args)
+            {
+                Ok(super::Answer::Now(value))
+                    if self.conforms(&value, self.plan.mutations[m].ty) =>
+                {
+                    match self.mutation_slot(m) {
+                        Ok(slot) => {
+                            self.slots[slot] = Value::some(value);
+                            self.landed.push(m);
+                            for r in self.declared_refreshes(m) {
+                                self.force_refresh(r);
+                            }
+                            None
+                        }
+                        Err(e) => Some(format!("{e:?}")),
+                    }
+                }
+                Ok(super::Answer::Now(_)) => {
+                    Some("its answer does not fit the mutation's shape".to_string())
+                }
+                Ok(super::Answer::Later(request)) => {
+                    self.reread_next.extend(self.declared_refreshes(m));
+                    later.push((m, source, args, request));
+                    None
+                }
+                Err(error) => Some(format!("{error:?}")),
+            };
+            if let Some(why) = refused {
+                self.log(super::lines::unsent_refused(&name, &why));
+            }
+        }
+        self.sync_pending_flags();
+        // Pending until the request goes out with the commit, or is let go.
+        for (m, ..) in &later {
+            self.pending_mut[*m] = true;
+        }
+        later
     }
 }
 

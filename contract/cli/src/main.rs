@@ -20,6 +20,7 @@ const USAGE: &str = "usage:
   contract symbols <file.contract> [--name <exact-name>]
   contract sources <file.contract>
   contract fmt [--check | --stdout] <file.contract>
+  contract fmt --uses <file.contract>
   contract types <file.contract> [-o <app.d.ts>]
   contract rust <file.contract> [-o <shapes.rs>]
   contract test <file.test.contract>
@@ -192,9 +193,15 @@ fn types(
         eprintln!("{usage}");
         return ExitCode::from(2);
     }
-    let result = contract::compile_path(std::path::Path::new(&args[0]))
-        .map_err(|e| e.to_string())
-        .and_then(|plan| generate(&plan).map_err(|e| format!("{}: {e}", args[0])));
+    // Shapes are all a declaration file needs: a game's surface arguments
+    // never stop it, and are named as warnings (the platformer's diary, R4).
+    let path = std::path::Path::new(&args[0]);
+    if let Ok(surfaces) = contract::surface_findings(path) {
+        surface_warnings(&surfaces);
+    }
+    let result = contract::compile_path_all_unchecked(path, false)
+        .map_err(|mut all| all.swap_remove(0).to_string())
+        .and_then(|(plan, _)| generate(&plan).map_err(|e| format!("{}: {e}", args[0])));
     match result {
         Ok(declarations) => {
             if let Some(output) = args.get(2) {
@@ -211,6 +218,20 @@ fn types(
             eprintln!("{error}");
             ExitCode::from(1)
         }
+    }
+}
+
+/// A game's surface-argument findings on stderr, as warnings: the
+/// declaration is the last GPU build's, which a bake rewrites and checks.
+fn surface_warnings(surfaces: &contract::SurfaceFindings) {
+    for finding in &surfaces.findings {
+        eprintln!("warning: {finding}");
+    }
+    if let (false, Some(newer)) = (surfaces.findings.is_empty(), &surfaces.newer) {
+        eprintln!(
+            "warning: .shells/surfaces.json is older than {}: it names the arguments of the game's last GPU build; a web or native build rewrites it",
+            newer.display()
+        );
     }
 }
 
@@ -248,12 +269,19 @@ fn tests(args: &[String]) -> ExitCode {
     }
 }
 
-/// Explicit formatting, with read-only preview and check modes.
+/// Explicit formatting, with read-only preview and check modes; `--uses`
+/// writes the `use` lines each file of the program lacks (LLP 1091 D1).
 fn fmt(args: &[String]) -> ExitCode {
-    const USAGE: &str = "usage: contract fmt [--check | --stdout] <file.contract>";
+    const USAGE: &str = "usage: contract fmt [--check | --stdout] <file.contract>\n       contract fmt --uses <file.contract>";
     if matches!(args, [flag] if flag == "--help" || flag == "-h") {
         println!("{USAGE}");
         return ExitCode::SUCCESS;
+    }
+    match args {
+        [flag, input] | [input, flag] if flag == "--uses" && !input.starts_with('-') => {
+            return fix_uses(input)
+        }
+        _ => {}
     }
     let (input, mode) = match args {
         [input] if !input.starts_with('-') => (input, ""),
@@ -300,6 +328,38 @@ fn fmt(args: &[String]) -> ExitCode {
         },
         Err(error) => {
             eprintln!("{input}:{error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `contract fmt --uses <root.contract>`: each file written and its lines,
+/// then whatever no line answers, refused as the build refuses it.
+fn fix_uses(input: &str) -> ExitCode {
+    match contract::fix_uses(std::path::Path::new(input)) {
+        Ok((written, refused)) => {
+            for (path, lines) in &written {
+                println!("{}:", path.display());
+                for line in lines {
+                    println!("  {line}");
+                }
+            }
+            if written.is_empty() && refused.is_empty() {
+                println!("{input}: every file names what it uses");
+            }
+            for e in &refused {
+                eprintln!("{e}");
+            }
+            if refused.is_empty() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            }
+        }
+        Err(all) => {
+            for e in &all {
+                eprintln!("{e}");
+            }
             ExitCode::from(1)
         }
     }

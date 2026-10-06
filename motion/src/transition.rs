@@ -280,6 +280,24 @@ impl Running {
                 declaration.delay,
             ),
         };
+        // A modern colour at either end moves both in Oklab (CSS Color 4 §12.1).
+        let (from, to, reversing_adjusted_start, curve) = if from.oklab != to.oklab {
+            let curve = match curve {
+                Curve::Spring { config, .. } => Curve::Spring {
+                    config,
+                    velocity: Value::oklab(0.0, 0.0, 0.0, 0.0),
+                },
+                easing => easing,
+            };
+            (
+                from.to_oklab(),
+                to.to_oklab(),
+                reversing_adjusted_start.to_oklab(),
+                curve,
+            )
+        } else {
+            (from, to, reversing_adjusted_start, curve)
+        };
         Running {
             from,
             to,

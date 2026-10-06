@@ -464,18 +464,13 @@ fn each_child<'a>(e: &'a Expr, f: &mut dyn FnMut(&'a Expr)) {
             f(body);
         }
         Expr::Arrow { body, .. } => f(body),
-        Expr::Call(_, args, _) => args.iter().for_each(f),
+        Expr::Call(_, args, _) | Expr::List(args, _) => args.iter().for_each(f),
         Expr::Template(parts, _) => parts.iter().for_each(|p| {
             if let TemplatePart::Expr(x) = p {
                 f(x)
             }
         }),
-        Expr::Number(..)
-        | Expr::Str(..)
-        | Expr::Bool(..)
-        | Expr::None(_)
-        | Expr::EmptyList(_)
-        | Expr::Ident(..) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {}
     }
 }
 
@@ -530,6 +525,7 @@ fn map_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
             span: *span,
         },
         Expr::Call(n, args, s) => Expr::Call(n.clone(), args.iter().map(&mut *f).collect(), *s),
+        Expr::List(items, s) => Expr::List(items.iter().map(&mut *f).collect(), *s),
         Expr::Template(parts, s) => Expr::Template(
             parts
                 .iter()

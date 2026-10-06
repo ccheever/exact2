@@ -248,10 +248,12 @@ fn slot_reads<'e>(
                 out.push((n, *span));
             }
         }
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::EmptyList(_) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
         // A settled value: the pending map changes after the body runs.
         Expr::Call(name, _, _) if name == "pending" => {}
-        Expr::Call(_, args, _) => args.iter().for_each(|a| slot_reads(a, slots, bound, out)),
+        Expr::Call(_, args, _) | Expr::List(args, _) => {
+            args.iter().for_each(|a| slot_reads(a, slots, bound, out))
+        }
         Expr::Template(parts, _) => {
             for p in parts {
                 if let TemplatePart::Expr(x) = p {

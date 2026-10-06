@@ -331,9 +331,26 @@ fn run_expansion(args: &[String]) -> Result<bool, String> {
         for e in &errors {
             println!("SCRIPT {e}");
         }
-        cases.extend(scripted.into_iter().map(|s| s.case));
+        // Queued sends and gated tasks (LLP 1092) are the flat semantics'
+        // alone; the component-level one refuses them.
+        let scheduled = |src: &str| {
+            src.lines().any(|l| {
+                let l = l.trim_start();
+                (l.starts_with("mutation ") && l.split_whitespace().any(|w| w == "queue"))
+                    || (l.starts_with("task ") && (l.contains(" when ") || l.contains(" key=")))
+            })
+        };
+        cases.extend(
+            scripted
+                .into_iter()
+                .map(|s| s.case)
+                .filter(|c| !scheduled(&c.source)),
+        );
     }
-    let size = gen::Size::default();
+    let size = gen::Size {
+        schedule: false,
+        ..gen::Size::default()
+    };
     cases.extend((0..count as u64).map(|i| gen::case(seed.wrapping_add(i), &size)));
     contract_difftest::expansion::run(cases, batch, &format!("expansion-{seed}"))
 }

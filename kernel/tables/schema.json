@@ -1370,6 +1370,90 @@
       "name": "title",
       "kind": "str",
       "_comment": "HTML's global `title` attribute on any element but `head` (whose `title` is `headTitle`): advisory text, the platform's tooltip (studio diary R24). The browser's own on the web, `NSView.toolTip` on macOS; touch hosts show none."
+    },
+    {
+      "id": 238,
+      "name": "contextPopover",
+      "kind": "str",
+      "_comment": "LLP 1021 §5.1: the HTML `id` of the popover a node's context menu shows (a long press, a secondary click). iOS presents it as `UIContextMenuInteraction` (its menu rows the `UIMenu`, its `contextPreview` row the preview); macOS as an `NSMenu` at the click; the web opens the popover anchored to the node; Linux shows nothing. A declared deviation: HTML retired its `contextmenu` attribute."
+    },
+    {
+      "id": 239,
+      "name": "contextPreview",
+      "kind": "bool",
+      "_comment": "LLP 1021 §5.1: this row of a context popover is the menu's preview (on iOS the preview controller's view, sized by its layout), not a menu item; its `press` is what tapping the preview does (UIKit's commit). Elsewhere it is an ordinary row."
+    },
+    {
+      "id": 240,
+      "name": "accessibilityCurrent",
+      "kind": "str",
+      "_comment": "ARIA `aria-current` (Depot feedback, 2026-10-05): `page`, `step`, `location`, `date`, `time`, `true` or `false`, the current item of a set (a navigation link, a wizard's step); a bool expression is written as `true`/`false`. AppKit serves WebKit's `AXARIACurrent`; UIKit has no such property, so iOS exposes none."
+    },
+    {
+      "id": 241,
+      "name": "reorderGroup",
+      "kind": "str",
+      "_comment": "@ref LLP 1094 D1: SortableJS's `group` name on a vertical `list virtualized=true` with a `reorderdrop` and an `id`: the mounted lists of one session sharing a non-empty value exchange rows, the drop firing once on the target list's `reorderdrop`."
+    },
+    {
+      "id": 242,
+      "name": "focusGuide",
+      "kind": "str",
+      "_comment": "`focusGuide=\"auto\"` on a container: on tvOS a focus guide over its box sends a remote move that enters it from outside to the descendant that last held the focus, else its first focusable one (react-native-tvos TVFocusGuideView `autoFocus`). Other hosts ignore it; their Tab order is sequential."
+    },
+    {
+      "id": 243,
+      "name": "name",
+      "kind": "str",
+      "_comment": "HTML's `name` on `input type=radio` (x2apps survey #2): its radio button group. The radios of one non-empty name in one window are exclusive, and the arrow keys move the check among them in tree order; a radio with none is a group of its own."
+    },
+    {
+      "id": 244,
+      "name": "mediaTitle",
+      "kind": "str",
+      "_comment": "@ref LLP 1098 D1: `metadata=MediaMetadata(…)`'s `title` on an `audio` or `video`, which makes the element a media session claimant. The web's `navigator.mediaSession.metadata`, Apple's `MPNowPlayingInfoCenter`; Linux and Windows keep the record."
+    },
+    {
+      "id": 245,
+      "name": "mediaArtist",
+      "kind": "str",
+      "_comment": "@ref LLP 1098 D1: `MediaMetadata`'s `artist`."
+    },
+    {
+      "id": 246,
+      "name": "mediaAlbum",
+      "kind": "str",
+      "_comment": "@ref LLP 1098 D1: `MediaMetadata`'s `album`."
+    },
+    {
+      "id": 247,
+      "name": "mediaArtwork",
+      "kind": "str",
+      "_comment": "@ref LLP 1098 D1: `MediaMetadata`'s `artwork`, one image's source as authored (an `https:` URL or an app asset path); a host resolves it only where it publishes."
+    },
+    {
+      "id": 248,
+      "name": "seekbackwardOffset",
+      "kind": "float",
+      "_comment": "@ref LLP 1098 D2: the seconds a `seekbackward` moves when the platform gives no `seekOffset` (default 10), and what Apple's lock screen shows (`skipBackwardCommand.preferredIntervals`)."
+    },
+    {
+      "id": 249,
+      "name": "seekforwardOffset",
+      "kind": "float",
+      "_comment": "@ref LLP 1098 D2: `seekbackwardOffset`'s twin for `seekforward`."
+    },
+    {
+      "id": 250,
+      "name": "colorSpace",
+      "kind": "str",
+      "_comment": "LLP 1100 D12a: getContext's `colorSpace`, `srgb` (default) or `display-p3`."
+    },
+    {
+      "id": 251,
+      "name": "colorType",
+      "kind": "str",
+      "_comment": "LLP 1100 D12a: getContext's `colorType`, `unorm8` (default) or `float16`."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -1745,6 +1829,23 @@
       ],
       "default": "scroll"
     },
+    "ColorScheme": {
+      "_comment": "@ref LLP 1034 \u00a78: `normal` is the initial value (the surrounding scheme); an author writes `light` or `dark`.",
+      "values": [
+        "normal",
+        "light",
+        "dark"
+      ],
+      "default": "normal"
+    },
+    "DynamicRangeLimit": {
+      "values": [
+        "standard",
+        "constrained",
+        "no-limit"
+      ],
+      "default": "no-limit"
+    },
     "FieldSizing": {
       "values": [
         "fixed",
@@ -2004,6 +2105,33 @@
         "capitalize"
       ],
       "default": "none"
+    },
+    "ColumnFill": {
+      "_comment": "@ref LLP 1093 D5: CSS `column-fill`. balance: the columns are as short as the content allows (within a definite height or under `max-height`); auto: each column is filled to the column height in turn. `balance-all` is refused by the compiler.",
+      "values": [
+        "balance",
+        "auto"
+      ],
+      "default": "balance"
+    },
+    "BreakBetween": {
+      "_comment": "@ref LLP 1093 D3/D4: CSS `break-before`/`break-after` in a multi-column flow (Fragmentation 3 \u00a73.1). column forces a break; avoid and avoid-column make a break there a last choice. The page and region values are refused by the compiler.",
+      "values": [
+        "auto",
+        "avoid",
+        "column",
+        "avoid-column"
+      ],
+      "default": "auto"
+    },
+    "BreakInside": {
+      "_comment": "@ref LLP 1093 D4: CSS `break-inside` (Fragmentation 3 \u00a73.2): avoid and avoid-column make every break inside the box a last choice. avoid-page and avoid-region are refused by the compiler.",
+      "values": [
+        "auto",
+        "avoid",
+        "avoid-column"
+      ],
+      "default": "auto"
     },
     "Hyphens": {
       "_comment": "CSS `hyphens` (Text 3 \u00a75.4, the reader diary). manual: a soft hyphen (U+00AD) is a break that shows a hyphen; none: it is not a break, so the kernel's runs carry U+034F in its place (as invisible, the same length in UTF-8 and UTF-16, no break opportunity); auto: also the hyphenation points of the document's language, where the host has a dictionary (the web, Apple; Linux has none and declares it, LLP 1001).",
@@ -3231,10 +3359,112 @@
       "inherited": true,
       "text": true,
       "layout": true
+    },
+    {
+      "bit": 179,
+      "field": "translate_percent",
+      "codec": "vec2",
+      "default": [
+        0,
+        0
+      ],
+      "_comment": "CSS `translate`'s percentages, of the node's own border box (chess diary #4: `-50% -50%` centres a box), set with the lengths by the one `translate` attribute: the used x is `translate.x + translate_percent.x / 100 \u00d7 width`, y likewise, resolved where the box's size is known (the presenter, at paint). The engine animates both rows as one `translate` value, its percentages componentwise as CSS interpolates a `calc()`."
+    },
+    {
+      "bit": 180,
+      "field": "column_count",
+      "codec": "u16",
+      "layout": true,
+      "default": 0,
+      "_comment": "@ref LLP 1093 D1: CSS `column-count`; 0 is `auto`. A block container whose `column-count` or `column-width` is not auto is a multi-column container."
+    },
+    {
+      "bit": 181,
+      "field": "column_width",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto",
+      "_comment": "@ref LLP 1093 D1: CSS `column-width`, a length or auto (no percentage, as CSS). The used count and width are Multi-column Layout 1 §3.4's, over the content-box width and the gap. The gap is `column-gap` when set, else the element's own font size (CSS's `normal`, 1em)."
+    },
+    {
+      "bit": 182,
+      "field": "column_fill",
+      "codec": "enum:ColumnFill",
+      "layout": true
+    },
+    {
+      "bit": 183,
+      "field": "column_rule_width",
+      "codec": "f32",
+      "default": 3,
+      "_comment": "@ref LLP 1093 §1, D7: CSS `column-rule-width`; `thin`, `medium` (the initial value) and `thick` are 1, 3 and 5 points."
+    },
+    {
+      "bit": 184,
+      "field": "column_rule_style",
+      "codec": "enum:BorderStyle",
+      "_comment": "@ref LLP 1093 §1, D7: CSS `column-rule-style`, the styles the hosts paint for borders; the others are refused by the compiler."
+    },
+    {
+      "bit": 185,
+      "field": "column_rule_color",
+      "codec": "current-color",
+      "default": "currentcolor"
+    },
+    {
+      "bit": 186,
+      "field": "widows",
+      "codec": "u16",
+      "inherited": true,
+      "layout": true,
+      "default": 2,
+      "_comment": "@ref LLP 1093 D4: CSS `widows`, a positive integer: the fewest lines of a paragraph a break may leave for the next column. Chrome applies the initial 2 to every paragraph in a multi-column flow, so the kernel does too."
+    },
+    {
+      "bit": 187,
+      "field": "orphans",
+      "codec": "u16",
+      "inherited": true,
+      "layout": true,
+      "default": 2,
+      "_comment": "@ref LLP 1093 D4: CSS `orphans`, a positive integer: the fewest lines of a paragraph a break may leave in its column."
+    },
+    {
+      "bit": 188,
+      "field": "break_before",
+      "codec": "enum:BreakBetween",
+      "layout": true
+    },
+    {
+      "bit": 189,
+      "field": "break_after",
+      "codec": "enum:BreakBetween",
+      "layout": true
+    },
+    {
+      "bit": 190,
+      "field": "break_inside",
+      "codec": "enum:BreakInside",
+      "layout": true
+    },
+    {
+      "bit": 191,
+      "field": "dynamic_range_limit",
+      "codec": "enum:DynamicRangeLimit",
+      "inherited": true,
+      "_comment": "CSS Color HDR's `dynamic-range-limit` (LLP 1100 D8): how bright HDR images and video may draw."
+    },
+    {
+      "bit": 192,
+      "field": "color_scheme",
+      "codec": "enum:ColorScheme",
+      "inherited": true,
+      "_comment": "@ref LLP 1034 \u00a78: CSS `color-scheme` on a subtree, `light` or `dark`: `light-dark()`, platform colours and native materials below resolve in that scheme. Initial `normal`, the surrounding scheme (the app's, or an ancestor's)."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
-  "_animations": "The `animation` row is CSS `animation` (LLP 1055 D5): count u8 (\u22648), then per animation name (str), duration f32 s, delay f32 s, easing (as `_transitions`, never a spring), iteration count f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), paused u8, then its keyframes: count u8 (\u226432), per keyframe offset f32 in [0,1], easing flag u8 (0 the animation's, 1 followed by an easing), count u8, per value property u8 (as `Property`), then its components as f32: one, two for `translate`, three for `box-shadow` (offset x, y and blur, in points; its colour is the next value, `box-shadow`'s colour half), four for a colour (premultiplied sRGB red, green, blue, alpha; LLP 1055.000 D6), a colour then u8 1 and four more for the dark half of a `light-dark()` pair, else u8 0 (LLP 1062 D9). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_animations": "The `animation` row is CSS `animation` (LLP 1055 D5): count u8 (\u22648), then per animation name (str), duration f32 s, delay f32 s, easing (as `_transitions`, never a spring), iteration count f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), paused u8, then its keyframes: count u8 (\u226432), per keyframe offset f32 in [0,1], easing flag u8 (0 the animation's, 1 followed by an easing), count u8, per value property u8 (as `Property`), then its components as f32: one, four for `translate` (x and y lengths in points, then x and y percentages of the box), three for `box-shadow` (offset x, y and blur, in points; its colour is the next value, `box-shadow`'s colour half), four for a colour (premultiplied sRGB red, green, blue, alpha; LLP 1055.000 D6), a colour then u8 1 and four more for the dark half of a `light-dark()` pair, else u8 0 (LLP 1062 D9). Its Rust type lives in exact-motion; the kernel owns the bytes.",
   "_opcodes": "The closed wire-visible op list for EXWF frame revision 1. There is no op count on the wire; consumers iterate by validated lengths.",
   "opcodes": [
     {
@@ -3461,6 +3691,51 @@
       "play-fill",
       "play.fill",
       "M6 3.5v17a1 1 0 0 0 1.5.9l13.2-8.5a1 1 0 0 0 0-1.8L7.5 2.6A1 1 0 0 0 6 3.5Z"
+    ],
+    [
+      "pause",
+      "pause",
+      "M9 5v14M15 5v14"
+    ],
+    [
+      "pause-fill",
+      "pause.fill",
+      "M6 4h4v16H6ZM14 4h4v16h-4Z"
+    ],
+    [
+      "skip-back-15",
+      "gobackward.15",
+      "M12 3a9 9 0 1 1-7.8 4.5M12 3l2-2M12 3l2 2M8.8 10l1.4-1v6M15.6 9h-2.8v2.4H14a1.8 1.8 0 0 1 0 3.6h-1.3"
+    ],
+    [
+      "skip-forward-15",
+      "goforward.15",
+      "M12 3a9 9 0 1 0 7.8 4.5M12 3l-2-2M12 3l-2 2M8.8 10l1.4-1v6M15.6 9h-2.8v2.4H14a1.8 1.8 0 0 1 0 3.6h-1.3"
+    ],
+    [
+      "skip-back-30",
+      "gobackward.30",
+      "M12 3a9 9 0 1 1-7.8 4.5M12 3l2-2M12 3l2 2M7.6 9.6a1.6 1.6 0 1 1 1.6 2.4 1.7 1.7 0 1 1-1.6 2.6M14.4 9c-1.1 0-1.7 1.3-1.7 3s.6 3 1.7 3 1.7-1.3 1.7-3-.6-3-1.7-3Z"
+    ],
+    [
+      "skip-forward-30",
+      "goforward.30",
+      "M12 3a9 9 0 1 0 7.8 4.5M12 3l-2-2M12 3l-2 2M7.6 9.6a1.6 1.6 0 1 1 1.6 2.4 1.7 1.7 0 1 1-1.6 2.6M14.4 9c-1.1 0-1.7 1.3-1.7 3s.6 3 1.7 3 1.7-1.3 1.7-3-.6-3-1.7-3Z"
+    ],
+    [
+      "speaker",
+      "speaker.wave.2",
+      "M4 9h4l5-4v14l-5-4H4ZM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"
+    ],
+    [
+      "speaker-mute",
+      "speaker.slash",
+      "M4 9h4l5-4v14l-5-4H4ZM3 3l18 18"
+    ],
+    [
+      "moon",
+      "moon",
+      "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"
     ],
     [
       "pin",

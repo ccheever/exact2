@@ -103,13 +103,21 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// How many routes the selected stack declared at the last projection.
     private var selectedRouteCount = 0
     var adoptedTablist: UInt32?
+    /// The root whose tablist last decided the bar, and whether Exact hid the
+    /// bar for a root's hidden tablist (LLP 1075.003 §3.7, amended).
+    weak var tablistRoot: RouteController?
+    var tablistHidBar = false
     var tabItems: [String] = []
     /// The bar's tint as last written: the tablist's accent, light and dark.
     var tabTint: [[Double]?]?
     let tabProxy = TabDelegateProxy()
     private(set) var changing = false
+    /// A context menu's commit pushes without the stack's animation: UIKit
+    /// animates it (`.pop`, LLP 1021 §5.1). The selected route's key tells
+    /// whether its press navigated.
+    var unanimated = false
+    var activeKey: String? { container?.props["navigationKey"] }
     /// While a push or pop runs: paints what each frame newly reveals.
-    private var revealLink: CADisplayLink?
     /// LLP 1075.003: each stack Exact built, by controller; what each shown
     /// bar covers of its route; the ownership changes already journaled;
     /// whether the hooks are being replayed for a cold launch's objects.
@@ -339,11 +347,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                 let pushOrPop = NavigationRules.isPushOrPop(from: nav.viewControllers.map(ObjectIdentifier.init), to: stack.map(ObjectIdentifier.init))
                 let arrives = stack.count > 1 && nav.viewControllers.first === stack.first
                     && !nav.viewControllers.contains { $0 === stack.last }
-                nav.setViewControllers(stack, animated: (pushOrPop || arrives) && index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && nav.view.window != nil)
+                nav.setViewControllers(stack, animated: (pushOrPop || arrives) && index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && !unanimated && nav.view.window != nil)
                 recordOwned(nav)
             }
             nav.view.layoutIfNeeded()
         }
+        unanimated = false
         if mounted.count > common {
             pendingSync = true
             presenter.modals.closeTop()
@@ -684,20 +693,17 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     private func startRevealing() {
-        guard revealLink == nil else { return }
-        let link = CADisplayLink(target: RevealTick(self), selector: #selector(RevealTick.tick))
-        link.add(to: .main, forMode: .common)
-        revealLink = link
+        guard !FrameClock.shared.wants(self) else { return }
+        FrameClock.shared.want(self, .navigationReveal, rate: FrameClock.full(on: presenter.viewport.window?.screen)) { [weak self] _ in self?.revealTick() }
     }
 
-    fileprivate func revealTick() {
+    private func revealTick() {
         guard changing else { stopRevealing(); return }
         presenter.paintVisibleText()
     }
 
     private func stopRevealing() {
-        revealLink?.invalidate()
-        revealLink = nil
+        FrameClock.shared.drop(self)
     }
 
     func navigationController(_ navigationController: UINavigationController, didShow viewController: UIViewController, animated: Bool) {
@@ -719,6 +725,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             presenter.paintVisibleText()
             presenter.flushPendingFocus()
             recordPop(navigationController)
+            // Settled on a stack's root: once UIKit has finished the
+            // transition (its own bar restoration included), a root whose
+            // arrival no projection has handled yet reconciles the bar with
+            // its tablist (§3.7).
+            DispatchQueue.main.async { [weak self, weak navigationController] in
+                if let navigationController { self?.settleTablist(navigationController) }
+            }
             // At rest: a large title's insets are sampled now (§9.10).
             coversChanged()
         }
@@ -753,6 +766,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     func reset(clearFocus: Bool = true) {
+        unanimated = false
         presenter.modals.reset()
         for nav in presentedNavigations { retireNavigation(nav, preserving: false) }
         for c in controllers.values { end(c) }
@@ -780,12 +794,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         lastTransition = "idle"
         if clearFocus { presenter.cancelPendingFocus() }
     }
-}
-/// The reveal link's target, so the link doesn't keep its host alive.
-private final class RevealTick: NSObject {
-    private weak var host: NavigationHost?
-    init(_ host: NavigationHost) { self.host = host }
-    @objc func tick() { if let host { host.revealTick() } }
 }
 #if os(tvOS)
 extension NavigationHost {

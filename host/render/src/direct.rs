@@ -76,9 +76,12 @@ pub(crate) fn render_js<D: DataSource + 'static, F: Fn() -> D>(
             };
             let (keyframes, scroll) = before_root(&tree);
             let lead = body_open_js(shell, js, &head, scroll, false, false);
-            let lead = lead.strip_suffix(ROOT_OPEN).unwrap_or(&lead);
+            let open = crate::page::root_open(shell);
+            let lead = lead.strip_suffix(open).unwrap_or(&lead);
+            // The shell's root with its attributes (LLP 1096 D7), marked.
             let bytes = format!(
-                "{lead}<div id=\"exact-root\" data-boot=\"\">{}</div>",
+                "{lead}{} data-boot=\"\">{}</div>",
+                &open[..open.len() - 1],
                 document.root
             );
             send(bytes.as_bytes());
@@ -225,9 +228,6 @@ struct Boot {
     keyframes: String,
     scroll: bool,
 }
-
-/// What [`body_open_js`] ends with: the root's opening tag.
-const ROOT_OPEN: &str = "<div id=\"exact-root\">";
 
 /// What hides a boot document once the settled page arrives, JavaScript or
 /// none.

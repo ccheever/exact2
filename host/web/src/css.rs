@@ -176,10 +176,21 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                 num_into(&mut out, *n as f32);
                 out.push_str("deg;");
             }
-            (StyleId::Translate, RowValue::Vec2(v)) if style.translate_z != 0.0 => {
+            // A percentage is of the box's own border box, which the browser
+            // resolves (chess diary #4); an axis with both is a `calc()`.
+            (StyleId::Translate, RowValue::Vec2(v))
+                if style.translate_z != 0.0
+                    || style.translate_percent.x != 0.0
+                    || style.translate_percent.y != 0.0 =>
+            {
                 out.push_str("translate:");
-                for n in [v.x, v.y, style.translate_z] {
-                    num_into(&mut out, n);
+                let pct = style.translate_percent;
+                for (px, pct) in [(v.x, pct.x), (v.y, pct.y)] {
+                    translate_axis(&mut out, px, pct);
+                    out.push(' ');
+                }
+                if style.translate_z != 0.0 {
+                    num_into(&mut out, style.translate_z);
                     out.push_str("px ");
                 }
                 out.pop();
@@ -216,6 +227,12 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                         reason: "font stack id is absent from the plan catalog",
                     });
                 }
+            }
+            // @ref LLP 1034 §8: an unset scheme follows the parent's, as
+            // Apple's trait inheritance does (CSS's `normal` would mean the
+            // page's schemes); the compiler admits only `light` and `dark`.
+            (StyleId::ColorScheme, RowValue::Enum("normal")) => {
+                out.push_str("color-scheme:inherit;")
             }
             (StyleId::TextDecorationLine, RowValue::Enum("underline-line-through")) => {
                 out.push_str("text-decoration-line:underline line-through;")
@@ -278,7 +295,7 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             }
             // Written with `rotate` and `translate` (LLP 1077 D8), never alone:
             // nothing of their own to write, and nothing skipped (kanban F30).
-            (StyleId::RotateAxis | StyleId::TranslateZ, _) => {}
+            (StyleId::RotateAxis | StyleId::TranslateZ | StyleId::TranslatePercent, _) => {}
             _ if lowered(id, &value) => {
                 property(&mut out, id);
                 out.push(':');
@@ -460,6 +477,27 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
 
 /// The row's CSS property, appended: its name with `-` for `_`, but for the
 /// few spelled here.
+/// One `translate` axis: a length, a percentage, or `calc()` of both.
+pub(crate) fn translate_axis(out: &mut String, px: f32, pct: f32) {
+    match (px, pct) {
+        (_, 0.0) => {
+            num_into(out, px);
+            out.push_str("px");
+        }
+        (0.0, _) => {
+            num_into(out, pct);
+            out.push('%');
+        }
+        _ => {
+            out.push_str("calc(");
+            num_into(out, px);
+            out.push_str("px + ");
+            num_into(out, pct);
+            out.push_str("%)");
+        }
+    }
+}
+
 fn property(out: &mut String, id: StyleId) {
     // Every node's every row asks: each name is spelled once per process.
     static NAMES: [std::sync::OnceLock<String>; 256] = [const { std::sync::OnceLock::new() }; 256];
@@ -559,6 +597,8 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             out.push_str("px");
         }
         RowValue::Number(n) => match id {
+            // @ref LLP 1093 §1 — the row's 0 is CSS's `auto`.
+            StyleId::ColumnCount if *n == 0.0 => out.push_str("auto"),
             StyleId::ZIndex => {
                 let max = exact_kernel::paint_order::Z_MAX;
                 out.push_str(&(*n as i32).clamp(-max, max).to_string());
@@ -567,6 +607,9 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             | StyleId::FlexShrink
             | StyleId::Opacity
             | StyleId::Order
+            | StyleId::ColumnCount
+            | StyleId::Widows
+            | StyleId::Orphans
             | StyleId::FontWeight
             | StyleId::Scale
             // SVG's unitless numbers (LLP 1055 D2); `r`, `cx`, `cy` are lengths.
@@ -815,6 +858,27 @@ mod flow_tests {
         assert!(css.contains("shape-margin:8px;"));
         assert!(css.contains("wrap-flow:both;"));
         assert!(skipped.is_empty());
+    }
+
+    /// LLP 1034 §8: the browser resolves `light-dark()` by the inherited
+    /// `color-scheme`; an unset (`normal`) row follows the parent's.
+    #[test]
+    fn color_scheme_is_passed_through() {
+        for (value, want) in [
+            ("dark", "color-scheme:dark;"),
+            ("light", "color-scheme:light;"),
+            ("normal", "color-scheme:inherit;"),
+        ] {
+            let mut s = StyleProps::default();
+            s.set_dynamic(
+                StyleId::ColorScheme,
+                &exact_kernel::StyleValue::Text(value.into()),
+            )
+            .unwrap();
+            let (css, skipped) = css_text(&s, &[]);
+            assert!(css.contains(want), "{value}: {css}");
+            assert!(skipped.is_empty());
+        }
     }
 }
 
@@ -1116,6 +1180,17 @@ mod declaration_tests {
         assert!(text.contains("translate:1px 2px 3px;"), "{text}");
         assert!(text.contains("perspective:800px;"), "{text}");
         assert_eq!(text.matches("rotate").count(), 1, "{text}");
+        // Chess diary #4: a percentage is the browser's to resolve.
+        let text = css(
+            &[
+                (StyleId::Translate, t("-50% 4px")),
+                (StyleId::TranslatePercent, t("-50% 4px")),
+                (StyleId::TranslateZ, t("-50% 4px")),
+            ],
+            &[],
+        );
+        assert!(text.contains("translate:-50% 4px;"), "{text}");
+        assert_eq!(text.matches("translate").count(), 1, "{text}");
     }
 
     #[test]

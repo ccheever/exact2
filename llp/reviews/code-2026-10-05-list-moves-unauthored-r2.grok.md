@@ -1,0 +1,17 @@
+# Code review r2: a list's rows moved by the list play no layout-transition (66f3b8b51..b1476ea0d), 2026-10-05 (grok)
+
+- **Family:** xAI. `grok-4.7` via `~/.grok/bin/grok`, reasoning effort xhigh, `--no-subagents`, `--cwd` a detached worktree at `b1476ea0d`, plain output.
+- **Method:** one brief (sha256 `73ca79fdae13a5f80110dce0bed12b83322e3de3d0cd53dab3e059063456b33a`), shared with astra. Round 2, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the review's findings and verdict, unedited.
+- **Verdict:** LAND.
+- **Disposition (r3):** 1 checked and not taken: with the judgment's settling turned off, `rows_a_report_moves_do_not_play_their_layout_transition` fails (run, both before and after this round's changes); its measurements of the first mounted rows change their wrappers' places through the index, which moves later rows. 2 taken: the generations are recorded at every layout, the boot's included, and only the size and place checks are skipped while no node declares a transition.
+
+---
+
+LAND
+
+Round 1 dispositions 1, 2, and 4 hold: a per-list generation moves only when keys change (`fresh || shared || rekeyed` in `update_data`), a row-box size change un-settles that list only, nothing outside a settled list's wrapper or row box is settled, and the walk is `(view, generation)` and skipped when no layout transition is tracked. Disposition 3 does not: the report test does not fail if nothing is settled.
+
+1. **MINOR** — The host test that claims to pin "a measurement does not play" stays green if `judge_list_moves` never settles. `rows_a_report_moves_do_not_play_their_layout_transition` (`host/apple/src/collection_tests.rs:436-455`) first jumps the window to offset 16000, which replaces the mounted set (new rows are first-seen and snap either way), then measures the first four mounted rows. Those rows are a contiguous mounted run, so `emit_children` (`runner/src/instance/collection/views.rs:187-208`) puts no spacer between them and their border boxes stay at content height. The index update only moves the scroll correction. No `layout-transition` node moves, so `quiescent()` passes with the judge deleted. The kernel test calls `observe_unauthored` directly. **Fix:** one feedback that keeps already-targeted rows mounted and changes the leading spacer (measure rows that leave the mounted run, or move the window edge by more than the overscan), and assert that engine is quiescent and the batch has no `layout` op.
+
+2. **MINOR** — Boot never records a generation baseline, so the first geometry commit is judged as authored. Apple boot lays out at `host/apple/src/host.rs:508` before any `LayoutMotion::adopt` (Linux does adopt at `host/linux/src/host.rs:286-288`). `judge_list_moves` (`host/apple/src/presence.rs:180-181`) returns while `tracked` is still empty and leaves `generations` empty; `observe_layout` then stores targets. The next layout (the synchronous flush after that boot batch) sees a non-empty tracker and an empty baseline, so no list is settled. A transcript's opening report usually does not move those rows (`at_end` anchors the end, and a first report's measurements are discarded), so the fling after it is fine. A first commit that does move surviving rows plays their transition. **Fix:** on that empty-tracker return, still assign `generations` from `collection_data()` so the following commit can match.

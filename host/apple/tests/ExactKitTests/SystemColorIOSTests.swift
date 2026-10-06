@@ -148,6 +148,39 @@ final class SystemColorIOSTests: XCTestCase {
         XCTAssertNotEqual(node.symbolLookKey, key, "a palette naming the tint is made again")
     }
 
+    func testMarkdownAndPlainTextResolveTheSameViewTintAndTraits() throws {
+        let p = Presenter()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 300, height: 300))
+        window.overrideUserInterfaceStyle = .dark
+        window.tintColor = .systemBlue
+        p.viewport.frame = window.bounds
+        p.viewport.tintColor = .systemRed
+        window.addSubview(p.viewport)
+        for (name, expected) in [("@tint", UIColor.systemRed), ("systemBlueColor", .systemBlue),
+                                 ("secondarySystemBackgroundColor", .secondarySystemBackground)] {
+            let color: [String: Any] = ["sys": name, "c": [[1, 2, 3, 255], [4, 5, 6, 255]]]
+            p.apply(wireBatch([
+                ["op": "create", "id": 1, "kind": "text", "props": ["text": "hello"], "style": ["text_color": color]],
+                ["op": "create", "id": 2, "kind": "text", "props": ["text": "hello", "markup": "markdown"], "style": ["text_color": color]],
+                ["op": "roots", "ids": [1, 2]],
+            ]))
+            let plain = try XCTUnwrap(p.views[1]), markdown = try XCTUnwrap(p.views[2])
+            for node in [plain, markdown] {
+                node.traitOverrides.accessibilityContrast = .high
+                node.traitOverrides.userInterfaceLevel = .elevated
+                node.updateTraitsIfNeeded()
+                node.invalidateText()
+                XCTAssertTrue(node.drawsDark && node.drawsHighContrast == true && node.drawsElevated)
+            }
+            let expected = channels(expected, plain.traitCollection)
+            XCTAssertEqual(plain.paragraphSpec().runs.first?.color, expected, name)
+            let runs = markdown.paragraphSpec().runs.filter { !$0.text.isEmpty }
+            XCTAssertFalse(runs.isEmpty)
+            for run in runs { XCTAssertEqual(run.color, expected, name) }
+            p.apply(wireBatch([["op": "destroy", "id": 1], ["op": "destroy", "id": 2]]))
+        }
+    }
+
     /// LLP 1095 D9: off a window there is no report, so the kernel's table
     /// (replaced whole by each) never loses `AccentColor`; in one, there is.
     func testNoColourReportIsMadeOffAWindow() throws {

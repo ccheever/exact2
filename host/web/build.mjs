@@ -206,7 +206,7 @@ if (bakeOnly) planBytes = readFileSync(resolve(buildEnv.EXACT_BAKE_OUTPUT, 'web-
 else {
 wasm = readFileSync(out);
 const unbooted = () => { throw new Error('app logic ran while extracting baked bytes'); };
-const { instance } = await WebAssembly.instantiate(wasm, { exact_grants: grantOrigins(() => instance.exports.memory), exact_js: { call: unbooted }, exact_rust: { load: unbooted, call: unbooted, read: unbooted, drop: unbooted }, exact_data: { random: unbooted, agent_seed: unbooted }, exact_geometry: { read: unbooted } });
+const { instance } = await WebAssembly.instantiate(wasm, { exact_grants: grantOrigins(() => instance.exports.memory), exact_js: { call: unbooted }, exact_rust: { load: unbooted, call: unbooted, read: unbooted, drop: unbooted }, exact_data: { random: unbooted, agent_seed: unbooted }, exact_geometry: { read: unbooted, point: unbooted } });
 exports = instance.exports;
 if (typeof exports.exact_plan !== 'function' || typeof exports.exact_out !== 'function' || !(exports.memory instanceof WebAssembly.Memory)) {
   throw new Error('the web wasm does not export exact_plan, exact_out, and memory');
@@ -320,14 +320,20 @@ function minifyCss(css) {
 const pageNative = app.modules.web;
 // The page in the app's first-frame background from its first paint (the
 // manifest's background colours, as the iOS launch screen), so nothing lighter or
-// darker shows before the first frame.
+// darker shows before the first frame. Only until then: from the first frame
+// the app paints its own, and the canvas beyond it is the browser's for the
+// page's colour scheme, as on the JS target (a launch white kept under an
+// app that chose dark showed beside its root; Markdown's conformance).
 const launchLight = app.manifest.background_color, launchDark = app.manifest.background_color_dark;
 const hex = (value) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value ?? '') ? value : null;
-const launchCss = hex(launchLight) ? `html{background-color:${launchLight}}${hex(launchDark) ? `@media (prefers-color-scheme:dark){html{background-color:${launchDark}}}` : ''}` : '';
+const launchHtml = 'html:has(#exact-root:empty)';
+const launchCss = hex(launchLight) ? `${launchHtml}{background-color:${launchLight}}${hex(launchDark) ? `@media (prefers-color-scheme:dark){${launchHtml}{background-color:${launchDark}}}` : ''}` : '';
 writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.html'), 'utf8')
   .replace(/<style>([\s\S]*?)<\/style>/, (_, css) => `<style>${minifyCss(css)}${launchCss}</style>`)
   .replace('<html lang="en">', `<html lang="${escapeHtml(webManifest.lang)}">`)
   .replace('<title>Exact</title>', `<title>${escapeHtml(webManifest.name)}</title>`)
+  // `app.json`'s `audio_session` (LLP 1096 D7), which sound-glue.js gives the Audio Session API where it exists.
+  .replace('<div id="exact-root"></div>', app.manifest.audio_session ? `<div id="exact-root" data-audio-session="${escapeHtml(app.manifest.audio_session)}"></div>` : '<div id="exact-root"></div>')
   .replace(
     '<script type="module" src="./glue.js"></script>',
     `<link rel="alternate" type="application/vnd.exact.envelope+json" href="./exact.json">\n<link rel="manifest" href="./manifest.json">\n${icon ? `<link rel="icon" type="${escapeHtml(icon.type ?? 'image/png')}" href="./${escapeHtml(icon.src)}">\n` : ''}${webManifest.theme_color ? `<meta name="theme-color" content="${escapeHtml(webManifest.theme_color)}">\n` : ''}${pageNative ? '<meta name="exact-native" content="./modules/index.js">\n' : ''}<script type="module" src="./glue.js"></script>`,

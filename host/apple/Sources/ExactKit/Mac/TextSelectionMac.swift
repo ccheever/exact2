@@ -200,15 +200,18 @@ final class TextSelection {
         if !dragged, anchor === node, let reader = node.readerParagraph {
             let current = gesture
             reader.resolveOffset(at: node.local(event.locationInWindow), node: node) { [weak self] _, url in
+                // A route of this app navigates in it, as a short paragraph's
+                // link does (b6 review B5); the rest is the containing app's.
                 guard let self, self.gesture == current, let url, let session = self.presenter?.session else { return }
-                session.delegate?.exactSession(session, command: "openURL", args: [url])
+                session.follow(url)
             }
             return
         }
         guard !dragged, anchor === node, let url = link(node, at: node.local(event.locationInWindow)) else { return }
-        // The containing app owns navigation (local Markdown, anchors,
-        // browser URLs); no arbitrary URL scheme is launched by the presenter.
-        if let session = presenter?.session { session.delegate?.exactSession(session, command: "openURL", args: [url]) }
+        // A route of this app navigates in it; the containing app owns the
+        // rest (local Markdown, anchors, browser URLs); no arbitrary URL
+        // scheme is launched by the presenter.
+        presenter?.session?.follow(url)
     }
 
     func selectAll() {
@@ -317,9 +320,11 @@ final class TextSelection {
     }
 
     private func line(_ node: NodeView, at point: NSPoint) -> (Paragraph, Spec, Int)? {
+        // A fragmented paragraph maps the point into its fragment (LLP 1093 D8).
+        let point = node.caretPoint(point)
         guard let paragraph = node.paragraphLayout() else { return nil }
         let spec = node.paragraphSpec()
-        let box = node.contentBox()
+        let box = node.paragraphBox()
         guard let i = paragraph.lineIndex(at: CGPoint(x: point.x - box.minX, y: point.y - box.minY),
                                           align: spec.align, width: box.width) else { return nil }
         return (paragraph, spec, i)
@@ -327,12 +332,12 @@ final class TextSelection {
 
     private func index(_ node: NodeView, at point: NSPoint) -> Int {
         if let reader = node.readerParagraph { return reader.offset(at: point, node: node) ?? 0 }
-        let content = node.contentBox()
-        if point.y < content.minY { return 0 }
-        if point.y > content.maxY { return length(node) }
+        let content = node.paragraphBox(), mapped = node.caretPoint(point)
+        if mapped.y < content.minY { return 0 }
+        if mapped.y > content.maxY { return length(node) }
         guard let (p, spec, i) = line(node, at: point) else { return 0 }
         let x = content.minX + p.origin(i, align: spec.align, width: content.width)
-        let offset = p.stringIndex(in: i, at: point.x - x)
+        let offset = p.stringIndex(in: i, at: mapped.x - x)
         return offset == kCFNotFound ? length(node) : min(max(0, offset), length(node))
     }
 
@@ -341,7 +346,7 @@ final class TextSelection {
     func draw(_ node: NodeView, paragraph: Paragraph, spec: Spec, dirty: NSRect) {
         guard let selection = range(node), selection.length > 0 else { return }
         NSColor.selectedTextBackgroundColor.withAlphaComponent(0.45).setFill()
-        for rect in paragraph.selectionRects(selection, align: spec.align, in: node.contentBox(), dirty: dirty) {
+        for rect in paragraph.selectionRects(selection, align: spec.align, in: node.paragraphBox(), dirty: dirty) {
             rect.fill()
         }
     }

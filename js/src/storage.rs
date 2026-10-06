@@ -60,6 +60,19 @@ impl Session {
         })
     }
 
+    /// Wait on this thread, until `deadline`, for a completion to deliver
+    /// (or nothing left in flight): teardown's bounded wait (LLP 1097 D10).
+    pub fn wait_until(&self, deadline: Instant) -> bool {
+        loop {
+            if self.context.is_idle() || self.context.wait(Duration::from_millis(25)) {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+        }
+    }
+
     pub fn continuation(&self) -> Box<dyn FnOnce() -> Outcome + Send> {
         let context = self.context.clone();
         let alive = self.alive.clone();
@@ -90,6 +103,16 @@ impl Session {
             }
         })
     }
+}
+
+/// Storage's availability as the prelude's refusal code (kanban F28): `bake`
+/// where storage is not live; none where the module reaches it; else `agent`
+/// for a drive that names no scratch store, or `unsupported`.
+pub(crate) fn refusal(live: bool, reaches: bool, agent: bool) -> Result<Option<String>, String> {
+    if !live {
+        return Err("bake".into());
+    }
+    Ok((!reaches).then(|| if agent { "agent" } else { "unsupported" }.into()))
 }
 
 /// The documents a host minted ([`exact_data::documents`]), as ibex2's

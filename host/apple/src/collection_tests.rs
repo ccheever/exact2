@@ -421,3 +421,160 @@ mod exports {
         REFUSAL.with(|r| assert!(String::from_utf8_lossy(&r.borrow()).contains("no such runtime")));
     }
 }
+
+/// Rows a list report measures move the rows after them; a row's
+/// `layout-transition` does not play that move (the list's offset keeps what
+/// shows still), as UIKit's self-sizing does not animate.
+#[test]
+fn rows_a_report_moves_do_not_play_their_layout_transition() {
+    let source = SOURCE.replace(
+        "text `${row}` testId=`row-${row}`",
+        "column layout-transition=\"300ms ease-in-out\"\n              text `${row}` testId=`row-${row}`",
+    );
+    let (mut bridge, _, _) = fixture(&source);
+    let before = snapshot(&bridge);
+    send(&mut bridge, &facts(&before, 16_000.), 10.);
+    let after = snapshot(&bridge);
+    let mut measurement = facts(&after, 16_000.);
+    for (i, row) in after.rows.iter().enumerate().take(4) {
+        measurement.measurements.push(RowMeasurement {
+            view: row.view,
+            epoch: row.epoch,
+            size: 43. + i as f64,
+        });
+    }
+    let batch = send(&mut bridge, &measurement, 20.);
+    assert!(batch.contains("\"error\":null"), "{batch}");
+    assert!(
+        bridge.host.as_ref().unwrap().engine().quiescent(),
+        "no row is moving: {batch}"
+    );
+    assert!(
+        !batch.contains("\"layout\""),
+        "no layout presented: {batch}"
+    );
+}
+
+/// Rows a list's data or its author moves still play their
+/// `layout-transition`: a row put first, two rows swapped (the count kept),
+/// a row with no transition of its own growing, a row's box nudged in its
+/// wrapper, the list's padding swapped. Another list on the page, whose data did not change, keeps
+/// still throughout.
+#[test]
+fn rows_the_data_moves_still_play_their_layout_transition() {
+    struct Shifted;
+    impl DataSource for Shifted {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            let step = match args.first() {
+                Some(Value::Number(n)) => *n as i64,
+                _ => 0,
+            };
+            let rows: Vec<i64> = match step {
+                0 => (0..40).collect(),
+                1 => (-1..40).collect(),
+                _ => [0, -1].into_iter().chain(1..40).collect(),
+            };
+            Ok(Value::list(
+                rows.into_iter().map(|i| Value::Number(i as f64)).collect(),
+            ))
+        }
+    }
+    let source = r#"component App
+  state step = 0
+  state tall = false
+  state nudged = false
+  state padded = false
+  resource rows = rows(step) as shape list<number>
+  resource others = rows(0) as shape list<number>
+  action next
+    step = step + 1
+  action grow
+    tall = true
+  action nudge
+    nudged = true
+  action pad
+    padded = true
+  view
+    column
+      button press=next testId="next"
+        text "next"
+      button press=grow testId="grow"
+        text "grow"
+      button press=nudge testId="nudge"
+        text "nudge"
+      button press=pad testId="pad"
+        text "pad"
+      list virtualized=true height=200 width=240 padding-left=(padded ? 20 : 0) padding-right=(padded ? 0 : 20) testId="edited"
+        each row in rows key=row
+          column height=(tall and row == 0 ? 80 : 20) width=200 position="relative" left=(nudged and row == 1 ? 20 : 0) layout-transition=(row == 0 ? "none" : "300ms ease-in-out")
+            text `${row}`
+      list virtualized=true height=200 width=240 testId="other"
+        each row in others key=row
+          column layout-transition="300ms ease-in-out"
+            text `${row}`
+"#;
+    let plan = contract::compile(source).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        Shifted,
+        Box::new(MonospaceMeasurer::default()),
+        400.,
+        600.,
+    )
+    .unwrap();
+    for list in host.runner().collections() {
+        let mut first = facts(&list, 0.);
+        first.port_main = 200.;
+        host.collection_feedback(&first.encode().unwrap(), 10.);
+    }
+    let id = |host: &Host<Shifted>, test: &str| {
+        let kernel = host.runner().kernel();
+        kernel
+            .node_by_key(kernel.find_by_test_id(test)[0])
+            .unwrap()
+            .id
+    };
+    // The row box of a list's mounted row at `index`.
+    let row_box = |host: &Host<Shifted>, list: &str, index: usize| {
+        let snapshot = host.runner().collection(id(host, list)).unwrap();
+        let row = snapshot.rows.iter().find(|r| r.index == index).unwrap();
+        exact_kernel::motion::motion_node(host.runner().kernel().node(row.root).unwrap().key)
+    };
+    let layout = exact_motion::Property::Layout;
+    let (other, mut now) = (row_box(&host, "other", 1), 20.);
+    // Each step: the button, the row (by index after it) that must move, what it is.
+    for (button, index, what) in [
+        ("next", 2, "a row put first"),
+        ("next", 1, "two rows swapped"),
+        (
+            "grow",
+            1,
+            "the row before it, which has no transition, grown",
+        ),
+        ("nudge", 2, "its box nudged in its wrapper"),
+        ("pad", 1, "the list's padding swapped"),
+    ] {
+        let generation = |host: &Host<Shifted>| host.runner().collection_data();
+        let before = generation(&host);
+        let batch = host.dispatch_at(id(&host, button), Event::Press, now);
+        assert!(batch.contains("\"error\":null"), "{batch}");
+        // Only a change of keys moves a list's data generation: a body that
+        // reads changing state (a clock) every commit does not.
+        assert_eq!(
+            generation(&host) != before,
+            button == "next",
+            "{what}: the generation"
+        );
+        let engine = host.engine();
+        assert!(
+            engine.is_active(row_box(&host, "edited", index), layout),
+            "{what}: the row moves: {batch}"
+        );
+        assert!(
+            !engine.is_active(other, layout),
+            "{what}: the other list keeps still"
+        );
+        now += 1000.;
+        host.advance(now);
+    }
+}

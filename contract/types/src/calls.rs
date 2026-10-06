@@ -4,7 +4,7 @@
 
 use super::{checks, err, infer, routes, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types};
 use contract_syntax::inline::calls::{shown, MARK};
-use contract_syntax::{Component, Expr, Span, Stmt, TemplatePart};
+use contract_syntax::{one_spelling_edit, Component, Expr, Span, Stmt, TemplatePart};
 
 /// The prefix of a lifted action's capture parameters.
 const CAPTURE: &str = "@capture:";
@@ -38,12 +38,8 @@ fn inside<'e>(e: &'e Expr, scope: &Scope, shapes: &Shapes) -> Option<(&'e str, S
         }
     };
     match e {
-        Expr::Number(..)
-        | Expr::Str(..)
-        | Expr::Bool(..)
-        | Expr::None(_)
-        | Expr::EmptyList(_)
-        | Expr::Ident(..) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {}
+        Expr::List(items, _) => items.iter().for_each(&mut look),
         Expr::Template(parts, _) => {
             for p in parts {
                 if let TemplatePart::Expr(x) = p {
@@ -362,4 +358,96 @@ pub(super) fn refine(c: &Component, ct: &mut ComponentTypes, types: &Types) {
             }
         }
     }
+}
+
+// Suggestions change only a refusal's text. Global functions have authored
+// names here; lifted child actions do not, so scoped actions only disambiguate.
+pub(super) fn unknown_function(
+    name: &str,
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> TypeError {
+    // The web's list operations and number formatters Contract refuses
+    // (LLP 1017.003 §Diagnostics) say what to do instead.
+    if let Some(why) = contract_syntax::idioms::refusal(name) {
+        return TypeError {
+            id: "type-refused-idiom",
+            message: why,
+            span,
+        };
+    }
+    let mut message = format!(
+        "`{name}` is not in the stdlib roster and is not an action; data comes from a `resource`"
+    );
+    // The runner's own sources (the `SOURCE` of runner/src/time.rs, viewport.rs, page.rs,
+    // delivery.rs, surface_record.rs), called like functions (r34 t7: `exactTime().epochAtZero`).
+    if matches!(
+        name,
+        "exactTime" | "exactViewport" | "exactPage" | "exactDelivery" | "exactSurface"
+    ) {
+        let call = if name == "exactSurface" {
+            "exactSurface(\"world\")".to_string()
+        } else {
+            format!("{name}()")
+        };
+        message.push_str(&format!(
+            "; `{name}` is a source the runner answers: declare `resource r = {call} as shape S` in the \
+             root component, with a shape S of the fields you read, and read `r.field`"
+        ));
+    } else if let Some(candidate) = similar_function(name, scope, shapes) {
+        message.push_str(&format!("; did you mean `{candidate}`?"));
+    }
+    TypeError {
+        id: "type-unknown-function",
+        message,
+        span,
+    }
+}
+
+fn similar_function<'a>(name: &str, scope: &'a Scope, shapes: &'a Shapes) -> Option<&'a str> {
+    if !name.is_ascii() || !(3..=64).contains(&name.len()) {
+        return None;
+    }
+    let global = |candidate: &str| {
+        matches!(candidate, "pending" | "failed")
+            || (candidate == "path" && shapes.routes.is_some())
+            || shapes.fns.contains_key(candidate)
+            || super::Stdlib::from_name(candidate)
+                .is_some_and(|f| super::routes::require_table(f, shapes, Span::default()).is_ok())
+    };
+    let names = shapes
+        .fns
+        .keys()
+        .map(String::as_str)
+        .chain(super::Stdlib::ALL.iter().map(|f| f.name()))
+        .chain(["pending", "failed", "path"]);
+    let mut found = None;
+    for candidate in names {
+        if !one_spelling_edit(name.as_bytes(), candidate.as_bytes()) || !global(candidate) {
+            continue;
+        }
+        if found.is_some_and(|previous| previous != candidate) {
+            return None;
+        }
+        found = Some(candidate);
+    }
+    let candidate = found?;
+    for frame in &scope.frames {
+        for (scoped, _, _) in &frame.names {
+            // Expansion can append instance suffixes. The stem is only a
+            // conservative ambiguity veto, never an offered correction.
+            let authored = scoped.split('#').next().unwrap();
+            if authored != candidate
+                && one_spelling_edit(name.as_bytes(), authored.as_bytes())
+                && matches!(
+                    scope.lookup(scoped),
+                    Some((Ref::Action(_) | Ref::Prop(_), Ty::Action(_)))
+                )
+            {
+                return None;
+            }
+        }
+    }
+    Some(candidate)
 }

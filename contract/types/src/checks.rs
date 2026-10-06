@@ -4,10 +4,11 @@ use super::{
     arms, disagree, err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
 use contract_syntax::{
-    one_spelling_edit, Attr, Binding, Component, Expr, File, Node, Owner, Span, TemplatePart,
-    TypeExpr, HOST_COMMANDS,
+    Attr, Binding, Component, Expr, File, Node, Owner, Span, TemplatePart, TypeExpr, HOST_COMMANDS,
 };
 use std::collections::{BTreeMap, BTreeSet};
+
+mod sounds;
 
 /// Reject recursive functions without revisiting completed subgraphs.
 pub(super) fn check_function_cycles(file: &File) -> Result<(), TypeError> {
@@ -119,12 +120,8 @@ fn calls_in(e: &Expr, indices: &BTreeMap<&str, usize>, out: &mut Vec<usize>) {
                 }
             }
         }
-        Expr::Number(..)
-        | Expr::Str(..)
-        | Expr::Bool(..)
-        | Expr::None(_)
-        | Expr::EmptyList(_)
-        | Expr::Ident(..) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {}
+        Expr::List(items, _) => items.iter().for_each(|x| calls_in(x, indices, out)),
     }
 }
 
@@ -254,83 +251,6 @@ impl Shapes {
             span,
         }
     }
-}
-
-// Suggestions change only a refusal's text. Global functions have authored
-// names here; lifted child actions do not, so scoped actions only disambiguate.
-pub(super) fn unknown_function(
-    name: &str,
-    scope: &Scope,
-    shapes: &Shapes,
-    span: Span,
-) -> TypeError {
-    // The web's list operations and number formatters Contract refuses
-    // (LLP 1017.003 §Diagnostics) say what to do instead.
-    if let Some(why) = contract_syntax::idioms::refusal(name) {
-        return TypeError {
-            id: "type-refused-idiom",
-            message: why,
-            span,
-        };
-    }
-    let mut message = format!(
-        "`{name}` is not in the stdlib roster and is not an action; data comes from a `resource`"
-    );
-    if let Some(candidate) = similar_function(name, scope, shapes) {
-        message.push_str(&format!("; did you mean `{candidate}`?"));
-    }
-    TypeError {
-        id: "type-unknown-function",
-        message,
-        span,
-    }
-}
-
-fn similar_function<'a>(name: &str, scope: &'a Scope, shapes: &'a Shapes) -> Option<&'a str> {
-    if !name.is_ascii() || !(3..=64).contains(&name.len()) {
-        return None;
-    }
-    let global = |candidate: &str| {
-        matches!(candidate, "pending" | "failed")
-            || (candidate == "path" && shapes.routes.is_some())
-            || shapes.fns.contains_key(candidate)
-            || super::Stdlib::from_name(candidate)
-                .is_some_and(|f| super::routes::require_table(f, shapes, Span::default()).is_ok())
-    };
-    let names = shapes
-        .fns
-        .keys()
-        .map(String::as_str)
-        .chain(super::Stdlib::ALL.iter().map(|f| f.name()))
-        .chain(["pending", "failed", "path"]);
-    let mut found = None;
-    for candidate in names {
-        if !one_spelling_edit(name.as_bytes(), candidate.as_bytes()) || !global(candidate) {
-            continue;
-        }
-        if found.is_some_and(|previous| previous != candidate) {
-            return None;
-        }
-        found = Some(candidate);
-    }
-    let candidate = found?;
-    for frame in &scope.frames {
-        for (scoped, _, _) in &frame.names {
-            // Expansion can append instance suffixes. The stem is only a
-            // conservative ambiguity veto, never an offered correction.
-            let authored = scoped.split('#').next().unwrap();
-            if authored != candidate
-                && one_spelling_edit(name.as_bytes(), authored.as_bytes())
-                && matches!(
-                    scope.lookup(scoped),
-                    Some((Ref::Action(_) | Ref::Prop(_), Ty::Action(_)))
-                )
-            {
-                return None;
-            }
-        }
-    }
-    Some(candidate)
 }
 
 /// Reject shape cycles before lowering recursively materializes plan types.
@@ -797,21 +717,43 @@ fn picker_args(
 }
 
 /// `saveFile(id, from, suggestedName)` (LLP 1069.010 D3): three strings,
-/// positional. Whether `from` is granted is the host's to refuse.
+/// positional. Whether `from` is granted is the host's to refuse. Or the
+/// file's text itself, `saveFile(id, text=…, suggestedName=…)`, so
+/// exporting what is on screen is one press (x2apps notes #4): the names
+/// are `share`'s `text` and `showSaveFilePicker`'s `suggestedName`.
 fn save_file_args(
     args: &[Expr],
     scope: &Scope,
     shapes: &Shapes,
     span: Span,
 ) -> Result<(), TypeError> {
-    if args.len() != 3 || args.iter().any(|a| matches!(a, Expr::NamedArg(..))) {
+    let named = |want: &str| {
+        args.iter()
+            .filter(|a| matches!(a, Expr::NamedArg(n, ..) if n == want))
+            .count()
+    };
+    let positional = args
+        .iter()
+        .filter(|a| !matches!(a, Expr::NamedArg(..)))
+        .count();
+    let file = args.len() == 3 && positional == 3;
+    let text = args.len() == 3
+        && positional == 1
+        && named("text") == 1
+        && named("suggestedName") == 1
+        && !matches!(args[0], Expr::NamedArg(..));
+    if !file && !text {
         return err(
             "type-save-file-argument",
-            "`saveFile` takes three strings: `saveFile(\"export-file\", \"app:/data/export.json\", \"export.json\")`",
+            "`saveFile` takes three strings, `saveFile(\"export-file\", \"app:/data/export.json\", \"export.json\")`, or the text to save, `saveFile(\"export-file\", text=body, suggestedName=\"note.md\")`",
             span,
         );
     }
     for arg in args {
+        let arg = match arg {
+            Expr::NamedArg(_, value, _) => value.as_ref(),
+            arg => arg,
+        };
         let t = infer(arg, scope, shapes)?;
         if Ty::String.unify(&t).is_none() {
             return err(
@@ -1116,6 +1058,15 @@ pub(super) fn check_command(
     }
     if name == "scrollIntoView" {
         return into_view_args(args, scope, shapes, span);
+    }
+    if name == "fastSeek" || name == "load" {
+        return super::media::command_args(name, args, scope, shapes, span);
+    }
+    if name == "setSelectionRange" {
+        return crate::selection::selection_range_args(args, scope, shapes, span);
+    }
+    if matches!(name, "playSound" | "playSounds" | "stopSounds") {
+        return sounds::args(name, args, scope, shapes, span);
     }
     if name == "postMessage" {
         // The web's argument order, `postMessage(message, target)`: the target

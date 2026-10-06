@@ -97,6 +97,37 @@ struct Canvas2DState {
 let canvas2DSRGB = CGColorSpace(name: CGColorSpace.sRGB)!
 let canvas2DBitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
 
+/// A canvas's getContext settings (LLP 1100 D12a): `colorSpace:
+/// "display-p3"` and `colorType: "float16"`.
+struct Canvas2DSpace: Equatable {
+    var p3 = false, float16 = false
+    static let srgb8 = Canvas2DSpace()
+    private static let p3Space = CGColorSpace(name: CGColorSpace.displayP3)!
+    private static let extended = (srgb: CGColorSpace(name: CGColorSpace.extendedSRGB)!, p3: CGColorSpace(name: CGColorSpace.extendedDisplayP3)!)
+
+    /// The space a list's colour and pixel bytes are in.
+    var space: CGColorSpace { p3 ? Canvas2DSpace.p3Space : canvas2DSRGB }
+
+    /// A zeroed bitmap; `float16` is half floats in the extended space.
+    func context(width: Int, height: Int) -> CGContext? {
+        guard float16 else {
+            return CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space, bitmapInfo: canvas2DBitmapInfo)
+        }
+        return CGContext(data: nil, width: width, height: height, bitsPerComponent: 16, bytesPerRow: 0,
+                         space: p3 ? Canvas2DSpace.extended.p3 : Canvas2DSpace.extended.srgb,
+                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.floatComponents.rawValue
+                             | CGBitmapInfo.byteOrder16Little.rawValue)
+    }
+
+    /// 8-bit RGBA bytes in this space (non-premultiplied, alpha last) as an image.
+    func image(_ bytes: [UInt8], width: Int, height: Int) -> CGImage? {
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4, space: space,
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: provider,
+                       decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+    }
+}
+
 /// What a replayer draws with beyond its list: the session's fonts and its
 /// decoded image handles (the presenter's `Canvas2DHost`).
 protocol Canvas2DEnv: AnyObject {
@@ -125,6 +156,7 @@ final class Canvas2DReplayer {
     var patterns: [UInt32: Canvas2DPattern] = [:]
     var imageSources: [UInt32: String] = [:]
     weak var env: Canvas2DEnv?
+    var space = Canvas2DSpace.srgb8
     /// Nothing has painted since the bitmap was made or last cleared whole,
     /// so `reset` has nothing to clear. A draw that starts with
     /// `ctx.reset()` (the idiom for a canvas that redraws) otherwise writes
@@ -132,13 +164,12 @@ final class Canvas2DReplayer {
     /// row's canvas replay at 3x (LLP 1056 D10).
     private var blank = true
 
-    convenience init(width: Int, height: Int, scale: Double, lifetime: UInt64, generation: UInt32) {
-        let context = width > 0 && height > 0
-            ? CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: canvas2DSRGB, bitmapInfo: canvas2DBitmapInfo)
-            : nil
+    convenience init(width: Int, height: Int, scale: Double, lifetime: UInt64, generation: UInt32, space: Canvas2DSpace = .srgb8) {
+        let context = width > 0 && height > 0 ? space.context(width: width, height: height) : nil
         // Flip once to the canvas's y-down space, then the device scale.
         let base = CGAffineTransform(a: CGFloat(scale), b: 0, c: 0, d: -CGFloat(scale), tx: 0, ty: CGFloat(height))
         self.init(context: context, base: base, width: width, height: height, lifetime: lifetime, generation: generation)
+        self.space = space
     }
 
     /// A replayer into `context`, whose user space `base` maps from canvas
@@ -161,7 +192,9 @@ final class Canvas2DReplayer {
     var scale: CGFloat { base.a }
 
     func color(_ n: [Double], _ i: Int) -> CGColor {
-        CGColor(srgbRed: n[i] / 255, green: n[i + 1] / 255, blue: n[i + 2] / 255, alpha: n[i + 3])
+        guard space.p3 else { return CGColor(srgbRed: n[i] / 255, green: n[i + 1] / 255, blue: n[i + 2] / 255, alpha: n[i + 3]) }
+        return CGColor(colorSpace: space.space, components: [n[i] / 255, n[i + 1] / 255, n[i + 2] / 255, n[i + 3]])
+            ?? CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1)
     }
 
     private func rect(_ n: [Double]) -> CGRect { CGRect(x: n[0], y: n[1], width: n[2], height: n[3]) }

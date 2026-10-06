@@ -4,10 +4,12 @@
 
 mod animation;
 mod arrange;
+mod colors;
 mod height;
 mod height_binding;
 mod holds;
 mod image;
+mod media_session;
 mod native_buttons;
 mod presence;
 mod svg;

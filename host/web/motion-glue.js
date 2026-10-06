@@ -5,15 +5,16 @@
 // validity and authored targets; this controller owns actual browser sampling.
 export function motionBytes(facts) {
   const {op,view=0,property='translate',token=0,x=0,y=0,now=0}=facts;
-  const reorder=['reorder-begin','reorder-preview','reorder-terminal','reorder-cancel','reorder-rebase','reorder-finish'].indexOf(op);
+  // 21 and 22 are a grouped list's `reorder-preview-into` and `reorder-step` (LLP 1094 D5).
+  const reorder=['reorder-begin','reorder-preview','reorder-terminal','reorder-cancel','reorder-rebase','reorder-finish','reorder-preview-into','reorder-step'].indexOf(op);
   if(reorder>=0) {
-    const rows=facts.rows??[];if(rows.length>4096)throw Error('too many reorder samples');
+    const rows=facts.rows??(facts.targetView!=null?[{key:facts.targetView,hold:0,value:[0,0]}]:[]);if(rows.length>4096)throw Error('too many reorder samples');
     const bytes=new Uint8Array(176+32*rows.length),d=new DataView(bytes.buffer);
     const u64=(at,value=0)=>{if(typeof value==='number'&&!Number.isSafeInteger(value))throw Error('unsafe reorder identity');
       const n=BigInt(value);if(n<0n||n>0xffffffffffffffffn)throw Error('invalid reorder identity');d.setBigUint64(at,n,true);};
     d.setUint32(0,3,true);d.setUint32(4,15+reorder,true);
     ['runtime','handleKey','listKey','wrapperKey','rootKey','rowEpoch','token','revision','scrollSequence'].forEach((k,i)=>u64(8+i*8,facts[k]));
-    d.setUint32(80,rows.length,true);
+    d.setUint32(80,rows.length,true);d.setUint32(84,facts.flags??0,true);
     ['scrollTop','portWidth','portHeight','rowWidth','totalExtent','contentY','x','y','vx','vy','now'].forEach((k,i)=>d.setFloat64(88+i*8,facts[k]??0,true));
     rows.forEach((r,i)=>{u64(176+i*32,r.key);u64(184+i*32,r.hold);d.setFloat64(192+i*32,r.value[0],true);d.setFloat64(200+i*32,r.value[1],true);});
     return bytes;
@@ -95,7 +96,10 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   const cssProperty=(el,property)=>property==='scale'&&el?.style.getPropertyValue('--exact-press')?'--exact-scale':property;
   // CSS height clamps negative interpolated lengths. Keep every spring sample
   // and its timing; only its displayed length changes, not the engine curve.
-  const css=(property,value)=>property==='translate'?`${value[0]}px ${value[1]}px`:property==='rotate'?`${value[0]}deg`:property==='height'?`${Math.max(0,value[0])}px`:String(value[0]);
+  // A translate frame is `[x,y]` lengths, or `[x,y,px,py]` with percentages
+  // of the box, which the browser resolves (chess diary #4).
+  const axis=(l,p)=>p?(l?`calc(${l}px + ${p}%)`:`${p}%`):`${l}px`;
+  const css=(property,value)=>property==='translate'?`${axis(value[0],value[2])} ${axis(value[1],value[3])}`:property==='rotate'?`${value[0]}deg`:property==='height'?`${Math.max(0,value[0])}px`:String(value[0]);
   const call=(op,h,value=[0,0],t=now())=>request({op,view:h.view,property:h.property,token:h.token??0,x:value[0],y:value[1],now:t});
   const local=h=>h && h.generation===generation() && views.get(h.view)===h.el && h.el.isConnected && held.get(key(h.view,h.property))===h;
   const eligible=el=>el?.isConnected&&!el.closest('[disabled]')&&!el.matches(':disabled')&&!inert(el)&&el.getClientRects().length>0&&getComputedStyle(el).visibility==='visible';
@@ -954,8 +958,11 @@ export function motionController({views,now,generation,request,applyBatch,inert,
 }
 
 // One physical Arrange contact and its settling source; Common owns logical keys.
-export function arrangeController({views,collections,motion,request,applyBatch,now,generation,inert,ready=()=>true}) {
-  const bindings=new Map();let current=null,edge=null,edgeTime=null,busy=false,pending=null;
+// A grip whose list has a `reorderGroup` is `group-glue.js`'s (LLP 1094): the
+// ghost, the target lists, the hold and the keys; `grouped` is its controller.
+export function arrangeController({views,collections,motion,request,applyBatch,now,generation,inert,ready=()=>true,grouped=null,root=null,viewOf}) {
+  const bindings=new Map(),groups=new Map();let current=null,edge=null,edgeTime=null,busy=false,pending=null;
+  const group=grouped?.({views,collections,request,applyBatch,now,ready,inert,root,viewOf,gripOf:view=>[...bindings.values()].find(b=>b.wrapper===view)?.el});
   const live=b=>b&&b.generation===generation()&&views.get(b.id)===b.el&&views.get(b.wrapper)===b.row&&b.el.isConnected;
   function mapping(b,y) {
     if(!live(b)||b.el.closest('[disabled]')||inert(b.el)||!b.el.getClientRects().length)return null;
@@ -1045,6 +1052,7 @@ export function arrangeController({views,collections,motion,request,applyBatch,n
   }
   function down(b,e) {
     if(!ready()||!e.isPrimary||e.button!==0||e.target.closest('input,textarea,select,[contenteditable]'))return;
+    if(group&&groups.get(b.id)?.group){group.down(b,e,groups.get(b.id));return;}
     let reservation=null,returning=current?.phase==='settling'&&current.binding.wrapper===b.wrapper?current:null;
     // A tap or horizontal refusal is not a takeover. Keep the old Terminal
     // and its return/pin owner until replacement recognition actually succeeds.
@@ -1106,7 +1114,7 @@ export function arrangeController({views,collections,motion,request,applyBatch,n
     for(const name of ['pointerup','pointercancel','lostpointercapture'])on(b.el.ownerDocument,name,up);
   }
   function destroy(id) {
-    const b=bindings.get(id);if(!b)return;
+    const b=bindings.get(id);if(!b)return;group?.release(b);
     b.el.removeEventListener('pointerdown',b.down);b.el.style.touchAction=b.touch;bindings.delete(id);
     if(pending?.handle===id)pending();
     // The completed batch supplies the terminal frame and surviving source
@@ -1121,10 +1129,15 @@ export function arrangeController({views,collections,motion,request,applyBatch,n
       const b={...op,el:views.get(op.id),row:views.get(op.wrapper),generation:generation()};
       b.touch=b.el.style.touchAction;b.el.style.touchAction='none';b.down=e=>down(b,e);
       bindings.set(op.id,b);b.el.addEventListener('pointerdown',b.down);
+      if(groups.has(op.id))group?.bind(b,groups.get(op.id));
     },
+    // A grip's group and whether the keys may drive it (LLP 1094 D1, D9).
+    group(op) {groups.set(op.id,op);const b=bindings.get(op.id);if(b)group?.bind(b,op);},
     destroy,
-    state(op) {if(current&&op.runtime===current.binding.runtime&&op.token===current.token){current.frame=op.frame;current.terminal=op.terminal;}},
+    state(op) {if(op.grouped){group?.state(op);return;}
+      if(current&&op.runtime===current.binding.runtime&&op.token===current.token){current.frame=op.frame;current.terminal=op.terminal;}},
     commit() {
+      group?.commit();
       if(busy||collections.reporting()||!current)return;const d=current;busy=true;let invalid=false;
       try{if(d.phase==='active'){
         const m=d.terminal?null:mapping(d.binding,d.y);invalid=m===null;
@@ -1135,6 +1148,7 @@ export function arrangeController({views,collections,motion,request,applyBatch,n
       if(d.phase==='settling'&&motion.reorderSettled(d.binding.wrapper))finish(d);
     },
     reset() {
+      group?.reset();
       if(current){if(current.phase==='active')terminal(current,true);if(current?.phase==='settling')finish(current);}
       if(current){clearContact(current);collections.releaseRetainedInteraction(current.lease);motion.raiseReorder(current.binding.wrapper,false);current=null;}
       for(const b of bindings.values()){b.el.removeEventListener('pointerdown',b.down);b.el.style.touchAction=b.touch;}

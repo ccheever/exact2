@@ -8,10 +8,10 @@ use std::{
     path::PathBuf,
     sync::atomic::{AtomicUsize, Ordering},
 };
-const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/storage.hbc"));
-const APP: &str = "dev.exact.storage-test";
-const GRANTS: &str = "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
-fn plan() -> Plan {
+pub(crate) const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/storage.hbc"));
+pub(crate) const APP: &str = "dev.exact.storage-test";
+pub(crate) const GRANTS: &str = "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
+pub(crate) fn plan() -> Plan {
     contract::compile(
         r#"
 shape Result
@@ -37,9 +37,9 @@ component App
     )
     .unwrap()
 }
-struct Root(PathBuf);
+pub(crate) struct Root(pub(crate) PathBuf);
 impl Root {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         Self(std::env::temp_dir().join(format!(
             "exact-storage-{}-{}",
@@ -47,7 +47,7 @@ impl Root {
             NEXT.fetch_add(1, Ordering::Relaxed)
         )))
     }
-    fn module(&self) -> Module {
+    pub(crate) fn module(&self) -> Module {
         let mut m = Module::new(HBC.to_vec(), APP, GRANTS);
         // Functional fixtures carry no wall-clock budget; it is not a stable
         // gate on a shared test machine.
@@ -67,39 +67,32 @@ impl Drop for Root {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
-fn args(op: &str, value: &str) -> Vec<Value> {
+pub(crate) fn args(op: &str, value: &str) -> Vec<Value> {
     vec![Value::str(op), Value::str(value)]
 }
-fn text(v: Value) -> String {
+pub(crate) fn text(v: Value) -> String {
     match v {
         Value::Record(fields) => fields[0].as_str().unwrap().into(),
         other => panic!("{other:?}"),
     }
 }
-fn response(body: &str) -> Outcome {
+pub(crate) fn response(body: &str) -> Outcome {
     Outcome::Response(Response {
         status: 200,
         headers: vec![],
         body: body.as_bytes().to_vec(),
     })
 }
-fn finish(m: &mut Module, s: &mut Store, a: &[Value], mut answer: Answer) -> String {
-    for _ in 0..100 {
-        match answer {
-            Answer::Now(v) => return text(v),
-            Answer::Later(request) => {
-                let token = request
-                    .continuation
-                    .expect("storage never invents an HTTP request");
-                let work = m.continuation(token).expect("live continuation");
-                let outcome = std::thread::spawn(work).join().unwrap();
-                answer = m.parse(s, "work", a, outcome).unwrap();
-            }
-        }
-    }
-    panic!("storage did not settle")
+/// One answer to its end, then the background work it left, as a native
+/// host runs both (LLP 1097 D5).
+pub(crate) fn finish(m: &mut Module, s: &mut Store, a: &[Value], answer: Answer) -> String {
+    let mut done = super::background::drive(m, s, vec![(a.to_vec(), answer)], |_, _| {
+        panic!("storage never invents an HTTP request")
+    });
+    assert_eq!(done.len(), 1, "storage did not settle");
+    done.remove(0)
 }
-fn call(m: &mut Module, s: &mut Store, op: &str, value: &str) -> String {
+pub(crate) fn call(m: &mut Module, s: &mut Store, op: &str, value: &str) -> String {
     let a = args(op, value);
     let answer = m.answer(s, "work", &a).unwrap();
     finish(m, s, &a, answer)
@@ -309,35 +302,17 @@ fn storage_then_fetch_then_storage_preserves_each_answer_context() {
     let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
     let aa = args("fetch", "a");
     let bb = args("fetch", "b");
-    let mut pending = vec![
+    let pending = vec![
         (aa.clone(), m.answer(&mut s, "work", &aa).unwrap()),
         (bb.clone(), m.answer(&mut s, "work", &bb).unwrap()),
     ];
-    let mut done = vec![];
-    for _ in 0..100 {
-        if pending.is_empty() {
-            break;
-        }
-        let (a, answer) = pending.remove(0);
-        match answer {
-            Answer::Now(v) => done.push(text(v)),
-            Answer::Later(request) => {
-                let outcome = if let Some(token) = request.continuation {
-                    std::thread::spawn(m.continuation(token).unwrap())
-                        .join()
-                        .unwrap()
-                } else {
-                    assert_eq!(
-                        request.url,
-                        format!("https://example.test/{}", a[1].as_str().unwrap())
-                    );
-                    response("reply")
-                };
-                let next = m.parse(&mut s, "work", &a, outcome).unwrap();
-                pending.push((a, next));
-            }
-        }
-    }
+    let mut done = super::background::drive(&mut m, &mut s, pending, |a, request| {
+        assert_eq!(
+            request.url,
+            format!("https://example.test/{}", a[1].as_str().unwrap())
+        );
+        response("reply")
+    });
     done.sort();
     assert_eq!(done, vec!["a:reply", "b:reply"]);
     assert!(matches!(s.get("session"), Some("a" | "b")));
@@ -345,8 +320,9 @@ fn storage_then_fetch_then_storage_preserves_each_answer_context() {
 
 /// Storage an answer starts and does not await still lands (kanban F22): a
 /// write made before a value returned at once, and one queued behind the
-/// module's storage chain and begun after the answer's own promise resolved.
-/// The browser runs both to their end; so does Hermes, before the reply.
+/// module's storage chain and begun after the answer's own promise resolved,
+/// or after a value it gave at once (drums R10). The browser runs each to its
+/// end; so does Hermes, after the reply, as background work (LLP 1097).
 #[test]
 fn storage_an_answer_does_not_await_still_lands() {
     let root = Root::new();
@@ -361,6 +337,16 @@ fn storage_an_answer_does_not_await_still_lands() {
         "second"
     );
     assert_eq!(call(&mut m, &mut s, "read-at", "queued/file"), "second");
+    // A save chained behind a resolved promise, the value given at once:
+    // the write begins in the checkpoint after the call (drums R10).
+    assert_eq!(call(&mut m, &mut s, "deferred", "third"), "answered");
+    assert_eq!(call(&mut m, &mut s, "deferred", "fourth"), "answered");
+    assert_eq!(
+        std::fs::read_to_string(root.0.join("data/deferred")).unwrap(),
+        "fourth"
+    );
+    assert_eq!(call(&mut m, &mut s, "queued-sync", "third"), "answered");
+    assert_eq!(call(&mut m, &mut s, "read-at", "queued/file"), "third");
 }
 
 /// An app that serializes its storage work through one promise chain starts the
@@ -374,37 +360,20 @@ fn storage_chained_across_answers_settles_each_answer() {
     let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
     let aa = args("serial", "a");
     let bb = args("serial", "b");
-    let mut pending = vec![
+    let pending = vec![
         (aa.clone(), m.answer(&mut s, "work", &aa).unwrap()),
         (bb.clone(), m.answer(&mut s, "work", &bb).unwrap()),
     ];
-    let mut done = vec![];
-    for _ in 0..100 {
-        if pending.is_empty() {
-            break;
-        }
-        let (a, answer) = pending.remove(0);
-        match answer {
-            Answer::Now(v) => done.push(text(v)),
-            Answer::Later(request) => {
-                let token = request.continuation.expect("storage continuation");
-                let outcome = std::thread::spawn(m.continuation(token).unwrap())
-                    .join()
-                    .unwrap();
-                let next = m.parse(&mut s, "work", &a, outcome).unwrap();
-                pending.push((a, next));
-            }
-        }
-    }
+    let mut done = super::background::drive(&mut m, &mut s, pending, |_, _| unreachable!());
     done.sort();
     assert_eq!(done, vec!["a:1", "b:2"], "both answers settle, in order");
 }
 
-/// The same, through the runner and the host's dispatch: the second resource's
-/// work is held while the first's storage turn is open, and released by the
-/// commit that ends it, as a native host pumps them.
+/// The same, through the runner and the host's dispatch: the second resource
+/// begins at once and, chained behind the first's work, waits with the module
+/// (held at dispatch) until a delivery settles it, as a native host pumps them.
 #[test]
-fn runner_holds_an_answer_behind_an_open_storage_turn() {
+fn runner_holds_an_answer_chained_behind_another_answers_storage() {
     let root = Root::new();
     let plan = contract::compile(
         r#"
@@ -467,7 +436,7 @@ component App
             work.push((ticket, w));
         }
     }
-    assert!(ever_held, "the second answer waited for the first's turn");
+    assert!(ever_held, "the second answer waited for the first's work");
     assert!(!runner.has_pending(), "both resources settled");
     let read = |id: &str| {
         let key = runner.kernel().find_by_test_id(id)[0];
@@ -943,7 +912,12 @@ component App
     emit(&mut runner, &mut held, &mut work);
     runner.act("search", vec![Value::str("c")]).unwrap();
     settle(&mut runner, &mut held, &mut work);
-    assert_eq!(read(&runner, "listing"), "c:1");
+    assert_eq!(
+        read(&runner, "listing"),
+        "c:1",
+        "{:#?}",
+        runner.journal().collect::<Vec<_>>()
+    );
     runner.act("search", vec![Value::str("d")]).unwrap();
     emit(&mut runner, &mut held, &mut work);
     step(&mut runner, &mut held, &mut work);
@@ -974,23 +948,47 @@ component App
     settle(&mut runner, &mut held, &mut work);
     assert_eq!(read(&runner, "peeked"), "h:peeked");
     assert_eq!(read(&runner, "listing"), "h:2");
+    // Both mutations are sent while a listing owns a storage turn. Replacing
+    // the first reply must not cancel the insert before its first JS step.
+    runner.act("search", vec![Value::str("i")]).unwrap();
+    emit(&mut runner, &mut held, &mut work);
+    for value in ["first-queued", "second-queued"] {
+        runner
+            .act("save", vec![Value::str("serial"), Value::str(value)])
+            .unwrap();
+        emit(&mut runner, &mut held, &mut work);
+    }
+    settle(&mut runner, &mut held, &mut work);
+    assert_eq!(
+        read(&runner, "saved"),
+        "second-queued:4",
+        "{:?}",
+        runner.journal().collect::<Vec<_>>()
+    );
+    assert_eq!(read(&runner, "listing"), "i:4");
+
     assert!(!runner.has_pending(), "everything settled");
+    // `peek` reads a file that may not be there and says so: its failed
+    // read is journaled (LLP 1097 D8), and nothing else failed.
     let refusals: Vec<&str> = runner
         .journal()
         .filter(|l| l.contains("pending on nothing") || l.contains("failed"))
+        .filter(|l| !l.contains("storage failed: readFile app:/data/note: ENOENT"))
         .collect();
     assert!(refusals.is_empty(), "{refusals:#?}");
 }
 
 /// A re-read the runner dropped before handing it out (files diary F18: a
-/// mutation refreshing a folder's preview mid-walk) is forgotten here too: a
-/// deferred call left parked under the walk's key took the walk's next
-/// storage step, so the walk's turn never ended and every answer behind it
-/// waited forever. A composer above (the mixed source) cannot name the
-/// walk's dispatched token to `forgotten`, so only `discard` drops it.
+/// mutation refreshing a folder's preview mid-walk) is forgotten here too.
+/// Left parked under the walk's key, it took the walk's next storage step,
+/// so the walk's turn never ended and every answer behind it waited forever.
+/// A composer above (the mixed source) cannot name the walk's dispatched
+/// token to `forgotten`, so only `discard` drops it. LLP 1097 begins the
+/// re-read instead of deferring it; `discard` still drops that call, and
+/// the steps it already issued run as a let-go without becoming the walk's.
 #[test]
 fn a_discarded_re_read_leaves_the_read_in_flight_its_steps() {
-    use exact_runner::Target;
+    use exact_runner::{Dispatch, Target, Work};
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
@@ -998,13 +996,13 @@ fn a_discarded_re_read_leaves_the_read_in_flight_its_steps() {
     let target = Target::Resource(0);
     let a = args("walk", "x");
     let mut answer = m.answer_for(target, &mut s, "work", &a).unwrap();
-    // The re-read arrives while the walk is between storage steps: deferred
-    // behind its turn, then dropped by the runner.
+    // The re-read arrives while the walk is between storage steps, then the
+    // runner drops it before handing it out.
     let Answer::Later(again) = m.answer_for(target, &mut s, "work", &a).unwrap() else {
         panic!("a re-read behind an open turn waits")
     };
-    m.discard(again.continuation.expect("a deferred continuation"));
-    for _ in 0..100 {
+    m.discard(again.continuation.expect("the re-read's continuation"));
+    for _ in 0..200 {
         match answer {
             Answer::Now(v) => {
                 assert_eq!(text(v), "x:24", "the walk ends with its own steps");
@@ -1013,9 +1011,38 @@ fn a_discarded_re_read_leaves_the_read_in_flight_its_steps() {
             }
             Answer::Later(request) => {
                 let token = request.continuation.expect("storage continuation");
-                let work = m.continuation(token).expect("the walk's own step");
-                let outcome = std::thread::spawn(work).join().unwrap();
-                answer = m.parse_for(target, &mut s, "work", &a, outcome).unwrap();
+                // Queued behind the discarded re-read's issued step, the walk
+                // waits and is asked again once that step is delivered
+                // (LLP 1097 D3). `continuation` of that wait is the worker
+                // refusal; a host dispatches it.
+                answer = match m.dispatch(token, &s) {
+                    Dispatch::Run(Work::Now(work)) => {
+                        let outcome = std::thread::spawn(work).join().unwrap();
+                        m.parse_for(target, &mut s, "work", &a, outcome).unwrap()
+                    }
+                    Dispatch::Held => {
+                        let mut next = None;
+                        for _ in 0..8 {
+                            let _ = super::background::rounds(&mut m, &s);
+                            for (released, dispatch) in m.release(&s) {
+                                if released != token {
+                                    panic!("only the walk is waiting");
+                                }
+                                let Dispatch::Run(Work::Now(work)) = dispatch else {
+                                    panic!("released work runs");
+                                };
+                                let outcome = std::thread::spawn(work).join().unwrap();
+                                next =
+                                    Some(m.parse_for(target, &mut s, "work", &a, outcome).unwrap());
+                            }
+                            if next.is_some() {
+                                break;
+                            }
+                        }
+                        next.expect("the walk was asked again")
+                    }
+                    _ => panic!("the walk's step runs or is held"),
+                };
             }
         }
     }
@@ -1077,4 +1104,300 @@ fn a_document_the_person_chose_is_storage_without_app_directories() {
     );
     assert!(!folder.join("new.txt").exists());
     exact_data::documents::forget(9101);
+}
+
+/// No later UI request is needed to finish writes these answers already
+/// issued. LLP 1097 D4.5 deletes the answer-to-answer deferral, so every
+/// answer begins at once and the discarded send has already issued: its
+/// write lands too. It is not an unstarted deferred mutation. Those
+/// answers' Store writes do not commit. A later live mutation does.
+#[test]
+fn retired_deferred_writes_finish_without_another_answer() {
+    use exact_runner::Target;
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut store = Store::new(GRANTS, [("session".into(), "original".into())]);
+    assert!(matches!(
+        m.answer_for(
+            Target::Resource(0),
+            &mut store,
+            "work",
+            &args("count", "open")
+        )
+        .unwrap(),
+        Answer::Later(_)
+    ));
+    for value in ["first", "second"] {
+        assert!(matches!(
+            m.answer_for(
+                Target::Mutation(0),
+                &mut store,
+                "work",
+                &args("file-kept", value)
+            )
+            .unwrap(),
+            Answer::Later(_)
+        ));
+    }
+    let Answer::Later(discarded) = m
+        .answer_for(
+            Target::Mutation(1),
+            &mut store,
+            "work",
+            &args("file", "uncommitted"),
+        )
+        .unwrap()
+    else {
+        panic!("queued")
+    };
+    m.discard(discarded.continuation.unwrap());
+    m.forgotten(&store, &[]);
+    assert_eq!(m.in_flight(), 0);
+    assert_eq!(
+        std::fs::read_to_string(root.0.join("data/note")).unwrap(),
+        "uncommitted",
+        "an issued write still lands after its answer is discarded (LLP 1097)"
+    );
+    assert_eq!(store.get("session"), Some("original"));
+    assert!(m.take_logs().is_empty());
+    // A later live mutation still commits its Store write normally.
+    assert_eq!(call(&mut m, &mut store, "file-kept", "live"), "live");
+    assert_eq!(store.get("session"), Some("live"));
+}
+
+/// Issued writes keep queue order beside the live answers, and the
+/// superseded answer's Store write does not commit. LLP 1097 D4.5 deletes
+/// the answer-to-answer deferral, so these answers interleave at their
+/// awaits: each `ordered` read is issued before any of the writes, each
+/// write therefore stores only its own letter, and the letters land A, then
+/// B, then C. The file is not the old deferral's `ABC`. Unload finishes
+/// those issued writes (D10); it does not drop them.
+#[test]
+fn retired_writes_keep_submission_order_beside_live_targets_and_do_not_cross_unload() {
+    use exact_runner::{Dispatch, InFlight, Target, Work};
+    use std::collections::{HashMap, VecDeque};
+    #[derive(Debug)]
+    struct Snap {
+        text: String,
+        session: Option<String>,
+        done: u64,
+        failed: u64,
+        file: String,
+    }
+    /// The three answers the runner kept, in submission order, as a host
+    /// drives them: dispatch, hold a waiter until a delivery releases it,
+    /// and run background rounds between.
+    fn drive(
+        m: &mut Module,
+        s: &mut Store,
+        ordered: &std::path::Path,
+        pending_in: Vec<(Target, Vec<Value>, Answer)>,
+    ) -> Vec<Snap> {
+        let mut pending: VecDeque<_> = pending_in.into();
+        let mut held: HashMap<u64, (Target, Vec<Value>)> = HashMap::new();
+        let mut done = Vec::new();
+        for _ in 0..400 {
+            let _ = super::background::rounds(m, s);
+            for (token, dispatch) in m.release(s) {
+                let Some((target, args)) = held.remove(&token) else {
+                    continue;
+                };
+                let Dispatch::Run(Work::Now(work)) = dispatch else {
+                    panic!("released work runs");
+                };
+                let outcome = work();
+                let next = m.parse_for(target, s, "work", &args, outcome).unwrap();
+                pending.push_back((target, args, next));
+            }
+            let Some((target, args, answer)) = pending.pop_front() else {
+                if held.is_empty() {
+                    return done;
+                }
+                continue;
+            };
+            match answer {
+                Answer::Now(v) => {
+                    let state = m.background_state().unwrap();
+                    done.push(Snap {
+                        text: text(v),
+                        session: s.get("session").map(str::to_string),
+                        done: state.done,
+                        failed: state.failed,
+                        file: std::fs::read_to_string(ordered).unwrap_or_default(),
+                    });
+                }
+                Answer::Later(request) => {
+                    let token = request.continuation.expect("continuation");
+                    match m.dispatch(token, s) {
+                        Dispatch::Run(Work::Now(work)) => {
+                            let outcome = work();
+                            let next = m.parse_for(target, s, "work", &args, outcome).unwrap();
+                            pending.push_back((target, args, next));
+                        }
+                        Dispatch::Held => {
+                            held.insert(token, (target, args));
+                        }
+                        _ => panic!("native storage work runs or is held"),
+                    }
+                }
+            }
+        }
+        panic!("did not finish");
+    }
+    for unload in [false, true] {
+        let root = Root::new();
+        let mut m = root.module();
+        m.activate().unwrap();
+        let mut s = Store::new(GRANTS, [("session".into(), "original".into())]);
+        let aa = args("ordered", "A");
+        let bb = args("ordered", "B");
+        let cc = args("ordered", "C");
+        let owner_args = args("file", "owner");
+        let owner = m
+            .answer_for(Target::Resource(0), &mut s, "work", &owner_args)
+            .unwrap();
+        let older = m
+            .answer_for(Target::Mutation(0), &mut s, "work", &aa)
+            .unwrap();
+        let _ = m
+            .answer_for(Target::Mutation(1), &mut s, "work", &bb)
+            .unwrap();
+        let newer = m
+            .answer_for(Target::Mutation(1), &mut s, "work", &cc)
+            .unwrap();
+        let token = |a: &Answer| match a {
+            Answer::Later(r) => r.continuation,
+            _ => None,
+        };
+        m.forgotten(
+            &s,
+            &[
+                InFlight {
+                    target: Target::Resource(0),
+                    source: "work",
+                    args: &owner_args,
+                    continuation: token(&owner),
+                },
+                InFlight {
+                    target: Target::Mutation(0),
+                    source: "work",
+                    args: &aa,
+                    continuation: token(&older),
+                },
+                InFlight {
+                    target: Target::Mutation(1),
+                    source: "work",
+                    args: &cc,
+                    continuation: token(&newer),
+                },
+            ],
+        );
+        assert_eq!(
+            m.in_flight(),
+            3,
+            "three live calls; LLP 1097 does not park the superseded send as a deferred answer"
+        );
+        let ordered = root.0.join("data/ordered");
+        if unload {
+            m.unload();
+            assert_eq!(m.in_flight(), 0);
+            // The superseded send had already issued its write. Unload
+            // finishes it (D10); the deleted deferral used to drop it, and
+            // the file was absent. The last issued write is C's.
+            assert_eq!(std::fs::read_to_string(&ordered).unwrap(), "C");
+            assert_eq!(
+                std::fs::read_to_string(root.0.join("data/note")).unwrap(),
+                "owner"
+            );
+            assert_eq!(s.get("session"), Some("original"));
+            m.activate().unwrap();
+            call(&mut m, &mut s, "file", "after reload");
+            assert_eq!(s.get("session"), Some("original"));
+        } else {
+            let trace = drive(
+                &mut m,
+                &mut s,
+                &ordered,
+                vec![
+                    (Target::Resource(0), owner_args, owner),
+                    (Target::Mutation(0), aa, older),
+                    (Target::Mutation(1), cc, newer),
+                ],
+            );
+            assert_eq!(trace.len(), 3, "{trace:?}");
+            assert_eq!(trace[0].text, "owner", "{trace:?}");
+            assert_eq!(trace[0].session.as_deref(), Some("original"), "{trace:?}");
+            // A's reply is delivered with its store. B's write has landed by
+            // then (done counts it) and B's store.set has not (session is
+            // still A's). C's write is still queued.
+            assert_eq!(trace[1].text, "A", "{trace:?}");
+            assert_eq!(trace[1].session.as_deref(), Some("A"), "{trace:?}");
+            assert_eq!((trace[1].done, trace[1].failed), (4, 3), "{trace:?}");
+            assert_eq!(trace[2].text, "C", "{trace:?}");
+            assert_eq!(trace[2].session.as_deref(), Some("C"), "{trace:?}");
+            assert_eq!((trace[2].done, trace[2].failed), (5, 3), "{trace:?}");
+            assert_eq!(trace[2].file, "C", "{trace:?}");
+            assert_eq!(s.get("session"), Some("C"));
+        }
+    }
+}
+
+/// A forgotten answer waiting on another call does not own that call's
+/// storage turn. Its cleanup must leave the live answer's Store installed.
+#[test]
+fn forgetting_a_shared_waiter_keeps_the_live_answers_store_write() {
+    use exact_runner::{InFlight, Target};
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut store = Store::new(GRANTS, [("session".into(), "original".into())]);
+    let target = Target::Resource(0);
+    let a = args("shared-live", "live-value");
+    assert!(matches!(
+        m.answer_for(target, &mut store, "work", &a).unwrap(),
+        Answer::Later(_)
+    ));
+    assert!(matches!(
+        m.answer_for(
+            Target::Resource(1),
+            &mut store,
+            "work",
+            &args("shared-wait", "")
+        )
+        .unwrap(),
+        Answer::Later(_)
+    ));
+    let mut answer = m
+        .parse_for(target, &mut store, "work", &a, response(""))
+        .unwrap();
+    let Answer::Later(request) = &answer else {
+        panic!("the live answer owns a storage continuation")
+    };
+    m.forgotten(
+        &store,
+        &[InFlight {
+            target,
+            source: "work",
+            args: &a,
+            continuation: request.continuation,
+        }],
+    );
+    for _ in 0..100 {
+        match answer {
+            Answer::Now(value) => {
+                assert_eq!(text(value), "live-value");
+                assert_eq!(store.get("session"), Some("live-value"));
+                assert_eq!(std::fs::read(root.0.join("data/shared")).unwrap(), [1]);
+                return;
+            }
+            Answer::Later(request) => {
+                let outcome = m.continuation(request.continuation.unwrap()).unwrap()();
+                answer = m
+                    .parse_for(target, &mut store, "work", &a, outcome)
+                    .unwrap();
+            }
+        }
+    }
+    panic!("live answer did not finish");
 }

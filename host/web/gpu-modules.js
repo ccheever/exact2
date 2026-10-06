@@ -97,6 +97,7 @@ const router = {
   drainRecords: () => each("drainRecords"),
   layout: () => each("layout"),
   schedule: () => each("schedule"),
+  live: on => [...hosts.values()].flatMap(host => host.live?.(on) ?? []),
   beforeStyle: el => each("beforeStyle", el),
   afterStyle: el => each("afterStyle", el),
 };

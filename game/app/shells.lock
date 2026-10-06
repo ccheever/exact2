@@ -1000,6 +1000,7 @@ name = "exact-game-shells"
 version = "0.1.0"
 dependencies = [
  "exact-apple",
+ "exact-data",
  "exact-data-host",
  "exact-game",
  "exact-game-app",

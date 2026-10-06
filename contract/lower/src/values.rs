@@ -131,7 +131,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         ),
         StyleValueError::AutoNotAdmitted { .. } => "`auto` is not admitted here".into(),
         StyleValueError::OutOfRange { .. } => "out of the row's range".into(),
-        StyleValueError::BadColor { .. } => "a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, `lab()`, `oklch()`, a named colour, `transparent`, `light-dark(a, b)` of two, a role (`\"secondary-label\"`, `\"CanvasText\"`: LLP 1095), or `platform-color(ios <name>Color, …, <fallback>)` written whole as a string literal".into(),
+        StyleValueError::BadColor { .. } => "a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `transparent`, or one in its own space: `color(display-p3 1 0 0)`, `oklch()`, `oklab()`, `lab()`, `lch()` (LLP 1100) — `light-dark(a, b)` of two, a role (`\"secondary-label\"`, `\"CanvasText\"`: LLP 1095), or `platform-color(ios <name>Color, …, <fallback>)` written whole as a string literal".into(),
         StyleValueError::BadShapeOutside { .. } => "expected none, circle(), ellipse(), inset() with one round radius, or polygon() with at most 64 vertices; lengths are points/px or percentages".into(),
         StyleValueError::BadClipPath { .. } => "expected none or path() with explicit absolute M/L/Q/C/Z commands and separated finite coordinates".into(),
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
@@ -420,11 +420,8 @@ fn builds_platform_color(e: &Expr) -> bool {
         Expr::Let { value, body, .. } => {
             builds_platform_color(value) || builds_platform_color(body)
         }
-        Expr::Number(..)
-        | Expr::Bool(..)
-        | Expr::None(_)
-        | Expr::EmptyList(_)
-        | Expr::Ident(..) => false,
+        Expr::List(items, _) => items.iter().any(builds_platform_color),
+        Expr::Number(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => false,
     }
 }
 
@@ -618,9 +615,34 @@ pub(crate) fn check_style_value(
             {
                 return err("lower-attr-value", format!("`text-indent=\"{v}\"`: exact2 implements a length (a number of pixels, or `rem` or `em`; negative hangs the first line); a percentage of the containing block and the `hanging` and `each-line` keywords are not implemented. For a hanging indent write a negative length with the same `padding-left`"), span);
             }
+            // @ref LLP 1093 §1 — each refused by what it would need.
+            if let Some(why) = multicol_value(rows, v.trim()) {
+                return err(
+                    "lower-attr-value",
+                    format!("`{}=\"{v}\"`: {why}", a.name),
+                    span,
+                );
+            }
+            // @ref LLP 1034 §8: `light` or `dark`. CSS's `normal` means the
+            // page's schemes, not the parent's, and `light dark` and `only`
+            // ask a browser to choose: none is implemented; leaving the
+            // attribute off follows the surrounding scheme.
+            if rows.contains(&StyleId::ColorScheme) && !matches!(v.trim(), "light" | "dark") {
+                return err("lower-attr-value", format!("`color-scheme=\"{v}\"`: exact2 implements `light` and `dark` on a subtree (LLP 1034 §8); leave it off to follow the surrounding scheme. CSS's `normal`, `light dark` and `only` are not implemented"), span);
+            }
             if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
                 return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);
             }
+        }
+        // @ref LLP 1093 D4 — a positive integer, as CSS says.
+        if (rows.contains(&StyleId::Widows) || rows.contains(&StyleId::Orphans))
+            && numeric_literal(value).is_some_and(|n| n < 1.0)
+        {
+            return err(
+                "lower-attr-value",
+                format!("`{}` is a positive integer", a.name),
+                span,
+            );
         }
         // @ref LLP 1061 D1 — a press that makes a node vanish or flip is a
         // typo, not a feel.
@@ -711,6 +733,29 @@ pub(crate) fn check_style_value(
                                 .map(|n| format!("; write `{}={n}` (a number is pixels)", a.name)),
                             _ => None,
                         };
+                        // A viewport-pinned box (authoring bench, t6-todo-more).
+                        let hint = pixels.or_else(|| {
+                            (a.name == "position"
+                                && matches!(value, Expr::Str(t, _) if t.trim() == "fixed"))
+                            .then(|| {
+                                "; `fixed` is not a row (LLP 1001): pin a box to the viewport \
+                                 with `absolute`, directly inside a viewport-sized root that \
+                                 does not scroll (its content scrolls in a `scroll` beside it)"
+                                    .to_string()
+                            })
+                        });
+                        // CSS's initial `none` on a maximum (r30 t4-kanban).
+                        let hint = hint.or_else(|| {
+                            (matches!(a.name.as_str(), "max-width" | "max-height")
+                                && matches!(value, Expr::Str(t, _) if t.trim() == "none"))
+                            .then(|| {
+                                format!(
+                                    "; no limit is the default, so leave `{}` out \
+                                     (an explicit no-limit is `auto` here)",
+                                    a.name
+                                )
+                            })
+                        });
                         return err(
                             "lower-attr-value",
                             format!(
@@ -719,7 +764,7 @@ pub(crate) fn check_style_value(
                                 literal_text(value),
                                 a.name,
                                 named(&e, &v).map_or_else(|| describe(&e), String::from),
-                                pixels.unwrap_or_default()
+                                hint.unwrap_or_default()
                             ),
                             span,
                         );
@@ -803,6 +848,10 @@ pub(crate) fn aria_words(prop: PropId) -> Option<(&'static str, &'static [&'stat
             "aria-haspopup",
             &["true", "false", "menu", "listbox", "tree", "grid", "dialog"],
         ),
+        PropId::AccessibilityCurrent => (
+            "aria-current",
+            &["true", "false", "page", "step", "location", "date", "time"],
+        ),
         _ => return None,
     })
 }
@@ -836,6 +885,9 @@ pub(crate) fn check_prop_value(
             "`target` takes \"_blank\" or \"_self\"",
             span,
         );
+    }
+    if prop == PropId::FocusGuide && matches!(value, Expr::Str(s, _) if s != "auto") {
+        return err("lower-attr-value", "`focusGuide` takes \"auto\"", span);
     }
     if prop == PropId::AccessibilityLive
         && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "off" | "polite" | "assertive"))
@@ -1141,4 +1193,44 @@ pub(crate) fn bounded_column(tag: &str, attrs: &[Attr], inherited: bool) -> bool
             matches!(a.name.as_str(), "height" | "max-height")
                 && !matches!(&a.value, Expr::Str(s, _) if s == "auto")
         }) || shrinking_scroll(attrs, inherited))
+}
+
+/// Why a multi-column or break value is refused (LLP 1093 §1), if it is.
+fn multicol_value(rows: &[StyleId], v: &str) -> Option<&'static str> {
+    let has = |row| rows.contains(&row);
+    if has(StyleId::ColumnRuleStyle)
+        && matches!(
+            v,
+            "dashed" | "dotted" | "double" | "groove" | "ridge" | "inset" | "outset"
+        )
+    {
+        return Some("the native hosts paint `none`, `hidden` and `solid` rules, as they paint borders; Chrome would paint this one and they would not");
+    }
+    if (has(StyleId::BreakBefore) || has(StyleId::BreakAfter))
+        && matches!(
+            v,
+            "page"
+                | "left"
+                | "right"
+                | "recto"
+                | "verso"
+                | "always"
+                | "all"
+                | "region"
+                | "avoid-page"
+                | "avoid-region"
+        )
+    {
+        return Some("is a page or region break, and exact2 fragments only into columns (pages and regions stay out, LLP 1093 §5); use `column`, `avoid-column`, `avoid` or `auto`");
+    }
+    if has(StyleId::BreakInside) && matches!(v, "avoid-page" | "avoid-region") {
+        return Some("is a page or region value, and exact2 fragments only into columns; use `avoid-column`, `avoid` or `auto`");
+    }
+    if has(StyleId::ColumnFill) && v == "balance-all" {
+        return Some("balances every fragment of paged media, which exact2 does not have; use `balance` or `auto`");
+    }
+    if has(StyleId::ColumnWidth) && v.ends_with('%') {
+        return Some("CSS `column-width` is a length or `auto`, never a percentage; use `column-count` to divide the width");
+    }
+    None
 }

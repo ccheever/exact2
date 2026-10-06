@@ -135,7 +135,7 @@ impl Em<'_> {
             // @ref LLP 1077 D8 — the `rotate` and `translate` attributes bind
             // these with the same value: the angle's and xy's declaration
             // writes the author's whole text.
-            StyleId::RotateAxis | StyleId::TranslateZ => {
+            StyleId::RotateAxis | StyleId::TranslateZ | StyleId::TranslatePercent => {
                 let pair = if id == StyleId::RotateAxis { StyleId::Rotate } else { StyleId::Translate };
                 if binding(pair).is_some_and(|o| plan.code(o.expr) == plan.code(b.expr)) {
                     return Ok(());
@@ -157,6 +157,13 @@ impl Em<'_> {
             StyleId::Perspective => one(
                 "perspective",
                 Some("v=>v==null?v:/^\\s*[+-]?(0+\\.?0*|\\.0+)(px)?\\s*$/i.test(v)?\"none\":typeof v===\"number\"?`${v}px`:v".into()),
+            ),
+            // @ref LLP 1093 §1 — the row's 0 is CSS `auto`, as css.rs writes
+            // it. `setProperty("column-count", "0")` does not stick, so the
+            // unit sample would journal the refusal and leave a class rule.
+            StyleId::ColumnCount => one(
+                "column-count",
+                Some("v=>v==null?v:typeof v===\"number\"?(v===0?\"auto\":v):v".into()),
             ),
             // A stack index: css.rs's declaration for each, by index.
             StyleId::FontFamily => {
@@ -519,6 +526,10 @@ impl Em<'_> {
         if attrs.iter().any(|(k, _)| k == "data-hook") {
             let _ = write!(self.out, "{}({e});", self.uses.rt("hk"));
         }
+        // A context menu's popover (LLP 1021 §5.1), named by a literal.
+        if attrs.iter().any(|(k, _)| k == "contextpopover") {
+            let _ = write!(self.out, "{}({e});", self.uses.rt("cp"));
+        }
     }
 
     /// A node's `data-*` words (LLP 1075.003 §3.3): one attribute per word,
@@ -551,9 +562,13 @@ pub(super) fn attributes(
                 }
             }
             // The app's own file (LLP 1069.002 D7): symbols.js shows it
-            // through an object URL; the browser has no `app:` scheme.
-            "src" if element == "img" && value.starts_with("app:/") => {
+            // through an object URL, media.js plays it (podcast F19); the
+            // browser has no `app:` scheme.
+            "src" if matches!(element, "img" | "video" | "audio") && value.starts_with("app:/") => {
                 attrs.push(("data-app-src".into(), value.clone()));
+            }
+            "poster" if element == "video" && value.starts_with("app:/") => {
+                attrs.push(("data-app-poster".into(), value.clone()));
             }
             "src" if element == "img" && value.starts_with("symbol:") => {
                 attrs.push((
@@ -656,5 +671,124 @@ mod tests {
                 null,
             ])
         );
+    }
+
+    /// A bound `column-count` of 0 is CSS `auto` (LLP 1093 §1), as css.rs
+    /// writes the row. The JS target must write that string: `setProperty`
+    /// rejects `"0"`, the inline declaration drops, a class rule stays, and
+    /// the journal records the refusal. Toggling 2 then 0 computes `auto`.
+    #[test]
+    fn a_bound_column_count_of_zero_computes_to_auto() {
+        let plan = contract::compile(
+            r#"component App
+  state n = 2
+  action auto
+    n = 0
+  view
+    view column-count=n testId="flow"
+      view
+"#,
+        )
+        .unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        let marker = "\"column-count\",\"";
+        let at = js
+            .find(marker)
+            .unwrap_or_else(|| panic!("no column-count write:\n{js}"));
+        let rest = &js[at + marker.len()..];
+        let (unit, after) = rest.split_once('"').expect("unit");
+        let map = after
+            .strip_prefix(",()=>(")
+            .and_then(|mapped| mapped.find(")((").map(|end| mapped[..end].to_string()));
+        let map_src = map.unwrap_or_else(|| "v=>v".into());
+        let script = format!(
+            "const map={map_src};const unit={unit:?};const write=v=>{{const m=map(v);return m==null?null:typeof m===\"number\"?m+unit:String(m)}};console.log(JSON.stringify([write(0),write(2),write(null)]))"
+        );
+        let bun = std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
+            .args(["-e", &script])
+            .output()
+            .expect("bun");
+        assert!(
+            bun.status.success(),
+            "{}",
+            String::from_utf8_lossy(&bun.stderr)
+        );
+        let written: serde_json::Value = serde_json::from_slice(&bun.stdout).unwrap();
+        assert_eq!(
+            written,
+            serde_json::json!(["auto", "2", null]),
+            "column-count write unit={unit:?} map={map_src}\n{js}"
+        );
+        let dir = std::env::temp_dir().join(format!("exact-column-count-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let page = dir.join("col.html");
+        let html = format!(
+            r#"<!doctype html><meta charset="utf-8"><style>#flow{{column-count:3;width:320px}}</style><div id="flow">column</div><pre id="out"></pre><script>
+const journal=[];
+function css(e,prop,unit,v){{const t=v==null?null:typeof v==="number"?v+unit:String(v);if(t==null){{e.style.removeProperty(prop);return}}e.style.removeProperty(prop);e.style.setProperty(prop,t);if(!e.style.getPropertyValue(prop))journal.push(`unset ${{prop}}: ${{JSON.stringify(v)}} is not a value it takes`)}}
+const map={map_src};const unit={unit:?};const flow=document.getElementById("flow");
+const apply=v=>css(flow,"column-count",unit,map(v));
+apply(2);const after2=getComputedStyle(flow).columnCount;const journal2=journal.slice();journal.length=0;
+apply(0);const after0=getComputedStyle(flow).columnCount;
+document.getElementById("out").textContent=JSON.stringify({{after2,after0,journal2,journal0:journal.slice(),inline:flow.style.getPropertyValue("column-count")}});
+</script>"#
+        );
+        std::fs::write(&page, html).unwrap();
+        let chrome = std::env::var("CHROME").unwrap_or_else(|_| {
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into()
+        });
+        // `--dump-dom` prints the page and then does not exit (a keychain
+        // lookup keeps the process up), so read until the result and stop it.
+        let mut child = std::process::Command::new(&chrome)
+            .args([
+                "--headless=new",
+                "--disable-gpu",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--virtual-time-budget=2000",
+                &format!("--user-data-dir={}", dir.join("profile").display()),
+                "--dump-dom",
+                &format!("file://{}", page.display()),
+            ])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap_or_else(|e| panic!("chrome ({chrome}): {e}"));
+        let mut stdout = child.stdout.take().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let mut tmp = [0u8; 8192];
+            loop {
+                match std::io::Read::read(&mut stdout, &mut tmp) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        buf.extend_from_slice(&tmp[..n]);
+                        if buf.windows(6).any(|w| w == b"</pre>") {
+                            break;
+                        }
+                    }
+                }
+            }
+            let _ = tx.send(buf);
+        });
+        let dumped = rx.recv_timeout(std::time::Duration::from_secs(20));
+        let _ = child.kill();
+        let _ = child.wait();
+        let dumped = dumped.unwrap_or_else(|_| panic!("chrome ({chrome}) dumped no DOM"));
+        let dom = String::from_utf8_lossy(&dumped);
+        let raw = dom
+            .split_once("<pre id=\"out\">")
+            .and_then(|(_, rest)| rest.split_once("</pre>"))
+            .map(|(body, _)| body)
+            .unwrap_or_else(|| panic!("no computed style in\n{dom}"));
+        let computed: serde_json::Value =
+            serde_json::from_str(&raw.replace("&quot;", "\"")).expect(raw);
+        assert_eq!(computed["after2"], "2", "{computed}");
+        assert_eq!(computed["after0"], "auto", "{computed}");
+        assert_eq!(computed["journal2"], serde_json::json!([]), "{computed}");
+        assert_eq!(computed["journal0"], serde_json::json!([]), "{computed}");
+        assert_eq!(computed["inline"], "auto", "{computed}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

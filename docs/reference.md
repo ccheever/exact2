@@ -257,8 +257,9 @@ A file chosen in the app's own picker (`showOpenFilePicker`,
 and becomes the window's document, as a routed one does. A path from the command line, from Finder, from ⌘O, or from a link inside
 a document all arrive at the same place: the app's `open-file` node
 (LLP 1033 D3). One handed over at launch arrives before first pixel, before
-app storage is ready: a send its `change` makes waits for storage and then runs,
-rather than being refused (studio diary R14). When nothing takes the path, the
+app storage is ready and before a TypeScript data module has loaded: a send its
+`change` makes waits for both and then runs, pending meanwhile, rather than being
+refused (studio diary R14; notes diary). When nothing takes the path, the
 host says why — no `open-file` field, or the `change` the app refused, and the
 refusal — on stderr and in the journal. `exact uninstall <app>` takes both halves away.
 
@@ -379,8 +380,8 @@ on the web and these on Hermes (macOS, iOS, Linux):
 | `crypto.getRandomValues`, `crypto.randomUUID`, `crypto.subtle` | Inside an answer; `subtle` digests (SHA-256/384/512) and ECDSA P-256 keys (LLP 1069.005), and refuses the rest by name |
 | `AbortController`, `AbortSignal` | `AbortSignal.timeout()` refuses: no timers |
 | `queueMicrotask`, `Promise` | |
-| `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter`, `DisplayNames` or `Locale` (Apple's engine; Linux's is built `--intl`) |
-| `console` | To the runner's logs |
+| `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter`, `DisplayNames` or `Locale` (Apple's engine; Linux's is built `--intl`). Apple's engine has no `notation: "compact"`: the prelude formats its short display as Chrome does for a decimal in en, en-GB, en-IN, de, fr, fr-CA, es, es-MX, it, pt, pt-PT, nl, sv, da, nb, fi, pl, ru, uk, cs, tr, ja, zh, zh-TW, ko, hi, he, id, th and vi (and their regions); `compactDisplay: "long"`, another locale or a compact currency is printed in full and said once in the logs. It rounds a tie to even where Chrome rounds it away (`¥1,234` for 1234.5 yen), and has no `formatToParts` |
+| `console` | To the runner's logs after each answer and reply, including refused calls; available through the agent's `logs` on native hosts |
 
 Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
 `setInterval`), `performance.now()`, `Date.now()`, `new Date()` without a value
@@ -389,7 +390,9 @@ refuses them by name, with the same message, on first use: Hermes, the web's
 module realm, and the web build, whose bundler gives the app's own modules
 guarded `Date`, `Math`, `Intl`, timers and `performance` in place of the
 page's (LLP 1027.000 D3), so an app that reads the clock fails in the web loop
-as it would on a device. The type check cannot see the difference.
+as it would on a device. The type check cannot see the difference. Development JS builds name a derive
+whose value fails its type check and report failed resource/source dependencies
+that it read.
 ES2024's resizable `ArrayBuffer`, shared memory and the RegExp `v` flag are not
 in Hermes, so they are not in the library.
 
@@ -410,8 +413,10 @@ can use the same implementations through `ibex2::host`.
 Hosts configure app-specific directories after first pixel. Files and databases
 survive module reload; temporary storage is a directory under the app cache,
 without an automatic cleanup guarantee. Agent mode does not open disk storage.
-Bake rejects storage calls with `Unavailable`; catch it when a resource needs an
-empty-store bake placeholder. Browser storage uses app-scoped IndexedDB files
+Bake rejects storage calls with `Unavailable` (`code: 'bake'`). A resource whose
+answer fails for it, caught or not, compiles no value: it shows its placeholder
+and is asked when the app runs, on every build. Catch it only to answer
+something better than the placeholder. Browser storage uses app-scoped IndexedDB files
 and SQLite WASM in a dedicated worker, loaded on the first database operation.
 Use HTTPS or localhost for Web Locks. Data persists across reloads within the
 same browser origin, subject to browser storage retention and quota policies.
@@ -425,29 +430,78 @@ that reads storage; show a placeholder), `'agent'` (a scripted drive that names
 no scratch store, `--storage <name>`), `'unsupported'` (a host with no app
 storage). The operation was refused: `'denied'` (the grants do not cover it),
 the filesystem's POSIX name (`'ENOENT'`, `'EEXIST'`, `'ENOTDIR'`, `'EISDIR'`,
-`'ENOTEMPTY'`, `'EBUSY'`), else `'failed'`. Branch on the code, never the
+`'ENOTEMPTY'`, `'EBUSY'`), `'full'` (256 operations already wait behind the
+one in flight: the module's storage queue is full, LLP 1097), else `'failed'`. Branch on the code, never the
 message: `catch (e) { if (e.code === 'ENOENT') return empty; throw e; }`.
 
 A drive's app storage is a scratch store it names (`--storage <name>`) or none,
 kept between drives (on the web, Chrome's profile for the name and its page's
 origin; a Firefox or WebKit drive's is its own); an authored test gets a fresh
-one of its own, removed after it. The driver's `state.storage` says
+one of its own, removed after it. A data module's `secret.keep` rides that same
+store: files under the named tree on Apple and Linux, `localStorage` in the named
+web profile. A drive with no `--storage` refuses app storage (`storage is unavailable
+in agent mode unless the drive names a scratch store (--storage <name>)`) and keeps
+no secrets. The driver's `state.storage` says
 which (`{available: false, code: 'agent', message}` or `{available: true,
 store}`), and the web's journal says `storage refused (agent): …` the first time
 a refusal lands. A Rust module's storage request in such a drive is answered
 with the same message, never refused outright (trivia F7).
 
-An answer's storage and `fetch` steps run whether or not it awaits them: a save
-started and not awaited (queued behind the module's own promise chain, say)
-lands on every host. In the browser the answer is given at once and the save
-finishes behind it; on Hermes the answer is given once the steps it started
-have landed (kanban F22). A storage or `fetch` call made when no answer is in
-flight is refused and logged, never silently dropped. An answer the runner
-lets go between storage steps (a refresh it discards before a mutation lands, a
-read whose arguments changed or that a `refresh` replaced) still runs the steps it began, and the chain
-behind them, to their end before the next answer starts; only its answer is
-dropped, so serializing storage through one promise chain composes with
-`refreshes` and fast-changing arguments (ledger F12, minesweeper F10).
+An answer waits for the storage it awaits, and only that (LLP 1097). Storage
+it starts and does not await finishes after it, as a page's does, on every
+host: the answer is given when its value is ready, and the write lands behind
+it as the module's background work. A save that has started lands on every host
+(kanban F22, drums R10). Hermes drains the microtask checkpoint before
+replying, including when the answer is a synchronous value, so a save chained
+behind a promise that is already resolved is issued as that answer's work and
+is not left with nobody to run it. So an editor answers from memory and saves
+in the answer, unawaited:
+
+```ts
+edit(store, args) {
+  song = apply(song, args);
+  storage.fs.atomicWriteFile(PATH, new TextEncoder().encode(JSON.stringify(song))).catch(note);  // started now, not awaited
+  return song;
+}
+```
+
+Every storage operation of a module runs in one queue, in the order it was
+issued, one at a time, so a read issued after a write sees it. Call storage in
+the answer and let the queue order it, rather than chaining it on a promise: a
+`.then` issues its write only when the promise before it lands, so a read
+issued meanwhile overtakes it. Two answers interleave at their awaits, as two
+async calls do on the web: writes that must stay together go in one
+`transaction` (SQLite) or one operation. `clock settle` and a test's `reload`
+wait for the module's storage; `clock +N` names what is left (`background`,
+beside `inflight`), and `state.background` counts what landed and failed.
+Every failed storage operation, every unhandled rejection and every `console`
+line of the module reaches `logs` (`storage failed: …`, `data: unhandled
+rejection: …`, `console: …`). Storage is refused, with its line, during module
+evaluation (no answer has begun) and at bake; `fetch` and `native.call` are
+refused in background work, which no answer waits for (a `fetch` belongs in an
+answer). A storage or `fetch` call made when no answer is in flight is refused
+and logged, never silently dropped. A worker-placed source still answers once
+its storage has landed. A quit waits for the storage to land (macOS, five
+seconds; a Linux exit, five; iOS holds a background task while it lands; a
+native dev restart, one second); a web page being unloaded may lose what is in
+flight, as any page does. A native answer that saves is a reply on real time:
+under the driver it lands at the next `clock` step, not with the input (`tap`
+then `expect` reads the state before it; on the web build an answer given at
+once is there already), and on a device it lands a few milliseconds after the
+input.
+
+A newer send may replace a mutation's reply. An operation already issued still
+runs, in the order it was issued; the replaced reply is dropped, and that
+answer's Store writes are not the live answer's. A send dropped before it has
+issued storage does not run. Forgotten work that reaches a fetch retains the
+usual cancellation policy. Unloading finishes storage the module already
+started, within a second, and drops what has not begun. Reads remain
+replaceable. An answer the runner lets go between storage steps (a refresh it
+discards before a mutation lands, a read whose arguments changed or that a
+`refresh` replaced) still runs the steps it began, and the chain behind them, to
+their end; only its answer is dropped, so
+serializing storage through one promise chain composes with `refreshes` and
+fast-changing arguments (ledger F12, minesweeper F10).
 
 An answer that keeps coming (LLP 1016.000) is a `fetch` with `exactStream`,
 returned as the answer: `return fetch(url, { exactStream: (event) => value })`.
@@ -498,6 +552,62 @@ lists what the app posted (`{title, body, tag, showTrigger}`, a tag replacing
 its older one, `closeNotification` removing it), so a drive reads a reminder
 without a permission prompt. Scheduling is one time per call: a daily
 reminder posts the next one when the app runs.
+
+### Sounds
+
+A declared WAV (`sound "assets/…wav"`) is played by `playSound(src, at=,
+gain=, group=)`, `playSounds(hits)` and ended by `stopSounds(group=)` (LLP
+1096). The runner keeps the voice table, so what was scheduled, when, and how
+each voice ended is the same on every host and under the driver's clock
+(`state.sounds`, `expect sound`).
+
+| host | output |
+| --- | --- |
+| web (both targets) | Web Audio: a one-shot `AudioBufferSourceNode` per voice at `start(when)`, aimed at the speaker through the context's output timestamp; the first sound after the page's first tap or key (one before it is dropped and journaled `sound blocked`) |
+| macOS, iOS, tvOS | one `AVAudioEngine` with a C mixer behind an `AVAudioSourceNode`, sample-accurate, in an arm loaded on demand (`libexact_sound.dylib`; `ExactSound.framework` in an `.ipa`) |
+| Linux, Windows | none: the record only (`state.sounds.output` is `"none"` outside the driver) |
+
+Under the driver nothing plays on any host (`output: "agent"`). `app.json`'s
+root `audio_session` is the Apple audio session every sound, video and canvas
+shares: `"ambient"` (the default: the ring/silent switch mutes it, other apps'
+audio keeps playing) or `"playback"`. WebKit's Audio Session API takes it too;
+the Mac has no session. A development run with `EXACT_SOUND_CHECK=1` taps the
+engine's main mixer and journals (and prints) how far each onset after a
+silence reached the speaker from its time.
+
+### Media session
+
+An `audio` or `video` with `metadata=MediaMetadata(…)` claims the platform's
+media session, and the six actions it binds (`seekbackward`, `seekforward`,
+`seekto`, `previoustrack`, `nexttrack`, `stop`) are the controls offered (LLP
+1098). Play and pause are always offered and act on the element; the position
+and playback state are the player's. The owner is the claimant that most
+recently started playing, across every session of a process on Apple.
+
+| host | published through |
+| --- | --- |
+| web (both targets) | `navigator.mediaSession`: the metadata (the artwork resolved as the page resolves an asset), the handlers, the declared `playbackState` and `setPositionState`; the browser decides where it shows (Chrome's media hub, the system's Now Playing) and routes the media keys; under the driver too, in the driver's own browser |
+| macOS, iOS, tvOS | `MPNowPlayingInfoCenter` and `MPRemoteCommandCenter`, from the video arm (AVKit's own publication is off while a claimant owns the session); under the driver nothing is assigned and `state.mediaSession.published` is `"agent"` |
+| Linux, Windows | none: the record only (`published: "none"`, no `play` or `pause`) |
+
+On iOS the lock screen and Control Center show only a non-mixable playback
+session, and audio stops at the lock without the `audio` background mode, so
+an app whose plan claims the media session states both in `app.json`, or
+`build.mjs --ios` refuses it:
+
+```json
+{
+  "audio_session": "playback",
+  "host": { "ios": { "backgroundModes": ["audio"] } }
+}
+```
+
+`state.mediaSession` reads `owner` (a view id), `testId`, `claimants`,
+`metadata` (as authored), `actions`, `seekOffsets`, `playbackState`, `position`,
+`published` and `readback` (what the platform holds: on the web the page's
+declaration, `playbackStateDeclared`); `artworkError` says why an artwork was
+not published. `tap <element> mediasession <action> [seconds]` calls the handler
+the platform would call (`delivery: "substituted"`).
 
 ### Documents the person chose (`doc:`)
 
@@ -609,12 +719,14 @@ archive from `ibex/linux-vanilla` and compiles with the matching
 compiler, run `cargo clean -p exact-js` before rebuilding native apps so a warm
 build cannot reuse captured archives or bytecode from the previous installation.
 
-iOS uses lean bytecode-only Hermes archives, not the compiler-containing
-framework. `bun host/apple/build.mjs --ios` (or `--device`) builds the one it
+iOS and tvOS use lean bytecode-only Hermes archives, not the compiler-containing
+framework. `bun host/apple/build.mjs --ios` (or `--device`, or `--tvos`) builds the one it
 needs from ibex's Hermes source, once per machine, into
 `~/.cache/exact/hermes/<pin>-lean-ios` (override with `EXACT_HERMES_IOS_DIR`,
 LLP 1036.001 D5); the recipe and archive layout are in
 [LLP 1027 D6](../llp/1027-typescript-data-sources.rfc.md#d6--the-web-the-browser-is-the-executor-one-wasm-import-the-same-module-under-two-loaders).
+The platform directories are `ios`, `ios-simulator` and `tvos-simulator`;
+`--tvos` builds for an Apple TV simulator and bakes the manifest's iOS plan.
 The normal Apple build captures the linked archives in its receipt.
 `smoke.mjs --app-only` runs the selected app and its tests without unrelated
 bare-plan host fixtures. The driver supports `ios --device [--phone <name|udid>]`:
@@ -638,6 +750,104 @@ modules isn't implemented, so set `deploy.store` to `"0"`. The history of how th
 was proved on each host is in [LLP 1027](../llp/1027-typescript-data-sources.rfc.md)
 and git.
 
+## Rust data sources
+
+A data crate answers the view's sources in Rust instead of `app.ts`: an app's
+`data/` crate ([Caltrain](../apps/caltrain/data/src/lib.rs),
+[Fieldnotes](../apps/fieldnotes/data/src/lib.rs)) or a game's `game.data`
+(`game/README.md`). Its type implements `exact_runner::DataSource`:
+
+| Method | What it does |
+|---|---|
+| `query(source, args)` | Answer now, with no I/O: the build bakes this into the plan for the first frame. `Err(DataError::Unavailable(…))` leaves the resource unbaked; every host asks again at launch. |
+| `answer(store, source, args)` | At run time: `Answer::Now(value)`, or `Answer::Later(request)` for the host to run (storage, `fetch`). The default is `query`. |
+| `parse(store, source, args, outcome)` | What the host brought back for that request: answer, or hand back one more request. |
+| `app_id()` | The app's identity, which names its storage: `com.example.my-app`, or for a game `com.exact.<Game::ID>` unless its app.json names one. A source with no id has no app storage on Apple and Linux. |
+| `grants()` | One grant per line, the lines `app.ts`'s `grants` takes (`net.fetch …`, `sqlite.open …`, `fs.read …`). |
+
+A record is positional: `Value::record(vec![…])` takes its fields in the order
+the shape declares them. `bun exact.mjs contract rust app.contract -o
+/tmp/shapes.rs` writes each shape as a struct with its fields in that order;
+`Value::Number`, `Value::str`, `Value::Bool` and `Value::list` are the rest.
+
+### Where data lives: app storage, not secrets
+
+Keep app and game data (best times, settings, saves, notes) in **app
+storage**: SQLite databases and files under `app:/data`, the storage `app.ts`
+reaches as `storage.sqlite` and `storage.fs`. A Rust source asks for it with
+`exact_data::storage::request(op, args)` as an `Answer::Later`, and reads the
+reply in `parse` with `exact_data::storage::response(outcome)`, which is the
+JSON result or the host's message. The operations:
+
+| `op` | `args` | Reply |
+|---|---|---|
+| `"sqlite"` | `{"path": "app:/data/x.db", "commands": [{"kind": "execute" or "query", "sql", "params"}]}` | One result per command, in order: a query's `{"columns", "rows"}` (an integer is `{"integer": "7"}`, text a string), an execute's `{"changes", "lastInsertRowid"}` |
+| `"sqlite.transaction"` | the same, `execute` commands only | the executes' results, all or none |
+| `"fs.readFile"`, `"fs.atomicWriteFile"`, `"fs.writeFile"`, `"fs.appendFile"` | `{"path"}`, and `"text"` (or `"bytes"`) to write | read: `{"base64"}`; write: `null` |
+| `"fs.mkdir"`, `"fs.rm"`, `"fs.stat"`, `"fs.readdir"`, `"fs.rename"`, `"fs.copyFile"` | `{"path"}`, and `"destination"` to move or copy | as `storage.fs` answers |
+
+Grant what it touches: `sqlite.open app:/data/x.db`, `fs.read app:/data`,
+`fs.write app:/data`. Storage is asynchronous and starts after first pixel. It
+is absent at build, so `query` answers a placeholder, and in a scripted drive
+that names no scratch store: there `response` is an error, and the source
+answers as if nothing were kept. `--storage <name>` gives a drive a store kept
+between drives; an authored test gets an empty one, and its `reload` restarts
+on it. A game's data crate takes these crates from the SDK
+(`exact-data.workspace = true`, `serde_json.workspace = true`).
+
+Best times, one row a level, decided in SQL. This is the platformer's source
+(the diary's R6). One request reads the previous best and writes the run where
+it beats it:
+
+```rust
+use exact_data::storage;
+use exact_runner::{Answer, DataError, DataSource, Outcome, Store, Value};
+use serde_json::json;
+
+const DB: &str = "app:/data/scores.db";
+const TABLE: &str = "CREATE TABLE IF NOT EXISTS best (level INTEGER PRIMARY KEY, ms INTEGER NOT NULL)";
+
+#[derive(Default)]
+pub struct Scores;
+
+impl DataSource for Scores {
+    fn app_id(&self) -> &str { "com.exact.hopper" }
+    fn grants(&self) -> &str { "sqlite.open app:/data/scores.db" }
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        match source {
+            "best" => Ok(Value::record(vec![Value::list(vec![])])), // the build's first frame: nothing kept
+            _ => Err(DataError::Unavailable("asked at run time".into())),
+        }
+    }
+    fn answer(&mut self, _: &mut Store, source: &str, args: &[Value]) -> Result<Answer, DataError> {
+        let commands = match (source, args) {
+            ("best", _) => json!([{"kind": "execute", "sql": TABLE, "params": []},
+                {"kind": "query", "sql": "SELECT level, ms FROM best ORDER BY level", "params": []}]),
+            ("finish", [Value::Number(level), Value::Number(ms)]) => json!([{"kind": "execute", "sql": TABLE, "params": []},
+                {"kind": "execute", "sql": "INSERT INTO best VALUES (?, ?) ON CONFLICT(level) DO UPDATE SET ms = excluded.ms WHERE excluded.ms < best.ms", "params": [level, ms]}]),
+            _ => return Err(DataError::UnknownSource(source.into())),
+        };
+        Ok(Answer::Later(storage::request("sqlite", json!({"path": DB, "commands": commands}))))
+    }
+    fn parse(&mut self, _: &mut Store, source: &str, _: &[Value], outcome: Outcome) -> Result<Answer, DataError> {
+        let results = storage::response(outcome);
+        let int = |cell: &serde_json::Value| cell["integer"].as_str().and_then(|n| n.parse::<f64>().ok());
+        Ok(Answer::Now(match source {
+            // No storage here (a drive with no scratch store): nothing kept.
+            "best" => Value::record(vec![Value::list(results.ok().and_then(|r| r[1]["rows"].as_array().cloned()).unwrap_or_default()
+                .iter().filter_map(|row| Some(Value::record(vec![Value::Number(int(&row[0])?), Value::Number(int(&row[1])?)]))).collect())]),
+            _ => Value::record(vec![Value::Bool(results.map_err(DataError::Unavailable)?[1]["changes"].as_str() == Some("1"))]), // a new best?
+        }))
+    }
+}
+```
+
+`Store` (`store.get`, `store.set`, under `secret.keep <name>`) is for
+**secrets**: a session token, a key. Apple keeps them in the Keychain and the
+web in `localStorage`; the host reads them into a snapshot before boot, so a
+read is synchronous, and a scripted drive never keeps them. A best time is not
+a secret: keep it in app storage.
+
 ## The five checks
 
 ```sh
@@ -650,8 +860,8 @@ bun scripts/boot.mjs                                                   # boot gr
 ```
 
 Cargo's checks cover the root `default-members`: the deterministic, in-process
-crates. The async lane runs the same commands with `--workspace` (hosts, GPU,
-Hermes, platform shells, stress fixtures).
+crates, the web host's among them. The async lane runs the same commands with
+`--workspace` (the other hosts, GPU, Hermes, platform shells, stress fixtures).
 
 Development and test builds optimize the third-party CPU rasterizer `tiny-skia`.
 Debug assertions and overflow checks remain enabled; the normal development
@@ -794,7 +1004,9 @@ history page with deliberately eager construction while typing and streaming
 updates. [Completion Storm](../apps/completion-storm/README.md) holds and releases
 real local HTTP requests, including failures and replies to a departed screen.
 [Markdown stress](../apps/markdown-stress/README.md) exercises the shipped parser
-and reader components with large documents, huge individual blocks and reflow.
+and reader components with large documents, huge individual blocks and reflow,
+and the Markdown editor with a toolbar and a link sheet
+([`markup`, `format`, `select`](contract-grammar.md#markdown-markup-format-select)).
 These are opt-in developer workloads; none claims automatic virtualization or
 120 Hz performance. [LLP 1041](../llp/1041-graceful-overload.rfc.md) specifies the
 graceful-overload direction and records what the first examples actually prove.

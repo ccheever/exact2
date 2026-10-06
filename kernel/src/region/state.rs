@@ -374,6 +374,7 @@ impl RegionState {
                 updated,
                 flow_changed,
                 flow_skipped,
+                fragment_skipped: Vec::new(),
                 flow_passes: 0,
                 flow_comparisons: 0,
             },

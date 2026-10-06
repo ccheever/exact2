@@ -236,7 +236,8 @@ impl<D: DataSource> Presenter<D> {
         self.retained_motion = None;
         self.transform_geometry = Default::default();
         self.arrange = None;
-        self.brush.arrange_lift = None;
+        self.group = None;
+        self.brush.lift = Default::default();
         self.page = (0.0, 0.0);
         self.restore_focus(kept);
         self.pointer = None;

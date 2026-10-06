@@ -5,7 +5,7 @@
 
 use super::{gradient, BoxPaint, Painter, Rect4};
 use crate::text::{Paragraph, RunPaint};
-use exact_kernel::{BackgroundClip, Kernel};
+use exact_kernel::{BackgroundClip, Kernel, ViewId};
 use std::sync::Arc;
 use tiny_skia::Transform;
 
@@ -22,8 +22,15 @@ impl Painter {
         origin: (f32, f32),
         rect: Rect4,
         ts: Transform,
+        reveal: Option<ViewId>,
     ) {
-        if node.style.background_clip != BackgroundClip::Text || rect.2 <= 0.0 || rect.3 <= 0.0 {
+        // The clip is this element's own background. A hidden element paints
+        // none, and a hidden run's glyphs do not punch a hole for it.
+        if !super::paints(kernel, node.id, reveal)
+            || node.style.background_clip != BackgroundClip::Text
+            || rect.2 <= 0.0
+            || rect.3 <= 0.0
+        {
             return;
         }
         let paint = BoxPaint::capture(node, kernel, self.dark, rect.2);
@@ -45,10 +52,17 @@ impl Painter {
         }) else {
             return;
         };
+        // Coverage is the glyphs, not their ink. `color: transparent` still
+        // punches the clip (that is how a gradient shows). A hidden run does
+        // not, even though its ink is also clear.
         let opaque: Vec<RunPaint> = palette
             .iter()
             .map(|r| RunPaint {
-                color: [255; 4],
+                color: if super::paints(kernel, r.source, reveal) {
+                    [255; 4]
+                } else {
+                    [0; 4]
+                },
                 source: r.source,
             })
             .collect();

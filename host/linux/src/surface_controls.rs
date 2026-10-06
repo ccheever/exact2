@@ -280,6 +280,12 @@ impl<D: DataSource> Presenter<D> {
     pub fn hardware_key(&mut self, code: &str, key: &str, down: bool, repeat: bool) {
         self.restore_controls();
         self.hold_modifier(code, down);
+        // A hardware release returns before `type_key`, which is what forgets
+        // a shortcut's code. Left set, an agent key of that code after the
+        // button is gone delivers the down and swallows the up.
+        if !down {
+            self.shortcut_keys.remove(code);
+        }
         // A Control or Meta chord is a shortcut, as a browser's: the focus's
         // `key` handlers hear it, and no canvas or control starts with it.
         if down && self.held & 0b1100_1100 != 0 {
@@ -486,14 +492,30 @@ impl<D: DataSource> Presenter<D> {
     /// control), where HTML defines it; on a box it means nothing to focus,
     /// as in Chrome (LLP 1088 D7.3, amended 2026-10-04).
     pub(crate) fn focusable(&self, id: ViewId) -> bool {
+        // A grouped list's grip takes the keys that move its row (LLP 1094 D9).
+        if self.group_grip(id).is_some() {
+            return true;
+        }
         self.host.kernel().node(id).is_some_and(|n| {
-            !disabled_control(&n)
+            n.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility)
+                == exact_kernel::Visibility::Visible
+                && !disabled_control(&n)
                 && (n.props.get(PropId::TabIndex).is_some()
                     || n.props.str(PropId::Action).is_some()
                     || n.node_type == NodeType::TextInput
                     // A native button is a button under any role (LLP 1069.011.000 D1).
-                    || exact_kernel::ControlKind::of(n.node_type, n.props)
-                        == Some(exact_kernel::ControlKind::Button)
+                    // A checkbox and a radio are HTML's focusable controls: a
+                    // press focuses one, as Chrome's does, and a radio's arrows
+                    // move the focus (x2apps survey #2).
+                    || matches!(
+                        exact_kernel::ControlKind::of(n.node_type, n.props),
+                        Some(
+                            exact_kernel::ControlKind::Button
+                                | exact_kernel::ControlKind::Radio
+                                | exact_kernel::ControlKind::Checkbox
+                                | exact_kernel::ControlKind::Switch
+                        )
+                    )
                     || matches!(
                         n.props.str(PropId::AccessibilityRole),
                         Some("button" | "link")
@@ -546,10 +568,20 @@ impl<D: DataSource> Presenter<D> {
         if self.press_range(hit, x) || self.toggle_control(hit, now_ms) {
             return Some(hit);
         }
+        // A link under the press is followed after the press's own handler,
+        // as a click's default action follows its listeners (LLP 1038 §7).
+        let link = self.link_at(hit, x, y);
         let Some(target) = self.handler_target(hit, EventKind::Press) else {
+            if let Some(href) = link {
+                self.follow(hit, &href, now_ms);
+                return Some(hit);
+            }
             return self.surface_pointer(hit, x, y, now_ms);
         };
         self.dispatch_press(target, now_ms, true);
+        if let Some(href) = link {
+            self.follow(hit, &href, now_ms);
+        }
         Some(target)
     }
 
@@ -573,6 +605,10 @@ impl<D: DataSource> Presenter<D> {
                 eprintln!("exact: {e}");
             }
             self.queue_collections();
+        }
+        // A press in a text field puts its caret there (x2apps codeedit #2).
+        if let Some(id) = focus.filter(|id| self.focus == Some(*id)) {
+            self.press_field(id);
         }
     }
 

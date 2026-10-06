@@ -20,6 +20,10 @@ exact-game-physics = { path = "physics" }
 exact-game-audio = { path = "audio" }
 exact-game-app = { path = "app" }
 exact-data-host = { path = "../data/host" }
+# A game's Rust data source asks app storage (files, SQLite) through these,
+# as Fieldnotes' does: `exact_data::storage::request` and its JSON.
+exact-data = { path = "../data" }
+serde_json = "1.0"
 exact-web = { path = "../host/web" }
 exact-web-capabilities = { path = "../host/web-capabilities" }
 exact-linux = { path = "../host/linux" }

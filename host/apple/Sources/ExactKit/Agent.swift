@@ -43,6 +43,10 @@ public final class Agent {
             guard let fragment = fragments.first(where: { viewport.contains(CGPoint(x: $0.midX, y: $0.midY)) }) ?? fragments.first else { return nil }
             bounds = fragment
         } else { bounds = box(node) }
+        // `at` is target-relative (a mouse click, a context menu). `x`/`y` are viewport points.
+        if let at = request["at"] as? [Double], at.count == 2, at.allSatisfy(\.isFinite) {
+            return CGPoint(x: bounds.minX + at[0], y: bounds.minY + at[1])
+        }
         return CGPoint(x: request["x"] as? Double ?? bounds.midX, y: request["y"] as? Double ?? bounds.midY)
     }
 
@@ -109,7 +113,15 @@ public final class Agent {
                 completed.wait()
             }
         }
-        DispatchQueue.main.async { exit(0) }
+        DispatchQueue.main.async { exitAfterStorage() }
+    }
+
+    /// The drive ended: storage an answer started lands first, as a quit's
+    /// does (LLP 1097 D10), within the driver's patience (it kills at 2 s).
+    nonisolated(unsafe) static var exiting: StorageHold?
+    static func exitAfterStorage() {
+        let hold = StorageHold(bound: 1.5, pending: { routes.contains { $0.1.storageOperations > 0 } }, begin: { _ in }, end: { exit(0) })
+        if hold.hold() { exiting = hold } else { exit(0) }
     }
 
     /// One line: the session it names (or the default), then its operation.
@@ -118,7 +130,7 @@ public final class Agent {
               let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let op = req["op"] as? String
         else { reply(["error": "unreadable request: \(line)"]); return }
-        if op == "quit" { exit(0) }
+        if op == "quit" { exitAfterStorage(); return }
         // A slice building off main lands before the agent reads or acts
         // (LLP 1072 T9); under the agent slices are synchronous, so this is
         // for a carrier attached to an ordinary run.
@@ -173,8 +185,24 @@ public final class Agent {
         // after a frame, so the frame is rendered here, not left to the
         // display link to get to between two calls).
         case "tap":
-            let r: [String: Any]
-            if req["resize"] != nil {
+            var r: [String: Any]
+            #if os(macOS)
+            let wasOpen = presenter.viewport.window?.isVisible == true
+            #endif
+            if req["close"] != nil {
+                // The window's close button, as ⌘W and File ▸ Close Window
+                // press it: an input, as `resize` is, so a `beforeunload`
+                // flow can be driven (the agent's window is never key, so a
+                // ⌘W it typed would go nowhere).
+                guard req.keys.allSatisfy({ ["op", "session", "close"].contains($0) }), req["close"] as? Bool == true else {
+                    Agent.reply(["error": "tap close takes no other input fields"]); return
+                }
+                #if os(macOS)
+                r = closeWindow()
+                #else
+                r = ["error": "unsupported: an iOS app closes no window; close drives a macOS window or the browser's page (`beforeunload`)"]
+                #endif
+            } else if req["resize"] != nil {
                 // LLP 1041 §8's opt-in diagnostic is an input variant, not a
                 // ninth operation. Reject ambiguous input before touching UI.
                 guard req.keys.allSatisfy({ ["op", "session", "resize"].contains($0) }),
@@ -187,9 +215,17 @@ public final class Agent {
                 // The device sets an iOS app's viewport: there is no window to resize.
                 r = ["error": "unsupported: an iOS app's viewport is the device's screen; resize drives a macOS window, the Linux presenter or the browser"]
                 #endif
+            } else if let action = req["mediaSession"] as? String {
+                r = mediaSessionTap(req, action: action) // LLP 1098 D10, never a press
             } else if let into = req["into"] as? [String: Any] {
                 r = intoView(req, into)
             } else { r = session.canvases.releaseContact(req) ?? tap(req) }
+            #if os(macOS)
+            // A press the app answered with `close()` (a "Don't Save") took
+            // the window, and its session with it: the reply says so, as
+            // `close`'s does, since nothing is left to read after it.
+            if wasOpen, r["error"] == nil, req["close"] == nil, presenter.viewport.window?.isVisible != true { r["closed"] = true }
+            #endif
             session.canvases.settle(now: session.now())
             Agent.reply(tagged(r))
         case "type": let r = releaseCanvasKey(req) ?? type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
@@ -197,6 +233,7 @@ public final class Agent {
         case "clock": let r = clock(req); session.tellAgentOffset(); Agent.reply(tagged(r))
         case "prefer": Agent.reply(tagged(prefer(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
+        case "sample": Agent.reply(tagged(sample(req)))
         case "logs":
             var forward = req
             forward.removeValue(forKey: "session")
@@ -217,6 +254,7 @@ public final class Agent {
             for (key, value) in Agent.hostState?() ?? [:] { nativeSections[key] = value }
             nativeSections["presence"] = presenter.presenceObservation()
             nativeSections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
+            nativeSections["mediaSession"] = mediaSessionState() // LLP 1098 D10
             // The drive's app storage (trivia F7): none unless it names a scratch store.
             nativeSections["storage"] = ExactEnv.environment["EXACT_AGENT_STORAGE"].map { ["available": true, "store": $0] as [String: Any] }
                 ?? ["available": false, "code": "agent", "message": "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"]
@@ -232,6 +270,8 @@ public final class Agent {
             let world = session.canvases.worlds(["op": "state"])
             nativeSections = session.canvases.restoreReply(nativeSections)
             if !world.isEmpty { nativeSections["world"] = world }
+            // A session that plays fills in its output (LLP 1096 D10); under the agent none plays.
+            if !ExactEnv.agentMode, let output = try? JSONSerialization.data(withJSONObject: session.sound.state) { reply = reply.replacingOccurrences(of: "\"output\":\"agent\"", with: "\"output\":" + String(decoding: output, as: UTF8.self)) }
             if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),
                let sections = try? JSONSerialization.data(withJSONObject: nativeSections) {
                 reply.removeLast()
@@ -320,12 +360,16 @@ public final class Agent {
         if let fold, let refused = preferFold(fold) { return ["error": refused] }
         var (motion, transparency, contrast) = (DisplayPreferences.reducedMotion, DisplayPreferences.reducedTransparency, DisplayPreferences.contrast)
         var dark: Bool?
+        var (gamut, high) = (DisplayPreferences.gamut, DisplayPreferences.highDynamicRange)
         for (name, value) in media ?? [:] {
             switch (name, value) {
             case ("prefers-reduced-motion", "reduce"), ("prefers-reduced-motion", "no-preference"): motion = value == "reduce"
             case ("prefers-reduced-transparency", "reduce"), ("prefers-reduced-transparency", "no-preference"): transparency = value == "reduce"
             case ("prefers-contrast", "more"), ("prefers-contrast", "less"), ("prefers-contrast", "custom"), ("prefers-contrast", "no-preference"): contrast = value
             case ("prefers-color-scheme", "light"), ("prefers-color-scheme", "dark"): dark = value == "dark"
+            // @ref LLP 1100 D9
+            case ("color-gamut", "srgb"), ("color-gamut", "p3"), ("color-gamut", "rec2020"): gamut = value
+            case ("dynamic-range", "standard"), ("dynamic-range", "high"): high = value == "high"
             default: return ["error": "prefer: \(name): \(value) is not a preference this host sets"]
             }
         }
@@ -344,6 +388,11 @@ public final class Agent {
         // The scheme first: the preferences' notification reads it.
         if let dark { systemScheme(dark: dark) }
         DisplayPreferences.agentContrast = contrast
+        if DisplayPreferences.gamut != gamut || DisplayPreferences.highDynamicRange != high {
+            DisplayRange.pinned = high ? 4 : 1
+            DisplayPreferences.agentGamut = gamut
+            session.rasters.displayChanged()
+        }
         systemContrast(more: DisplayPreferences.contrast == "more")
         DisplayPreferences.agent = (motion, transparency)
         if page != nil { PageFacts.agent = facts }
@@ -351,7 +400,9 @@ public final class Agent {
         return ["media": ["prefers-reduced-motion": keyword(DisplayPreferences.reducedMotion),
                           "prefers-reduced-transparency": keyword(DisplayPreferences.reducedTransparency),
                           "prefers-contrast": DisplayPreferences.contrast,
-                          "prefers-color-scheme": systemDark ? "dark" : "light"],
+                          "prefers-color-scheme": systemDark ? "dark" : "light",
+                          "color-gamut": DisplayPreferences.gamut,
+                          "dynamic-range": DisplayPreferences.highDynamicRange ? "high" : "standard"],
                 "page": ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
                          "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles, "root-font-size": PageFacts.rootFontSize],
                 "fold": presenter.fold.env]
@@ -418,6 +469,8 @@ public final class Agent {
             let runner = session.agent("{\"op\":\"tags\"}").data(using: .utf8)
                 .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["clock"] as? Double
             session.clock = max(session.now(), runner ?? 0)
+            // The display's cadence means nothing under the agent's clock.
+            session.sampler?.stop()
         }
         if req["take"] as? Bool == true { return ["clock": session.clock ?? 0] }
         let from = session.clock ?? 0
@@ -479,6 +532,9 @@ public final class Agent {
                 var out = reply(landed)
                 let inflight = pendingCount()
                 if inflight > 0 { out["inflight"] = inflight }
+                // The module's background storage still to land (LLP 1097 D9).
+                let background = backgroundCount()
+                if background > 0 { out["background"] = background }
                 return out
             }
             if pendingCount() > 0 {
@@ -595,6 +651,15 @@ public final class Agent {
         return ["clock": from, "settled": false, "reason": "requests"]
     }
 
+    /// The background's storage operations queued or in flight
+    /// (`state.background`, LLP 1097 D8).
+    func backgroundCount() -> Int {
+        guard let d = session.agent("{\"op\":\"state\"}").data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let b = o["background"] as? [String: Any] else { return 0 }
+        return (b["queued"] as? Int ?? 0) + (b["inFlight"] as? Int ?? 0)
+    }
+
     /// How many requests the runner has in flight (`state.pending`).
     func pendingCount() -> Int {
         guard let d = session.agent("{\"op\":\"state\"}").data(using: .utf8),
@@ -638,4 +703,15 @@ extension ExactSession {
         agentBox = a
         return a
     }
+}
+
+public extension ExactEnv {
+    /// `EXACT_AGENT_CHROME=platform` (opt-in; splitter rough 4, 11): under
+    /// the agent, the native navigation bar and tab bar show as a person
+    /// sees them, their items pressing the authored controls they stand for.
+    /// The default paints the authored header and tablist in their place.
+    static let agentChrome = environment["EXACT_AGENT_CHROME"] ?? "agent"
+    /// Whether the authored header and tablist paint instead of UIKit's
+    /// bars: the agent's default chrome.
+    static let authoredChrome = agentMode && agentChrome != "platform"
 }

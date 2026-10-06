@@ -1,7 +1,8 @@
 //! Solid currentcolor decorations stay paint-only, following shaped glyph advances.
 use super::{Painter, Shape};
+use crate::text::markup::{STRIKE, UNDERLINE};
 use crate::text::{Paragraph, RunPaint};
-use exact_kernel::{Kernel, TextDecorationLine};
+use exact_kernel::{Kernel, TextDecorationLine, ViewId};
 use tiny_skia::Transform;
 
 impl Painter {
@@ -12,6 +13,7 @@ impl Painter {
         palette: &[RunPaint],
         origin: (f32, f32),
         ts: Transform,
+        reveal: Option<ViewId>,
     ) {
         let flags: Vec<_> = palette
             .iter()
@@ -22,6 +24,11 @@ impl Painter {
                     let Some(node) = kernel.node(id) else {
                         break;
                     };
+                    // A hidden element's decoration is its own paint.
+                    if !super::paints(kernel, id, reveal) {
+                        current = node.parent;
+                        continue;
+                    }
                     match node.style.text_decoration_line {
                         TextDecorationLine::Underline => underline = true,
                         TextDecorationLine::LineThrough => strike = true,
@@ -41,7 +48,13 @@ impl Painter {
             self.materials.1.push("CSS text-decoration: Linux uses solid font-size-based line metrics; underline text-decoration-skip-ink:auto is not implemented (LLP 1001)".into());
         }
         for (glyph, baseline, paint) in paragraph.paint_glyphs(palette) {
+            // A Markdown piece's own: a followed link, `~~strike~~`.
+            let mark = paragraph.runs().get(glyph.metadata).map_or(0, |r| r.mark);
             let (underline, strike) = flags[glyph.metadata];
+            let (underline, strike) = (
+                underline || mark & UNDERLINE != 0,
+                strike || mark & STRIKE != 0,
+            );
             let thickness = (glyph.font_size / 16.0).max(1.0);
             let x = origin.0 + glyph.x;
             if underline {

@@ -26,16 +26,20 @@ enum KeyCodes {
         kVK_ANSI_Comma: "Comma", kVK_ANSI_Period: "Period", kVK_ANSI_Slash: "Slash", kVK_ISO_Section: "IntlBackslash",
         kVK_F1: "F1", kVK_F2: "F2", kVK_F3: "F3", kVK_F4: "F4", kVK_F5: "F5", kVK_F6: "F6",
         kVK_F7: "F7", kVK_F8: "F8", kVK_F9: "F9", kVK_F10: "F10", kVK_F11: "F11", kVK_F12: "F12",
+        kVK_F13: "F13", kVK_F14: "F14", kVK_F15: "F15", kVK_F16: "F16", kVK_F17: "F17", kVK_F18: "F18",
+        kVK_F19: "F19", kVK_F20: "F20",
         kVK_Home: "Home", kVK_End: "End", kVK_PageUp: "PageUp", kVK_PageDown: "PageDown", kVK_ForwardDelete: "Delete",
         kVK_CapsLock: "CapsLock", kVK_ANSI_KeypadEnter: "NumpadEnter",
     ]
     #endif
 
-    /// UIKeyboardHIDUsage's USB keyboard page. Letters, digits and F1–F12 are contiguous.
+    /// UIKeyboardHIDUsage's USB keyboard page. Letters, digits, F1–F12 and
+    /// F13–F24 are contiguous.
     static func hid(_ usage: Int) -> String {
         if (4...29).contains(usage) { return "Key" + String(UnicodeScalar(65 + usage - 4)!) }
         if (30...38).contains(usage) { return "Digit\(usage - 29)" }
         if (58...69).contains(usage) { return "F\(usage - 57)" }
+        if (104...115).contains(usage) { return "F\(usage - 91)" }
         return [39: "Digit0", 40: "Enter", 41: "Escape", 42: "Backspace", 43: "Tab", 44: "Space",
                 45: "Minus", 46: "Equal", 47: "BracketLeft", 48: "BracketRight", 49: "Backslash", 50: "IntlHash",
                 51: "Semicolon", 52: "Quote", 53: "Backquote", 54: "Comma", 55: "Period", 56: "Slash", 57: "CapsLock",
@@ -63,6 +67,49 @@ enum KeyCodes {
     static func modifier(_ code: String) -> Bool {
         ["Shift", "Control", "Alt", "Meta"].contains { code == $0 + "Left" || code == $0 + "Right" }
     }
+    /// The US punctuation `cdpKey` accepts as a key, by the character it
+    /// types, a shifted one on its key as Linux's `driver_key` has it (`!` is
+    /// Digit1); the character is what the key types and what `key` hears.
+    private static let punctuation = ["-": "Minus", "=": "Equal", "[": "BracketLeft", "]": "BracketRight",
+                                      "\\": "Backslash", ";": "Semicolon", "'": "Quote", "`": "Backquote",
+                                      ",": "Comma", ".": "Period", "/": "Slash", "+": "Equal",
+                                      "_": "Minus", "{": "BracketLeft", "}": "BracketRight", "|": "Backslash",
+                                      ":": "Semicolon", "\"": "Quote", "~": "Backquote", "<": "Comma", ">": "Period",
+                                      "?": "Slash", "!": "Digit1", "@": "Digit2", "#": "Digit3", "$": "Digit4",
+                                      "%": "Digit5", "^": "Digit6", "&": "Digit7", "*": "Digit8", "(": "Digit9", ")": "Digit0"]
+    /// A driver's key name as its `KeyboardEvent.code`. One vocabulary on
+    /// every host (scripts/agent-keys.mjs `cdpKey`): `p` and `KeyP` are the
+    /// same key, `7` and `Digit7` too, and `End` is a named key, not the
+    /// letters e-n-d (notes mac-agent-named-keys, platformer canvas-keys).
+    static func codeName(_ name: String) -> String {
+        if ["Shift", "Control", "Alt", "Meta"].contains(name) { return name + "Left" }
+        if name.count == 1, let c = name.first, c.isASCII, c.isLetter { return "Key" + name.uppercased() }
+        if name.count == 1, let c = name.first, c.isASCII, c.isNumber { return "Digit" + name }
+        if name == " " { return "Space" }
+        return punctuation[name] ?? name
+    }
+    /// What an agent key types. A named key is its AppKit function character
+    /// so a field moves the caret instead of inserting the key's name; a
+    /// letter keeps the case the driver named; a lone modifier types nothing.
+    static func eventText(code: String, raw: String, lone: Bool) -> String {
+        if lone { return "" }
+        if let text = functionCharacter(code) { return text }
+        if raw.count == 1, raw != " " { return raw }
+        return key(code)
+    }
+    /// AppKit's function-key characters (NSUpArrowFunctionKey is U+F700,
+    /// NSF1FunctionKey U+F704, NSHomeFunctionKey U+F729).
+    static func functionCharacter(_ code: String) -> String? {
+        let named = ["ArrowUp": "\u{F700}", "ArrowDown": "\u{F701}", "ArrowLeft": "\u{F702}", "ArrowRight": "\u{F703}",
+                     "Insert": "\u{F727}", "Delete": "\u{F728}", "Home": "\u{F729}", "End": "\u{F72B}",
+                     "PageUp": "\u{F72C}", "PageDown": "\u{F72D}", "Enter": "\r", "NumpadEnter": "\r",
+                     "Escape": "\u{1b}", "Tab": "\t", "Backspace": "\u{7f}", "Space": " ", "CapsLock": ""]
+        if let text = named[code] { return text }
+        if code.hasPrefix("F"), let n = Int(code.dropFirst()), (1...35).contains(n) {
+            return String(UnicodeScalar(0xF703 + n)!)
+        }
+        return nil
+    }
     /// A driver's chord (`Shift+Enter`, `Meta+s`, `+`, `Shift++`) as
     /// `Event::key` reads one: the modifiers' chord prefix, and the key.
     static func split(_ chord: String) -> (held: String, key: String) {
@@ -76,9 +123,9 @@ enum KeyCodes {
         return (self.held(shift: held.contains("Shift"), control: held.contains("Control"), alt: held.contains("Alt"), meta: held.contains("Meta")), String(rest))
     }
     static func device(_ name: String) -> (code: String, key: String)? {
-        var code = name
-        if ["Shift", "Control", "Alt", "Meta"].contains(name) { code += "Left" }
-        let known = (4...100).map(hid) + (224...231).map(hid)
+        let code = codeName(name)
+        // F13–F24 as the web's driver takes them (CDP has every one).
+        let known = (4...100).map(hid) + (104...115).map(hid) + (224...231).map(hid)
         guard code != "Unidentified", known.contains(code) else { return nil }
         return (code, key(code))
     }

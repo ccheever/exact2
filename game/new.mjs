@@ -70,6 +70,22 @@ export function createGame(destination, directory = import.meta.dir, options = {
 
   const argument = local ? quote(destination === process.cwd() ? '.' : destination) : name;
   const proof = quote(relative(process.cwd(), resolve(destination, 'proof.mjs')));
+  // A game outside this checkout gets what an app does (LLP 1086; the
+  // platformer's diary, R1): its exact.mjs verbs, AGENTS.md and the diary.
+  if (local && !`${destination}/`.startsWith(`${dirname(directory)}/`)) {
+    writeFileSync(resolve(destination, 'exact.mjs'), commandsFor(destination, name, {game:true}));
+    writeFileSync(resolve(destination, 'AGENTS.md'), agentNotes(destination, name, {game:true}));
+    linkClaude(destination);
+    writeFileSync(resolve(destination, '.gitignore'), `${readFileSync(resolve(destination, '.gitignore'), 'utf8')}/.exact/\n`);
+    return `Created ${destination}
+  cd ${quote(destination)}
+  bun exact.mjs test-rust     the hostless Rust tests (logic/tests) and determinism lints
+  bun exact.mjs web           the web dev loop
+  bun exact.mjs test web      build (wasm), then run app.test.contract
+  bun exact.mjs agent web tree  inspect or drive the game
+  bun exact.mjs mac --run     build and launch on this Mac
+  bun exact.mjs prove         the proof's first baseline (pins.json)`;
+  }
   return `Created ${local ? destination : `game/games/${name}`}\n  bun ${script('dev.mjs')} ${argument}\n  bun ${script('prove.mjs')} ${argument}
   bun ${proof} web --screenshot-only`;
 }
@@ -146,7 +162,12 @@ shape Greeting
 component ${title.replaceAll(' ', '')}
   resource greeting = greeting("${title}") as shape Greeting
   view
-    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=24 background-color="light-dark(#ffffff, #111111)"
+    main testId="root"
+      width="100%"
+      height="100%"
+      box-sizing="border-box"
+      padding=24
+      background-color="light-dark(#ffffff, #111111)"
       text greeting.text font-size=28 color="light-dark(#111111, #eeeeee)" testId="greeting"
 `,
     'app.test.contract': `test "the greeting loads"
@@ -281,8 +302,9 @@ const BEGIN = '<!-- exact:begin (exact new writes this block; bun exact.mjs upda
 /** What an agent in the app's directory can't discover (LLP 1086 D1): where
  * the guides are, the app's commands, and the loop. Paths are from the app to
  * this checkout, so \`update\` follows a checkout that moved. */
-function agentNotes(dir, name) {
+function agentNotes(dir, name, {game = false} = {}) {
   const doc = file => pathFrom(dir, resolve(ROOT, 'docs', file));
+  if (game) return gameNotes(dir, name, doc);
   return `${BEGIN}
 # ${name}: an Exact app
 
@@ -306,14 +328,39 @@ Commands, from this directory:
 | \`bun exact.mjs contract vocab [name]\` | the tags, attributes and CSS properties Contract accepts |
 | \`bun exact.mjs web\` | the web dev loop, at the URL it prints (8765 unless another loop holds it) |
 | \`bun exact.mjs test web\` | build the web app if needed, then run \`app.test.contract\` (also \`macos\`, \`ios\`) |
-| \`bun exact.mjs agent web tree "tap <id>" "screenshot out.png"\` | drive the app as a person would |
+| \`bun exact.mjs agent web --storage s1 tree "tap <id>" "screenshot out.png"\` | drive the app as a person would; \`--storage <name>\` gives its storage sources a scratch store (without it their writes are refused; \`logs\` has the detail) |
+| \`bun exact.mjs agent ios tree "tap <testId>" "screenshot s.png"\` | the same on an iOS simulator; drive by \`testId\`, never by coordinates |
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
 | \`bun exact.mjs update\` | after exact2 moves or changes its patches; it rewrites \`exact.mjs\` |
 | app.json \`"commands": {"verify": ["bun", "verify.mjs"]}\` | the app's own verbs: \`bun exact.mjs verify web\` runs \`bun verify.mjs web\` here; \`update\` keeps them |
 
+Keep drive scripts, evidence, logs and runtime files in \`.exact/\` (git-ignored):
+no build, watcher or freshness check reads it. Anything else in this folder is a
+source: changing it makes the driver refuse to drive until the app is rebuilt.
+
 The loop: generate the types, edit, \`contract build --json\` until it prints \`[]\`,
 \`test web\`, look at it with \`agent web … screenshot\`, then the native hosts.
 \`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup --check\` names anything this machine is missing.
+
+Build it native. A hand-built lookalike of a system control is a bug; write the
+Contract form and each host draws its own (the agent guide's "Prefer native
+controls"): \`button appearance="auto"\`, \`list appearance="auto"\` with
+\`section\`s for a settings screen, \`input type="checkbox" switch\`, \`type="range"\`,
+date and time inputs, \`select\`, a \`popover="auto" role="menu"\`, a \`role="tablist"\`,
+and a route whose first child is a \`header\` holding one heading (the nav bar).
+A screen scrolls only inside a \`scroll\`, a \`list\` or an \`overflow-y="auto"\` box; right after the
+header and named by the route's \`navigationScroll\`, it also collapses a large
+title. A sheet swipes down, and a pushed screen swipes back, only when the route
+has an enabled control whose \`id\` is the root's \`navigationBack\`.
+
+Drive it by \`testId\`, never by screen coordinates: give every control a \`testId\`,
+find targets with \`tree\` (\`tree --ax\` for the platform's accessibility tree), and
+\`tap\`/\`type\` them with \`agent ios\` as with \`agent web\`. Under the agent the
+authored header and tablist stand in for the native bars and take the same taps.
+
+Match a reference's structure, controls and hierarchy, not its pixels: native
+controls set their own metrics. Don't measure sub-point positions; stop when it
+reads as the same app.
 
 Contract libraries: \`use Card from "@scope/ui"\` reads an installed package's
 \`.contract\` files (\`bun add @scope/ui\`, or \`"@me/ui": "file:../ui"\` in
@@ -322,6 +369,54 @@ built-in. Each file sees only the names its \`use\` lines list.
 
 Generated, so don't edit: the \`[patch.crates-io]\` table in \`Cargo.toml\`,
 \`rust-toolchain.toml\`, \`exact.mjs\`, and this block.
+
+${readFileSync(resolve(ROOT, 'docs/diary.md'), 'utf8').replace(/^#/gm, '##').trimEnd()}
+${END}
+`;
+}
+
+/** A game's notes: the app's, for a world in Rust under Contract's menus. */
+function gameNotes(dir, name, doc) {
+  const sdk = file => pathFrom(dir, resolve(ROOT, file));
+  return `${BEGIN}
+# ${name}: an Exact game
+
+The world is Rust: \`logic/src/lib.rs\` implements \`Game\` (its \`Options\` are the
+canvas's arguments, \`setup\` and \`tick\` its gameplay). Menus, the HUD and accessible
+controls are \`app.contract\` (Contract). \`app.json\` is optional and holds only keys
+you author (a title, \`game.audio\`, \`game.assets\`, a data crate). The bake generates
+the hosts under \`.shells/\` (ignored; never edit it). The game uses the exact2 checkout
+at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
+
+Read before writing code:
+
+- ${sdk('game/README.md')}: the game target — the programming model, input, saves, determinism, the proof.
+- ${sdk('game/engine/README.md')}: the engine's API.
+- ${doc('contract-for-agents.md')}: Contract, for the menus and HUD.
+- ${doc('agent-pitfalls.md')}: verified footguns, symptom → cause → fix.
+- ${doc('contract-grammar.md')}: exact forms, built-in functions, events (keys at a game's canvas too).
+
+Commands, from this directory:
+
+| | |
+|---|---|
+| \`bun exact.mjs test-rust\` | the hostless Rust tests (\`logic/tests\`) and the determinism lints |
+| \`bun exact.mjs contract build app.contract --json\` | compile; \`[]\` or every diagnostic with its range |
+| \`bun exact.mjs web\` | the web dev loop, at the URL it prints (a game builds the wasm target) |
+| \`bun exact.mjs test web\` | build the web game if needed, then run \`app.test.contract\` (also \`macos\`, \`ios\`) |
+| \`bun exact.mjs agent web "tap play" "type world key ArrowRight for 800" "screenshot out.png"\` | drive the game as a person would |
+| \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
+| \`bun exact.mjs prove\`, then \`bun proof.mjs web\` | the proof: a first baseline in \`pins.json\`, then real-host checks against it |
+| \`bun exact.mjs update\` | after exact2 moves; it rewrites \`exact.mjs\` and this block |
+| app.json \`"commands": {"replay": ["bun", "tools/replay.mjs"]}\` | the game's own verbs: \`bun exact.mjs replay web\` runs \`bun tools/replay.mjs web\` here |
+
+The loop: \`test-rust\` while tuning gameplay, \`contract build --json\` until it prints
+\`[]\`, \`test web\`, look at it with \`agent web … screenshot\`, then the native hosts.
+\`proof.mjs\` asserts the starter's gameplay (its beacons, KeyE): rewrite it when you
+change \`Options\` or the scene, before the first \`prove\`.
+\`bun ${sdk('scripts/exact.mjs')} setup --check\` names anything this machine is missing.
+
+Generated, so don't edit: \`exact.mjs\` and this block.
 
 ${readFileSync(resolve(ROOT, 'docs/diary.md'), 'utf8').replace(/^#/gm, '##').trimEnd()}
 ${END}
@@ -342,8 +437,8 @@ const OLD_DIARY = /\n*<!-- exact diary[^>]*-->[\s\S]*?<!-- \/exact diary -->\n?/
 /** Rewrite the generated block in AGENTS.md and a CLAUDE.md that is a copy,
  * keeping what an author wrote around it; an app with neither gets both.
  * The diary's \`.exact/\` stays out of git. */
-function updateNotes(dir, name) {
-  const block = agentNotes(dir, name), changed = [];
+function updateNotes(dir, name, options = {}) {
+  const block = agentNotes(dir, name, options), changed = [];
   const ignorePath = resolve(dir, '.gitignore'), ignore = existsSync(ignorePath) ? readFileSync(ignorePath, 'utf8') : '';
   if (!/^\/?\.exact\/?$/m.test(ignore)) { writeFileSync(ignorePath, `${ignore}${ignore && !ignore.endsWith('\n') ? '\n' : ''}/.exact/\n`); changed.push('.gitignore'); }
   const present = ['AGENTS.md', 'CLAUDE.md'].filter(file => existsSync(resolve(dir, file)) && !lstatSync(resolve(dir, file)).isSymbolicLink());
@@ -364,14 +459,14 @@ function updateNotes(dir, name) {
 
 /** The app's own command runner. EXACT2 names the checkout once (D3); the
  * default is the one that created the app, so a sibling checkout needs nothing. */
-function commandsFor(dir, name) {
+function commandsFor(dir, name, {game = false} = {}) {
   return `#!/usr/bin/env bun
 // ${name}'s commands, run with the exact2 checkout named by EXACT2
 // (default ${pathFrom(dir, ROOT)}). Generated by \`exact new\`; \`bun exact.mjs update\` rewrites
 // this file, the crates.io patches, the toolchain and the exact2 dependency paths. The app's own
 // verbs live in app.json's \`commands\`, which update leaves alone.
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { constants } from 'node:os';
 import { relative, resolve } from 'node:path';
 
@@ -387,12 +482,16 @@ const verbs = {
   mac: ['host/apple/build.mjs', '${name}-apple'],
   update: ['scripts/exact.mjs', 'new', import.meta.dir, '--update'],
   contract: ['scripts/exact.mjs', 'contract'],
-  feedback: ['scripts/feedback.mjs'],
+  feedback: ['scripts/feedback.mjs'],${game ? `
+  // A game's own: its hostless Rust tests and its proof's baseline (exact2's game/README.md).
+  'test-rust': ['game/app/shells.mjs', import.meta.dir, '--test'],
+  prove: ['game/prove.mjs', import.meta.dir],` : ''}
 };
 // The app's own verbs (paint, minesweeper, ledger: a regenerated file dropped the ones added here): app.json's
 // \`commands\`, each a command as argv (\`"verify": ["bun", "verify.mjs"]\`), run in this directory with the
-// arguments after the verb.
-const own = JSON.parse(readFileSync(resolve(import.meta.dir, 'app.json'), 'utf8')).commands ?? {};
+// arguments after the verb. A game's app.json is optional.
+const manifest = resolve(import.meta.dir, 'app.json');
+const own = (existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')).commands : null) ?? {};
 const clash = Object.keys(own).find((name) => verbs[name]);
 if (clash) {
   console.error(\`app.json commands.\${clash}: \${clash} is one of exact.mjs's own verbs; give the app's another name\`);
@@ -467,7 +566,17 @@ function resolveOffline(dir, deferrable = false) {
 }
 
 function updateApp(dir, name) {
+  // A game has no workspace of its own (the bake generates .shells/): its runner and notes are all there is to rewrite.
+  if (existsSync(resolve(dir, 'app.contract')) && !existsSync(resolve(dir, 'Cargo.toml')) && gameDefaults(dir)) {
+    writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name, {game:true}));
+    const notes = updateNotes(dir, name, {game:true});
+    return `Updated ${dir}: exact.mjs${notes.length ? `, ${notes.join(', ')}` : ''}`;
+  }
   if (!existsSync(resolve(dir, 'app.contract')) || !existsSync(resolve(dir, 'Cargo.toml'))) throw new Error(`${dir}: no app workspace here to update (no app.contract or Cargo.toml)`);
+  // The app's crates name it, not its folder: a renamed folder keeps `<name>-web`, `<name>-apple`
+  // (authoring bench: `exact.mjs ios` asked Cargo for `todo-apple` in a `todo/` holding `todo-list-*`).
+  name = ['web', 'apple', 'linux'].map(kind => resolve(dir, kind, 'Cargo.toml')).filter(existsSync)
+    .map(path => String(Bun.TOML.parse(readFileSync(path, 'utf8')).package?.name ?? '').match(/^(.+)-(?:web|apple|linux)$/)?.[1]).find(Boolean) ?? name;
   const manifest = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
   const block = `[patch.crates-io]\n${patchLines(dir).join('\n')}\n`;
   // The table runs from its header to the next header; its trailing blank line stays.
@@ -486,9 +595,10 @@ function updateApp(dir, name) {
   // An older app may predate the generated test command. Preserve authored
   // tests; otherwise start with a boot check that assumes no app-specific IDs.
   const test = resolve(dir, 'app.test.contract');
-  if (!existsSync(test)) writeFileSync(test, `// Add assertions for this app after its initial work settles.
+  // The app's data lands before a test's first step (`clock data`), so the
+  // check needs no `clock settle` and has no step at all.
+  if (!existsSync(test)) writeFileSync(test, `// The app boots and its data lands; add this app's own assertions.
 test "the app opens"
-  clock settle
 `);
   // Each exact2 crate is found by name, so a checkout that moved is followed.
   const metadata = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 26 });

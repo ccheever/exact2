@@ -76,18 +76,22 @@ final class HoverEffect: NSObject, UIPointerInteractionDelegate {
 /// numeric text does. The whole line rolls: the raster is one picture.
 enum NumeralRoll {
     private static var key = 0
-    static func roll(_ ink: CALayer, node: NodeView) {
+    /// Answers the roll it began, for the layer of the text's HDR shadow,
+    /// which rolls with it (`CALayer.applyTextCast`).
+    @discardableResult
+    static func roll(_ ink: CALayer, node: NodeView) -> CATransition? {
         let mode = node.style["content_transition"]?.string ?? "none"
         let text = node.props["text"] ?? node.inlineText.map(\.text).joined()
         let last = objc_getAssociatedObject(ink, &key) as? String
         objc_setAssociatedObject(ink, &key, text, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        guard mode != "none", let last, last != text, ink.contents != nil, !UIAccessibility.isReduceMotionEnabled else { return }
+        guard mode != "none", let last, last != text, ink.contents != nil, !UIAccessibility.isReduceMotionEnabled else { return nil }
         let roll = CATransition()
         roll.type = .push
         roll.subtype = mode == "numeric-countdown" ? .fromTop : .fromBottom
         roll.duration = 0.3
         roll.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         ink.add(roll, forKey: "exact.numeric")
+        return roll
     }
 }
 

@@ -1,4 +1,5 @@
 import {parseFlags, chromium} from '../scripts/agent-launch.mjs';
+import {layoutArgs} from '../scripts/agent-inspect.mjs';
 import {runFocusCommands} from '../host/web/navigation.js';
 import {captureWorld, diffWorlds, formatWorldDiff} from './proof.mjs';
 import {createHash} from 'node:crypto';
@@ -808,7 +809,8 @@ test('refusal advice executes as real driver CLI operations with a global JSON f
   const source=readFileSync(new URL('../scripts/agent.mjs',import.meta.url),'utf8');
   const body=source.slice(source.indexOf('async function main(argv)'),source.lastIndexOf('\nif (process.argv[1]'));
   const calls=[], output=[];
-  const cli=new Function('parseFlags','open','resolve','render','console',`${body}; return main;`)(parseFlags,async()=>({layout:async target=>{calls.push(['layout',target]);return {visible:true};},state:async()=>{calls.push(['state']);return {world:[{loading:['crate.model'],assets:[]}]};},close:async()=>{}}),x=>x,()=>{throw Error('global --json was ignored');},{log:x=>output.push(JSON.parse(x)),error:()=>{}});
+  // main's free names: what agent.mjs imports and this test stands in for.
+  const cli=new Function('parseFlags','layoutArgs','open','resolve','render','console',`${body}; return main;`)(parseFlags,layoutArgs,async()=>({layout:async target=>{calls.push(['layout',target]);return {visible:true};},state:async()=>{calls.push(['state']);return {world:[{loading:['crate.model'],assets:[]}]};},close:async()=>{}}),x=>x,()=>{throw Error('global --json was ignored');},{log:x=>output.push(JSON.parse(x)),error:()=>{}});
   for(const op of [...advised,'state']) expect(await cli(['web','--json',op])).toBe(0);
   expect(calls).toEqual([['layout','world:sign'],['state']]);
   expect(output[1].world[0].loading).toEqual(['crate.model']);
@@ -927,9 +929,9 @@ test('R13 output names nested in logic remain proof inputs and change the hash',
 
 test('a game\'s helper scripts are not proof inputs; its build inputs are', async () => {
   const {proofInputExcluded}=await import('./proof.mjs');
-  for(const file of ['bench.mjs','live.mjs','jev-proxy.mjs','tools/probe.js','proof.mjs','pins.json','README.md'])
+  for(const file of ['bench.mjs','live.mjs','jev-proxy.mjs','tools/probe.js','tools/levels.ops','proof.mjs','pins.json','README.md','drive.sh','shots/exported.json','repros/bug.contract','app.test.contract','logic/src/foo.test.rs'])
     expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(true);
-  for(const file of ['logic/src/lib.rs','logic/build.mjs','data/src/lib.rs','gpu/shaders/sky.wgsl','assets/x.js','app.contract','app.json','island.level.json','Cargo.toml','Cargo.lock'])
+  for(const file of ['logic/src/lib.rs','logic/build.mjs','data/src/lib.rs','gpu/shaders/sky.wgsl','assets/x.js','presentation/view.mjs','app.contract','app.json','island.level.json','Cargo.toml','Cargo.lock'])
     expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(false);
   // Shared SDK scripts stay inputs: the web glue is JavaScript.
   expect(proofInputExcluded('host/web/gpu-glue.js','forest')).toBe(false);
@@ -1292,13 +1294,18 @@ test('phone carrier copies before launch, saves over the socket and owns its pro
     writeFileSync(resolve(bundle, 'ExactIOS'), JSON.stringify({id:'0'.repeat(32),inputs:{app:app.id}}));
     const apps = await import(resolve(root, 'scripts/app.mjs'));
     const apple = await import(resolve(root, 'host/apple/build.mjs'));
+    const devices = await import(resolve(root, 'host/apple/devices.mjs'));
     mock.module(resolve(root, 'scripts/app.mjs'), () => ({...apps, resolveApp:() => app, bakeOutput:() => dir}));
-    mock.module(resolve(root, 'host/apple/build.mjs'), () => ({...apple, appleArtifacts:() => ({bundle}), phone:pick => {
+    mock.module(resolve(root, 'host/apple/build.mjs'), () => ({...apple, appleArtifacts:() => ({bundle})}));
+    // The phone is chosen in devices.mjs since 28a2ee81d.
+    mock.module(resolve(root, 'host/apple/devices.mjs'), () => ({...devices, phone:pick => {
       assert.equal(pick, 'fixture-phone'); return {udid:pick};
     }}));
     let refuseCopy = false, truncated = false;
     mock.module('node:child_process', () => ({...cp,
-      spawnSync(command, args) {
+      spawnSync(command, args, options) {
+        // useXcode (6c03c1dec) asks which developer directory is selected before any xcrun.
+        if (command === 'xcode-select') return cp.spawnSync(command, args, options);
         assert.equal(command, 'xcrun'); calls.push(args);
         if (args.includes('copy')) {
           assert.equal(args[args.indexOf('--source') + 1], input);

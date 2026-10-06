@@ -40,11 +40,11 @@ public struct Batch {
         self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
         self.error = error; self.timerDueMs = timerDueMs; self.pending = pending
     }
-    static func decode(_ data: Data) -> Batch {
-        data.withUnsafeBytes { decode($0.bindMemory(to: UInt8.self)) }
+    static func decode(_ data: Data, resolver: AssetResolver? = nil) -> Batch {
+        data.withUnsafeBytes { decode($0.bindMemory(to: UInt8.self), resolver: resolver) }
     }
-    static func decode(_ bytes: UnsafeBufferPointer<UInt8>) -> Batch {
-        var reader = BatchReader(bytes: bytes)
+    static func decode(_ bytes: UnsafeBufferPointer<UInt8>, resolver: AssetResolver? = nil) -> Batch {
+        var reader = BatchReader(bytes: bytes, profileResolver: resolver)
         do {
             let batch = try reader.batch()
             try reader.end()
@@ -97,7 +97,11 @@ final class Runtime {
     /// The text measurer (`TextEngine.measure`) and its context.
     func setMeasure(_ measure: ExactMeasureFn?, ctx: UnsafeMutableRawPointer?) {
         let ctx = UInt(bitPattern: ctx)
-        on { exact_set_measure(rt, measure, UnsafeMutableRawPointer(bitPattern: ctx)) }
+        // Its paragraphs' line boxes too, for multi-column flows (LLP 1093 D6).
+        on { () -> Void in
+            exact_set_measure(rt, measure, UnsafeMutableRawPointer(bitPattern: ctx))
+            exact_set_lines(rt, measure == nil ? nil : TextEngine.linesText)
+        }
     }
     /// The plan-font hook a boot calls synchronously, with its context.
     func setFonts(_ fonts: ExactFontsFn?, ctx: UnsafeMutableRawPointer?) {
@@ -119,11 +123,14 @@ final class Runtime {
         }
     }
 
+    private var profileResolver: AssetResolver?
+    func setProfileResolver(_ resolver: AssetResolver?) { on { profileResolver = resolver } }
+
     func read(_ len: UInt32) -> Batch {
         // The runtime owns these bytes until its next call. The reader copies
         // strings into Swift values before returning; no batch borrows the buffer.
         let bytes = UnsafeBufferPointer(start: exact_out(rt), count: Int(len))
-        var batch = Batch.decode(bytes)
+        var batch = Batch.decode(bytes, resolver: profileResolver)
         #if DEBUG
         // What was decoded, before `prepare` adds the owner's values.
         observeBatch?(Data(bytes), batch)
@@ -380,18 +387,26 @@ final class Runtime {
             return read(exact_dispatch(rt, view, 6, n, now))
         }
     }
-    func change(_ view: UInt32, _ value: String, now: Double) -> Batch {
+    /// A `change`; a text field's carries its selection as the edit left
+    /// it (kind 41, x2apps codeedit #2), else the value alone (kind 1).
+    func change(_ view: UInt32, _ value: String, selection: FieldSelection? = nil, now: Double) -> Batch {
         return on {
-            let n = write(value)
-            return read(exact_dispatch(rt, view, 1, n, now))
+            let n = write(selection?.payload(value) ?? value)
+            return read(exact_dispatch(rt, view, selection == nil ? 1 : 41, n, now))
         }
     }
-    /// A text field's value as it moves: HTML's `input` (LLP 1069.001 D4).
-    func input(_ view: UInt32, _ value: String, now: Double) -> Batch {
+    /// A text field's value as it moves: HTML's `input` (LLP 1069.001 D4),
+    /// with its selection when the host has one (kind 40, else 23).
+    func input(_ view: UInt32, _ value: String, selection: FieldSelection? = nil, now: Double) -> Batch {
         return on {
-            let n = write(value)
-            return read(exact_dispatch(rt, view, 23, n, now))
+            let n = write(selection?.payload(value) ?? value)
+            return read(exact_dispatch(rt, view, selection == nil ? 23 : 40, n, now))
         }
+    }
+    /// A text field's `select` (kind 42, x2apps codeedit #2): its value and
+    /// the selection it now has.
+    func fieldSelect(_ view: UInt32, _ value: String, _ selection: FieldSelection, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, 42, write(selection.payload(value)), now)) }
     }
     /// A checkbox's state: `change` when `commit`, else `input`.
     func checked(_ view: UInt32, _ checked: Bool, commit: Bool, now: Double) -> Batch {
@@ -434,6 +449,10 @@ final class Runtime {
             let len = exact_location_of(rt, n)
             return String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
         }
+    }
+    /// Whether `location` names one of the app's declared routes (LLP 1038 §7).
+    func routeMatches(_ location: String) -> Bool {
+        return on(busy: false) { exact_route_matches(rt, write(location)) != 0 }
     }
     func launch(_ location: String) { on { () -> Void in let n = write(location); _ = exact_set_launch_location(rt, n) } }
     func navigate(_ view: UInt32, _ location: String, now: Double) -> Batch {
@@ -529,6 +548,13 @@ final class Runtime {
         return on(busy: SelectMenu(json: Data())) {
             let len = exact_select_options(rt, view)
             return SelectMenu(json: Data(bytes: exact_out(rt), count: Int(len)))
+        }
+    }
+    /// A radio's group and the radios its arrows move to (x2apps survey #2).
+    func radioGroup(_ view: UInt32) -> RadioGroup {
+        return on(busy: RadioGroup(json: Data())) {
+            let len = exact_radio_group(rt, view)
+            return RadioGroup(json: Data(bytes: exact_out(rt), count: Int(len)))
         }
     }
     /// Host intrinsic sizes (nil clears one), under one layout.
@@ -637,10 +663,12 @@ enum PointerKind: UInt32 { case down = 29, up = 30, move = 31 }
 /// stage 3): the point from the node's content box in its own points, DOM's
 /// button bits (AppKit's `pressedMouseButtons` uses the same), 0 to 1 of
 /// pressure (DOM's 0.5 while pressed where nothing measures it), the device
-/// (`mouse`, `pen`, `touch`) and its id (the mouse is 1, as browsers number it).
+/// (`mouse`, `pen`, `touch`), its id (the mouse is 1, as browsers number it),
+/// and the point from the viewport, `frame()`'s space (LLP 1094 D11).
 struct PointerSample {
     var x: Double, y: Double, buttons: Int, pressure: Double, type: String, id: Int
+    var clientX: Double, clientY: Double
     /// The modifiers held, a chord prefix (`KeyCodes.held`): a `MouseEvent`'s.
     var held = ""
-    var line: String { "\(x),\(y),\(buttons),\(min(1, max(0, pressure))),\(type),\(id),\(held)" }
+    var line: String { "\(x),\(y),\(buttons),\(min(1, max(0, pressure))),\(type),\(id),\(clientX),\(clientY),\(held)" }
 }

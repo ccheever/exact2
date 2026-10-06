@@ -162,7 +162,7 @@ fn translate_frames_are_pairs() {
         "translate",
         0.0,
         250.0,
-        &[(0.0, 0.0), (10.5, -2.0)],
+        &[[0.0; 4], [10.5, -2.0, 0.0, 0.0]],
         true,
     );
     b.animate(7, "opacity", 0.0, 0.0, &[], false);

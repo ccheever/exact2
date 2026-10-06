@@ -481,3 +481,47 @@ fn an_exit_owns_its_colours_and_currentcolor_sides_follow_color() {
     // Top draws in currentcolor; left has its own; right and bottom draw nothing.
     assert_eq!(k.current_color_sides(key), [Property::BorderTopColor]);
 }
+
+#[test]
+fn shadow_targets_preserve_wide_gamut_and_profiles_are_discrete() {
+    for (css, wide) in [
+        ("color(display-p3 1 0 0)", true),
+        ("color(rec2100-linear 4 4 4)", true),
+        ("color(--dci-p3 1 0 0)", false),
+    ] {
+        let mut k = Kernel::with_monospace();
+        k.apply(
+            0,
+            1,
+            &[
+                Op::CreateView {
+                    id: 1,
+                    node_type: NodeType::View,
+                },
+                Op::SetStyle {
+                    id: 1,
+                    patch: patch(&[
+                        (StyleId::BoxShadow, &format!("0 2px 4px {css}")),
+                        (StyleId::Transition, "box-shadow 1s linear"),
+                    ]),
+                },
+                Op::AttachRoot { id: 1 },
+            ],
+        )
+        .unwrap();
+        let node = k.node(1).unwrap();
+        let targets = exact_kernel::motion::color_targets(&node, false);
+        let color = targets
+            .iter()
+            .find(|v| v.0 == Property::ShadowColor)
+            .unwrap()
+            .1;
+        if wide {
+            let value = color.unwrap();
+            assert!(value.oklab);
+            assert!(value.linear_srgb().0[0] > 1.1, "{css}: {value:?}");
+        } else {
+            assert!(color.is_none(), "profiled shadows must flip discretely");
+        }
+    }
+}

@@ -1,5 +1,6 @@
-//! Strings as JavaScript has them (LLP 1088 D1, D2): order, `slice` and
-//! `replaceAll` over UTF-16 code units, each result made well formed once.
+//! Strings as JavaScript has them (LLP 1088 D1, D2): order, `slice`,
+//! `replaceAll`, `indexOf` and `split` (§9.1) over UTF-16 code units, each
+//! result made well formed once.
 //!
 //! The runner holds Unicode scalar values (Rust's `str`), so a cut that
 //! JavaScript would leave as a lone surrogate half is U+FFFD here, as
@@ -106,7 +107,7 @@ impl Built {
 /// ECMA-262's ToIntegerOrInfinity, then a relative index clamped to
 /// `0..=len` as `slice` clamps it: NaN is 0, a fraction truncates toward
 /// zero, a negative index counts from the end.
-fn clamp(index: f64, len: usize) -> usize {
+pub(crate) fn clamp(index: f64, len: usize) -> usize {
     let len_f = len as f64;
     let i = if index.is_nan() { 0.0 } else { index.trunc() };
     if i < 0.0 {
@@ -218,9 +219,79 @@ pub fn replace_all(s: &str, find: &str, with: &str, limit: usize) -> Result<Stri
     b.finish()
 }
 
+/// `String.prototype.indexOf(needle)` (LLP 1088 §9.1): the first match's
+/// position in UTF-16 code units, `-1` for none, 0 for the empty needle. A
+/// non-empty needle is well formed, so its matches begin on character
+/// boundaries: the same first match as in UTF-16, found in UTF-8.
+pub fn index_of(s: &str, needle: &str) -> f64 {
+    match s.find(needle) {
+        Some(at) => s[..at].encode_utf16().count() as f64,
+        None => -1.0,
+    }
+}
+
+/// How many pieces `split(s, sep)` makes, counted before any is built, so
+/// the VM charges their list steps first (LLP 1090 D3).
+pub fn pieces(s: &str, sep: &str) -> usize {
+    if sep.is_empty() {
+        s.encode_utf16().count()
+    } else {
+        s.matches(sep).count() + 1
+    }
+}
+
+/// `String.prototype.split(sep)` with a string separator (LLP 1088 §9.1):
+/// the pieces between its matches, left to right, none overlapping. An
+/// empty `sep` splits into code units, each made well formed on its own
+/// (an astral character's halves are two U+FFFD), and `""` into none.
+pub fn split(s: &str, sep: &str) -> Vec<String> {
+    if sep.is_empty() {
+        return s
+            .encode_utf16()
+            .map(|u| {
+                char::from_u32(u32::from(u))
+                    .unwrap_or('\u{FFFD}')
+                    .to_string()
+            })
+            .collect();
+    }
+    s.split(sep).map(str::to_owned).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Expected values from `bun -e`: `s.indexOf(t)`, and `s.split(sep)`
+    /// with each piece `.toWellFormed()`.
+    #[test]
+    fn index_of_and_split_are_javascripts() {
+        for (s, t, want) in [
+            ("hello", "l", 2.0),
+            ("hello", "", 0.0),
+            ("", "", 0.0),
+            ("hello", "z", -1.0),
+            ("a😀b", "b", 3.0),
+            ("😀😀", "😀", 0.0),
+            ("é😀é", "é", 0.0),
+            ("x😀é", "é", 3.0),
+        ] {
+            assert_eq!(index_of(s, t), want, "{s:?}.indexOf({t:?})");
+        }
+        for (s, sep, want) in [
+            ("a,b,,c", ",", vec!["a", "b", "", "c"]),
+            ("", ",", vec![""]),
+            ("", "", vec![]),
+            ("abc", "", vec!["a", "b", "c"]),
+            ("a😀", "", vec!["a", "\u{FFFD}", "\u{FFFD}"]),
+            ("aaa", "aa", vec!["", "a"]),
+            (",a,", ",", vec!["", "a", ""]),
+            ("a😀b😀", "😀", vec!["a", "b", ""]),
+        ] {
+            assert_eq!(split(s, sep), want, "{s:?}.split({sep:?})");
+            assert_eq!(pieces(s, sep), want.len(), "{s:?}.split({sep:?}).length");
+        }
+    }
 
     /// Expected values from `bun -e`, `….toWellFormed()`.
     #[test]

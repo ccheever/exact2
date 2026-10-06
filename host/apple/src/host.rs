@@ -22,6 +22,11 @@ use exact_motion::{Change, Engine, HoldToken, Property};
 
 #[path = "arrange.rs"]
 mod arrange;
+#[path = "arrange_group.rs"]
+mod arrange_group;
+#[cfg(test)]
+#[path = "arrange_group_tests.rs"]
+mod arrange_group_tests;
 #[cfg(test)]
 #[path = "arrange_tests.rs"]
 mod arrange_tests;
@@ -64,6 +69,8 @@ use height_drag::{HeightDrag, HeightHandle};
 mod box_motion_tests;
 #[path = "layout.rs"]
 mod layout;
+#[path = "resize.rs"]
+mod resize;
 #[cfg(test)]
 #[path = "storage_tests.rs"]
 mod storage_tests;
@@ -138,6 +145,8 @@ pub struct Host<D: DataSource> {
     pending_layout: IdSet<NodeKey>,
     /// Each sticky node's constraint as the presenter last heard it (LLP 1083).
     stickies: IdMap<ViewId, exact_kernel::StickyConstraint>,
+    /// Each multi-column record as the presenter last heard it (LLP 1093 D7).
+    fragments: IdMap<ViewId, String>,
     ranks: IdMap<ViewId, i64>,
     roots: Vec<ViewId>,
     /// Last published common collection snapshot; refreshed only after layout.
@@ -152,6 +161,8 @@ pub struct Host<D: DataSource> {
     transform_drags: TransformDrags,
     /// The one Arrange contact, from its catch until its source settles.
     arrange: Option<arrange::Arrange>,
+    /// A grouped session (LLP 1094), from its lift until its ghost lands.
+    group: Option<arrange_group::GroupArrange>,
     presence: presence::Presence,
     flights: flights::Flights,
     content_region: Option<crate::content_region::RegionState>,
@@ -247,7 +258,8 @@ impl<D: DataSource> Host<D> {
     /// Boot with the app's kept secrets (LLP 1018 D6): `snapshot` is what
     /// the platform's store holds under the granted names, read before this
     /// call (a carried boot takes the carried store instead); `secrets` is
-    /// where the commits' writes go, after each commit, on this thread.
+    /// where the commits' writes go after each commit: secrets on this
+    /// thread, kept answers on their writer's (`store::flush_kept`).
     #[allow(clippy::too_many_arguments)]
     pub fn boot_stored(
         plan_bytes: &[u8],
@@ -406,6 +418,7 @@ impl<D: DataSource> Host<D> {
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
             stickies: IdMap::default(),
+            fragments: IdMap::default(),
             ranks: IdMap::default(),
             roots: Vec::new(),
             collections_json: "[]".into(),
@@ -425,6 +438,7 @@ impl<D: DataSource> Host<D> {
             height_drag: None,
             transform_drags: TransformDrags::new()?,
             arrange: None,
+            group: None,
             presence: presence::Presence::default(),
             flights: flights::Flights::default(),
             content_region,
@@ -471,6 +485,7 @@ impl<D: DataSource> Host<D> {
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args, c.source);
         }
+        batch.sound(host.runner.take_sounds(), Some(host.runner.plan()));
         // The engine hears the whole tree once: values, no transitions; an
         // `animation` starts now, as a browser starts one on a new element.
         let mut sync = MotionSync::default();
@@ -502,6 +517,7 @@ impl<D: DataSource> Host<D> {
         // point on a dev reload.
         host.emit_transform_drags(&mut batch);
         host.present(&mut batch, true);
+        let (mut batch, _) = host.resize_rounds(batch, None);
         let timers = host.runner.timer_due_ms();
         let motion = !host.engine.quiescent();
         batch.spatial = host.engine.spatial();
@@ -607,22 +623,12 @@ impl<D: DataSource> Host<D> {
     }
 
     fn configure_storage(source: &mut D) -> Result<(), exact_runner::DataError> {
-        let Some(([data, cache, temporary], fresh)) = crate::picker::app_dirs(source.app_id())?
-        else {
+        let Some(([data, cache, temporary], _)) = crate::picker::app_dirs(source.app_id())? else {
             return Ok(());
         };
-        // An authored test's store starts empty every run (`agent --test`).
-        if let Some(tree) = fresh {
-            match std::fs::remove_dir_all(&tree) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(exact_runner::DataError::Unavailable(format!(
-                        "EXACT_AGENT_STORAGE_FRESH: could not empty {}: {e}",
-                        tree.display()
-                    )));
-                }
-                _ => {}
-            }
-        }
+        // An authored test's store starts empty every run (`agent --test`):
+        // emptied at the boot that read it, so this is a no-op unless that failed.
+        crate::picker::empty_fresh_tree(source.app_id())?;
         // What `app:/` names for the picker and an image's source (LLP
         // 1069.002 D4, D7); the last launch's picks go.
         crate::picker::set_roots(data.clone(), cache.clone(), temporary.clone());
@@ -694,10 +700,15 @@ impl<D: DataSource> Host<D> {
     }
 
     /// What the last commit kept or forgot, into the platform's store (LLP
-    /// 1018 D6) — synchronous, on this thread, milliseconds once per login.
-    /// A write that fails is journaled; the app is otherwise unaffected, as
-    /// a web app is when `setItem` throws: the next launch will not remember.
+    /// 1018 D6): secrets synchronously, on this thread, milliseconds once per
+    /// login; kept answers queued for their writer thread (`store.rs`). A
+    /// write that fails is journaled (a kept answer's at a later commit);
+    /// the app is otherwise unaffected, as a web app is when `setItem`
+    /// throws: the next launch will not remember.
     fn persist(&mut self) {
+        for line in self.kept_failures() {
+            self.runner.log(line);
+        }
         for w in self.runner.take_store_writes() {
             let Some(secrets) = &self.secrets else {
                 continue;
@@ -706,6 +717,14 @@ impl<D: DataSource> Host<D> {
                 self.runner.log(format!("store {} failed: {e}", w.name));
             }
         }
+    }
+
+    /// The kept answers the writer failed to write since the last call.
+    pub fn kept_failures(&self) -> Vec<String> {
+        self.secrets
+            .as_ref()
+            .map(Platform::kept_failures)
+            .unwrap_or_default()
     }
 
     /// The requests the runner handed out since the last take (LLP 1016 D2):
@@ -846,13 +865,9 @@ impl<D: DataSource> Host<D> {
     /// `error`, and the presenter is untouched (as the kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> String {
         self.now_ms = now_ms.max(self.now_ms);
-        match self.runner.dispatch(view, event) {
-            Ok(receipt) => {
-                let at_ms = self.now_ms;
-                self.commit(&[Timed { at_ms, receipt }], None)
-            }
-            Err(e) => self.commit(&[], Some(format!("{e:?}"))),
-        }
+        // At the event's time: an action's `now()` is the host's (LLP 1096 D3).
+        let a = self.runner.dispatch_at(view, event, self.now_ms);
+        self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
     }
 
     /// [`Host::dispatch_at`] at the clock's last value.
@@ -1134,7 +1149,13 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    fn finish(&self, mut batch: Batch, error: Option<String>) -> String {
+    fn finish(&mut self, batch: Batch, error: Option<String>) -> String {
+        let (batch, error) = self.resize_rounds(batch, error);
+        self.refused(batch, error)
+    }
+
+    /// [`Host::finish`] for a batch that commits nothing, a refusal's.
+    fn refused(&self, mut batch: Batch, error: Option<String>) -> String {
         batch.spatial = self.engine.spatial();
         batch.frames = self.runner.wants_frames();
         batch.seq = self.runner.seq_range();
@@ -1155,6 +1176,7 @@ impl<D: DataSource> Host<D> {
         let (mut batch, error) = self.commit_tree(receipts, error, batch);
         // A receipt can end an Arrange contact; its terminal runs at receipt time.
         let arrange = self.arrange_after_commit(&mut batch);
+        self.group_after_commit(&mut batch);
         self.commit_finish(batch, error.or(arrange))
     }
 
@@ -1297,6 +1319,7 @@ impl<D: DataSource> Host<D> {
         for c in self.runner.take_commands() {
             batch.command(&c.name, &c.args, c.source);
         }
+        batch.sound(self.runner.take_sounds(), None);
         (batch, error.or(layout_error))
     }
 
@@ -1464,7 +1487,9 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
 
 fn handler_name(e: EventKind) -> Option<&'static str> {
     match e {
-        EventKind::Reachstart | EventKind::Reachend => None,
+        // The runner raises these itself, after collection feedback and
+        // after layout: nothing for the presenter to listen for.
+        EventKind::Reachstart | EventKind::Reachend | EventKind::Resize => None,
         _ => Some(e.name()),
     }
 }

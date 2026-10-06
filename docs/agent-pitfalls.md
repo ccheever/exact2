@@ -10,6 +10,21 @@ guide's rules don't make obvious.
 
 ## Layout
 
+- **A root with `min-height="100%"` and `overflow-y="auto"` does not scroll itself.**
+  `min-height` lets the box grow with its in-flow content (CSS), so it has nothing to
+  scroll and the document scrolls instead: on the web a screenshot shows only the first
+  screen, and on iOS a builder found the results stuck below the keyboard (a finger can
+  be caught by the root's own scroll view, which has no range). Fix: `height="100%"`
+  with `overflow-y="auto"`, or a `column height="100%"` holding a `scroll` with `flex=1
+  min-height=0`. (Authoring bench, LLP 1087, r33 t1-tip and ios25 t1-tip, 2026-10-06.)
+
+- **A heading's lines are a screen apart with `line-height=28`.** Cause: a bare
+  number is CSS's unitless `line-height`, a multiple of the font size (at 22 px,
+  28 × 22 = 616 px), unlike a bare number on a length row such as `font-size` or
+  `width`, which means pixels. Fix: write `line-height="28px"`, or a ratio such as
+  `line-height=1.3` (28.6 px at 22 px). (Authoring bench,
+  LLP 1087: three Codex builders, caught only by a screenshot, 2026-10-05.)
+
 - **An image tile grows to its picture's size.** An album tile in a flex row became
   900×1200 pt. Cause: a flex item's automatic minimum is its content size (CSS), and
   an image's content size is its intrinsic size. Fix: give the image or its flex
@@ -41,8 +56,12 @@ guide's rules don't make obvious.
   becomes a paint group (`isolation: isolate`). A child cannot rise above its
   parent's later siblings. Fix: raise the ancestor that is a sibling of the others
   (the card's column, while it holds the dragged card), or draw the dragged card in
-  an overlay at the board level. (Authoring bench, LLP 1087, t4-kanban: two builders,
-  5 and 10 minutes, 2026-10-04.)
+  an overlay at the board level. For cards between lists, a `reorderGroup` on the
+  lists has the host draw the card in its top layer instead ([LLP
+  1094](../llp/1094-dropping-across-lists.rfc.md)). (Authoring bench, LLP 1087,
+  t4-kanban: two builders, 5 and 10 minutes, 2026-10-04.) A chess board's drag ghost
+  is the same: a ghost inside the square it left stays under the squares after it;
+  draw it as a later sibling of the squares, positioned in the board (chess diary #5).
 
 - **The content of an overlay vanishes behind its own background.** Cause: a
   background box with `position="absolute"` (a dimmer, a gradient) paints
@@ -50,6 +69,24 @@ guide's rules don't make obvious.
   LLP 1083.000 the Apple hosts painted in tree order and hid this. Fix: give
   the content `position="relative"`, or give the background `z-index=-1`
   inside a parent that stacks. (Signal Clone's call screen, build 16.)
+
+- **`flex=0` collapses a column that has a `width`.** A side column written
+  `width=400 flex=0 min-width=0` in a 1,100 px row laid out 0 px wide, and the
+  pane beside it covered its search field. Cause: `flex: 0` is CSS's `0 1 0%`:
+  the basis is `0%`, not the width, and the item shrinks (`flex=<n>` is always
+  `<n> 1 0%`; `contract vocab flex`). Fix: `flex="none"` (`0 0 auto`: the width
+  is the size), or no `flex` and `flex-shrink=0`. (Stocks DIARY, about 15
+  minutes; reproduced on the web and macOS, 2026-10-04.)
+
+- **A `width="100%"` box with padding runs past its parent.** A full-width column
+  with `padding=16` measured 1,232 px in a 1,200 px window; an inbox row's time
+  painted off the right edge of a phone. Cause: a box is `box-sizing: content-box`,
+  as in CSS without a reset, so padding and border add to `width` (and to
+  `height="100%"`). Fix: `box-sizing="border-box"` on the padded box or its style;
+  or drop `width`, since a box in a block or a `column` already fills the width.
+  (Chat2 and Workout DIARY, Gallery's `height`; reproduced on the web, 2026-10-04.)
+  **Candidate diagnostic:** the compiler could name `box-sizing` when a
+  content-box node has `width="100%"` and horizontal padding.
 
 ## Lists and scrolling
 
@@ -73,14 +110,22 @@ guide's rules don't make obvious.
   it has not built (84 pt with `estimated-item-height=52`). Fix:
   `scroll-start="end"` on the `list` (LLP 1010 §6.5), not a `scrollTop` write or a
   `scrollIntoView` after the first command. (Signal Clone, build 4.)
-- **The app works hard at rest.** Cause: it commits state on a timer (a clock
-  written every 250 ms), so every tick is a batch and the host runs its whole
-  post-apply pass (navigation, controls, menus, every scroller's position) four
-  times a second; before `32805146` this also cut the reader's scrolling. Fix:
-  write state only when it changes (a minute-resolution clock; poll fast only while
-  something is in flight), and remove `scroll=` handlers left over from
-  experiments: each commits per scroll frame. (Signal Clone, build 2; QUEUE has
-  the host side.)
+- **The app works hard at rest.** Cause: it commits state that shows on a timer
+  (a clock's text written every 250 ms), so every tick changes a view and the host
+  runs its whole post-apply pass (navigation, controls, menus, every scroller's
+  position) four times a second; before `32805146` this also cut the reader's
+  scrolling. A timer's or a scroll handler's commit whose writes show nowhere
+  skips that pass; any other still runs it. Fix: write state
+  only when it changes (a minute-resolution clock; poll fast only while something
+  is in flight: `task poll when inFlight every(200, tick)`), and remove
+  `scroll=` handlers left over from experiments: each runs an action per scroll
+  frame. (Signal Clone, build 2.)
+- **A gate reads state at commits.** A gated task (`task hide when toast != ""
+  key=toastUntil`) is armed or dropped by the commit that changes its gate or
+  key, never as the clock moves: so a gate cannot read `now()` (refused), and the
+  `after`'s action runs at its deadline exactly, `now()` equal to it. An action
+  that re-tests `now() > toastUntil` there does nothing and the toast stays up
+  forever; clear it unconditionally. (LLP 1092 D8; ledger2 #1, chat F7.)
 
 - **A custom row in a grouped list overflows its card on the right.** Cause:
   the sheet already gives each row its margin (16 pt, or 56 pt after an icon)
@@ -95,6 +140,30 @@ guide's rules don't make obvious.
   Rust data seam carries at most `MAX_HOST_WORK_BYTES` (16 MiB) a message; the
   runner's own data source has no such cap. Keep an answer under 16 MiB, or page
   it. (LLP 1090 conformance plan, `host/web-js/conformance/budget.contract`.)
+
+- **A finger on a card's ellipsis title does not lift the card on the web.** A `text`
+  inside a `reorderFor` grip with `overflow-x="hidden"` (which `text-overflow="ellipsis"`
+  needs) is a scroll container, and `touch-action` is resolved from the touched element
+  up to its nearest scroll container (Pointer Events), so the grip's `none` is never
+  consulted: where the page can scroll the browser takes a touch that starts on the
+  title, and nothing lifts or is logged. A mouse, or a finger on the grip's
+  padding, works. Driven at phone size on the web: the card stays; without the overflow,
+  or with `touch-action="none"` (or `pointer-events="none"`) on the title, it moves. Fix:
+  put `touch-action="none"` on that text too. (Authoring bench, LLP 1087, r32 and r33
+  t4-kanban, 2026-10-06.)
+
+- **A second card drag right after a drop does nothing.** A drag that starts before
+  the last one's session ends is refused (LLP 1094 D8): the drop is held until its move
+  shows (a second at most; [the agent guide](contract-for-agents.md#views-layout-and-interaction),
+  boards), then the card lands (about 250 ms on the web). No diagnostic names the
+  refusal, and the agent's `drag to` reply reads like a success. A board whose drop
+  sends a mutation that `refreshes` its cards holds until storage answers, so a quick
+  second drag is easy to lose (a person's, or a test's: two `drag to` steps in a row).
+  Fix: in a test or drive put `clock settle` between drags; it is needed even when the
+  move shows at once, since the landing still holds the session. Showing the move in
+  the drop's own commit (the board in state the action writes, saved through the
+  mutation) only removes the wait for storage, which shortens what a person meets. (Authoring bench, LLP
+  1087, r26 and r29 t4-kanban, 2026-10-05.)
 
 ## Native presentation and navigation (iOS)
 
@@ -114,11 +183,26 @@ guide's rules don't make obvious.
   compiler could refuse a named scroller that is not right after the `header` (an
   iOS-only rule today, so not refused); the hosts could journal a route whose
   content overflows with nothing to scroll it (QUEUE.md).
+- **A sheet won't swipe down to dismiss.** It springs back (the log says "modal
+  dismissal refused: no enabled navigationBack control in the active route").
+  Cause: as for edge-swipe back, the swipe presses the control named by the root's
+  `navigationBack`, and a `navigationPresentation="modal"` route with no enabled
+  control of that id refuses it; `closedby="none"` refuses it too. Fix: an
+  `id="back"` button (Cancel, Done) in every sheet (`ModalIOS.swift`,
+  `refusesDismissal`). (Exact-new iOS app feedback, 2026-10-04.)
+- **The app looks like an imitation of iOS.** Cause: controls built from boxes
+  (a painted switch, buttons laid out as a tab bar or a title bar, rows drawn as a
+  grouped list). Fix: the native Contract forms
+  ([the agent guide](contract-for-agents.md#views-layout-and-interaction), "Prefer
+  native controls"); a hand-built lookalike of a system control is a bug. Match a
+  reference's structure and controls, not its pixels. (Exact-new iOS app feedback,
+  2026-10-04.)
 - **The agent's screenshots and tree don't show the native bars.** Under
   `scripts/agent.mjs` the navigation bar, tab bar, `UIMenu`s and header search are
-  not presented; the authored header, tablist and popover paint instead, by design.
-  To see native chrome, launch normally and take `xcrun simctl io <udid>
-  screenshot`. (Signal Clone, builds 5 and 10.)
+  not presented; the authored header, tablist and popover paint instead, by default.
+  To see the bars, the tab bar and sheets as a person does, drive with `--chrome
+  platform` and take `screenshot out.png window`; menus stay the agent's popovers
+  there. (Signal Clone, builds 5 and 10; Splitter, rough 4 and 11.)
 - **An overlay's backdrop stops at the navigation or tab bar.** Cause: content
   inside a route draws under the native bars. Fix: render full-screen overlays
   (menus, action sheets) as root children after the tab container, or as a
@@ -152,7 +236,40 @@ guide's rules don't make obvious.
   safe area. Fix: put `env(safe-area-inset-top)` on the route column, not on each
   authored header. (Signal Clone, build 5.)
 
+- **After a relaunch on iOS, a form opens with old values and ignores the fresh answer.**
+  While the data module is not ready, a native host (and the wasm web target) can make
+  the form's child from the resource's kept answer: a device-state reader's last small
+  answer for the same arguments. A child's states start once, so the fresh answer does
+  not reset them, and a write the resource did not hear about leaves that kept answer
+  old. The default web JS target keeps none, so a web run never shows it. Fixes: [the
+  agent guide](contract-for-agents.md#composition-and-lifetime), the form that edits a
+  saved record (refresh the resource after each write, or key the child by a string or
+  number from the answer). (Authoring bench, LLP 1087, ios19, ios22 and ios32
+  t7-wizard, 2026-10-05/06.)
+
+- **An empty date input can still show a date on iOS.** `input type="date" value=""`
+  draws a date in the `UIDatePicker`, which has no empty state: today in a new picker,
+  the last date in one whose value was cleared (`time` and `datetime-local` share the
+  picker), while the bound value, `state` and `tree` stay `""` until the person picks. Fix: when the value is empty,
+  show the field's emptiness yourself (a "Not set" label beside it), and validate
+  the bound value, not the screenshot. (Authoring bench, LLP 1087, ios20 t7-wizard,
+  2026-10-05.)
+
 ## Actions
+
+- **State a data module keeps across an `await` in a mutation goes stale for
+  good.** A newer `send x = command(…)` supersedes the pending one, and the
+  superseded call's continuation is dropped: its fetch may finish on the
+  wire, but the code after the `await` never runs, so a busy flag or lock it
+  set is never cleared. The Signal clone's keystroke (`draft`) commands sent
+  typing indicators this way, and one dropped continuation held every later
+  send forever. Fix: do network work from a call that is never superseded (a
+  heartbeat sent only when `not pending(…)`), and give any in-flight marker a
+  deadline from the caller's clock. (Signal clone build 35, 2026-10-05.)
+
+- **`Date.now()` throws in an iOS data module, and Bun tests pass.** Take the
+  time from the call's arguments (the Contract's `wallTime.epochAtZero + now()`),
+  as every source already receives it. (Signal clone build 34, 2026-10-05.)
 
 - **A helper action does not see what its caller just assigned.** `sel = next`
   then `follow()`, with `follow` reading `sel`, would read the old `sel`: a call
@@ -162,6 +279,51 @@ guide's rules don't make obvious.
   helper should see, `follow(next)`, or a `let` bound before the assignment for
   the old one. (Spreadsheet F21 and Files F27 diaries, where a copied block was
   the workaround.)
+
+- **A delete or save is lost when the page reloads right after it.** An action that
+  `send`s a write and navigates away in the same commit passes every test, but a
+  browser reload in the next ~100 ms comes back without the write. Cause: the write
+  is the data module's, and it is done only when its mutation answers; the reload
+  ends the page first. Fix: navigate in the mutation's `then`, which runs once the
+  write has answered. (Authoring bench, LLP 1087, a2-contacts and t2-todo, 2026-10-05.)
+
+## Sound
+
+- **A scheduled sound plays after Stop.** A sequencer that schedules each step
+  ahead (`playSounds(…)` with a future `at=`) keeps sounding the hits already
+  scheduled for a beat after the Stop press. Cause: a voice is the runner's once
+  its commit stands; a state change does not unschedule it. Fix: call
+  `stopSounds()` (or `stopSounds(group=…)`) in the stop action: it stops what
+  sounds and cancels what waits (`by cancelled`). (Drums adoption, LLP 1096 D13.)
+- **The first sound on the web is silent.** A sound a page plays on load, or
+  from a timer before anyone has pressed anything, is dropped and journaled
+  `sound blocked: the page has had no user activation`. Cause: browsers start
+  audio only after a user activation. Fix: start sound from a press (its own
+  commit plays), or accept that a timer's sounds begin after the first tap or
+  key. Native hosts have no such rule. (Trivia F5; LLP 1096 D7.)
+- **A sequence's first hit is late when the first timer tick plays it.** A
+  gated or new `every(25, tick)` first fires 25 ms after it starts, so a downbeat
+  left to the tick is 25 ms late. Fix: schedule the first window from the press
+  itself (`playSounds(hitsBetween(song, now(), now() + 100))` in the start
+  action), then each tick the next (`[scheduledTo, now() + 100)`). (Drums; LLP
+  1096 D3.)
+
+## Media session
+
+- **A remote pause leaves a bound `paused` false.** The lock screen's or a media
+  key's pause pauses the element; an app that binds `paused` and does not mirror
+  the element's `pause` event still holds `paused = false`, so its play button
+  and its next commit disagree with the player. Fix: `pause=hostPaused
+  playing=hostPlaying`, each setting `paused`. (LLP 1098 D3.)
+- **The lock screen's skip is not your action's.** The lock screen shows
+  `seekbackwardOffset`/`seekforwardOffset` (default 10), not the number in
+  `seekforward=skip(30)`. Fix: keep the two equal, or take the record and seek
+  by `d.seekOffset`. (LLP 1098 D2.)
+- **On iOS a media session needs a playback session and background audio.**
+  `build.mjs --ios` refuses a `metadata=` without `"audio_session": "playback"`
+  and `"audio"` in `host.ios.backgroundModes`: the lock screen shows only a
+  playback session's media, and audio stops at the lock without the mode. (LLP
+  1098 D8.)
 
 ## Input
 
@@ -182,14 +344,41 @@ guide's rules don't make obvious.
   `box-sizing`.) **Candidate diagnostic:** the compiler or a development log
   could name the failed condition.
 
-- **A text field shows an edit its action refused.** A field bound with
+- **A text field shows an edit its action refused or normalized.** A field bound with
   `value=text input=edit`, where `edit` ignores a blank value, shows the blank while
-  `text` keeps the old value, and the next keystroke builds on what is shown. Cause: on
-  the web (both targets) a text field is re-set only when its bound value changes, so
-  an unchanged binding does not overwrite the edit. Fix: bind the field to draft state that `edit` always writes, and on commit
+  `text` keeps the old value, and the next keystroke builds on what is shown; so does
+  one whose action or source normalizes `-2` to the `0` it already held. Cause: on
+  the web (both targets) a text field is re-set only when what its binding reads
+  changes, so an unchanged binding does not overwrite the edit. Fix: bind the field to draft state that `edit` always writes, and on commit
   (`change`, Enter, `blur`) write the accepted value or reset the draft to it, which
   changes the bound value and redraws the field. (Authoring bench, LLP 1087, t2-todo:
-  two builders, about 10 minutes each, 2026-10-04.)
+  two builders, about 10 minutes each, 2026-10-04; t1-tip, a normalized count,
+  2026-10-05.)
+
+- **A checkbox bound to a resource field does not tick until the save answers.** With
+  `checked=form.terms change=editTerms`, where `editTerms` sends a mutation that
+  `refreshes form`, a click shows the box unchecked again while the save's answer is
+  out and checked only when the refreshed answer lands, so a slow store shows no tick,
+  and a test that clicks and reads `checked` before the answer fails. Cause: every host (both web targets, iOS,
+  macOS) re-sets the box to its binding, `form.terms`, which is still `false` until
+  the answer. Fix: bind it to state the action writes at once (`terms = value`, then
+  `send`), and seed that state from the saved record as a form does. (Authoring bench,
+  LLP 1087, codex17 t7-wizard, 2026-10-05.)
+
+- **`autofocus` on a field an action shows does not focus it on the web.** The JS
+  target honours `autofocus` once, at boot; a field mounted later by an action keeps
+  the focus where it was (the pressed button). Fix: give the field an `id` and call
+  `focus("field")` (the `id`, not the `testId`) in the action that shows it. (LLP 1035.000 D9 says a node mounted later may autofocus, as
+  the wasm target does; the JS target's gap is in QUEUE.md.) (Authoring bench, LLP
+  1087, r27 t2-todo, 2026-10-05.)
+
+- **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
+  is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats
+  a touch as the finger leaving clears the hover the next assertion still wants.
+  Fix: on touch-up, end the drag and leave the hover, or write `mouse` for the
+  left button. iOS refuses `mouse`; macOS and Linux drag with the mouse anyway
+  ([authored tests](contract-grammar.md#authored-tests)). (Stocks diary: the chart
+  readout unmounted, about 10 minutes, 2026-10-04.)
 
 - **A `pan` hears nothing from a finger on the web.** A drag with
   `tap <id> drag dx dy` (or a real touch) moves nothing and logs nothing. Cause:
@@ -199,16 +388,6 @@ guide's rules don't make obvious.
   bench, LLP 1087, t4-kanban: about 15 minutes, 2026-10-04.) **Candidate
   diagnostic:** the compiler could warn on a `pan` without `touch-action`.
 
-- **A native build stops at the bake with a source's storage error.** `exact.mjs ios`
-  (or `mac`) panics in `apple/build.rs`: `bake …: Data { resource: "tasks", error:
-  Unavailable("storage is unavailable during bake") }`, while the web build asks the
-  source again at launch, as [the human guide](contract-for-humans.md#writing-the-data-module)
-  says. Cause: the native bake treats a source that throws at bake as a failure; an
-  `else` placeholder does not change that. Fix: in the source, catch the storage error
-  whose `code` is `'bake'` and answer a default: `catch (e) { if (e.code === 'bake')
-  return []; throw e; }` ([the reference](reference.md#what-a-data-module-can-use)).
-  (Authoring bench, LLP 1087, t2-todo on iOS, 2026-10-04.)
-
 - **There is no `swipeleft` for swipe-to-delete.** A row built from `pan`,
   `panrelease` and `translate` reveals its Delete button, but by hand on every host.
   Cause: `swiperight` is the reply gesture (a message bubble), not a direction pair;
@@ -217,8 +396,53 @@ guide's rules don't make obvious.
   children, naming them with `swipeContent`, `swipeLeading` and `swipeTrailing` ids,
   which the web scrolls and iOS turns into UIKit's own swipe actions. Fix: copy
   `apps/messages/app.contract`'s inbox row (`thread-swipe-…`). (Ledger2 DIARY, "Needed:
-  swipe gesture", about 15 minutes, 2026-10-04.)
+  swipe gesture", about 15 minutes, 2026-10-04.) iOS refuses a row whose content is
+  not exactly the scroll's size, and `logs` says which rule failed (`swipeContent on
+  #243 is refused: swipeContent "row" is 390x68, not the row's 390x68.5 border box`):
+  a border on the scroll itself shrinks it, so put a hairline on the content (Splitter
+  DIARY, rough 10).
 
+- **A `swiperight` hears nothing from a finger on iOS.** A mouse drag fires it on
+  the web and macOS, in a drive and in a test, while a real touch on an iPhone
+  does nothing. Cause: with `touch-action` at `auto` a horizontal pan is the
+  platform's, as in a browser, so the swipe never begins. Fix:
+  `touch-action="pan-y"` on the swiped node, which leaves vertical scrolling to the
+  page. Messages also gives the bubble `transition="translate spring(300, 30, 1)"`,
+  which moves it with the finger; that does not arm the gesture. (Chat2 DIARY,
+  which credited the transition, about 20 minutes; reproduced with `agent ios
+  --touch platform`, 2026-10-04.) **Candidate diagnostic:** the compiler could
+  warn on a `swiperight` without `touch-action`, as on a `pan`.
+
+- **A dragged piece snaps back, lands on the wrong square, or a tap moves it.** A
+  board has no drop target; build the drag from the pointer events (Chess DIARY,
+  about 30 minutes; this recipe driven on the web and macOS, 2026-10-04):
+  - Each square takes `pointerdown`, `pointermove`, `pointerup` and
+    `touch-action="none"` (a finger otherwise scrolls and the events are cancelled).
+  - The square that took the `pointerdown` holds the pointer: its `pointermove`s and
+    its `pointerup` come wherever the pointer goes, with `offsetX`/`offsetY` measured
+    from that square. The drop square is the held one's column plus
+    `floor(e.offsetX / cell)`, and its row plus `floor(e.offsetY / cell)`.
+  - Start a drag only past a threshold (`dx * dx + dy * dy > 64`), so a tap stays a tap.
+  - Draw the ghost as a later sibling of the squares inside a `position="relative"`
+    board (`position="absolute"`, `pointer-events="none"`): `z-index` orders siblings
+    only, so a ghost inside a square cannot float over the next one.
+  - Keep the piece in its square while it is dragged, dimmed with `opacity`.
+
+  ```text
+  action down(i: number, e: PointerEvent)
+    from = i
+    dragging = false
+  action move(i: number, e: PointerEvent)
+    if from >= 0
+      dx = e.offsetX - half
+      dy = e.offsetY - half
+      dragging = dragging or dx * dx + dy * dy > 64
+  action up(i: number, e: PointerEvent)
+    if dragging
+      drop(from, from + floor(e.offsetX / cell))
+    from = -1
+    dragging = false
+  ```
 - **A write left running after a source answers can be lost on iOS or macOS.** The
   web kept it; the native host did not, and a list was empty after a relaunch. Cause:
   the native data executor runs a source's promises while a request waits on them,
@@ -230,11 +454,82 @@ guide's rules don't make obvious.
 
 ## Driving and testing
 
+- **A test passes on the web and fails on iOS right after an input that saves.** An
+  `expect` straight after `type` or `tap` reads what the input's mutation answered,
+  but an input step only finishes the `then`s of answers already settled; it does not
+  wait for outstanding storage ([authored tests](contract-grammar.md#authored-tests)).
+  A fast web reply (the web input waits two frames) can make the `expect` pass while
+  the native reply is still pending. Fix: put `clock data` after the input, before the
+  `expect` that reads what its reply sets.
+  (Authoring bench, LLP 1087, ios23 t5-pomodoro, 2026-10-05; iOS round 6.)
+
+- **A drive script kept in the app folder makes the build stale.** Editing
+  `verify.mjs` beside `app.contract` made the driver refuse the next drive until
+  `bun exact.mjs web-build`. Cause: a file in the app folder counts as a build input
+  unless it is an output (a screenshot, a log) or git-ignored outside the input trees
+  (`data/`, `web/`, `assets/` and the like count even when ignored); any `.json`
+  counts, since the bake captures it. Fix: keep drive scripts, evidence, logs and
+  runtime files in the app's `.exact/` (no build, dev-loop watcher or freshness
+  check reads a dot directory at the app's root), or outside the app folder.
+  (Authoring bench, LLP 1087: five builders, 2026-10-05; Depot's evidence JSON,
+  2026-10-05.)
+
+- **A latency test passes at once, or a reply never lands.** Cause: every drive
+  holds the app's clock, in every browser and on every host: `clock +N` moves the
+  app's time and nothing else, while a `fetch`, a storage call or a stream's next
+  message arrives on real time. Fix: `clock settle` to land what is in flight;
+  `clock +N real` to let N ms of wall time pass with the clock moving alongside
+  (polling, a server push, a measured latency). `state` lists what is pending.
+  (Depot on three backends, 2026-10-05.)
+
+- **A date input reads `10/05/2026` beside a label the app wrote in UTC.** Cause:
+  `input type="date"`/`"time"` show the browser's own locale format and mean a
+  local wall time, as on the web; the app's label used another zone. Fix: label in
+  the viewer's zone, or pass `--locale` and `--time-zone` on a drive (`locale` and
+  `time-zone` lines in a test file) so both agree and the run stays reproducible.
+  (Depot, 2026-10-05.)
+
+- **An iOS screenshot right after a tap shows a segmented control on its old
+  segment.** The tree says the new one is selected. Cause: UIKit animates the
+  selection on real time, and `clock +N` does not move it. Fix: `clock +1000 real`
+  before the screenshot (it moves the app's clock that second too, so a timer due in
+  it fires). (Authoring bench, t1-tip on iOS, 2026-10-05.)
+
+- **The same test passes on the web and fails on iOS at a date past `max`.** Cause:
+  the runner refuses a date, time or datetime outside `min`/`max` (the agent says the
+  date was refused) on iOS, macOS, Linux and the wasm web; the JS web target keeps the
+  value as a browser's date input does. Fix: test values inside the range, or the
+  bound itself. (Authoring bench, t7-wizard on iOS,
+  2026-10-05.)
+
+- **The agent taps the simulator by screen coordinates** (`axe tap -x -y`,
+  `simctl`), and the drive breaks whenever layout moves. Cause: the controls have
+  no `testId`, or the driver was not used on iOS. Fix: give every control a
+  `testId` and drive with `bun exact.mjs agent ios tree "tap <testId>"
+  "screenshot s.png"`; find targets with `tree`, or `tree --ax` for the
+  accessibility tree. (Exact-new iOS app feedback, 2026-10-04.)
+
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
   `scripts/agent.mjs` for dates that read as intended and stay reproducible; in a test
   file, `epoch "…"` and `time-zone "…"` lines, so a run without the flags still means it.
-- **`axe` stops delivering taps.** After `axe touch --down --up --delay` (a long
+- **A simulator measurement shows a 100–200 ms stall the app never makes.** A
+  plain launch's frames hold 16.7 ms, but a run driven with `axe` shows one
+  stall with no batch applied about 0.4 s after `axe` first reads the screen
+  (`describe-ui`, `swipe`, `tap` by label), and every push afterwards is 30+ ms
+  slower. Cause: an accessibility client turns on UIKit's accessibility runtime
+  in the app; Time Profiler puts the whole stall in
+  `-[UIApplication _accessibilityInit]` (loading the accessibility bundles,
+  starting the server), and from then on UIKit keeps accessibility state for
+  every view it moves. A phone pays this only with an assistive technology on
+  (VoiceOver, Voice Control, Switch Control). `xctrace` and `sample` attached to
+  the app stall it too. Fix: time a plain launch; drive taps with `axe touch`
+  (HID, no accessibility) or have the host press a row itself, and read frames
+  from Save Trace or a temporary log, not from a run an accessibility client
+  touched. (x2-perf, 2026-10-05.)
+- **`axe` stops delivering taps.** Use `axe` only as a last resort, for native
+  chrome only a normal launch presents (bars, `UIMenu`s); drive everything else
+  with `agent ios` by `testId`. After `axe touch --down --up --delay` (a long
   press) or an `axe drag`, a following `axe tap` often reaches no window; it is
   intermittent, and a native bar button can miss the same way with no gesture
   before it. `axe touch --down --up` lands more often, not always. Fix: use the
@@ -252,6 +547,16 @@ guide's rules don't make obvious.
   `axe touch -x <x> -y <y> --down --up`; or the agent's `tap <testId>`.
   (Signal Clone Privacy, 2026-10-04.)
 
+- **The software keyboard never shows on a simulator that drives have used.**
+  A field takes focus (its caret blinks) but no keyboard rises, and
+  `keyboardWillShow` never fires, so a keyboard-riding toolbar cannot be
+  measured. Cause: after agent and `axe` drives the simulator was in
+  hardware-keyboard mode, likely left by the HID input they inject; a
+  headless simulator has no Simulator.app setting to show. Fix: reboot it
+  (`xcrun simctl shutdown <udid>; xcrun simctl boot <udid>`), or toggle
+  Connect Hardware Keyboard where Simulator.app is installed. (Signal Clone
+  keyboard timing, 2026-10-05.)
+
 - **A storage test fails with `storage is busy`, or storage is "unavailable in
   agent mode".** Cause: a drive has no storage unless it names a scratch store, and
   an open SQLite database locks its file, so a mutation and the refresh it triggers
@@ -259,6 +564,34 @@ guide's rules don't make obvious.
   store of their own), and queue every `storage.sqlite.open` in `app.ts`
   ([the human guide](contract-for-humans.md#writing-the-data-module) shows one).
   (LLP 1086 reading-list example, 2026-10-04.)
+
+- **An agent drive shows the app's defaults (a mock, an empty store) though
+  the app's files are there.** Cause: without `--storage <name>` every
+  `storage.fs` call in the data module throws "storage is unavailable in agent
+  mode…", and a module that catches a missing config file falls back silently.
+  The installed app's own files are not the drive's: a named scratch store lives
+  apart (on iOS under `Library/Caches/exact/<app id>/agent/<name>/data`). Fix:
+  `--storage <name>`, and copy the files the drive needs (a config, a saved
+  store) into that folder first; `logs` shows the module's `console.log`.
+  (Signal clone, live transport, 2026-10-05.)
+
+- **A save that fails in the background is lost to the person.** An answer that
+  saves unawaited has replied before the write fails, so no answer reports it;
+  `logs` has `storage failed: …`, but the person sees nothing. Fix: keep the
+  error in the module (`.catch((e) => { saveError = e.message; })`) and say it
+  in the next answer. (LLP 1097, x2apps drums.)
+
+- **A read misses a save chained on a promise.** `saving = saving.then(() =>
+  storage.fs.atomicWriteFile(…))` issues the write only when the one before it
+  lands, so a read issued meanwhile runs first and sees the older file. Cause:
+  the module's storage runs in the order it was issued. Fix: call storage in
+  the answer (`storage.fs.atomicWriteFile(…).catch(note)`) and let the queue
+  order it. (LLP 1097 §1.)
+
+- **Two awaited writes of one answer had another's write between them.**
+  Answers interleave at their awaits, as two async calls do on the web. Fix: put
+  writes that must stay together in one `transaction` (SQLite) or one operation.
+  (LLP 1097 D4.)
 
 ## Working on exact2 itself
 
@@ -270,6 +603,14 @@ guide's rules don't make obvious.
   <term> llp`). Name the LLP that lacks it when you report the gap. (Signal
   Clone, 2026-10-04.)
 
+- **`build.mjs --test --ios` never returns after the tests pass.** Cause:
+  `xcodebuild test` can sit for ten minutes or more after `Test Suite 'Selected
+  tests' passed` and its `Executed N tests` line, with or without your change
+  (seen on 2026-10-05 on an iPhone 17 Pro simulator, Xcode 27). Fix: run it in
+  the background with its log in a file, wait for the `Executed N tests …
+  seconds` line of the whole run, read the verdict from it, then kill the
+  `xcodebuild test` PID whose `-derivedDataPath` is under your own checkout.
+  `build.mjs` then reports `BUILD INTERRUPTED`, which is not a test failure.
 - **Conformance fails on apps you didn't touch.** Cause: `host/web-js/conform.mjs`
   compares against wasm dists under `--wasm-root` (default `/tmp/e3-wasm`, shared by
   every checkout), and without `--build` it uses whatever another checkout or an
@@ -290,17 +631,10 @@ guide's rules don't make obvious.
   Defer follows to the end of the drag or deceleration, and apply anchoring and
   estimate corrections as relative adjustments in the same layout pass (Signal
   Clone evening of 2026-10-02; `32805146`, `c03685dc`).
-- **A fixture's nonempty list literal does not compile.** Contract admits `[]`
-  only; a nonempty list comes from a source, a shape field, or `map`/`filter`.
-  `split` is not a standard function here either. (Paint-order mutation fixture, 2026-10-04.)
 - **A copied Core Animation tree renders blank.** Calling `CALayer(layer:)`
   directly gives an empty layer: a measured copy had zero bounds and no fill
   or sublayers. For a capture, copy values into fresh layers and recursively
   copy children and masks. Keep the live hierarchy intact. (LLP 1083.000, Apple A2.)
-- **A nonempty list literal does not compile.** Contract admits `[]` only; a
-  nonempty list comes from a source, a shape field, or `map`/`filter`, and
-  `split` is not a standard function. For a fixture or a static mount
-  measurement, generate the repeated markup. (LLP 1083.000, web W2 and Apple A2.)
 - **An sRGB capture test changes the pixel it reads.** AppKit's
   `NSBitmapImageRep.colorAt` returns calibrated RGB even when the bitmap is
   sRGB. Converting that `NSColor` to sRGB again turned measured bytes

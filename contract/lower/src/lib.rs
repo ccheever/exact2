@@ -21,6 +21,7 @@
 
 mod class;
 mod collection;
+mod color_profile;
 mod contain;
 pub mod controls;
 pub mod dataset;
@@ -36,10 +37,12 @@ mod native;
 mod routes;
 mod shorthands;
 mod sites;
+mod sounds;
 mod stmts;
 mod strings;
 mod svg;
 pub mod tags;
+mod timers;
 mod values;
 pub mod vocab;
 
@@ -50,7 +53,7 @@ pub use native::{is_module_tag, module_tags};
 pub use sites::{Declared, NodeSite, Origin, Sites};
 
 use contract_analyze::Analysis;
-use contract_syntax::{Attr, Expr, File, FnDecl, Node, Owner, Span, TaskKind};
+use contract_syntax::{Attr, Expr, File, FnDecl, Node, Owner, Span};
 use contract_types::{Checked, Ref, Scope, Ty, Types};
 use exact_kernel::{NodeType, StyleId};
 use exact_plan::asm::Asm;
@@ -275,6 +278,7 @@ fn lower_with_sites(
         texts_used: Default::default(),
     };
     l.declare_fonts(file, asset_root)?;
+    l.declare_sounds(file, asset_root)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
@@ -312,6 +316,7 @@ fn lower_with_sites(
     }
     let refused = l.declare_keyframes(file);
     l.errors.extend(refused);
+    let _profiles = l.declare_color_profiles(file);
     // Shapes first, in declaration order, so type ids are stable.
     for s in &file.shapes {
         l.ty_id(&Ty::Record(s.name.clone()))?;
@@ -466,41 +471,15 @@ fn lower_with_sites(
         l.b.set_action_body(l.actions[i], code);
     }
     for (i, m) in root.mutations.iter().enumerate() {
+        if m.queue {
+            l.b.set_mutation_queue(l.mutations[i]);
+        }
         if let Some((name, _)) = &m.then {
             let action = l.actions[root.actions.iter().position(|a| &a.name == name).unwrap()];
             l.b.set_mutation_then(l.mutations[i], action);
         }
     }
-    for t in &root.tasks {
-        let action = l.actions[root
-            .actions
-            .iter()
-            .position(|a| a.name == t.timer.1)
-            .unwrap()];
-        let word = match t.kind {
-            TaskKind::Every => "every",
-            TaskKind::After => "after",
-            TaskKind::Frame => {
-                l.b.frame_timer(action);
-                continue;
-            }
-        };
-        let Expr::Number(ms, _) = &t.timer.0 else {
-            return Err(err_one(
-                "lower-timer-literal",
-                format!("`{word}` needs a literal number of milliseconds"),
-                t.timer.2,
-            ));
-        };
-        if !(ms.is_finite() && ms.fract() == 0.0 && *ms >= 1.0 && *ms <= u32::MAX as f64) {
-            return Err(err_one(
-                "lower-timer-interval",
-                format!("`{word}` needs a whole number of milliseconds, at least 1; given {ms}"),
-                t.timer.2,
-            ));
-        }
-        l.b.timer(*ms as u32, action, t.kind == TaskKind::After);
-    }
+    l.timers(&root.tasks, &scope)?;
     // The view, inlined (by `expand`, above).
     let view = &root.view;
     if view.len() != 1 {
@@ -729,6 +708,17 @@ impl<'a> Lowerer<'a> {
                     svg::coerce_lengths(tag, svg::in_svg(self.svg_depth > 0, parent_tag), expanded);
                 let expanded = lengths.as_deref().unwrap_or(expanded);
                 self.check_svg(tag, parent_tag, expanded, *span)?;
+                // @ref LLP 1034 §8 — an inline run paints in its paragraph's
+                // scheme: no host gives a run an appearance of its own.
+                if tag == "text" && parent_tag == Some("text") {
+                    if let Some(a) = expanded.iter().find(|a| a.name == "color-scheme") {
+                        return Err(LowerError {
+                            id: "lower-attr-tag",
+                            message: "`color-scheme` on an inline `text` run: a run paints in its paragraph's scheme (LLP 1034 §8); set it on the paragraph or a box above".into(),
+                            span: a.span,
+                        });
+                    }
+                }
                 // @ref LLP 1055.000 D4 — an `svg` inside an `svg` is a viewport.
                 // Inside an `svg`, `svg` is a viewport and `text` is SVG text
                 // (LLP 1055.000 D4, D11).
@@ -773,7 +763,7 @@ impl<'a> Lowerer<'a> {
                     None => (expanded, children),
                 };
                 tags::validate_list(tag, expanded, *span)?;
-                self.check_collection(tag, expanded, children, *span)?;
+                self.check_collection(tag, expanded, children, *span, scope)?;
                 // A row list is a flex item of its column like any carousel;
                 // CSS's own fix keeps its spacers' extent from widening that
                 // column: `min-width: 0`, unless the author set one (LLP 1070
@@ -794,6 +784,7 @@ impl<'a> Lowerer<'a> {
                     attrs
                 });
                 let expanded = row_list.as_deref().unwrap_or(expanded);
+                media::check_session(tag, expanded)?;
                 let audio = media::audio_rows(tag, expanded, *span)?;
                 let expanded = audio.as_deref().unwrap_or(expanded);
                 // @ref LLP 1074 T1 — a box that contains its absolutely positioned
@@ -928,7 +919,12 @@ impl<'a> Lowerer<'a> {
                 for a in &own {
                     self.errors.extend(native::refused(tag, a));
                 }
+                let flex = tags::flex_container(tag, expanded);
                 for (index, a) in expanded.iter().enumerate() {
+                    if let Some(e) = flex.and_then(|f| tags::multicol_on_flex(f, a).err()) {
+                        self.errors.push(e);
+                        continue;
+                    }
                     if native::leftover(tag, a)
                         || refused.contains(&a.name.as_str())
                         || dataset::word(&a.name).is_some()
@@ -937,7 +933,7 @@ impl<'a> Lowerer<'a> {
                     }
                     if let Err(e) = self.attr(
                         tag,
-                        contract_syntax::input_control(tag, attrs),
+                        contract_syntax::payload_control(tag, attrs),
                         a,
                         scope,
                         locals,
@@ -1218,7 +1214,7 @@ impl<'a> Lowerer<'a> {
         surface: &mut Option<exact_plan::SurfacesId>,
         font: &[FontUse],
     ) -> Result<(), LowerError> {
-        let Some(mut target) = tags::attr(&a.name) else {
+        let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));
         };
         // HTML's global `title` on any element but `head`: advisory text, the
@@ -1328,6 +1324,21 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
+        // @ref LLP 1045 D3 — `none` or `markdown`, styling a `text`'s or a
+        // `textarea`'s own string; another word did nothing (notes #1).
+        if a.name == "markup" {
+            if !matches!(tag, "text" | "textarea") {
+                let message = format!("`markup` belongs to `text` (the reader) or `textarea` (the editor), not `{tag}`");
+                return err("lower-attr-tag", message, a.span);
+            }
+            if matches!(&a.value, Expr::Str(s, _) if s != "markdown" && s != "none") {
+                return err(
+                    "lower-attr-value",
+                    "`markup` is \"markdown\" or \"none\"",
+                    a.span,
+                );
+            }
+        }
         if tag != "list" && matches!(a.name.as_str(), "reachstart" | "reachend") {
             return err(
                 "lower-attr-tag",
@@ -1347,7 +1358,7 @@ impl<'a> Lowerer<'a> {
                     let (code, ty) = self.typed_code(&component.value, scope, locals)?;
                     values::check_style_value(&component, &[row], &ty, font)?;
                     if index < 2 && matches!(ty, Ty::String) {
-                        return err("lower-attr-type", "a computed `flex` must be a number; write a literal CSS shorthand or a choice of literal shorthands", a.span);
+                        return err("lower-attr-type", "a computed `flex` must be a number, a literal CSS shorthand or a choice of literal shorthands; for a computed basis write the longhands, as in `flex-grow=1 flex-shrink=1 flex-basis=w`", a.span);
                     }
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
@@ -1469,6 +1480,7 @@ impl<'a> Lowerer<'a> {
             tags::AttrTarget::Handler(event) => {
                 self.handler(tag, event, control, a, scope, locals, handlers)?;
             }
+            tags::AttrTarget::MediaMetadata => self.media_metadata(a, scope, locals, bindings)?,
         }
         Ok(())
     }

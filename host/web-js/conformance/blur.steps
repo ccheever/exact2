@@ -9,3 +9,9 @@ key second Enter
 key second Escape
 tap field
 key field Enter
+# The focus moves between two fields: the field's blur, then the second's
+# focus, by a tap and by a `focus` command.
+tap field
+tap second
+tap field
+key field ArrowDown

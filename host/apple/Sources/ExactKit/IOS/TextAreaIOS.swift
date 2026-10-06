@@ -35,6 +35,15 @@ final class TextField: UITextField {
         }
         return super.textInputMode
     }
+    /// UIKit puts the caret at the end as a field takes the focus, which is
+    /// no selection of the person's; one a script set while it had no focus
+    /// is shown instead (x2apps codeedit #2).
+    override func becomeFirstResponder() -> Bool {
+        let selections = owner?.presenter?.fieldSelections
+        let ok = selections?.quietly { super.becomeFirstResponder() } ?? super.becomeFirstResponder()
+        if ok, let owner { selections?.focused(owner) }
+        return ok
+    }
     override func deleteBackward() {
         if heard != "Backspace", let owner, !owner.disabled, owner.presenter?.keyDown(at: owner, "Backspace") == true { return }
         super.deleteBackward()
@@ -140,6 +149,7 @@ final class TextArea: UITextView {
     // attributedText would reset a selection (including a read-only one).
     func applyLineHeight(_ height: CGFloat?) {
         let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = textAlignment
         if let height {
             paragraph.minimumLineHeight = height
             paragraph.maximumLineHeight = height
@@ -240,6 +250,7 @@ extension NodeView {
         (f as? TextArea)?.placeholder = props["placeholder"] ?? ""
     }
     func styleTextArea() {
+        textArea?.textAlignment = NSTextAlignment(rawValue: textAlignmentCode) ?? .left
         guard let f = textArea, let t = text else { return }
         guard f.markedTextRange == nil else { layoutTextArea(); return }
         f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
@@ -295,6 +306,7 @@ extension NodeView {
         publishMarkupSelection()
     }
     func textViewDidChangeSelection(_ textView: UITextView) {
+        presenter?.fieldSelections.changed(self) // a plain textarea's `select` (x2apps codeedit #2)
         guard let f = textView as? TextArea, let editor = f.markup, !editor.applying, !editor.styling, f.markedTextRange == nil else { return }
         if f.isFirstResponder { editor.bookmark = f.selectedRange }
         restyleMarkup()
@@ -303,6 +315,7 @@ extension NodeView {
     func textViewDidBeginEditing(_ textView: UITextView) {
         presenter?.collections.pinsChanged()
         presenter?.editing = self
+        presenter?.fieldSelections.focused(self)
         if handlers.contains("focus") { presenter?.focus(id) }
         presenter?.reveal(self)
         publishMarkupSelection(force: true)

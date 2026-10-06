@@ -4,14 +4,14 @@
     "120": "0xf8baf228b103fe37"
   },
   "saves": {
-    "continuation": "143ccf4d7087526325530e59dfaa5df072470ba5dafd7bb16b511257fb795d49"
+    "continuation": "94d92ef6986d34858999cb5988e1142172dbe67c91462c8c6daadb3ee03d1ef4"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "fc7b1129b4a9f5840caa51a9ef358760ffb004b88c463f3b5d1ccabdf10e0180",
+  "inputs": "1bcda3637bea8d8b8da44aa19eda7536b2b4cc51cf07ee1bdef33f3128fd248a",
   "game": "skinned-fixture",
   "generated": "bun game/prove.mjs skinned-fixture --repin --hosts 'linux,web'",
-  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
+  "at": "bd6d0aee7e5d2d0c71fda875800b889543052e52"
 }

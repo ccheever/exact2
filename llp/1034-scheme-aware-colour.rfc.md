@@ -1,7 +1,7 @@
 # LLP 1034: Scheme-aware colour — a row holds a pair, the host resolves it
 
 **Type:** RFC
-**Status:** Draft r2, landed 2026-09-08 (r1 written 2026-09-08; r2 the same day, folding a gpt-6-astra review at high effort that Charlie convened — artifact `llp/reviews/1034-scheme-aware-colour.astra.md`, dispositions there. Four of its five findings were checked against source and confirmed; one claim of r1's was false and is corrected in D6.)
+**Status:** Draft r2, landed 2026-09-08; §8 amended 2026-10-05, per-subtree `color-scheme` (approved by Charlie 2026-10-05: "Ok sounds good, go for it") (r1 written 2026-09-08; r2 the same day, folding a gpt-6-astra review at high effort that Charlie convened — artifact `llp/reviews/1034-scheme-aware-colour.astra.md`, dispositions there. Four of its five findings were checked against source and confirmed; one claim of r1's was false and is corrected in D6.)
 **Systems:** Kernel (the style table's value vocabulary), Web host, Apple host, Linux host, Contract, Agent API
 **Author:** Claude (Opus 5) for Charlie Cheever
 **Implementer:** Charlie Cheever, from 2026-09-08
@@ -236,7 +236,8 @@ a pair has no midpoint.
   `setScheme`. Per-element `color-scheme` — a light card on a dark page — is
   CSS and is deliberately not taken: it needs the row, inheritance through the
   kernel tree, and a resolution context per node. The trigger is a real
-  design that wants it.
+  design that wants it. *Taken 2026-10-05, §8: Signal's story reply sheet,
+  dark whatever the system's appearance, was that design.*
 - **No other CSS colour functions.** Not `color-mix()`, not relative colour
   syntax, not `currentColor`. `currentColor` is the one worth naming: it is
   what would let a single icon follow a palette (LLP 1033 D6 ships two PNGs
@@ -341,3 +342,85 @@ resolves it.
 preference has not been driven; headless Chrome prefers light and the agent
 has no way to say otherwise. iOS is unbuilt against this. Both are §5's first
 open question in practice, and neither blocks the two readers.
+
+## 8. Amended 2026-10-05: per-subtree `color-scheme`
+
+*Approved by Charlie 2026-10-05 ("Ok sounds good, go for it").* The trigger
+§3 asked for arrived: Signal's story reply sheet is dark whatever the
+system's appearance (`overrideUserInterfaceStyle = .dark`), and its
+reactions and field are glass. Without a scheme per subtree a clone could
+only paint fixed dark fills, because exact2's glass, platform colours and
+`light-dark()` all follow the app's appearance.
+
+**The row.** `color-scheme`, CSS's property, inherited as CSS's is, with
+initial `normal`: the surrounding scheme (the app's, or an ancestor's). An
+author writes `light` or `dark` (`color-scheme="dark"` on any box, text or
+control). `light-dark()` colours, platform colours (LLP 1095) and native
+materials on that node and below resolve in that scheme, and a nested value
+wins below it. Refused by name (`lower-attr-value`): CSS's `normal`, because
+in CSS it means the page's schemes, not the parent's, so an explicit one under
+a `dark` subtree would differ between the browser and the native hosts; and
+`light dark` and `only`, which ask a browser to choose. A bound value that
+evaluates to `normal` unsets the row, as `unset` does, so it follows the
+surrounding scheme on every host (the JS target removes the property).
+Refused by position (`lower-attr-tag`): an inline `text` run, which paints
+in its paragraph's scheme on every host, and SVG elements (an `svg` root takes
+it; its shapes resolve with it). Leaving the attribute off follows the
+surrounding scheme.
+
+**The hosts.** Each maps it to its own per-view appearance, so nothing is
+re-implemented:
+- **iOS:** a node view with the row gets `overrideUserInterfaceStyle`; every
+  view below the node that sets it carries the computed row (the Apple host
+  sends it as it sends `dynamic-range-limit`), so a popover or dialog lifted
+  out of its ancestor keeps it, and UIKit's trait inheritance covers the
+  rest. Each node view re-resolves through its `UITraitUserInterfaceStyle`
+  registration (LLP 1095 D5); the trait update is taken at once, so the same
+  style pass reads the new scheme.
+- **macOS:** the same, with `appearance` (`darkAqua` / `aqua`, `nil` when
+  unset) and `viewDidChangeEffectiveAppearance` (D2).
+- **The web:** `color-scheme: dark|light` on the element (`inherit` for a
+  cleared row), and the browser resolves `light-dark()` under it.
+- **Linux:** a node that sets the row paints, with its subtree, in that
+  scheme; the painter carries a node's appearance to its children, as before
+  for a view's own report.
+- **Paint motion** (LLP 1062): a transition's endpoints resolve in the node's
+  subtree's `color-scheme`, else a host's report for its view (D4 there),
+  else the session's, so a scheme change moves its colours as an appearance
+  change does; the view's report that follows on Apple confirms rather than
+  corrects, and snaps nothing. On Apple a view's report is also what puts a
+  keyframe animation's `light-dark()` colours in its appearance; reports made
+  before the session's first scheme are made after it, and a new runtime
+  hears them again.
+
+The agent's `prefer prefers-color-scheme` still sets the system's scheme
+beneath any override, and `exactViewport().prefersColorScheme` still reports
+the system's (LLP 1069.000 D1): a subtree's scheme is paint, never a fact the
+app reads.
+
+**Not taken.** A scheme for images or assets (an app still names a PNG per
+appearance); `color-scheme` on the root (an app's scheme is `setScheme`'s);
+CSS's `only` keyword. **Keyframe animations of `light-dark()` colours** in a
+`color-scheme` subtree follow a view's reports (LLP 1062 D4), not the commit.
+On Apple a report recolours what the view plays only when the engine held no
+report for it (boot's correction, and again each time it leaves agreeing with
+the session); otherwise a playing animation keeps the half it started with
+when the subtree's scheme changes, including one that starts in the commit
+that changes it. An inline run or SVG element has no view of its own to
+report, so its keyframes take the session's appearance. A report made outside
+a batch (UIKit's trait walk after the system's appearance changes) is said
+with the next batch that passes through `apply`; an idle session, or batches
+skipped as empty, hold it longer. When the session's scheme changes, every
+view in a `color-scheme` subtree is reported with it, so a subtree fixed to
+the scheme the session leaves starts later animations in its own. Slices
+landed ahead of a batch the owner already made leave their reports for that
+batch, so no later batch applies before it (amended 2026-10-05, round 4).
+Transitions resolve by the commit, except that clearing an authored scheme
+resolves through the view's old report until its new one arrives. On Linux: a
+keyframe animation of a `light-dark()` colour takes the session's appearance
+when it starts (Linux reports no view appearance to the engine) and keeps it
+across later session changes; a content region (LLP 1043.000) captures its runs,
+box fills, borders, gradients, shadows, material and image tints in the app's
+scheme; and flow damage is off for any frame in which a painted node's own
+appearance differs from the one the walk reached it with, the rule the painter
+already has for a view painting in an appearance of its own.

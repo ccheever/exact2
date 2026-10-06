@@ -271,7 +271,9 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
             let (tag, message) = match e {
                 DataError::UnknownSource(s) => (2, s),
                 DataError::BadArguments(s) => (3, s),
-                DataError::Unavailable(s) | DataError::Interface(s) => (4, s),
+                DataError::Unavailable(s)
+                | DataError::Interface(s)
+                | DataError::DeferredAtBake(s) => (4, s),
             };
             w.u8(tag);
             w.string(&message);

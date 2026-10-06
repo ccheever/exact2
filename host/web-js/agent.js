@@ -3,7 +3,7 @@
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
-import { pieces, pageHistory, Head, navigateRoot } from './rt.js';
+import { pieces, pageHistory, Head, navigateRoot, Tasks } from './rt.js';
 import * as perf from './perf.js';
 import { environment, navigation, unselected, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold, typedControl, typeControl, reveal, animationClocks } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
@@ -28,7 +28,7 @@ export function install(exact) {
   // An SVG element's node type, by element.rs's tags (a nested `svg` is a viewport).
   const SVG = { svg: 'Svg', g: 'SvgGroup', path: 'SvgPath', polyline: 'SvgPolyline', polygon: 'SvgPolygon', circle: 'SvgCircle', line: 'SvgLine', rect: 'SvgRect', ellipse: 'SvgEllipse', defs: 'SvgDefs', linearGradient: 'SvgLinearGradient', radialGradient: 'SvgRadialGradient', stop: 'SvgStop', use: 'SvgUse', symbol: 'SvgSymbol', clipPath: 'SvgClipPath', text: 'SvgText', tspan: 'SvgTSpan', marker: 'SvgMarker', mask: 'SvgMask', pattern: 'SvgPattern', foreignObject: 'SvgForeignObject', filter: 'SvgFilter' };
   const svg = el => el.localName === 'svg' && el.parentElement?.namespaceURI === el.namespaceURI ? 'SvgViewport' : SVG[el.localName] ?? (el.localName.startsWith('fe') ? 'SvgFe' : 'View');
-  const type = el => el.exactNative ? 'NativeView' : el.namespaceURI === 'http://www.w3.org/2000/svg' ? svg(el) : el.exactMarkup ? 'TextInput' : el.localName === 'select' || el.localName === 'button' && el.hasAttribute('data-button-style') || el.localName === 'input' && /^(file|checkbox|range|date|time|datetime-local)$/.test(el.type) ? 'Control' : el.localName === 'option' || el.hasAttribute('data-exact-text') || run(el) ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.getAttribute('role') === 'list' ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
+  const type = el => el.exactNative ? 'NativeView' : el.namespaceURI === 'http://www.w3.org/2000/svg' ? svg(el) : el.exactMarkup ? 'TextInput' : el.localName === 'select' || el.localName === 'button' && el.hasAttribute('data-button-style') || el.localName === 'input' && /^(file|checkbox|radio|range|date|time|datetime-local)$/.test(el.type) ? 'Control' : el.localName === 'option' || el.hasAttribute('data-exact-text') || run(el) ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.getAttribute('role') === 'list' ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
   const record = (el, depth) => {
     const props = {};
     if (el.dataset.testid) props.testId = el.dataset.testid;
@@ -37,9 +37,9 @@ export function install(exact) {
     else if (el.tagName === 'IMG' && el.getAttribute('alt')) props.accessibilityLabel = el.getAttribute('alt');
     // A paragraph of runs has no text of its own: its runs carry it.
     if (/^(Text|SvgText|SvgTSpan)$/.test(type(el)) && (el.$source != null || !kids(el).length)) props.text = el.$source ?? (flowed(el) ? el.$flow.text : el.textContent);
-    // An option's value is its authored `value` (the DOM's falls back to its label), as the runner's tree gives it.
-    if ('value' in el && el.tagName !== 'BUTTON' && el.type !== 'checkbox' && (el.tagName !== 'OPTION' || el.hasAttribute('value'))) props.value = el.value;
-    // A checkbox's model value, as the runner's tree gives its `checked` row.
+    // An option's, a checkbox's and a radio's value is its authored `value` (the DOM's falls back to its label, or `on`), as the runner's tree gives it.
+    if ('value' in el && el.tagName !== 'BUTTON' && (!(el.tagName === 'OPTION' || el.type === 'checkbox' || el.type === 'radio') || el.hasAttribute('value'))) props.value = el.value;
+    // A checkbox's or radio's model value, as the runner's tree gives its `checked` row.
     if (el.$checked !== undefined) props.checked = el.$checked;
     // The runner's props that element.rs writes as attributes, by its names.
     for (const [attr, prop, num] of PROPS) if (el.hasAttribute(attr)) props[prop] = num ? Number(el.getAttribute(attr)) : el.getAttribute(attr);
@@ -86,7 +86,7 @@ export function install(exact) {
   // (`dynamic` when a binding wrote it), an inherited one comes from the
   // nearest view that declares it, else `initial`; values are the browser's
   // computed ones, under the runner's row names.
-  const INHERITED = { text_color: 'color', font_family: 'font-family', font_size: 'font-size', font_weight: 'font-weight', font_style: 'font-style', line_height: 'line-height', letter_spacing: 'letter-spacing', font_variant_numeric: 'font-variant-numeric', direction: 'direction', white_space: 'white-space', overflow_wrap: 'overflow-wrap', text_align: 'text-align', text_indent: 'text-indent', hyphens: 'hyphens' };
+  const INHERITED = { text_color: 'color', font_family: 'font-family', font_size: 'font-size', font_weight: 'font-weight', font_style: 'font-style', line_height: 'line-height', letter_spacing: 'letter-spacing', font_variant_numeric: 'font-variant-numeric', direction: 'direction', white_space: 'white-space', overflow_wrap: 'overflow-wrap', text_align: 'text-align', text_indent: 'text-indent', hyphens: 'hyphens', widows: 'widows', orphans: 'orphans' };
   const rowOf = prop => Object.keys(INHERITED).find(k => INHERITED[k] === prop) ?? prop.replace(/^-+/, '').replace(/-/g, '_');
   // A class's rule may be nested: the build wraps them all in
   // `#exact-root#exact-root { & .cN { … } }` for specificity (emit.rs).
@@ -133,6 +133,8 @@ export function install(exact) {
       // A development build names the element's plan node (emit.rs `data-site`).
       ...(el.dataset?.site != null ? { site: Number(el.dataset.site) } : {}),
       space: { viewport: rect(r), local: { w: r2(el.clientWidth), h: r2(el.clientHeight) }, capture: { scale: devicePixelRatio } },
+      // A box a multi-column flow fragments: one rect per column (LLP 1093 D12).
+      ...(el.getClientRects().length > 1 ? { column_fragments: [...el.getClientRects()].map(rect) } : {}),
       scroll, clip,
       visible: { hidden: el.checkVisibility ? !el.checkVisibility({ visibilityProperty: true }) : false, inert: !!el.closest('[inert]'), inViewport: r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight, clipped },
       native: { element: el.localName, ...(el.hasAttribute('data-symbol-source') ? { symbol: {
@@ -156,10 +158,12 @@ export function install(exact) {
   // its own copy of navigation.js, so it could now be imported.)
   // A synced animation starts on its clock's boundary (LLP 1055.002).
   const starts = new WeakMap(), held = new WeakSet(), clocks = animationClocks(document);
+  // A scroll-driven animation follows its scroll, not a clock.
+  const timed = () => document.getAnimations().filter(a => !a.timeline || a.timeline instanceof DocumentTimeline);
   const anim = {
-    register(t) { clocks.commit(); for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, clocks.start(a, t) ?? t); if (a.playState === 'paused') held.add(a); } },
+    register(t) { clocks.commit(); for (const a of timed()) if (!starts.has(a)) { starts.set(a, clocks.start(a, t) ?? t); if (a.playState === 'paused') held.add(a); } },
     seek(to, sync = true) {
-      for (const a of document.getAnimations()) {
+      for (const a of timed()) {
         const timing = a.effect?.getComputedTiming();
         if (!timing || held.has(a)) continue;
         const t = to - (starts.get(a) ?? exact.clock.now);
@@ -169,7 +173,7 @@ export function install(exact) {
     },
     settle() {
       let to = Math.max(exact.clock.now, exact.settleAt?.() ?? 0);
-      for (const a of document.getAnimations()) {
+      for (const a of timed()) {
         const timing = a.effect?.getComputedTiming();
         if (timing && timing.endTime !== Infinity && !held.has(a)) to = Math.max(to, (starts.get(a) ?? exact.clock.now) + timing.endTime);
       }
@@ -334,7 +338,8 @@ export function install(exact) {
         // journal line), as the runner's is. What was in flight before the
         // jump lands before a timer fires too, as the wasm and native hosts'
         // jumps wait for it (calendar F10: a store's reply is on real time).
-        const due = () => exact.clock.timers.some(t => t.due <= req.to);
+        // An armed `then` or a queue's `next` is due as a timer is (LLP 1092 D6).
+        const due = () => exact.clock.timers.some(t => t.due <= req.to) || exact.mutations?.some(m => m.due <= req.to || m.next <= req.to);
         // A view transition on its way is ready first, so its animations
         // start at this clock, not the one the jump reaches (LLP 1013.000 D9).
         await exact.viewTransition?.();
@@ -354,8 +359,9 @@ export function install(exact) {
         const gpuPending = await settleGpu();
         if (gpuPending.length) return gpuPendingReply(req, gpuPending);
         // Requests still in flight on real time, which a jump does not wait for (`clock settle` does): the driver says so.
-        const inflight = exact.inflight.n - holds().length;
-        return { clock: exact.clock.now, ...(inflight > 0 ? { inflight } : {}) };
+        const inflight = exact.inflight.n - holds().length, b = exact.data?.background?.(), background = b ? b.queued + b.inFlight : 0;
+        // The module's storage still to land beside it (LLP 1097 D9).
+        return { clock: exact.clock.now, ...(inflight > 0 ? { inflight } : {}), ...(background > 0 ? { background } : {}) };
       }
       case 'tags': return tags();
       // @ref LLP 1080.002 D4 — the ids `tree` gives, where CDP's DOM snapshot reads them, and the document's nonce.
@@ -379,7 +385,13 @@ export function install(exact) {
         // The drive's app storage (trivia F7): none unless it names a scratch store, as storage-environment.js's `storageKey`.
         const store = new URL(performance.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams.get('storage');
         const storage = store == null ? { available: false, code: 'agent', message: 'storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)' } : { available: true, store };
-        return { slots, derives, resources, pending, streams, notifications: exact.notices ?? [], head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hookStats ? { hooks: exact.hookStats } : {}), ...tags() };
+        // Each queue's waiting sends (LLP 1092 D10), as the runner's `state.queued`.
+        const queued = Object.fromEntries((exact.mutations ?? []).filter(m => m.wait?.length).map(m => [m.name, m.wait.length]));
+        // Each task's next due time, `null` while idle or spent (LLP 1092 D10), as the runner's `state.tasks`.
+        const tasks = Object.fromEntries(Tasks.map(t => [t.name, exact.clock.timers.includes(t) ? t.due : null]));
+        // The module's storage (LLP 1097 D8), as the runner's `state.background`.
+        const background = exact.data?.background?.();
+        return { slots, derives, resources, pending, streams, ...(background ? { background } : {}), tasks, queued, notifications: exact.notices ?? [], ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hookStats ? { hooks: exact.hookStats } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js).
       // The fold group (LLP 1078 D7) likewise: through facts.js where the plan reads the fold's fields (it re-answers them), else the

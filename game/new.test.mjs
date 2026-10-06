@@ -30,8 +30,9 @@ test('a newly generated game builds, refuses empty pins and captures without edi
   assert.ok(!existsSync(app));
   try {
     await run('bun', ['game/new.mjs', app]);
-    // A game is the files its author writes; no manifest, lock or app.json.
-    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','README.md','app.contract','logic','pins.json','proof.mjs']);
+    // A game is the files its author writes; no manifest, lock or app.json. Outside
+    // this checkout it gets an app's runner and notes too (LLP 1086).
+    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs']);
     assert.deepEqual(readdirSync(resolve(app, 'logic')).sort(), ['src','tests']);
     env.EXACT_APP_DIR = app;
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
@@ -76,7 +77,7 @@ test('a newly generated game builds, refuses empty pins and captures without edi
     assert.notEqual(JSON.parse(readFileSync(receipt, 'utf8')).inputs, before.inputs);
     assert.equal(readFileSync(hostReceipt, 'utf8'), hostBefore, 'a logic edit retains the completed host');
     assert.deepEqual(readdirSync(app).filter(file => !['.shells','artifacts','target','dist','dist.previous','app.contract.d.ts'].includes(file)).sort(),
-      ['.gitignore','README.md','app.contract','logic','pins.json','proof.mjs'], 'bakes and proofs write only ignored outputs');
+      ['.gitignore','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs'], 'bakes and proofs write only ignored outputs');
   } finally {
     rmSync(directory, {recursive:true, force:true});
   }
@@ -89,8 +90,12 @@ test('generated commands run from an external author directory with quoted paths
   try {
     const created=spawnSync(process.execPath,[resolve(import.meta.dir,'new.mjs'),'.'],{cwd:app,encoding:'utf8'});
     assert.equal(created.status,0,created.stderr);
-    const commands=created.stdout.split('\n').filter(line=>line.startsWith('  bun ')).map(line=>line.trim());
-    assert.equal(commands.length,3,created.stdout);
+    // Its commands are its own runner's verbs, as an app's are (LLP 1086; the platformer's diary, R1).
+    const verbs=created.stdout.split('\n').filter(line=>line.startsWith('  bun exact.mjs ')).map(line=>line.trim().split(/\s+/)[2]);
+    assert.deepEqual(verbs,['test-rust','web','test','agent','mac','prove'],created.stdout);
+    const runner=readFileSync(resolve(app,'exact.mjs'),'utf8');
+    for (const verb of verbs) assert.ok(new RegExp(`^  '?${verb}'?: \\[`,'m').test(runner),verb);
+    assert.match(readFileSync(resolve(app,'AGENTS.md'),'utf8'),/<!-- exact:begin[^]*an Exact game[^]*game\/README\.md[^]*## The authoring diary[^]*<!-- exact:end -->/);
     const inspect=resolve(directory,'inspect command.mjs');
     writeFileSync(inspect,`import {readFileSync} from 'node:fs'; import {resolve} from 'node:path';
       const [script,...args]=process.argv.slice(2); const path=resolve(script); readFileSync(path);
@@ -100,11 +105,6 @@ test('generated commands run from an external author directory with quoted paths
       assert.equal(result.status,0,`${command}\n${result.stderr}`);
       return JSON.parse(result.stdout);
     };
-    assert.deepEqual(commands.map(run),[
-      {path:resolve(import.meta.dir,'dev.mjs'),args:['.']},
-      {path:resolve(import.meta.dir,'prove.mjs'),args:['.']},
-      {path:resolve(app,'proof.mjs'),args:['web','--screenshot-only']},
-    ]);
     const readme=readFileSync(resolve(app,'README.md'),'utf8');
     assert.ok(!readme.includes('/path/to/exact2'),readme);
     const documented=[...readme.matchAll(/`(bun [^`]+)`/g)].map(match=>match[1]);
@@ -450,17 +450,19 @@ test('the SDK lock decides every version; a game that adds packages captures its
   sdkLock();
 }, 120000);
 
-test('a root crate\'s new registry dependency resolves before the SDK lock is refreshed', async () => {
+test('a root crate\'s new registry dependency or new path crate resolves before the SDK lock is refreshed', async () => {
   const {outsideSdkLock,withRootPins}=await import('./app/shells.mjs');
   const registry='registry+https://github.com/rust-lang/crates.io-index';
   const block=(name,version,checksum)=>`[[package]]\nname = "${name}"\nversion = "${version}"\n${checksum?`source = "${registry}"\nchecksum = "${checksum}"\n`:''}`;
   const lock=(...blocks)=>`version = 4\n\n${blocks.join('\n')}`;
   // 15856ff7 gave kernel cssparser 0.37.0 and updated only the root Cargo.lock.
   const sdk=lock(block('itoa','1.0.15','aa'),block('exact-kernel','0.1.0'));
-  const root=lock(block('cssparser','0.37.0','bb'),block('itoa','1.0.9','cc'),block('itoa','2.0.1','ee'),block('caltrain-web','0.1.0'),block('exact-kernel','0.1.0'));
+  const root=lock(block('cssparser','0.37.0','bb'),block('itoa','1.0.9','cc'),block('itoa','2.0.1','ee'),block('exact-svg-filter','0.1.0'),block('exact-kernel','0.1.0'));
   const seeded=withRootPins(sdk,root), members=new Set(['x-logic']);
   // A new major of a package the SDK lock holds (itoa 2) is new to it; a compatible one is not.
-  assert.deepEqual(Bun.TOML.parse(seeded).package.map(p=>`${p.name} ${p.version}`),['itoa 1.0.15','exact-kernel 0.1.0','cssparser 0.37.0','itoa 2.0.1'],'only registry packages new to the SDK are added');
+  // 00d37ef9f split exact-svg-filter out of the kernel: a root path crate is the SDK's own.
+  assert.deepEqual(Bun.TOML.parse(seeded).package.map(p=>`${p.name} ${p.version}`),['itoa 1.0.15','exact-kernel 0.1.0','cssparser 0.37.0','itoa 2.0.1','exact-svg-filter 0.1.0'],'only packages new to the SDK are added');
+  assert.deepEqual(outsideSdkLock(lock(block('exact-svg-filter','0.1.0'),block('exact-kernel','0.1.0')),seeded,members),[]);
   assert.deepEqual(outsideSdkLock(lock(block('itoa','2.0.1','ee')),seeded,members),[]);
   assert.deepEqual(outsideSdkLock(lock(block('cssparser','0.37.0','bb'),block('itoa','1.0.15','aa')),seeded,members),[]);
   assert.deepEqual(outsideSdkLock(lock(block('cssparser','0.37.1','dd')),seeded,members),[`cssparser 0.37.1 ${registry}`],'the root lock decides the version');
@@ -494,7 +496,7 @@ test('a new game names its Rust type after the game, everywhere the template doe
     assert.equal(gameDefaults(app).game.type,'My2dGame');
     const files=readdirSync(app,{recursive:true}).filter(file=>statSync(resolve(app,file)).isFile());
     for(const file of files) assert.doesNotMatch(readFileSync(resolve(app,file),'utf8'),/SmallGame|small[-_]game|Small game/,file);
-    assert.match(readFileSync(resolve(app,'logic/tests/sim.rs'),'utf8'),/use my_2d_game_logic::\{Beacon, Options, My2dGame\};/);
+    assert.match(readFileSync(resolve(app,'logic/tests/sim.rs'),'utf8'),/use my_2d_game_logic::My2dGame;\nuse my_2d_game_logic::\{Beacon, Options\};/);
     assert.match(readFileSync(resolve(app,'app.contract'),'utf8'),/^component My2dGame$/m);
   } finally {rmSync(parent,{recursive:true,force:true});}
 });

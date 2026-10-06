@@ -53,7 +53,7 @@ extern "C" fn foreign(ctx: *mut c_void, req: *const CRequest) -> CMetrics {
 }
 
 fn callback(state: &RefCell<Foreign>) -> CallbackMeasurer {
-    CallbackMeasurer::new(foreign, std::ptr::from_ref(state).cast_mut().cast())
+    CallbackMeasurer::new(foreign, std::ptr::from_ref(state).cast_mut().cast(), None)
 }
 
 fn measure(m: &mut CallbackMeasurer, k: &Kernel, w: AxisOffer, h: AxisOffer) -> TextMetrics {
@@ -568,7 +568,8 @@ mod storage {
             calls: 0,
             exact: true,
         };
-        let mut m = CallbackMeasurer::new(inspect_request, std::ptr::from_mut(&mut probe).cast());
+        let mut m =
+            CallbackMeasurer::new(inspect_request, std::ptr::from_mut(&mut probe).cast(), None);
         TRACK.with(|s| {
             s.set(Counts {
                 active: true,

@@ -31,12 +31,17 @@ use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 mod backend;
 pub mod border;
+mod caret;
 pub(crate) mod control;
 pub(crate) mod damage;
 pub mod gradient;
 pub use gradient::GradientPaint;
-mod inline;
+mod fragments;
+pub(crate) use fragments::{center as tap_point, hits};
+pub(crate) use lift::{Ghost, Lift};
+pub(crate) mod inline;
 mod layer;
+mod lift;
 mod native;
 pub use native::NativeKind;
 mod order;
@@ -445,8 +450,13 @@ pub struct Scene<'a> {
     pub images: &'a BTreeMap<ViewId, Arc<Bitmap>>,
     /// The focused input, if any (its caret is painted).
     pub focus: Option<ViewId>,
+    /// The focused text field's selection (x2apps codeedit #2).
+    pub selection: Option<exact_runner::FieldSelection>,
     /// Unbound checkboxes' own states, which the host keeps (LLP 1069.001 D4).
     pub controls: &'a BTreeMap<ViewId, bool>,
+    /// Values chosen in a date, range or select, or typed into a field, since
+    /// its bound value last changed: (choice, bound).
+    pub chosen: &'a BTreeMap<ViewId, (String, String)>,
     /// A select's open menu, painted over everything (LLP 1069.001 D7).
     pub menu: Option<control::MenuPaint>,
     /// The pointer, in viewport points, when the host draws one.
@@ -487,8 +497,8 @@ pub struct Painter {
     pub(crate) canvases: BTreeMap<ViewId, crate::canvas2d::CanvasPaint>,
     viewport: (f32, f32),
     cpu_ms: Option<f64>,
-    // One generational source, lifted only inside its existing List clip.
-    pub(crate) arrange_lift: Option<(exact_kernel::NodeKey, exact_kernel::NodeKey)>,
+    /// What a reorder lifts: a row in its list, or a ghost over everything.
+    pub(crate) lift: Lift,
     // One lease per actually accepted owner, not one global width per string.
     // Retained while a subsequent backend frame fails.
     accepted_text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
@@ -527,6 +537,10 @@ struct Walk<'a, 'b> {
     /// Each node's rank among its siblings (LLP 1083.000 §2.4), twice its
     /// value, from the kernel's one definition.
     ranks: Rc<BTreeMap<ViewId, i64>>,
+    /// Painting a ghost, whose root this is: the `visibility: hidden` the
+    /// row inherits from its wrapper shows, one its own nodes set does not
+    /// (`lift.rs`; b6 review B4).
+    reveal: Option<ViewId>,
 }
 
 impl Painter {
@@ -582,7 +596,7 @@ impl Painter {
             rank_increments: 0,
             ranks: Rc::default(),
             accepted_text: BTreeMap::new(),
-            arrange_lift: None,
+            lift: Lift::default(),
             region_picture: None,
             region_frame: None,
             damage: Default::default(),
@@ -765,11 +779,13 @@ impl Painter {
             skip,
             replay,
             ranks: self.ranks.clone(),
+            reveal: None,
         };
         self.rows_begin(&walk);
         for root in scene.roots {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
         }
+        self.paint_ghost(&mut walk);
         self.rows_end();
         if let Some(menu) = &scene.menu {
             self.menu(menu);
@@ -887,11 +903,19 @@ impl Painter {
             let (ox, oy) = effective_overflow(&node);
             ox != Overflow::Visible || oy != Overflow::Visible
         };
+        // CSS `visibility` is inherited and per element: a hidden box keeps
+        // its geometry, paints nothing of its own, and is not a hit. A
+        // descendant that computes `visible` still paints and is hit.
+        // `opacity: 0` is the one that blanks the group. A ghost asks
+        // `revealed` (LLP 1094): the wrapper's inherited hidden shows, and
+        // a node that sets its own hidden does not.
+        let visible = paints(walk.scene.kernel, id, walk.reveal);
         walk.boxes.push(PaintedBox {
             id,
             pointer_hit: node
                 .computed_row(exact_kernel::StyleId::PointerEvents, |s| s.pointer_events)
-                != exact_kernel::PointerEvents::None,
+                != exact_kernel::PointerEvents::None
+                && visible,
             projective: None,
             affine: Some((ts, (x, y, w, h))),
             press: p.press,
@@ -906,11 +930,16 @@ impl Painter {
         };
         // CSS opacity is paint only: a transparent subtree is still hit (the
         // walk records its boxes) and draws through a backend that draws nothing.
+        // Visibility is not that: only this box's own paint is skipped.
         let drawn = (opacity <= 0.0)
             .then(|| std::mem::replace(&mut self.backend, Box::new(layer::Unpainted)));
         if drawn.is_none() && opacity < 1.0 {
             self.backend.push_opacity(opacity);
         }
+        // The node's own appearance (a `color-scheme` above it, LLP 1034 §8)
+        // for its mask and everything it paints below.
+        let previous = self.dark;
+        self.dark = p.dark.unwrap_or(previous);
         // @ref LLP 1077 D2 — the mask is the border box's gradient's alpha.
         let mask = gradient::Captured::mask(node.style, self.dark).map(|m| m.place((x, y, w, h)));
         if mask.is_some() {
@@ -948,6 +977,7 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
+        let paints_self = paints(walk.scene.kernel, node.id, walk.reveal);
         let shown = (walk.scene.presented)(node.id);
         // Paint motion's values over the captured box (LLP 1055.000 D6,
         // LLP 1062 D5): background, border sides and shadow.
@@ -956,11 +986,19 @@ impl Painter {
         let geometry = paint.geometry(rect);
         // @ref LLP 1063 — a layout transition's size is the surface's alone.
         let surface = paint.geometry(shown.surface(rect));
-        paint.paint(self.backend.as_mut(), &surface, ts);
+        // A hidden box paints none of its own chrome. Children still do,
+        // and a text node still walks its runs so a visible inline paints.
+        if paints_self {
+            paint.paint(self.backend.as_mut(), &surface, ts);
+            self.column_rules(walk.scene.kernel, node, rect, ts);
+        }
         let outer = geometry.outer;
         let content = geometry.content;
         let s = node.style;
         match node.node_type {
+            NodeType::Text => self.text_node(walk, node, &geometry, rect, ts),
+            // The rest is this element's own paint (its picture, field, or control).
+            _ if !paints_self => {}
             // @ref LLP 1056 D7 — a 2D canvas's kept bitmap fills its content box.
             NodeType::Canvas => {
                 self.row_refuse();
@@ -995,76 +1033,11 @@ impl Painter {
                     self.backend.slot_end();
                 }
             }
-            NodeType::Text => {
-                // The kernel measures a Text subtree as one paragraph. Inline
-                // descendants deliberately have zero frames, not paint boxes.
-                let build = || {
-                    let mut spec = text_spec(&node.computed_style(StyleMask::INHERITED), "");
-                    spec.runs = node
-                        .text_runs()
-                        .iter()
-                        .map(|run| Run::from_style(&run.text, run.style))
-                        .collect();
-                    spec.collapse_white_space()
-                };
-                let paragraph = if let Some(stamp) = node.paragraph_stamp() {
-                    // @ref LLP 1043.000 §3 D7 — ordinary text takes the same
-                    // retained identity path; flow only adds exclusion geometry.
-                    self.text.borrow_mut().flow_identified(
-                        &stamp,
-                        content.2,
-                        &node
-                            .flow_shapes()
-                            .iter()
-                            .map(|s| s.translate(-geometry.inset.0, -geometry.inset.1))
-                            .collect::<Vec<_>>(),
-                        self.accepted_text.get(&node.key),
-                        build,
-                    )
-                } else {
-                    let spec = build();
-                    (!spec.is_empty())
-                        .then(|| self.text.borrow_mut().paragraph(&spec, Some(content.2)))
-                };
-                if let Some(paragraph) = paragraph {
-                    let mut palette = Vec::new();
-                    text_palette(walk.scene.kernel, node, self.dark, &mut palette);
-                    presented_text_colors(walk, node, &mut palette);
-                    walk.text.insert(node.key, paragraph.clone());
-                    self.row_text(node.key, &paragraph);
-                    // CSS `text-overflow: ellipsis` in a clipping box: an
-                    // over-wide line ends in "…" (LLP 1053 G5; paint only).
-                    let shown = (s.text_overflow == exact_kernel::TextOverflow::Ellipsis
-                        && effective_overflow(node).0 != Overflow::Visible)
-                        .then(|| paragraph.ellipsized(content.2))
-                        .flatten()
-                        .unwrap_or_else(|| paragraph.clone());
-                    // Inline backgrounds, under the glyphs, per line fragment.
-                    let mut backgrounds = Vec::new();
-                    text_backgrounds(walk.scene.kernel, node, None, self.dark, &mut backgrounds);
-                    for (r, color) in shown.run_backgrounds(&backgrounds) {
-                        self.backend.fill(
-                            &Shape::rect((content.0 + r.0, content.1 + r.1, r.2, r.3)),
-                            color,
-                            ts,
-                        );
-                    }
-                    let kernel = walk.scene.kernel;
-                    self.text_decorations(kernel, &shown, &palette, (content.0, content.1), ts);
-                    self.text_paint(
-                        node,
-                        kernel,
-                        &shown,
-                        &palette,
-                        (content.0, content.1),
-                        rect,
-                        ts,
-                    );
-                }
-            }
             NodeType::TextInput => {
                 self.row_refuse();
-                let value = node.props.str(PropId::Value).unwrap_or("");
+                // Typed text its bound value has not replaced (LLP 1069.001 D4).
+                let value = control::choice(node, walk.scene.chosen.get(&node.id))
+                    .unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""));
                 let placeholder = value.is_empty();
                 // A password is masked, one bullet a character, as the web and
                 // Apple's secure fields draw it.
@@ -1101,6 +1074,18 @@ impl Painter {
                     presented_color(walk, node)
                         .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)))
                 };
+                // The focused field's selection (x2apps codeedit #2).
+                let field = caret::FieldText {
+                    style: &computed,
+                    value,
+                    masked: node.props.str(PropId::Type) == Some("password"),
+                    origin: (content.0, oy),
+                };
+                let focused = walk.scene.focus == Some(node.id);
+                let selection = walk.scene.selection.filter(|_| focused);
+                if let Some(s) = selection {
+                    self.field_highlight(&field, s, ts);
+                }
                 {
                     let mut engine = self.text.borrow_mut();
                     self.backend.text(
@@ -1114,23 +1099,15 @@ impl Painter {
                         ts,
                     );
                 }
-                if walk.scene.focus == Some(node.id) {
-                    let caret_x = content.0 + if placeholder { 0.0 } else { paragraph.width };
-                    let caret_h = if paragraph.height > 0.0 {
-                        paragraph.height
-                    } else {
-                        computed.font_size * 1.2
-                    };
-                    self.backend.fill(
-                        &Shape::rect((caret_x, oy, 1.0, caret_h)),
-                        rgba(
-                            computed
-                                .caret_color
-                                .unwrap_or(node.text_color())
-                                .resolve(self.dark),
-                        ),
-                        ts,
+                if focused {
+                    let caret = rgba(
+                        computed
+                            .caret_color
+                            .unwrap_or(node.text_color())
+                            .resolve(self.dark),
                     );
+                    let at_end = || exact_runner::FieldSelection::at_end(value);
+                    self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
                 }
             }
             NodeType::Svg => self.svg(walk, node, rect, content, ts),
@@ -1138,7 +1115,8 @@ impl Painter {
                 self.native(node, content, &outer, ts)
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("select") => {
-                let label = walk.scene.kernel.select_chosen(node.id).map(|c| c.label);
+                let label =
+                    control::select_label(walk.scene.kernel, node, walk.scene.chosen.get(&node.id));
                 self.field_control(node, content, ts, label.as_deref().unwrap_or(""), true);
             }
             // @ref LLP 1069.001 D7 — a date control is a field showing its
@@ -1149,17 +1127,11 @@ impl Painter {
                     Some("date" | "time" | "datetime-local")
                 ) =>
             {
-                let value = node.props.str(PropId::Value).unwrap_or("");
-                let shown = match (value, node.props.str(PropId::Type)) {
-                    ("", Some("date")) => "yyyy-mm-dd",
-                    ("", Some("time")) => "--:--",
-                    ("", _) => "yyyy-mm-ddT--:--",
-                    (v, _) => v,
-                };
+                let shown = control::date_text(node, walk.scene.chosen.get(&node.id));
                 self.field_control(node, content, ts, shown, false);
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("range") => {
-                self.range_control(node, content, ts)
+                self.range_control(node, content, ts, walk.scene.chosen.get(&node.id))
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
                 let title = walk.scene.kernel.press_face(node.id).and_then(|f| f.title);
@@ -1200,66 +1172,7 @@ impl Painter {
         } else {
             offset
         };
-        let lift = self
-            .arrange_lift
-            .filter(|(list, _)| *list == node.key)
-            .and_then(|(_, key)| walk.scene.kernel.node_by_key(key))
-            .filter(|source| source.parent == Some(node.id))
-            .map(|source| source.id);
-        // A native button's children are its face, painted above (LLP 1069.011 D5).
-        let native =
-            node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button");
-        let children: Vec<_> = node
-            .children()
-            .into_iter()
-            .filter(|id| Some(*id) != lift && !native)
-            .collect();
-        // @ref LLP 1083.000 D5 — a canvas's placed children first, by
-        // projective depth, as the web gives them negative indices by
-        // depth; then every other child by its rank, then tree order.
-        // All in flow and none placed (most parents): tree order as it is.
-        let ordered =
-            self.placements.is_empty() && !children.iter().any(|c| walk.ranks.contains_key(c));
-        let order: Vec<(ViewId, usize)> = children.iter().copied().zip(0..).collect();
-        let mut order = order;
-        if !ordered {
-            order.sort_by(|(a, i), (b, j)| {
-                match (self.placements.get(a), self.placements.get(b)) {
-                    (Some(a), Some(b)) => a.depth().total_cmp(&b.depth()).then(i.cmp(j)),
-                    (Some(_), None) => std::cmp::Ordering::Less,
-                    (None, Some(_)) => std::cmp::Ordering::Greater,
-                    _ => {
-                        let rank = |id: &ViewId| walk.ranks.get(id).copied().unwrap_or(0);
-                        rank(a).cmp(&rank(b)).then(i.cmp(j))
-                    }
-                }
-            });
-        }
-        let children: Vec<ViewId> = order.into_iter().map(|(id, _)| id).collect();
-        let rows = self.has_rows(walk, node);
-        // A scroller's rows are its children; a scroller holding one
-        // container (a column of settings) keeps that container's children
-        // apart instead, so one of them changing records only itself.
-        let group = rows && !self.rows_wrapper(node.key);
-        let wrap = group && self.wraps_rows(walk, &children);
-        if group {
-            self.group_begin(walk, node.id);
-        }
-        for child in children {
-            if wrap {
-                self.wrapped(walk, child, ts, child_offset, child_rect);
-            } else if rows {
-                self.row(walk, child, ts, child_offset, child_rect);
-            } else {
-                self.node(walk, child, ts, child_offset, child_rect);
-            }
-        }
-        if group {
-            self.group_end(walk);
-        }
-        if let Some(child) = lift {
-            self.node(walk, child, ts, child_offset, child_rect);
-        }
+        self.children(walk, node, ts, child_offset, child_rect);
         if clips {
             self.backend.pop_clip();
         }
@@ -1445,3 +1358,35 @@ pub const POINTER: [(f32, f32); 7] = [
 
 #[cfg(test)]
 mod paragraph_tests;
+
+/// Whether `id` paints, is hit, and is exposed. In a ghost, [`revealed`];
+/// otherwise the computed `visibility` (inherited). A missing node does not
+/// veto a caller that already has nothing to draw.
+pub(crate) fn paints(kernel: &Kernel, id: ViewId, reveal: Option<ViewId>) -> bool {
+    match reveal {
+        Some(root) => revealed(kernel, id, root),
+        None => kernel.node(id).is_none_or(|n| {
+            n.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility)
+                == exact_kernel::Visibility::Visible
+        }),
+    }
+}
+
+/// Whether `id` shows in the ghost of `root`: the nearest `visibility` set
+/// on it or an ancestor below the ghost's root decides, as in the web's
+/// clone whose root alone is made visible (`group-glue.js`); none set shows.
+pub(crate) fn revealed(kernel: &Kernel, id: ViewId, root: ViewId) -> bool {
+    let arena = kernel.arena();
+    let mut at = arena.key_of(id).map(|k| k.index);
+    while let Some(slot) = at {
+        if arena.local_id(slot) == root {
+            return true;
+        }
+        let style = arena.style(slot);
+        if style.mask.has(exact_kernel::StyleId::Visibility) {
+            return style.visibility == exact_kernel::Visibility::Visible;
+        }
+        at = arena.parent(slot);
+    }
+    true
+}

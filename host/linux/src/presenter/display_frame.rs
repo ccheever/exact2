@@ -328,6 +328,7 @@ mod tests;
 /// Witness an `svg`'s element subtree, so a hit on one of its elements finds
 /// its handler through the painted `svg` (an attached display allows only
 /// what the picture showed).
+#[cfg(any(target_os = "linux", target_os = "android", test))]
 fn witness_svg(kernel: &Kernel, node: &exact_kernel::NodeRef<'_>, witness: &mut Witness) {
     for id in node.children() {
         if let Some(child) = kernel.node(id) {

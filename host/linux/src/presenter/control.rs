@@ -7,7 +7,9 @@ use super::*;
 /// measured from their painted labels in `size_controls` instead.
 fn fixed_painted_size(kind: exact_kernel::ControlKind) -> Option<(f32, f32)> {
     match kind {
-        exact_kernel::ControlKind::Checkbox => Some((13.0, 13.0)),
+        exact_kernel::ControlKind::Checkbox | exact_kernel::ControlKind::Radio => {
+            Some((13.0, 13.0))
+        }
         exact_kernel::ControlKind::Switch => Some((38.0, 22.0)),
         // Linux's file picker activation is native, but its visible control
         // is the same painted square as a checkbox until the picker opens.
@@ -52,6 +54,13 @@ impl<D: DataSource> Presenter<D> {
             self.dirty = true;
             return true;
         }
+        // A radio checks, and only checks (x2apps survey #2).
+        if exact_kernel::ControlKind::of(node.node_type, node.props)
+            == Some(exact_kernel::ControlKind::Radio)
+        {
+            self.check_radio(id, now_ms);
+            return true;
+        }
         let bound = node.props.bool(PropId::Checked);
         let on = !bound
             .or_else(|| self.controls.get(&id).copied())
@@ -88,6 +97,26 @@ impl<D: DataSource> Presenter<D> {
         let node = self.host.kernel().node(id).ok_or(format!("no view {id}"))?;
         if node.props.bool(PropId::Disabled) == Some(true) {
             return Err(format!("view {id} is disabled"));
+        }
+        // A radio takes `true`, checked as a click checks it; HTML has no
+        // way to uncheck one but checking another (x2apps survey #2).
+        if self.is_radio(id) {
+            match value {
+                "true" => {
+                    let now = self.host.now();
+                    self.check_radio(id, now);
+                }
+                "false" => {
+                    return Err(format!(
+                        "radio {id}: a radio is unchecked by checking another of its group"
+                    ))
+                }
+                _ => return Err(format!("radio {id} takes true, not {value:?}")),
+            }
+            return Ok(format!(
+                "{{\"typed\":{id},\"checked\":{},\"delivery\":\"recognized\"}}",
+                self.radio_checked(id)
+            ));
         }
         // A checkbox (or `switch`) takes `true` or `false`, and is toggled
         // when that differs, as a click does (the web host's typeControl).
@@ -160,12 +189,24 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = error.or(after) {
             return Err(e);
         }
-        let shown = self
+        let mut shown = self
             .host
             .kernel()
             .node(id)
             .and_then(|n| n.props.str(PropId::Value).map(str::to_owned))
             .unwrap_or_default();
+        // A date, range or select keeps the choice until its bound value
+        // changes, as the web build's does (`paint::control::choice`; LLP
+        // 1069.001 D4, amended 2026-10-04; kanban2 #5).
+        self.forget_replaced_choices();
+        if shown != value {
+            self.host.values.watch(id, Some(shown.clone()));
+            self.chosen.insert(id, (value.to_owned(), shown.clone()));
+            shown = value.to_owned();
+        } else {
+            self.host.values.watch(id, None);
+            self.chosen.remove(&id);
+        }
         Ok(format!(
             "{{\"typed\":{id},\"value\":{},\"delivery\":\"recognized\"}}",
             {
@@ -211,6 +252,7 @@ impl<D: DataSource> Presenter<D> {
         let b = self.boxes.iter().find(|b| b.id == id)?;
         let style = node.computed_style(exact_kernel::StyleMask::INHERITED);
         let choices = self.host.kernel().select_choices(id);
+        let picked = crate::paint::control::choice(&node, self.chosen.get(&id));
         let chosen = self.host.kernel().select_chosen(id).map(|c| c.view);
         let mut text = self.text.borrow_mut();
         let mut width = b.rect.2;
@@ -233,9 +275,13 @@ impl<D: DataSource> Presenter<D> {
             MenuPaint {
                 rect: (x.min(self.viewport.0 - width).max(0.0), top, width, height),
                 row,
-                chosen: choices.iter().position(|c| Some(c.view) == chosen),
+                chosen: match picked {
+                    Some(v) => choices.iter().position(|c| c.value == v),
+                    None => choices.iter().position(|c| Some(c.view) == chosen),
+                },
                 rows: choices.into_iter().map(|c| (c.label, c.disabled)).collect(),
-                accent: accent(&node, self.brush.dark),
+                // In the select's scheme (LLP 1034 §8), else the app's.
+                accent: accent(&node, node.color_scheme_dark().unwrap_or(self.brush.dark)),
                 style,
             },
         ))
@@ -372,6 +418,7 @@ mod tests {
             fixed_painted_size(ControlKind::Checkbox),
             Some((13.0, 13.0))
         );
+        assert_eq!(fixed_painted_size(ControlKind::Radio), Some((13.0, 13.0)));
         assert_eq!(fixed_painted_size(ControlKind::Switch), Some((38.0, 22.0)));
         assert_eq!(fixed_painted_size(ControlKind::File), Some((13.0, 13.0)));
         assert_eq!(fixed_painted_size(ControlKind::Range), Some((129.0, 16.0)));

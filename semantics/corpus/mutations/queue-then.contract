@@ -1,0 +1,34 @@
+// A `queue` mutation with a `then` (LLP 1092 D3 beside the `then` model):
+// a queue's next waits while its `then` is armed, so `then` runs once per
+// reply, in send order, and every one of them before a timer due later.
+shape Ack
+  n: number
+
+component App
+  mutation ack as shape Ack queue then landed
+  state k = 0
+  state order = ""
+  action twice
+    send ack = ping(k)
+    send ack = ping(k + 10)
+    k = k + 1
+  action landed
+    order = order + "a"
+  action tick
+    order = order + "t"
+  task beat mount
+    every(5, tick)
+  view
+    column
+      text order testId="order"
+      button "twice" press=twice testId="twice"
+
+test "one then a reply, before the timer"
+  tap "twice"
+  tap "twice"
+  expect state order == ""
+  clock +5
+  expect state order == "aaaat"
+  tap "twice"
+  clock +3
+  expect state order == "aaaataa"

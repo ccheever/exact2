@@ -36,6 +36,19 @@ export function unselected(nav) {
 const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
+// Agent launch facts belong to the carrier, not the router's typed URL. Keep
+// them on every History entry so a browser reload retains its agent adapter.
+const agentParameters = ['agent', 'seed', 'locale', 'timeZone', 'epoch', 'storage'];
+function historyURL(path) {
+  if (!AGENT_ADMITTED) return location.origin + path;
+  const facts = launched();
+  if (!facts.has('agent')) return location.origin + path;
+  const url = new URL(location.origin + path);
+  for (const key of agentParameters) {
+    if (facts.has(key)) url.searchParams.set(key, facts.get(key));
+  }
+  return url.href;
+}
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 
 function pressBack(nav) {
@@ -60,11 +73,11 @@ function commit(op) {
     first = 0;
     originIndex = browserIndex();
     written[0] = stamp(0, op);
-    history.replaceState(written[0], "", location.origin + op.url);
+    history.replaceState(written[0], "", historyURL(op.url));
   } else if (written[cursor]?.id === op.top) {
     if (written[cursor].url !== op.url) {
       written[cursor] = stamp(cursor, op);
-      history.replaceState(written[cursor], "", location.origin + op.url);
+      history.replaceState(written[cursor], "", historyURL(op.url));
     }
   } else {
     let j = cursor;
@@ -80,7 +93,7 @@ function commit(op) {
     for (const index of Object.keys(written)) if (Number(index) > cursor) delete written[index];
     written.length = Math.max(0, cursor + 1);
     written[++cursor] = stamp(cursor, op);
-    history.pushState(written[cursor], "", location.origin + op.url);
+    history.pushState(written[cursor], "", historyURL(op.url));
   }
 }
 
@@ -101,19 +114,19 @@ function popped({ j, state, url }) {
       cursor = j ?? cursor;
       first = Math.min(first, cursor);
       written[cursor] = stamp(cursor, last);
-      go(cursor, j ?? cursor, () => history.replaceState(written[cursor], "", location.origin + written[cursor].url));
+      go(cursor, j ?? cursor, () => history.replaceState(written[cursor], "", historyURL(written[cursor].url)));
     } else if (pop.op) {
       const op = pop.op;
       if (j !== null && j !== cursor) go(cursor, j, () => commit(op));
       else {
-        history.replaceState(written[cursor], "", location.origin + written[cursor].url);
+        history.replaceState(written[cursor], "", historyURL(written[cursor].url));
         commit(op);
       }
     } else {
       if (back) log("history: Back refused; restoring the entry");
       else log(`history: navigate ${JSON.stringify(target)} refused; restoring the entry`);
       if (j !== null && j !== cursor) go(cursor, j);
-      else history.replaceState(written[cursor], "", location.origin + written[cursor].url);
+      else history.replaceState(written[cursor], "", historyURL(written[cursor].url));
     }
   } finally { pop = null; }
 }
@@ -145,7 +158,7 @@ export const navigation = {
       if (echo !== null && j === echo.index) {
         const finish = echo.finish; echo = null; finish(); drain(); settled(); return;
       }
-      queue.push({ j, state: event.state, url: location.pathname + location.search });
+      queue.push({ j, state: event.state, url: launchLocation() });
       if (echo !== null) {
         const pending = echo; echo = null;
         go(pending.index, j ?? cursor, pending.finish);
@@ -258,8 +271,8 @@ export const navigation = {
 export function afterPaintPieces(load, o) {
   let live = null, loading = null;
   const queue = [];
-  const start = () => loading ??= Promise.all([load('./collection-glue.js', 'collectionGlue'), load('./motion-glue.js', 'motionGlue')])
-    .then(([c, m]) => {
+  const start = () => loading ??= Promise.all([load('./collection-glue.js', 'collectionGlue'), load('./motion-glue.js', 'motionGlue'), load('./group-glue.js', 'groupGlue')])
+    .then(([c, m, g]) => {
       const common = { views: o.views, now: o.now, generation: o.generation, inert: o.inert, applyBatch: o.applyBatch, ready: o.ready };
       const request = facts => o.wasm('exact_motion', m.motionBytes(facts)) ?? { accepted: false };
       const collections = c.collectionController({ root: o.root, views: o.views, agent: !!o.agent?.(), settled: () => arrange.commit(), report(bytes) {
@@ -267,7 +280,7 @@ export function afterPaintPieces(load, o) {
         return batch ? c.applyCollectionFeedback(batch, o.applyBatch) : false;
       } });
       const motion = m.motionController({ ...common, releaseInteraction: pointer => collections.releaseInteraction(pointer), request });
-      const arrange = m.arrangeController({ ...common, collections, motion, request });
+      const arrange = m.arrangeController({ ...common, collections, motion, request, grouped: g.groupController, root: o.root });
       live = { collections, motion, arrange };
       for (const [piece, name, args] of queue.splice(0)) {
         try { live[piece][name](...args); } catch (error) { console.error(`exact: ${piece}.${name} failed`, error); }
@@ -291,7 +304,7 @@ export function afterPaintPieces(load, o) {
   for (const name of ['animate', 'retire', 'heightBinding', 'transformBinding', 'attachSwipe', 'attachHeightDrag', 'attachTransformDrag']) motion[name] = call('motion', name);
   // A pan's release velocity (LLP 1057 §10.6): only once motion is here.
   motion.pan = { sample: (...a) => live?.motion.panSample(...a), velocity: (...a) => live?.motion.panVelocity(...a) };
-  const arrange = { binding: call('arrange', 'binding'), state: call('arrange', 'state') };
+  const arrange = { binding: call('arrange', 'binding'), state: call('arrange', 'state'), group: call('arrange', 'group') };
   for (const piece of [motion, arrange]) for (const name of ['commit', 'reset', 'destroy']) piece[name] = call(piece === motion ? 'motion' : 'arrange', name, false);
   motion.followTimelines = call('motion', 'followTimelines', false);
   // Every first batch commits the (empty) collection set: a use only with items.
@@ -349,13 +362,15 @@ export function presenceLoader(load, root, apply, log) {
 // own time (LLP 1055 D10); every other animation follows the runner's clock.
 export function animationClock(now, settled, synced) {
   const starts = new WeakMap(), held = new WeakSet(), clocks = animationClocks(document);
+  // A scroll-driven animation follows its scroll, not a clock.
+  const timed = () => document.getAnimations().filter(a => !a.timeline || a.timeline instanceof DocumentTimeline);
   return {
     register(t) {
       clocks.commit();
-      for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, clocks.start(a, t) ?? t); if (a.playState === 'paused') held.add(a); }
+      for (const a of timed()) if (!starts.has(a)) { starts.set(a, clocks.start(a, t) ?? t); if (a.playState === 'paused') held.add(a); }
     },
     seek(to) {
-      for (const a of document.getAnimations()) {
+      for (const a of timed()) {
         const timing = a.effect?.getComputedTiming();
         if (!timing) continue;
         const t = to - (starts.get(a) ?? now());
@@ -369,7 +384,7 @@ export function animationClock(now, settled, synced) {
       let to = now();
       const s = settled();
       if (s != null) to = Math.max(to, s);
-      for (const a of document.getAnimations()) {
+      for (const a of timed()) {
         const timing = a.effect?.getComputedTiming();
         if (timing && timing.endTime !== Infinity && !held.has(a)) to = Math.max(to, (starts.get(a) ?? now()) + timing.endTime);
       }
@@ -482,8 +497,8 @@ function followScroll(el, enabled) {
 }
 
 // A `markup="markdown"` text node's pieces, as the wasm emitted them
-// (`[text, scale, weight, flags, href]`; flags italic 1, mono 2, strike 4, link 8,
-// quiet 16), built into spans with textContent — never HTML. Lives here because it
+// (`[text, scale, weight, flags, href, indent]`; flags italic 1, mono 2, strike 4,
+// link 8, quiet 16, hanging marker 32), built into spans with textContent — never HTML. Lives here because it
 // must run at boot and glue.js is at its line cap. LLP 1045 D3/D4.
 //
 // One scheme allowlist for every URL the page can navigate to: a link's
@@ -503,24 +518,47 @@ export function refuseURL(el, name, value) {
   console.warn(`exact: refused ${name} ${JSON.stringify(String(value).slice(0, 80))}: only http, https, mailto and tel navigate`);
   if (name === "src") el.setAttribute(name, "about:blank"); else el.removeAttribute(name);
 }
+// A list item's paragraph (indent > 0, LLP 1045 D4) is a block with the
+// item's indent as `padding-left`; its marker (flags 32) is a 40 px box
+// pulled into the gutter by the block's negative `text-indent`, the marker's
+// end at the indent (`flex-end`, overflowing leftwards as the browser's
+// outside marker does): `<ul>`/`<ol>`'s layout, the one native hosts copy
+// with a head indent. 40 is exact-markdown's `LIST_INDENT`.
 export function renderMarkup(el, json) {
   let pieces;
   try { pieces = JSON.parse(json); } catch { pieces = []; }
   el.replaceChildren();
-  for (const [text, scale, weight, flags, href] of pieces) {
+  let box = el, start = true;
+  const paragraph = indent => {
+    if (start) { start = false; box = el; if (indent > 0) { box = document.createElement("span"); box.style.display = "block"; box.style.paddingLeft = `${indent}px`; el.appendChild(box); } }
+    return box;
+  };
+  for (const [text, scale, weight, flags, href, indent = 0] of pieces) {
     const destination = flags & 8 && href ? navigableURL(href) : null;
-    const span = document.createElement(destination ? "a" : "span");
+    const make = () => {
+      const span = document.createElement(destination ? "a" : "span");
+      if (scale !== 1) span.style.fontSize = `${scale}em`;
+      if (weight) span.style.fontWeight = weight;
+      if (flags & 1) span.style.fontStyle = "italic";
+      if (flags & 2) span.style.fontFamily = "ui-monospace, monospace";
+      if (flags & 4) span.style.textDecoration = "line-through";
+      if (flags & 16) span.style.opacity = "0.62";
+      if (destination) span.href = destination;
+      if (destination && /^(https?:)?\/\//i.test(href.trim())) { span.target = "_blank"; span.rel = "external noopener"; } // it leaves the app, as natively (element.rs `leaves_app`)
+      return paragraph(indent).appendChild(span);
+    };
+    if (flags & 32) {
+      const marker = make();
+      marker.style.cssText += "display:inline-flex;justify-content:flex-end;width:40px;white-space:pre;text-indent:0";
+      marker.textContent = text; box.style.textIndent = "-40px";
+      continue;
+    }
     // Newlines are `<br>`s: the node's own white-space row still applies to the rest.
-    text.split("\n").forEach((line, i) => { if (i) span.appendChild(document.createElement("br")); if (line) span.appendChild(document.createTextNode(line)); });
-    if (scale !== 1) span.style.fontSize = `${scale}em`;
-    if (weight) span.style.fontWeight = weight;
-    if (flags & 1) span.style.fontStyle = "italic";
-    if (flags & 2) span.style.fontFamily = "ui-monospace, monospace";
-    if (flags & 4) span.style.textDecoration = "line-through";
-    if (flags & 16) span.style.opacity = "0.62";
-    if (destination) span.href = destination;
-    if (destination && /^(https?:)?\/\//i.test(href.trim())) { span.target = "_blank"; span.rel = "external noopener"; } // it leaves the app, as natively (element.rs `leaves_app`)
-    el.appendChild(span);
+    let span = null;
+    text.split("\n").forEach((line, i) => {
+      if (i) { (span ??= make()).appendChild(document.createElement("br")); start = true; span = null; }
+      if (line) (span ??= make()).appendChild(document.createTextNode(line));
+    });
   }
 }
 
@@ -590,7 +628,7 @@ export function focusController({ready, elements, inert}) {
 }
 
 
-// The focus, blur and selectText commands a batch carried, run once every
+// The focus, blur, selectText and setSelectionRange commands a batch carried, run once every
 // node and value in it is committed (a focus handler may dispatch an action).
 export function runFocusCommands(commands, { root, ready, inertAncestor, log }) {
   for (const { name, args } of commands) {
@@ -604,6 +642,7 @@ export function runFocusCommands(commands, { root, ready, inertAncestor, log }) 
       if (ready && active && active !== document.body && (!args?.length || active.id === args[0])) active.blur();
       continue;
     }
+    if (name === "setSelectionRange") { setFieldSelection([...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]), args, log); continue; }
     const selectText = name === "selectText";
     if (args?.length !== 1 || typeof args[0] !== "string" || !ready) continue;
     const el = [...root.querySelectorAll("[id]")].find(node => node.id === args[0]);
@@ -718,7 +757,8 @@ export function preferFold(request) {
 // `pointer: coarse` (bit 5), `pointer: none` (bit 6) and `hover: none` (bit 7),
 // zero being a mouse. Told with each boot and resize.
 let preferenceQueries;
-const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16], ["(pointer: coarse)", 32], ["(pointer: none)", 64], ["(hover: none)", 128]].map(([q, bits]) => [matchMedia(q), bits]));
+// Bits 8–9 `color-gamut` (256 p3; 512 with it, rec2020) and bit 10 `dynamic-range: high` (LLP 1100 D9).
+const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16], ["(pointer: coarse)", 32], ["(pointer: none)", 64], ["(hover: none)", 128], ["(color-gamut: p3)", 256], ["(color-gamut: rec2020)", 512], ["(dynamic-range: high)", 1024]].map(([q, bits]) => [matchMedia(q), bits]));
 export const preferences = () => queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0);
 export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventListener("change", changed));
 
@@ -793,12 +833,12 @@ export function timeReporter(params, platform = globalThis) {
 export function launchLocation(platform = globalThis) {
   const { pathname, search } = platform.location, q = new URLSearchParams(search);
   if (!(AGENT_ADMITTED && q.has('agent'))) return pathname + search;
-  for (const k of ['agent', 'seed', 'locale', 'timeZone', 'epoch', 'storage']) q.delete(k);
+  for (const k of agentParameters) q.delete(k);
   const rest = q.toString();
   return pathname + (rest ? '?' + rest : '');
 }
-// The drive's facts are the launch URL's: a route the app pushed before the
-// first ask has no `?agent&…` (storage-environment.js `launchHref`).
+// The drive's facts are the launch URL's, even after a route changes the
+// address bar (storage-environment.js `launchHref`).
 const launched = () => new URL(globalThis.performance?.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams;
 let pageTime;
 export const reportTime = (elapsed) => (pageTime ??= timeReporter(launched()))(elapsed);
@@ -910,18 +950,73 @@ export function guestType(frame, request) {
   return { typed: request.id, guest: true, value: "value" in target ? target.value : target.textContent };
 }
 
-// @ref LLP 1069.001 D4 — a select (and the range and date inputs) is
-// controlled: the committed `value` is authoritative, so the element shows
-// it again after the options change, and after an action that refused.
+// @ref LLP 1069.001 D4 (amended 2026-10-04) — a select, range or date is
+// controlled as a text field is: the committed `value` is written when it
+// changes, and shown again after the options change or a refused `type`;
+// after the action that heard the person (`acted`) it keeps their choice,
+// as the web build's does (x2apps kanban2 #5: a date cleared while a `send`
+// was in flight).
 const VALUED = new Set(["range", "date", "time", "datetime-local"]);
 export const valuedControl = (el) => el instanceof HTMLSelectElement || (el instanceof HTMLInputElement && VALUED.has(el.type));
-export function settleValue(el) {
+export function settleValue(el, acted = false) {
   const c = el instanceof HTMLOptionElement ? el.parentElement : el;
+  if (acted) return;
   if (c && valuedControl(c) && c.exactValue !== undefined && c.value !== c.exactValue) c.value = c.exactValue;
 }
 // What `type <id> <value>` sets rather than types into (D9): the valued
-// controls, and a checkbox (or `switch`), which a value turns on or off.
-export const typedControl = (el) => valuedControl(el) || (el instanceof HTMLInputElement && el.type === "checkbox");
+// controls, a checkbox (or `switch`), which a value turns on or off, and a
+// radio, which `true` checks (x2apps survey #2).
+export const typedControl = (el) => valuedControl(el) || (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio"));
+// A text field (x2apps codeedit #2): an input that is no control, or a
+// textarea that is not the Markdown editor; its `input` and `change` carry
+// its selection, and its `select` is HTML's.
+export const textField = (el) => el instanceof HTMLTextAreaElement ? el.getAttribute("markup") !== "markdown" : el instanceof HTMLInputElement && !typedControl(el) && el.type !== "file";
+// Its selection as host kinds 40 to 42 carry it, before its text:
+// `start,end,direction,` in UTF-16 units, the DOM's; a type with none
+// (email, number) has its caret after its text, as the runner assumes.
+export const fieldSelection = (el) => { const end = el.value.length; return `${el.selectionStart ?? end},${el.selectionEnd ?? end},${el.selectionDirection ?? "none"},`; };
+// A radio's group as committed again (x2apps survey #2): the browser checked
+// the radio and unchecked its group at once; the action decides, and one
+// that refuses snaps the group back. `bound` reads a radio's committed
+// `checked` (undefined when it has none); the unchecks go first, so the
+// radio left checked is the committed one.
+export function settleRadios(el, bound) {
+  const group = el.name ? [...document.querySelectorAll('input[type="radio"]')].filter((r) => r.name === el.name) : [el];
+  for (const r of group) if (bound(r) === false && r.checked) r.checked = false;
+  for (const r of group) if (bound(r) === true && !r.checked) r.checked = true;
+}
+// `setSelectionRange("id", start, end[, direction])` (x2apps codeedit #2):
+// the field's own method, by its id, after the batch; it does not focus.
+export function setFieldSelection(el, args, log) {
+  const [id, start, end, direction] = args ?? [];
+  if (!el) return log(`setSelectionRange "${id}" refused: no live node with that id`);
+  if (typeof el.setSelectionRange !== "function") return log(`setSelectionRange "${id}" refused: not a text field`);
+  try { el.setSelectionRange(start, end, direction); } catch { log(`setSelectionRange "${id}" refused: an input type=${el.type} has no text selection`); }
+}
+// The wasm host's `input`, `change` and a text field's `select` (LLP
+// 1069.001 D4; x2apps survey #2, codeedit #2), `dispatch(kind, payload)`:
+// a checkbox's checked state (25, 24), a radio's value (23, 1), a text
+// field's selection then its text (40, 41, 42), another control's value
+// (23, 1). The platform moves a control at once; the action decides, and
+// one that refuses snaps a checkbox or a radio group back.
+export function controlEvent(el, kind, on, dispatch) {
+  if (kind === "select") return void (textField(el) && on("select", () => dispatch(42, fieldSelection(el) + el.value)));
+  if (el.type === "checkbox") return on(kind, () => { dispatch(kind === "change" ? 24 : 25, String(el.checked)); if (el.exactChecked !== undefined && el.checked !== el.exactChecked) el.checked = el.exactChecked; });
+  if (el.type === "radio") return on(kind, () => { dispatch(kind === "change" ? 1 : 23, el.value); settleRadios(el, (r) => r.exactChecked); });
+  // HTML's `change`: a text field's value committed, on blur or Enter.
+  if (kind === "change") return on("change", () => { dispatch(textField(el) ? 41 : 1, (textField(el) ? fieldSelection(el) : "") + el.value); settleValue(el, true); });
+  on("input", (e) => {
+    const value = el.value;
+    if (el.getAttribute("emojiPicker") === "true") {
+      if (e.isComposing) return;
+      el.value = "";
+      const clusters = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)];
+      if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value) || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
+      return void dispatch(23, value);
+    }
+    dispatch(textField(el) ? 40 : 23, (textField(el) ? fieldSelection(el) : "") + value); settleValue(el, true);
+  });
+}
 // D9: `type <id> <value>` sets a control's value as the platform would on a
 // choice or a release: HTML's `input`, then `change`. A select takes one of
 // its enabled options by value, else by its one label (Playwright's
@@ -937,6 +1032,12 @@ export function typeControl(el, request) {
   if (el.type === "checkbox") {
     if (text !== "true" && text !== "false") return { handled: true, error: `checkbox ${id} takes true or false, not ${JSON.stringify(text)}` };
     if (el.checked !== (text === "true")) el.click();
+    return { typed: id, checked: el.checked, delivery: "recognized", handled: true };
+  }
+  // A radio is checked by choosing it, and unchecked only by checking another (x2apps survey #2).
+  if (el.type === "radio") {
+    if (text !== "true") return { handled: true, error: text === "false" ? `radio ${id} is unchecked by checking another of its group` : `radio ${id} takes true, not ${JSON.stringify(text)}` };
+    if (!el.checked) el.click();
     return { typed: id, checked: el.checked, delivery: "recognized", handled: true };
   }
   if (el instanceof HTMLSelectElement) {

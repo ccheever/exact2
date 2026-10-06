@@ -242,7 +242,7 @@ export function gameShells(dir, game, workspace) {
       : `exact-runner.workspace = true\nexact-${kind}.workspace = true\n${kind === 'web' ? 'exact-web-capabilities.workspace = true\n' : ''}${dataDependency}\n[build-dependencies]\nexact-game-app.workspace = true\n${dataBuildDependency}`;
     const files = {
       'Cargo.toml': header + dependencies,
-      [['linux', 'windows'].includes(kind) ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""}${app.game.assets === true ? ", assets" : ""}${render ? `, hooks = game_render::${render.hooks}${render.shaders ? `, shaders = game_render::${render.shaders}` : ''}` : ''});\n` : (kind === 'windows' ? '#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]\n' : '') + 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
+      [['linux', 'windows'].includes(kind) ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""}${app.game.assets === true ? ", assets" : ""}${render ? `, hooks = game_render::${render.hooks}${render.shaders ? `, shaders = game_render::${render.shaders}` : ''}` : ''});\n` : (kind === 'windows' ? '#![cfg_attr(\n    all(target_os = "windows", not(debug_assertions)),\n    windows_subsystem = "windows"\n)]\n' : '') + 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
       'build.rs': kind === 'gpu'
         ? `use exact_game::{Args, Game, Value};
 use std::{env, fs, path::PathBuf};
@@ -252,7 +252,9 @@ fn level_bake_path() -> &'static str {
     ${JSON.stringify(levelBake)}
 }
 fn main() {
-    type Options = <game_logic::${type} as Game>::Args;
+    // A short name, so no line's width (rustfmt's 100) depends on the game's.
+    type Logic = game_logic::${type};
+    type Options = <Logic as Game>::Args;
     let arguments: Vec<_> = Options::FIELDS
         .iter()
         .zip(Options::default().values())
@@ -266,7 +268,7 @@ fn main() {
             serde_json::json!({"name": name, "default": value})
         })
         .collect();
-    let name = <game_logic::${type} as Game>::NAME;
+    let name = <Logic as Game>::NAME;
     let text = serde_json::to_string_pretty(&serde_json::json!({name: arguments})).unwrap() + "\\n";
     let path = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../surfaces.json");
     if fs::read_to_string(&path).ok().as_deref() != Some(&text) {
@@ -274,7 +276,7 @@ fn main() {
         fs::write(&temporary, text).expect("write game surface declaration");
         fs::rename(temporary, &path).expect("publish complete game surface declaration");
     }
-${bakeArt ? `    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n` : ''}    bake_files::bake_game_level::<game_logic::${type}>(${JSON.stringify(relative(shell, appDir))}).expect("bake level");
+${bakeArt ? `    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n` : ''}    bake_files::bake_game_level::<Logic>(${JSON.stringify(relative(shell, appDir))}).expect("bake level");
     println!("cargo:rerun-if-changed={}", level_bake_path());
     println!("cargo:rerun-if-changed=build.rs");
 }
@@ -309,7 +311,9 @@ const sdkLockFile = source => [resolve(source, 'app/shells.lock'), resolve(gameR
 // while updating only the root Cargo.lock. Those packages are as decided as the
 // SDK lock's: the root lock's registry packages whose names the SDK lock lacks
 // seed a game's resolution and are admitted by version and checksum, so a new
-// game resolves offline before anyone refreshes the SDK lock.
+// game resolves offline before anyone refreshes the SDK lock. A new root crate
+// (00d37ef9f: exact-svg-filter under the kernel) is one too: the root lock's
+// path packages, which carry no source or checksum, seed it the same way.
 export function withRootPins(sdk, root = existsSync(resolve(gameRoot, '../Cargo.lock')) ? readFileSync(resolve(gameRoot, '../Cargo.lock'), 'utf8') : '') {
   // By name and semver series (Cargo's compatibility: 1.x, 0.37.x, 0.0.3): a root's
   // new major of a package the SDK lock holds is a pin too; a compatible one is not.
@@ -317,7 +321,7 @@ export function withRootPins(sdk, root = existsSync(resolve(gameRoot, '../Cargo.
   const held = new Set((Bun.TOML.parse(sdk).package ?? []).map(pkg => `${pkg.name} ${series(pkg.version)}`));
   const id = block => `${/^name = "([^"]+)"/m.exec(block)?.[1]} ${series(/^version = "([^"]+)"/m.exec(block)?.[1])}`;
   const pins = root.split(/\n(?=\[\[package\]\]\n)/).slice(1).map(block => block.trimEnd())
-    .filter(block => /^source = "registry\+/m.test(block) && !held.has(id(block)));
+    .filter(block => (/^source = "registry\+/m.test(block) || !/^source = /m.test(block)) && !held.has(id(block)));
   return pins.length ? `${sdk.trimEnd()}\n\n${pins.join('\n\n')}\n` : sdk;
 }
 const cargoMetadata = (cwd, flags, env) => spawnSync('cargo', ['metadata', ...flags, '--format-version', '1'], {cwd, env, encoding:'utf8', maxBuffer:64 * 1024 * 1024});
@@ -325,7 +329,8 @@ const cargoMetadata = (cwd, flags, env) => spawnSync('cargo', ['metadata', ...fl
 // and the activated features, so a game's subset keeps every version but may
 // drop edges; the versions and checksums are what the SDK lock decides.
 const lockIds = text => new Map((Bun.TOML.parse(text).package ?? []).map(pkg => [`${pkg.name} ${pkg.version} ${pkg.source ?? ''}`.trim(), pkg.checksum ?? null]));
-/** Packages of `derived` (members excepted) whose version the SDK lock does not hold. */
+/** Packages of `derived` (members excepted) whose version the SDK lock does not hold.
+ * A root path crate new since the SDK lock is held through `withRootPins`. */
 export function outsideSdkLock(derived, sdk, members) {
   const known = lockIds(sdk);
   return [...lockIds(derived)].filter(([id, checksum]) => !members.has(id.split(' ')[0]) && (!known.has(id) || known.get(id) !== checksum)).map(([id]) => id);
@@ -412,10 +417,10 @@ export function lintGame(dir, game, {env = process.env} = {}) {
   }
 }
 
-/** Check the SDK lock against the union of every generated shell's
- * dependencies, or (`update`) rewrite it from that union. */
-export function sdkLock(source = gameRoot, {update = false, env = process.env} = {}) {
-  const path = resolve(source, 'app/shells.lock'), stage = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-game-lock-')));
+/** A throwaway workspace of the union of every generated shell's dependencies,
+ * locked by `lock`; `use` runs in it and the stage is removed afterwards. */
+function sdkStage(source, lock, use) {
+  const stage = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-game-lock-')));
   try {
     const cargo = Bun.TOML.parse(readFileSync(resolve(source, 'Cargo.toml'), 'utf8'));
     for (const deps of [cargo.workspace.dependencies, ...Object.values(cargo.patch ?? {})])
@@ -428,13 +433,36 @@ export function sdkLock(source = gameRoot, {update = false, env = process.env} =
     writeFileSync(resolve(stage, 'Cargo.toml'), Object.entries(tables).map(([key, value]) => `[${key}]\n${Object.entries(value).map(([k, v]) => `${JSON.stringify(k)} = ${toml(v)}\n`).join('')}`).join('\n'));
     mkdirSync(resolve(stage, 'union'));
     writeFileSync(resolve(stage, 'union/lib.rs'), '');
-    writeFileSync(resolve(stage, 'union/Cargo.toml'), `[package]\nname = "exact-game-shells"\nversion = "0.1.0"\nedition = "2021"\npublish = false\n\n[lib]\npath = "lib.rs"\n\n[dependencies]\n${Object.keys(cargo.workspace.dependencies).map(dep => `${dep}.workspace = true\n`).join('')}serde_json = "1"\n`);
-    // A refresh takes the root lock's versions for packages new to the SDK.
-    if (existsSync(path)) writeFileSync(resolve(stage, 'Cargo.lock'), update ? withRootPins(readFileSync(path, 'utf8')) : readFileSync(path, 'utf8'));
+    writeFileSync(resolve(stage, 'union/Cargo.toml'), `[package]\nname = "exact-game-shells"\nversion = "0.1.0"\nedition = "2021"\npublish = false\n\n[lib]\npath = "lib.rs"\n\n[dependencies]\n${Object.keys(cargo.workspace.dependencies).map(dep => `${dep}.workspace = true\n`).join('')}${cargo.workspace.dependencies.serde_json ? '' : 'serde_json = "1"\n'}`);
+    if (lock !== null) writeFileSync(resolve(stage, 'Cargo.lock'), lock);
+    return use(stage);
+  } finally { rmSync(stage, {recursive:true, force:true}); }
+}
+
+/** Check the SDK lock against the union of every generated shell's
+ * dependencies, or (`update`) rewrite it from that union. */
+export function sdkLock(source = gameRoot, {update = false, env = process.env} = {}) {
+  const path = resolve(source, 'app/shells.lock');
+  // A refresh takes the root lock's versions for packages new to the SDK.
+  const lock = existsSync(path) ? (update ? withRootPins(readFileSync(path, 'utf8')) : readFileSync(path, 'utf8')) : null;
+  sdkStage(source, lock, stage => {
     const result = cargoMetadata(stage, update ? [] : ['--locked', '--offline'], env);
     if (result.status !== 0) throw new Error(`${update ? 'SDK lock update' : `${path} is stale for the SDK's shell dependencies; refresh it: bun game/app/shells.mjs --update-lock`}\n${result.stderr || result.error?.message}`);
     if (update) writeChanged(path, readFileSync(resolve(stage, 'Cargo.lock'), 'utf8'), false);
-  } finally { rmSync(stage, {recursive:true, force:true}); }
+  });
+}
+
+/** Put the SDK lock's crates in Cargo's cache, as a game's offline bake reads
+ * them (`exact setup`), or (`offline`) only say whether they are all there
+ * (`setup --check`): the platformer's first build stopped on \`glam\` (its diary, R2).
+ * The lock is the one a new game starts from, the root's pins included. */
+export function sdkFetch({offline = false, source = gameRoot, env = process.env} = {}) {
+  const path = sdkLockFile(source);
+  if (!path) return {ok:false, message:`no SDK lock at ${resolve(source, 'app/shells.lock')}`};
+  return sdkStage(source, withRootPins(readFileSync(path, 'utf8')), stage => {
+    const result = spawnSync('cargo', ['fetch', ...(offline ? ['--offline'] : [])], {cwd:stage, env, encoding:'utf8', stdio:offline ? 'pipe' : ['ignore', 'inherit', 'inherit']});
+    return {ok:result.status === 0, message:result.stderr?.trim() || result.error?.message || ''};
+  });
 }
 
 if (import.meta.main) {

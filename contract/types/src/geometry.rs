@@ -1,6 +1,8 @@
 //! Geometry reads (LLP 1051.000 D1/D2): `frame(id)` and `measure(id)`
 //! answer a `Geometry`, only inside an action, and `measure`'s id is a string
 //! literal, so the runner can answer it before the action's body runs.
+//! `elementFromPoint(x, y)` (LLP 1094 D10) reads the same boxes, so it is an
+//! action's read too.
 //!
 //! A derive or a view that read layout would feed layout back into the tree
 //! it lays out, the loop LLP 1039 D5 declines. An action reads once, at the
@@ -33,7 +35,10 @@ pub(super) fn check_call(
     scope: &Scope,
     span: Span,
 ) -> Result<(), TypeError> {
-    if !matches!(f, Stdlib::Frame | Stdlib::Measure) {
+    if !matches!(
+        f,
+        Stdlib::Frame | Stdlib::Measure | Stdlib::ElementFromPoint
+    ) {
         return Ok(());
     }
     if !scope.in_action() {

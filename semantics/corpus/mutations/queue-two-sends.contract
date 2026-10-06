@@ -1,0 +1,32 @@
+// Two sends to a `queue` mutation in one action (LLP 1092 D2, D3): the
+// first is asked in the tap's commit and its answer lands there; the
+// second waits with the arguments it was sent with and is asked by the
+// next advance, before any timer, in a commit of its own.
+shape Ack
+  n: number
+  s: string
+
+component App
+  mutation ack as shape Ack queue
+  state k = 0
+  state seen = ""
+  derive label = match ack { case some(a) => a.s, case none => "-" }
+  action twice
+    send ack = ping("first", k)
+    send ack = ping("second", k)
+    k = k + 1
+  action look
+    seen = label
+  task peek mount
+    after(10, look)
+  view
+    column
+      text label testId="label"
+      button "twice" press=twice testId="twice"
+
+test "two sends, in order"
+  tap "twice"
+  tap "twice"
+  clock +5
+  clock +10
+  expect state k == 2

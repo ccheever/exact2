@@ -30,6 +30,31 @@ final class AgentClockIOSTests: XCTestCase {
         return session
     }
 
+    func testARecognizedPanAlsoDeliversThePointerObserverInOrder() throws {
+        let session = try booted(), p = session.presenter
+        let node = NodeView(id: UInt32.max, kind: "view", presenter: p)
+        p.views[node.id] = node
+        node.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+        p.viewport.addSubview(node)
+        node.handlers = ["pan", "panrelease", "pointerdown", "pointermove", "pointerup"]
+        let agent = Agent(session: session)
+        var events: [String] = []
+        p.onPointer = { _, kind, sample in
+            events.append(kind == .down ? "down" : kind == .up ? "up" : "move")
+            XCTAssertEqual(sample.buttons, kind == .up ? 0 : 1)
+        }
+        p.onPan = { _, _, _ in events.append("pan") }
+        p.onPanRelease = { _, _, _ in events.append("release") }
+        XCTAssertEqual(agent.recognizedPan("down", ["id": Int(node.id)])?["delivery"] as? String, "recognized")
+        _ = agent.recognizedPan("move", ["dx": 10.0, "ms": 16.0])
+        _ = agent.recognizedPan("up", [:])
+        XCTAssertEqual(events, ["down", "move", "pan", "up", "release"])
+        events = []
+        _ = agent.recognizedPan("down", ["id": Int(node.id)])
+        _ = agent.recognizedPan("cancel", [:])
+        XCTAssertEqual(events, ["down", "up"])
+    }
+
     /// The motion engine at the wall, as a running animation leaves it, then a hold.
     private func holdAfter(_ session: ExactSession, _ op: [String: Any]) throws -> (wall: Double, reply: [String: Any], held: Bool) {
         session.apply(session.runtime.tick(now: session.now()))

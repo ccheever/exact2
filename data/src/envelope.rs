@@ -119,6 +119,7 @@ fn error_json(error: &DataError) -> Json {
     let (kind, message) = match error {
         DataError::UnknownSource(m) => ("UnknownSource", m),
         DataError::BadArguments(m) => ("BadArguments", m),
+        DataError::DeferredAtBake(m) => ("DeferredAtBake", m),
         DataError::Unavailable(m) | DataError::Interface(m) => ("Unavailable", m),
     };
     json!({"kind": kind, "message": message})
@@ -129,6 +130,7 @@ fn error_from(error: &Json) -> DataError {
     match error["kind"].as_str() {
         Some("UnknownSource") => DataError::UnknownSource(message),
         Some("BadArguments") => DataError::BadArguments(message),
+        Some("DeferredAtBake") => DataError::DeferredAtBake(message),
         _ => DataError::Unavailable(message),
     }
 }

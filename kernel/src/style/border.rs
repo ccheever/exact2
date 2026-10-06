@@ -54,6 +54,50 @@ const INSET_CURRENT: Color = Color::rgba(0xee, 0xee, 0xee, 0xff);
 /// Each colour of a value shaded, a light/dark pair per appearance.
 fn shade(value: ColorValue, shadowed: bool) -> ColorValue {
     let one = |c: Color| inset_shade(c, shadowed);
+    if let ColorValue::Wide(id) = value {
+        if let Some(w) = super::wide::wide(id) {
+            let one = |w: exact_color::Wide| {
+                let mut c = w.linear_srgb();
+                let lum = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+                let light = |c: [f64; 3]| {
+                    let peak = c.into_iter().fold(0.0_f64, f64::max);
+                    if peak == 0.0 {
+                        [0.33; 3]
+                    } else {
+                        c.map(|v| v * ((peak + 0.33).min(peak.max(1.0)) / peak))
+                    }
+                };
+                if lum <= 0.014_443_844 {
+                    c = light(c);
+                    if !shadowed {
+                        c = light(c);
+                    }
+                } else if shadowed {
+                    let peak = c.into_iter().fold(0.0_f64, f64::max);
+                    c = c.map(|v| v * ((peak - 0.33) / peak).max(0.0));
+                } else if lum <= 0.830_77 {
+                    c = light(c);
+                }
+                exact_color::Wide {
+                    space: exact_color::Space::SrgbLinear,
+                    c,
+                    alpha: w.alpha,
+                }
+                .css()
+            };
+            let text = match w.dark {
+                Some(d) => format!("light-dark({}, {})", one(w.light), one(d)),
+                None => one(w.light),
+            };
+            // At the table cap retain the authored color; never clip it to sRGB.
+            return super::wide::parse_wide(&text).unwrap_or(value);
+        }
+    }
+    // Profile transforms belong to the host. Other reference forms retain
+    // the legacy inset shading of their declared fallback pair.
+    if matches!(value, ColorValue::Profiled(_)) {
+        return value;
+    }
     match value.fallback() {
         ColorValue::Fixed(c) => ColorValue::Fixed(one(c)),
         ColorValue::LightDark(light, dark) => ColorValue::LightDark(one(light), one(dark)),
@@ -135,6 +179,37 @@ fn scaled(c: Color, multiplier: f32) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn role_and_platform_inset_shade_the_fallback_pair() {
+        let role = ColorValue::parse_light_dark("CanvasText").unwrap();
+        assert_eq!(
+            shade(role, true),
+            ColorValue::LightDark(grey(84), grey(171))
+        );
+        assert_eq!(
+            shade(role, false),
+            ColorValue::LightDark(grey(168), grey(255))
+        );
+        let platform =
+            ColorValue::parse_light_dark("platform-color(macos labelColor, #808080)").unwrap();
+        assert_eq!(shade(platform, true), ColorValue::Fixed(grey(44)));
+        assert_eq!(shade(platform, false), ColorValue::Fixed(grey(212)));
+    }
+
+    #[test]
+    fn wide_inset_shading_keeps_out_of_gamut_components() {
+        let value = super::super::wide::parse_wide(
+            "light-dark(color(display-p3 1 0 0), color(rec2100-linear 4 4 4))",
+        )
+        .unwrap();
+        let ColorValue::Wide(id) = shade(value, true) else {
+            panic!("wide inset was clipped")
+        };
+        let shaded = super::super::wide::wide(id).unwrap();
+        assert!(shaded.half(false).linear_srgb()[1] < 0.0);
+        assert!(shaded.half(true).linear_srgb()[0] > 3.0);
+    }
 
     fn grey(v: u8) -> Color {
         Color::rgba(v, v, v, 0xff)

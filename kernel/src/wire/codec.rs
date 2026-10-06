@@ -221,6 +221,18 @@ impl<'a> Reader<'a> {
             },
             3 => crate::style::roles::parse_platform(self.string()?)
                 .ok_or(DecodeError::BadColorValue(3)),
+            4 => {
+                crate::style::wide::parse_wide(self.string()?).ok_or(DecodeError::BadColorValue(4))
+            }
+            6 => crate::style::profiled::parse_profiled(self.string()?)
+                .ok_or(DecodeError::BadColorValue(6)),
+            5 => {
+                let mut c = [0i16; 3];
+                for v in &mut c {
+                    *v = self.u16()? as i16;
+                }
+                Ok(ColorValue::Moving(c, self.u8()?))
+            }
             other => Err(DecodeError::BadColorValue(other)),
         }
     }
@@ -550,6 +562,27 @@ impl Writer {
                 }
                 None => self.color_value(ColorValue::Fixed(crate::style::Color::TRANSPARENT)),
             },
+            ColorValue::Wide(id) => match crate::style::wide::wide(id) {
+                Some(w) => {
+                    self.u8(4);
+                    self.string(&w.text);
+                }
+                None => self.color_value(ColorValue::Fixed(crate::style::Color::TRANSPARENT)),
+            },
+            ColorValue::Profiled(id) => match crate::style::profiled::profiled(id) {
+                Some(p) => {
+                    self.u8(6);
+                    self.string(&p.text);
+                }
+                None => self.color_value(ColorValue::Fixed(crate::style::Color::TRANSPARENT)),
+            },
+            ColorValue::Moving(c, a) => {
+                self.u8(5);
+                for v in c {
+                    self.u16(v as u16);
+                }
+                self.u8(a);
+            }
         }
     }
 
@@ -661,7 +694,8 @@ mod tests {
         // build.rs hashes the production codec sources beside the canonical
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
-        assert_eq!(SCHEMA_DIGEST, 0x5ff9_41e7_ce3d_6d2e);
+        // Recomputed when the schema changes; the digest test prints the value.
+        assert_eq!(SCHEMA_DIGEST, 0x3e5c_589a_ff7f_67d8);
     }
 
     #[test]

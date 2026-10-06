@@ -352,8 +352,18 @@ pub fn fetch_stream(
         // Through boundary::admit, not an inline permits() check: the
         // capability name and the shape of a denial belong in one place, or
         // "one chokepoint" is a claim about the design rather than a fact
-        // about the code.
-        crate::boundary::admit(grants, &Operation::Fetch { origin })?;
+        // about the code. A hop a redirect asked for names where it led
+        // (Exact patch 6): the author otherwise cannot tell which origin
+        // the grants lack.
+        crate::boundary::admit(grants, &Operation::Fetch { origin }).map_err(|e| match e {
+            HostError::Denied { capability } if redirected => HostError::DeniedRedirect {
+                capability,
+                origin: url::Url::parse(&current.url)
+                    .map(|u| u.origin().ascii_serialization())
+                    .unwrap_or_default(),
+            },
+            e => e,
+        })?;
 
         // The request guard applies here, where a header list becomes a
         // request — not in Headers::set, where the guard is "none".
@@ -565,7 +575,7 @@ mod tests {
             &AbortSignal::default(),
         )
         .unwrap_err();
-        assert!(matches!(error, HostError::Denied { .. }));
+        assert!(matches!(error, HostError::DeniedRedirect { .. }));
         assert_eq!(transport.seen().len(), 1);
     }
 
@@ -736,8 +746,9 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            HostError::Denied {
-                capability: "net.fetch"
+            HostError::DeniedRedirect {
+                capability: "net.fetch",
+                origin: "https://evil.example".into()
             }
         );
         assert_eq!(

@@ -64,7 +64,11 @@ class ScrollView: UIScrollView {
         guard velocity != .zero, let owner = superview as? NodeView else { return false }
         let horizontal = abs(velocity.x) > abs(velocity.y)
         let behavior = owner.style[horizontal ? "overscroll_behavior_x" : "overscroll_behavior_y"]?.string ?? "auto"
-        if behavior == "none" { bounces = false }
+        // One flag for both axes, written each gesture so a style that leaves
+        // `none` gets its band back: off for this drag's `none`, or for an
+        // axis this view scrolls under `none`.
+        let still = { (axis: String) in owner.style["overscroll_behavior_\(axis)"]?.string == "none" }
+        bounces = !(behavior == "none" || (scrollsX && still("x")) || (scrollsY && still("y")))
         guard behavior == "auto" else { return false }
         let i = adjustedContentInset
         let (at, low, high, scrolls) = horizontal

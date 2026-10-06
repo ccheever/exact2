@@ -69,6 +69,9 @@ final class Presenter {
     /// The one Arrange contact, until its source settles; a test's calls.
     var reorder: ReorderHold?
     var reorderCalls: ReorderCalls?
+    /// A grouped session (LLP 1094), until its ghost lands; a test's calls.
+    var reorderGroup: ReorderGroupHold?
+    var reorderGroupCalls: ReorderGroupCalls?
     lazy var transformGeometry = TransformGeometryHost(self)
     /// Nodes showing a `background-attachment: fixed` gradient (LLP 1066
     /// D7): re-aimed at the viewport when anything scrolls or a batch lands.
@@ -91,11 +94,15 @@ final class Presenter {
     lazy var segments = SegmentHost(self)
     lazy var groupedLists = GroupedListHost(self)
     lazy var controls = ControlHost(self)
+    lazy var fieldSelections = FieldSelections(self)
     /// Nodes marked `hook="word"` (LLP 1075.003.000).
     lazy var elements = ElementHooks(self)
     lazy var navigation = NavigationHost(presenter: self)
     #if os(tvOS)
     lazy var menuKey = MenuKey(presenter: self)
+    lazy var focusGuides = FocusGuides(presenter: self)
+    /// The `testId` of the node that last held the remote's focus.
+    var focusKey: String?
     #endif
     lazy var modals = ModalHost(presenter: self)
     /// SVG scenes and CSS animations (LLP 1055 D4, D7).
@@ -344,12 +351,14 @@ final class Presenter {
         canvasKey = nil
         session?.transformInputHold?.cancel()
         reorder?.abandon()
+        reorderGroup?.abandon()
         session?.rasters.reset()
         collections.reset()
         autofocusProcessed.removeAll()
         segments.reset()
         groupedLists.reset()
         controls.reset()
+        fieldSelections.reset()
         edited = nil
         menus.reset()
         swipeActions.reset()
@@ -455,9 +464,10 @@ final class Presenter {
     /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is one
     /// by kind; an explicit negative never, though a tap still focuses it.
     private static func tabbable(_ v: NodeView) -> Bool {
-        if v.formDisabled || v.bounds.width == 0 || v.bounds.height == 0 { return false }
+        if v.formDisabled || v.cssVisibilityHidden || v.bounds.width == 0 || v.bounds.height == 0 { return false }
         if let index = v.explicitTabIndex, index < 0 { return false }
-        return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder
+        // A radio group is one stop (x2apps survey #2).
+        return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder && (!v.isRadio || v.radioTabStop)
     }
 
     /// The action's focus(html-id), delivered only after the batch is mounted.
@@ -512,10 +522,7 @@ final class Presenter {
             return
         }
         if responder.canBecomeFirstResponder { _ = responder.becomeFirstResponder() }
-        if selectText, responder.isFirstResponder {
-            if let editor = target.textArea { editor.selectAll(editor) }
-            else if let editor = target.field { editor.selectAll(editor) }
-        }
+        if selectText, responder.isFirstResponder { fieldSelections.selectAll(target) }
     }
 
     /// The action's blur(): drop focus and the keyboard, and any focus still
@@ -580,7 +587,11 @@ final class Presenter {
 
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     private(set) var pressHeld = ""
-    func press(_ id: UInt32, held: String = "") { pressHeld = held; defer { pressHeld = "" }; onPress?(id) }
+    func press(_ id: UInt32, held: String = "") {
+        pressHeld = held; defer { pressHeld = "" }
+        if let node = views[id], let url = node.defaultLink, node.activateLink(url) { return }
+        onPress?(id)
+    }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
     /// A text field typed into since it took the focus: its `change` fires
     /// when the editing ends or Enter commits it, HTML's `change` (LLP
@@ -747,6 +758,7 @@ final class Presenter {
                 for (id, f) in q where id.map({ textHost($0) != nil }) ?? true { f() }
                 scrollPump.batchApplied()
                 leaves.batchApplied(moved: moved)
+                if moved { session?.natives.refreshWorldGeometry() }
                 flushPendingFocus()
             }
         }
@@ -847,7 +859,7 @@ final class Presenter {
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .canvas2d: if let v = views[id] { canvas2d.apply(id, op.payload, layer: v.layer) }
-            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock) }
+            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock, limit: v.style["dynamic_range_limit"]?.string) }
             case .animations:
                 if flats.isFlat(id) { flats.promote(id) }
                 svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
@@ -869,6 +881,9 @@ final class Presenter {
             case .sticky:
                 if flats.isFlat(id) { flats.promote(id) }
                 stickies.apply(id, op.payload)
+            case .fragments:
+                if flats.isFlat(id) { flats.promote(id) }
+                views[id]?.applyColumns(op.payload)
             case .destroy:
                 elements.destroyed(id)
                 stickies.forget(id)
@@ -900,7 +915,7 @@ final class Presenter {
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let x = CGFloat(op.x)
                 switch op.property {
-                case "translate": v.translate = CGPoint(x: x, y: CGFloat(op.y)); v.applyTransform()
+                case "translate": v.translatePx = CGPoint(x: x, y: CGFloat(op.y)); v.translatePercent = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform()
                 case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutScale = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform(); v.applySurface()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
@@ -938,9 +953,10 @@ final class Presenter {
         navigation.sync(batch)
         #if os(tvOS)
         menuKey.sync()
+        focusGuides.sync()
         #endif
         segments.sync()
-        controls.sync()
+        controls.sync(contents: batch.controls, touched: touchedIDs)
         menus.sync()
         glassGroups.reconcile()
         let changed = touchedAndAbove(touchedIDs)
@@ -1040,6 +1056,7 @@ final class Presenter {
             v.web?.frame = v.bounds
             v.fitScroll()
             v.applyTransform()
+            menus.framed(v)
         case .content:
             v.content = CGSize(width: op.w, height: op.h)
             v.fitScroll()
@@ -1119,6 +1136,15 @@ final class Presenter {
     /// Magnify the preview without reflowing its text, keeping the source's
     /// outside edge and vertical center. Later content keeps its source-relative
     /// position; clamp the complete projection above the keyboard/safe area.
+    /// A scroll whose batch skipped the pass (`ExactSession.applyUnlessEmpty`):
+    /// what the pass does that the scroll moved. A context preview follows its
+    /// source out of the scrolled box, and the fixed gradients its
+    /// compensation moved are aimed again after it, as the pass aims them.
+    func scrolledWithoutPass() {
+        positionContexts()
+        reaimFixedGradients()
+    }
+
     private func positionContexts() {
         for id in contextNodes {
             guard let node = views[id] else { continue }

@@ -5,7 +5,7 @@
 **Systems:** Contract compiler (`contract/{syntax,types,analyze,lower}`, `contract/cli/src/{lean.rs,symbols.rs}`), Lean semantics and difftest (`semantics/`), the JS target's conformance (`host/web-js/conformance`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
-**Revised:** 2026-10-04 (r2, r3)
+**Revised:** 2026-10-04 (r2, r3); 2026-10-05 (D1 and D8 amended: an ambiguous host-command call is refused, §D1; Charlie's approval, on Astra's ruling)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stages 1 and 2 built 2026-10-04 (planned 2026-10-05; §5)
 **Amends:** LLP 1017 §11 (the tail call becomes one case of a call); LLP 1006 §2 (statements); `rules/DEFERRED.md` **Actions**
 **Related:** LLP 1017 P4c and §11; LLP 1035.005.000 D1 (effects inferred) and D2 (`let`); LLP 1088 D8 (one send per path); LLP 1016 D5; diaries `~/projects/x2apps/{spreadsheet,files,mail}/DIARY.md`. Research only: LLP 0082 §Actions ("actions may call actions"), LLP 0481 §4.1 (effects compose through calls and callback values; call cycles are rejected from the call graph).
@@ -33,14 +33,14 @@ goes, in one commit:
 
 | | Decision | Diaries | Stage |
 |---|---|---|---|
-| D1 | An action calls its component's actions, action props and injected actions, as a statement, anywhere; a host command keeps its name | files F27, spreadsheet F21 | 1 |
+| D1 | An action calls its component's actions, action props and injected actions, as a statement, anywhere; a host command keeps its name, and a call naming both is refused (amended 2026-10-05) | files F27, spreadsheet F21 | 1 |
 | D2 | A call is its callee's statements, expanded in place: one commit, reads see the starting state | — | 1 |
 | D3 | A slot read that a call would make stale is refused, on some path | — | 1 |
 | D4 | No recursion; a running bound on expansion | — | 1 |
 | D5 | Effects come from the expanded body, through every `Call` | — | 1 |
 | D6 | LLP 1088 D8 names the calls | — | 1 |
 | D7 | Where each kind of call expands | mail F18 | 1 |
-| D8 | No executor change; the AST carries the call; existing plans stay byte-identical | — | 1 |
+| D8 | No executor change; the AST carries the call; existing plans stay byte-identical (Caltrain's excepted, 2026-10-05) | — | 1 |
 | D9 | Lean gets `Stmt.call`, so difftest checks the expansion | — | 2 |
 | D10 | Diagnostics and docs; the tail call documented | all three | 1 |
 
@@ -84,16 +84,40 @@ goes, in one commit:
 
 A statement `name(args)` in an action body is:
 
-- **a host command** when `name` is in `HOST_COMMANDS`. That is today's
-  rule, unchanged. The list moves from `types/src/checks.rs:744`
+- **a host command** when `name` is in `HOST_COMMANDS`, unless it is
+  refused as ambiguous (below, amended 2026-10-05). The list moves from `types/src/checks.rs:744`
   (`pub(super)`) into `contract-syntax`, which depends on nothing. The
   expander (`inline/calls.rs`) consults it before it looks for an action,
   a prop or an inject, and the type checker reads the same list. Without
   that, Caltrain's wrapper would expand into itself and be refused as
   `syntax-call-cycle`.
-  `action setScheme` may still call the command `setScheme(scheme)`, and
-  `press=setScheme` still binds the action. An action named like a host
-  command can be bound but not called. There is no ambiguity refusal.
+  An action, `action` prop or inject named like a host command can be
+  declared and bound (`press=setScheme`, `Viewer(close=dismiss)`), but a
+  statement calling that name is refused (below).
+- **refused** (amended 2026-10-05) when `name` is both a host command and
+  an action, an `action` prop or an injected action in the scope of the
+  component the statement is written in: `syntax-call-ambiguous`, at every
+  statement position, whatever the arguments, inside the same-named action
+  too. It is checked before expansion and lifting, against the authoring
+  component only; another component's action of the name does not count.
+  Declaring or binding such a name stays legal. *Why:* commit 2bfebe63e
+  added the host command `close()`, and the Signal Clone's viewer, whose
+  `action` prop `close` it called as `close()`, silently began closing the
+  window instead, shipped broken in two builds. With host-first precedence
+  and no refusal, every new host command can rebind an existing app's
+  call. A warning would not do: Contract has no warning channel for a
+  successful build, and an agent author takes a green build as done. A
+  self-wrapper is not exempt, so a call's meaning never depends on which
+  action holds it: Caltrain's `action setScheme`, which called the command
+  `setScheme(scheme)`, is now `action chooseScheme`. The refusal names the
+  declaration as a related location: "`close()` names both a host command
+  and action prop `Viewer.close`. Rename the prop and update its bindings.
+  Call the renamed action prop to invoke it; keep `close()` to invoke the
+  host command." (Astra's ruling, `gpt-6-astra` max, on the alternatives:
+  scope-first precedence with a qualified host call would keep sources
+  compatible but could reinterpret intended host calls and needs new
+  syntax; namespacing host commands is the path if source compatibility
+  ever becomes a requirement.)
 - **a call** otherwise, when `name` is an action of the same component, an
   `action` prop, or an `inject`ed name of type `action`.
 
@@ -348,6 +372,13 @@ way (`Lower.lean:407–410`). "In place" means those instructions stand where
 the call stood, with no call opcode. Existing tail calls are last in their
 block, so a nested block and today's splice emit the same drops.
 
+**Amended 2026-10-05:** D1's ambiguity refusal changes one in-repo plan.
+Caltrain's wrapper is renamed (`setScheme` → `chooseScheme`), so its plan's
+action name differs and its bytes are not the base's. That source
+correction is accepted under the pre-1.0 policy (`rules/RULES.md`: delete,
+don't deprecate). Every unambiguous source still compiles to the same
+bytes, and an already compiled plan needs no runtime or format change.
+
 **Existing tail calls stay byte-identical.** Plan action parameter names
 are strings (`plan/src/builder.rs:507`). So the resolver renames a
 caller's parameters exactly as `tail.rs:82` does today (`name@c{k}`, with
@@ -415,6 +446,14 @@ Rust expander's output, and a renaming bug in it would not show. So:
   keeps today's "not a host command" text.
 - **`type-call-value`**: "a call is a statement and returns nothing;
   compute values with `fn`".
+- **`syntax-call-ambiguous`** (D1, amended 2026-10-05), at the call, with
+  the colliding declaration as a related location: "`close()` names both
+  a host command and action prop `Viewer.close`. Rename the prop and
+  update its bindings. Call the renamed action prop to invoke it; keep
+  `close()` to invoke the host command." An action reads "action
+  `App.setScheme`… Rename the action and update its bindings"; an inject
+  "injected action `Row.reload`… Rename the inject and the `provide` that
+  fills it".
 - **The rest:** `type-call-action-arg` (D1); `analyze-call-stale-read`
   (D3); `syntax-call-cycle` and `syntax-call-size` (D4);
   `syntax-call-target` (D7); D8's frame message (D6).
@@ -469,13 +508,16 @@ action started with; pass the value".
 
   `diagnostics.rs` asserts each new message whole, D3's table among
   them, and `then` self-send through a call. A Caltrain-shaped
-  `setScheme` stays the command.
+  `setScheme` stays the command. (Amended 2026-10-05: the same-named
+  wrapper is refused, `syntax-call-ambiguous`; the renamed one,
+  `chooseScheme`, calls the command.)
 - **Plans unchanged.** Decode, on the base and on stage 1:
   - every in-repo app's plan;
   - two tail-call fixtures from `tail_call.rs`, since no in-repo app
     calls an action prop:
-    - `VIEWER`: `close=dismiss`, then `close("swiped")` inside an `if`.
-      It covers the caller parameter's `dy@c{k}`.
+    - `VIEWER`: `hide=dismiss`, then `hide("swiped")` inside an `if`.
+      It covers the caller parameter's `dy@c{k}`. (It was `close` here;
+      `close()` is a host command now, and the call would be refused.)
     - The curried `done=note("ada")` test. It covers the capture `let`s.
 
   Compare the bytes.
@@ -520,7 +562,9 @@ a branch from origin/main. Each commit passes the five checks.
 - **No D3, or D3 as a warning**: silent stale reads, in the very
   refactoring calls invite.
 - **`type-call-ambiguous`** (r1): it refused Caltrain's `setScheme` and
-  files' `share`, which compile today.
+  files' `share`, which compiled then. *Superseded 2026-10-05:* D1 now
+  refuses a call naming both (`syntax-call-ambiguous`), after `close()`
+  silently rebound an app's prop; Caltrain's wrapper was renamed.
 - **Capture prepending for sibling calls** (r1): replaced by expansion
   before lift.
 - **A `fn` returning a record that an action spreads** (F21's

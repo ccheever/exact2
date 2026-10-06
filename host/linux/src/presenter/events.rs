@@ -37,9 +37,11 @@ impl<D: DataSource> Presenter<D> {
     /// focusable, as `element.focus()` takes it on the web; otherwise the
     /// journal says why, as the web host's does (it had been an unknown
     /// command here).
-    pub(crate) fn focus_command(&mut self, args: &[exact_plan::Value]) {
+    /// The node it focused, if it did.
+    pub(crate) fn focus_command(&mut self, args: &[exact_plan::Value]) -> Option<ViewId> {
         let Some(name) = args.first().and_then(exact_plan::Value::as_str) else {
-            return eprintln!("exact: focus requires an element id");
+            eprintln!("exact: focus requires an element id");
+            return None;
         };
         let kernel = self.host.kernel();
         let found = kernel
@@ -59,10 +61,11 @@ impl<D: DataSource> Presenter<D> {
                 if let Some(e) = self.set_focus(Some(id), self.host.now()) {
                     eprintln!("exact: {e}");
                 }
-                return;
+                return (self.focus == Some(id)).then_some(id);
             }
         };
         self.host.log(format!("focus \"{name}\" refused: {reason}"));
+        None
     }
 
     /// Move the focus: `blur` at the node that loses it, then `focus` at the

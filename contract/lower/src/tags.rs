@@ -30,6 +30,9 @@ pub enum AttrTarget {
     Shorthand,
     /// A canvas's surface binding: `surface=name(args)` (LLP 1009 D3).
     Surface,
+    /// `metadata=MediaMetadata(…)` on `audio` or `video`: four string props,
+    /// one a field (LLP 1098 D1).
+    MediaMetadata,
 }
 /// A tag's node type, its fixed rows, and how positional arguments land.
 #[derive(Debug, Clone, PartialEq)]
@@ -352,6 +355,17 @@ pub fn style(name: &str) -> bool {
         Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand)
     )
 }
+/// Look up an attribute as written, routed by its value where one name is
+/// two things: `resize` is CSS's property for a string, and given an action
+/// (an `Ident` or a `Call`, never valid CSS there) the element resize event,
+/// ResizeObserver's (x2apps backlog: decided, route by value).
+pub fn attr_valued(name: &str, value: &contract_syntax::Expr) -> Option<AttrTarget> {
+    use contract_syntax::Expr;
+    if name == "resize" && matches!(value, Expr::Ident(..) | Expr::Call(..)) {
+        return Some(AttrTarget::Handler("resize"));
+    }
+    attr(name)
+}
 /// Look up an attribute.
 pub fn attr(name: &str) -> Option<AttrTarget> {
     let styles = |rows: &'static [StyleId]| AttrTarget::Styles(rows);
@@ -371,12 +385,26 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "volumechange" => AttrTarget::Handler("volumechange"),
         "error" => AttrTarget::Handler("error"),
         "canplay" => AttrTarget::Handler("canplay"),
+        // @ref LLP 1098 D1, D2 — the media session: `metadata=` claims it,
+        // the six actions by `setActionHandler`'s names, and the seconds a
+        // seek moves when the platform gives none.
+        "metadata" => AttrTarget::MediaMetadata,
+        "seekbackward" => AttrTarget::Handler("seekbackward"),
+        "seekforward" => AttrTarget::Handler("seekforward"),
+        "seekto" => AttrTarget::Handler("seekto"),
+        "previoustrack" => AttrTarget::Handler("previoustrack"),
+        "nexttrack" => AttrTarget::Handler("nexttrack"),
+        "stop" => AttrTarget::Handler("stop"),
+        "seekbackwardOffset" => AttrTarget::Prop(p("seekbackwardOffset")),
+        "seekforwardOffset" => AttrTarget::Prop(p("seekforwardOffset")),
         "press" => AttrTarget::Handler("press"),
         // @ref LLP 1069.001 D4 — HTML's two: `input` as the value moves (a
         // text field's every keystroke), `change` when it is committed.
         "change" => AttrTarget::Handler("change"),
         "input" => AttrTarget::Handler("input"),
         "checked" => AttrTarget::Prop(p("checked")),
+        // HTML's radio button group (x2apps survey #2).
+        "name" => AttrTarget::Prop(p("name")),
         // @ref LLP 1069.002 D1, D2 — a file input's types and count, and
         // HTML's `cancel` when its picker is dismissed.
         "accept" => AttrTarget::Prop(p("accept")),
@@ -424,6 +452,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "transformrelease" => AttrTarget::Handler("transformrelease"),
         "reorderdrop" => AttrTarget::Handler("reorderdrop"),
         "reorderFor" => AttrTarget::Prop(p("reorderFor")),
+        "reorderGroup" => AttrTarget::Prop(p("reorderGroup")),
         "transformDragFor" => AttrTarget::Prop(p("transformDragFor")),
         "heightDragFor" => AttrTarget::Prop(p("heightDragFor")),
         "surface" => AttrTarget::Surface, // the canvas's surface (LLP 1009 D3)
@@ -488,6 +517,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "closedby" => AttrTarget::Prop(p("closedby")),
         "contextTarget" => AttrTarget::Prop(p("contextTarget")),
         "contextMagnify" => AttrTarget::Prop(p("contextMagnify")),
+        // @ref LLP 1021 §5.1 — the popover a node's context menu shows, and its preview row.
+        "contextPopover" | "contextPreview" => AttrTarget::Prop(p(name)),
         "emojiPicker" => AttrTarget::Prop(p("emojiPicker")),
         "backgroundMaterial" => AttrTarget::Prop(p("backgroundMaterial")),
         "glassGroup" => AttrTarget::Prop(p("glassGroup")),
@@ -495,6 +526,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "listStyle" => AttrTarget::Prop(p("listStyle")),
         "toolbarPlacement" => AttrTarget::Prop(p("toolbarPlacement")),
         "retainFocus" => AttrTarget::Prop(p("retainFocus")),
+        "focusGuide" => AttrTarget::Prop(p("focusGuide")),
         "swipeIndicator" => AttrTarget::Prop(p("swipeIndicator")),
         "aria-live" => AttrTarget::Prop(p("accessibilityLive")),
         "autofocus" => AttrTarget::Prop(p("autofocus")),
@@ -544,6 +576,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // `width`/`height` content attributes (Contract's are the CSS box).
         "bitmap-width" => AttrTarget::Prop(p("bitmapWidth")),
         "bitmap-height" => AttrTarget::Prop(p("bitmapHeight")),
+        // LLP 1100 D12a: getContext's settings.
+        "color-space" => AttrTarget::Prop(p("colorSpace")),
+        "color-type" => AttrTarget::Prop(p("colorType")),
         "scrollTop" => AttrTarget::Prop(p("scrollTop")),
         "scrollLeft" => AttrTarget::Prop(p("scrollLeft")),
         "swipeContent" => AttrTarget::Prop(p("swipeContent")),
@@ -592,6 +627,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "tabindex" => AttrTarget::Prop(p("tabIndex")),
         "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
         "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
+        "aria-current" => AttrTarget::Prop(p("accessibilityCurrent")), // Depot: a nav link's page
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),
@@ -751,6 +787,20 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "font-variant-numeric" => styles(&[StyleId::FontVariantNumeric]),
         "text-decoration" | "border" | "border-top" | "border-right" | "border-bottom"
         | "border-left" => AttrTarget::Shorthand,
+        // @ref LLP 1093 — CSS multi-column layout and the break rules inside
+        // it. The shorthands, and the two longhands with keywords a row does
+        // not hold (`auto` columns, `thin`/`medium`/`thick` rules), project
+        // through `shorthands`.
+        "columns" | "column-count" | "column-rule" | "column-rule-width" => AttrTarget::Shorthand,
+        "column-width" => styles(&[StyleId::ColumnWidth]),
+        "column-fill" => styles(&[StyleId::ColumnFill]),
+        "column-rule-style" => styles(&[StyleId::ColumnRuleStyle]),
+        "column-rule-color" => styles(&[StyleId::ColumnRuleColor]),
+        "widows" => styles(&[StyleId::Widows]),
+        "orphans" => styles(&[StyleId::Orphans]),
+        "break-before" => styles(&[StyleId::BreakBefore]),
+        "break-after" => styles(&[StyleId::BreakAfter]),
+        "break-inside" => styles(&[StyleId::BreakInside]),
         "resize" => styles(&[StyleId::Resize]),
         "user-select" => styles(&[StyleId::UserSelect]),
         // @ref LLP 1021 §5 — on a popover, its implicit anchor the invoker.
@@ -922,9 +972,14 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1063 — how the laid-out box moves when layout moves it.
         "layout-transition" => styles(&[StyleId::LayoutTransition]),
         "interpolate-size" => styles(&[StyleId::InterpolateSize]),
-        // @ref LLP 1077 D8 — one value to two rows: x and y, and z; the
+        // @ref LLP 1077 D8 — one value to two rows: x and y (their lengths,
+        // and their percentages of the box, chess diary #4), and z; the
         // angle, and its axis.
-        "translate" => styles(&[StyleId::Translate, StyleId::TranslateZ]),
+        "translate" => styles(&[
+            StyleId::Translate,
+            StyleId::TranslatePercent,
+            StyleId::TranslateZ,
+        ]),
         "scale" => styles(&[StyleId::Scale]),
         "rotate" => styles(&[StyleId::Rotate, StyleId::RotateAxis]),
         "perspective" => styles(&[StyleId::Perspective]),
@@ -940,6 +995,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "scroll-edge-effect" => styles(&[StyleId::ScrollEdgeEffect]),
         "hover-effect" => styles(&[StyleId::HoverEffect]),
         "smart-invert" => styles(&[StyleId::SmartInvert]),
+        "dynamic-range-limit" => styles(&[StyleId::DynamicRangeLimit]),
+        // @ref LLP 1034 §8 — a subtree's colour scheme.
+        "color-scheme" => styles(&[StyleId::ColorScheme]),
         // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
         "press-scale" => styles(&[StyleId::PressScale]),
         _ => return None,
@@ -1370,4 +1428,47 @@ pub(crate) fn host_transform_recipients(
         }
     }
     recipients
+}
+
+/// How an element is a flex or grid container, if it is: its tag, or a
+/// literal `display` (LLP 1093 §1).
+pub(crate) fn flex_container<'a>(tag: &'a str, attrs: &[contract_syntax::Attr]) -> Option<&'a str> {
+    let display = attrs
+        .iter()
+        .rev()
+        .find(|a| a.name == "display")
+        .and_then(|a| match &a.value {
+            contract_syntax::Expr::Str(v, _) => Some(v.as_str()),
+            _ => None,
+        });
+    match display {
+        Some("flex" | "grid" | "inline-flex" | "inline-grid") => {
+            Some("a `display` of flex or grid")
+        }
+        Some(_) => None,
+        None => matches!(tag, "column" | "row").then_some(tag),
+    }
+}
+
+/// @ref LLP 1093 §1 — a flex or grid container is never a multi-column one:
+/// CSS ignores the rows there, so they are refused rather than dropped.
+pub(crate) fn multicol_on_flex(
+    tag: &str,
+    a: &contract_syntax::Attr,
+) -> Result<(), crate::LowerError> {
+    let multicol = matches!(
+        a.name.as_str(),
+        "columns"
+            | "column-count"
+            | "column-width"
+            | "column-fill"
+            | "column-rule"
+            | "column-rule-width"
+            | "column-rule-style"
+            | "column-rule-color"
+    );
+    if multicol {
+        return crate::err("lower-attr-tag", format!("`{}` makes a block a multi-column container, and `{tag}` makes a flex or grid container, where CSS ignores it; write `view` (a block) for columns", a.name), a.span);
+    }
+    Ok(())
 }

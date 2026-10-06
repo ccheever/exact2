@@ -402,15 +402,22 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// ⌘Q asks each window's app first (`beforeunload`, studio diary R17):
     /// the first that keeps itself open comes forward with whatever it asks
     /// and the quit stops there; once answered, its `close()` closes it, and
-    /// the last window closing ends the app. No `.terminateLater`: nothing
-    /// is held while the app asks (LLP 1069.010 D7).
+    /// the last window closing ends the app. Nothing is held while the app
+    /// asks (LLP 1069.010 D7); a quit with storage still landing that an
+    /// answer started is held until it lands, five seconds at most (LLP
+    /// 1097 D10).
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         for w in windows where !w.closing && !w.session.beforeUnload() {
             w.front()
             return .terminateCancel
         }
-        return .terminateNow
+        let hold = StorageHold(bound: 5, pending: { windows.contains { $0.session.storageOperations > 0 } },
+                               begin: { _ in }, end: { NSApp.reply(toApplicationShouldTerminate: true) })
+        guard hold.hold() else { return .terminateNow }
+        quitting = hold
+        return .terminateLater
     }
+    var quitting: StorageHold?
     func applicationDidFinishLaunching(_ notification: Notification) {
         ExactEnv.stamp("didFinishLaunching")
         finishLaunching()

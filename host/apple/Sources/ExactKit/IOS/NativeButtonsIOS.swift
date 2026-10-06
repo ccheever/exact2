@@ -25,6 +25,18 @@ final class NativeButtonIOS: UIButton {
         var pressed: String?
     }
     var written: Written?
+    /// Its natural size, kept for what it was measured with: UIKit lays the
+    /// configuration out again for each ask, and every batch asks.
+    private var measured: (written: Written?, traits: [AnyHashable], size: CGSize)?
+    var naturalSize: CGSize {
+        let t = traitCollection
+        let traits: [AnyHashable] = [t.preferredContentSizeCategory, t.legibilityWeight.rawValue, t.displayScale]
+        if let measured, measured.written == written, measured.traits == traits { return measured.size }
+        let s = intrinsicContentSize
+        let size = CGSize(width: ceil(s.width), height: ceil(s.height))
+        measured = (written, traits, size)
+        return size
+    }
     /// Whether it draws glass: a glass row on iOS 26 and later.
     var isGlass = false
     /// The configuration drawn, its name in the table's iOS column.
@@ -119,7 +131,7 @@ extension ControlHost {
     /// written only when one of them changes (a rewrite each batch would
     /// restart UIKit's own animations).
     func configureNative(_ button: NativeButtonIOS, _ owner: NodeView, accent: UIColor?) {
-        let face = presenter.buttonFace?(owner.id) ?? ButtonFace()
+        let face = self.face(owner.id)
         let written = NativeButtonIOS.Written(
             face: face, accent: accent, enabled: !owner.disabled,
             label: owner.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } ?? face.title, testId: owner.props["testId"],

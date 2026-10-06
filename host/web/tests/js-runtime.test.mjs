@@ -7,21 +7,45 @@
 // update (review C3). rt.js runs beside stand-ins for the modules it imports,
 // with the real shape.js.
 import { test, expect } from 'bun:test';
-import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-baked-'));
 const webJs = name => resolve(new URL(`../../web-js/${name}`, import.meta.url).pathname);
-for (const f of ['rt.js', 'roster.js', 'router.js', 'budget.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
+for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
-for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'],
+for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'settleRadios', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'],
   'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
   'svg-transform.js': ['svgTransform'], 'dataset.js': ['ds'], 'hooks.js': ['hk'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber'] }))
   writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n') + (file === 'media.js' ? '\nexport const MEDIA_EVENTS = new Set();' : ''));
 // A view transition that holds every tree update (shared.js's commit returns before its callback).
 writeFileSync(resolve(dir, 'shared.js'), 'export const commit = (tail) => { globalThis.heldTail = tail; return true; };');
 writeFileSync(resolve(dir, 'presence-glue.js'), 'globalThis.exact.presence = () => ({ before() {}, after() {}, exit() {} });');
+// ts-data.js over a scripted store (the storage test below), written before
+// anything is imported from here: the loader reads this directory once.
+const stub = (file, text) => writeFileSync(resolve(dir, file), text);
+stub('admission.js', 'export const createSecretFacade = () => ({ read: false }); export const hasGrant = () => true; export const setAppGrantSet = g => g;');
+stub('admission-data.js', 'export const tsGrantSet = {};');
+stub('ts-fetch.js', 'export const answering = { call: null };');
+stub('names.js', 'export const sourceTypes = {};');
+stub('storage-environment.js', "export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store';");
+// A write lands a task later; a read answers at once: unqueued, it would overtake.
+stub('storage-fs.js', `const files = new Map(); export const createFileSystem = () => ({
+  atomicWriteFile: (p, v) => new Promise((ok, no) => setTimeout(() => p.includes('absent/') ? no(Object.assign(new Error('filesystem: No such file'), { code: 'ENOENT' })) : ok(files.set(p, v)), 5)),
+  writeFile: (p, v) => new Promise(ok => setTimeout(() => ok(files.set(p, v)), 1)),
+  readFile: async p => files.get(p) ?? '' });`);
+stub('app.mjs', `export const appId = 'test';
+  export function answer(source, [op, value], store, storage) {
+    if (op === 'save') { storage.fs.atomicWriteFile('app:/data/song', value).catch(() => {}); return 'saved ' + value; }
+    if (op === 'read') return storage.fs.readFile('app:/data/song');
+    if (op === 'bad') { storage.fs.atomicWriteFile('app:/data/absent/x', value).catch(() => {}); return 'saved'; }
+    const codes = [];
+    for (let i = 0; i < 258; i++) codes.push(storage.fs.writeFile('app:/data/flood', String(i)).then(() => 'ok', e => e.code));
+    return codes[257];
+  }`);
+const tsData = readFileSync(webJs('ts-data.js'), 'utf8').replace("'__APP_TS__'", JSON.stringify(resolve(dir, 'app.mjs'))).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '');
+writeFileSync(resolve(dir, 'ts-data.js'), tsData);
 
 test('a baked answer shows until the source is ready, then is asked; a settled one is not', async () => {
   const { res, data } = await import(resolve(dir, 'rt.js'));
@@ -64,6 +88,64 @@ test('a stream answer settles per message, keeps its ticket, and closes when let
   await new Promise(r => setTimeout(r, 0));
   expect([feed(), feed.p(), feed.r.ticket, inflight.n]).toEqual([-1, false, null, 0]);
 });
+// A mutation answered at once has landed in the sending commit: the read it
+// `refreshes` is forced then, as a reply's landing forces it (runner
+// commit.rs `landed_now`). A re-read there dropped an async read's promise and
+// no reply came to ask again, so it kept its old value (the data6 lane).
+test('a mutation answered at once forces the async read it refreshes', async () => {
+  const { res, mut, M, data, commit, sig } = await import(resolve(dir, 'rt.js'));
+  let count = 0;
+  data.answer = (source) => source === 'inc' ? { v: ++count } : { promise: Promise.resolve(count) };
+  let doc;
+  commit(() => { doc = res('doc', 'doc', () => [], undefined, undefined, 'n', 0); doc(); });
+  await new Promise(r => setTimeout(r, 0));
+  expect(doc()).toBe(0);
+  const op = mut('op', sig(null), [doc], null);
+  commit(() => M(op, 'inc', []));
+  await new Promise(r => setTimeout(r, 0));
+  expect([doc(), doc.p()]).toEqual([1, false]);
+});
+
+
+// A queue with no `then` (LLP 1092 D3, D6): off the agent, the commit its reply lands in makes the waiting send due,
+// and the wall clock's `drive()` asks it with nothing else to wake it; the send waited with its own arguments.
+test('a queue with no then asks its waiting send by drive() alone, off the agent', async () => {
+  const { mut, M, act, sig, data, queues, clock } = await import(resolve(dir, 'rt.js'));
+  const asked = [], replies = [];
+  data.answer = (source, args) => { asked.push(args[0]); return { promise: new Promise(r => replies.push(r)) }; };
+  const slot = sig(null);
+  const m = mut('rec', slot, [], null, 1);
+  queues([[slot], [], []]);
+  const send = act(op => M(m, 'save', [op]));
+  send('p'); send('q');
+  expect([asked, m.p(), m.wait.length, clock.agent]).toEqual([['p'], true, 1, false]);
+  replies[0]('P');
+  for (let i = 0; i < 50 && asked.length < 2; i++) await new Promise(r => setTimeout(r, 5));
+  expect([asked, slot(), m.p(), m.wait.length]).toEqual([['p', 'q'], 'P', true, 0]);
+  replies[1]('Q');
+  for (let i = 0; i < 50 && m.p(); i++) await new Promise(r => setTimeout(r, 5));
+  expect([slot(), m.p(), m.next]).toEqual(['Q', false, Infinity]);
+});
+
+// LLP 1092 D8 on the JS target: the gate step runs inside the commit's undo `try`, after settlement, so a key that is
+// no key refuses the commit (`TaskKey`), its writes and the timers both as they were; a changed key re-arms from now.
+test('a gate step that refuses rolls back the commit and its timers', async () => {
+  const { sig, act, W, gated, clock, journal } = await import(resolve(dir, 'rt.js'));
+  clock.agent = true;
+  try {
+    const k = sig(0, 'n');
+    const tick = act(() => {});
+    gated(1000, tick, 1, 0, () => true, () => (k() === 5 ? NaN : k()), 'r');
+    const timer = () => clock.timers.find(t => t.name === 'r');
+    const due = timer().due;
+    act(() => W(k, 5))();
+    expect(journal.at(-1)).toContain('TaskKey { task: "r" }');
+    expect([k(), timer().due]).toEqual([0, due]);
+    clock.now = 400;
+    act(() => W(k, 1))();
+    expect([k(), timer().due]).toEqual([1, 1400]);
+  } finally { clock.agent = false; }
+});
 
 test('a key handler stops and prevents its event while a view transition holds the tree update', async () => {
   globalThis.requestAnimationFrame = f => setTimeout(f, 0);
@@ -84,8 +166,8 @@ test('a key handler stops and prevents its event while a view transition holds t
 // LLP 1088 D2: the roster's string entries are JavaScript's, made well formed, and `replaceAll` is bounded by the
 // runner's MAX_STRING as it builds (a quadratic `$\`` stops there), throwing the runner's trap at the call's pc (budget.js).
 test('slice, replaceAll and toLowerCase are the web methods, well formed and bounded', async () => {
-  const { x_slice } = await import(resolve(dir, 'rt.js'));
-  const { x_replaceAll: replaceAll, x_toLowerCase: toLowerCase } = await import(resolve(dir, 'budget.js'));
+  const { x_slice: slice, x_replaceAll: replaceAll, x_toLowerCase: toLowerCase } = await import(resolve(dir, 'budget.js'));
+  const x_slice = (s, a, b) => slice(s, a, b, 0, 4);
   const x_replaceAll = (s, f, w) => replaceAll(s, f, w, 4), x_toLowerCase = s => toLowerCase(s, 4);
   expect([x_slice('calc', 0, -1), x_slice('hello', -3, Infinity), x_slice('a😀b', 1, 2), x_slice('hello', NaN, 2.9)]).toEqual(['cal', 'llo', '�', 'he']);
   for (const [s, f, w] of [['aXbXc', 'X', '-'], ['aaa', 'aa', 'b'], ['abc', '', '-'], ['😀', '', ''], ['😀😀', '', ''], ['abc', 'b', "[$&|$`|$'|$$|$1|$<n>|$]"], ['abc', '', '$`'], ['x.y', '.', '$$'], ['', '', ' ']])
@@ -99,6 +181,41 @@ test('slice, replaceAll and toLowerCase are the web methods, well formed and bou
   expect(replaceAll('xx', 'x', '😀', 9, 8)).toBe('😀😀');
   expect(() => replaceAll('😀😀', '', '', 9, 7)).toThrow('Trap(StringTooLong { pc: 9 })');
   expect(replaceAll('😀😀', '', '', 9, 8)).toBe('😀😀');
+});
+
+// LLP 1088 §9.1: `concat`, and `slice` and `includes` over a list, are the web's array methods (`includes` by
+// SameValueZero), on the caller's budget: each takes its `$s`, traps where the runner's `list_call` does — before it
+// builds — and leaves its own steps in `ST` (one an item kept, or scanned up to the match); text takes none.
+test('concat, slice and includes over a list are the web methods, on the caller\'s list steps', async () => {
+  const B = await import(resolve(dir, 'budget.js'));
+  const xs = [1, NaN, -0, 'a', true];
+  expect([B.x_concat([1], [2, 3], 0, 1), B.ST]).toEqual([[1, 2, 3], 3]);
+  expect([B.x_slice(xs, 1, -1, 0, 1), B.ST]).toEqual([[NaN, -0, 'a'], 3]);
+  expect([B.x_slice(xs, -2, Number.MAX_VALUE, 0, 1), B.x_slice(xs, NaN, 1.9, 0, 1), B.x_slice(xs, 3, 1, 0, 1)]).toEqual([['a', true], [1], []]);
+  expect([B.x_includes(xs, NaN, 0, 1), B.ST, B.x_includes(xs, 0, 0, 1), B.ST, B.x_includes(xs, 'b', 0, 1), B.ST]).toEqual([true, 2, true, 3, false, 5]);
+  expect([B.x_includes('abc', 'b', 9, 1), B.ST, B.x_slice('abc', 1, Number.MAX_VALUE, 9, 1), B.ST]).toEqual([true, 0, 'bc', 0]);
+  expect(() => B.x_concat([1, 2], [3], 65534, 7)).toThrow('Trap(IterationLimit { pc: 7 })');
+  expect(B.x_concat([1], [2], 65534, 7)).toEqual([1, 2]);
+  expect(() => B.x_includes([1, 2, 3], 3, 65534, 8)).toThrow('Trap(IterationLimit { pc: 8 })');
+  expect(B.x_includes([1, 2, 3], 2, 65534, 8)).toBe(true);
+  const big = 'a'.repeat(2 ** 25);
+  expect(() => B.x_concat([big], [big, 'a'], 0, 9)).toThrow('Trap(ValueTooLarge { pc: 9 })');
+});
+
+// `indexOf` over a list is the web's IsStrictlyEqual (NaN is never found), a step an item scanned; over text, UTF-16
+// positions and no step. `split` takes a step a piece; an empty separator splits into code units, each well formed.
+test('indexOf and split are the web methods, on the caller\'s list steps', async () => {
+  const B = await import(resolve(dir, 'budget.js'));
+  const xs = [1, NaN, -0, 'a', true];
+  expect([B.x_indexOf(xs, NaN, 0, 1), B.ST, B.x_indexOf(xs, 0, 0, 1), B.ST, B.x_indexOf(xs, 'a', 0, 1), B.ST]).toEqual([-1, 5, 2, 3, 3, 4]);
+  expect([B.x_indexOf('a😀b', 'b', 9, 1), B.ST, B.x_indexOf('abc', '', 9, 1), B.x_indexOf('abc', 'z', 9, 1)]).toEqual([3, 0, 0, -1]);
+  expect([B.x_split('a,b,,c', ',', 0, 1), B.ST]).toEqual([['a', 'b', '', 'c'], 4]);
+  expect([B.x_split('a😀', '', 0, 1), B.ST, B.x_split('', '', 0, 1), B.x_split('', ',', 0, 1)]).toEqual([['a', '\uFFFD', '\uFFFD'], 3, [], ['']]);
+  expect(() => B.x_indexOf([1, 2, 3], 3, 65534, 8)).toThrow('Trap(IterationLimit { pc: 8 })');
+  expect(B.x_indexOf([1, 2, 3], 2, 65534, 8)).toBe(1);
+  expect(() => B.x_split('a,b,c', ',', 65534, 6)).toThrow('Trap(IterationLimit { pc: 6 })');
+  expect(() => B.x_split('abc', '', 65534, 6)).toThrow('Trap(IterationLimit { pc: 6 })');
+  expect(B.x_split('a,b', ',', 65534, 6)).toEqual(['a', 'b']);
 });
 
 // Local notifications on the JS target (notify.js, linked by use, over the
@@ -141,6 +258,36 @@ test('notifications: refused without the grant, listed under the agent, else pos
 // JS target's Rust seam caps at 16 MiB a message, so conformance cannot carry
 // one (host/web-js/conformance/budget.contract); the runtime's checks are run
 // here, against the runner's texts (runner/src/runner/commit.rs, stdlib.rs).
+// The JS target's storage (LLP 1097 D3, D8, D9): one queue for the module's
+// operations, so a read issued after an unawaited write sees it, though the
+// store would answer the read first; at most 256 wait behind the one in
+// flight, the next refused `full` and journaled; each counts in flight until
+// it lands, and a failure is journaled. ts-data.js over a scripted store.
+test('storage keeps the order issued, a bound, a count, and a journal', async () => {
+  const { data, inflight, journal } = await import(resolve(dir, 'rt.js'));
+  const { install } = await import(resolve(dir, 'ts-data.js'));
+  install(data);
+  const before = inflight.n, ask = (op, value = '') => data.ts('work', [op, value], new Map());
+  expect(ask('save', 'one').v).toBe('saved one');
+  expect(ask('save', 'two').v).toBe('saved two');
+  const read = ask('read');
+  expect(inflight.n - before).toBe(3);
+  expect(data.background()).toMatchObject({ queued: 2, inFlight: 1 });
+  expect(await read.promise).toBe('two');
+  expect(await ask('flood').promise).toBe('full');
+  expect(journal.some(l => l.endsWith('storage refused: full (writeFile app:/data/flood)'))).toBe(true);
+  const drained = async () => {
+    for (let i = 0; i < 500 && (data.background().queued || data.background().inFlight); i++) await new Promise(r => setTimeout(r, 2));
+    await new Promise(r => setTimeout(r, 10));
+  };
+  await drained(); // the flood's 257 run in order first
+  ask('bad', 'x');
+  await drained();
+  expect(inflight.n).toBe(before);
+  expect(data.background()).toMatchObject({ queued: 0, inFlight: 0, failed: 1, last: 'storage failed: atomicWriteFile app:/data/absent/x: ENOENT filesystem: No such file' });
+  expect(journal.some(l => l.endsWith('storage failed: atomicWriteFile app:/data/absent/x: ENOENT filesystem: No such file'))).toBe(true);
+});
+
 test('a string past MAX_STRING joins to itself alone and is counted in UTF-8 bytes', async () => {
   const { x_join, K, cc, utf8, Trap } = await import(resolve(dir, 'budget.js'));
   const long = 'a'.repeat(2 ** 26 + 1);
@@ -188,4 +335,91 @@ test('an argument or a write past MAX_STRING is refused by name, and a trapping 
   expect(last()).toBe('refused action: Trap(IterationLimit { pc: 17 })');
   put.t(() => ['x'])();
   expect(last()).toBe('refused action: the runner is poisoned; reload');
+});
+
+
+test('a refused derive names itself and only the failed resources it reads', async () => {
+  const { memo, res, data } = await import(resolve(dir, 'rt.js') + '?derive-refusal');
+  data.answer = () => { throw new Error('ambient Date is refused'); };
+  const failed = res('profile', 'loadProfile', () => [], undefined, undefined, 's', '');
+  const unrelated = res('other', 'loadOther', () => [], undefined, undefined, 's', '');
+  expect(unrelated).toThrow("loadOther");
+  const intermediate = memo(() => failed());
+  const derive = memo(() => intermediate(), 's', 'displayName');
+  expect(derive).toThrow('derive "displayName": resource "profile" (source "loadProfile"): value does not conform to its type; source failed: ambient Date is refused');
+  try { derive(); } catch (error) { expect(error.message).not.toContain('loadOther'); }
+  expect(memo(() => 1, 's', 'plain')).toThrow('derive "plain": value does not conform to its type');
+});
+
+
+test('a refused derive traces only failed resources it read through retained values', async () => {
+  const { memo, res, data } = await import(resolve(dir, 'rt.js') + '?retained-derive-refusal');
+  data.answer = () => { throw new Error('storage unavailable'); };
+  const unrelated = res('other', 'loadOther', () => [], 1, [], 'n', 0);
+  unrelated();
+  const count = res('count', 'loadCount', () => [], 0, [], 'n', 0);
+  const intermediate = memo(() => count());
+  const invalid = memo(() => 1 / intermediate(), 'n', 'inverse');
+  expect(invalid).toThrow(/derive "inverse".*resource "count".*source "loadCount".*storage unavailable/);
+  expect(invalid).not.toThrow(/loadOther/);
+});
+
+
+test('an input runs a due then before its own action', async () => {
+  // Runner::dispatch_at moves the clock first, so a focus answer's `then` runs
+  // at the start of the input that follows and reads the value it landed, not
+  // the one this input writes (synthetic-then: wasm " a3 T3 T2 T12").
+  const { mut, sig, W, commit, on, clock } = await import(resolve(dir, 'rt.js') + '?dispatch-at');
+  clock.agent = true;
+  const slot = sig(0);
+  const m = mut('quick', slot, []);
+  const seen = [];
+  commit(() => W(slot, 2));
+  m.then = () => seen.push('T' + slot());
+  m.due = clock.now;
+  const el = new EventTarget();
+  on(el, 'input', () => { commit(() => W(slot, 12)); seen.push('E' + slot()); });
+  el.dispatchEvent(new Event('input'));
+  expect(seen).toEqual(['T2', 'E12']);
+});
+
+test('an async source failure remains named when its retained value breaks a derive', async () => {
+  const { memo, res, data, commit, journal } = await import(resolve(dir, 'rt.js') + '?async-derive-refusal');
+  let reject;
+  data.answer = () => new Promise((_, fail) => { reject = fail; });
+  const count = res('count', 'loadCount', () => [], 0, [], 'n', 0);
+  const invalid = memo(() => count.f() ? 1 / count() : 0, 'n', 'inverse');
+  expect(commit(() => invalid())).not.toBe(false);
+  reject(new Error('database refused'));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(journal.some(line => /derive "inverse".*resource "count".*source "loadCount".*database refused/.test(line))).toBe(true);
+});
+
+// r27 t2: a submit runs in a task after Enter's default, so text typed at once (a driver, a scanner) reached the
+// draft first and the action submitted it. The field's next key or edit now runs the pending submit first, before the
+// edit applies, so a submit that clears the field keeps the arriving text.
+test('a submit runs before the field\'s next key or edit applies; the edit lands after it', async () => {
+  const { on } = await import(resolve(dir, 'rt.js'));
+  const saved = globalThis.addEventListener;
+  try {
+    // The handler's own field, both paths; an Enter that bubbled from a textarea inside the handler's element.
+    for (const [tag, origin, next] of [['input', 'input', 'beforeinput'], ['input', 'input', 'keydown'], ['main', 'textarea', 'keydown']]) {
+      const win = [], field = [];
+      globalThis.addEventListener = (type, f) => win.push([type, f]);
+      const el = { localName: tag, value: 'Buy milk', addEventListener: (type, f, capture) => field.push([type, f, capture]),
+        removeEventListener: (type, f) => { const i = field.findIndex(([t, g]) => t === type && g === f); if (i >= 0) field.splice(i, 1); } };
+      const added = [];
+      on(el, 'submit', () => { added.push(el.value); el.value = ''; }); // the action submits the draft and clears the bound field
+      const enter = { key: 'Enter', isComposing: false, defaultPrevented: false, target: { localName: origin, isContentEditable: false } };
+      for (const [type, f] of field.slice()) if (type === 'keydown') f(enter); // the field's own listener
+      for (const [type, f] of win.splice(0)) if (type === 'keydown') f(enter); // the window's, last on the path
+      // An Enter from a textarea edits (a line break), so only the next key flushes.
+      expect(field.some(([type, , capture]) => type === 'beforeinput' && capture)).toBe(origin !== 'textarea');
+      for (const [type, f, capture] of field.slice()) if (type === next && capture) f({}); // the next key or edit, before it applies
+      el.value += 'B'; // the browser applies it
+      await new Promise(r => setTimeout(r, 5));
+      expect([added, el.value]).toEqual([['Buy milk'], 'B']); // once, with the submitted text, and the edit kept
+      expect(field.filter(([, , capture]) => capture)).toEqual([]);
+    }
+  } finally { globalThis.addEventListener = saved; }
 });

@@ -131,3 +131,45 @@ fn a_symbol_role_is_its_path_and_an_sf_name_is_empty() {
         "an SF Symbol name draws nothing on Linux"
     );
 }
+
+/// Every portable role draws on Linux from its path alone: a role added to
+/// the schema with a path this parser cannot read would be an empty box here
+/// while Apple shows its SF Symbol (podcast F3's media roles among them).
+#[test]
+fn every_symbol_role_draws_its_path() {
+    let roles = exact_kernel::generated::SYMBOL_ROLES;
+    let mut source = String::from("component App\n  view\n    column\n");
+    for role in roles {
+        source.push_str(&format!(
+            "      image \"symbol:{role}\" testId=\"{role}\" width=24 height=24 font-size=24 tint-color=\"#ff0000\"\n"
+        ));
+    }
+    let plan = contract::compile(&source).unwrap_or_else(|e| panic!("{e}"));
+    let height = 24. * roles.len() as f32;
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (24., height),
+        1.,
+        std::env::temp_dir(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let frame = p.frame();
+    let empty: Vec<_> = roles
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| {
+            let ink = (0..24u32)
+                .flat_map(|y| (0..24u32).map(move |x| (x, y)))
+                .filter_map(|(x, y)| frame.pixel(x, *i as u32 * 24 + y))
+                .filter(|c| c.alpha() > 40 && c.red() > c.green())
+                .count();
+            // `ellipsis`, three round dots, is the least ink of any role.
+            ink < 3
+        })
+        .map(|(_, role)| *role)
+        .collect();
+    assert!(empty.is_empty(), "roles that draw nothing: {empty:?}");
+}
