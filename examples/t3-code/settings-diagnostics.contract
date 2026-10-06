@@ -1,0 +1,203 @@
+// Settings → Diagnostics (reference DiagnosticsSettings.tsx): the resource
+// telemetry sections (settings-a-telemetry.contract), then Live Processes,
+// Resource History, Trace Diagnostics and the trace tables, each a section with
+// a header action, a four-column stat grid and a table.
+use Card from "./settings-source-control.contract"
+use SectionTitle from "./settings-source-control.contract"
+use LucideTriangleAlert from "./settings-icons.contract"
+use LucideInfo from "./settings-icons.contract"
+use LucideFolderOpen from "./settings-icons.contract"
+use DxTable from "./settings-a-telemetry.contract"
+use DxTableView from "./settings-a-telemetry.contract"
+use DxRefresh from "./settings-a-telemetry.contract"
+use DxPeriods from "./settings-a-telemetry.contract"
+use DxTip from "./settings-a-telemetry.contract"
+use TelemetryView from "./settings-a-telemetry.contract"
+use TelemetrySections from "./settings-a-telemetry.contract"
+
+shape DiagStat
+  id: string
+  label: string
+  value: string
+  tone: string
+  tip: string
+shape DiagBucket
+  id: string
+  avg: number
+  peak: number
+  label: string
+shape DiagnosticsPage
+  available: bool
+  error: string
+  period: string
+  checkedProcesses: string
+  checkedHistory: string
+  checkedTraces: string
+  checkedProcessesValue: string
+  checkedHistoryValue: string
+  checkedTracesValue: string
+  canOpenLogs: bool
+  processStats: list<DiagStat>
+  processErrors: list<string>
+  processes: DxTable
+  historyStats: list<DiagStat>
+  historyErrors: list<string>
+  history: DxTable
+  buckets: list<DiagBucket>
+  traceStats: list<DiagStat>
+  traceErrors: list<string>
+  latestFailures: DxTable
+  commonFailures: DxTable
+  slowest: DxTable
+  logs: DxTable
+  topSpans: DxTable
+  telemetry: TelemetryView
+
+component DiagnosticsPanel
+  props
+    data: DiagnosticsPage
+    busy: bool
+    selectPeriod: action
+    reload: action
+    copy: action
+    rest: action
+    local: action
+  view
+    column width="100%" gap=40 testId="diagnostics-settings"
+      when data.error != ""
+        text data.error font-size=13 line-height="20px" color="light-dark(#71717b, #818181)" role="alert" testId="diagnostics-load-error" padding-left=16
+      when data.available
+        TelemetrySections(t=data.telemetry, busy=busy, rest=rest, local=local, reload=reload, copy=copy)
+        column width="100%" gap=10 testId="diagnostics-processes"
+          row min-height=28 padding-left=16 padding-right=16 align-items="center" justify-content="space-between" box-sizing="border-box"
+            SectionTitle(title="Live Processes")
+            row align-items="center" gap=6
+              Checked(label=data.checkedProcesses, value=data.checkedProcessesValue)
+              DxRefresh(label="Refresh process diagnostics", tip="Refresh process diagnostics", size=24, busy=busy, press=reload, refreshId="refresh-diagnostics-Refresh process diagnostics")
+          Card()
+            StatGrid(stats=data.processStats)
+            Errors(items=data.processErrors)
+            DxTableView(table=data.processes, variant="process", busy=busy, signal=rest, toggle=local, toggleOp="diag-live-tree", copy=copy)
+        column width="100%" gap=10 testId="diagnostics-history"
+          row min-height=28 padding-left=16 padding-right=16 align-items="center" justify-content="space-between" box-sizing="border-box"
+            SectionTitle(title="Resource History")
+            row align-items="center" gap=6
+              DxPeriods(label="Process history period", selected=data.period, choose=selectPeriod, groupId="diagnostics-period")
+              Checked(label=data.checkedHistory, value=data.checkedHistoryValue)
+              DxRefresh(label="Refresh resource history", tip="Refresh resource history", size=24, busy=busy, press=reload, refreshId="refresh-diagnostics-Refresh resource history")
+          Card()
+            StatGrid(stats=data.historyStats)
+            Errors(items=data.historyErrors)
+            // ProcessResourceHistoryChart: the peak (15%) behind the average (60%).
+            column width="100%" padding-top=12 padding-bottom=12 padding-left=20 padding-right=20 box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
+              row width="100%" height=112 align-items="flex-end" gap=4 padding=8 box-sizing="border-box" border-radius=4 overflow="hidden" background-color="light-dark(#fafafa1a, #ffffff01)" testId="resource-history-chart"
+                each bucket in data.buckets key=bucket.id
+                  box position="relative" flex=1 min-width=4 height="100%" aria-label=bucket.label
+                    box position="absolute" left=0 right=0 bottom=0 height=`${bucket.peak}%` border-radius=2 background-color="light-dark(#27272a26, #f5f5f526)"
+                    box position="absolute" left=0 right=0 bottom=0 height=`${bucket.avg}%` border-radius=2 background-color="light-dark(#27272a99, #f5f5f599)"
+            DxTableView(table=data.history, variant="process", busy=busy, signal=rest, toggle=local, toggleOp="diag-live-tree", copy=copy)
+        column width="100%" gap=10 testId="diagnostics-traces"
+          row min-height=28 padding-left=16 padding-right=16 align-items="center" justify-content="space-between" box-sizing="border-box"
+            SectionTitle(title="Trace Diagnostics")
+            row align-items="center" gap=6
+              Checked(label=data.checkedTraces, value=data.checkedTracesValue)
+              OpenLogs(enabled=data.canOpenLogs, busy=busy, press=rest("diag-open-logs", ""))
+              DxRefresh(label="Refresh trace diagnostics", tip="Refresh trace diagnostics", size=24, busy=busy, press=reload, refreshId="refresh-diagnostics-Refresh trace diagnostics")
+          Card()
+            StatGrid(stats=data.traceStats)
+            Errors(items=data.traceErrors)
+        TableSection(title="Latest Failures", table=data.latestFailures, busy=busy, rest=rest, local=local, copy=copy)
+        TableSection(title="Most Common Failures", table=data.commonFailures, busy=busy, rest=rest, local=local, copy=copy)
+        TableSection(title="Slowest Spans", table=data.slowest, busy=busy, rest=rest, local=local, copy=copy)
+        TableSection(title="Span Logs", table=data.logs, busy=busy, rest=rest, local=local, copy=copy)
+        TableSection(title="Top Span Names", table=data.topSpans, busy=busy, rest=rest, local=local, copy=copy)
+
+// DiagnosticsLastChecked: "Checked <value> ago" with the value in mono, or Checking.
+component Checked
+  props
+    label: string
+    value: string
+  view
+    row gap=3 align-items="baseline"
+      text label font-size=11 line-height="16px" color=(label == "Checking" ? "light-dark(#71717b80, #81818180)" : "light-dark(#71717b99, #81818199)")
+      when value != ""
+        text value font-family="ui-monospace" font-size=11 line-height="16px" color="light-dark(#71717b99, #81818199)"
+        text "ago" font-size=11 line-height="16px" color="light-dark(#71717b99, #81818199)"
+
+// Button size icon-xs variant ghost-muted: reveal the server's logs folder.
+component OpenLogs
+  props
+    enabled: bool
+    busy: bool
+    press: action
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  view
+    box position="relative" width=24 height=24 flex-shrink=0
+      button press=press hover=hover disabled=(busy or not enabled) aria-label="Open logs folder" testId="open-logs-folder" width=24 height=24 padding=0 border-width=0 border-radius=6 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" opacity=(enabled ? 1 : 0.64)
+        LucideFolderOpen(size=14, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+      when hovered
+        DxTip(text="Open logs folder", right=0, bottom=30)
+
+// StatsGrid + StatBlock: four columns, uppercase labels, an info tooltip button.
+component StatGrid
+  props
+    stats: list<DiagStat>
+  view
+    row width="100%"
+      each stat in stats key=stat.id
+        column width="25%" min-width=0 box-sizing="border-box" padding-left=20 padding-right=20 padding-top=12 padding-bottom=12 border-left-style="solid" border-left-width=(stat.id == "count" or stat.id == "cpu-time" or stat.id == "spans" ? 0 : 1) border-color="light-dark(#e4e4e799, #ffffff09)"
+          row gap=6 align-items="center" min-width=0
+            text stat.label font-size=11 font-weight=500 line-height="16px" letter-spacing=1.1 text-transform="uppercase" color="light-dark(#71717bb3, #818181b3)" line-clamp=1 min-width=0
+            when stat.tip != ""
+              StatInfo(label=stat.label, tip=stat.tip)
+          text stat.value font-family="ui-monospace" font-size=18 font-weight=600 line-height="28px" margin-top=4 line-clamp=1 color=(stat.tone == "danger" ? "light-dark(#fb2c36, #fb414a)" : (stat.tone == "warning" ? "light-dark(#bb4d00, #ffb900)" : "light-dark(#27272a, #f5f5f5)")) testId=`diagnostics-stat-${stat.id}`
+
+component StatInfo
+  props
+    label: string
+    tip: string
+  state hovered = false
+  state focused = false
+  action hover(over: bool)
+    hovered = over
+  action focusTip(on: bool)
+    focused = on
+  view
+    box position="relative" width=14 height=14 flex-shrink=0
+      button press=focusTip(not focused) hover=hover focus=focusTip(true) blur=focusTip(false) aria-label=`${label} details` testId=`diagnostics-info-${label}` width=14 height=14 padding=0 border-width=0 border-radius=4 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+        LucideInfo(size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b99, #81818199)"))
+      when hovered or focused
+        text tip position="absolute" left=-8 bottom=20 width=(min(320, length(tip) * 6.2 + 18)) z-index=60 padding-top=4 padding-bottom=4 padding-left=8 padding-right=8 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 4px 12px #0000001f" font-size=12 line-height="16px" font-weight=400 letter-spacing=0 text-transform="none" color="light-dark(#27272a, #f5f5f5)" role="tooltip" testId=`diagnostics-tip-${label}`
+
+component Errors
+  props
+    items: list<string>
+  view
+    when length(items) > 0
+      column width="100%" gap=8 box-sizing="border-box" padding-left=20 padding-right=20 padding-top=12 padding-bottom=12 border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e799, #ffffff09)"
+        each item in items key=item
+          row gap=8 align-items="flex-start"
+            box padding-top=2
+              LucideTriangleAlert(size=14, color="light-dark(#fb2c36, #fb414a)")
+            text item font-size=12 line-height="16px" color="light-dark(#fb2c36, #fb414a)" flex=1 min-width=0 role="alert"
+
+// A trace section: the table when it has rows, else EmptyRows.
+component TableSection
+  props
+    title: string
+    table: DxTable
+    busy: bool
+    rest: action
+    local: action
+    copy: action
+  view
+    column width="100%" gap=10 testId=`diagnostics-section-${table.id}`
+      row min-height=28 padding-left=16 padding-right=16 align-items="center"
+        SectionTitle(title=title)
+      Card()
+        when length(table.rows) == 0
+          text table.empty font-size=12 line-height="16px" padding-left=20 padding-right=20 padding-top=16 padding-bottom=16 color="light-dark(#71717b, #818181)" testId=`diagnostics-empty-${table.id}`
+        else
+          DxTableView(table=table, variant="trace", busy=busy, signal=rest, toggle=local, toggleOp="diag-live-tree", copy=copy)

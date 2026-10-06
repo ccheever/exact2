@@ -1,0 +1,37 @@
+// MorphIcon (MIT reference, see LICENSE-T3: apps/web/src/components/MorphIcon.tsx
+// over morphicons, upstream f2cc80a7a4): an icon that morphs to its next
+// lucide shape on the "snappy" spring (stiffness 420, damping 30, mass 1;
+// slight overshoot, settled in ~0.35 s), interruptibly, and swaps instantly
+// under Reduce Motion. Exact cannot interpolate one SVG path into another, so
+// a pair crosses over on that spring: the outgoing glyph shrinks and fades
+// while the incoming one grows in. A chevron flipping direction is the same
+// glyph turned (the shape fit's rotation), so it turns on the spring.
+use ShellIcon from "./shell-icons.contract"
+
+component MorphPair
+  props
+    first: string
+    second: string
+    on: bool
+    size: number
+    color: string
+    onColor: string
+    still: bool
+  view
+    box width=size height=size position="relative" flex-shrink=0 aria-hidden=true
+      box position="absolute" left=0 top=0 display="flex" opacity=(on ? 0 : 1) scale=(on ? 0.5 : 1) transition=(still ? "none" : "opacity spring(420, 30, 1), scale spring(420, 30, 1)")
+        ShellIcon(name=first, size=size, color=color)
+      box position="absolute" left=0 top=0 display="flex" opacity=(on ? 1 : 0) scale=(on ? 1 : 0.5) transition=(still ? "none" : "opacity spring(420, 30, 1), scale spring(420, 30, 1)")
+        ShellIcon(name=second, size=size, color=onColor)
+
+// ChevronDown ↔ ChevronUp (or Right ↔ Down with `quarter`): one chevron turned on the spring.
+component MorphChevron
+  props
+    open: bool
+    quarter: bool
+    size: number
+    color: string
+    still: bool
+  view
+    box display="flex" flex-shrink=0 rotate=(open ? (quarter ? "90deg" : "180deg") : "0deg") transition=(still ? "none" : "rotate spring(420, 30, 1)") aria-hidden=true
+      ShellIcon(name=(quarter ? "chevron-right" : "chevron-down"), size=size, color=color)

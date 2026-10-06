@@ -1,0 +1,155 @@
+// A sent message's attachments (T3 Code, MIT; see LICENSE-T3): the image grid
+// at the top of the bubble (2 columns, 210pt at most, 4:3 tiles with a 1pt
+// border; a SnapShot spans both columns in a 208×112 frame under a gradient
+// with its app and window title), the file list, and ExpandedImageDialog.
+use FileTypeIcon from "./timeline-files.contract"
+use Icon from "./icons.contract"
+use ShellIcon from "./shell-icons.contract"
+use TipBubble from "./shell-tip.contract"
+use R6VideoTile from "./r6-media-video.contract"
+use R6ExpandedVideo from "./r6-media-video.contract"
+
+shape MessageImage
+  id: string
+  name: string
+  snapshot: bool
+  appName: string
+  appInitial: string
+  windowTitle: string
+  accessible: bool
+  // lane r6-media: a sent video's tile (UserVideoAttachment).
+  video: bool
+shape MessageFile
+  id: string
+  name: string
+  icon: string
+shape AttachmentUrl
+  id: string
+  url: string
+  // r4-timeline: an image chip's tint from the picture's average colour ("" when unread).
+  fill: string
+  hover: string
+  border: string
+  ink: string
+shape TimelineAttachmentUrls
+  items: list<AttachmentUrl>
+
+component MessageAttachments
+  props
+    messageId: string
+    images: list<MessageImage>
+    files: list<MessageFile>
+    urls: list<AttachmentUrl>
+    local: action
+  view
+    column width="100%"
+      when length(images) > 0
+        row max-width=210 margin-bottom=8 flex-wrap="wrap" gap=8
+          each image in images key=image.id
+            // lane r6-media: a sent video's still tile opens it in the media dialog (UserVideoAttachment).
+            when image.video
+              when length(filter(urls, (entry) => entry.id == image.id)) > 0
+                each entry in filter(urls, (entry) => entry.id == image.id) key=entry.id
+                  R6VideoTile(id=image.id, name=image.name, url=entry.url, messageId=messageId, local=local)
+              else
+                R6VideoTile(id=image.id, name=image.name, url="", messageId=messageId, local=local)
+            else
+              when image.snapshot
+                AttachmentTile(image=image, messageId=messageId, urls=urls, width=208, height=112, local=local)
+              else
+                AttachmentTile(image=image, messageId=messageId, urls=urls, width=101, height=75.75, local=local)
+      when length(files) > 0
+        column margin-bottom=8 gap=4
+          each file in files key=file.id
+            SentFileRow(file=file, local=local)
+
+component AttachmentTile
+  props
+    image: MessageImage
+    messageId: string
+    urls: list<AttachmentUrl>
+    width: number
+    height: number
+    local: action
+  view
+    box position="relative" width=width height=height box-sizing="border-box" overflow="hidden" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="light-dark(#fcfcfcb3, #0a0a0ab3)"
+      when length(filter(urls, (entry) => entry.id == image.id)) > 0
+        each entry in filter(urls, (entry) => entry.id == image.id) key=entry.id
+          button press=local("image-open", image.id, messageId) aria-label=`Preview ${image.name}` testId=`attachment-image-${image.id}` width="100%" height="100%" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row"
+            image entry.url aria-label=image.name width="100%" height="100%" object-fit="cover"
+      else
+        column width="100%" height="100%" min-height=72 align-items="center" justify-content="center" padding-left=8 padding-right=8 box-sizing="border-box"
+          text image.name font-size=11 line-height="16px" text-align="center" line-clamp=2 color="light-dark(#71717bb3, #818181b3)"
+      when image.snapshot
+        row position="absolute" left=0 right=0 bottom=0 min-width=0 gap=6 align-items="center" padding-left=10 padding-right=10 padding-top=24 padding-bottom=8 box-sizing="border-box" pointer-events="none" background-image="linear-gradient(to top, #000000d9 0%, #0000008c 50%, #00000000 100%)"
+          column width=28 height=28 flex-shrink=0 border-radius=6 align-items="center" justify-content="center" background-color="#ffffff33"
+            text image.appInitial font-size=10 font-weight=500 line-height="14px" color="#ffffff"
+          column flex=1 min-width=0
+            text image.appName line-clamp=1 font-size=11 font-weight=500 line-height="14px" color="#ffffff"
+            text image.windowTitle line-clamp=1 font-size=10 line-height="14px" color="#ffffffb3"
+
+// ExpandedImageDialog: the image at its own size up to 92% of the window
+// (less 96pt for the arrows) and min(86vh, 100vh − 160pt) high, its close
+// button 40pt above the top-right corner, "name (1/2)" below it, and the
+// previous/next arrows at the dialog's edges.
+component ImagePreviewDialog
+  props
+    url: string
+    name: string
+    position: string
+    previous: bool
+    next: bool
+    video: bool
+    windowWidth: number
+    windowHeight: number
+    local: action
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-label=(video ? "Expanded video preview" : "Expanded image preview") testId="image-preview"
+      button press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") aria-keyshortcuts="Escape" position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="image-preview-backdrop"
+      row width=(windowWidth * 0.92) align-items="center" justify-content="space-between"
+        PreviewStep(label="Previous media", shown=previous, flip=true, press=local("image-step", "", "previous"), testId="image-preview-previous")
+        column min-width=0 align-items="center"
+          box position="relative"
+            // lane r6-media: ExpandedVideo, the player with native controls, playing (r6-media.contract).
+            when video
+              R6ExpandedVideo(url=url, name=name, maxWidth=(windowWidth * 0.92 - 96), maxHeight=min(windowHeight * 0.86, windowHeight - 160))
+            else
+              image url aria-label=name max-width=(windowWidth * 0.92 - 96) max-height=min(windowHeight * 0.86, windowHeight - 160) object-fit="contain" border-radius=8
+            button press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") testId="image-preview-close" position="absolute" right=0 top=-40 width=24 height=24 padding=0 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center"
+              Icon(name="x", size=14, color="#ffffff")
+          text (position != "" ? `${name} ${position}` : name) margin-top=8 line-clamp=1 font-size=12 line-height="16px" color="#ffffffcc"
+        PreviewStep(label="Next media", shown=next, flip=false, press=local("image-step", "", "next"), testId="image-preview-next")
+
+component PreviewStep
+  props
+    label: string
+    shown: bool
+    flip: bool
+    press: action
+    testId: string
+  view
+    box width=36 height=36 flex-shrink=0
+      when shown
+        button press=press aria-label=label testId=testId width=36 height=36 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+          box width=20 height=20 rotate=(flip ? 180 : 0)
+            Icon(name="right", size=20, color="#ffffff")
+
+// lane r5-panels: an unreferenced sent file (MessagesTimeline unchippedFiles): "Preview {name}"
+// opens it beside the thread (rightPanelStore.openAttachment), the muted download saves it.
+component SentFileRow
+  props
+    file: MessageFile
+    local: action
+  state hovered = ""
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  view
+    row min-width=0 gap=4 align-items="center" testId=`attachment-file-${file.id}`
+      button press=local("surface-r5-attachment", file.id, "") hover=hover("preview") aria-label=`Preview ${file.name}` testId=`attachment-preview-${file.id}` flex=1 min-width=0 padding-top=4 padding-bottom=4 padding-left=0 padding-right=0 gap=8 border-width=0 border-radius=6 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+        FileTypeIcon(token=file.icon, size=16)
+        text file.name flex=1 min-width=0 line-clamp=1 text-align="left" font-size=14 line-height="20px" text-decoration-line=(hovered == "preview" ? "underline" : "none") color="light-dark(#27272a, #f5f5f5)"
+        ShellIcon(name="eye", size=16, color="light-dark(#27272a, #f5f5f5)")
+      box position="relative" flex-shrink=0
+        button press=local("surface-r5-att-save", file.id, "") hover=hover("download") aria-label=`Download ${file.name}` testId=`attachment-download-${file.id}` width=24 height=24 padding=0 border-width=0 border-radius=6 background-color=(hovered == "download" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+          ShellIcon(name="download", size=14, color=(hovered == "download" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+        TipBubble(label=`Download ${file.name}`, side="top", align="end", offset=28, inset=0, shown=(hovered == "download"))

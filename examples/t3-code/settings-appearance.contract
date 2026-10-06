@@ -1,0 +1,128 @@
+// Appearance: colour scheme tiles and the theme library (lane settings-core).
+// Reference ThemeSettings.tsx ThemeLibrary, ThemeWireframe.tsx, ThemePreviewCircles.tsx.
+use CoreIcon from "./settings-core.contract"
+use CorePalette from "./settings-core.contract"
+use SettingsGhost from "./settings-core.contract"
+use ModeTile from "./settings-core.contract"
+use ThemeCard from "./settings-core.contract"
+use Wire from "./settings-core.contract"
+use CollectionOrbs from "./settings-a-collections.contract"
+use ThemeOrbView from "./settings-a-collections.contract"
+
+component AppearanceLibrary
+  props
+    tiles: list<ModeTile>
+    themes: list<ThemeCard>
+    pal: CorePalette
+    busy: bool
+    change: action
+    dialog: action
+  state hovered = ""
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  view
+    column width="100%" gap=12 id="appearance" testId="settings-section-appearance"
+      text "Color scheme" font-size=14 line-height="20px" color=pal.heading padding-left=16 padding-right=16
+      row width="100%" gap=12 role="group" aria-label="Appearance mode"
+        each tile in tiles key=tile.id
+          button press=change("appearance-mode", "appearanceMode", tile.id) hover=hover(tile.id) aria-label=tile.aria aria-checked=tile.selected role="radio" disabled=busy class=SettingsGhost flex=1 min-width=0 flex-direction="column" align-items="stretch" gap=6 padding=8 border-radius=12 border-width=1 border-style="solid" border-color=(tile.selected ? pal.accent : pal.cardBorder) background-color=(tile.selected ? pal.tileActive : (hovered == tile.id ? pal.tileActive : pal.card)) id=(tile.id == "system" ? "setting-appearance" : `setting-appearance-${tile.id}`) testId=`setting-appearance-${tile.id}`
+            box position="relative" width="100%" height=140 border-radius=8 border-width=1 border-style="solid" border-color=pal.cardBorder overflow="hidden" box-sizing="border-box"
+              WirePane(colors=tile.left, offset=0)
+              when tile.split
+                box position="absolute" top=0 bottom=0 left="50%" right=0 overflow="hidden" padding-left=1
+                  WirePane(colors=tile.right, offset=1)
+            text tile.label font-size=12 font-weight=500 line-height="16px" text-align="center" color=(tile.selected ? pal.text : pal.muted)
+      row width="100%" min-height=32 padding-top=8 padding-left=16 padding-right=16 gap=12 align-items="center" justify-content="space-between" flex-wrap="wrap" box-sizing="border-box"
+        text "Themes" font-size=14 line-height="20px" color=pal.heading
+        row gap=8 align-items="center"
+          button press=dialog("create", "") class=SettingsGhost height=24 padding-left=8 padding-right=8 gap=4 border-radius=8 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" disabled=busy aria-label="Create theme" testId="create-theme"
+            CoreIcon(name="paintbrush", size=14, color=pal.text)
+            text "Create theme" font-size=12 font-weight=500 line-height="16px" color=pal.text
+          button press=dialog("import", "") class=SettingsGhost height=24 padding-left=8 padding-right=8 gap=4 border-radius=8 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" disabled=busy aria-label="Add theme" testId="add-theme"
+            CoreIcon(name="plus", size=14, color=pal.text)
+            text "Add theme" font-size=12 font-weight=500 line-height="16px" color=pal.text
+      // grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)).
+      box width="100%" display="grid" gap=8 grid-template-columns="repeat(auto-fit, minmax(256px, 1fr))"
+        each card in themes key=card.id
+          column min-width=0 border-radius=12 border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.card overflow=(card.collection ? "visible" : "hidden") box-sizing="border-box" testId=`theme-card-${card.id}`
+            // settings-a: an imported collection's light and dark variant pickers.
+            when card.collection
+              CollectionOrbs(card=card, pal=pal, busy=busy, change=change)
+            row min-height=64 padding-left=12 padding-right=12 padding-top=12 gap=10 align-items="center" justify-content="center" display=(card.collection ? "none" : "flex")
+              each orb in card.orbs key=orb.mode
+                button press=change("theme-half", orb.mode == "light" ? "themeLight" : "themeDark", card.id) aria-label=`Use ${card.label} ${orb.mode} mode` aria-checked=orb.picked role="checkbox" disabled=busy class=SettingsGhost position="relative" width=68 height=68 padding=4 border-radius=34 box-shadow=(orb.picked ? `inset 0 0 0 2px ${pal.accent}` : "none") testId=`theme-orb-${card.id}-${orb.mode}`
+                  ThemeOrbView(orb=orb, id=`${card.id}-${orb.mode}`, ring=pal.thumb)
+                  when orb.picked
+                    box position="absolute" right=2 bottom=2 width=20 height=20 border-radius=10 border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.thumb display="flex" align-items="center" justify-content="center" box-shadow="0 1px 2px #0000001a"
+                      CoreIcon(name=(orb.mode == "light" ? "sun" : "moon"), size=12, color=pal.text)
+            row padding-left=12 padding-right=12 padding-bottom=12 padding-top=8 gap=8 align-items="center"
+              when card.collection
+                // "Use the first variants for light and dark".
+                button press=change("theme-collection", "", card.collectionId) aria-label=`Use ${card.label}, ${card.primaryLabel} variant` role="radio" aria-checked=false disabled=busy class=SettingsGhost padding=0 justify-content="flex-start" flex=1 min-width=0 testId=`theme-use-${card.id}`
+                  text card.label font-size=14 font-weight=500 line-height="20px" color=pal.text line-clamp=1
+              else
+                button press=change("theme", "theme", card.id) aria-label=`Use ${card.label} theme` aria-checked=card.selected role="radio" disabled=busy class=SettingsGhost padding=0 justify-content="flex-start" flex=1 min-width=0 testId=`theme-use-${card.id}`
+                  text card.label font-size=14 font-weight=500 line-height="20px" color=pal.text line-clamp=1
+              // ThemeCard actions: icon-xs ghost buttons with their tooltips; Remove is ghost-destructive.
+              row flex-shrink=0 gap=4 align-items="center"
+                // A collection's actions act on its selected variant (card.primary).
+                ThemeCardAction(icon="copy", label=`Duplicate ${card.primaryLabel}`, tip="Duplicate theme", destructive=false, pal=pal, busy=busy, press=dialog("duplicate", card.primary), actionId=`theme-duplicate-${card.id}`)
+                when card.custom
+                  ThemeCardAction(icon="pen-line", label=`Edit ${card.primaryLabel}`, tip="Edit theme", destructive=false, pal=pal, busy=busy, press=dialog("edit", card.primary), actionId=`theme-edit-${card.id}`)
+                  ThemeCardAction(icon="upload", label=`Export ${card.primaryLabel}`, tip="Export theme file", destructive=false, pal=pal, busy=busy, press=change("theme-export", "", card.primary), actionId=`theme-export-${card.id}`)
+                  ThemeCardAction(icon="trash-2", label=(card.collection ? `Remove themes from ${card.label}` : `Remove ${card.label}`), tip=(card.collection ? "Remove themes" : "Remove theme"), destructive=true, pal=pal, busy=busy, press=dialog("remove", card.id), actionId=`theme-remove-${card.id}`)
+
+// ThemeWireframePane: sidebar, a short conversation, the composer and the floating island.
+component WirePane
+  props
+    colors: Wire
+    offset: number
+  view
+    box position="absolute" top=0 bottom=0 left=(offset > 0 ? "-100%" : "0%") width=(offset > 0 ? "200%" : "100%") background-color=colors.canvas
+      box position="absolute" left=0 top=0 bottom=0 width="22%" background-color=colors.sidebar box-shadow="inset -1px 0 0 #7f7f7f40"
+      box position="absolute" left="3%" top="8%" height="8%" width="16%" border-radius=6 background-color=colors.surface box-shadow="inset 0 0 0 1px #7f7f7f40"
+      box position="absolute" left="3%" top="22%" height="7%" width="16%" border-radius=6 background-color=colors.accentSurface
+      box position="absolute" left="3%" top="32%" height="7%" width="16%" border-radius=6 background-color=colors.message opacity=0.7
+      box position="absolute" left="3%" top="42%" height="7%" width="16%" border-radius=6 background-color=colors.message opacity=0.5
+      box position="absolute" right="28%" top="11%" height="9%" width="24%" border-radius=8 background-color=colors.message
+      box position="absolute" left="27%" top="28%" height="5%" width="34%" border-radius=2 background-color="#7f7f7f40"
+      box position="absolute" left="27%" top="38%" height="5%" width="26%" border-radius=2 background-color="#7f7f7f40"
+      row position="absolute" bottom="8%" left="26%" right="6%" height="15%" border-radius=6 padding-left=4 padding-right=4 box-sizing="border-box" align-items="center" justify-content="space-between" background-color=colors.surface box-shadow="inset 0 0 0 1px #7f7f7f40"
+        box height="26%" width="34%" border-radius=99 background-color="#7f7f7f40" opacity=0.7
+        box height="58%" aspect-ratio=1 border-radius=99 background-color=colors.action
+      column position="absolute" right="5%" top="8%" height="46%" width="20%" border-radius=8 background-color=colors.surface box-shadow="inset 0 0 0 1px #7f7f7f40, 0 2px 5px #00000024"
+        WireRow(top="10%", dot="#34d399")
+        WireRow(top="40%", dot=colors.action)
+        WireRow(top="70%", dot="#fbbf24")
+
+component WireRow
+  props
+    top: string
+    dot: string
+  view
+    row position="absolute" left="11%" right="11%" top=top height="20%" gap=4 align-items="center"
+      box height="26%" aspect-ratio=1 border-radius=99 background-color=dot opacity=0.55
+      box height="30%" width="52%" border-radius=2 background-color="#7f7f7f40"
+
+component ThemeCardAction
+  props
+    icon: string
+    label: string
+    tip: string
+    destructive: bool
+    pal: CorePalette
+    busy: bool
+    press: action
+    actionId: string
+  state hovered = false
+  state focused = false
+  action hover(over: bool)
+    hovered = over
+  action focusTip(on: bool)
+    focused = on
+  view
+    box position="relative" width=24 height=24 flex-shrink=0
+      button press=press hover=hover focus=focusTip(true) blur=focusTip(false) aria-label=label disabled=busy class=SettingsGhost width=24 height=24 border-radius=6 background-color=(hovered ? pal.highlight : "#00000000") testId=actionId
+        CoreIcon(name=icon, size=14, color=(destructive and hovered ? "light-dark(#e7000b, #ff6467)" : (hovered ? pal.text : pal.muted)))
+      when hovered or focused
+        text tip position="absolute" bottom=28 left=(12 - (length(tip) * 6.3 + 18) / 2) width=(length(tip) * 6.3 + 18) z-index=60 padding-top=4 padding-bottom=4 padding-left=8 padding-right=8 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover font-size=12 line-height="16.5px" color=pal.text white-space="nowrap" text-align="center" role="tooltip"

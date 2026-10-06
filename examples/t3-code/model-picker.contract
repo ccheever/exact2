@@ -1,0 +1,169 @@
+use Snapshot from "./shapes.contract"
+use Viewport from "./shapes.contract"
+use PickerCatalog from "./composer-shapes.contract"
+use PickerRow from "./composer-shapes.contract"
+use PickerRail from "./composer-shapes.contract"
+use ProviderMark from "./icons.contract"
+use ProviderInstanceMark from "./icons.contract"
+use CmpIcon from "./composer.contract"
+use CcIcon from "./composer-controls.contract"
+
+// The popovers' glass (popover at 83.6% over a 12px backdrop blur) is drawn as
+// the colour it settles to over the canvas: a native backdrop blur sees only its
+// parent's subtree, so translucency would show the transcript through crisply.
+// T3's ProviderModelPicker popover (ModelPickerContent, ModelPickerSidebar,
+// ModelListRow): below the model trigger (side bottom, align start, 4px
+// offset), flipped above it when it does not fit (the docked composer), 360
+// wide inside a 1px popover border. It is as tall as its content (rail, or
+// search row plus 45pt rows, 2pt apart, plus 20pt), capped at 346; once a
+// search starts it keeps the height it had and results scroll within it. The
+// search field keeps focus while the arrows move the highlighted row, as the
+// reference combobox does; Return chooses it, Escape and outside presses dismiss.
+
+component ModelRow
+  props
+    row: PickerRow
+    highlighted: bool
+    busy: bool
+    select: action
+    favorite: action
+    toggleLegacy: action
+    legacyOpen: bool
+  state over = false
+  state starOver = false
+  action hover(value: bool)
+    over = value
+  action hoverStar(value: bool)
+    starOver = value
+  view
+    when row.kind == "legacy"
+      button press=toggleLegacy hover=hover class=Control width="100%" min-height=45 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 gap=8 justify-content="flex-start" aria-expanded=legacyOpen testId="model-legacy" background-color=(highlighted or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+        column flex=1 min-width=0 gap=4 align-items="flex-start"
+          text "Legacy models" font-size=12 font-weight=500 line-height="16.5px" color="light-dark(#27272a, #f5f5f5)"
+          text row.label font-size=12 line-height="16.5px" color="light-dark(#71717ab3, #818181b3)"
+        box rotate=(legacyOpen ? 90 : 0) display="flex"
+          CmpIcon(name="chevron-right", size=16, color="light-dark(#27272a, #f5f5f5)", weight=2)
+    else
+      row hover=hover width="100%" min-height=45 border-radius=6 align-items="center" gap=8 padding-right=4 box-sizing="border-box" role="option" aria-selected=row.selected background-color=(highlighted or over ? "light-dark(#f4f4f5, #ffffff0a)" : row.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000")
+        button press=select(row.id, row.providerId) disabled=busy testId=`model-${row.id}` aria-keyshortcuts=(row.kind == "model" and row.index < 9 ? `Meta+${row.index + 1}` : "") class=Control flex=1 min-width=0 align-self="stretch" padding-left=8 padding-right=0 padding-top=4 padding-bottom=4 border-radius=6 justify-content="flex-start" gap=0
+          column flex=1 min-width=0 gap=4 align-items="flex-start"
+            row gap=8 align-items="center" min-width=0 max-width="100%"
+              text row.name font-size=12 font-weight=500 line-height="16.5px" color=(highlighted or over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)") line-clamp=1 min-width=0
+              when row.isNew
+                text "NEW" font-size=8 font-weight=700 line-height="8px" letter-spacing=0.2 padding-left=2 padding-right=2 padding-top=1 padding-bottom=1 border-radius=4 border-width=1 border-style="solid" border-color="light-dark(#1b4ed859, #346bf159)" background-color="light-dark(#1b4ed826, #346bf126)" color="light-dark(#1b4ed8, #51a2ff)" flex-shrink=0
+            row gap=6 align-items="center" min-width=0 max-width="100%"
+              ProviderMark(driver=row.driver, size=12, color="light-dark(#71717a, #818181)")
+              text row.label font-size=12 line-height="16.5px" color="light-dark(#71717ab3, #818181b3)" line-clamp=1 min-width=0
+        // ModelListRow: a chosen model of a multi-model draft shows its check before the star.
+        when row.checked
+          CcIcon(name="check", size=14, color="light-dark(#27272a, #f5f5f5)", weight=2)
+        button press=favorite("favorite-model", row.providerId, row.id, 0) testId=`favorite-${row.id}` aria-label=(row.favorite ? "Remove from favorites" : "Add to favorites") hover=hoverStar class=Control width=24 height=24 min-height=24 padding=0 border-radius=8 flex-shrink=0 background-color=(starOver ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+          CmpIcon(name=(row.favorite ? "star-filled" : "star"), size=12, color=(row.favorite ? "#fe9a00" : starOver ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717a, #818181)"), weight=2)
+
+component ModelPicker
+  props
+    data: Snapshot
+    session: number
+    catalog: PickerCatalog
+    viewport: Viewport
+    query: string
+    left: number
+    bottom: number
+    busy: bool
+    close: action
+    select: action
+    search: action
+    chooseRail: action
+    command: action
+  // Child state outlives the popover (root slots): keyboard highlight, legacy
+  // expansion and rail hover belong to the opening (session) that set them.
+  state cursor = 0
+  state navSession = -1
+  state navQuery = ""
+  state legacySession = -1
+  state searchFocused = true
+  state railHoverIndex = -1
+  state railSession = -1
+  derive navigated = navSession == session
+  derive legacyOpen = legacySession == session
+  derive railOver = (railSession == session ? railHoverIndex : -1)
+  derive sidebar = not catalog.searching and length(catalog.providers) > 0
+  derive count = (legacyOpen ? catalog.count : catalog.count - catalog.legacyCount)
+  derive base = (navigated and navQuery == query ? min(cursor, count - 1) : -1)
+  derive highlight = (count > 0 ? base : -1)
+  derive targetId = join(map(filter(catalog.models, (r) => r.index == highlight and r.kind == "model"), (r) => r.id), "")
+  derive targetProvider = join(map(filter(catalog.models, (r) => r.index == highlight and r.kind == "model"), (r) => r.providerId), "")
+  derive targetLegacy = length(filter(catalog.models, (r) => r.index == highlight and r.kind == "legacy")) > 0
+  derive width = min(362, viewport.width - 10)
+  // Content height (a6aebbe2e0): the rail (4 + 36 + 4 + 1 + 4 per provider 40, + 4) or the
+  // search row (43) over the list (rows × 45 + gaps + 20; "No models found" is 36).
+  derive rails = length(catalog.providers)
+  derive restRows = (legacyOpen ? catalog.restCount : catalog.restCount - catalog.restLegacyCount)
+  derive listHeight = (count > 0 ? count * 47 + 18 : 36)
+  derive restListHeight = (restRows > 0 ? restRows * 47 + 18 : 36)
+  derive natural = (catalog.searching ? max(rails > 0 ? 49 + 40 * rails : 0, 43 + restListHeight) : max(sidebar ? 49 + 40 * rails : 0, 43 + listHeight))
+  // The trigger's window-space edges: its top sits 4pt under the given bottom edge; resting triggers are 24pt.
+  derive triggerTop = viewport.height - bottom + 4
+  derive triggerBottom = triggerTop + (data.composer.toolbarTop > 0 and triggerTop - data.composer.toolbarTop >= 4 ? 24 : 28)
+  derive below = data.composer.toolbarTop > 0 and triggerBottom + 4 + min(346, natural) + 2 <= viewport.height - 5
+  derive height = min(min(346, natural), below ? viewport.height - triggerBottom - 11 : viewport.height - bottom - 7) + 2
+  derive y = (below ? triggerBottom + 4 : viewport.height - bottom - height)
+  derive x = (left + 7 + width <= viewport.width - 5 ? left + 7 : max(5, viewport.width - 5 - width))
+  action searchFocus
+    searchFocused = true
+  action searchBlur
+    searchFocused = false
+  action toggleLegacy
+    legacySession = legacyOpen ? -1 : session
+  action searchKey(name: string)
+    if name == "ArrowDown" and count > 0
+      cursor = (highlight < 0 or highlight + 1 >= count) ? 0 : highlight + 1
+      navSession = session
+      navQuery = query
+    if name == "ArrowUp" and count > 0
+      cursor = highlight <= 0 ? count - 1 : highlight - 1
+      navSession = session
+      navQuery = query
+    if name == "Enter" and targetLegacy
+      legacySession = legacyOpen ? -1 : session
+    if name == "ArrowLeft" and query == "" and sidebar
+      focus(`picker-rail-${max(0, catalog.railIndex)}`)
+  action railHover(index: number, over: bool)
+    railHoverIndex = over ? index : (railOver == index ? -1 : railOver)
+    railSession = session
+  action railMove(origin: number, name: string)
+    if name == "ArrowRight"
+      focus("model-search")
+    if name == "ArrowDown"
+      focus(`picker-rail-${origin + 1 > length(catalog.providers) ? 0 : origin + 1}`)
+    if name == "ArrowUp"
+      focus(`picker-rail-${origin <= 0 ? length(catalog.providers) : origin - 1}`)
+  view
+    button position="absolute" left=0 right=0 top=0 bottom=0 z-index=29 padding=0 border-width=0 border-radius=0 background-color="#00000000" press=close aria-label="Dismiss model picker" aria-keyshortcuts="Escape" testId="dismiss-model-picker"
+    column position="absolute" left=x top=y width=width height=height border-radius=10 box-shadow="0 16px 40px -18px #0000008c" z-index=30
+      row width="100%" height="100%" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-sizing="border-box" overflow="hidden" role="dialog" aria-label="Choose model" testId="model-dialog"
+        when sidebar
+          column width=44 flex-shrink=0 height="100%" padding=4 gap=4 box-sizing="border-box" position="relative" background-color="light-dark(#fafafa4d, #ffffff02)" role="toolbar" aria-label="Providers" testId="model-picker-rail"
+            when catalog.railIndex >= 0
+              box position="absolute" right=0 top=(catalog.railIndex == 0 ? 12 : 57 + (catalog.railIndex - 1) * 40) width=3 height=20 border-top-left-radius=3 border-bottom-left-radius=3 background-color="light-dark(#1b4ed8, #346bf1)" z-index=2 testId="model-picker-indicator"
+            button press=chooseRail("favorites") hover=railHover(0) key=railMove(0) id="picker-rail-0" class=Control width=36 height=36 min-height=36 padding=0 border-radius=8 flex-shrink=0 aria-label="Favorites" aria-checked=catalog.favoritesSelected testId="provider-favorites" background-color=(railOver == 0 ? "light-dark(#27272a1a, #f5f5f51a)" : "#00000000")
+              CmpIcon(name="star-filled", size=20, color="light-dark(#27272a, #f5f5f5)", weight=2)
+            box width=36 height=1 flex-shrink=0 background-color="light-dark(#e4e4e7b3, #ffffff0b)"
+            each provider in catalog.providers key=provider.id
+              button press=chooseRail(provider.id) hover=railHover(provider.index) key=railMove(provider.index) id=`picker-rail-${provider.index}` class=Control width=36 height=36 min-height=36 padding=0 border-radius=8 flex-shrink=0 aria-label=(provider.ready ? provider.name : `${provider.name} — Not ready.`) aria-checked=provider.selected testId=`provider-${provider.id}` disabled=(not provider.ready) opacity=(provider.ready ? 1 : 0.5) background-color=(railOver == provider.index and provider.ready ? "light-dark(#27272a1a, #f5f5f51a)" : "#00000000")
+                ProviderInstanceMark(driver=provider.driver, size=20, color="light-dark(#27272a, #f5f5f5)", badge=provider.providerBadge, accent=provider.providerBadgeColor)
+        column flex=1 min-width=0 height="100%" box-sizing="border-box" background-color="light-dark(#fafafa66, #ffffff03)" border-left-style="solid" border-left-width=(sidebar ? 1 : 0) border-color="light-dark(#e4e4e7b3, #ffffff0b)"
+          column padding-left=12 padding-right=12 padding-top=9 padding-bottom=1 flex-shrink=0
+            row height=33 padding-bottom=6 box-sizing="border-box" position="relative" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color=(searchFocused ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#e4e4e7b3, #ffffff0b)")
+              box position="absolute" left=0 top=6 display="flex"
+                CmpIcon(name="search", size=16, color="light-dark(#71717a8c, #8181818c)", weight=2)
+              when query == ""
+                text "Search models..." position="absolute" left=20 top=0 font-size=14 line-height="26px" color="light-dark(#71717a, #818181)" aria-hidden=true
+              input id="model-search" testId="model-search" value=query input=search key=searchKey submit=select(targetId, targetProvider) focus=searchFocus blur=searchBlur aria-label="Search models" flex=1 min-width=0 height=26 padding-left=18 padding-right=9 padding-top=0 padding-bottom=0 position="relative" top=4.5 border-width=0 background-color="#00000000" font-size=14 line-height="26px" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
+          scroll flex=(count > 0 ? 1 : 0) min-height=0 width="100%" padding-top=(count > 0 ? 10 : 0) padding-bottom=(count > 0 ? 10 : 0) padding-left=12 padding-right=12 box-sizing="border-box" testId="model-list"
+            column gap=2 width="100%" role="listbox"
+              each row in catalog.models key=row.key
+                when row.kind != "legacy-model" or legacyOpen
+                  ModelRow(row=row, highlighted=(row.index == highlight), busy=(busy or data.running), select=select, favorite=command, toggleLegacy=toggleLegacy, legacyOpen=legacyOpen)
+              when count == 0
+                text "No models found" font-size=14 line-height="20px" text-align="center" padding=8 color="light-dark(#71717a, #818181)" testId="model-empty"

@@ -1,0 +1,79 @@
+// Lane r7-device: the device workspace's 3D / Flat presentation, extra rail controls and the
+// Tools drawer (r7-device-tools.ts). No imports, so r6-device-shapes.contract can use it.
+shape R7DevOption
+  value: string
+  label: string
+  selected: bool
+shape R7DevSwitch
+  id: string
+  label: string
+  checked: bool
+  disabled: bool
+shape R7DevEvent
+  id: string
+  time: string
+  summary: string
+shape R7DevDeviceRail
+  view: string
+  ax: string
+  phone: bool
+  streaming: bool
+  phoneDisabled: bool
+  phoneReason: string
+  keyboard: bool
+  keyboardAttached: bool
+  toolsOpen: bool
+  waiting: string
+  rotateDisabled: bool
+  controlsDisabled: bool
+shape R7DevDeviceTools
+  open: bool
+  overlay: bool
+  pending: bool
+  error: string
+  loading: bool
+  diagnostics: string
+  ios: bool
+  platformTitle: string
+  foreground: string
+  hasForeground: bool
+  disabled: bool
+  appearance: string
+  textSizeLabel: string
+  textSizeKnown: bool
+  textSizes: list<R7DevOption>
+  liquidGlass: string
+  liquidGlassDisabled: bool
+  colorFilterLabel: string
+  colorFilterKnown: bool
+  colorFilters: list<R7DevOption>
+  orientations: list<R7DevOption>
+  switches: list<R7DevSwitch>
+  axOn: bool
+  url: string
+  urlDisabled: bool
+  launch: string
+  launchPlaceholder: string
+  launchDisabled: bool
+  lat: string
+  lng: string
+  locationValid: bool
+  presets: list<R7DevOption>
+  permApp: string
+  permPlaceholder: string
+  permDisabled: bool
+  permissionLabel: string
+  permissions: list<R7DevOption>
+  push: string
+  pushDisabled: bool
+  pushSendDisabled: bool
+  log: bool
+  logOpen: bool
+  logDevice: string
+  logHost: string
+  eventsEmpty: bool
+  events: list<R7DevEvent>
+shape R7DevDeviceWorkspace
+  rail: R7DevDeviceRail
+  tools: R7DevDeviceTools
+  retaining: bool

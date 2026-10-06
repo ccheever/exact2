@@ -1,0 +1,279 @@
+import { describe, expect, test } from 'bun:test';
+import { pushToast, toasts } from './toast';
+import { applyDismissals, advanceToasts, toastViews, commandShortcut, surfaces, titleMenu, withOffsets, TOAST_LIMIT } from './shell';
+import { threadTransitions, transitionToast, updateCandidates, updateKey, updateToastView, threadNotifications } from './shell-notify';
+import { shellCommand, shellLocal, shellFailure, shellSuccess, resolveRenameCommit, settingsFailure } from './shell-commands';
+import type { T3Client } from './client';
+import type { Obj } from './domain';
+import type { Files, Native } from './protocol';
+
+const prefs = (extra: Obj = {}) => ({ notificationMode: 'off', inAppNotificationsEnabled: false, confirmThreadArchive: false, confirmThreadDelete: true, confirmThreadUnpin: false, ...extra });
+function fakeClient(extra: Obj = {}): T3Client {
+  return { threadId: '', projectId: '', ready: true, environmentId: 'env', connection: 'connected', shell: { threads: [], projects: [] },
+    config: { environment: { capabilities: {} } }, local: { clientSettings: prefs(), deviceSettings: { timestampFormat: '24-hour' } }, ...extra } as unknown as T3Client;
+}
+
+describe('toast queue', () => {
+  test('newest is in front, timers run only while visible and unhovered', () => {
+    const client = fakeClient();
+    pushToast(client, { kind: 'success', title: 'one' });
+    pushToast(client, { kind: 'error', title: 'two', description: 'boom' });
+    const views = toastViews(toasts(client));
+    expect(views.map(view => [view.title, view.index])).toEqual([['two', 0], ['one', 1]]);
+    expect(views[0]).toMatchObject({ icon: 'circle-alert', copyText: 'boom', stacked: false });
+    expect(views[1]).toMatchObject({ icon: 'circle-check', iconColor: '#00bc7d', copyText: '' });
+    advanceToasts(client, 1000, false);
+    advanceToasts(client, 4000, true);
+    expect(toasts(client)).toHaveLength(2);
+    advanceToasts(client, 4900, false);
+    advanceToasts(client, 5800, false);
+    advanceToasts(client, 6700, false);
+    advanceToasts(client, 7600, false);
+    expect(toasts(client)).toHaveLength(2);
+    for (let at = 8500; at <= 12000; at += 500) advanceToasts(client, at, false);
+    expect(toasts(client)).toHaveLength(0);
+  });
+
+  test('a stale clock never expires a fresh toast at once, and loading toasts wait', () => {
+    const client = fakeClient();
+    pushToast(client, { kind: 'info', title: 'fresh' });
+    pushToast(client, { kind: 'loading', title: 'spinner' });
+    advanceToasts(client, 1000, false);
+    advanceToasts(client, 600_000, false);
+    expect(toasts(client).map(toast => toast.title)).toEqual(['fresh', 'spinner']);
+    for (let at = 600_500; at < 620_000; at += 500) advanceToasts(client, at, false);
+    expect(toasts(client).map(toast => toast.title)).toEqual(['spinner']);
+  });
+
+  test('only the front three count down', () => {
+    const client = fakeClient();
+    for (const title of ['a', 'b', 'c', 'd']) pushToast(client, { kind: 'info', title, timeoutMs: 1000 });
+    advanceToasts(client, 1000, false);
+    for (let at = 1500; at <= 2500; at += 500) advanceToasts(client, at, false);
+    expect(toasts(client).map(toast => toast.title)).toEqual(['a']);
+    expect(TOAST_LIMIT).toBe(3);
+  });
+
+  test('dismissals: the orb runs onClose once, an action only closes', () => {
+    const client = fakeClient();
+    let closed = 0;
+    const first = pushToast(client, { kind: 'warning', title: 'update', onClose: () => closed++ });
+    const second = pushToast(client, { kind: 'warning', title: 'other', onClose: () => closed++ });
+    applyDismissals(client, ` x${first} a${second}`);
+    applyDismissals(client, ` x${first} a${second}`);
+    expect(closed).toBe(1);
+    expect(toasts(client)).toHaveLength(0);
+  });
+
+  test('stacked layout needs an action; leading glyphs and providers replace the kind icon', () => {
+    const client = fakeClient();
+    pushToast(client, { kind: 'warning', title: 'stacked', stacked: true, action: { label: 'Settings', op: 'ui:settings', id: 'providers' }, actionVariant: 'outline', leading: 'provider:codex' });
+    pushToast(client, { kind: 'warning', title: 'no action', stacked: true, leading: 'shield-question:warning-foreground' });
+    const [plain, stacked] = toastViews(toasts(client));
+    expect(stacked).toMatchObject({ stacked: true, provider: 'codex', icon: '', actionLabel: 'Settings', actionOp: 'ui:settings', actionId: 'providers', actionOutline: true });
+    expect(plain).toMatchObject({ stacked: false, icon: 'shield-question', iconColor: 'light-dark(#bb4d00, #ffb900)' });
+  });
+
+  test('a keyed toast replaces its predecessor', () => {
+    const client = fakeClient();
+    pushToast(client, { kind: 'warning', title: 'v1', key: 'provider-update' });
+    pushToast(client, { kind: 'warning', title: 'v2', key: 'provider-update' });
+    expect(toasts(client).map(toast => toast.title)).toEqual(['v2']);
+  });
+});
+
+describe('header and panels', () => {
+  test('shortcut labels follow the last binding for the command', () => {
+    const config = { keybindings: [{ command: 'rightPanel.toggle', shortcut: { key: 'b', modKey: true, altKey: true } }, { command: 'terminal.toggle', shortcut: { key: 'j', modKey: true } }] };
+    expect(commandShortcut(config, 'rightPanel.toggle')).toBe('⌥⌘B');
+    expect(commandShortcut(config, 'threadPanel.toggle')).toBe('');
+  });
+
+  test('the launcher lists every surface; diff needs a connected thread', () => {
+    const client = fakeClient({ threadId: 't1', projectId: 'p1', shell: { threads: [{ id: 't1', projectId: 'p1' }], projects: [{ id: 'p1', workspaceRoot: '/p' }] } });
+    const rows = surfaces(client);
+    expect(rows.map(row => `${row.label} ${row.shortcut}`)).toEqual(['Browser B', 'Terminal T', 'Files F', 'Diff D', 'Pull request P', 'Linked pull requests L', 'Device M']);
+    expect(rows.find(row => row.id === 'diff')).toMatchObject({ available: true, reason: '' });
+    expect(rows.find(row => row.id === 'browser')).toMatchObject({ available: false, reason: 'Only available in the desktop app.' });
+    expect(rows.find(row => row.id === 'pull-request')!.reason).toBe('No pull request on this branch yet.');
+    expect(surfaces(fakeClient()).find(row => row.id === 'diff')!.available).toBe(false);
+  });
+
+  test('the title menu follows buildThreadActionMenuItems with capability gating', () => {
+    const thread = { id: 't1', projectId: 'p1', title: 'Fixture', status: 'idle', branch: null, pinnedAt: null, settledAt: null, settledOverride: null, snoozedUntil: null, autoSettleDisabledAt: null };
+    const caps = { threadPinning: true, threadSettlement: true, threadSnooze: true, threadTitleRegeneration: true, threadAutoSettleOptOut: true };
+    const client = fakeClient({ threadId: 't1', projectId: 'p1', shell: { threads: [thread], projects: [] }, config: { environment: { capabilities: caps } } });
+    const menu = titleMenu(client, Date.parse('2026-10-04T10:00:00'));
+    const top = menu.filter(item => item.submenu === '');
+    expect(top.map(item => item.label)).toEqual(['Pin thread', 'Settle thread', 'Snooze', 'Rename thread', 'Regenerate title', 'Mark unread', 'Auto-settle behavior', 'Copy', 'Project settings', 'Archive thread', 'Delete']);
+    expect(top.filter(item => item.separated).map(item => item.id)).toEqual(['rename', 'copy', 'archive']);
+    expect(top.map(item => item.offset)).toEqual([5, 33, 61, 98, 126, 154, 182, 219, 247, 284, 312]);
+    expect(menu.filter(item => item.submenu === 'copy').map(item => item.label)).toEqual(['Path', 'Thread ID']);
+    expect(menu.filter(item => item.submenu === 'snooze').at(-1)).toMatchObject({ label: 'Custom…', separated: true });
+    expect(menu.find(item => item.id === 'auto-settle:enabled')).toMatchObject({ checked: true, op: 'shell:auto-settle', value: 'true' });
+    const del = menu.find(item => item.id === 'delete')!;
+    expect(del).toMatchObject({ destructive: true, op: 'ui:confirm', value: 'shell:delete', confirmTitle: 'Delete thread "Fixture"?', confirmBody: 'This permanently clears conversation history for this thread.' });
+    expect(menu.find(item => item.id === 'archive')).toMatchObject({ op: 'shell:archive', disabled: false });
+    const plain = titleMenu(fakeClient({ threadId: 't1', shell: { threads: [{ ...thread, status: 'running', branch: 'feature' }], projects: [] } }), 0);
+    expect(plain.filter(item => item.submenu === '').map(item => item.id)).toEqual(['new-thread-on-branch', 'rename', 'mark-unread', 'copy', 'project-settings', 'archive', 'delete']);
+    expect(plain.find(item => item.id === 'archive')!.disabled).toBe(true);
+    expect(plain.filter(item => item.submenu === 'copy').map(item => item.label)).toEqual(['Path', 'Branch', 'Thread ID']);
+    expect(titleMenu(fakeClient({ projectId: 'p1' }), 0).map(item => item.label)).toEqual(['Project settings']);
+  });
+
+  test('offsets skip submenu children', () => {
+    expect(withOffsets([{ id: 'a', submenu: '', separated: false }, { id: 'b', submenu: 'a', separated: false, offset: 0 }, { id: 'c', submenu: '', separated: true }] as never).map(item => (item as { offset: number }).offset)).toEqual([5, 0, 42]);
+  });
+});
+
+describe('thread notifications', () => {
+  const thread = (id: string, extra: Obj = {}) => ({ id, title: `T ${id}`, status: 'running', latestRunId: 'r1', activeRunId: 'r1', activityRunStatus: 'running', pendingRuntimeRequest: null, updatedAt: '2026-10-04T10:00:00.000Z', archivedAt: null, lineage: {}, ...extra });
+  test('completion and attention transitions; the first shell only records', () => {
+    const client = fakeClient({ shell: { threads: [thread('a'), thread('b')], projects: [] } });
+    const first = threadTransitions(client, null);
+    expect(first.transitions).toEqual([]);
+    client.shell.threads = [thread('a', { status: 'idle', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: '2026-10-04T10:01:00.000Z' }),
+      thread('b', { pendingRuntimeRequest: { kind: 'approval' } })];
+    const second = threadTransitions(client, first.next);
+    expect(second.transitions.map(entry => [entry.threadId, entry.kind, entry.title])).toEqual([['a', 'completion', 'Thread completed'], ['b', 'input', 'Approval needed']]);
+    expect(threadTransitions(client, second.next).transitions).toEqual([]);
+    client.shell.threads = [thread('a', { status: 'failed', activeRunId: null, activityRunStatus: null, latestRunId: 'r2' }), thread('s', { lineage: { relationshipToParent: 'subagent' } })];
+    expect(threadTransitions(client, second.next).transitions.map(entry => entry.title)).toEqual(['Thread failed']);
+    expect(transitionToast({ threadId: 'a', kind: 'input', status: 'failed', title: '' })).toEqual({ kind: 'error', leading: 'circle-alert:destructive-foreground' });
+    expect(transitionToast({ threadId: 'a', kind: 'input', status: 'input', title: '' }).leading).toBe('message-circle-question:info-foreground');
+  });
+
+  test('focused: an in-app toast for another thread only; unfocused: a system notification; sound either way', async () => {
+    const requests: Obj[] = [];
+    const native = { available: true, watch() {}, later: async (request: unknown) => { requests.push(request as Obj); return { ok: true, generation: 0, value: {} }; } } as Native;
+    const client = fakeClient({ threadId: 'open', shell: { threads: [thread('a'), thread('open')], projects: [] } });
+    client.local.clientSettings = prefs({ notificationMode: 'notifications-and-sound', inAppNotificationsEnabled: true }) as never;
+    await threadNotifications(client, native, { active: true, authorization: 'authorized', agent: false, opened: '', openedThread: '' });
+    client.shell.threads = [thread('a', { pendingRuntimeRequest: { kind: 'user_input' } }), thread('open', { pendingRuntimeRequest: { kind: 'user_input' } })];
+    await threadNotifications(client, native, { active: true, authorization: 'authorized', agent: false, opened: '', openedThread: '' });
+    expect(toasts(client).map(toast => [toast.title, toast.description, toast.action?.label, toast.action?.id])).toEqual([['Input needed', 'T a', 'Open thread', 'a']]);
+    expect(requests.filter(request => request.op === 'notifySound').map(request => request.kind)).toEqual(['input', 'input']);
+    // The open thread gets neither a toast nor, while focused, a system notification.
+    expect(requests.filter(request => request.op === 'notifyPost')).toEqual([]);
+    client.shell.threads = [thread('a', { status: 'idle', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: '2026-10-04T10:05:00.000Z' }), thread('open')];
+    await threadNotifications(client, native, { active: false, authorization: 'authorized', agent: false, opened: '', openedThread: '' });
+    expect(requests.filter(request => request.op === 'notifyPost').map(request => [request.title, request.body, request.tag])).toEqual([['Thread completed', 'T a', 'env:a']]);
+  });
+
+  test('off and in-app off: nothing tracked or raised', async () => {
+    const requests: Obj[] = [];
+    const native = { available: true, watch() {}, later: async (request: unknown) => { requests.push(request as Obj); return { ok: true, generation: 0, value: {} }; } } as Native;
+    const client = fakeClient({ shell: { threads: [thread('a')], projects: [] } });
+    await threadNotifications(client, native, { active: true, authorization: 'unknown', agent: false, opened: '', openedThread: '' });
+    client.shell.threads = [thread('a', { pendingRuntimeRequest: { kind: 'user_input' } })];
+    await threadNotifications(client, native, { active: true, authorization: 'unknown', agent: false, opened: '', openedThread: '' });
+    expect(toasts(client)).toHaveLength(0);
+    expect(requests.filter(request => request.op !== 'notifyClear')).toEqual([]);
+  });
+});
+
+describe('provider update notification', () => {
+  const provider = (driver: string, extra: Obj = {}) => ({ driver, instanceId: driver, enabled: true, checkedAt: '2026-10-04T10:00:00Z', versionAdvisory: { status: 'behind_latest', latestVersion: '0.160.0', canUpdate: false, updateCommand: null }, compatibilityAdvisory: {}, ...extra });
+  test('candidates, key and copy follow ProviderUpdateLaunchNotification.logic', () => {
+    const candidates = updateCandidates([provider('codex'), provider('claudeAgent', { enabled: false }), provider('cursor', { compatibilityAdvisory: { latestVersionStatus: 'broken' } })]);
+    expect(candidates.map(candidate => candidate.driver)).toEqual(['codex']);
+    expect(updateKey(candidates)).toBe('codex:0.160.0');
+    expect(updateToastView(candidates)).toMatchObject({ title: 'Update Available: Codex v0.160.0', description: 'Codex can be updated from provider settings.' });
+    const many = updateCandidates([provider('codex'), provider('claudeAgent', { versionAdvisory: { status: 'behind_latest', latestVersion: '2.0', canUpdate: true, updateCommand: 'npm i' } })]);
+    expect(updateToastView(many)).toMatchObject({ title: 'Updates Available: 2 providers', description: 'Install the update now or review provider settings.' });
+  });
+});
+
+describe('shell commands and routed failures', () => {
+  function client(extra: Obj = {}) {
+    const dispatched: Obj[] = [], requested: Obj[] = [];
+    const value = fakeClient({
+      shell: { threads: [{ id: 't1', title: 'Fixture', projectId: 'p1', worktreePath: null, branch: 'main', status: 'idle' }], projects: [{ id: 'p1', workspaceRoot: '/work/p1' }] },
+      restAccess: () => ({ ids: async (count: number) => Array.from({ length: count }, (_, index) => `id-${index}`),
+        request: async (method: string, payload: Obj) => { requested.push({ method, ...payload }); return {}; },
+        dispatch: async (_storage: Files, payload: Obj, description: string) => { dispatched.push({ ...payload, description }); return {}; } }),
+      ...extra,
+    });
+    return { value, dispatched, requested };
+  }
+  const storage = {} as Files;
+  test('thread actions dispatch the V2 commands', async () => {
+    const { value, dispatched } = client();
+    for (const op of ['pin', 'unpin', 'mark-unread', 'regenerate-title', 'archive', 'delete']) await shellCommand(value, {} as Native, storage, op, 't1', '');
+    await shellCommand(value, {} as Native, storage, 'auto-settle', 't1', 'false');
+    await shellCommand(value, {} as Native, storage, 'rename', 't1', '  Renamed  ');
+    await shellCommand(value, {} as Native, storage, 'rename', 't1', 'Fixture');
+    expect(dispatched.map(entry => [entry.type, entry.regenerateTitle ?? entry.enabled ?? entry.title ?? ''])).toEqual([
+      ['thread.pin', ''], ['thread.unpin', ''], ['thread.mark-unread', ''], ['thread.metadata.update', true], ['thread.archive', ''], ['thread.delete', ''],
+      ['thread.auto-settle.set', false], ['thread.metadata.update', 'Renamed']]);
+    await shellCommand(value, {} as Native, storage, 'rename', 't1', '   ');
+    expect(toasts(value).map(toast => [toast.kind, toast.title])).toEqual([['warning', 'Thread title cannot be empty']]);
+    await expect(shellCommand(value, {} as Native, storage, 'pin', 'gone', '')).rejects.toThrow('That thread is no longer available.');
+  });
+
+  test('archive refuses a running thread; editor and provider update use their RPCs', async () => {
+    const running = client({ shell: { threads: [{ id: 't1', title: 'Busy', status: 'running', activeRunId: 'r' }], projects: [] }, config: { providers: [{ driver: 'codex', instanceId: 'codex' }] } });
+    await expect(shellCommand(running.value, {} as Native, storage, 'archive', 't1', '')).rejects.toThrow('Stop the running turn');
+    await shellCommand(running.value, {} as Native, storage, 'provider-update', 'codex', '');
+    await shellCommand(running.value, {} as Native, storage, 'open-editor', '/work/p1', 'cursor');
+    expect(running.requested).toEqual([{ method: 'server.updateProvider', provider: 'codex', instanceId: 'codex' }, { method: 'shell.openInEditor', cwd: '/work/p1', editor: 'cursor' }]);
+  });
+
+  test('copies toast with the copied value', async () => {
+    const copied: string[] = [];
+    const native = { available: true, watch() {}, later: async (request: unknown) => { copied.push(String((request as Obj).text)); return { ok: true, generation: 0, value: { copied: true } }; } } as Native;
+    const { value } = client();
+    await shellLocal(value, native, 'copy-path', 't1', '');
+    await shellLocal(value, native, 'copy-branch', 't1', '');
+    await shellLocal(value, native, 'copy-thread-id', 't1', '');
+    expect(copied).toEqual(['/work/p1', 'main', 't1']);
+    expect(toasts(value).map(toast => [toast.title, toast.description])).toEqual([['Path copied', '/work/p1'], ['Branch copied', 'main'], ['Thread ID copied', 't1']]);
+    const empty = client({ shell: { threads: [{ id: 't1' }], projects: [] } });
+    await shellLocal(empty.value, native, 'copy-path', 't1', '');
+    expect(toasts(empty.value).map(toast => [toast.kind, toast.title])).toEqual([['error', 'Path unavailable']]);
+  });
+
+  test('failures route to the reference toast titles instead of the banner', () => {
+    const { value } = client();
+    expect(shellFailure(value, 'chat:settle', 'denied')).toBe(true);
+    expect(shellFailure(value, 'shell:pin', 'denied')).toBe(true);
+    expect(shellFailure(value, 'send', 'Choose or add a project first.')).toBe(true);
+    expect(shellFailure(value, 'send', 'other')).toBe(false);
+    expect(shellFailure(value, 'model', 'denied')).toBe(false);
+    const offline = client({ connection: 'reconnecting' });
+    expect(shellFailure(offline.value, 'send', 'Reconnect before making changes.')).toBe(true);
+    expect(toasts(value).map(toast => [toast.kind, toast.title, toast.description])).toEqual([
+      ['error', 'Failed to settle thread', 'denied'], ['error', 'Failed to pin thread', 'denied'], ['warning', 'Choose a project first', 'This draft no longer points to an available project.']]);
+    expect(toasts(offline.value)[0]).toMatchObject({ kind: 'warning', title: 'Not connected: message not sent' });
+    const copy = client({ threadId: 't1' });
+    shellSuccess(copy.value, 'restlocal:copy-thread', '', 'Copied thread ID');
+    expect(toasts(copy.value)[0]).toMatchObject({ kind: 'success', title: 'Thread ID copied', description: 't1' });
+  });
+
+  test('settings failures toast with the reference titles', () => {
+    const { value } = client();
+    expect(settingsFailure(value, 'rest:task', 'scope', 'action=save&id=t', 'Scheduled task is incomplete: Add a title, prompt, project, and model.')).toBe('Scheduled task is incomplete');
+    expect(settingsFailure(value, 'rest:task', 'scope', 'action=save', 'Use an interval of at least one minute.')).toBe('Invalid interval');
+    expect(settingsFailure(value, 'rest:task', 'scope', 'action=save', 'Enter an existing checkout path.')).toBe('Checkout path is required');
+    expect(settingsFailure(value, 'rest:task', 'scope', 'action=save', 'Could not save scheduled task: Choose an available provider and model.')).toBe('Could not save scheduled task');
+    expect(settingsFailure(value, 'rest:task', 'scope', 'action=toggle&id=t', 'denied')).toBe('Could not update scheduled task');
+    expect(settingsFailure(value, 'rest:keybinding', 'scope', 'action=remove&previous=x', 'denied')).toBe('Unable to remove keybinding');
+    expect(settingsFailure(value, 'rest:keybinding', 'scope', 'action=save&command=a', 'denied')).toBe('Unable to save keybinding');
+    expect(settingsFailure(value, 'rest:keybinding-open', 'scope', '', 'denied')).toBe('Unable to open keybindings file');
+    expect(settingsFailure(value, 'settings-core', 'textGenerationModelSelection:model|scope', 'x', 'denied')).toBe('Text generation model not saved');
+    expect(settingsFailure(value, 'rest:storage', 'scope', '', 'denied')).toBe('');
+    // The queue keeps the newest five (toast.ts).
+    expect(toasts(value).map(toast => toast.title)).toEqual(['Could not update scheduled task', 'Unable to remove keybinding', 'Unable to save keybinding', 'Unable to open keybindings file', 'Text generation model not saved']);
+    const fresh = client().value;
+    settingsFailure(fresh, 'rest:task', 'scope', 'action=save', 'Use an interval of at least one minute.');
+    expect(toasts(fresh).map(toast => [toast.title, toast.description])).toEqual([['Invalid interval', 'Enter an interval of at least one minute.']]);
+    shellSuccess(value, 'copy-diagnostic', 'trace-1', 'Copied trace ID');
+    expect(toasts(value).at(-1)).toMatchObject({ kind: 'success', title: 'Trace ID copied', description: 'trace-1' });
+  });
+
+  test('resolveRenameCommit', () => {
+    expect(resolveRenameCommit(' a ', 'b')).toEqual({ action: 'commit', title: 'a' });
+    expect(resolveRenameCommit('  ', 'b')).toEqual({ action: 'reject-empty' });
+    expect(resolveRenameCommit('b ', 'b')).toEqual({ action: 'noop' });
+  });
+});

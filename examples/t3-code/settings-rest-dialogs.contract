@@ -1,0 +1,59 @@
+// Window-level dialogs for the settings-rest routes, mounted once at the root so
+// they cover the window rather than scroll with a settings page. `editor` names
+// the open dialog; `subject`/`label` carry what it acts on.
+use ScheduledPage from "./settings-scheduled.contract"
+use ScheduledEditor from "./settings-scheduled.contract"
+use ProjectsPage from "./settings-projects.contract"
+
+// ConfirmDialogHost.tsx / ui/alert-dialog.tsx: title, description, Cancel and
+// Confirm. Escape and the backdrop cancel.
+component SettingsConfirm
+  props
+    title: string
+    description: string
+    confirmLabel: string
+    destructive: bool
+    busy: bool
+    error: string
+    dialogId: string
+    cancel: action
+    confirm: action
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding=16 box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId=`${dialogId}-overlay`
+      column width="100%" max-width=512 box-sizing="border-box" border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-label=title testId=dialogId
+        column gap=8 padding=24 box-sizing="border-box"
+          text title font-size=20 font-weight=600 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          when description != ""
+            text description font-size=14 line-height="20px" white-space="pre-line" color="light-dark(#71717b, #818181)"
+          when error != ""
+            text error font-size=12 line-height="18px" color="light-dark(#dc2626, #f87171)" role="alert" testId=`${dialogId}-error`
+        row gap=8 justify-content="flex-end" padding-left=24 padding-right=24 padding-top=16 padding-bottom=16 box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
+          button press=cancel disabled=busy aria-keyshortcuts="Escape" testId=`${dialogId}-cancel` display="flex" flex-direction="row" align-items="center" justify-content="center" height=36 padding-left=13 padding-right=13 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+            text "Cancel" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+          button press=confirm disabled=busy testId=`${dialogId}-confirm` display="flex" flex-direction="row" align-items="center" justify-content="center" height=36 padding-left=13 padding-right=13 box-sizing="border-box" border-radius=8 border-width=0 opacity=(busy ? 0.64 : 1) background-color=(destructive ? "light-dark(#dc2626, #dc2626)" : "light-dark(#1b4ed8, #346bf1)")
+            text confirmLabel font-size=14 font-weight=500 line-height="20px" color="#ffffff"
+
+component SettingsRestDialogs
+  props
+    editor: string
+    subject: string
+    label: string
+    scheduled: ScheduledPage
+    projects: ProjectsPage
+    busy: bool
+    error: string
+    rest: action
+    raw: action
+    close: action
+  view
+    when editor == "task"
+      each draft in scheduled.editors key=draft.key
+        ScheduledEditor(data=scheduled, draft=draft, busy=busy, error=error, close=close, rest=rest)
+    when editor == "project-remove" and subject == ""
+      SettingsConfirm(title=projects.confirmTitle, description=projects.confirmDescription, confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="project-remove", cancel=close, confirm=raw("remove-group", label, ""))
+    when editor == "project-remove" and subject != ""
+      SettingsConfirm(title=projects.confirmTitle, description=projects.confirmDescription, confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="project-remove", cancel=close, confirm=raw("remove-group-member", subject, label))
+    when editor == "project-remove-member"
+      SettingsConfirm(title=`Remove checkout "${label}"?`, description="This permanently clears conversation history for those threads and any archived threads.\nOther entries in this grouped project are unaffected.\nThis action cannot be undone.", confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="project-remove-member", cancel=close, confirm=raw("remove-group-member", subject, projects.key))
+    when editor == "archive-delete"
+      SettingsConfirm(title=`Delete thread "${label}"?`, description="This permanently clears conversation history for this thread.", confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="archive-delete", cancel=close, confirm=raw("delete-archived-thread", subject, ""))

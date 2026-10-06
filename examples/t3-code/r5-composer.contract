@@ -1,0 +1,50 @@
+// r5-composer: the composer toolbar's labels at their natural widths, measured
+// from laid-out text instead of estimated (T3 Code, MIT; see LICENSE-T3:
+// chat/restingComposerControlsMeasurement.ts reads each label's scrollWidth from
+// labels that stay mounted while icons replace them). Each label is drawn once
+// per size (the "sm" toolbar: 14pt medium; the resting "xs" row: 12pt regular),
+// invisible and out of flow, and reports its width through the app module's
+// t3-anchor hook (T3Composer.swift); r5-composer-measure.ts reads the widths.
+
+component R5LabelProbe
+  props
+    name: string
+    label: string
+    xs: bool
+  view
+    box hook="t3-anchor" data-anchor=name display="flex" flex-direction="row" flex-shrink=0
+      text (label == "" ? " " : label) font-size=(xs ? 12 : 14) font-weight=(xs ? 400 : 500) line-height=(xs ? "16px" : "20px") white-space="nowrap" flex-shrink=0
+
+component R5ComposerLabelProbes
+  props
+    model: string
+    traits: string
+    runtime: string
+    plan: string
+  view
+    column position="absolute" left=0 top=0 opacity=0 pointer-events="none" aria-hidden=true align-items="flex-start" testId="r5-label-probes"
+      R5LabelProbe(name="m-model-sm", label=model, xs=false)
+      R5LabelProbe(name="m-model-xs", label=model, xs=true)
+      R5LabelProbe(name="m-traits-sm", label=traits, xs=false)
+      R5LabelProbe(name="m-traits-xs", label=traits, xs=true)
+      R5LabelProbe(name="m-runtime-sm", label=runtime, xs=false)
+      R5LabelProbe(name="m-runtime-xs", label=runtime, xs=true)
+      R5LabelProbe(name="m-plan-sm", label=plan, xs=false)
+      R5LabelProbe(name="m-plan-xs", label=plan, xs=true)
+
+// Menu texts the app sizes its menus by (r5-composer-menus.ts): each text at its
+// own size and weight, one probe each, keyed by the anchor name it reports under.
+shape R5Probe
+  key: string
+  text: string
+  size: number
+  weight: number
+
+component R5TextProbes
+  props
+    probes: list<R5Probe>
+  view
+    column position="absolute" left=0 top=0 opacity=0 pointer-events="none" aria-hidden=true align-items="flex-start" testId="r5-text-probes"
+      each probe in probes key=probe.key
+        box hook="t3-anchor" data-anchor=probe.key display="flex" flex-direction="row" flex-shrink=0
+          text probe.text font-size=probe.size font-weight=probe.weight line-height=`${probe.size + 4}px` white-space="nowrap" flex-shrink=0

@@ -1,0 +1,372 @@
+# T3 Code for Exact on macOS
+
+A macOS client for an existing T3 Code server. Contract draws the interface;
+TypeScript owns the client state and projections; an app-local Swift module
+handles HTTP, WebSocket RPC, Keychain credentials, the composer's text view, menus,
+notifications and window chrome. Provider execution, workspaces, Git and conversation
+history remain on the T3 server. The app does not bundle or modify T3 Code.
+
+## Reference and verification status
+
+The reference is T3 Code `f870c419fc` (Nightly `0.0.46-nightly.20261005.1`). Parity is
+judged against the web client that revision's own server serves, rebuilt from that
+source into `target/t3-ref/runtime-f870c41` (ignored build output). Round 11 ported the
+client-side commits `f90b77d809..f870c419fc` (1826fb55cc, 95edeb753b, 737993303d,
+0c81120137, 9efb016900, 845ddd9354; the rest only move server test stubs). Earlier rounds
+used `f90b77d809` and `8ed276c`.
+
+Last integrated check (round 11, 2026-10-05, after the upstream, device and misc lanes; no
+source changed in the integration pass apart from this README and `AGENT-HANDOFF.md`):
+
+- `bun test examples/t3-code`: 991 pass, 0 fail (105 files). Strict `tsc` on
+  `app.ts` is clean. `contract build` of `app.contract`: 1789 slots, 41 resources, 41305
+  nodes. Every source file, `.contract` included, is at most 1,500 lines (`client.ts` 1455,
+  `app.contract` 1327, `composer-controls.contract` 1010).
+- `cargo test -p t3-code-macos --lib`: 7 pass (Markdown/transcript parsing,
+  table blocks and their column alignment).
+- All 26 AppKit/XCTest binaries under `apple/tests/` pass with the recipe below:
+  attach 3, composer 45, composer-files 4, contextmenu 6, fleet 8, intent 4, menus 10,
+  notifications 4, r5-composer 3, r5-panels 5, r6-device 3 (loopback serve-sim peers),
+  r6-media 5 (PDFKit, sandboxed WebKit; rendered HTML loads its siblings from the asset
+  token's directory only), r7-device 13 (H.264 over a loopback hub; with
+  `T3_DEVICE_GLB_DIR` set to a T3 server's `client/assets` the served-model renders run
+  too), r8-keys 4, r8-pointer 3, r9-device 13 (the iPhone Duo viewer over loopback panel
+  feeds and the served model, the foldable), r9-input 10, r10-connect 5 (select-on-open,
+  Korean 2-Set chords re-issued by key code and reaching menu equivalents, the still-pointer
+  re-hover), r10-device 4 (a Duo panel feed reopens its stream after a stalled main thread,
+  including a 10-run Closed loop; the physical hand-off's single elected feed), r11-device 3
+  (the 3D phone keeps H.264 and 3D through main-thread stalls, ten first opens; the soft-queue
+  window), r11-upstream 3 (the draft row's NSMenu), sidebar 5,
+  ssh 4 (1 live test skipped), transport 31 (2 live tests skipped), snapshot 86 checks,
+  mermaid 10 checks against a running HEAD server.
+- The integrated app was built and driven against isolated HEAD-oracle (`f870c41`) backends
+  with the deterministic fixture provider: the 34 round-3 states, 13 round-4 states and 9
+  round-5 states at 1280×840 and 840×620, light and dark (224 pairs, equal to round 10);
+  the pull request row against a local GitHub CLI stand-in (40 + 40 pairs); the attachment
+  previews (17); the round-7 polish cells (16); the device workspace through a labelled
+  fixture device hub (40; the 3D phone no longer falls back to flat on first open); the
+  round-8 states (20); the round-9 states (42 pairs and 40 Duo / fold cells); the round-10
+  states (Connections 5 pairs, device 20 pairs, 20 Duo Closed launches); and the round-11
+  states: the Settle / Un-settle sweep (5 pairs, three threads settled and un-settled on the
+  server), draft discard and Undo (6), workspace-preparation Retry (3, a real worktree
+  created by the retry), the version pill, Load balancing / GitHub sharing with a switched-off
+  loopback environment (8), rendered HTML with sibling assets and Shiki declarations (5), 15
+  first opens of the 3D phone with the app's main thread frozen (SIGSTOP) three times each,
+  and every right-panel tab after a relaunch (10, labelled synthetic seed transfer). Git,
+  device and pull request effects were read back from disposable repositories, the
+  stand-in's call log and the fixture hub's input log. The verdicts and the remaining
+  differences are in `AGENT-HANDOFF.md`.
+
+Live checks need a running T3 server; states the fixture cannot produce (subagents,
+provider updates, usage data, linked pull requests with host state, terminal/element
+chips) are covered by unit tests against the HEAD data shapes only. Real-keyboard and
+real-pointer checks last ran in round 8 (chords, undo, menus, launcher, table menu,
+multi-select, hovers, relaunch reconnect and frame, pairing, Return / Shift-Return,
+right-click). The input fixes of rounds 9 to 11 (⌘B after a click, chords under Korean
+2-Set inside and outside the composer, the first click after composing, the hover under a
+still pointer after ⌘Z, a real wheel before a thread switch, the checkout field's
+select-on-open, the row-action sweep with a real drag, the draft row's right-click menu) are
+proven by AppKit binaries and agent drives only: the Mac's screen stayed locked through
+every real-input window of rounds 9 to 11. The manual checklist is in `AGENT-HANDOFF.md`.
+
+## Build and connect
+
+Requires macOS 14 or later, Xcode, the repository's Rust toolchain, Bun version
+from `package.json`, and the native TypeScript Hermes toolchain described in the
+[root setup instructions](../../../README.md#1-install-the-tools). Run from the
+Exact repository root:
+
+```sh
+bun install --frozen-lockfile
+export EXACT_APP_DIR="$PWD/examples/t3-code"
+bun host/apple/build.mjs t3-code-macos --bundle --run
+```
+
+Start your existing T3 installation with `t3`, or use its normal source-checkout
+startup command. Configure and authenticate at least one provider in T3 Code.
+This client implements orchestration protocol 2 and requires the server's
+`serverResolvedCommandContext` capability for writes. A server on another protocol
+is listed as outdated or newer; one that can update itself offers **Update** in
+Settings › Connections.
+
+1. In T3 Code, open **Settings → Connections** and create a fresh pairing link.
+   A command-line installation can also use `t3 pair` for a running server.
+2. In this app's welcome wizard (or **Add environment**), paste the pairing URL.
+3. Wait for synchronization, then pick a project and thread, or add an existing
+   workspace by its absolute path **on the server**. Adding a project does not create
+   the directory.
+4. Choose a model and send. New threads use the project override or the server
+   default for permissions, workspace and interaction mode.
+
+## Supported workflows
+
+- Sidebar: grouped projects, Working/active/Settled/Snoozed shelves, search, pin,
+  settle/un-settle, snooze (presets and custom), Woke and Done pills (Woke dismissal
+  syncs through `thread.visit`), project glyph overrides and favicons, Project order,
+  rename and confirmed removal of project entries and groups, drag between shelves.
+  Pressing a row's Settle, Un-settle or Wake button and dragging applies it to every row of
+  that section between the press and the pointer ("Settled 3 threads, ⌘Z to undo";
+  `r11-upstream-sweep.ts`, reference 1826fb55cc). Draft rows have the reference's context
+  menu (Copy ▸ Path / Branch, Project settings, Discard draft), and discarding a draft from
+  the menu or an X goes behind the undo notice ("Discarded N draft(s), ⌘Z to undo"; Undo
+  restores the text, images and worktree choice; `r11-upstream-drafts.ts`, 95edeb753b). The
+  version pill shows only when it fits beside the brand (9efb016900).
+- Conversation: bounded history with older-page loading, streaming assistant and
+  tool rows, work-log inspector, checkpoints and changed files, fork dividers, answered
+  questions, mention and file chips, Markdown with code blocks (wrap, copy) and Mermaid
+  diagrams rendered by the connected server's own Mermaid build. A failed workspace
+  preparation offers Retry (`prepared-run.retry`), and the failure row hides once a retry
+  supersedes it (`r11-upstream-retry.ts`, 737993303d). Code colouring follows Shiki for
+  every declarator of a `const`/`let`/`var` list, object keys versus type annotations,
+  import lines and keyword-named members (`r11-misc-ts-decl.ts`).
+- Composer: send, stop, queue and steer while running (queued rows reorder by drag),
+  model picker with search and favourites, reasoning and runtime options, Plan/Build,
+  slash and @ menus, file and image attachments (videos as first-frame tiles that play in
+  an expanded preview; removing an image the prompt references asks first and removes
+  every reference), stash, multi-model drafts that start one worktree thread per model,
+  the resume-with-less-context banner. The composer overlays the transcript, which keeps a
+  measured reservation at its end (`r4-composer-overlay.ts`); with Chat width Wide or Full
+  the context strip's workspace control is the desktop Select.
+- Requests: approvals, single/multiple-choice and free-text questions.
+- Version control in the workspace card (`r4-git-*`): the branch picker (search, create
+  a ref with Enter, check out, "Start from origin"), the git actions quick action and
+  menu, the commit dialog (file selection, message, "Commit on new branch"), the
+  default-branch confirm, progress with hook output, the 10 s inline success, pull,
+  the Publish repository wizard, the "Run on" picker across environments that share a
+  repository, and the new-worktree start flow. On a local draft a ref search that parses as a
+  pull request reference (`#42`, `42`, a pull request URL, `gh pr checkout 42`) leads both
+  pickers with "Checkout pull request", which opens PullRequestThreadDialog
+  (`r9-connect-checkout.ts`, `r9-connect.contract`): `git.resolvePullRequest` per edit, then
+  Local or Worktree through `git.preparePullRequestThread` (Worktree passes the draft's thread
+  id), and the draft moves onto the checkout. As in the reference, the field's text is selected
+  when the dialog opens, each edit's lookup starts at once, and "Resolving pull request..."
+  stays until 450 ms after the last edit before the answer or error shows
+  (`r10-connect-timing.ts`).
+- Right side: the workspace card (docked beside the chat from 984 pt, a header popover
+  below), Changes (branch) and Uncommitted diffs plus per-turn diffs, lineage with
+  merge-back, the surface chooser and a tab bar per thread (`r4-surfaces-*`): Files
+  (the workspace tree with search and expand-all, file previews with breadcrumbs,
+  rendered Markdown/CSV and an editor that writes back with `projects.writeFile`; opened
+  from Go to file, content search and file chips; its explorer and rendered/source
+  choices persist; an `.html` file opens rendered in the sandboxed WebKit body (its sibling stylesheets, scripts and
+  images load through the signed asset URL's token directory only, `R6MediaPreview.swift`, lane r11-misc)
+  from a signed asset URL, with the reference's Show HTML source / Show rendered page toggle,
+  `r10-device-files-html.ts`; regex literals in its scripts are coloured as Shiki does,
+  `r10-device-html-regex.ts`; every right-panel tab (Files, files, the
+  pull request list, the Diff, the Device surface with its device, pull request details and
+  attachments) is kept per thread across launches, `r10-device-panels.ts`, `r11-device-panels.ts`;
+  the Diff's preview of a project outside the server's root is asked again at the server's cwd
+  as DiffPanel does, `r11-device-diff.ts`), Linked pull requests (rows, Copy link, Open, Watch for changes / Stop
+  watching, Unlink), the Pull request surface (`r5-panels-*`: the thread's or a link's
+  pull request in the Pull Requests page's detail panel, opened from the chooser's P, the
+  details card's `#N` rows with "Show N more", and pull request links; `r6-pr-*`: with the
+  host's detail the row splits into its state glyph, the checks segment and its popover
+  (attention and running checks, "Show all", Details links), the tooltip card (state,
+  base ← head, checks, files and diff size) and the one action worth taking: Resolve and
+  Fix check the pull request out into a worktree with `git.preparePullRequestThread` and
+  leave the task unsent in the project's draft (`r7-handoff-thread.ts`: the draft's thread id
+  is allocated first and passed along, so the server runs the project's worktree setup
+  script for that thread, and the draft later launches under the same id, across a
+  relaunch), Ready and Merge (after "Merge pull
+  request?") run `pullRequests.runAction`; a pull request tab without a linked snapshot
+  takes its state from the loaded detail; the composer's context strip shows the thread's
+  pull request chip, or a hand-off draft's from its branch status, with its tooltip list,
+  +N and stack forms, `r7-handoff-strip.ts`), sent attachment
+  previews (Markdown, table or numbered source, images, Copy contents and Save file;
+  opened from a sent file chip; `r6-media-*`: PDFs in PDFKit, HTML rendered in a sandboxed
+  WebKit view that reaches only its asset URL's token directory or as source coloured by Shiki's html grammar under the
+  Pierre themes (`r7-polish-html-syntax.ts`), audio and video in AVKit players, "Unable to
+  load audio/video." with Try again) and Device (the "Set up devices" wizard over
+  `device.configure` / `subscribeDeviceState`; Escape closes it; after onboarding a row
+  opens its simulator with `device.open`, then the workspace shows the hub's H.264 screen
+  decoded with VideoToolbox (iOS: serve-sim's AVCC body, MJPEG when the description cannot be
+  decoded or the decoder stays behind for a second, `R11DeviceBacklog.swift`; Android: serve-emu's SEMU-framed socket) as the 3D phone (SceneKit over the
+  connected server's own device models, never bundled; a procedural body for other devices)
+  or flat, with Home, Rotate (Android: Back, Recents and a Portrait / Landscape menu),
+  appearance, text size, the Tools drawer (foreground app, open URL, launch, terminate,
+  Simulator / Emulator settings, accessibility frames over the screen, location, permissions,
+  push, the event log), Save screenshot, Float over chat, Close, Power off, 3D / Flat, the
+  iPad's Magic Keyboard and Restore 3D view; the focused screen forwards keys (HID usages on
+  iOS, key codes and text on Android), `r6-media-device.ts`, `r7-device-tools.ts`,
+  `R7Device*.swift`; the iPhone Duo's hinged 3D viewer on the fixed cover / inner panel feeds with its Fold shape and
+  Device stance stands, and a foldable emulator's Fold / Unfold over serve-emu's `/api/fold` with its procedural
+  hinged body, `r9-device-duo.ts`, `R9Device*.swift`). Sent videos are 4:3 tiles in the message's media grid;
+  the tile and the video chip open the media dialog, playing.
+- Pages: Pull Requests (list, detail, checks, copy actions), Usage (cost, tokens,
+  limits, share bars that follow the selected metric, model dialog, custom model prices and
+  Map to), welcome wizard. The palette's "New thread without a project" and the new-thread
+  heading's No project open the machine's folder for threads without a project the same
+  way (`r11-upstream-scratch.ts`, 845ddd9354).
+- Command palette (threads, projects, actions, files, content search, New thread in…,
+  Link pull request), toasts, the Nightly mobile-app notice, macOS notifications (after
+  the user grants them).
+- Settings: all 14 routes with project/environment scope, search, theme editor and VS
+  Code theme import, keybindings, providers, connections (pairing, SSH, outdated-host
+  update), SnapShots, diagnostics and licenses.
+
+Return sends; Shift-Return inserts a newline; IME marked text stays an editor action.
+⌘↩ sends from the button; in a new-thread draft it starts the thread in the background
+when the server binds `composer.sendBackground`; ⌥⌘↩ on an existing thread sends and
+opens a fresh draft in the same project. Other chords follow the server's keybindings
+(⌘K palette, ⌘N new thread, ⇧⌘M model picker, ⇧⌘K copy PR number, ⌘B sidebar). ⌘B bolds instead
+while the rich-text composer has the focus, as Tiptap does: a click into an existing draft
+counts as focus (the window's first responder is followed, `R9Input.swift`), and ⌘B / ⌘I end
+a composing syllable first and match by key code under a non-Latin source such as Korean 2-Set. Outside
+the composer a ⌘ or ⌃ letter chord under a non-Latin source is re-issued with its key's Latin
+character, as the reference's `resolveEventKeys` does (`R10Connect.swift`), so ⌘B, ⌘K and menu
+equivalents still match. After the thread list re-renders under a still pointer, the row that
+slid under it is hovered, as a browser's synthetic mouse move does (`t3-rehover`). The menu bar is the reference
+desktop app's (`R8KeysMenus.swift`): File shows only Close Window, View starts with Reload
+and Force Reload, and the host's Develop and Go menus are removed, so ⌘D (diff), ⌘O (open in
+editor) and ⌘1–9 reach the window; every button chord stays a hidden File key equivalent,
+one dispatch button per chord (⌘N and ⇧⌘O both start a thread with no text field focused).
+Edit › Undo sends ⌘Z to thread.undo when no editable text has the focus, and ⌘W closes the
+active right-panel surface tab (its neighbour becomes active; the last tab closes the panel;
+on the Pull Requests page the open pull request) before it closes the window. The surface launcher takes the focus when it mounts and
+answers its letters before type-to-focus (`R8KeysLauncher.swift`); a Markdown table's Copy
+menu is a window-level popup, placed from the trigger's drawn frame (`R8KeysMeasure.swift`),
+that Escape and an outside press close (`r8-keys-table-menu.*`). A global hotkey of another
+app (on the round-8 Mac, Raycast holds ⌘1) never reaches the window.
+
+Credentials stay in Keychain, scoped to the server origin and environment. The Swift
+module atomically saves the versioned `t3-code.json` preference file (selections,
+drafts, sidebar and page preferences, dismissed notices, pending operation identities)
+under Exact's app data directory. **Disconnect** keeps the credential; **Forget**
+removes it. On launch the client reconnects by itself to the last switched-on saved
+environment with its Keychain credential, and the window keeps its frame across launches
+(`r8-pointer-reconnect.ts`, `R8PointerWindowFrame.swift`). This client bundles no server, so
+every paired server, a loopback one included, is a saved environment under Environments in
+Settings › Connections with its switch and row menu (Icon, Copy trace ID, Remove from this
+device…), as the reference lists paired remote environments (lane r9-connect). Load balancing
+and GitHub sharing count environments as the reference's `loadBalancingEnvironments` does: the
+first saved loopback environment stands in for the reference's served primary ("This machine"),
+counts even while switched off and comes first, followed by every switched-on saved environment;
+both sections show from two (`r11-misc-connections.ts`). A pairing that
+fails saves nothing: no row, no catalog entry, no remembered origin (the transport remembers an
+origin only once its socket opens), and a failed first connection falls back to the saved
+environment it replaced. A successful Add environment with nothing connected stays on
+Settings › Connections with the reference's "Backend added" toast, and a pasted pairing URL
+fills both Host and Pairing code (`r10-connect-pairing.ts`); a failed pairing with nothing
+connected leaves no client state naming its origin. A stored `onboardingCompletedAt` older than T3 Code itself (the 1970
+values of older builds) reads as unset, so the real time is stored (`r9-connect-onboarding.ts`).
+After a lost connection the client follows the reference reconnect ladder
+and resynchronizes before permitting writes. A submission with an uncertain result keeps
+its command identifiers and draft and is never retried automatically.
+
+## Known limits and exclusions
+
+- Excluded or not built: the terminal drawer and Terminal surface (a hand-off's setup script
+  runs on the server but its output is not shown), the Browser surface,
+  pinch zoom of the 3D phone (the reference's is a no-op too; the iPhone Duo's pinch moves its
+  hinge, `R9DeviceDuoView.swift`), dragging and resizing the floating device player, web,
+  iOS and Linux delivery.
+- Known in-app differences (round 11): during a row-action sweep the hover card or tooltip
+  that was open at the press stays until release, and Escape does not cancel the sweep (the
+  reference closes the card and cancels); rows have no keyboard context menu (ContextMenu key,
+  Shift-F10); a switched-off loopback environment stays listed under Environments (it stands
+  in for the reference's unlisted primary); rendered HTML loads only its asset token's
+  directory, not external hosts; the reference opens a thread's live device session as a
+  floating player on load and this client does not; No project drafts cannot switch machine.
+- Framework limits worked around in-app: host text truncates at word boundaries and
+  draws no placeholder colour; negative-spread shadows draw faint; popovers anchor below
+  their invoker; SVG paths cannot morph (morph icons cross-fade); backdrop blur sees only
+  its parent (the composer is opaque, where the reference's glass shows the transcript
+  through it); a textarea sizes to its plain value (a prompt whose chip links are long
+  can be a line taller than its chips draw at narrow widths); a forgotten Exact answer drops its native replies (the snapshot read gate
+  in `T3ReadGate.swift` limits the effect); an answer that awaits a promise another answer
+  started is refused as "pending on nothing", so caches share resolved values only
+  (`readDetail` in `r6-pr-actions.ts`); data sources have no clock; the
+  macOS textarea maps `autocorrect="off"` to spelling correction only, so the Files
+  editor's text view takes the app's `t3-plain-text` hook, which turns AppKit's smart
+  quotes, dashes and text replacement off (`T3PanelsNative.swift`); the composer's text
+  view gets the same switch-off when it attaches (`T3ComposerEditor.swift`). A child
+  drawn outside its parent's frame takes no press natively, so a negative margin (the
+  model picker's `-ms-2.5`) is held inside a parent that reaches out by the same amount;
+  `pointer-events="none"` holds only on SVG, so overlay layers carry `inert=true`.
+- Needs a person: physical modifier chords, right-click menus, real pointer drags and
+  hovers, macOS notification and screen-capture grants, provider installs and logins,
+  GitHub writes.
+
+## Source and checks
+
+`app.contract` keeps the window's state, resources and actions (a child component may
+not own resources or assign root state); its view lives in `app-main.contract`,
+`app-settings.contract` and `app-overlays.contract`, whose components take the root
+names they read as props of the same names. Feature areas live in their own files
+(`sidebar-*`, `timeline-*`, `composer-*`, `shell-*`, `pages-*`, `settings-*`,
+`palette*`, `r3-*`), each `.ts` with its Contract view and tests. `client.ts`,
+`protocol.ts`, `domain.ts` and `presentation.ts` own the data source, commands and
+event projection. `modules/apple/` is the native module; `apple/` holds the bake adapter
+and native tests. T3's MIT notice is retained in `LICENSE-T3`.
+
+Exact asks an answer again when a topic it watches changes, and an answer it lets go
+never receives its pending native replies. The snapshot read therefore tags its native
+requests (`r3-protocol-reader.ts`) and `T3ReadGate.swift` holds the topics that read
+watches until its last reply, replays them once, and asks again after a read that
+stopped mid-way. Each WebSocket RPC carries a trace id the transport lists while it is
+pending, so "Some requests are slow" counts only requests the server has not answered.
+The transport follows the reference's reconnect policy (jittered 1 s·2ⁿ⁺¹ ladder capped at
+five minutes, reset after 30 s connected; Retry, returning to the app and an offline report
+probe the live socket instead of replacing it) and resubscribes a failed stream on the same
+session after 250 ms doubling to 30 s.
+
+```sh
+bun test examples/t3-code
+bun node_modules/typescript/bin/tsc --noEmit --strict --target ES2020 --module ESNext --moduleResolution bundler --skipLibCheck --lib ES2020,DOM examples/t3-code/app.ts
+cargo run -q -p contract -- build examples/t3-code/app.contract -o /tmp/t3-code.plan
+EXACT_APP_DIR="$PWD/examples/t3-code" cargo test -p t3-code-macos --lib   # with the Hermes env of the root setup
+```
+
+The Apple crate is a workspace member outside the default Cargo members; a Cargo
+build alone does not compile or launch its Swift module. Use the app build above
+for an integrated check.
+
+The module AppKit/XCTest binaries under `apple/tests/<name>/` build with Exact's
+module facade, the app's generated data keys, every file in `modules/apple/` (the
+`composer`, `menus` and `r5-panels` tests define their own `exactModule`, so they leave
+out `T3Module.swift`) and the test directory's sources. Run from the repository root:
+
+```sh
+X=$(xcode-select -p); F="$X/Platforms/MacOSX.platform/Developer/Library/Frameworks"; L="$X/Platforms/MacOSX.platform/Developer/usr/lib"
+R="$PWD/target/t3-tests"; mkdir -p "$R"; export T3_APP_DIR="$PWD/examples/t3-code"
+T3_DK="$R" bun -e 'import { writeDataKeys } from "./host/apple/data-keys.mjs"; import manifest from "./examples/t3-code/app.json"; writeDataKeys({ manifest }, process.env.T3_DK + "/ExactDataKeys.swift");'
+for d in examples/t3-code/macos/tests/*/; do
+  n=$(basename "$d"); O="$R/$n"; mkdir -p "$O"
+  [ "$n" = timeline-keyboard ] && continue # Actual host regression; separate recipe below.
+  M=$(ls examples/t3-code/modules/apple/*.swift); case $n in composer|menus|r5-panels) M=$(echo "$M" | grep -v /T3Module.swift);; esac
+  xcrun swiftc -swift-version 5 -module-name "T3$(echo $n | tr -d -)Tests" -F "$F" -I "$L" -L "$L" \
+    -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \
+    host/apple/modules/ExactNativeModule.swift "$R/ExactDataKeys.swift" $M "$d"*.swift -o "$O/$n-tests" || continue
+  [ $n = snapshot ] && { rm -rf "$O/fixture"; mkdir -p "$O/fixture"; export T3_SNAPSHOT_TEST_ROOT="$O/fixture"; }
+  T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_MERMAID_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" "$O/$n-tests" $([ $n = mermaid ] && echo "$T3_SERVER")
+done
+```
+
+The `timeline-keyboard` regression uses the actual ExactKit key loop and scroll
+views. After building the macOS app, run it from the repository root:
+
+```sh
+mkdir -p target/t3-tests
+xcrun swiftc -swift-version 5 -module-name ExactKit -I host/apple/Sources/CExact \
+  $(rg --files host/apple/Sources/ExactKit -g '*.swift') \
+  examples/t3-code/macos/tests/timeline-keyboard/main.swift \
+  -L target/aarch64-apple-darwin/apple-dev -lt3_code_macos -lc++ \
+  -o target/t3-tests/timeline-keyboard-tests
+target/t3-tests/timeline-keyboard-tests
+```
+
+`mermaid` needs `T3_SERVER` set to a running T3 server's origin (it loads that server's
+Mermaid build into an offscreen web view). The live transport tests skip unless
+`T3_TRANSPORT_PAIRING_FILE` points at a fresh disposable pairing JSON file and
+`T3_TRANSPORT_ORIGIN` names its server; `r3.swift` serves its own loopback WebSocket peer
+for the reconnect policy, stream retries and outdated-host updates. The SSH tests read
+a temporary home, never `~/.ssh`; the live tunnel test skips unless `T3_SSH_COMMAND`
+names an ssh test double, and agent runs of the app read hosts only from `T3_SSH_HOME`.
+`T3_MENUS_EVIDENCE` set to a directory also renders the quit pill in both appearances.
+**Check for Updates...** (under About and in Help) reads the bundle's receipt: a build
+without an update store (`deploy.store` is `"0"`) shows the reference's "Automatic
+updates are not available right now." box; a build with one omits both items.
+
+To drive the app the way the parity rounds did (an isolated fixture backend serving the
+HEAD oracle, the built app in agent mode, a headless Chrome reference), see the lane
+tooling under `target/t3-ui-parity/` described in `AGENT-HANDOFF.md`.

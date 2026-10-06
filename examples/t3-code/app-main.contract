@@ -1,0 +1,351 @@
+use SettingsCore from "./settings-core.contract"
+use Settings from "./shapes.contract"
+use Snapshot from "./shapes.contract"
+use ComposerCard from "./composer.contract"
+use ComposerEditorDock from "./composer-editor.contract"
+use ComposerDrawerLayer from "./composer-editor.contract"
+use StashBadge from "./composer-editor.contract"
+use ComposerEditorView from "./composer-editor.contract"
+use ComposerDock from "./composer-controls.contract"
+use ComposerStrip from "./composer-controls.contract"
+use SubagentBar from "./composer-controls.contract"
+use ComposerBranches from "./composer-shapes.contract"
+use Viewport from "./shapes.contract"
+use ChatHeader from "./chat.contract"
+use AlertStack from "./chat.contract"
+use EmptyThread from "./pages-hero.contract"
+use PagesLanding from "./pages-hero.contract"
+use PagesHome from "./pages-hero.contract"
+use UsagePage from "./pages-usage.contract"
+use UsageView from "./pages-usage.contract"
+use UsageKey from "./pages-usage.contract"
+use UsagePricesLayer from "./pages-usage-dialogs.contract"
+use UsageModelLayer from "./pages-usage-dialogs.contract"
+use PrList from "./pages-prs.contract"
+use PgIcon from "./pages-icons.contract"
+use PrListView from "./pages-prs.contract"
+use PrPanel from "./pages-pr-detail.contract"
+use PrDetailView from "./pages-pr-detail.contract"
+use ScrollToEnd from "./chat.contract"
+use TranscriptMarkdown from "./markdown.contract"
+use TimelineRow from "./timeline.contract"
+use TimelineFade from "./timeline.contract"
+use TimelineMinimap from "./timeline-minimap.contract"
+use TimelineAttachmentUrls from "./timeline-attachments.contract"
+use RequestBanner from "./requests.contract"
+use RequestActions from "./requests.contract"
+use ApprovalComposer from "./requests.contract"
+use DiffPanel from "./diff.contract"
+use ShellView from "./shell-shapes.contract"
+use SurfacePanel from "./shell-panels.contract"
+use R6DeviceMiniPlayer from "./r6-device.contract"
+use ShellDetails from "./shell-shapes.contract"
+use ThreadDetailsInline from "./shell-details.contract"
+
+// The T3Code window's main view, moved out of app.contract, which keeps the state, resources and
+// actions: each component takes the root names it reads as props of the same names.
+
+// The conversation column: header, transcript (or the empty thread), composer stack and alerts.
+component ChatColumn
+  props
+    pageCover: bool
+    viewport: Viewport
+    data: Snapshot
+    shell: ShellView
+    settings: Settings
+    rightPanel: bool
+    narrowDiff: bool
+    detailsOpen: bool
+    details: ShellDetails
+    detailsEditors: bool
+    titleMenuOpen: bool
+    renaming: bool
+    renameText: string
+    toggleSidebar: action
+    panelUi: action
+    detailsAct: action
+    titleUi: action
+    home: PagesHome
+    commandPending: bool
+    command: action
+    paletteShow: action
+    foldHold: bool
+    releaseFold: action
+    jumpRequest: number
+    composerOwner: string
+    canRest: bool
+    chatLocal: action
+    markdown: TranscriptMarkdown
+    earlier: action
+    attachmentUrls: TimelineAttachmentUrls
+    dismissedProviderBanner: string
+    settingsCore: SettingsCore
+    conversationWidth: number
+    resting: bool
+    scrollToEnd: action
+    editor: ComposerEditorView
+    composerKey: action
+    composerDrop: action
+    editorOp: action
+    selectThread: action
+    openModels: action
+    composerText: string
+    modelsOpen: bool
+    optionsOpen: string
+    write: action
+    send: action
+    stop: action
+    composerFocus: action
+    composerBlur: action
+    openOptions: action
+    removeSnapshot: action
+    askRemove: action
+    interaction: action
+    openProviderSettings: action
+    branches: ComposerBranches
+    dismissProviderBanner: action
+    timelineNow: number
+    contextOver: bool
+    // r8-pointer D11: the chat column's right edge in the window is (sidebar) + conversationWidth; the Send tooltip
+    // shifts to stay inside it, since a right panel (a later section) paints over anything reaching past it.
+    sidebarWidth: number
+  // r8-pointer D9/D10: the transcript's hovered row (message.hoverKey) and its hovered tooltip part.
+  state rowHover = ""
+  state partHover = ""
+  action hoverPart(row: string, part: string, over: bool)
+    rowHover = over ? row : (rowHover == row ? "" : rowHover)
+    partHover = over ? part : (partHover == part ? "" : partHover)
+  // chatCanvasLayout (upstream 429c625a85): with the workspace card docked, chat stays centred while it
+  // clears the card by 32pt, else moves left only as far as needed and narrows only at the 20pt padding.
+  // Every lane container keeps its own 20pt padding and adds `laneInset` on its end side.
+  derive laneWidth = min(data.look.chatMax, conversationWidth - 344)
+  derive laneLeft = max(20, min((conversationWidth - laneWidth) / 2, conversationWidth - 324 - laneWidth))
+  derive laneInset = details.inline ? max(0, conversationWidth - 2 * laneLeft - laneWidth) : 0
+  // r4-composer: the composer stack's lane (the 20pt paddings and laneInset, centred) for the overlay.
+  derive overlaid = length(data.messages) > 0
+  derive stackWidth = max(0, min(data.look.chatMax, conversationWidth - 40 - laneInset))
+  derive stackLeft = 20 + max(0, conversationWidth - 40 - laneInset - stackWidth) / 2
+  view
+    column flex=1 min-width=0 height="100%" position="relative" inert=pageCover hook="t3-frame" data-frame="chat"
+      when viewport.prefersColorScheme == "dark"
+        ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or details.inline), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
+      else
+        ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or details.inline), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
+      when length(data.messages) == 0
+        column flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box"
+          when viewport.prefersColorScheme == "dark"
+            EmptyThread(data=data, home=home, scheme="dark", shoulder=(editor.stash.count > 0 and data.requestMode != "approval"), busy=commandPending, command=command, addProject=paletteShow("command", "add-project"))
+          else
+            EmptyThread(data=data, home=home, scheme="light", shoulder=(editor.stash.count > 0 and data.requestMode != "approval"), busy=commandPending, command=command, addProject=paletteShow("command", "add-project"))
+      else
+        // The history control is the list's first row; the top 24pt fades under the header (topbar-scroll-fade).
+        column flex=1 min-height=0 width="100%" position="relative"
+          list virtualized=true scrollFollowEnd=(not foldHold) reachend=releaseFold scrollTop=(1000000 + jumpRequest) id="transcript" testId="transcript" hook="t3-transcript" data-timeline-owner=composerOwner data-timeline-rest=(canRest ? "yes" : "no") flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
+            each message in data.messages key=message.id
+              TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#27272a, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24), scheme=viewport.prefersColorScheme)
+          when not ((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "")
+            TimelineFade(canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas))
+          TimelineMinimap(items=data.minimap, current=data.minimapCurrent, gutter=((conversationWidth - min(data.look.chatMax, conversationWidth - 40)) / 2), windowHeight=viewport.height, local=chatLocal)
+          // composer-editor: over the transcript, so leaving the end (a fold opening there) moves nothing.
+          when data.transcriptAway
+            ScrollToEnd(jump=scrollToEnd, inset=laneInset, lift=data.scrollLift)
+      // r4-composer: the composer overlays the transcript (ChatView's data-chat-composer-overlay; r4-composer-overlay.ts
+      // measures it for the transcript's end reservation): absolute at the chat's foot over the lane alone, so the
+      // transcript beside it still takes the pointer and the wheel; an empty thread keeps it in flow under the hero.
+      // The banners sit above the card; the drawer layer paints after both, over the banners, clipped at the card.
+      column position=(overlaid ? "absolute" : "relative") left=(overlaid ? stackLeft : 0) bottom=0 width=(overlaid ? stackWidth : "100%") padding-left=(overlaid ? 0 : 20) padding-right=(overlaid ? 0 : 20 + laneInset) flex-shrink=0 align-items="center" box-sizing="border-box" hook="t3-frame" data-frame="overlay" testId="composer-overlay"
+        column padding-top=(overlaid ? 0 : 12) width="100%" max-width=data.look.chatMax position="relative" box-sizing="border-box"
+          // The banners share a row with the stash's shoulder tab.
+          row width="100%" align-items="flex-end" hook="t3-frame" data-frame="shoulder"
+            column flex=1 min-width=0 margin-right=(editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) ? -18 : 0) hook="t3-frame" data-frame="dock"
+              when editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)
+                when viewport.prefersColorScheme == "dark"
+                  ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop)
+                else
+                  ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop)
+            when editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) and data.requestMode != "approval" and not data.composer.subagent
+              StashBadge(stash=editor.stash, op=editorOp)
+          RequestBanner(data=data, command=command, busy=commandPending, scheme=viewport.prefersColorScheme, compact=(min(data.look.chatMax, conversationWidth - 40) - 68 <= 560), maximumHeight=min(384, viewport.height * 0.4))
+        // A resting card keeps the transcript's reservation instead of the stack's height (resolveComposerTimelineInset).
+        column padding-bottom=(resting ? 52 : 20) justify-content="flex-end" flex-shrink=0 align-items="center" width="100%" box-sizing="border-box" hook="t3-frame" data-frame="stack"
+          column width="100%" max-width=data.look.chatMax position="relative"
+            when data.requestMode == "approval" or data.composer.subagent
+              when data.composer.subagent
+                SubagentBar(data=data, busy=commandPending, openParent=selectThread)
+              else
+                ApprovalComposer(placeholder=data.composer.placeholder)
+            else
+              ComposerEditorDock(editor=editor, dark=(viewport.prefersColorScheme == "dark"), op=editorOp, openModels=openModels)
+              ComposerCard(editor=editor, data=data, viewportWidth=((data.sidebarOpen ? sidebarWidth : 0) + conversationWidth), text=composerText, resting=resting, busy=commandPending, narrow=(conversationWidth < 620), keyModels=settings.keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=stop, onFocus=composerFocus, onBlur=composerBlur, openModels=openModels, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=askRemove, interaction=interaction, command=command, openProviders=openProviderSettings, contextOver=contextOver)
+              when branches.show and not resting
+                when viewport.prefersColorScheme == "dark"
+                  ComposerStrip(strip=branches, open=optionsOpen, busy=commandPending, openOptions=openOptions, command=command, wide=(stackWidth >= 768))
+                else
+                  ComposerStrip(strip=branches, open=optionsOpen, busy=commandPending, openOptions=openOptions, command=command, wide=(stackWidth >= 768))
+            when data.requestMode == "question" and not resting
+              RequestActions(data=data, command=command, busy=commandPending, scheme=viewport.prefersColorScheme)
+      ComposerDrawerLayer(editor=editor, dark=(viewport.prefersColorScheme == "dark"), op=editorOp)
+      // lane r6-media: a device floated over the chat (r6-device.contract).
+      when shell.panel.deviceMini.show
+        R6DeviceMiniPlayer(mini=shell.panel.deviceMini, top=shell.panel.deviceMini.top, local=chatLocal)
+      when length(data.messages) == 0 and data.connected and data.projectId != ""
+        // Reference stack: the composer plus a 52pt strip zone under it, centred in the column.
+        // Until the branch strip renders under the draft composer, this spacer reserves its 32pt.
+        box flex=1 min-height=0 padding-top=(branches.show ? 12 : 44)
+      when viewport.prefersColorScheme == "dark"
+        AlertStack(data=data, dismissed=dismissedProviderBanner, busy=commandPending, dismissProvider=dismissProviderBanner, command=command)
+      else
+        AlertStack(data=data, dismissed=dismissedProviderBanner, busy=commandPending, dismissProvider=dismissProviderBanner, command=command)
+      // One subtree per scheme: light-dark() inside the card's SVG glyphs does not re-resolve on a scheme flip.
+      when details.inline and viewport.prefersColorScheme == "dark"
+        ThreadDetailsInline(details=details, maxHeight=(viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal)
+      when details.inline and viewport.prefersColorScheme != "dark"
+        ThreadDetailsInline(details=details, maxHeight=(viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal)
+
+// The right panel beside the chat on a wide window: the diff, or the surface chooser.
+component RightPanels
+  props
+    data: Snapshot
+    narrowDiff: bool
+    rightMaximized: bool
+    viewport: Viewport
+    sidebarWidth: number
+    diffWidth: number
+    shell: ShellView
+    command: action
+    panelUi: action
+    resizeDiff: action
+    finishDiffResize: action
+    rightPanel: bool
+    detailsOpen: bool
+    detailsAct: action
+    chatLocal: action
+    paletteShow: action
+    prDetail: PrDetailView
+    prDocuments: list<ChatDocument>
+    prTab: string
+    prSetTab: action
+    prReload: action
+    prAct: action
+    prCopy: action
+  view
+    when data.diffOpen and not narrowDiff
+      box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0
+        DiffPanel(data=data, shell=shell, command=command, close=panelUi("close", ""), ui=panelUi, maximized=rightMaximized, resize=resizeDiff, finishResize=finishDiffResize, scheme=viewport.prefersColorScheme, sheet=false, detailsOpen=detailsOpen, details=detailsAct, local=chatLocal)
+    when rightPanel and not data.diffOpen and not narrowDiff
+      box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0
+        SurfacePanel(shell=shell, sheet=false, maximized=rightMaximized, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=viewport.prefersColorScheme, prDetail=prDetail, prDocuments=prDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy)
+
+// The utility pages (Usage, Pull Requests) and the no-environment/no-projects landing over the main view.
+component PagesCover
+  props
+    pageCover: bool
+    data: Snapshot
+    sidebarWidth: number
+    modal: bool
+    utilityPage: string
+    viewport: Viewport
+    usage: UsageView
+    usageShortcuts: list<UsageKey>
+    settings: Settings
+    toggleSidebar: action
+    usageMetricSet: action
+    usageWindowSet: action
+    usageBreakdownSet: action
+    usageRefreshNow: action
+    usageEnvironmentToggle: action
+    openPage: action
+    prList: PrListView
+    prTyped: bool
+    prQuery: string
+    prListWidth: number
+    prSelected: string
+    prPanelOpen: bool
+    prTogglePanel: action
+    prType: action
+    prControl: action
+    prSelect: action
+    prReload: action
+    paletteShow: action
+    prDetail: PrDetailView
+    prMarkdown: TranscriptMarkdown
+    prPanelWidth: number
+    prTab: string
+    prSetTab: action
+    prClose: action
+    prAct: action
+    prCopy: action
+    chatLocal: action
+    home: PagesHome
+    commandPending: bool
+    command: action
+    openConnectionsPage: action
+    pagesOp: action
+  view
+    when pageCover
+      box position="absolute" left=(data.sidebarOpen ? sidebarWidth : 0) top=0 right=0 bottom=0 inert=modal testId="pages-cover"
+        when utilityPage == "usage"
+          when viewport.prefersColorScheme == "dark"
+            UsagePage(page=usage, keys=usageShortcuts, scheme="dark", wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, toggleEnvironment=usageEnvironmentToggle, back=openPage(""))
+          else
+            UsagePage(page=usage, keys=usageShortcuts, scheme="light", wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, toggleEnvironment=usageEnvironmentToggle, back=openPage(""))
+        when utilityPage == "pull-requests"
+          row position="absolute" left=0 top=0 right=0 bottom=0
+            when viewport.prefersColorScheme == "dark"
+              PrList(page=prList, scheme="dark", query=(prTyped ? prQuery : prList.query), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, narrow=(prListWidth < 512), compact=(prListWidth < 428), panelOpen=(prSelected != "" and prPanelOpen), viewportWidth=viewport.width, listLeft=(data.sidebarOpen ? sidebarWidth : 0), listWidth=prListWidth, toggleSidebar=toggleSidebar, togglePanel=prTogglePanel, search=prType, control=prControl, select=prSelect, reload=prReload, addProject=paletteShow("command", "add-project"))
+              when prSelected != "" and prPanelOpen
+                PrPanel(detail=prDetail, documents=prMarkdown.documents, scheme="dark", width=prPanelWidth, tab=prTab, setTab=prSetTab, close=prClose, reload=prReload, act=prAct, copy=prCopy, local=chatLocal)
+            else
+              PrList(page=prList, scheme="light", query=(prTyped ? prQuery : prList.query), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, narrow=(prListWidth < 512), compact=(prListWidth < 428), panelOpen=(prSelected != "" and prPanelOpen), viewportWidth=viewport.width, listLeft=(data.sidebarOpen ? sidebarWidth : 0), listWidth=prListWidth, toggleSidebar=toggleSidebar, togglePanel=prTogglePanel, search=prType, control=prControl, select=prSelect, reload=prReload, addProject=paletteShow("command", "add-project"))
+              when prSelected != "" and prPanelOpen
+                PrPanel(detail=prDetail, documents=prMarkdown.documents, scheme="light", width=prPanelWidth, tab=prTab, setTab=prSetTab, close=prClose, reload=prReload, act=prAct, copy=prCopy, local=chatLocal)
+            button press=prTogglePanel disabled=(prSelected == "") position="absolute" right=13 top=12 width=28 height=28 padding=0 border-radius=10 border-width=0 background-color=(prSelected != "" and prPanelOpen ? "light-dark(#27272a0d, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle right panel" testId="pull-requests-toggle-panel"
+              PgIcon(name="panel-right", size=16, color="light-dark(#71717b, #818181)")
+        when utilityPage == ""
+          when viewport.prefersColorScheme == "dark"
+            PagesLanding(home=home, scheme="dark", sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, busy=commandPending, toggleSidebar=toggleSidebar, command=command, addProject=paletteShow("command", "add-project"), openConnections=openConnectionsPage)
+          else
+            PagesLanding(home=home, scheme="light", sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, busy=commandPending, toggleSidebar=toggleSidebar, command=command, addProject=paletteShow("command", "add-project"), openConnections=openConnectionsPage)
+    // Usage's model and Model prices dialogs cover the whole window, sidebar included (pages-usage-dialogs).
+    when pageCover and utilityPage == "usage" and usage.prices.open
+      UsagePricesLayer(page=usage, scheme=viewport.prefersColorScheme, viewportHeight=viewport.height, busy=commandPending, op=pagesOp)
+    when pageCover and utilityPage == "usage" and usage.detail.open and not usage.prices.open
+      when viewport.prefersColorScheme == "dark"
+        UsageModelLayer(page=usage, scheme="dark", viewportHeight=viewport.height, sm=(viewport.width >= 640), op=pagesOp)
+      else
+        UsageModelLayer(page=usage, scheme="light", viewportHeight=viewport.height, sm=(viewport.width >= 640), op=pagesOp)
+
+// The right panel as a sheet over a narrow window, with its click-away backdrop.
+component RightSheets
+  props
+    data: Snapshot
+    narrowDiff: bool
+    modal: bool
+    panelUi: action
+    viewport: Viewport
+    diffWidth: number
+    shell: ShellView
+    command: action
+    resizeDiff: action
+    finishDiffResize: action
+    rightPanel: bool
+    detailsOpen: bool
+    detailsAct: action
+    chatLocal: action
+    paletteShow: action
+    prDetail: PrDetailView
+    prDocuments: list<ChatDocument>
+    prTab: string
+    prSetTab: action
+    prReload: action
+    prAct: action
+    prCopy: action
+  view
+    when data.diffOpen and narrowDiff and not modal
+      box position="absolute" top=0 bottom=0 left=0 right=0 background-color="#00000000" z-index=10 press=panelUi("close", "") aria-label="Close changes"
+      box position="absolute" top=0 bottom=0 right=0 width=min(viewport.width, diffWidth) z-index=11
+        DiffPanel(data=data, shell=shell, command=command, close=panelUi("close", ""), ui=panelUi, maximized=false, resize=resizeDiff, finishResize=finishDiffResize, scheme=viewport.prefersColorScheme, sheet=true, detailsOpen=detailsOpen, details=detailsAct, local=chatLocal)
+    when rightPanel and not data.diffOpen and narrowDiff and not modal
+      box position="absolute" top=0 bottom=0 left=0 right=0 background-color="#00000000" z-index=10 press=panelUi("toggle", "") aria-label="Close right panel"
+      box position="absolute" top=0 bottom=0 right=0 width=min(viewport.width, diffWidth) z-index=11
+        SurfacePanel(shell=shell, sheet=true, maximized=false, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=viewport.prefersColorScheme, prDetail=prDetail, prDocuments=prDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy)

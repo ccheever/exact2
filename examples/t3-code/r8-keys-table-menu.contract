@@ -1,0 +1,33 @@
+use Icon from "./icons.contract"
+use TableMenuItem from "./markdown.contract"
+
+// Lane r8-keys: a Markdown table's Copy menu (ChatMarkdown.tsx MenuPopup align="end",
+// MIT, see LICENSE-T3) drawn at the window's top layer, as Base UI portals it: over the
+// provider banner and every sheet. As a modal menu it takes the window: a press outside
+// closes it and reaches nothing behind, and Escape closes it. The trigger keeps its open
+// tint (data-popup-open) while the popup is up, so the layer paints it over the table.
+shape TableMenuView
+  id: string
+  x: number
+  y: number
+  triggerX: number
+  triggerY: number
+  markdown: string
+  csv: string
+
+component R8TableMenu
+  props
+    menu: TableMenuView
+    dark: bool
+    local: action
+  view
+    button press=local("table-menu-close", menu.id, "") aria-label="Close menu" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 border-radius=0 background-color="#00000000" z-index=130 testId="table-copy-menu-backdrop"
+    box position="absolute" left=menu.triggerX top=menu.triggerY width=24 height=24 border-radius=8 background-color="light-dark(#f4f4f5, #ffffff0a)" display="flex" flex-direction="row" align-items="center" justify-content="center" z-index=131 inert=true aria-hidden=true
+      // light-dark() inside an SVG keeps the scheme it was drawn in: one icon per scheme.
+      when dark
+        Icon(name="copy", size=12, color="#f5f5f5")
+      else
+        Icon(name="copy", size=12, color="#27272a")
+    column position="absolute" left=menu.x top=menu.y width=160 padding=4 box-sizing="border-box" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" z-index=132 role="menu" aria-label="Copy table" testId="table-copy-menu"
+      TableMenuItem(label="Copy as Markdown", press=local("copy-table", menu.id, menu.markdown), testId=`table-copy-markdown-${menu.id}`)
+      TableMenuItem(label="Copy as CSV", press=local("copy-table", menu.id, menu.csv), testId=`table-copy-csv-${menu.id}`)

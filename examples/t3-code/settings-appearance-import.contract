@@ -1,0 +1,140 @@
+// Appearance → Add a theme (lane settings-a; settings-appearance-import.ts).
+// Reference ThemeImportDialog.tsx + ThemeSearchSection.tsx: a 768pt dialog with
+// Open VSX search (Popular, Sort, result cards with Install/Update), the
+// "or import a file" divider, the dashed Theme file zone with Choose files, the
+// Theme JSON editor and Cancel / + Add theme.
+use CoreIcon from "./settings-core.contract"
+use CorePalette from "./settings-core.contract"
+use SettingsGhost from "./settings-core.contract"
+use ImportView from "./settings-appearance-editor-shapes.contract"
+use ThemeExtension from "./settings-appearance-editor-shapes.contract"
+use BrandGitHub from "./settings-brands.contract"
+use BrandGitLab from "./settings-brands.contract"
+use SettingsConfirm from "./settings-rest-dialogs.contract"
+
+component AddThemeDialog
+  props
+    data: ImportView
+    pal: CorePalette
+    viewportHeight: number
+    busy: bool
+    error: string
+    close: action
+    commit: action
+    change: action
+  state query = ""
+  state queryEdited = false
+  state json = ""
+  action editQuery(next: string)
+    query = next
+    queryEdited = true
+  action editJson(next: string)
+    json = next
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 align-items="center" justify-content="center" padding=16 box-sizing="border-box" background-color=pal.backdrop backdrop-filter="blur(4px)" z-index=30 testId="add-theme-overlay"
+      column position="relative" width="100%" max-width=768 max-height="100%" border-radius=18 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.canvas box-shadow="0 24px 64px -24px #000000a6" box-sizing="border-box" overflow="hidden" role="dialog" aria-label="Add a theme" testId="add-theme-dialog"
+        column padding-top=24 padding-left=24 padding-right=24 padding-bottom=12 flex-shrink=0
+          text "Add a theme" font-size=20 font-weight=600 line-height="20px" color=pal.text role="heading" aria-level=2
+        scroll max-height=(viewportHeight - 32 - 58) min-height=0 width="100%"
+          column padding-top=4 padding-left=24 padding-right=24 padding-bottom=24 gap=16 box-sizing="border-box" width="100%"
+            column width="100%" gap=12 role="region" aria-label="Search community themes" testId="add-theme-search"
+              column gap=2
+                text "Search community themes" font-size=14 font-weight=500 line-height="20px" color=pal.text role="heading" aria-level=3
+                text "Find open-source themes from Open VSX." font-size=12 line-height="16px" color=pal.muted
+              row width="100%" height=36 align-items="center" gap=8 padding-left=11 padding-right=11 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field
+                CoreIcon(name="search", size=16, color=pal.muted)
+                input value=(queryEdited ? query : data.query) input=editQuery submit=commit("theme-add", "search", queryEdited ? query : data.query) placeholder="Search themes..." aria-label="Search Open VSX themes" spellcheck="false" flex=1 min-width=0 height=24 padding=0 position="relative" top=3.5 border-width=0 background-color="#00000000" font-size=14 color=pal.text testId="add-theme-query"
+              row width="100%" align-items="center" justify-content="space-between" gap=8 flex-wrap="wrap"
+                row align-items="center" gap=6 flex-wrap="wrap" min-width=0
+                  text "Popular" font-size=12 line-height="16px" color=pal.muted
+                  each suggestion in data.popular key=suggestion
+                    button press=commit("theme-add", "search", suggestion) disabled=busy class=SettingsGhost height=24 padding-left=7 padding-right=7 border-radius=8 testId=`add-theme-popular-${suggestion}`
+                      text suggestion font-size=12 font-weight=500 line-height="16px" color=pal.text
+                when length(data.results) > 0
+                  row align-items="center" gap=8 flex-shrink=0
+                    text "Sort" font-size=12 line-height="16px" color=pal.muted
+                    box position="relative"
+                      button popovertarget="add-theme-sort-menu" disabled=busy role="combobox" aria-label="Sort themes" class=SettingsGhost justify-content="space-between" width=160 height=28 padding-left=9 padding-right=7 border-radius=10 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field testId="add-theme-sort"
+                        text data.sortLabel font-size=14 line-height="20px" color=pal.text
+                        CoreIcon(name="chevron-down", size=12, color=pal.muted)
+                      column id="add-theme-sort-menu" popover="auto" position="absolute" margin-top=4 width=160 padding=4 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="listbox" testId="add-theme-sort-menu"
+                        each option in data.sorts key=option.id
+                          button press=commit("theme-add", "sort", option.value) popovertarget="add-theme-sort-menu" popovertargetaction="hide" role="option" aria-selected=option.selected class=SettingsGhost justify-content="flex-start" width="100%" height=28 padding-left=8 padding-right=8 border-radius=6 background-color=(option.selected ? pal.highlight : "#00000000")
+                            text option.label font-size=14 line-height="20px" color=pal.text
+              text data.status role="status" font-size=1 line-height="1px" color="#00000000" height=1 overflow="hidden"
+              when data.error != ""
+                text data.error role="status" font-size=12 line-height="18px" padding=10 border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#fb2c3640, #fb414a40)" background-color="light-dark(#fcebec, #301214)" color="light-dark(#c10007, #ff6467)" testId="add-theme-error"
+              when data.searching and not data.searched
+                row min-height=80 align-items="center" justify-content="center" gap=8
+                  text "Searching themes..." font-size=14 line-height="20px" color=pal.muted
+              when data.searched and length(data.results) == 0 and not data.searching
+                column min-height=160 align-items="center" justify-content="center" border-radius=16 border-width=1 border-style="solid" border-color=pal.border testId="add-theme-empty"
+                  text "No supported open-source themes found" font-size=14 font-weight=500 line-height="20px" color=pal.text
+                  text "Try a broader search." font-size=12 line-height="16px" margin-top=4 color=pal.muted
+              when length(data.results) > 0
+                row width="100%" flex-wrap="wrap" gap=8
+                  each ext in data.results key=ext.id
+                    ThemeResult(ext=ext, pal=pal, busy=busy, commit=change)
+            row width="100%" align-items="center" gap=12 aria-hidden=true
+              box flex=1 height=1 background-color=pal.border
+              text "OR IMPORT A FILE" font-size=11 line-height="16px" letter-spacing=0.6 color=pal.muted
+              box flex=1 height=1 background-color=pal.border
+            row width="100%" align-items="center" justify-content="space-between" gap=12 flex-wrap="wrap" padding=12 box-sizing="border-box" border-radius=14 border-width=1 border-style="solid" border-color=pal.border background-color=pal.footer testId="add-theme-file"
+              column min-width=0
+                text "Theme file" font-size=14 font-weight=500 line-height="20px" color=pal.text
+                text (data.fileName == "" ? "Drop T3 Code or VS Code .json files" : data.fileName) font-size=12 line-height="16px" color=pal.muted line-clamp=1
+              button press=change("theme-add", "choose", "") disabled=busy class=SettingsGhost height=28 padding-left=9 padding-right=9 gap=6 border-radius=8 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId="add-theme-choose"
+                CoreIcon(name="download", size=16, color=pal.muted)
+                text (busy ? "Reading…" : "Choose files") font-size=14 font-weight=500 line-height="20px" color=pal.text
+            column width="100%" gap=8
+              text "Theme JSON" font-size=14 font-weight=500 line-height="20px" color=pal.text
+              textarea value=json input=editJson placeholder="{\n  \"version\": 1,\n  \"name\": \"Aurora\",\n  \"appearance\": \"light\",\n  \"colors\": { ... }\n}" aria-label="Theme JSON" spellcheck="false" width="100%" height=178 padding=16 box-sizing="border-box" border-radius=14 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-family="ui-monospace" font-size=12 line-height="20px" color=pal.text testId="add-theme-json"
+            when error != ""
+              text error role="alert" font-size=12 line-height="18px" color="light-dark(#dc2626, #f87171)" testId="add-theme-dialog-error"
+            row width="100%" justify-content="flex-end" gap=8
+              button press=close aria-keyshortcuts="Escape" class=SettingsGhost height=32 padding-left=12 padding-right=12 border-radius=8 testId="add-theme-cancel"
+                text "Cancel" font-size=14 font-weight=500 line-height="20px" color=pal.text
+              button press=change("theme-add", "add", json) disabled=(busy or json == "") class=SettingsGhost height=32 padding-left=12 padding-right=12 gap=6 border-radius=8 background-color=pal.accent opacity=(busy or json == "" ? 0.64 : 1) testId="add-theme-save"
+                CoreIcon(name="plus", size=16, color=pal.accentText)
+                text "Add theme" font-size=14 font-weight=500 line-height="20px" color=pal.accentText
+        button press=close aria-label="Close" class=SettingsGhost position="absolute" top=8 right=8 width=32 height=32 border-radius=8 testId="add-theme-close"
+          CoreIcon(name="x", size=16, color=pal.muted)
+      // ThemeSearchSection's AlertDialog before an installed collection is replaced.
+      when data.pendingUpdate != ""
+        SettingsConfirm(title=`Update “${data.pendingUpdateName}”?`, description="This replaces its installed variants, including any local edits. Variants no longer in the extension will be removed.", confirmLabel="Update theme", destructive=false, busy=busy, error="", dialogId="theme-update", cancel=commit("theme-add", "update-cancel", ""), confirm=change("theme-add", "install-confirm", data.pendingUpdate))
+
+// A result card: icon tile, name, publisher · downloads, two-line description,
+// the source link and Install / Update (outline xs).
+component ThemeResult
+  props
+    ext: ThemeExtension
+    pal: CorePalette
+    busy: bool
+    // The dialog's `change`: a finished install closes it (onInstalled → onOpenChange(false)).
+    commit: action
+  view
+    column flex=1 flex-basis=300 min-width=300 gap=12 padding=12 box-sizing="border-box" border-radius=12 border-width=1 border-style="solid" border-color=pal.border background-color=pal.card testId=`theme-result-${ext.id}`
+      row gap=12 min-width=0 align-items="center"
+        box width=40 height=40 border-radius=8 overflow="hidden" background-color=pal.highlight display="flex" align-items="center" justify-content="center" flex-shrink=0
+          when ext.iconUrl != ""
+            image ext.iconUrl width=40 height=40 object-fit="cover" aria-hidden=true
+          else
+            CoreIcon(name="palette", size=16, color=pal.muted)
+        column flex=1 min-width=0
+          text ext.displayName font-size=14 font-weight=500 line-height="20px" color=pal.text line-clamp=1 role="heading" aria-level=4
+          text `${ext.publisher} · ${ext.downloads}` font-size=12 line-height="16px" color=pal.muted line-clamp=1
+      text (ext.description == "" ? "A community color theme for your editor." : ext.description) font-size=12 line-height="16px" min-height=32 color=pal.muted line-clamp=2
+      row align-items="center" justify-content="space-between" gap=8
+        when ext.sourceUrl != ""
+          link href=ext.sourceUrl aria-label=`View source for ${ext.displayName}` width=20 height=20 display="flex" align-items="center" justify-content="center" border-radius=4
+            when ext.source == "github"
+              BrandGitHub(size=14)
+            when ext.source == "gitlab"
+              BrandGitLab(size=14)
+            when ext.source == "link"
+              CoreIcon(name="link-2", size=14, color=pal.muted)
+        else
+          box width=20 height=20
+        button press=commit("theme-add", "install", ext.id) disabled=busy aria-label=`${ext.action} ${ext.displayName}` class=SettingsGhost height=24 padding-left=7 padding-right=7 gap=4 border-radius=8 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field testId=`theme-install-${ext.id}`
+          CoreIcon(name=(ext.installed ? "rotate-ccw" : "plus"), size=14, color=pal.muted)
+          text ext.action font-size=12 font-weight=500 line-height="16px" color=pal.text

@@ -1,0 +1,204 @@
+// Settings dialogs at the window root (lane settings-a): the ui/dialog.tsx chrome
+// (backdrop, 18pt popup, header, panel, muted footer) and the dialogs it frames —
+// General's Background Activity editor, and the Appearance theme dialogs.
+use CoreIcon from "./settings-core.contract"
+use CorePalette from "./settings-core.contract"
+use SettingsCore from "./settings-core.contract"
+use SettingsGhost from "./settings-core.contract"
+use CoreSelect from "./settings-rows.contract"
+use AddThemeDialog from "./settings-appearance-import.contract"
+use SettingsConfirm from "./settings-rest-dialogs.contract"
+use ThemeEditorPanel from "./settings-appearance-editor.contract"
+use DeviceHostDialog from "./settings-a-hosts.contract"
+use CollectionRemoveDialog from "./settings-a-collections.contract"
+
+// One root element for every settings-a dialog; `commit` keeps a dialog open
+// (each control writes immediately), `change` closes it once the write lands.
+component SettingsADialogs
+  props
+    core: SettingsCore
+    kind: string
+    subject: string
+    viewportHeight: number
+    busy: bool
+    error: string
+    menu: string
+    openMenu: action
+    close: action
+    commit: action
+    change: action
+    raw: action
+    rest: action
+    // restLocal: device-local toggles that never wait on a pending write.
+    local: action
+  // AboutVersionSection's install, once confirmed: apply the staged entry with carry.
+  action installUpdate
+    deliveryActivate()
+  view
+    // getDesktopUpdateInstallConfirmationMessage, before the staged update is applied.
+    when core.updateConfirm
+      SettingsConfirm(title="Install update and restart T3 Code?", description="Any running tasks will be interrupted. Make sure you're ready before continuing.", confirmLabel="Confirm", destructive=false, busy=busy, error=error, dialogId="update-install", cancel=commit("update", "cancel", ""), confirm=installUpdate)
+    // Integrations → Device hosts: the Add/Edit device host dialog.
+    when core.hostEditor.open
+      DeviceHostDialog(editor=core.hostEditor, checks=core.hostChecks, busy=busy, error=error, rest=rest)
+    // ResourceTelemetryDiagnostics / DiagnosticsSettings signalProcess: SIGKILL asks first.
+    when core.killConfirm.pid != ""
+      SettingsConfirm(title=`Send SIGKILL to process ${core.killConfirm.pid}?`, description="This cannot be handled by the process.", confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="signal-kill", cancel=raw("rest:diag-kill-cancel", ":", ""), confirm=raw("rest:diag-kill", ":", ""))
+    // useThreadActions confirmAndDeleteThread, after the archive row's context menu.
+    when core.archiveConfirm.id != ""
+      SettingsConfirm(title=`Delete thread "${core.archiveConfirm.title}"?`, description="This permanently clears conversation history for this thread.", confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="archive-context-delete", cancel=raw("rest:archive-cancel", "", ""), confirm=raw("rest:archive-delete", core.archiveConfirm.id, ""))
+    when kind == "background-activity"
+      BackgroundActivityDialog(core=core, viewportHeight=viewportHeight, busy=busy, error=error, menu=menu, openMenu=openMenu, close=close, commit=commit)
+    when kind == "remove"
+      each card in core.themes key=card.id
+        when card.id == subject and card.collection
+          CollectionRemoveDialog(card=card, pal=core.palette, busy=busy, error=error, close=close, pick=local, change=change)
+        when card.id == subject and not card.collection
+          SettingsConfirm(title=`Remove “${card.label}”?`, description="You can bring it back anytime by importing its JSON file.", confirmLabel="Remove theme", destructive=true, busy=busy, error=error, dialogId="theme-remove", cancel=close, confirm=change("theme-remove", "", card.id))
+    when kind == "import"
+      AddThemeDialog(data=core.themeImport, pal=core.palette, viewportHeight=viewportHeight, busy=busy, error=error, close=close, commit=commit, change=change)
+    // The theme editor floats over the page (non-modal); its draft paints the settings live.
+    when (kind == "create" or kind == "duplicate" or kind == "edit") and core.editor.open
+      ThemeEditorPanel(editor=core.editor, pal=core.palette, viewportHeight=viewportHeight, busy=busy, error=error, close=close, commit=commit, save=change("theme-editor-save", ""))
+
+// DialogPopup over its backdrop (bg-background/60, blur 4px), centred; DialogHeader
+// p-6 pb-3 with a 20pt semibold title and muted description; the close button.
+component SaDialog
+  props
+    title: string
+    description: string
+    width: number
+    pal: CorePalette
+    close: action
+    dialogId: string
+  slot
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 align-items="center" justify-content="center" padding=16 box-sizing="border-box" background-color=pal.backdrop backdrop-filter="blur(4px)" z-index=30 testId=`${dialogId}-overlay`
+      column position="relative" width="100%" max-width=width max-height="100%" border-radius=18 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.canvas box-shadow="0 24px 64px -24px #000000a6" box-sizing="border-box" overflow="hidden" role="dialog" aria-label=title testId=dialogId
+        column padding-top=24 padding-left=24 padding-right=24 padding-bottom=12 gap=8 flex-shrink=0
+          text title font-size=20 font-weight=600 line-height="20px" color=pal.text role="heading" aria-level=2
+          when description != ""
+            text description font-size=14 line-height="20px" color=pal.muted
+        children
+        button press=close aria-label="Close" aria-keyshortcuts="Escape" class=SettingsGhost position="absolute" top=8 right=8 width=32 height=32 border-radius=8 testId=`${dialogId}-close`
+          CoreIcon(name="x", size=16, color=pal.muted)
+
+// DialogFooter: muted band, top border, buttons at the end (px-6 py-4, gap 2).
+component SaDialogFooter
+  props
+    pal: CorePalette
+  slot
+  view
+    row flex-shrink=0 justify-content="flex-end" align-items="center" gap=8 padding-top=16 padding-bottom=16 padding-left=24 padding-right=24 border-top-width=1 border-top-style="solid" border-color=pal.border background-color=pal.footer box-sizing="border-box"
+      children
+
+component SaOutlineButton
+  props
+    label: string
+    pal: CorePalette
+    disabled: bool
+    press: action
+    buttonId: string
+  view
+    button press=press disabled=disabled class=SettingsGhost height=32 padding-left=12 padding-right=12 border-radius=8 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) testId=buttonId
+      text label font-size=14 font-weight=500 line-height="20px" color=pal.text white-space="nowrap"
+
+component SaPrimaryButton
+  props
+    label: string
+    pal: CorePalette
+    disabled: bool
+    press: action
+    buttonId: string
+  view
+    button press=press disabled=disabled class=SettingsGhost height=32 padding-left=12 padding-right=12 border-radius=8 border-width=0 background-color=pal.accent box-shadow="0 1px 2px #0000001f" opacity=(disabled ? 0.64 : 1) testId=buttonId
+      text label font-size=14 font-weight=500 line-height="20px" color=pal.accentText white-space="nowrap"
+
+// ui/number-field.tsx size sm: a 128pt group, 34pt steppers and a centred input.
+// Typing stays local until Enter or the field is left; the steppers write at once.
+component SaNumberField
+  props
+    value: number
+    min: number
+    step: number
+    label: string
+    pal: CorePalette
+    disabled: bool
+    commit: action
+    fieldId: string
+  state draft = ""
+  state editing = false
+  action edit(next: string)
+    draft = next
+    editing = true
+  action leave
+    editing = false
+  view
+    row width=128 height=28 flex-shrink=0 align-items="center" border-radius=10 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" box-sizing="border-box" opacity=(disabled ? 0.64 : 1) testId=fieldId
+      button press=commit(`${max(min, value - step)}`) disabled=(disabled or value <= min) aria-label=`Decrease ${label}` class=SettingsGhost width=34 height=26 testId=`${fieldId}-decrease`
+        CoreIcon(name="minus", size=16, color=pal.text)
+      // AppKit fields ignore text-align, so the field is sized to its digits and centred.
+      row flex=1 min-width=0 height=26 align-items="center" justify-content="center"
+        input value=(editing ? draft : `${value}`) input=edit change=commit blur=leave disabled=disabled inputmode="numeric" spellcheck="false" aria-label=`${label} in seconds` width=(min(56, max(1, length(editing ? draft : `${value}`)) * 8.6 + 4)) height=20 line-height="20px" padding=0 border-width=0 background-color="#00000000" text-align="center" font-size=14 color=pal.text font-variant-numeric="tabular-nums" testId=`${fieldId}-input`
+      button press=commit(`${value + step}`) disabled=disabled aria-label=`Increase ${label}` class=SettingsGhost width=34 height=26 testId=`${fieldId}-increase`
+        CoreIcon(name="plus", size=16, color=pal.text)
+
+component SaIntervalRow
+  props
+    title: string
+    description: string
+    label: string
+    value: number
+    min: number
+    step: number
+    divided: bool
+    pal: CorePalette
+    disabled: bool
+    commit: action
+    fieldId: string
+  view
+    row width="100%" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=12 align-items="center" justify-content="space-between" border-top-width=(divided ? 1 : 0) border-top-style="solid" border-color=pal.border box-sizing="border-box"
+      column flex=1 min-width=0 gap=4
+        text title font-size=14 font-weight=500 line-height="20px" color=pal.text
+        text description font-size=12 line-height="19.5px" color=pal.muted
+      row flex-shrink=0 align-items="center" gap=8
+        SaNumberField(value=value, min=min, step=step, label=label, pal=pal, disabled=disabled, commit=commit, fieldId=fieldId)
+        text "seconds" font-size=12 line-height="16px" color=pal.muted
+
+// SettingsPanels BackgroundActivityAdvancedDialog: the shared policy, four intervals
+// and the pause switches; each control writes the environment's backgroundActivity.
+component BackgroundActivityDialog
+  props
+    core: SettingsCore
+    viewportHeight: number
+    busy: bool
+    error: string
+    menu: string
+    openMenu: action
+    close: action
+    commit: action
+  view
+    SaDialog(title="Background Activity", description="Tune the shared power policy and the background intervals that feed it.", width=576, pal=core.palette, close=close, dialogId="background-activity-dialog")
+      scroll max-height=(viewportHeight - 32 - 84 - 66) min-height=0 width="100%"
+        column padding-top=4 padding-left=24 padding-right=24 padding-bottom=24 gap=12 box-sizing="border-box"
+          column width="100%" border-radius=14 border-width=1 border-style="solid" border-color=core.palette.border background-color=core.palette.surface box-sizing="border-box" overflow="hidden"
+            row width="100%" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=12 align-items="center" justify-content="space-between" box-sizing="border-box"
+              column flex=1 min-width=0 gap=4
+                text "Shared policy" font-size=14 font-weight=500 line-height="20px" color=core.palette.text
+                text "Controls whether background work may run after a subscribed interval fires." font-size=12 line-height="19.5px" color=core.palette.muted
+              CoreSelect(rowId="background-policy", section="background-dialog", value=core.background.policyLabel, icon="", width=144, menuWidth=0, options=core.background.policies, pal=core.palette, disabled=(busy or not core.background.available), dim=(not core.background.available), menu=menu, openMenu=openMenu, choose=commit("background-advanced", "policy"))
+            SaIntervalRow(title="Git fetch interval", description="Refresh remote branch status in the background.", label="Git fetch interval", value=core.background.git, min=0, step=5, divided=true, pal=core.palette, disabled=(busy or not core.background.available), commit=commit("background-advanced", "git"), fieldId="background-git-interval")
+            SaIntervalRow(title="Provider health interval", description="Refresh provider availability, versions, auth state, and model metadata.", label="provider health interval", value=core.background.health, min=0, step=30, divided=true, pal=core.palette, disabled=(busy or not core.background.available), commit=commit("background-advanced", "health"), fieldId="background-health-interval")
+            SaIntervalRow(title="Host power monitor", description="Poll host power state while clients are active.", label="active host power interval", value=core.background.active, min=5, step=5, divided=true, pal=core.palette, disabled=(busy or not core.background.available), commit=commit("background-advanced", "active"), fieldId="background-active-interval")
+            SaIntervalRow(title="Idle host monitor", description="Poll host power state when no foreground client is active.", label="idle host power interval", value=core.background.idle, min=5, step=30, divided=true, pal=core.palette, disabled=(busy or not core.background.available), commit=commit("background-advanced", "idle"), fieldId="background-idle-interval")
+            row width="100%" flex-wrap="wrap" border-top-width=1 border-top-style="solid" border-color=core.palette.border
+              each toggle in core.background.switches key=toggle.id
+                row width="50%" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=12 align-items="center" justify-content="space-between" box-sizing="border-box" border-top-width=0 border-left-width=0 border-right-width=(toggle.id == "locked" or toggle.id == "client-low-power" ? 1 : 0) border-bottom-width=(toggle.id == "locked" or toggle.id == "host-low-power" ? 1 : 0) border-style="solid" border-color=core.palette.border
+                  text toggle.label font-size=14 font-weight=500 line-height="20px" color=core.palette.text
+                  button press=commit("background-advanced", toggle.id, toggle.checked ? "false" : "true") role="switch" aria-checked=toggle.checked aria-label=toggle.label disabled=(busy or not core.background.available) class=SettingsGhost justify-content="flex-start" width=30 height=18 padding=2 border-radius=9 background-color=(toggle.checked ? core.palette.accent : core.palette.switchOff) testId=`background-switch-${toggle.id}`
+                    box width=14 height=14 border-radius=7 background-color=core.palette.thumb margin-left=(toggle.checked ? 12 : 0) box-shadow="0 1px 3px #0000000d"
+          when error != ""
+            text error role="alert" font-size=12 line-height="18px" color="light-dark(#dc2626, #f87171)" testId="background-activity-error"
+      SaDialogFooter(pal=core.palette)
+        SaOutlineButton(label="Reset all", pal=core.palette, disabled=(busy or not core.background.available), press=commit("background-advanced", "reset", ""), buttonId="background-reset-all")
+        SaPrimaryButton(label="Done", pal=core.palette, disabled=false, press=close, buttonId="background-done")

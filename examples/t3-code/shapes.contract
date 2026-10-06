@@ -1,0 +1,632 @@
+use CodeHighlight from "./markdown.contract"
+use MermaidDiagram from "./markdown.contract"
+use MarkdownEnv from "./markdown.contract"
+use WorktreeSetupView from "./timeline-worktree-shapes.contract"
+use MinimapItem from "./timeline-minimap.contract"
+use MessageImage from "./timeline-attachments.contract"
+use MessageFile from "./timeline-attachments.contract"
+use ComposerView from "./composer-shapes.contract"
+use SnoozePreset from "./sidebar-shapes.contract"
+use Thread from "./sidebar-shapes.contract"
+use SidebarView from "./sidebar-shapes.contract"
+use Look from "./settings-appearance-look.contract"
+use ComposerVideo from "./r4-composer.contract"
+use ComposerVideoPreview from "./r4-composer.contract"
+use TableMenuView from "./r8-keys-table-menu.contract"
+shape Project
+  id: string
+  name: string
+  path: string
+  selected: bool
+shape CheckpointFile
+  id: string
+  path: string
+  additions: number
+  deletions: number
+  kind: string
+  name: string
+  depth: number
+  expanded: bool
+  icon: string
+  spacer: bool
+  plus: string
+  minus: string
+shape MarkdownSkill
+  name: string
+  displayName: string
+shape Activity
+  id: string
+  label: string
+  body: string
+  icon: string
+  output: string
+  outputState: string
+  detailOpen: bool
+  iconLight: string
+  iconDark: string
+  result: string
+  failed: bool
+  timestamp: string
+  tone: string
+  ok: bool
+  reasoning: bool
+  expandable: bool
+  detail: string
+  status: string
+  targetId: string
+  answer: string
+  // r4-timeline: the full date under the hover time (formatChatTimestampTooltip).
+  timeTip: string
+  // r11-upstream (737993303d): the failed run a workspace preparation Retry prepares again.
+  retryRunId: string
+shape Message
+  id: string
+  kind: string
+  title: string
+  body: string
+  checkpointId: string
+  checkpointOrdinal: number
+  additions: number
+  deletions: number
+  files: list<CheckpointFile>
+  runId: string
+  sourceThreadId: string
+  canFork: bool
+  completed: bool
+  createdAt: string
+  timestamp: string
+  activities: list<Activity>
+  first: bool
+  attached: bool
+  // r8-pointer D9: the row hover this row shares (an attached changed-files card takes its answer's).
+  hoverKey: string
+  actionsId: string
+  actionsFork: bool
+  actionsTime: string
+  expanded: bool
+  last: bool
+  icon: string
+  tone: string
+  failed: bool
+  live: bool
+  startedMs: number
+  detail: string
+  status: string
+  groupId: string
+  continues: bool
+  revert: number
+  intent: string
+  intentTip: string
+  attribution: string
+  targetId: string
+  actionLabel: string
+  copied: number
+  copyFailed: bool
+  meta: bool
+  collapsible: bool
+  code: list<CodeHighlight>
+  diagrams: list<MermaidDiagram>
+  setup: list<WorktreeSetupView>
+  timeTip: string
+  actionsTimeTip: string
+  codeCopied: string
+  codeCopyNonce: number
+  fileCount: number
+  images: list<MessageImage>
+  attachFiles: list<MessageFile>
+  // r4-timeline: code font/size, word wrap and the message's chips (r4-timeline-chips.ts).
+  md: MarkdownEnv
+shape Provider
+  id: string
+  name: string
+  available: bool
+shape Model
+  id: string
+  name: string
+  providerId: string
+  selected: bool
+shape ModelOption
+  id: string
+  label: string
+  value: string
+  selected: bool
+  default: bool
+shape ApprovalOption
+  id: string
+  label: string
+  warning: string
+  primary: bool
+shape Approval
+  id: string
+  label: string
+  appName: string
+  count: string
+  mono: bool
+  detail: string
+  canRespond: bool
+  live: bool
+  responding: bool
+  responseReason: string
+  options: list<ApprovalOption>
+  more: list<ApprovalOption>
+shape QuestionOption
+  id: string
+  label: string
+  description: string
+  selected: bool
+  shortcut: string
+shape Question
+  id: string
+  requestId: string
+  header: string
+  question: string
+  multiSelect: bool
+  canRespond: bool
+  live: bool
+  responding: bool
+  dismissible: bool
+  responseReason: string
+  customAllowed: bool
+  answer: string
+  position: string
+  index: number
+  last: bool
+  canAdvance: bool
+  complete: bool
+  action: string
+  options: list<QuestionOption>
+shape DiffSegment
+  id: string
+  text: string
+  mark: bool
+  syntax: string
+shape DiffTurn
+  id: string
+  label: string
+  time: string
+  selected: bool
+shape DiffFile
+  id: string
+  name: string
+  path: string
+  status: string
+  letter: string
+  additions: number
+  deletions: number
+  markdown: bool
+shape DiffItem
+  id: string
+  kind: string
+  path: string
+  name: string
+  status: string
+  letter: string
+  additions: number
+  deletions: number
+  expanded: bool
+  markdown: bool
+  tone: string
+  number: string
+  segments: list<DiffSegment>
+  leftTone: string
+  leftNumber: string
+  leftSegments: list<DiffSegment>
+  rightTone: string
+  rightNumber: string
+  rightSegments: list<DiffSegment>
+  label: string
+  gutter: number
+shape SnapshotDraft
+  id: string
+  name: string
+  // false for an image picked with Attach files: a plain 64pt tile (composer-editor.contract ImageDraftTile).
+  snapshot: bool
+  app: string
+  title: string
+  letter: string
+  included: bool
+  contents: string
+  // r4-composer: its image chip is in the prompt, so Remove asks first (removeComposerImage).
+  referenced: bool
+shape Snapshot
+  timelineReadsNeeded: bool
+  markdownSkills: list<MarkdownSkill>
+  composer: ComposerView
+  // r6-polish: the AlertStack wrapper's clip to its banners (r6-polish-measure.ts alertClip).
+  alertClip: string
+  snapshotDrafts: list<SnapshotDraft>
+  snapshotOwner: string
+  revision: number
+  available: bool
+  connected: bool
+  connecting: bool
+  syncComplete: bool
+  status: string
+  error: string
+  providerBannerKey: string
+  providerBannerTitle: string
+  providerBannerMessage: string
+  providerBannerWarning: bool
+  serverUrl: string
+  uncertain: bool
+  uncertainMessage: string
+  sidebarWidth: number
+  // r12-sidebar: resolveThreadSidebarMinimumWidth at the Interface font size (r12-sidebar-width.ts).
+  sidebarMinWidth: number
+  sidebarOpen: bool
+  query: string
+  projectId: string
+  projectName: string
+  threadId: string
+  threadTitle: string
+  threadHeading: list<CommandChoice>
+  draft: string
+  running: bool
+  canSend: bool
+  canStop: bool
+  providerId: string
+  modelId: string
+  modelLabel: string
+  composerCollapseOnScroll: bool
+  planModeEnabled: bool
+  composerResting: bool
+  transcriptAway: bool
+  // r4-composer-overlay.ts: the transcript's end reservation under the composer overlay, and the Scroll to end pill's rise.
+  transcriptTail: number
+  scrollLift: number
+  // r4-composer-attachments.ts: the draft's attached videos on the shelf, and the one being previewed (0 or 1).
+  composerVideos: list<ComposerVideo>
+  composerVideoPreview: list<ComposerVideoPreview>
+  tableMenu: list<TableMenuView> // lane r8-keys
+  providerDriver: string
+  providerBadge: string
+  providerBadgeColor: string
+  optionLabel: string
+  optionId: string
+  modelOptions: list<ModelOption>
+  settled: bool
+  projectMark: string
+  projectInk: string
+  projectSurface: string
+  runtimeMode: string
+  modeLabel: string
+  interactionMode: string
+  hasMore: bool
+  historyLoading: bool
+  diffOpen: bool
+  diffLoading: bool
+  diffError: string
+  diffScopeLabel: string
+  diffMenu: string
+  diffScope: string
+  diffTurns: list<DiffTurn>
+  diffLatestSelected: bool
+  diffCanRefresh: bool
+  diffLayout: string
+  diffWrap: bool
+  diffIgnoreWhitespace: bool
+  diffTree: bool
+  diffTruncated: bool
+  diffEmpty: bool
+  diffEmptyLabel: string
+  diffAdditions: number
+  diffDeletions: number
+  diffAllCollapsed: bool
+  diffFiles: list<DiffFile>
+  diffItems: list<DiffItem>
+  diffLoadingLabel: string
+  projects: list<Project>
+  searchFirstId: string
+  snoozePresets: list<SnoozePreset>
+  threads: list<Thread>
+  sidebar: SidebarView
+  messages: list<Message>
+  historyError: string
+  revertPending: string
+  minimap: list<MinimapItem>
+  minimapCurrent: number
+  imagePreviewId: string
+  imagePreviewName: string
+  imagePreviewPosition: string
+  imagePreviewPrevious: bool
+  imagePreviewNext: bool
+  imagePreviewVideo: bool
+  diagramPreview: list<MermaidDiagram>
+  planSaveOpen: bool
+  planSavePath: string
+  planSaveRoot: string
+  planSaving: bool
+  providers: list<Provider>
+  models: list<Model>
+  approvals: list<Approval>
+  questions: list<Question>
+  requestMode: string
+  requestKey: string
+  clientError: string
+  errorWarning: bool
+  connectionTitle: string
+  connectionVariant: string
+  connectionAction: string
+  look: Look
+shape Change
+  revision: number
+  message: string
+shape Viewport
+  width: number
+  height: number
+  prefersColorScheme: string
+  prefersReducedMotion: bool
+
+style Ink
+  color="light-dark(#27272a, #ededed)"
+style Muted
+  color="light-dark(#71717a, #858585)"
+style Canvas
+  background-color="light-dark(#fcfcfc, #0a0a0a)"
+style Surface
+  background-color="light-dark(#ffffff, #101010)"
+style Edge
+  border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)"
+style Control
+  display="flex" flex-direction="row" align-items="center" justify-content="center"
+  box-sizing="border-box"
+  padding=7 gap=6 border-radius=8 border-width=0
+  background-color="#00000000" min-height=28 flex-shrink=0
+  color="light-dark(#52525b, #b0b0b0)"
+style Field
+  box-sizing="border-box" min-width=0 padding=10 border-radius=8
+  border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #303030)"
+  background-color="light-dark(#fafafa, #191919)"
+  color="light-dark(#27272a, #ededed)" font-size=13
+style Primary
+  display="flex" flex-direction="row" align-items="center" justify-content="center"
+  box-sizing="border-box"
+  padding-left=13 padding-right=13 height=32 border-radius=16 border-width=0
+  background-color="light-dark(#2451cc, #4475ed)" color="#ffffff"
+style Overlay
+  position="absolute" left=0 right=0 top=0 bottom=0
+  display="flex" align-items="center" justify-content="center"
+  background-color="#00000055" padding=24 box-sizing="border-box" z-index=20
+
+
+shape Settings
+  environmentId: string
+  available: bool
+  permission: string
+  overridden: bool
+  environmentPermission: string
+  defaultModel: string
+  defaultModelExplicit: bool
+  modelOverridden: bool
+  composerCollapseOnScroll: bool
+  planModeEnabled: bool
+  timestampFormat: string
+  appearanceMode: string
+  sendShortcut: string
+  snapShotShortcut: string
+  snapShotEnabled: bool
+  snapShotIncludeAccessibility: bool
+  snapShotPlaySound: bool
+  snapShotSound: string
+  snapShotFlash: bool
+  snapShotAnimations: bool
+  keySidebar: string
+  keyNewThread: string
+  keyDiff: string
+  keyModels: string
+shape SettingsDestination
+  route: string
+  target: string
+  section: string
+  id: string
+  title: string
+shape SettingsNavigation
+  firstTarget: string
+  firstRoute: string
+  items: list<SettingsDestination>
+
+shape ProjectGroup
+  groupId: string
+  name: string
+  count: number
+  members: list<Project>
+shape ProjectGroups
+  mode: string
+  groups: list<ProjectGroup>
+
+shape ManagedProvider
+  id: string
+  name: string
+  driver: string
+  enabled: bool
+shape ProviderManagement
+  providers: list<ManagedProvider>
+  drivers: list<ManagedDriver>
+shape ManagedDriver
+  id: string
+  name: string
+  canAuthenticate: bool
+
+shape ArchivedThread
+  id: string
+  scope: string
+  title: string
+  archivedAt: string
+  createdAt: string
+shape ArchivedGroup
+  id: string
+  title: string
+  threads: list<ArchivedThread>
+shape ArchivedSettings
+  available: bool
+  error: string
+  groups: list<ArchivedGroup>
+shape LicenseEntry
+  id: string
+  name: string
+  version: string
+  license: string
+  bundles: string
+  sourceUrl: string
+  expanded: bool
+  noticeText: string
+shape LicenseSettings
+  ready: bool
+  error: string
+  total: number
+  matched: number
+  entries: list<LicenseEntry>
+shape DiagnosticRow
+  id: string
+  label: string
+  value: string
+  detail: string
+  copy: string
+shape DiagnosticSection
+  id: string
+  title: string
+  error: string
+  readAt: string
+  rows: list<DiagnosticRow>
+shape DiagnosticsSettings
+  available: bool
+  error: string
+  sections: list<DiagnosticSection>
+
+shape StorageRule
+  key: string
+  label: string
+  description: string
+  enabled: bool
+  days: string
+  retention: bool
+shape StorageSettings
+  available: bool
+  project: bool
+  error: string
+  mode: string
+  scope: string
+  rules: list<StorageRule>
+
+shape ScopedChoice
+  id: string
+  label: string
+  value: string
+  selected: bool
+shape ScopedControl
+  key: string
+  label: string
+  description: string
+  value: string
+  text: bool
+  overridden: bool
+  inheritKey: string
+  inheritLabel: string
+  disabled: bool
+  choices: list<ScopedChoice>
+shape ScopedControls
+  available: bool
+  error: string
+  project: bool
+  scope: string
+  rows: list<ScopedControl>
+
+shape ScheduledDraft
+  id: string
+  title: string
+  prompt: string
+  enabled: bool
+  scheduleMode: string
+  minutes: string
+  time: string
+  sunday: bool
+  monday: bool
+  tuesday: bool
+  wednesday: bool
+  thursday: bool
+  friday: bool
+  saturday: bool
+  projectId: string
+  threadId: string
+  workspaceMode: string
+  baseRef: string
+  startFromOrigin: bool
+  path: string
+  instanceId: string
+  model: string
+  runtimeMode: string
+  interactionMode: string
+shape ScheduledRow
+  id: string
+  title: string
+  project: string
+  summary: string
+  enabled: bool
+  status: string
+  error: string
+shape ScheduledProject
+  id: string
+  title: string
+shape ScheduledModel
+  id: string
+  instanceId: string
+  model: string
+  label: string
+shape ScheduledSettings
+  available: bool
+  writable: bool
+  error: string
+  scope: string
+  draft: ScheduledDraft
+  tasks: list<ScheduledRow>
+  projects: list<ScheduledProject>
+  models: list<ScheduledModel>
+
+shape KeybindingRow
+  custom: bool
+  id: string
+  command: string
+  key: string
+  condition: string
+shape KeybindingSettings
+  available: bool
+  writable: bool
+  error: string
+  path: string
+  rows: list<KeybindingRow>
+  commands: list<CommandChoice>
+
+shape CommandChoice
+  id: string
+  label: string
+
+shape SnapshotKey
+  id: string
+  label: string
+shape SnapshotSettings
+  recording: bool
+  candidate: string
+  shortcut: string
+  shortcutError: string
+  available: bool
+  captureAvailable: bool
+  error: string
+  message: string
+  screenRecording: bool
+  accessibility: bool
+  enabled: bool
+  includeAccessibility: bool
+  playSound: bool
+  sound: string
+  flash: bool
+  animations: bool
+  statusText: string
+  setupLabel: string
+  shortcutStatus: string
+  shortcutAria: string
+  keys: list<SnapshotKey>
+  changed: bool
+  canSave: bool
+  soundSelection: string
+  soundLabel: string
+  setupReady: bool

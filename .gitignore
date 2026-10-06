@@ -45,3 +45,6 @@ game/bench/results/*.json.gz
 
 # Expose: the OpenRouter key a developer bakes into their own build (build.rs writes it).
 apps/expose/local.ts
+
+# Declarations the dev producer writes beside each example app.ts.
+examples/*/app.contract.d.ts

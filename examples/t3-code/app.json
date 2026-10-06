@@ -1,0 +1,84 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "T3 Code (Exact)",
+  "short_name": "T3 Code (Exact)",
+  "id": "com.exact.t3code.macos",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#fafafa",
+  "background_color": "#fafafa",
+  "icons": [
+    {
+      "src": "assets/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ],
+  "app": {
+    "id": "com.exact.t3code.macos",
+    "name": "T3 Code (Exact)"
+  },
+  "modules": [
+    "t3-key-recorder"
+  ],
+  "hooks": [
+    "t3-composer",
+    "t3-send",
+    "t3-anchor",
+    "t3-transcript",
+    "t3-snapshot-tile",
+    "t3-composer-key",
+    "t3-frame",
+    "t3-turn",
+    "t3-video",
+    "t3-plain-text",
+    "t3-media",
+    "t3-launcher",
+    "t3-measure",
+    "t3-select-on-open",
+    "t3-rehover",
+    "t3-tool-icon",
+    "t3-timeline-tip"
+  ],
+  "rust": {
+    "placement": "worker"
+  },
+  "host": {
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 1280,
+        "height": 840,
+        "minWidth": 840,
+        "minHeight": 620
+      }
+    }
+  },
+  "deploy": {
+    "store": {
+      "macos": "0",
+      "web": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  },
+  "data": [
+    "timeline-owner",
+    "timeline-rest",
+    "snapshot-id",
+    "anchor",
+    "snapshot-owner",
+    "frame",
+    "turn",
+    "media-url",
+    "media-kind",
+    "media-name",
+    "device-id",
+    "device-host",
+    "device-view",
+    "device-ax",
+    "surface-launcher-keys",
+    "tool-icon-light",
+    "tool-icon-dark"
+  ]
+}

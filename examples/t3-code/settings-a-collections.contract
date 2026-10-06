@@ -1,0 +1,113 @@
+// Appearance → an imported theme collection (lane settings-a). Reference ThemeSettings.tsx
+// ThemeLibraryCard's variantNavigation (the light and dark root orbs, each fanning out
+// its variants on hover or focus) and the "Remove themes from …" AlertDialog with a
+// checkbox tile per variant.
+use CoreIcon from "./settings-core.contract"
+use CorePalette from "./settings-core.contract"
+use SettingsGhost from "./settings-core.contract"
+use ThemeCard from "./settings-core.contract"
+use ThemeOrb from "./settings-core.contract"
+
+// role="group" "Light and dark theme variants", 80pt tall: each mode's selected variant
+// at left 50% ± 52, its short label under it with "+N", and the fan of 28pt children.
+component CollectionOrbs
+  props
+    card: ThemeCard
+    pal: CorePalette
+    busy: bool
+    change: action
+  state open = ""
+  state tip = ""
+  action leave(over: bool)
+    open = over ? open : ""
+    tip = over ? tip : ""
+  action enter(mode: string, label: string, over: bool)
+    open = over ? mode : open
+    tip = over ? label : (tip == label ? "" : tip)
+  action focusMode(mode: string)
+    open = mode
+  view
+    box position="relative" width="100%" height=80 hover=leave role="group" aria-label="Light and dark theme variants" testId=`theme-variants-${card.collectionId}`
+      each v in card.variants key=v.mode
+        button press=change("theme-half", v.mode == "light" ? "themeLight" : "themeDark", v.themeId) hover=enter(v.mode, `${v.mode == "light" ? "Light" : "Dark"}: ${v.label}`) focus=focusMode(v.mode) aria-label=v.aria role="checkbox" aria-checked=v.active disabled=busy class=SettingsGhost position="absolute" left="50%" top=8 margin-left=(v.offset - 28) width=56 height=56 padding=0 border-radius=28 z-index=20 display="flex" align-items="center" justify-content="center" testId=`theme-variant-${card.collectionId}-${v.mode}`
+          ThemeOrbView(orb=v.orb, id=`${card.id}-root-${v.mode}`, ring=pal.thumb)
+          when v.active
+            box position="absolute" left=0 top=0 width=56 height=56 border-radius=28 box-shadow=`0 0 0 2px ${pal.accent}` pointer-events="none"
+            box position="absolute" right=-2 bottom=-2 width=16 height=16 border-radius=8 border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.canvas display="flex" align-items="center" justify-content="center" box-shadow="0 1px 2px #0000001a" pointer-events="none"
+              CoreIcon(name=(v.mode == "light" ? "sun" : "moon"), size=10, color=pal.text)
+        row position="absolute" bottom=0 left="50%" margin-left=(v.offset - 48) width=96 justify-content="center" align-items="center" gap=4 pointer-events="none"
+          text v.label font-size=11 font-weight=500 line-height="16px" color=pal.text line-clamp=1 white-space="nowrap" min-width=0 flex-shrink=1
+          when v.more > 0
+            text `+${v.more}` flex-shrink=0 padding-left=4 padding-right=4 border-radius=99 background-color=pal.highlight font-size=10 line-height="14px" color=pal.muted
+        each o in v.options key=o.themeId
+          button press=change("theme-half", v.mode == "light" ? "themeLight" : "themeDark", o.themeId) hover=enter(v.mode, `Use ${o.label} for ${v.mode} mode`) focus=focusMode(v.mode) aria-label=o.aria role="checkbox" aria-checked=o.active disabled=(busy or open != v.mode) position="absolute" left="50%" top=4 margin-left=-14 width=28 height=28 padding=0 border-width=0 border-radius=14 z-index=30 overflow="hidden" display="flex" align-items="center" justify-content="center" background-color=pal.canvas box-shadow=(o.active ? `0 0 0 2px ${pal.accent}, 0 1px 2px #0000000d` : `0 0 0 1px ${pal.cardBorder}, 0 1px 2px #0000000d`) opacity=(open == v.mode ? 1 : 0) pointer-events=(open == v.mode ? "auto" : "none") translate=(open == v.mode ? `${o.x}px ${o.y}px` : `${v.offset}px 28px`) scale=(open == v.mode ? 1 : 0.55) transition=(open == v.mode ? `opacity 200ms ease-out ${o.delay}ms, translate 200ms ease-out ${o.delay}ms, scale 200ms ease-out ${o.delay}ms` : "opacity 200ms ease-out, translate 200ms ease-out, scale 200ms ease-out") testId=`theme-variant-${card.collectionId}-${v.mode}-${o.themeId}`
+            box flex-shrink=0 scale=0.43 pointer-events="none"
+              ThemeOrbView(orb=o.orb, id=`${card.id}-${v.mode}-${o.themeId}`, ring=pal.thumb)
+      when tip != ""
+        row position="absolute" left=0 right=0 top=-26 justify-content="center" pointer-events="none" z-index=60
+          text tip padding-top=4 padding-bottom=4 padding-left=8 padding-right=8 border-radius=8 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover font-size=12 line-height="16.5px" color=pal.text white-space="nowrap" role="tooltip" testId="theme-variant-tip"
+
+// AlertDialog: "Remove themes from “<collection>”?" — a 2-column grid of variant tiles,
+// each a checkbox; "Remove selected (N)" stays disabled until one is checked.
+component CollectionRemoveDialog
+  props
+    card: ThemeCard
+    pal: CorePalette
+    busy: bool
+    error: string
+    close: action
+    pick: action
+    change: action
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding=16 box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId="theme-remove-collection-overlay"
+      column width="100%" max-width=512 box-sizing="border-box" border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-label=`Remove themes from “${card.label}”?` testId="theme-remove-collection"
+        column gap=8 padding=24 box-sizing="border-box"
+          text `Remove themes from “${card.label}”?` font-size=20 font-weight=600 line-height="24px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text "Select the variants you want to remove. You can restore them by importing the extension again." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+          when error != ""
+            text error font-size=12 line-height="18px" color="light-dark(#dc2626, #f87171)" role="alert" testId="theme-remove-collection-error"
+        scroll max-height=288 width="100%"
+          box display="grid" grid-template-columns="repeat(2, minmax(0, 1fr))" gap=8 padding-left=24 padding-right=24 padding-bottom=24 box-sizing="border-box" width="100%"
+            each option in card.removal key=option.themeId
+              button press=pick("theme-pick", `${card.id}|${option.themeId}`) role="checkbox" aria-checked=option.checked aria-label=option.label class=SettingsGhost position="relative" display="flex" flex-direction="column" align-items="center" justify-content="center" gap=8 min-height=112 min-width=0 padding=12 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color=(option.checked ? pal.accent : pal.cardBorder) background-color=(option.checked ? pal.tileActive : pal.highlight) testId=`theme-remove-pick-${option.themeId}`
+                box position="absolute" right=8 top=8 width=16 height=16 border-radius=4 border-width=1 border-style="solid" border-color=(option.checked ? pal.accent : pal.input) background-color=(option.checked ? pal.accent : pal.field) box-sizing="border-box" display="flex" align-items="center" justify-content="center"
+                  when option.checked
+                    CoreIcon(name="check", size=12, color=pal.accentText)
+                row min-height=48 align-items="center" justify-content="center" gap=4
+                  each orb in option.orbs key=orb.mode
+                    box width=44 height=44 flex-shrink=0 display="flex" align-items="center" justify-content="center"
+                      box flex-shrink=0 scale=0.75
+                        ThemeOrbView(orb=orb, id=`remove-${option.themeId}-${orb.mode}`, ring=pal.thumb)
+                text option.label font-size=14 font-weight=500 line-height="20px" text-align="center" color=pal.text line-clamp=1 max-width="100%"
+        row gap=8 justify-content="flex-end" padding-left=24 padding-right=24 padding-top=16 padding-bottom=16 box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
+          button press=close disabled=busy aria-keyshortcuts="Escape" testId="theme-remove-collection-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height=36 padding-left=13 padding-right=13 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+            text "Cancel" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+          button press=change("theme-remove-many", "", card.pickedIds) disabled=(busy or card.picked == 0) testId="theme-remove-collection-confirm" display="flex" flex-direction="row" align-items="center" justify-content="center" height=36 padding-left=13 padding-right=13 box-sizing="border-box" border-radius=8 border-width=0 opacity=(busy or card.picked == 0 ? 0.64 : 1) background-color="light-dark(#dc2626, #dc2626)"
+            text (card.picked > 0 ? `Remove selected (${card.picked})` : "Remove selected") font-size=14 font-weight=500 line-height="20px" color="#ffffff"
+
+// The ball: a mode-tinted base with the accent glow and a soft action tint, blurred 3px at 1.1x.
+component ThemeOrbView
+  props
+    orb: ThemeOrb
+    id: string
+    ring: string
+  view
+    box width=56 height=56 border-radius=28 border-width=2 border-style="solid" border-color=ring overflow="hidden" box-sizing="border-box" box-shadow=(orb.mode == "dark" ? "inset 0 0 0 1px #ffffff24, 0 1px 2px #0000002e" : "inset 0 0 0 1px #0000001a, 0 1px 2px #00000014")
+      svg width=52 height=52 viewBox="0 0 56 56" aria-hidden=true
+        defs
+          radialGradient id=`accent-${id}` cx=orb.ax cy=orb.ay r=orb.ar gradientUnits="userSpaceOnUse"
+            stop offset=0 stop-color=orb.accent
+            stop offset=0.28 stop-color=orb.accentMid
+            stop offset=0.58 stop-color=orb.accent stop-opacity=0
+          radialGradient id=`action-${id}` cx=orb.px cy=orb.py r=orb.pr gradientUnits="userSpaceOnUse"
+            stop offset=0 stop-color=orb.action
+            stop offset=0.55 stop-color=orb.action stop-opacity=0
+          filter id=`blur-${id}` x=-10 y=-10 width=76 height=76 filterUnits="userSpaceOnUse"
+            feGaussianBlur stdDeviation=3
+          clipPath id=`clip-${id}`
+            circle cx=28 cy=28 r=28
+        g clip-path=`url(#clip-${id})`
+          g filter=`url(#blur-${id})` transform="translate(28 28) scale(1.1) translate(-28 -28)"
+            rect width=56 height=56 fill=orb.base
+            rect width=56 height=56 fill=`url(#accent-${id})`
+            rect width=56 height=56 fill=`url(#action-${id})`

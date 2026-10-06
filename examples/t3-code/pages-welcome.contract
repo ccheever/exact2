@@ -1,0 +1,398 @@
+// The first-run "Set up T3 Code" wizard (lane "pages"), measured against the
+// served reference /welcome at 1280×840: the T3 wordmark, the three-stage
+// progress list, Connect (computers, Add a computer with the pairing form),
+// Agents (each computer's Codex and Claude readiness) and Projects (Claude
+// Code and Codex history to import). T3 Code, MIT (LICENSE-T3):
+// components/onboarding/WelcomeWizard.tsx, components/ui/wizard.tsx.
+use PgIcon from "./pages-icons.contract"
+use ProviderMark from "./icons.contract"
+use DriverMark from "./provider-icons.contract"
+
+// CommandBlock's MorphIcon (f2cc80a7a4): Copy becomes Check for the hook's
+// 1.5s; two names let a second copy restart it.
+keyframes wcShownA
+  from opacity=1
+  99% opacity=1
+  to opacity=0
+keyframes wcShownB
+  from opacity=1
+  99% opacity=1
+  to opacity=0
+keyframes wcHiddenA
+  from opacity=0
+  99% opacity=0
+  to opacity=1
+keyframes wcHiddenB
+  from opacity=0
+  99% opacity=0
+  to opacity=1
+
+shape WelcomeComputer
+  key: string
+  environmentId: string
+  label: string
+  url: string
+  status: string
+  selected: bool
+shape WelcomeAgent
+  key: string
+  driver: string
+  kind: string
+  instanceId: string
+  name: string
+  summary: string
+  state: string
+  badge: string
+shape WelcomeMachine
+  key: string
+  label: string
+  agents: list<WelcomeAgent>
+  chatgpt: bool
+shape WelcomeCandidate
+  key: string
+  title: string
+  path: string
+  detail: string
+  selected: bool
+shape WelcomeView
+  show: bool
+  step: string
+  computers: list<WelcomeComputer>
+  ready: bool
+  machines: list<WelcomeMachine>
+  scanning: bool
+  scanError: string
+  candidates: list<WelcomeCandidate>
+  candidateCount: number
+  selectedCount: number
+  selectionLabel: string
+  truncated: bool
+  importLabel: string
+  importing: bool
+  emptyScan: bool
+  commandCopied: number
+
+// T3Wordmark (h-4) and "Code" in the muted 2xl beside it.
+component WelcomeIdentity
+  props
+    scheme: string
+  view
+    row height=32 align-items="baseline" gap=6 role="img" aria-label="T3 Code"
+      svg width=26.5 height=16 viewBox="15.5309 37 94.3941 56.96" aria-hidden=true flex-shrink=0
+        path d="M33.4509 93V47.56H15.5309V37H64.3309V47.56H46.4109V93H33.4509ZM86.7253 93.96C82.832 93.96 78.9653 93.4533 75.1253 92.44C71.2853 91.3733 68.032 89.88 65.3653 87.96L70.4053 78.04C72.5386 79.5867 75.0186 80.8133 77.8453 81.72C80.672 82.6267 83.5253 83.08 86.4053 83.08C89.6586 83.08 92.2186 82.44 94.0853 81.16C95.952 79.88 96.8853 78.12 96.8853 75.88C96.8853 73.7467 96.0586 72.0667 94.4053 70.84C92.752 69.6133 90.0853 69 86.4053 69H80.4853V60.44L96.0853 42.76L97.5253 47.4H68.1653V37H107.365V45.4L91.8453 63.08L85.2853 59.32H89.0453C95.9253 59.32 101.125 60.8667 104.645 63.96C108.165 67.0533 109.925 71.0267 109.925 75.88C109.925 79.0267 109.099 81.9867 107.445 84.76C105.792 87.48 103.259 89.6933 99.8453 91.4C96.432 93.1067 92.0586 93.96 86.7253 93.96Z" fill=(scheme == "dark" ? "#f5f5f5" : "#27272a")
+      text "Code" font-size=24 line-height="32px" font-weight=500 letter-spacing=-0.6 color="light-dark(#71717b, #818181)"
+
+// WizardSteps: three equal cells; only earlier stages can be reopened.
+component WelcomeSteps
+  props
+    step: string
+    busy: bool
+    go: action
+  derive index = step == "agents" ? 1 : step == "import" ? 2 : 0
+  view
+    row width="100%" height=44 padding=4 gap=4 box-sizing="border-box" border-radius=14 border-width=1 border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfc, #ffffff0a)" role="list" aria-label="Setup progress"
+      WelcomeStep(number=1, label="Connect", current=(index == 0), done=(index > 0), enabled=(index > 0 and not busy), press=go("connect"))
+      WelcomeStep(number=2, label="Agents", current=(index == 1), done=(index > 1), enabled=(index > 1 and not busy), press=go("agents"))
+      WelcomeStep(number=3, label="Projects", current=(index == 2), done=false, enabled=false, press=go("import"))
+
+component WelcomeStep
+  props
+    number: number
+    label: string
+    current: bool
+    done: bool
+    enabled: bool
+    press: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover disabled=(not enabled) aria-label=`${label}, step ${number}` testId=`welcome-step-${number}` flex=1 min-width=0 height=36 padding-left=10 padding-right=10 box-sizing="border-box" gap=8 border-radius=10 border-width=(current ? 1 : 0) border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" background-color=(current or (over and enabled) ? "light-dark(#ffffff, #111111)" : "#00000000") box-shadow=(current ? "0 1px 2px #0000000d" : "none") display="flex" flex-direction="row" align-items="center"
+      box width=20 height=20 flex-shrink=0 box-sizing="border-box" border-radius=9999 border-width=1 border-style="solid" border-color=(done ? "light-dark(#1b4ed8, #346bf1)" : current ? "light-dark(#1b4ed84d, #346bf14d)" : "light-dark(#0000001a, #ffffff1a)") background-color=(done ? "light-dark(#1b4ed8, #346bf1)" : current ? "light-dark(#1d4ed81a, #316cf51a)" : "light-dark(#ffffff, #ffffff0d)") display="flex" align-items="center" justify-content="center"
+        when done
+          PgIcon(name="check", size=16, color="#ffffff")
+        else
+          text `${number}` font-size=14 line-height="20px" font-weight=500 color=(current ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#71717b, #818181)")
+      text label font-size=14 line-height="20px" font-weight=500 line-clamp=1 color=(current ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+
+// Button (default/primary): 32pt, px 11, rounded-lg, a trailing 14pt glyph.
+component WelcomePrimary
+  props
+    label: string
+    icon: string
+    disabled: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover disabled=disabled testId=testId height=32 padding-left=11 padding-right=11 box-sizing="border-box" gap=6 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color=(over and not disabled ? "light-dark(#1b4ed8e6, #346bf1e6)" : "light-dark(#1b4ed8, #346bf1)") box-shadow="inset 0 1px 0 #ffffff29" opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+      text label font-size=14 line-height="20px" font-weight=500 color="#ffffff" white-space="nowrap"
+      when icon != ""
+        PgIcon(name=icon, size=14, color="#ffffff")
+
+// Button variant="ghost-muted": muted text that lifts to the foreground.
+component WelcomeGhost
+  props
+    label: string
+    small: bool
+    disabled: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover disabled=disabled testId=testId height=(small ? 24 : 32) padding-left=(small ? 7 : 11) padding-right=(small ? 7 : 11) box-sizing="border-box" border-radius=8 border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+      text label font-size=(small ? 12 : 14) line-height=(small ? "16px" : "20px") font-weight=500 white-space="nowrap" color=(over and not disabled ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+
+// The modal (Dialog with disablePointerDismissal): Escape and outside clicks do nothing.
+component WelcomeWizard
+  props
+    view: WelcomeView
+    scheme: string
+    viewportHeight: number
+    step: string
+    busy: bool
+    error: string
+    link: string
+    pairOpen: bool
+    helpOpen: bool
+    go: action
+    local: action
+    editLink: action
+    pair: action
+    togglePair: action
+    toggleHelp: action
+    copy: action
+    setup: action
+    chatgpt: action
+    finish: action
+  view
+    column position="absolute" left=0 top=0 right=0 bottom=0 display="flex" align-items="center" justify-content="center" padding=16 box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="welcome-wizard"
+      column width="100%" max-width=768 max-height="100%" box-sizing="border-box" border-radius=18 border-width=1 border-style="solid" border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(scheme == "dark" ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label="Set up T3 Code" testId="welcome-dialog"
+        column width="100%" padding-left=24 padding-right=24 padding-top=24 padding-bottom=12 box-sizing="border-box" gap=8 flex-shrink=0
+          text "Set up T3 Code" width=1 height=1 overflow="hidden" opacity=0 position="absolute" role="heading" aria-level=2
+          WelcomeIdentity(scheme=scheme)
+          WelcomeSteps(step=step, busy=view.importing, go=go)
+        scroll width="100%" max-height=(viewportHeight - 154) testId="welcome-scroll"
+          column width="100%" padding-left=24 padding-right=24 padding-top=20 padding-bottom=20 box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfccc, #ffffff05)"
+            when step == "connect"
+              WelcomeConnect(view=view, busy=busy, error=error, link=link, pairOpen=pairOpen, helpOpen=helpOpen, local=local, editLink=editLink, pair=pair, togglePair=togglePair, toggleHelp=toggleHelp, copy=copy, setup=setup)
+            when step == "agents"
+              WelcomeAgents(view=view, busy=busy, local=local, go=go, chatgpt=chatgpt)
+            when step == "import"
+              WelcomeImport(view=view, busy=busy, local=local, finish=finish)
+
+component WelcomeTitle
+  props
+    title: string
+    description: string
+  view
+    column width="100%"
+      text title font-size=24 line-height="32px" font-weight=600 letter-spacing=-0.6 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1
+      when description != ""
+        text description margin-top=10 font-size=14 line-height="22.75px" color="light-dark(#71717b, #818181)"
+
+// ConnectionStep: the saved computers as checkbox rows, then "Add a computer".
+component WelcomeConnect
+  props
+    view: WelcomeView
+    busy: bool
+    error: string
+    link: string
+    pairOpen: bool
+    helpOpen: bool
+    local: action
+    editLink: action
+    pair: action
+    togglePair: action
+    toggleHelp: action
+    copy: action
+    setup: action
+  view
+    column width="100%" testId="welcome-connect"
+      WelcomeTitle(title="Connect your computers", description="Choose one or more computers. We’ll set up agents and projects on each.")
+      when length(view.computers) > 0
+        column width="100%" margin-top=20 gap=8 role="group" aria-label="Computers to set up"
+          each computer in view.computers key=computer.key
+            button press=local("select", computer.key, "") role="checkbox" aria-checked=computer.selected aria-label=`${computer.label} ${computer.status} ${computer.url}` testId=`welcome-computer-${computer.environmentId}` width="100%" padding=12 box-sizing="border-box" gap=12 border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fcfcfc, #0a0a0a)" display="flex" flex-direction="row" align-items="center"
+              box width=16 height=16 flex-shrink=0 box-sizing="border-box" border-radius=4 border-width=(computer.selected ? 0 : 1) border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(computer.selected ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#fcfcfc, #0a0a0a)") display="flex" align-items="center" justify-content="center"
+                when computer.selected
+                  PgIcon(name="check", size=12, color="#ffffff")
+              PgIcon(name="monitor", size=16, color="light-dark(#71717b, #818181)")
+              column flex=1 min-width=0 gap=2
+                row width="100%" align-items="baseline" justify-content="space-between" gap=12
+                  text computer.label font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" min-width=0 text-align="left"
+                  text computer.status font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" flex-shrink=0
+                text computer.url font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" text-align="left"
+      column width="100%" margin-top=16 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fcfcfc, #0a0a0a)"
+        WelcomeDisclosure(icon="link", label="Add a computer", detail="", open=pairOpen, disabled=busy, press=togglePair, testId="welcome-add-computer")
+        when pairOpen
+          column width="100%" padding-left=12 padding-right=12 padding-bottom=12 box-sizing="border-box" gap=12
+            column width="100%" gap=8
+              text "Pairing link" font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+              input id="welcome-pairing-link" value=link input=editLink submit=pair placeholder="https://your-server:5230/pair#token=…" aria-label="Pairing link" autocorrect="off" spellcheck="false" disabled=busy testId="welcome-pairing-link" width="100%" height=36 padding-left=11 padding-right=11 padding-top=8 padding-bottom=8 box-sizing="border-box" line-height="20px" border-radius=10 border-width=1 border-style="solid" border-color=(error != "" ? "light-dark(#e40014, #ff6467)" : "light-dark(#d4d4d8, #ffffff14)") background-color="light-dark(#ffffff, #ffffff07)" font-size=14 color="light-dark(#27272a, #f5f5f5)"
+            when error != ""
+              row width="100%" padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 box-sizing="border-box" gap=8 border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e4001433, #ff646733)" background-color="light-dark(#e400140d, #ff64670f)" align-items="flex-start" role="alert" testId="welcome-pairing-error"
+                PgIcon(name="circle-x", size=16, color="light-dark(#e40014, #ff6467)")
+                text error flex=1 min-width=0 font-size=14 line-height="20px" color="light-dark(#e40014, #ff6467)"
+            row width="100%" min-height=32 align-items="center" justify-content="space-between" gap=12
+              button press=toggleHelp aria-expanded=helpOpen testId="welcome-pairing-help" padding=0 gap=4 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+                PgIcon(name=(helpOpen ? "chevron-down" : "chevron-right"), size=14, color="light-dark(#71717b, #818181)")
+                text "Need a pairing link?" font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+              WelcomePrimary(label=(busy ? "Pairing..." : "Pair"), icon="", disabled=(busy or link == ""), press=pair, testId="welcome-pair")
+            when helpOpen
+              column width="100%"
+                text "Run this on the computer with your code." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+                WelcomeCommand(command="npx t3 pair", copied=view.commandCopied, local=local)
+                row margin-top=8 flex-wrap="wrap" align-items="baseline"
+                  text "Start T3 Code first, or run " font-size=12 line-height="19.5px" white-space="pre" color="light-dark(#71717b, #818181)"
+                  text "npx t3 serve" font-family="ui-monospace" font-size=12 line-height="19.5px" color="light-dark(#71717b, #818181)"
+                  text ". Add " font-size=12 line-height="19.5px" white-space="pre" color="light-dark(#71717b, #818181)"
+                  text "--tailscale" font-family="ui-monospace" font-size=12 line-height="19.5px" color="light-dark(#71717b, #818181)"
+                  text " to use your tailnet." font-size=12 line-height="19.5px" white-space="pre" color="light-dark(#71717b, #818181)"
+      row width="100%" margin-top=24 justify-content="flex-end" align-items="center" gap=12
+        WelcomePrimary(label="Continue", icon="arrow-right", disabled=(not view.ready or busy), press=setup, testId="welcome-continue")
+
+// CollapsibleTrigger as Button ghost sm: glyph, label, status, a chevron that turns.
+component WelcomeDisclosure
+  props
+    icon: string
+    label: string
+    detail: string
+    open: bool
+    disabled: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover disabled=disabled aria-expanded=open testId=testId width="100%" height=28 padding-left=9 padding-right=9 box-sizing="border-box" gap=6 border-radius=8 border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      PgIcon(name=icon, size=16, color="light-dark(#71717b, #818181)")
+      text label flex=1 min-width=0 text-align="left" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+      when detail != ""
+        text detail font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717b, #818181)" flex-shrink=0
+      PgIcon(name=(open ? "chevron-down" : "chevron-right"), size=16, color="light-dark(#71717b, #818181)")
+
+// CommandBlock: "$ command" in mono with its copy button.
+component WelcomeCommand
+  props
+    command: string
+    copied: number
+    local: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    row width="100%" margin-top=8 padding-left=12 padding-right=12 padding-top=10 padding-bottom=10 box-sizing="border-box" gap=12 border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f4f4f580, #ffffff04)" align-items="center" justify-content="space-between"
+      row min-width=0 align-items="baseline"
+        text "$" margin-right=8 font-family="ui-monospace" font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+        text command font-family="ui-monospace" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" line-clamp=1
+      button press=local("copy-command", "", command) hover=hover aria-label="Copy command" testId="welcome-copy-command" width=24 height=24 padding=0 border-radius=8 border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 position="relative"
+        when copied > 0
+          box width=14 height=14 animation=(copied % 2 == 0 ? "wcHiddenA 1.5s linear forwards" : "wcHiddenB 1.5s linear forwards")
+            PgIcon(name="copy", size=14, color="light-dark(#71717b, #818181)")
+          box position="absolute" left=5 top=5 width=14 height=14 animation=(copied % 2 == 0 ? "wcShownA 1.5s linear forwards" : "wcShownB 1.5s linear forwards") testId="welcome-copy-command-check"
+            PgIcon(name="check", size=14, color="light-dark(#71717b, #818181)")
+        else
+          PgIcon(name="copy", size=14, color="light-dark(#71717b, #818181)")
+
+// AgentsStep: one section per computer; Codex accounts first, then Claude.
+component WelcomeAgents
+  props
+    view: WelcomeView
+    busy: bool
+    local: action
+    go: action
+    chatgpt: action
+  view
+    column width="100%" testId="welcome-agents"
+      WelcomeTitle(title="Connect your agents", description="Choose an agent to start coding. You can add more later.")
+      column width="100%" margin-top=20 padding-right=12 box-sizing="border-box" gap=20
+        each machine in view.machines key=machine.key
+          column width="100%"
+            text machine.label margin-bottom=8 font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+            column width="100%" gap=6
+              each agent in machine.agents key=agent.key
+                WelcomeAgentCard(agent=agent, busy=busy, local=local)
+            when machine.chatgpt
+              row margin-top=12
+                WelcomeGhost(label="Connect another ChatGPT account", small=true, disabled=busy, press=chatgpt, testId="welcome-another-chatgpt")
+      row width="100%" margin-top=24 justify-content="flex-end"
+        WelcomePrimary(label="Continue", icon="arrow-right", disabled=busy, press=go("import"), testId="welcome-agents-continue")
+
+component WelcomeAgentCard
+  props
+    agent: WelcomeAgent
+    busy: bool
+    local: action
+  view
+    row width="100%" padding=16 box-sizing="border-box" gap=12 border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fcfcfc, #0a0a0a)" align-items="center" testId=`welcome-agent-${agent.key}`
+      when agent.driver == "codex"
+        ProviderMark(driver="codex", size=20, color="light-dark(#27272a, #f5f5f5)")
+      else
+        DriverMark(driver=agent.driver, size=20, initials="")
+      column flex=1 min-width=0 gap=2
+        text agent.name font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role=(agent.kind == "codex-setup" ? "heading" : "none") aria-level=3
+        text agent.summary font-size=12 line-height="19.5px" color="light-dark(#71717b, #818181)"
+      when agent.kind == "codex-setup"
+        row flex-shrink=0 gap=8 align-items="center"
+          WelcomeGhost(label="Use existing CLI", small=false, disabled=busy, press=local("codex-mode", agent.instanceId, "existing"), testId="welcome-codex-existing")
+          button press=local("codex-mode", agent.instanceId, "managed") disabled=busy testId="welcome-codex-chatgpt" height=28 padding-left=9 padding-right=9 box-sizing="border-box" gap=6 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" box-shadow="inset 0 1px 0 #ffffff29" display="flex" flex-direction="row" align-items="center"
+            ProviderMark(driver="codex", size=16, color="#ffffff")
+            text "Continue with ChatGPT" font-size=14 line-height="20px" font-weight=500 color="#ffffff" white-space="nowrap"
+      when agent.kind == "card" and agent.state == "ready"
+        row flex-shrink=0 gap=6 align-items="center"
+          PgIcon(name="check", size=14, color="light-dark(#007a55, #00d492)")
+          text "Ready" font-size=12 line-height="16px" font-weight=500 color="light-dark(#007a55, #00d492)"
+      when agent.kind == "card" and agent.state != "ready"
+        text agent.badge flex-shrink=0 font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+
+// ImportStep: the scan, the candidates as checkboxes, then skip or import.
+component WelcomeImport
+  props
+    view: WelcomeView
+    busy: bool
+    local: action
+    finish: action
+  view
+    column width="100%" testId="welcome-import"
+      when view.scanning or view.step != "import"
+        column width="100%" min-height=160
+          text "Your projects" font-size=24 line-height="32px" font-weight=600 letter-spacing=-0.6 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1
+          column flex=1 width="100%" padding-top=24 padding-bottom=24 align-items="center" justify-content="center" gap=12
+            PgIcon(name="refresh-cw", size=20, color="light-dark(#71717b, #818181)")
+            text "Looking for projects from Claude Code and Codex…" font-size=14 line-height="20px" text-align="center" color="light-dark(#71717b, #818181)"
+          row width="100%" justify-content="flex-end"
+            WelcomeGhost(label="Do not import projects", small=false, disabled=false, press=finish, testId="welcome-skip-import")
+      else
+        WelcomeTitle(title="Choose your projects", description="Import projects and conversations from your selected computers.")
+        when view.candidateCount > 0
+          row width="100%" margin-top=20 align-items="center" justify-content="space-between" gap=12
+            text view.selectionLabel font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" role="status"
+            row gap=4 align-items="center"
+              WelcomeGhost(label="Select all", small=true, disabled=(view.importing or view.selectedCount == view.candidateCount), press=local("pick-all", "", ""), testId="welcome-select-all")
+              WelcomeGhost(label="Select none", small=true, disabled=(view.importing or view.selectedCount == 0), press=local("pick-none", "", ""), testId="welcome-select-none")
+        column width="100%" margin-top=8 gap=2
+          when view.scanError != ""
+            row width="100%" align-items="center" justify-content="space-between" gap=12 role="alert"
+              text `Could not check projects. ${view.scanError}` font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+          when view.emptyScan
+            text "No existing Claude Code or Codex projects found." padding-top=8 padding-bottom=8 font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+          when view.truncated
+            text "Scan limit reached. Some projects or conversations may be missing." font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" role="status"
+          each candidate in view.candidates key=candidate.key
+            button press=local("pick", candidate.key, "") disabled=view.importing role="checkbox" aria-checked=candidate.selected testId=`welcome-candidate-${candidate.key}` width="100%" min-height=44 padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 box-sizing="border-box" gap=10 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+              box width=16 height=16 flex-shrink=0 box-sizing="border-box" border-radius=4 border-width=(candidate.selected ? 0 : 1) border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(candidate.selected ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#fcfcfc, #0a0a0a)") display="flex" align-items="center" justify-content="center"
+                when candidate.selected
+                  PgIcon(name="check", size=12, color="#ffffff")
+              column flex=1 min-width=0 gap=2
+                text candidate.title font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" text-align="left" line-clamp=1
+                text candidate.path font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" text-align="left" line-clamp=1
+              text candidate.detail flex-shrink=0 font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+        row width="100%" margin-top=24 flex-wrap="wrap" justify-content="flex-end" align-items="center" gap=12
+          WelcomeGhost(label="Do not import projects", small=false, disabled=(view.importing or busy), press=finish, testId="welcome-skip-import")
+          WelcomePrimary(label=view.importLabel, icon="", disabled=(view.importing or busy or view.selectedCount == 0), press=local("import", "", ""), testId="welcome-import")

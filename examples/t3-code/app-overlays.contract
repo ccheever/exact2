@@ -1,0 +1,194 @@
+use Icon from "./icons.contract"
+use Settings from "./shapes.contract"
+use Snapshot from "./shapes.contract"
+use PickerCatalog from "./composer-shapes.contract"
+use ModelPicker from "./model-picker.contract"
+use Viewport from "./shapes.contract"
+use Ink from "./shapes.contract"
+use Muted from "./shapes.contract"
+use Surface from "./shapes.contract"
+use Control from "./shapes.contract"
+use Overlay from "./shapes.contract"
+use WelcomeWizard from "./pages-welcome.contract"
+use WelcomeView from "./pages-welcome.contract"
+use RevertDialog from "./timeline.contract"
+use ImagePreviewDialog from "./timeline-attachments.contract"
+use DiagramPreviewDialog from "./timeline-mermaid.contract"
+use TimelineAttachmentUrls from "./timeline-attachments.contract"
+use PlanSaveDialog from "./timeline-plan.contract"
+use ShellView from "./shell-shapes.contract"
+use ToastStack from "./shell-toast.contract"
+use TitleMenu from "./shell-panels.contract"
+use AppConfirm from "./shell-panels.contract"
+use R4DeviceSetup from "./r4-surfaces.contract"
+use ShellDetails from "./shell-shapes.contract"
+use ThreadDetailsPanel from "./shell-details.contract"
+use R4GitLayers from "./r4-git.contract"
+use R6PrLayers from "./r6-pr.contract"
+use R4PublishDialog from "./r4-git-publish.contract"
+use CommandPalette from "./palette.contract"
+use PaletteView from "./palette.contract"
+use VideoPreviewDialog from "./r4-composer.contract"
+use R8TableMenu from "./r8-keys-table-menu.contract"
+use R9CheckoutDialog from "./r9-connect.contract" // lane r9-connect
+
+// The T3Code window's overlays, moved out of app.contract, which keeps the state, resources and
+// actions: each component takes the root names it reads as props of the same names.
+
+// The Projects dialog (Choose project).
+component ProjectPicker
+  props
+    projectsOpen: bool
+    viewport: Viewport
+    paletteShow: action
+    data: Snapshot
+    closeModal: action
+    manageProject: action
+    commandPending: bool
+    selectProject: action
+  view
+    when projectsOpen
+      column class=Overlay
+        column width="100%" max-width=440 max-height=(viewport.height - 96) padding=18 gap=12 border-radius=16 class=Surface border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)" box-sizing="border-box" role="dialog" aria-label="Choose project" testId="project-dialog"
+          row align-items="center" gap=12
+            text "Projects" font-size=17 font-weight=600 class=Ink flex=1
+            button press=paletteShow("command", "add-project") class=Control disabled=(not data.connected) testId="project-dialog-add"
+              text "+ Add project" font-size=12 class=Muted
+            button press=closeModal class=Control aria-label="Close project picker" aria-keyshortcuts="Escape"
+              text "×" font-size=19 class=Muted
+          scroll min-height=100 max-height=(viewport.height - 210)
+            column gap=5
+              each project in data.projects key=project.id
+                row gap=4 align-items="center"
+                  button press=manageProject(project.id, project.name, project.path) disabled=commandPending testId=`manage-project-${project.id}` class=Control aria-label=`Settings for ${project.name}`
+                    Icon(name="settings", size=16, color="light-dark(#71717a, #858585)")
+                  button press=selectProject(project.id) disabled=commandPending testId=`project-${project.id}` padding=12 border-radius=9 border-width=0 display="flex" flex-direction="column" align-items="flex-start" gap=4 width="100%" box-sizing="border-box" background-color=(project.selected ? "light-dark(#f0f2f8, #242424)" : "#00000000")
+                    text project.name font-size=14 font-weight=500 class=Ink
+                    text project.path font-size=11 class=Muted line-clamp=2
+              when length(data.projects) == 0
+                text "Add a workspace folder to start your first thread." font-size=13 line-height=1.5 class=Muted padding=12
+
+// The first-run "Set up T3 Code" wizard (pages-welcome.contract).
+component WelcomeLayer
+  props
+    welcome: WelcomeView
+    viewport: Viewport
+    welcomeStep: string
+    commandPending: bool
+    modalError: string
+    welcomeLink: string
+    welcomePairOpen: bool
+    welcomeHelpOpen: bool
+    welcomeGo: action
+    welcomeImport: action
+    welcomeEditLink: action
+    welcomePair: action
+    welcomeTogglePair: action
+    welcomeToggleHelp: action
+    prCopy: action
+    welcomeSetup: action
+    providerUi: action
+    welcomeFinish: action
+  view
+    when welcome.show
+      when viewport.prefersColorScheme == "dark"
+        WelcomeWizard(view=welcome, scheme="dark", viewportHeight=viewport.height, step=welcomeStep, busy=commandPending, error=modalError, link=welcomeLink, pairOpen=welcomePairOpen, helpOpen=welcomeHelpOpen, go=welcomeGo, local=welcomeImport, editLink=welcomeEditLink, pair=welcomePair, togglePair=welcomeTogglePair, toggleHelp=welcomeToggleHelp, copy=prCopy, setup=welcomeSetup, chatgpt=providerUi("open", "chatgpt"), finish=welcomeFinish)
+      else
+        WelcomeWizard(view=welcome, scheme="light", viewportHeight=viewport.height, step=welcomeStep, busy=commandPending, error=modalError, link=welcomeLink, pairOpen=welcomePairOpen, helpOpen=welcomeHelpOpen, go=welcomeGo, local=welcomeImport, editLink=welcomeEditLink, pair=welcomePair, togglePair=welcomeTogglePair, toggleHelp=welcomeToggleHelp, copy=prCopy, setup=welcomeSetup, chatgpt=providerUi("open", "chatgpt"), finish=welcomeFinish)
+
+// Window overlays above everything: model picker, palette, thread details, title menu, dialogs, toasts.
+component WindowOverlays
+  props
+    modelsOpen: bool
+    data: Snapshot
+    popoverSession: number
+    catalog: PickerCatalog
+    viewport: Viewport
+    modelQuery: string
+    composerLeft: number
+    resting: bool
+    commandPending: bool
+    closeModels: action
+    selectModel: action
+    searchModels: action
+    selectProvider: action
+    command: action
+    paletteOpen: bool
+    palette: PaletteView
+    paletteQuery: string
+    paletteHighlight: number
+    paletteScroll: number
+    paletteBusy: bool
+    paletteEdit: action
+    paletteKey: action
+    paletteRun: action
+    paletteHover: action
+    paletteClose: action
+    paletteFlag: action
+    detailsOpen: bool
+    details: ShellDetails
+    rightPanel: bool
+    narrowDiff: bool
+    sidebarWidth: number
+    conversationWidth: number
+    detailsEditors: bool
+    detailsAct: action
+    titleMenuOpen: bool
+    shell: ShellView
+    titleMenuX: number
+    titleMenuY: number
+    titleMenuSerial: number
+    titleMenuPick: action
+    titleUi: action
+    answerRevert: action
+    attachmentUrls: TimelineAttachmentUrls
+    chatLocal: action
+    confirmOp: string
+    confirmTitle: string
+    confirmBody: string
+    confirmDestructive: bool
+    confirmUi: action
+    toastHover: bool
+    toastHovering: action
+    toastAct: action
+  view
+    when modelsOpen
+      ModelPicker(data=data, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - (resting ? 4 : 2) + 4 : (resting ? 75 : 71)), busy=commandPending, close=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command)
+    when paletteOpen
+      CommandPalette(view=palette, query=paletteQuery, highlight=paletteHighlight, scroll=paletteScroll, busy=paletteBusy, viewport=viewport, scheme=viewport.prefersColorScheme, edit=paletteEdit, onKey=paletteKey, run=paletteRun, hover=paletteHover, close=paletteClose, back=paletteKey("Back"), flag=paletteFlag)
+    when detailsOpen and conversationWidth < 984 and viewport.prefersColorScheme == "dark"
+      ThreadDetailsPanel(details=details, right=(((rightPanel or data.diffOpen) and not narrowDiff) ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth + 13 : 13), maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal)
+    when detailsOpen and conversationWidth < 984 and viewport.prefersColorScheme != "dark"
+      ThreadDetailsPanel(details=details, right=(((rightPanel or data.diffOpen) and not narrowDiff) ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth + 13 : 13), maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal)
+    R4GitLayers(details=details, windowHeight=viewport.height, act=detailsAct, local=chatLocal)
+    R6PrLayers(details=details, scheme=viewport.prefersColorScheme, act=detailsAct, local=chatLocal) // lane r6-pr: the Merge AlertDialog
+    when details.ready and details.git.dialog == "publish"
+      R4PublishDialog(git=details.git, cwd=details.cwd, act=detailsAct, local=chatLocal)
+    // lane r9-connect: the branch pickers' PullRequestThreadDialog (r9-connect.contract).
+    when shell.prCheckout.open
+      R9CheckoutDialog(checkout=shell.prCheckout, viewportWidth=viewport.width, viewportHeight=viewport.height, dark=(viewport.prefersColorScheme == "dark"), local=chatLocal, command=command)
+    when titleMenuOpen
+      TitleMenu(items=shell.titleMenu, children=shell.titleSubmenu, x=titleMenuX, y=titleMenuY, serial=titleMenuSerial, pick=titleMenuPick, ui=titleUi)
+    when data.revertPending != ""
+      RevertDialog(busy=commandPending, answer=answerRevert)
+    when data.imagePreviewId != ""
+      each preview in filter(attachmentUrls.items, (entry) => entry.id == data.imagePreviewId) key=preview.id
+        ImagePreviewDialog(url=preview.url, name=data.imagePreviewName, position=data.imagePreviewPosition, previous=data.imagePreviewPrevious, next=data.imagePreviewNext, video=data.imagePreviewVideo, windowWidth=viewport.width, windowHeight=viewport.height, local=chatLocal)
+    each diagram in data.diagramPreview key=diagram.id
+      DiagramPreviewDialog(diagram=diagram, windowWidth=viewport.width, windowHeight=viewport.height, scheme=viewport.prefersColorScheme, local=chatLocal)
+    // r4-composer: a shelf video's expanded preview (r4-composer.contract).
+    each video in data.composerVideoPreview key=video.id
+      VideoPreviewDialog(preview=video, windowWidth=viewport.width, windowHeight=viewport.height, command=command)
+    when data.planSaveOpen
+      PlanSaveDialog(path=data.planSavePath, root=data.planSaveRoot, saving=data.planSaving, local=chatLocal)
+    when shell.panel.deviceSetup
+      R4DeviceSetup(device=shell.panel.device, scheme=viewport.prefersColorScheme, viewportHeight=viewport.height, local=chatLocal, command=command)
+    when confirmOp != ""
+      AppConfirm(title=confirmTitle, body=confirmBody, destructive=confirmDestructive, busy=commandPending, cancel=confirmUi(false), confirm=confirmUi(true))
+    when viewport.prefersColorScheme == "dark"
+      ToastStack(toasts=shell.toasts, width=min(360, viewport.width - (viewport.width >= 640 ? 64 : 32)), top=(viewport.width >= 640 ? 84 : 68), right=(viewport.width >= 640 ? 32 : 16), expanded=toastHover, still=viewport.prefersReducedMotion, hover=toastHovering, act=toastAct)
+    else
+      ToastStack(toasts=shell.toasts, width=min(360, viewport.width - (viewport.width >= 640 ? 64 : 32)), top=(viewport.width >= 640 ? 84 : 68), right=(viewport.width >= 640 ? 32 : 16), expanded=toastHover, still=viewport.prefersReducedMotion, hover=toastHovering, act=toastAct)
+    // lane r8-keys: a Markdown table's Copy menu over every layer (r8-keys-table-menu.contract).
+    each menu in data.tableMenu key=menu.id
+      R8TableMenu(menu=menu, dark=(viewport.prefersColorScheme == "dark"), local=chatLocal)

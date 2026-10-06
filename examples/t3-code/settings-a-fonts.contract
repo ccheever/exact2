@@ -1,0 +1,46 @@
+// Appearance → Typography: FontFamilyPicker (lane settings-a). A SelectButton that
+// opens a 288pt combobox: Search fonts…, the default family first with its
+// "default" tag, then the families this app can draw, each in its own face, a
+// check on the one in use, and "No fonts found." when the search misses.
+use CoreOption from "./settings-core.contract"
+use CorePalette from "./settings-core.contract"
+use CoreIcon from "./settings-core.contract"
+
+component FontFamilyPicker
+  props
+    rowId: string
+    label: string
+    value: string
+    families: list<CoreOption>
+    pal: CorePalette
+    disabled: bool
+    choose: action
+  state query = ""
+  action search(next: string)
+    query = next
+  view
+    box position="relative" flex-shrink=0
+      button popovertarget=`font-picker-${rowId}` disabled=disabled role="combobox" aria-label=label id=`setting-${rowId}-family` testId=`setting-${rowId}-family` border-width=0 padding=0 background-color="#00000000"
+        row justify-content="space-between" align-items="center" gap=8 width=176 height=28 padding-left=9 padding-right=5 border-radius=10 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" box-sizing="border-box" opacity=(disabled ? 0.64 : 1)
+          text value font-size=14 line-height="20px" color=pal.text line-clamp=1 white-space="nowrap" flex-shrink=1 min-width=0
+          box opacity=0.5 flex-shrink=0
+            CoreIcon(name="chevron-down", size=12, color=pal.text)
+      // ComboboxPopup align end: the popup's right edge meets the trigger's.
+      column id=`font-picker-${rowId}` popover="auto" position="absolute" top="100%" right=0 margin-top=4 width=288 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label=label testId=`font-picker-${rowId}`
+        column padding-top=10 padding-left=12 padding-right=12 box-sizing="border-box" width="100%"
+          row height=33 align-items="center" gap=4 padding-bottom=6 box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color=pal.border
+            CoreIcon(name="search", size=16, color=pal.muted)
+            input value=query input=search placeholder="Search fonts…" aria-label="Search fonts" spellcheck="false" autocorrect="off" testId=`font-picker-${rowId}-search` flex=1 min-width=0 height=26 padding=0 border-width=0 background-color="#00000000" font-size=14 line-height="26px" color=pal.text
+        scroll max-height=288 width="100%"
+          column padding=4 width="100%" box-sizing="border-box"
+            when length(filter(families, (family) => (query == "" or (family.value != "" and includes(family.icon, trim(query)))))) == 0
+              text "No fonts found." font-size=14 line-height="20px" text-align="center" padding=8 color=pal.muted testId=`font-picker-${rowId}-empty`
+            each family in families key=family.id
+              when query == "" or (family.value != "" and includes(family.icon, trim(query)))
+                button press=choose(family.value) popovertarget=`font-picker-${rowId}` popovertargetaction="hide" role="option" aria-selected=family.selected testId=`font-picker-${rowId}-${family.id}` display="flex" flex-direction="row" align-items="center" justify-content="space-between" gap=8 width="100%" height=30 padding-left=8 padding-right=8 box-sizing="border-box" border-width=0 border-radius=6 background-color="#00000000"
+                  text family.label font-family=(family.detail == "ui-serif" ? "ui-serif" : family.detail == "ui-rounded" ? "ui-rounded" : family.detail == "serif" ? "serif" : family.detail == "sans-serif" ? "sans-serif" : family.detail == "ui-monospace" ? "ui-monospace" : family.detail == "monospace" ? "monospace" : "system-ui") font-size=14 line-height="20px" color=pal.text line-clamp=1 min-width=0 flex=1
+                  row gap=6 align-items="center" flex-shrink=0
+                    when family.value == ""
+                      text "default" font-size=10 line-height="14px" color=pal.muted opacity=0.6
+                    when family.selected
+                      CoreIcon(name="check", size=14, color=pal.muted)

@@ -1,0 +1,349 @@
+// Settings → Project (reference ProjectsSettings.tsx / ProjectSettingsPanel.tsx):
+// without a project scope, a notice with the project choices; with one, the
+// group's name, icon, new-thread defaults, checkouts and removal.
+use SelectOption from "./settings-kit.contract"
+use SettingsSelect from "./settings-kit.contract"
+use SkPopup from "./settings-kit.contract"
+use SkMenuItem from "./settings-kit.contract"
+use ScopedRow from "./settings-source-control.contract"
+use Inheritance from "./settings-source-control.contract"
+use Card from "./settings-source-control.contract"
+use SectionTitle from "./settings-source-control.contract"
+use LucideInfo from "./settings-icons.contract"
+use LucideTrash2 from "./settings-icons.contract"
+use LucideUndo2 from "./settings-icons.contract"
+use LucideChevronDown from "./settings-icons.contract"
+use ProviderInstanceMark from "./icons.contract"
+use CnScriptIcon from "./settings-b-kit.contract"
+use CnGlyph from "./settings-b-kit.contract"
+use CnMenu from "./settings-b-kit.contract"
+use CnSeparator from "./settings-b-kit.contract"
+use LucideLayers from "./settings-icons.contract"
+use ProjectIconMark from "./settings-b-iconmark.contract"
+
+shape ProjectChoice
+  key: string
+  label: string
+  member: string
+shape ProjectMember
+  id: string
+  title: string
+  path: string
+  environment: string
+  first: bool
+shape ProjectAction
+  id: string
+  first: bool
+  name: string
+  command: string
+  icon: string
+  setup: bool
+  wait: bool
+  preview: bool
+  previewUrl: string
+  autoOpen: bool
+  keybinding: string
+  shortcut: string
+shape ImportScript
+  key: string
+  name: string
+  command: string
+  icon: string
+  payload: string
+shape ProjectsPage
+  ready: bool
+  selected: bool
+  message: string
+  choices: list<ProjectChoice>
+  confirmTitle: string
+  confirmDescription: string
+  key: string
+  name: string
+  mark: string
+  ink: string
+  surface: string
+  icon: string
+  iconCustom: bool
+  members: list<ProjectMember>
+  hasOther: bool
+  threads: number
+  model: ScopedRow
+  modelDriver: string
+  modelBadge: string
+  modelBadgeColor: string
+  effort: ScopedRow
+  workspace: ScopedRow
+  removeTitle: string
+  removeDescription: string
+  removeLabel: string
+  confirm: string
+  removeTarget: string
+  names: list<string>
+  actionScope: string
+  actionsMixed: bool
+  actionsWritable: bool
+  t3Invalid: bool
+  actions: list<ProjectAction>
+  importable: list<ImportScript>
+  actionsRow: ScopedRow
+  blankActions: list<ProjectAction>
+  iconKind: string
+  iconName: string
+  iconD: string
+  iconInk: string
+  iconSurface: string
+  iconText: string
+  iconTextWidth: number
+  iconEmoji: string
+  iconPickColor: string
+  iconLetters: string
+  faviconSrc: string
+  iconScope: string
+  iconCwd: string
+
+component ProjectsPanel
+  props
+    data: ProjectsPage
+    busy: bool
+    error: string
+    choose: action
+    rest: action
+    restInput: action
+    raw: action
+    open: action
+  view
+    column width="100%" gap=24 testId="projects-settings"
+      when error != ""
+        text error font-size=12 line-height="18px" color="light-dark(#dc2626, #f87171)" role="alert" testId="projects-error" padding-left=16
+      when data.ready and not data.selected and data.message != ""
+        Card()
+          column gap=12 padding=16 box-sizing="border-box" width="100%" testId="projects-scope-notice"
+            text data.message font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+            when length(data.choices) > 0
+              row gap=8 flex-wrap="wrap"
+                each choice in data.choices key=choice.key
+                  button press=choose(true, choice.key, choice.member) disabled=busy testId=`projects-choose-${choice.label}` display="flex" flex-direction="row" align-items="center" height=28 padding-left=9 padding-right=9 border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+                    text choice.label font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+      when data.selected
+        row width="100%" box-sizing="border-box" gap=10 align-items="center" padding-top=12 padding-bottom=12 padding-left=14 padding-right=14 border-radius=14 border-style="solid" border-width=1 border-color="#2c80ff52" background-color="#3380ff0a" role="alert" testId="projects-alert"
+          LucideInfo(size=16, color="light-dark(#1b4ed8, #4d8bff)")
+          text "Can't find a setting? Keep this project picked above and hop to any other settings page." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" flex=1 min-width=0
+        Card()
+          row width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=32 align-items="center" testId="project-name-row"
+            column flex=1 min-width=0 gap=4
+              text "Name" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+              text "The shared name for this project group in the sidebar and thread lists." font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" max-width=576
+            each current in data.names key=current
+              ProjectName(name=current, groupKey=data.key, busy=busy, raw=raw)
+          row width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=32 align-items="center" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId="project-icon-row"
+            column flex=1 min-width=0 gap=4
+              row min-height=20 gap=6 align-items="center"
+                text "Project icon" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+                box width=20 height=20
+                  when data.iconCustom
+                    button press=rest("project-icon", "action=reset") disabled=busy aria-label="Reset project icon to default" testId="reset-project-icon" width=20 height=20 padding=0 border-width=0 border-radius=4 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                      LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
+              text data.icon font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" testId="project-icon-description"
+            // ProjectFavicon size-6, then Choose icon (ProjectIconPickerDialog) and Choose file (ProjectFaviconPickerDialog).
+            row flex-shrink=0 gap=8 align-items="center"
+              ProjectIconMark(kind=data.iconKind, d=data.iconD, ink=data.iconInk, surface=data.iconSurface, text=data.iconText, textWidth=data.iconTextWidth, emoji=data.iconEmoji, src=data.faviconSrc, size=24)
+              button press=open("project-icon", "", "") disabled=busy aria-label="Choose a project icon" testId="project-choose-icon" class=PjOutline
+                text "Choose icon" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+              button press=open("project-favicon", "", "") disabled=busy aria-label="Choose a project icon file" testId="project-choose-file" class=PjOutline
+                text "Choose file" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+        column width="100%" gap=10 testId="project-new-threads"
+          row min-height=28 padding-left=16 padding-right=16 align-items="center"
+            SectionTitle(title="New threads")
+          Card()
+            row width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=32 align-items="center" testId="project-model-row"
+              column flex=1 min-width=0 gap=4
+                row min-height=20 gap=6 align-items="center"
+                  text "Model" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+                  Inheritance(row=data.model)
+                  box width=20 height=20
+                    when data.model.reset != ""
+                      button press=rest("scoped", data.model.reset) disabled=busy aria-label="Reset default model to default" testId="reset-project-model" width=20 height=20 padding=0 border-width=0 border-radius=4 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                        LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
+                text data.model.description font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" max-width=576
+                when data.model.status != ""
+                  text data.model.status font-size=12 line-height="16px" padding-top=2 color="light-dark(#71717b, #818181)"
+              row flex-shrink=0 gap=6 align-items="center"
+                GhostSelect(selectId="project-model", label="Default model", driver=data.modelDriver, badge=data.modelBadge, accent=data.modelBadgeColor, valueLabel=data.model.valueLabel, disabled=(busy or data.model.disabled), options=data.model.options, choose=restInput("scoped", "key=defaultModelSelection&value="))
+                when data.effort.key != ""
+                  GhostSelect(selectId="project-effort", label="Reasoning effort", driver="", badge="", accent="#00000000", valueLabel=data.effort.valueLabel, disabled=(busy or data.effort.disabled), options=data.effort.options, choose=restInput("scoped", `key=defaultModelSelection&value=${encodeURIComponent(data.model.value)}%23${encodeURIComponent(data.effort.key)}%3D`))
+            row width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=32 align-items="center" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId="project-workspace-row"
+              column flex=1 min-width=0 gap=4
+                row min-height=20 gap=6 align-items="center"
+                  text "Workspace" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+                  Inheritance(row=data.workspace)
+                  box width=20 height=20
+                    when data.workspace.reset != ""
+                      button press=rest("scoped", data.workspace.reset) disabled=busy aria-label="Reset default workspace to default" testId="reset-project-workspace" width=20 height=20 padding=0 border-width=0 border-radius=4 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                        LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
+                text data.workspace.description font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" max-width=576
+              SettingsSelect(selectId="project-workspace", label="Default workspace", valueLabel=data.workspace.valueLabel, width=160, disabled=(busy or data.workspace.disabled), options=data.workspace.options, choose=restInput("scoped", "key=defaultThreadEnvMode&value="))
+        ProjectActionsSection(data=data, busy=busy, raw=raw, open=open)
+        when length(data.members) > 0
+          column width="100%" gap=10 testId="project-checkouts"
+            row min-height=28 padding-left=16 padding-right=16 align-items="center"
+              SectionTitle(title="Checkouts")
+            Card()
+              each member in data.members key=member.id
+                row width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=32 align-items="center" border-top-style="solid" border-top-width=(member.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)"
+                  column flex=1 min-width=0 gap=4
+                    text member.environment font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+                    text member.path font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" max-width=576
+                  button press=open("project-remove-member", member.id, member.title) disabled=busy aria-label=`Remove checkout ${member.path}` testId=`remove-checkout-${member.id}` display="flex" flex-direction="row" align-items="center" height=28 padding-left=9 padding-right=9 border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+                    text "Remove" font-size=14 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+        column width="100%" gap=10 testId="project-danger"
+          row min-height=28 padding-left=16 padding-right=16 align-items="center"
+            SectionTitle(title="Danger")
+          Card()
+            row width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=32 align-items="center"
+              column flex=1 min-width=0 gap=4
+                text data.removeTitle font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+                text data.removeDescription font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" max-width=576
+              button press=open("project-remove", data.removeTarget, data.key) disabled=busy testId="remove-project" display="flex" flex-direction="row" align-items="center" gap=6 height=28 padding-left=9 padding-right=9 border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+                LucideTrash2(size=16, color="light-dark(#c10007, #ff6467)")
+                text data.removeLabel font-size=14 font-weight=500 color="light-dark(#c10007, #ff6467)"
+
+// Name: commits on blur or Enter; blank is refused (renameGroup).
+component ProjectName
+  props
+    name: string
+    groupKey: string
+    busy: bool
+    raw: action
+  state draft = name
+  action edit(next: string)
+    draft = next
+  view
+    input value=draft input=edit change=raw("rename-group", groupKey) aria-label="Project name" disabled=busy testId="managed-project-name" box-sizing="border-box" width=256 height=28 padding-left=9 padding-right=9 padding-top=3 padding-bottom=3 line-height="20px" flex-shrink=0 border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size=14 color="light-dark(#27272a, #f5f5f5)"
+
+// ProviderModelPicker / TraitsPicker triggers in a settings row: ghost buttons.
+component GhostSelect
+  props
+    selectId: string
+    label: string
+    driver: string
+    badge: string
+    accent: string
+    valueLabel: string
+    disabled: bool
+    options: list<SelectOption>
+    choose: action
+  view
+    button popovertarget=`${selectId}-menu` role="combobox" aria-label=label disabled=disabled id=selectId testId=selectId display="flex" flex-direction="row" align-items="center" gap=6 height=28 padding-left=10 padding-right=10 border-width=0 border-radius=8 background-color="#00000000" opacity=(disabled ? 0.64 : 1)
+      when driver != ""
+        ProviderInstanceMark(driver=driver, size=16, color="light-dark(#71717b, #818181)", badge=badge, accent=accent)
+      text valueLabel font-size=14 font-weight=500 line-height="20px" color="light-dark(#71717b, #818181)"
+      LucideChevronDown(size=14, color="light-dark(#71717b, #818181)")
+    SkPopup(menuId=`${selectId}-menu`, label=label, width=256, list=true, endAlign=0)
+      each option in options key=option.value
+        SkMenuItem(label=option.label, menuId=`${selectId}-menu`, itemId=`${selectId}-option-${option.value}`, selected=option.selected, check=true, destructive=false, disabled=false, choose=choose(option.value))
+
+// ProjectActionsSettings + ProjectActionsList: a project's actions on the
+// selected checkouts, t3.json import, and the editor (settings-b-actions.contract).
+component ProjectActionsSection
+  props
+    data: ProjectsPage
+    busy: bool
+    raw: action
+    open: action
+  view
+    column width="100%" gap=10 testId="project-actions"
+      row min-height=28 padding-left=16 padding-right=16 align-items="center"
+        SectionTitle(title="Actions")
+      Card()
+        row width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=32 align-items="center" testId="project-actions-row"
+          column flex=1 min-width=0 gap=4
+            row min-height=20 gap=6 align-items="center"
+              text "Actions" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+              Inheritance(row=data.actionsRow)
+              box width=20 height=20
+                when data.actionsRow.reset != ""
+                  button press=raw("sb:action-reset", data.actionScope, "") disabled=(busy or not data.actionsWritable) aria-label="Reset Actions to default" testId="reset-project-actions" width=20 height=20 padding=0 border-width=0 border-radius=4 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                    LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
+            text "Commands that run in this project's checkout or its worktree, with optional shortcuts." font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" max-width=576
+          row flex-shrink=0 gap=6 align-items="center" flex-wrap="wrap"
+            when length(data.importable) > 0
+              box position="relative"
+                button popovertarget="import-scripts-menu" disabled=(busy or not data.actionsWritable) id="import-scripts" testId="import-scripts" display="flex" flex-direction="row" align-items="center" gap=4 height=24 padding-left=7 padding-right=7 box-sizing="border-box" border-width=1 border-style="solid" border-color="#00000000" border-radius=8 background-color="#00000000"
+                  text "Import scripts" font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                  CnGlyph(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
+                CnMenu(menuId="import-scripts-menu", label="Import scripts", width=442, endAlign=111, offsetX=0, offsetY=0)
+                  text "Import from t3.json" font-size=12 font-weight=500 line-height="16px" padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 color="light-dark(#71717b, #818181)" role="heading"
+                  text "Add actions declared by this checkout without editing them first." font-size=14 line-height="20px" padding-left=8 padding-right=8 padding-bottom=8 color="light-dark(#71717b, #818181)"
+                  CnSeparator()
+                  each script in data.importable key=script.key
+                    ImportScriptItem(script=script, scope=data.actionScope, busy=busy, raw=raw)
+            button press=open("project-action", "", "") disabled=(busy or not data.actionsWritable) testId="add-project-action" display="flex" flex-direction="row" align-items="center" gap=4 height=24 padding-left=7 padding-right=7 box-sizing="border-box" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" border-radius=8 background-color="light-dark(#ffffff, #ffffff08)" box-shadow="0 1px 2px #0000000d"
+              CnGlyph(name="plus", size=14, color="light-dark(#71717b, #818181)")
+              text "Add action" font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+        when data.actionsMixed
+          row width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)"
+            column flex=1 min-width=0 gap=4
+              text "Different actions across environments" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+              text "Choose one environment to edit its list. Adding an action here adds it on every selected environment." font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" max-width=576
+        when not data.actionsMixed and length(data.actions) == 0
+          text "No actions configured." font-size=14 line-height="20px" padding-top=8 padding-bottom=8 padding-left=16 padding-right=16 border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" color="light-dark(#71717b, #818181)" testId="project-actions-empty"
+        when not data.actionsMixed
+          each entry in data.actions key=entry.id
+            ProjectActionRow(item=entry, busy=busy, writable=data.actionsWritable, open=open)
+        when data.t3Invalid
+          column width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=4 border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId="t3-json-invalid"
+            text "t3.json is invalid" font-size=14 font-weight=500 line-height="20px" color="light-dark(#e17100, #fdb022)" role="heading" aria-level=3
+            text "A t3.json exists in this checkout but fails to parse, so every action and icon it declares is ignored. Check the JSON syntax and icon values." font-size=12 line-height="18px" color="light-dark(#e17100cc, #fdb022cc)" max-width=576
+
+// One MenuItem of "Import from t3.json": icon, name and command.
+component ImportScriptItem
+  props
+    script: ImportScript
+    scope: string
+    busy: bool
+    raw: action
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  view
+    button press=raw("sb:action-import", scope, script.payload) popovertarget="import-scripts-menu" popovertargetaction="hide" hover=hover disabled=busy role="menuitem" aria-label=`${script.name} ${script.command}` testId=`import-script-${script.name}` display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap=8 width="100%" padding-top=4 padding-bottom=4 padding-left=6 padding-right=8 box-sizing="border-box" border-width=0 border-radius=6 background-color=(hovered ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+      CnScriptIcon(icon=script.icon, size=16, color="light-dark(#71717b, #818181)")
+      column flex=1 min-width=0 align-items="flex-start"
+        text script.name font-size=14 font-weight=500 line-height="20px" line-clamp=1 color="light-dark(#27272a, #f5f5f5)"
+        text script.command font-family="ui-monospace" font-size=14 line-height="20px" line-clamp=1 color="light-dark(#71717b, #818181)"
+
+// ProjectActionsList row: icon, name, setup/preview badges, the command, the
+// shortcut, and the edit gear that appears on hover or focus.
+component ProjectActionRow
+  props
+    item: ProjectAction
+    busy: bool
+    writable: bool
+    open: action
+  state hovered = false
+  state focused = false
+  action hover(over: bool)
+    hovered = over
+  action focusGear(on: bool)
+    focused = on
+  view
+    row hover=hover width="100%" box-sizing="border-box" padding-top=8 padding-bottom=8 padding-left=16 padding-right=16 gap=32 align-items="center" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId=`project-action-${item.id}`
+      column flex=1 min-width=0 gap=4
+        row min-width=0 gap=8 align-items="center"
+          CnScriptIcon(icon=item.icon, size=16, color="light-dark(#71717b, #818181)")
+          text item.name font-size=14 font-weight=500 line-height="20px" line-clamp=1 min-width=0 color="light-dark(#27272a, #f5f5f5)"
+          when item.setup
+            text "setup" font-size=10 line-height="14px" padding-left=6 padding-right=6 padding-top=1 padding-bottom=1 border-radius=4 border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff14)" flex-shrink=0 color="light-dark(#71717b, #818181)"
+          when item.preview
+            text "preview · desktop only" font-size=10 line-height="14px" padding-left=6 padding-right=6 padding-top=1 padding-bottom=1 border-radius=4 border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff14)" flex-shrink=0 color="light-dark(#71717b, #818181)"
+        text item.command font-family="ui-monospace" font-size=12 line-height="18px" line-clamp=1 color="light-dark(#70707acc, #818181cc)"
+      row flex-shrink=0 gap=8 align-items="center"
+        when item.shortcut != ""
+          text item.shortcut font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" testId=`project-action-shortcut-${item.id}`
+        button press=open("project-action", item.id, item.name) focus=focusGear(true) blur=focusGear(false) aria-label=`Edit ${item.name}` disabled=(busy or not writable) opacity=(hovered or focused ? 1 : 0) testId=`edit-project-action-${item.id}` width=24 height=24 padding=0 border-width=0 border-radius=8 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+          CnGlyph(name="settings", size=14, color="light-dark(#71717b, #818181)")
+
+// Button variant="outline" size="sm": h-7, px 9, radius 8, border-input, bg-popover, shadow-xs/5.
+style PjOutline
+  display="flex" flex-direction="row" align-items="center" justify-content="center" gap=6 box-sizing="border-box" height=28 min-width=40 padding-left=9 padding-right=9 flex-shrink=0
+  border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" box-shadow="0 1px 2px #0000000d"

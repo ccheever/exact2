@@ -1,0 +1,177 @@
+// The conversation chrome around the timeline: ChatHeader's breadcrumb and
+// layout controls, the glass alert stack (ProviderStatusBanner,
+// ThreadErrorBanner), the draft hero, the settled banner attached to the
+// composer and the jump-to-end control. Measured against the built reference.
+use Snapshot from "./shapes.contract"
+use Icon from "./icons.contract"
+use ProjectMark from "./icons.contract"
+use ShellView from "./shell-shapes.contract"
+use ShellIcon from "./shell-icons.contract"
+use TipBubble from "./shell-tip.contract"
+
+// ChatHeader + PanelLayoutControls: the project crumb is a button that opens
+// a new draft in its project; a server thread's title opens the thread action
+// menu (TitleMenu) and renames inline on double-click; right-click opens the
+// same menu (a draft offers Project settings). The controls sit 13pt from the
+// edge: thread details, terminal drawer (unavailable here) and right panel;
+// with the right panel open only the details toggle stays in this header.
+component ChatHeader
+  props
+    data: Snapshot
+    shell: ShellView
+    keySidebar: string
+    rightOpen: bool
+    detailsOpen: bool
+    menuOpen: bool
+    renaming: bool
+    renameText: string
+    toggleSidebar: action
+    panel: action
+    details: action
+    title: action
+  state hovered = ""
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  view
+    row width="100%" height=52 flex-shrink=0 align-items="center" padding-left=(data.sidebarOpen ? 20 : 130) padding-right=20 box-sizing="border-box" gap=12 position="relative" z-index=20 contextmenu=title("context", "") testId="chat-header"
+      when not data.sidebarOpen
+        button press=toggleSidebar position="absolute" left=91 top=12 width=28 height=28 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar"
+          Icon(name="panel-left", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
+      row flex=1 min-width=0 gap=12 align-items="center" height=22 padding-right=(rightOpen ? 40 : 96) box-sizing="border-box" role="navigation" aria-label="Thread breadcrumb"
+        when data.projectId != ""
+          box position="relative" flex-shrink=1 min-width=0 display="flex" flex-direction="row" align-items="center"
+            button press=title("new-thread", "") hover=hover("crumb") aria-label=`New thread in ${data.projectName}` testId="header-project" min-width=0 max-width="100%" padding=0 border-width=0 border-radius=6 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap=6
+              ProjectMark(label=data.projectMark, muted=false, ink=data.projectInk, surface=data.projectSurface, size=14)
+              text data.projectName font-size=14 font-weight=500 line-height="20px" color=(hovered == "crumb" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") line-clamp=1 min-width=0 max-width=160
+            TipBubble(label=`New thread in ${data.projectName}`, side="bottom", align="center", offset=26, inset=0, shown=(hovered == "crumb"))
+          text "/" font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" flex-shrink=0
+        when renaming
+          input value=renameText input=title("edit") key=title("key") blur=title("commit", "") submit=title("commit", "") id="header-rename" aria-label="Thread title" testId="header-rename" flex=1 min-width=40 height=20 padding=0 border-width=0 border-radius=6 background-color="#00000000" box-shadow="0 0 0 1px light-dark(#a1a1aa80, #73737380)" font-size=14 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+        else
+          when shell.serverThread
+            // ChatHeader's title item is `min-w-10 flex-1`: it takes the room left after the
+            // project crumb, which keeps its width (an auto-basis title shrank the crumb too).
+            box min-width=40 flex=1 display="flex" flex-direction="row" align-items="center"
+              box position="relative" min-width=0 max-width="100%" display="flex" flex-direction="row" align-items="center"
+                button id="thread-title" press=title("open", "") dblclick=title("rename", "") hover=hover("title") aria-label=`Thread actions for ${data.threadTitle}` aria-expanded=menuOpen testId="thread-title" min-width=0 max-width="100%" padding=0 border-width=0 border-radius=6 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap=4
+                  each heading in data.threadHeading key=heading.id
+                    text heading.label role="heading" aria-level=2 font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" line-clamp=1 min-width=0
+                  box opacity=(hovered == "title" ? 1 : 0) flex-shrink=0 display="flex"
+                    ShellIcon(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
+                TipBubble(label=data.threadTitle, side="bottom", align="center", offset=26, inset=0, shown=(hovered == "title" and not menuOpen))
+          else
+            box id="thread-title" position="relative" min-width=40 flex=1 display="flex" flex-direction="row" align-items="center" hover=hover("draft-title")
+              // r8-pointer D15: keyed by the title, as the server thread's is: a reused one-line text keeps drawing the old string.
+              each heading in data.threadHeading key=heading.id
+                text heading.label role="heading" aria-level=2 font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" line-clamp=1 min-width=0
+              // Its own hover id: the server title's, left set when that button unmounted under the pointer, never opens this one.
+              each heading in data.threadHeading key=heading.id
+                TipBubble(label=heading.label, side="bottom", align="start", offset=26, inset=0, shown=(hovered == "draft-title"))
+      row position="absolute" right=13 top=12 gap=4 align-items="center" testId="panel-layout-controls"
+        box position="relative" flex-shrink=0
+          button press=details("toggle", "", "") hover=hover("details") aria-label="Toggle thread details panel" aria-expanded=detailsOpen testId="toggle-thread-details" width=28 height=28 padding=0 border-radius=10 border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(detailsOpen or hovered == "details" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+            ShellIcon(name="square-menu", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
+          TipBubble(label=(shell.keyThreadPanel == "" ? "Toggle thread details" : `Toggle thread details (${shell.keyThreadPanel})`), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "details" and not detailsOpen))
+        when not rightOpen
+          box position="relative" flex-shrink=0 hover=hover("terminal")
+            button disabled=true aria-label="Toggle terminal drawer" testId="toggle-terminal" width=28 height=28 padding=0 border-radius=10 border-width=0 opacity=0.64 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="#00000000"
+              ShellIcon(name="panel-bottom", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
+            TipBubble(label="Terminal drawer is unavailable", side="bottom", align="end", offset=32, inset=40, shown=(hovered == "terminal"))
+          box position="relative" flex-shrink=0
+            button press=panel("toggle", "") hover=hover("right") aria-label="Toggle right panel" testId="toggle-right-panel" width=28 height=28 padding=0 border-radius=10 border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(hovered == "right" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+              ShellIcon(name="panel-right", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
+            TipBubble(label=(shell.keyRightPanel == "" ? "Toggle right panel" : `Toggle right panel (${shell.keyRightPanel})`), side="bottom", align="end", offset=32, inset=8, shown=(hovered == "right"))
+
+// Alert surface="glass": 14pt radius, 32% tinted edge, an 80% canvas under a
+// 4% tone wash over the blurred timeline. AppKit's backdrop blur sees only a
+// node's parent subtree (LLP 1053.000 §3), never the transcript under this
+// overlay, so the glass is flattened to the colour it shows over the canvas:
+// unblurred 80% glass would print the first message through the banner.
+component AlertStack
+  props
+    data: Snapshot
+    dismissed: string
+    busy: bool
+    dismissProvider: action
+    command: action
+  view
+    // r6-polish: hooked and clipped to its banners' span, so the side gutters leave presses to the transcript (r6-polish-measure.ts alertClip).
+    column position="absolute" top=52 left=0 right=0 align-items="center" z-index=10 pointer-events="none" hook="t3-anchor" data-anchor="alerts" clip-path=data.alertClip
+      when data.providerBannerKey != "" and data.providerBannerKey != dismissed
+        column max-width="calc(100% - 32px)" padding-top=12 pointer-events="auto" hook="t3-anchor" data-anchor="alert:provider"
+          row padding-left=14 padding-right=14 padding-top=12 padding-bottom=12 box-sizing="border-box" gap=8 align-items="flex-start" border-radius=14 border-style="solid" border-width=1 border-color=(data.providerBannerWarning ? "light-dark(#fe9a0052, #fe9a0052)" : "light-dark(#fb2c3652, #fb414a52)") background-color=(data.providerBannerWarning ? "light-dark(#fcf8f2, #14100a)" : "light-dark(#fcf4f4, #140c0d)") testId="provider-status-banner" role=(data.providerBannerWarning ? "status" : "alert")
+            row width=16 height=20 margin-top=2 align-items="center" justify-content="center" flex-shrink=0
+              Icon(name="info", size=16, color=(data.providerBannerWarning ? "#fe9a00" : "light-dark(#fb2c36, #fb414a)"))
+            column flex-shrink=1 min-width=0 gap=2 padding-top=2
+              text data.providerBannerTitle font-size=14 font-weight=500 line-height="20px" color=(data.providerBannerWarning ? "light-dark(#bb4d00, #ffb900)" : "light-dark(#c10007, #ff6467)")
+              text data.providerBannerMessage font-size=14 line-height="20px" line-clamp=3 color=(data.providerBannerWarning ? "light-dark(#bb4d00cc, #ffb900cc)" : "light-dark(#c10007cc, #ff6467cc)")
+            button press=dismissProvider width=24 height=24 padding=0 flex-shrink=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Dismiss provider warning" testId="dismiss-provider-warning"
+              Icon(name="x", size=14, color="light-dark(#71717b, #818181)")
+      when data.error != ""
+        column max-width="calc(100% - 32px)" padding-top=12 pointer-events="auto" hook="t3-anchor" data-anchor="alert:error"
+          // ThreadErrorBanner: warning (amber) for usage limits, error otherwise; w-fit up to min(48rem, 100% - 2rem).
+          row max-width=768 padding-left=14 padding-right=14 padding-top=12 padding-bottom=12 box-sizing="border-box" gap=8 align-items="flex-start" border-radius=14 border-style="solid" border-width=1 border-color=(data.errorWarning ? "light-dark(#fe9a0052, #fe9a0052)" : "light-dark(#fb2c3652, #fb414a52)") background-color=(data.errorWarning ? "light-dark(#fcf8f2, #14100a)" : "light-dark(#fcf4f4, #140c0d)") testId="error-banner" role="alert"
+            row width=16 height=20 margin-top=2 align-items="center" justify-content="center" flex-shrink=0
+              Icon(name="circle-alert", size=16, color=(data.errorWarning ? "#fe9a00" : "light-dark(#fb2c36, #fb414a)"))
+            text data.error aria-description=data.error flex-shrink=1 min-width=0 padding-top=2 font-size=14 line-height="20px" line-clamp=3 color=(data.errorWarning ? "light-dark(#bb4d00cc, #ffb900cc)" : "light-dark(#c10007cc, #ff6467cc)")
+            button press=command("dismiss-error", "", "", 0) width=24 height=24 padding=0 flex-shrink=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Dismiss error"
+              Icon(name="x", size=14, color="light-dark(#71717b, #818181)")
+      when data.uncertain
+        column max-width="calc(100% - 32px)" padding-top=12 pointer-events="auto" hook="t3-anchor" data-anchor="alert:uncertain"
+          row padding-left=14 padding-right=14 padding-top=12 padding-bottom=12 box-sizing="border-box" gap=8 align-items="flex-start" border-radius=14 border-style="solid" border-width=1 border-color="#fe9a0052" background-color="light-dark(#fcf8f2, #14100a)" testId="uncertain-banner" role="status"
+            row width=16 height=20 margin-top=2 align-items="center" justify-content="center" flex-shrink=0
+              Icon(name="circle-alert", size=16, color="#fe9a00")
+            text data.uncertainMessage flex-shrink=1 min-width=0 padding-top=2 font-size=14 line-height="20px" line-clamp=3 color="light-dark(#bb4d00, #ffb900)"
+            button press=command("retry", "", "", 0) disabled=(busy or not data.connected or not data.syncComplete) height=24 padding-left=7 padding-right=7 flex-shrink=0 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+              text "Retry request" font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+
+// EmptyThread (the draft hero and the empty landings) lives in pages-hero.contract.
+
+// ComposerBanner attached to the composer: 22pt drawer inset, 18pt top
+// corners, its last 17pt tucked under the composer surface.
+component SettledBanner
+  props
+    busy: bool
+    command: action
+  view
+    row margin-left=22 margin-right=22 margin-bottom=-17 padding-left=4 padding-right=4 padding-top=5 padding-bottom=22 box-sizing="border-box" gap=4 align-items="center" border-top-left-radius=18 border-top-right-radius=18 border-style="solid" border-width=1 border-color="light-dark(#00000014, #ffffff0d)" background-color="light-dark(#ffffffcc, #121212cc)" box-shadow="0 12px 28px -18px #00000066" testId="settled-banner" role="alert"
+      row width=24 height=24 align-items="center" justify-content="center" flex-shrink=0
+        Icon(name="check", size=12, color="light-dark(#71717b, #818181)")
+      text "This thread is settled" font-size=12 font-weight=500 line-height="24px" color="light-dark(#27272a, #f5f5f5)" flex-shrink=0
+      text "Send a message to unsettle" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" flex=1 min-width=32 line-clamp=1
+      button press=command("unsettle", "", "", 0) disabled=busy testId="unsettle-thread" height=24 padding-left=7 padding-right=7 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0
+        text "Un-settle" font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+
+// The glass "Scroll to end" pill while the reading position is away from the
+// live edge: absolute over the transcript (ChatView's chat-scroll-to-bottom,
+// bottom = the composer overlay's clearance + 4, py-1.5), so showing it moves
+// nothing. Its parent is the transcript's own column, which runs under the
+// composer overlay to the chat's foot; `lift` raises the pill above the
+// overlay, inside that parent's bounds, where AppKit hit-tests it; a
+// 128pt box centres the ~108pt pill without covering the transcript's width.
+component ScrollToEnd
+  props
+    jump: action
+    // The chat lane's end inset (a docked workspace card): the pill centres in the lane.
+    inset: number
+    // r4-composer: the composer overlay's clearance above the transcript's foot (r4-composer-overlay.ts).
+    lift: number
+  view
+    row position="absolute" left=`calc(50% - ${64 + inset / 2}px)` width=128 bottom=(6 + lift) justify-content="center"
+      button press=jump aria-label="Scroll to end" testId="scroll-to-end" height=24 padding-left=7 padding-right=7 box-sizing="border-box" border-radius=12 border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" box-shadow="0 1px 3px #0000001a, 0 1px 2px -1px #0000001a" display="flex" flex-direction="row" align-items="center" gap=4
+        Icon(name="chevron", size=14, color="light-dark(#27272a, #f5f5f5)")
+        text "Scroll to end" font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+
+// TimelineHistoryControl: a full-width quiet text button above the timeline.
+component LoadEarlier
+  props
+    loading: bool
+    busy: bool
+    load: action
+  state hovering = false
+  action setHover(over: bool)
+    hovering = over
+  view
+    row width="100%" padding-left=20 padding-right=20 padding-top=16 box-sizing="border-box" justify-content="center" flex-shrink=0
+      button hover=setHover press=load disabled=(busy or loading) aria-label="Load earlier turns" testId="load-earlier" width="100%" max-width=736 padding-top=6 padding-bottom=6 border-width=0 background-color="#00000000" display="flex" flex-direction="row" justify-content="center"
+        text (loading ? "Loading earlier turns…" : "Load earlier turns") font-size=12 line-height="16px" color=(hovering and not loading ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b99, #81818199)")
