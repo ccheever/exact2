@@ -53,6 +53,14 @@ shape ComposerTask
   text: string
   status: string
   duration: string
+// composer-fidelity G12a: a queued row's image thumbnail, and an attachment the queued edit keeps.
+shape QueuedThumb
+  id: string
+  name: string
+shape QueueEditAttachment
+  id: string
+  name: string
+  image: bool
 shape ComposerQueued
   runId: string
   text: string
@@ -60,6 +68,8 @@ shape ComposerQueued
   index: number
   editing: bool
   last: bool
+  thumbnails: list<QueuedThumb>
+  pending: bool
 // The workspace / branch strip under the draft composer (composer-controls-branch.ts).
 shape BranchRef
   name: string
@@ -172,6 +182,9 @@ shape ComposerView
   queueSteer: bool
   queueSteerReason: string
   queueEditing: string
+  // composer-fidelity G12a: the edit's kept attachments and whether its save is in flight.
+  queueEditAttachments: list<QueueEditAttachment>
+  queueEditSaving: bool
   queueDropSeq: number
   traitsCount: number
   traitsSelected: number

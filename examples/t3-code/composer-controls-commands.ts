@@ -7,7 +7,7 @@
 import { arr, obj, str, type Obj } from './domain';
 import { ClientError, activeRun, launchPayload, type Files, type Native } from './protocol';
 import { pushToast } from './toast';
-import { beginQueuedEdit, cancelQueuedEdit, queuedDrop, queueState } from './composer-controls-queue';
+import { beginQueuedEdit, cancelQueuedEdit, queuedDrop, queueState, removeQueuedEditAttachment } from './composer-controls-queue';
 import { branchMenu, selectBranch, setEnvMode } from './composer-controls-branch';
 import { attachFiles } from './composer-controls-attach';
 import { openUsageLimits, closeUsageLimits, changeLimitRecovery } from './composer-controls-usage';
@@ -239,6 +239,7 @@ export async function composerLocal(client: T3Client, _native: Native, _storage:
   if (op === 'usage-limits') { openUsageLimits(client, composerNow(client)); return ''; }
   if (op === 'usage-limits-dismiss') { closeUsageLimits(client); return ''; }
   if (op === 'queued-cancel') { cancelQueuedEdit(client); return ''; }
+  if (op === 'queued-attachment-remove') { removeQueuedEditAttachment(client, id); return ''; } // composer-fidelity G12a
   if (op === 'resume-compaction-dismiss') { dismissResumeCompaction(client, id); return ''; }
   if (op === 'dismiss-woke') { await acknowledgeWoke(client, id || client.threadId, _native, value); return ''; }
   throw new ClientError(`Unknown composer action: ${op}`);

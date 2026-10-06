@@ -12,6 +12,7 @@ use Tip from "./shell-tip.contract"
 use TipBubble from "./shell-tip.contract"
 use RowTip from "./r8-pointer-tips.contract" // lane r8-pointer
 use StripPrBadge from "./r7-handoff.contract" // lane r7-handoff
+use AttachmentUrl from "./timeline-attachments.contract" // composer-fidelity G12a
 
 // The composer footer and its docked banners (lane composer-controls): the
 // toolbar controls (ComposerControl.tsx "sm"/"xs"), the primary actions
@@ -821,6 +822,7 @@ component QueuedRow
     insertTop: bool
     insertBottom: bool
     dropValue: string
+    urls: list<AttachmentUrl>
   state over = ""
   action hover(name: string, value: bool)
     over = value ? name : (over == name ? "" : over)
@@ -837,19 +839,36 @@ component QueuedRow
           CcIcon(name="grip", size=14, color=(over == "grip" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2)
       else
         box width=24 height=24 flex-shrink=0
+      // composer-fidelity G12a: a send still saving shows a clock; image attachments show as 16pt thumbnails (QueuedRunsControl).
+      when row.pending
+        svg width=12 height=12 viewBox="0 0 24 24" color="light-dark(#71717b99, #81818199)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-label="Saving queued message" role="img" testId="queued-saving"
+          circle cx=12 cy=12 r=10
+          path d="M12 6v6h4.5"
+      when length(row.thumbnails) > 0
+        row gap=2 align-items="center" flex-shrink=0
+          each thumb in row.thumbnails key=thumb.id
+            box width=16 height=16 overflow="hidden" border-radius=4 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#ffffff, #0a0a0a)" box-sizing="border-box" testId=`queued-thumb-${thumb.id}`
+              when length(filter(urls, (entry) => entry.id == thumb.id)) > 0
+                each entry in filter(urls, (entry) => entry.id == thumb.id) key=entry.id
+                  image entry.url aria-label=thumb.name width="100%" height="100%" object-fit="cover"
+              else
+                box width="100%" height="100%" background-color="light-dark(#f4f4f599, #ffffff0f)" aria-label=thumb.name
       text row.text font-size=12 line-height="16px" color="light-dark(#27272acc, #f5f5f5cc)" flex=1 min-width=0 line-clamp=1 aria-label=(row.editing ? `Editing queued message: ${row.text}` : row.text)
-      when row.editing
-        button press=command("cclocal:queued-cancel", "", "", 0) hover=hover("cancel") testId="queued-cancel-edit" aria-label="Cancel editing queued message" height=24 padding-left=7 padding-right=7 border-radius=8 border-width=0 background-color=(over == "cancel" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0
-          text "Cancel" font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+      when row.pending
+        box width=0 height=24 flex-shrink=0
       else
-        button press=command("cclocal:queued-edit", row.runId, "", 0) hover=hover("edit") disabled=busy testId=`queued-edit-${row.runId}` aria-label="Edit queued message" width=24 height=24 padding=0 border-radius=8 border-width=0 background-color=(over == "edit" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
-          CcIcon(name="pencil", size=14, color=(over == "edit" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2)
-        button press=command("cc:queued-steer", row.runId, "", 0) hover=hover("steer") disabled=(busy or not data.composer.queueSteer) opacity=(busy or not data.composer.queueSteer ? 0.64 : 1) testId=`queued-steer-${row.runId}` aria-label=(data.composer.queueSteerReason != "" ? data.composer.queueSteerReason : "Send as a steer instead") aria-keyshortcuts=(row.index == 0 and data.composer.queueSteer ? "Meta+Shift+Enter" : "") height=24 padding-left=7 padding-right=7 gap=4 border-radius=8 border-width=0 background-color=(over == "steer" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0
-          box display="flex" flex-shrink=0 margin-left=-2 margin-right=-2
-            CcIcon(name="corner-up-right", size=14, color=(over == "steer" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2)
-          text "Steer" font-size=12 font-weight=500 line-height="16px" color=(over == "steer" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
-        button press=command("cc:queued-remove", row.runId, "", 0) hover=hover("remove") disabled=busy testId=`queued-remove-${row.runId}` aria-label="Remove queued message" width=24 height=24 padding=0 border-radius=8 border-width=0 background-color=(over == "remove" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
-          CcIcon(name="x", size=14, color="light-dark(#71717b, #818181)", weight=2)
+        when row.editing
+          button press=command("cclocal:queued-cancel", "", "", 0) hover=hover("cancel") testId="queued-cancel-edit" aria-label="Cancel editing queued message" height=24 padding-left=7 padding-right=7 border-radius=8 border-width=0 background-color=(over == "cancel" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0
+            text "Cancel" font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+        else
+          button press=command("cclocal:queued-edit", row.runId, "", 0) hover=hover("edit") disabled=busy testId=`queued-edit-${row.runId}` aria-label="Edit queued message" width=24 height=24 padding=0 border-radius=8 border-width=0 background-color=(over == "edit" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+            CcIcon(name="pencil", size=14, color=(over == "edit" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2)
+          button press=command("cc:queued-steer", row.runId, "", 0) hover=hover("steer") disabled=(busy or not data.composer.queueSteer) opacity=(busy or not data.composer.queueSteer ? 0.64 : 1) testId=`queued-steer-${row.runId}` aria-label=(data.composer.queueSteerReason != "" ? data.composer.queueSteerReason : "Send as a steer instead") aria-keyshortcuts=(row.index == 0 and data.composer.queueSteer ? "Meta+Shift+Enter" : "") height=24 padding-left=7 padding-right=7 gap=4 border-radius=8 border-width=0 background-color=(over == "steer" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0
+            box display="flex" flex-shrink=0 margin-left=-2 margin-right=-2
+              CcIcon(name="corner-up-right", size=14, color=(over == "steer" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2)
+            text "Steer" font-size=12 font-weight=500 line-height="16px" color=(over == "steer" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+          button press=command("cc:queued-remove", row.runId, "", 0) hover=hover("remove") disabled=busy testId=`queued-remove-${row.runId}` aria-label="Remove queued message" width=24 height=24 padding=0 border-radius=8 border-width=0 background-color=(over == "remove" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+            CcIcon(name="x", size=14, color="light-dark(#71717b, #818181)", weight=2)
 
 component QueuedControl
   props
@@ -858,6 +877,7 @@ component QueuedControl
     command: action
     keyed: action
     drop: action
+    urls: list<AttachmentUrl>
   state collapsed = ""
   // A grip drag (QueuedRunsControl dragState): the lifted run, where it started and how far
   // the pointer moved. A finished drop bumps queueDropSeq, which settles the lifted row.
@@ -891,7 +911,7 @@ component QueuedControl
         scroll max-height=128 width="100%"
           column width="100%" gap=1 role="list" testId="queued-list"
             each row in data.composer.queued key=row.runId
-              QueuedRow(row=row, count=count, data=data, busy=busy, command=command, keyed=keyed, drag=drag, drop=drop, dragging=(dragLive and dragRun == row.runId), insertTop=(dragLive and dragInsert == row.index), insertBottom=(dragLive and row.last and dragInsert == count), dropValue=(dragLive ? `${dragRun}|${dragInsert}` : ""))
+              QueuedRow(row=row, count=count, data=data, busy=busy, command=command, keyed=keyed, drag=drag, drop=drop, dragging=(dragLive and dragRun == row.runId), insertTop=(dragLive and dragInsert == row.index), insertBottom=(dragLive and row.last and dragInsert == count), dropValue=(dragLive ? `${dragRun}|${dragInsert}` : ""), urls=urls)
 
 // ComposerBanner.Root "comfortable", attached (its last 17pt tucks under the
 // next surface) or floating (an expanded notice behind the peek).
@@ -1011,6 +1031,7 @@ component ComposerDock
     command: action
     keyed: action
     drop: action
+    urls: list<AttachmentUrl>
   state open = ""
   state tasksOpen = false
   action toggleStack
@@ -1024,7 +1045,7 @@ component ComposerDock
   view
     column width="100%" testId="composer-dock"
       when length(data.composer.queued) > 0
-        QueuedControl(data=data, busy=busy, command=command, keyed=keyed, drop=drop)
+        QueuedControl(data=data, busy=busy, command=command, keyed=keyed, drop=drop, urls=urls)
       when behind > 0
         column width="100%" position="relative" min-height=12
           when expanded
