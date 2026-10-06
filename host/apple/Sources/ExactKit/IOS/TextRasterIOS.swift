@@ -259,11 +259,11 @@ extension NodeView {
         if ink.superlayer == nil { textRasterLayer = ink; if syncVibrancy() == nil { insertBoxSublayer(ink) } }
         ink.frame = result.frame
         ink.contentsScale = key.scale
-        NumeralRoll.roll(ink, node: self)
+        let roll = NumeralRoll.roll(ink, node: self)
         ink.contents = result.image
         TextShadowLayer.apply(key.spec.hdrShadow == nil ? key.spec.shadow : nil, to: ink)
         ink.applyTextRange(headroom: result.headroom, limit: style["dynamic_range_limit"]?.string)
-        ink.applyTextCast(result.cast, headroom: result.castHeadroom, limit: style["dynamic_range_limit"]?.string)
+        ink.applyTextCast(result.cast, headroom: result.castHeadroom, limit: style["dynamic_range_limit"]?.string, rolling: roll)
         textRasterLayer = ink
     }
     func dropTextRaster() {
