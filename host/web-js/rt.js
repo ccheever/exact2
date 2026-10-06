@@ -154,6 +154,8 @@ export function W(s, v) { Writes.push([s.n, v]); }
 export function C(name, args) { Commands.push([name, args]); Rev++; }
 /** `refresh r`: forced at this commit's settlement (merged, LLP 1054.000.000 D2). */
 export function R(r) { Refresh.push(r.r ?? r); }
+/** A topic its resource watched changed while ticket `t` was in flight (`t.again`, ts-data.js `changed`, LLP 1016.002 D4): its reply landed or failed, so the resource is asked again. */
+const again = t => { if (t.again) { t.again = false; say(`${t.r.name}: asked again, a watched topic changed while ticket ${t.id} was in flight`); R(t.r); } };
 /** Pull every derive and resource in plan order: the settlement pass. */
 function settle() { for (const n of Settle) fresh(n); }
 /** One commit: `f` runs; its writes, sends and refreshes land; settlement
@@ -440,7 +442,7 @@ function reply(t, name, source, held, f, next, gone) {
       f(p, o);
     }, `${o.more ? "message" : "reply"} ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed) || !held()) return;
     say(`request ${t.id} (${name}) failed and is no longer pending: ${next}`);
-    gone(Refused.message); commit(() => {}, "a failed request");
+    gone(Refused.message); commit(() => { if (t.r) again(t); }, "a failed request");
   };
 }
 const revalidated = (name, same) => `${name} answered: ${same ? "equal to its build-time answer" : "replaces its build-time answer"}`; // runner lines.rs
@@ -468,7 +470,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   // that re-asks (a cursor across a gap) is a new ticket, the old one closed with the commit (`Open`).
   const land = t => reply(t, name, source, () => r.ticket === t, (p, o) => {
     if (p.req) { if (o.more) { const n = { id: ++Ticket, args: t.args, req: p.req, r }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
-    if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args); r.failed = null; r.error = undefined; if (!o.more) r.ticket = null;
+    if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args); r.failed = null; r.error = undefined; if (!o.more) r.ticket = null; again(t);
     W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
   }, "it keeps its last value", error => { r.ticket = null; r.failed = t.args; r.error = error; write(pend.n, false); write(fail.n, t.args); });
   const m = memo(() => {
@@ -522,8 +524,8 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     return r.value;
   }, type);
   Object.assign(r, {
-    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error],
-    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) r.ticket.args = x[3]; r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; },
+    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error, r.ticket?.again],
+    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) { r.ticket.args = x[3]; r.ticket.again = x[8]; } r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; },
     force: undo => { r.forced = true; flag(ver, ver.n.v + 1, undo); },
     reread_: undo => { r.reread = true; flag(ver, ver.n.v + 1, undo); },
     revise: undo => { r.rev = true; flag(ver, ver.n.v + 1, undo); },

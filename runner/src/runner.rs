@@ -286,6 +286,9 @@ struct PendingReq {
     keepable: Option<Request>,
     /// An answer that keeps coming (LLP 1016.000): what it has delivered.
     stream: Option<StreamCount>,
+    /// A topic its resource watches changed while it was in flight: its
+    /// reply lands, then the resource is asked again (LLP 1016.002 D4).
+    ask_again: bool,
 }
 
 /// An open stream's messages so far, and those the host coalesced away

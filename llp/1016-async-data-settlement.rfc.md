@@ -264,6 +264,11 @@ settles. The web build's fetch is the browser's, whose promise settles with
 the reply. A mutation that needs every reply is a `queue`
 mutation (LLP 1092).
 
+*Amended 2026-10-07 by LLP 1016.002 D4 (issue #109):* a device topic's
+re-ask does not forget a request in flight. The reply lands, and that commit
+asks the resource again, forced, once for all the announcements that came
+while the request was out.
+
 A reload (`boot_carrying`, LLP 1005 §6) drops every ticket; the carried
 arguments re-request what has no compiled value. The agent's `clock settle`
 (LLP 1012 §2) waits for in-flight requests as it waits for motion and timers,

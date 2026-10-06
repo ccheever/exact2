@@ -86,27 +86,38 @@ impl<D: DataSource> Runner<D> {
         ticket: u64,
         target: Target,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
-        let failed_args = self
+        let (failed_args, ask_again) = self
             .pending
             .iter()
             .find(|p| p.ticket == ticket)
-            .map(|p| p.args.clone());
+            .map(|p| (Some(p.args.clone()), p.ask_again))
+            .unwrap_or_default();
         self.pending.retain(|p| p.ticket != ticket);
         self.forgot = true;
         self.sync_pending_flags();
         let name = self.target_name(target);
+        let mut again = Vec::new();
         let next = match target {
             Target::Resource(i) => {
                 // Keep the standing answer's arguments. Failure suppresses
                 // another ask independently of that answer's store revision.
                 self.failed_args[i] = failed_args;
+                // Unless a watched topic changed while it was in flight: the
+                // answer may differ now, so it is asked once more, forced
+                // (LLP 1016.002 D4).
+                if ask_again {
+                    again.push(i);
+                }
                 "it keeps its last value"
             }
             Target::Mutation(_) => "it ends unsent",
         };
         let what = format!("request {ticket} ({name}) failed and is no longer pending: {next}");
         self.log(what.clone());
-        self.commit_again(Vec::new(), "a failed request").map(Some)
+        if ask_again {
+            self.log(super::lines::asked_again(ticket, &name));
+        }
+        self.commit_again(again, "a failed request").map(Some)
     }
 
     /// The host must keep later ordered admissions behind these refusals.

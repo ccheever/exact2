@@ -1013,6 +1013,7 @@ impl<D: DataSource> Runner<D> {
             continuation: request.continuation,
             keepable: keepable.then(|| request.clone()),
             stream: request.stream.then(StreamCount::default),
+            ask_again: false,
         });
         self.requests.push(RequestOut {
             ticket,
@@ -1321,8 +1322,13 @@ impl<D: DataSource> Runner<D> {
                 // One more round (LLP 1027 D1a): the target keeps its value,
                 // a new ticket goes out for the same arguments, and this
                 // commit changes nothing but the pending set.
+                // A round of an ask made before a watched topic changed
+                // carries the ask again to its last (LLP 1016.002 D4).
                 self.log(super::lines::one_more(&name));
                 self.enqueue(p.target, p.source, p.args, request, false);
+                if let Some(next) = self.pending.last_mut().filter(|_| p.ask_again) {
+                    next.ask_again = true;
+                }
                 return self.update();
             }
         };
@@ -1336,6 +1342,10 @@ impl<D: DataSource> Runner<D> {
                 self.stale[i] = false;
                 self.failed_args[i] = None;
                 self.keep_answer(i, &p.args, &value);
+                if p.ask_again {
+                    self.log(super::lines::asked_again(p.ticket, &name));
+                    self.force_refresh(i);
+                }
                 self.resources[i] = Some(ResourceState {
                     args: p.args,
                     value: crate::held::Held::new(value),
