@@ -20,8 +20,13 @@
   },
   "modules": [
     "t3-key-recorder",
-    "t3-ssh-password"
+    "t3-ssh-password",
+    "t3-terminal"
   ],
+  "commands": {
+    "terminal": ["bun", "terminal-host/build.mjs"],
+    "verify-terminal": ["bun", "terminal-host/verify-vendor.mjs"]
+  },
   "hooks": [
     "t3-composer",
     "t3-send",

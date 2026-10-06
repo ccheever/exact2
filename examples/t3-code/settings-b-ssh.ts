@@ -8,6 +8,7 @@ import { commandShortcut } from './palette';
 import { pushToast } from './toast';
 import type { T3Client } from './client';
 import { rememberSshAlias } from './remote-open';
+import { placeRoute, savedEntry, savedList } from './connection-routes-ops';
 
 export type SshTarget = { alias: string; hostname: string; username: string | null; port: number | null };
 export type SshHost = SshTarget & { source: string };
@@ -131,6 +132,15 @@ export async function runSshOp(native: Native, op: string, id: string, value: st
     discovery = null;
     rememberSshAlias(origin, target.alias); // remote Open reads the alias of an SSH environment (remote-open.ts)
     let result: Result = { status: null, generation: -1 };
+    // Lane environment-routes: "Add a route to <label>" over SSH joins that machine's routes, or is refused before the code is spent.
+    const expected = str(fields.expectedEnvironmentId);
+    if (expected) {
+      await call(native, { op: 'pairEnvironment', origin, credential, expectedEnvironmentId: expected, ssh: true });
+      await placeRoute(native, expected, origin, target);
+      const label = str(savedEntry(await savedList(native), expected)?.label, target.alias);
+      if (client) pushToast(client, { kind: 'success', title: 'Route added', description: `${label} can now be reached over SSH ${target.alias}.` });
+      return result;
+    }
     if (connected) await call(native, { op: 'pairEnvironment', origin, credential });
     else { const reply = await call(native, { op: 'connect', origin, credential }); result = { status: obj(reply.value), generation: reply.generation }; }
     if (client) pushToast(client, { kind: 'success', title: 'Environment connected', description: `${target.alias} is ready over an SSH-managed tunnel.` });

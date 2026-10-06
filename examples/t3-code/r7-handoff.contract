@@ -51,12 +51,12 @@ component StripPrBadge
             PgIcon(name=icon, size=12, color=r7Tone(tone))
           text text font-size=12 line-height="16px" font-variant-numeric="tabular-nums" white-space="nowrap" color=r7Tone(tone)
       when not list and target == ""
-        link href=url text-decoration-line="none" hover=hover aria-label=label testId="composer-pr-badge" height=24 padding-left=8 padding-right=8 gap=4 box-sizing="border-box" border-radius=8 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0
+        link cursor="pointer" href=url text-decoration-line="none" hover=hover aria-label=label testId="composer-pr-badge" height=24 padding-left=8 padding-right=8 gap=4 box-sizing="border-box" border-radius=8 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0
           box display="flex" flex-shrink=0 margin-left=-2 margin-right=-2
             PgIcon(name=icon, size=12, color=r7Tone(tone))
           text text font-size=12 line-height="16px" font-variant-numeric="tabular-nums" white-space="nowrap" color=r7Tone(tone)
       // The glass tooltip centred above the badge with no offset (side top, sideOffset 0): 320 wide, py-1 px-2.
-      row position="absolute" bottom=24 left=-200 right=-200 justify-content="center" pointer-events="none" inert=true z-index=140
+      row position="absolute" bottom=24 left=-200 right=-200 justify-content="center" pointer-events="none" z-index=140
         column width=320 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=4 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffeb, #121212eb)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" opacity=(over ? 1 : 0) transition=(over ? "opacity 150ms ease 600ms" : "opacity 0ms") role="tooltip" aria-hidden=(not over) testId=(over ? "composer-pr-tip" : "composer-pr-tip-hidden")
           each tip in tips key=tip.key
             row min-width=0 gap=8 align-items="center" padding-left=(4 + tip.depth * 12) padding-right=4 padding-top=4 padding-bottom=4 border-radius=4 height=24.5 box-sizing="border-box"

@@ -6,7 +6,7 @@ use BrandGitLab from "./settings-brands.contract"
 use BrandAzureDevOps from "./settings-brands.contract"
 use BrandBitbucket from "./settings-brands.contract"
 use BrandForgejo from "./settings-brands.contract"
-use DiffGlyph from "./diff.contract"
+use DiffGlyph from "./diff-glyphs.contract"
 use synColor from "./markdown.contract"
 use synSlant from "./markdown.contract"
 

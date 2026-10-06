@@ -72,7 +72,7 @@ Port changes for headers: `Effect` services become plain functions; the prompt s
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | [#147](https://github.com/ccheever/exact2/pull/147) | Merged into feature integration | Merged 2026-10-06, `7f692c9a1`; split sources present in this checkout |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | none | Merged | Still planned/unverified; no oracle or trace-diff tools in this checkout |
-| scheduling preference | After `20261005-environment-routes` | [#148](https://github.com/ccheever/exact2/pull/148) | Shared route call sites | Merged 2026-10-06, `01f4cbb0a`; route code present, but this merge is not an ancestor of this older checkout (#147 is) |
+| scheduling preference | After `20261005-environment-routes` | [#148](https://github.com/ccheever/exact2/pull/148) | Shared route call sites | Merged 2026-10-06, `01f4cbb0a`; route code present, both merges are included after the final feature-base merge |
 
 ## Issue assessment at preparation
 
@@ -254,3 +254,15 @@ context-menu interactions; dependency pin reconciliation. Unit tests cover routi
 menu gating but do not close those runtime rows. Keep PR #157 draft. The earlier
 unchecked checklist remains the full acceptance contract; this table records partial
 progress without treating composite rows as passed.
+
+
+Final integration: merged feature base `587798ca8c0f5c2c761a4219263edce8256d50d8`
+after the attended fixes in `ef29fccda`. Resolved six shared-file conflicts while keeping
+SSH password and terminal native views, the complete inert password backdrop, route
+management, Files diff comments and both framework-gap records. Remote Open now selects
+the SSH route from the environment's saved route list even when the active/preferred
+route is a direct URL; a new test covers this precedence over advertised hosts.
+Post-merge Bun: 1,848 pass / 1 skip / 0 fail; strict TypeScript clean; native SSH suite:
+15 pass / 0 skip; terminal assets built; boot and caps passed. The final diff against
+the feature base passes whitespace checks. The base itself contains whitespace in
+committed terminal evidence logs; those unrelated evidence files were preserved.

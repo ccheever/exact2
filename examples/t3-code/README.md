@@ -79,6 +79,7 @@ Exact repository root:
 ```sh
 bun install --frozen-lockfile
 export EXACT_APP_DIR="$PWD/examples/t3-code"
+bun examples/t3-code/terminal-host/build.mjs   # the terminal page into assets/ (ignored; EXACT2-GAPS X46)
 bun host/apple/build.mjs t3-code-macos --bundle --run
 ```
 
@@ -255,34 +256,39 @@ its command identifiers and draft and is never retried automatically.
 
 ## Known limits and exclusions
 
+The terminal renderer's [2026-10-06 verification](.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-terminal-surface/20261006-theme-parity/attempt.md) includes light/dark,
+preset/custom theme pairs against the original renderer, font updates, and integrated app
+window captures with visible ANSI output and typed loopback text. Settings now reach the
+terminal. This is renderer evidence; the drawer and PTY session integrations below remain excluded.
+
 - Excluded or not built: the terminal drawer and Terminal surface (a hand-off's setup script
-  runs on the server but its output is not shown), the Browser surface,
+  runs on the server but its output is not shown; the `t3-terminal` view, T3 Code's own Ghostty
+  emulator in a web view, exists with a development harness, ⌃⌥⇧T, `AGENT-HANDOFF.md` "Terminal
+  spike"), the Browser surface,
   pinch zoom of the 3D phone (the reference's is a no-op too; the iPhone Duo's pinch moves its
   hinge, `R9DeviceDuoView.swift`), dragging and resizing the floating device player, web,
   iOS and Linux delivery.
 - Known in-app differences (round 11): during a row-action sweep the hover card or tooltip
   that was open at the press stays until release, and Escape does not cancel the sweep (the
-  reference closes the card and cancels); rows have no keyboard context menu (ContextMenu key,
-  Shift-F10); a switched-off loopback environment stays listed under Environments (it stands
+  reference closes the card and cancels); a switched-off loopback environment stays listed under Environments (it stands
   in for the reference's unlisted primary); rendered HTML loads only its asset token's
   directory, not external hosts; the reference opens a thread's live device session as a
   floating player on load and this client does not; No project drafts cannot switch machine.
 - Framework limits worked around in-app: host text truncates at word boundaries and
-  draws no placeholder colour; negative-spread shadows draw faint; popovers anchor below
-  their invoker; SVG paths cannot morph (morph icons cross-fade); backdrop blur sees only
+  draws no placeholder colour; negative-spread shadows draw faint; popovers open below, above or centred on
+  their invoker (`position-area`) but never flip near a window edge (#112); SVG paths cannot morph (morph icons cross-fade); backdrop blur sees only
   its parent (the composer is opaque, where the reference's glass shows the transcript
   through it); a textarea sizes to its plain value (a prompt whose chip links are long
-  can be a line taller than its chips draw at narrow widths); a forgotten Exact answer drops its native replies (the snapshot read gate
-  in `T3ReadGate.swift` limits the effect); an answer that awaits a promise another answer
-  started is refused as "pending on nothing", so caches share resolved values only
-  (`readDetail` in `r6-pr-actions.ts`); data sources have no clock; the
+  can be a line taller than its chips draw at narrow widths); a forgotten Exact answer drops its native replies (#109; the snapshot read gate
+  in `T3ReadGate.swift` limits the effect), so a cache that another answer could await
+  shares resolved values only (`readDetail` in `r6-pr-actions.ts`); data sources have no clock; the
   macOS textarea maps `autocorrect="off"` to spelling correction only, so the Files
   editor's text view takes the app's `t3-plain-text` hook, which turns AppKit's smart
   quotes, dashes and text replacement off (`T3PanelsNative.swift`); the composer's text
-  view gets the same switch-off when it attaches (`T3ComposerEditor.swift`). A child
-  drawn outside its parent's frame takes no press natively, so a negative margin (the
-  model picker's `-ms-2.5`) is held inside a parent that reaches out by the same amount;
-  `pointer-events="none"` holds only on SVG, so overlay layers carry `inert=true`.
+  view gets the same switch-off when it attaches (`T3ComposerEditor.swift`). Workarounds
+  for limits main has since fixed (hit testing, `pointer-events`, cursors, `position-area`,
+  key modifiers, `title`) are gone; `EXACT2-GAPS.md` lists what was removed and each open
+  item's state on the pin.
 - Needs a person: physical modifier chords, right-click menus, real pointer drags and
   hovers, macOS notification and screen-capture grants, provider installs and logins,
   GitHub writes.
@@ -338,7 +344,7 @@ for d in examples/t3-code/macos/tests/*/; do
     -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \
     host/apple/modules/ExactNativeModule.swift "$R/ExactDataKeys.swift" $M "$d"*.swift -o "$O/$n-tests" || continue
   [ $n = snapshot ] && { rm -rf "$O/fixture"; mkdir -p "$O/fixture"; export T3_SNAPSHOT_TEST_ROOT="$O/fixture"; }
-  T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_MERMAID_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" "$O/$n-tests" $([ $n = mermaid ] && echo "$T3_SERVER")
+  T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_MERMAID_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" T3_TERMINAL_TEST_DIR="$O" "$O/$n-tests" $([ $n = mermaid ] && echo "$T3_SERVER")
 done
 ```
 
@@ -355,6 +361,9 @@ xcrun swiftc -swift-version 5 -module-name ExactKit -I host/apple/Sources/CExact
 target/t3-tests/timeline-keyboard-tests
 ```
 
+`terminal` needs `bun examples/t3-code/terminal-host/build.mjs` first (it loads the page from
+`assets/`); `T3_TERMINAL_SCALE=1` adds the 1/4/11/44-view cost table, and
+`bun examples/t3-code/terminal-host/verify-vendor.mjs` checks the vendored binaries.
 `mermaid` needs `T3_SERVER` set to a running T3 server's origin (it loads that server's
 Mermaid build into an offscreen web view). The live transport tests skip unless
 `T3_TRANSPORT_PAIRING_FILE` points at a fresh disposable pairing JSON file and

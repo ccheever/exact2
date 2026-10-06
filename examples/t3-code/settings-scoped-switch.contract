@@ -1,0 +1,22 @@
+// ui/switch.tsx with ScopedSwitch's mixed state (MIT T3 Code 1e2ecbd975, LICENSE-T3,
+// apps/web/src/components/ui/switch.tsx:12-46, settings/ScopedSwitch.tsx:12-19): a 30x18
+// track and a 14pt thumb that moves with `translate` over 150 ms (none under reduced
+// motion). Mixed centres the thumb at 70 % on the unchecked track; the caller's press
+// turns the setting on for every target, as a press on an unchecked switch would.
+// aria-checked cannot carry "mixed" (X43, #120): a mixed switch reports unchecked.
+component ScopedSwitch
+  props
+    checked: bool
+    mixed: bool
+    label: string
+    disabled: bool
+    faded: bool
+    on: string
+    off: string
+    thumb: string
+    reduced: bool
+    switchId: string
+    press: action
+  view
+    button press=press role="switch" aria-checked=(checked and not mixed) aria-label=label id=switchId disabled=disabled display="flex" flex-direction="row" align-items="center" justify-content="flex-start" width=30 height=18 padding=2 box-sizing="border-box" border-width=0 border-radius=9 flex-shrink=0 opacity=(faded ? 0.64 : 1) background-color=(checked and not mixed ? on : off) testId=switchId
+      box width=14 height=14 border-radius=7 flex-shrink=0 background-color=thumb opacity=(mixed ? 0.7 : 1) box-shadow="0 1px 3px #0000000d" translate=`${mixed ? 6 : (checked ? 12 : 0)}px 0px` transition=(reduced ? "none" : "translate 150ms ease") testId=`${switchId}-thumb`

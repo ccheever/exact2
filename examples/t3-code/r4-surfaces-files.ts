@@ -22,6 +22,7 @@ import { crumbsOffset, noteFirstRead, settleCrumbs, settleMounted, sourceGutter 
 import { contentRevision, htmlPage, htmlToggleLabel, isHtmlPath } from './r10-device-files-html'; // lane r10-device: rendered HTML
 import { crumbsMounting, loadBegin, loadEnd, missingFolders, noteReveal, revealStale } from './r10-device-crumbs'; // lane r10-device: a mounting preview settles at the end
 import { canUseMarkdownFileShellActions, loadSshAliases, openInEditorHere, openInView, remoteOpenFor } from './remote-open'; // remote Open (OpenInPicker)
+import { fileComment, fileCommentLines, fileCommentOpen, type FileLine } from './diff-file-comments'; // diff-review: line comments on the preview
 
 export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; guides: { id: string; left: number }[] };
 export type Crumb = { id: string; label: string; path: string; current: boolean; directory: boolean };
@@ -33,7 +34,7 @@ export type CrumbMenu = { open: boolean; root: string; x: number; back: string; 
 export type FilesView = {
   cwd: string; project: string; ready: boolean; loading: boolean; error: string; query: string; truncated: boolean;
   rows: TreeRow[]; hasDirectories: boolean; allExpanded: boolean; explorer: boolean; showExplorer: boolean;
-  path: string; preview: string; previewError: string; crumbs: Crumb[]; lines: CodeLine[]; text: string; textKey: string;
+  path: string; preview: string; previewError: string; crumbs: Crumb[]; lines: FileLine[]; commentOpen: boolean; text: string; textKey: string;
   gutter: number; wrap: boolean; truncatedNote: string; canRender: boolean; rendered: boolean; renderLabel: string; renderIcon: string;
   editable: boolean; pending: boolean; editorId: string; editorLabel: string; editorShow: boolean; editorHint: string; editorUnavailable: string; editors: EditorChoice[]; absolutePath: string;
   markdown: Document; code: never[]; table: { id: string; header: boolean; cells: CodeRun[] }[]; editing: boolean; editorText: string; editorsOpen: boolean; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
@@ -208,6 +209,7 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
     return '';
   }
   if (op === 'search') { await search(client, native, value); return ''; }
+  if (op.startsWith('comment-')) return fileComment(client, native, op.slice(8), id, value, state.reads.get(id)?.contents ?? ''); // diff-file-comments.ts
   if (op === 'search-key') { if (value === 'Escape') await search(client, native, ''); return ''; }
   if (op === 'begin-edit') {
     const read = state.reads.get(id);
@@ -390,7 +392,7 @@ export function codeLines(path: string, contents: string): CodeLine[] {
 
 export const emptyFiles = (): FilesView => ({
   cwd: '', project: '', ready: false, loading: false, error: '', query: '', truncated: false, rows: [], hasDirectories: false, allExpanded: false,
-  explorer: true, showExplorer: true, path: '', preview: '', previewError: '', crumbs: [], lines: [], text: '', textKey: '', gutter: 0, wrap: true,
+  explorer: true, showExplorer: true, path: '', preview: '', previewError: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true,
   truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editorShow: false, editorHint: '', editorUnavailable: '', editors: [], absolutePath: '',
   markdown: { id: '', blocks: [] }, code: [], table: [], editing: false, editorText: '', editorsOpen: false, crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '',
 });
@@ -426,7 +428,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
     truncated: !!state.query.trim() && !!state.search?.truncated, rows, hasDirectories: [...state.dirs.values()].flat().some(entry => entry.kind === 'directory'),
     allExpanded: state.expandAll || allExpanded(state), explorer: preferences.explorer, showExplorer,
     path, preview: !previewPath ? '' : html && rendered ? (page.error ? 'error' : page.url ? 'html' : 'loading') : read === undefined ? 'loading' : read.error ? 'error' : rendered ? (markdown ? 'markdown' : 'table') : 'code',
-    previewError: html && rendered ? page.error : read?.error && !folder ? read.error : '', crumbs: path ? crumbs(projectName, path) : [], lines, text, textKey: `${path}:${active.reveal}`,
+    previewError: html && rendered ? page.error : read?.error && !folder ? read.error : '', crumbs: path ? crumbs(projectName, path) : [], lines: fileCommentLines(client, previewPath, text, lines, editable && state.editing === path), commentOpen: fileCommentOpen(client), text, textKey: `${path}:${active.reveal}`,
     gutter: sourceGutter(lines.length), wrap: client.local.clientSettings.wordWrap !== false,
     truncatedNote: previewPath && read?.truncated ? `Preview limited to the first 1 MB of a ${read.byteLength.toLocaleString('en-US')} byte file.`
       : parsedTable?.truncated ? 'Table limited to the first 100 rows and 30 columns. Switch to source for the rest.' : '',

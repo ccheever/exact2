@@ -5,6 +5,7 @@ import { buildRemoteOpenUrl, REMOTE_CAPABLE_EDITOR_IDS } from './editors';
 import { obj, type Obj } from './domain';
 import type { Native } from './protocol';
 import { T3Client } from './client';
+import { fleet } from './settings-b-fleet';
 import { filesView, filesLocal, filesState, markdownFileMenu } from './r4-surfaces-files';
 
 const TAILSCALE_TARGETS = [{ kind: 'tailscale', host: 'sol.tail1234.ts.net' }, { kind: 'mdns', host: 'sol.local' }];
@@ -98,6 +99,17 @@ function client(origin: string, config: Obj = {}): T3Client {
 
 describe('picker visibility and editors', () => {
   beforeEach(() => { resetRemoteEditorsForTests(); rest.length = 0; });
+  test('uses the saved SSH route when the active and preferred route is a direct URL', () => {
+    const previous = fleet.saved;
+    try {
+      fleet.saved = [{ environmentId: 'env-1', routes: [
+        { id: 'direct', origin: 'https://remote.example', kind: 'public' },
+        { id: 'tunnel', origin: 'http://127.0.0.1:41857', kind: 'ssh', ssh: { alias: 'route-alias', hostname: 'remote.example', username: null, port: null } },
+      ] }];
+      expect(remoteOpenFor(client('https://remote.example', { remoteOpenTargets: [{ kind: 'mdns', host: 'advertised.local' }] })).state)
+        .toEqual({ mode: 'remote-links', host: { kind: 'ssh-alias', host: 'route-alias' } });
+    } finally { fleet.saved = previous; }
+  });
   test('shouldShowOpenInPicker: the primary always, other environments only outside local-exec', () => {
     const base = { activeProjectName: 'app', activeThreadEnvironmentId: 'b', primaryEnvironmentId: 'a' };
     expect(shouldShowOpenInPicker({ ...base, activeThreadEnvironmentId: 'a', remoteOpenMode: 'local-exec' })).toBe(true);

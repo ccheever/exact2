@@ -92,7 +92,7 @@ import { parseThemeFile } from './settings-themes';
 describe('theme editor', () => {
   test('a create draft seeds every family from the active theme and paints a preview', () => {
     const client = fakeClient();
-    const draft = syncDraft(as(client), 'create', '', 't3-code', 't3-code', 'light')!;
+    const draft = syncDraft(as(client), 'create', '', { theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code' }, 'light')!;
     const view = editorView(draft);
     expect([view.title, view.saveLabel, view.rows.map(row => [row.label, row.value])]).toEqual(['Create theme', 'Create theme', [['Background', '#fcfcfc'], ['Accent', '#1b4ed8']]]);
     expect(view.groups.map(group => group.title)).toEqual(['Foundation', 'Brand & content', 'Context', 'Status']);
@@ -102,8 +102,8 @@ describe('theme editor', () => {
     editDraft(as(client), 'filter', 'side');
     expect(editorView(draft).groups.flatMap(group => group.rows.map(row => row.label))).toEqual(['Sidebar background', 'Sidebar controls', 'Sidebar selection']);
     // Reopening the same dialog keeps the draft; closing drops it.
-    expect(syncDraft(as(client), 'create', '', 't3-code', 't3-code', 'light')).toBe(draft);
-    expect(syncDraft(as(client), '', '', 't3-code', 't3-code', 'light')).toBeNull();
+    expect(syncDraft(as(client), 'create', '', { theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code' }, 'light')).toBe(draft);
+    expect(syncDraft(as(client), '', '', { theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code' }, 'light')).toBeNull();
     expect(previewTheme(as(client))).toBeNull();
   });
   test('families write their related roles with readable foregrounds', () => {
@@ -114,13 +114,13 @@ describe('theme editor', () => {
   });
   test('save installs a new theme as the active pair, or replaces the edited one', async () => {
     const client = fakeClient();
-    syncDraft(as(client), 'create', '', 't3-code', 't3-code', 'light');
+    syncDraft(as(client), 'create', '', { theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code' }, 'light');
     editDraft(as(client), 'color:accent', '#ff0000');
     await themeEditorCommand(as(client), null, 'theme-editor-save', '', 'Aurora');
     const themes = client.local.customThemes as { id: string; label: string; light: Record<string, string> }[];
     expect([themes[0]!.id, themes[0]!.label, themes[0]!.light.accent]).toEqual(['aurora', 'Aurora', '#ff0000']);
     expect((client.local.clientSettings as Obj).themeDark).toBe('aurora');
-    syncDraft(as(client), 'edit', 'aurora', 'aurora', 'aurora', 'light');
+    syncDraft(as(client), 'edit', 'aurora', { theme: 'aurora', themeLight: 'aurora', themeDark: 'aurora' }, 'light');
     editDraft(as(client), 'name', 'Aurora 2');
     saveDraft(as(client));
     expect((client.local.customThemes as { id: string; label: string }[]).map(theme => [theme.id, theme.label])).toEqual([['aurora', 'Aurora 2']]);
@@ -189,5 +189,29 @@ describe('add a theme', () => {
     expect((client.local.clientSettings as Obj).themeLight).toBe('aurora');
     await expect(themeImportCommand(as(client), null, 'add', '{"version":2}')).rejects.toThrow();
     await expect(themeImportCommand(as(client), null, 'search', 'Dracula')).rejects.toThrow('macOS app');
+  });
+});
+
+
+describe('terminal appearance in the snapshot', () => {
+  test('stock, selected theme, custom roles and simple/advanced font preferences reach the bridge', () => {
+    const client = fakeClient();
+    const prefs = client.local.clientSettings as Obj;
+    let value = look(as(client));
+    expect(JSON.parse(value.terminalLight).background).toEqual({ r: 252, g: 252, b: 252 });
+    expect(JSON.parse(value.terminalDark).background).toEqual({ r: 10, g: 10, b: 10 });
+    Object.assign(prefs, { themeLight: 'grove', themeDark: 'ocean', fontFamilyCode: 'Menlo', fontSizeCode: 15 });
+    value = look(as(client));
+    expect(JSON.parse(value.terminalLight).background).toEqual({ r: 243, g: 247, b: 244 });
+    expect(JSON.parse(value.terminalDark).cursor).toEqual({ r: 112, g: 185, b: 238 });
+    expect([value.terminalFont, value.terminalSize]).toEqual(['Menlo', 15]);
+    Object.assign(prefs, { typographyAdvanced: true, fontFamilyTerminal: '', fontSizeTerminal: 12, themeDark: 'custom' });
+    Object.assign(client.local, { customThemes: [{ id: 'custom', appearance: 'dark', dark: {
+      terminalBackground: '#123456', terminalForeground: '#abcdef', terminalCursor: '#fedcba', terminalSelection: '#11223380',
+    } }] });
+    value = look(as(client));
+    expect([value.terminalFont, value.terminalSize]).toEqual(['', 12]);
+    expect(JSON.parse(value.terminalDark)).toEqual({ dark: true, background: { r: 18, g: 52, b: 86 },
+      foreground: { r: 171, g: 205, b: 239 }, cursor: { r: 254, g: 220, b: 186 }, selectionBackground: '#11223380' });
   });
 });

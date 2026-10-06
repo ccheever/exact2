@@ -108,7 +108,7 @@ component R4PublishDialog
           row gap=8 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 border-radius=8 align-items="center" background-color="light-dark(#f4f4f566, #ffffff09)"
             R4ProviderMark(provider=git.publishProvider, size=14)
             text git.publishName flex=1 min-width=0 line-clamp=1 font-family="ui-monospace" font-size=12 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
-          link href=git.publishUrl testId="git-publish-open" height=32 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" display="flex" align-items="center" justify-content="center"
+          link cursor="pointer" href=git.publishUrl testId="git-publish-open" height=32 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" display="flex" align-items="center" justify-content="center"
             text `Open on ${git.publishProviderLabel}` font-size=14 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
       // WizardFooter: DialogFooter bare (px-6 py-4), the actions at the end.
       row gap=8 justify-content="flex-end" padding-left=24 padding-right=24 padding-top=16 padding-bottom=16 box-sizing="border-box"

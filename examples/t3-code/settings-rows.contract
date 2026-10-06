@@ -14,6 +14,7 @@ use CnMachineIcon from "./settings-b-kit.contract"
 use InfoTip from "./settings-kit.contract"
 use AboutUpdateButton from "./settings-a-about.contract"
 use MobileBetaControl from "./settings-mobile-beta.contract"
+use ScopedSwitch from "./settings-scoped-switch.contract"
 use FontFamilyPicker from "./settings-a-fonts.contract"
 
 // "Applying settings for <project> across <environment>" with its two radio menus.
@@ -100,6 +101,7 @@ component ScopeMenu
 // and divided rows; Legacy features folds behind its trigger.
 component CoreSections
   props
+    reduced: bool
     sections: list<CoreSection>
     pal: CorePalette
     busy: bool
@@ -131,10 +133,11 @@ component CoreSections
           when not section.collapsible or legacyOpen
             column width="100%" border-radius=12 border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.card box-shadow="0 1px 2px #0000000d" box-sizing="border-box"
               each row in section.rows key=row.id
-                CoreRowView(row=row, section=section.id, pal=pal, busy=busy, menu=menu, openMenu=openMenu, closeMenu=closeMenu, change=change, slide=slide, navigate=navigate)
+                CoreRowView(reduced=reduced, row=row, section=section.id, pal=pal, busy=busy, menu=menu, openMenu=openMenu, closeMenu=closeMenu, change=change, slide=slide, navigate=navigate)
 
 component CoreRowView
   props
+    reduced: bool
     row: CoreRow
     section: string
     pal: CorePalette
@@ -186,8 +189,8 @@ component CoreRowView
         when row.kind != "version" and row.kind != "none"
           row flex-shrink=0 min-width=160 align-items="center" justify-content="flex-end" gap=8 opacity=(row.inert ? 0.5 : 1) position="relative"
             when row.kind == "switch"
-              button press=change(row.id, row.target, row.checked ? "false" : "true") role="switch" aria-checked=row.checked aria-label=row.title id=`setting-${row.id}` disabled=(busy or row.inert or row.disabled) class=SettingsGhost justify-content="flex-start" width=30 height=18 padding=2 border-radius=9 background-color=(row.checked ? pal.accent : pal.switchOff) opacity=(row.disabled ? 0.64 : 1) testId=`setting-${row.id}`
-                box width=14 height=14 border-radius=7 background-color=pal.thumb margin-left=(row.checked ? 12 : 0) box-shadow="0 1px 3px #0000000d"
+              // D15: a mixed switch turns the setting on for every selected target.
+              ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.inert or row.disabled), faded=row.disabled, on=pal.accent, off=pal.switchOff, thumb=pal.thumb, reduced=reduced, switchId=`setting-${row.id}`, press=change(row.id, row.target, row.mixed or not row.checked ? "true" : "false"))
             when row.kind == "select"
               CoreSelect(rowId=row.id, section=section, value=row.label, icon=row.icon, width=row.width, menuWidth=row.menuWidth, options=row.options, pal=pal, disabled=(busy or row.inert or row.disabled), dim=(row.inert or row.disabled), menu=menu, openMenu=openMenu, choose=change(row.id, row.target))
               when row.value2 == "configure"
@@ -320,7 +323,8 @@ component CoreField
 // track in muted 22% with a 55% border ring, the primary fill to the thumb's centre
 // (progress · (width − 16) + 8) and a 16-point thumb ringed in primary. The NSSlider stays
 // on top, transparent, for the pointer and keys; `input` moves the drawing while it drags
-// and `change` commits on release.
+// and `change` snaps to the setting's increment and commits on release.
+fn sliderSnap(value: number, low: number, high: number, step: number): number = max(low, min(high, low + floor((value - low) / step + 0.5) * step))
 component CoreSlider
   props
     row: CoreRow
@@ -332,18 +336,29 @@ component CoreSlider
   action track(value: number)
     live = value
     liveFrom = row.value
+  action release(value: number)
+    let snapped = sliderSnap(value, row.min, row.max, row.step)
+    live = snapped
+    liveFrom = row.value
+    commit(snapped)
+  action navigate(key: string)
+    if not disabled
+      if key == "ArrowRight" or key == "ArrowUp" or key == "ArrowLeft" or key == "ArrowDown" or key == "Home" or key == "End" or key == "PageUp" or key == "PageDown"
+        release(key == "Home" ? row.min : key == "End" ? row.max : shown + (key == "ArrowLeft" or key == "ArrowDown" or key == "PageDown" ? -1 : 1) * row.step * (key == "PageUp" or key == "PageDown" ? 10 : 1))
+        preventDefault()
   derive shown = liveFrom != "" and liveFrom == row.value ? live : row.amount
+  derive label = sliderSnap(shown, row.min, row.max, row.step)
   derive trackWidth = row.width - 12 - (row.suffix == " ms" ? 64 : 48)
   derive ratio = row.max > row.min ? max(0, min(1, (shown - row.min) / (row.max - row.min))) : 0
   view
     row width=row.width gap=12 align-items="center"
-      text `${shown}${row.suffix}` font-family="ui-monospace" font-size=12 font-weight=500 line-height="16px" color=pal.text font-variant-numeric="tabular-nums" text-align="center" min-width=(row.suffix == " ms" ? 64 : 48) padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 background-color=pal.output box-sizing="border-box" role="status" testId=`setting-${row.id}-value`
+      text `${label}${row.suffix}` font-family="ui-monospace" font-size=12 font-weight=500 line-height="16px" color=pal.text font-variant-numeric="tabular-nums" text-align="center" min-width=(row.suffix == " ms" ? 64 : 48) padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 background-color=pal.output box-sizing="border-box" role="status" testId=`setting-${row.id}-value`
       box position="relative" width=trackWidth height=24 flex-shrink=0 opacity=(disabled ? 0.64 : 1)
         box position="absolute" left=0 top=9 width=trackWidth height=6 border-radius=3 background-color="light-dark(#71717b38, #81818138)"
         box position="absolute" left=0 top=9 width=(ratio * (trackWidth - 16) + 8) height=6 border-radius=3 background-color=pal.accent testId=`setting-${row.id}-fill`
         box position="absolute" left=0 top=9 width=trackWidth height=6 border-radius=3 border-width=1 border-style="solid" border-color="light-dark(#e4e4e78c, #ffffff0d)" box-sizing="border-box"
         box position="absolute" left=(ratio * (trackWidth - 16)) top=4 width=16 height=16 border-radius=8 border-width=2 border-style="solid" border-color=pal.accent background-color=pal.canvas box-sizing="border-box" box-shadow="0 1px 2px #0000001f"
-        input type="range" min=row.min max=row.max step=row.step value=row.value input=track change=commit disabled=disabled aria-label=row.title position="absolute" left=0 top=0 width=trackWidth height=24 opacity=0 id=`setting-${row.id}` testId=`setting-${row.id}`
+        input type="range" min=row.min max=row.max step="any" value=`${shown}` input=track change=release key=navigate disabled=disabled aria-label=row.title position="absolute" left=0 top=0 width=trackWidth height=24 margin=0 opacity=0 id=`setting-${row.id}` testId=`setting-${row.id}`
 
 // SettingsFontPreviews: the composer sample in the interface font and a diff in the code font.
 component FontPromptPreview

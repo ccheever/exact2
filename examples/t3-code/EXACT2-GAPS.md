@@ -1,6 +1,7 @@
 # exact2 support needed for T3 Code parity
 
-Date: 2026-10-05. The clone builds on exact2 `c1522fdac`; we checked these items against exact2 main `d2cb661eb`. The reference app is T3 Code `f870c419fc` (HEAD `1e2ecbd975`).
+Date: 2026-10-05; re-checked 2026-10-06 on the pin. The clone now builds on exact2 main `c12832e82` (the pin); the items were first checked against main `d2cb661eb`. The reference app is T3 Code `f870c419fc` (HEAD `1e2ecbd975`).
+The current state of every item on the pin is the table "Current state on the pin" below; what main fixed and which workaround was removed is "Already fixed on exact2 main".
 Each item lists the T3 feature it blocks, what we reviewed, the current state, why it does not work, and the exact2 support it needs.
 REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 
@@ -21,10 +22,10 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 | X11 | Shadow and blur parity | Dialog/popover shadows, glass composer | host | opaque composer, faint shadows |
 | X12 | Textarea field sizing | Composer height with long chips | host | measured height |
 | X13 | Hover and key events during a pan | Sidebar row-action sweep | host | partial (r12) |
-| X14 | Native replies survive a let-go or refused answer | Snapshot reads with `native.later` | js runtime | `js/src/parking.rs` (uncommitted framework edit) + `T3ReadGate.swift` |
+| X14 | Native replies survive a let-go or refused answer | Snapshot reads with `native.later` | js runtime | `T3ReadGate.swift` (the `js/src/parking.rs` edit is not on the main-based branch) |
 | X15 | Key equivalents under a non-Latin input source | ⌘B, ⌘K and menu chords under Korean 2-Set | host | `R10Connect.swift` re-issues chords |
 | X16 | `autocorrect="off"` also turns off smart quotes, dashes, text replacement | Exact bytes typed in composer and Files editor | host | `t3-plain-text` hook |
-| X17 | Popover side areas and `position-try` flips | Hover cards and tooltips that flip near edges | contract/host | fixed placement |
+| X17 | Popover side areas and `position-try` flips | Hover cards and tooltips that flip near edges | contract/host | `position-area` top/bottom; fixed placement for end-aligned and flipping layers |
 | X18 | SVG path `d` animation | Morphing icons | host | cross-fade |
 | X19 | Timers/clock in data sources | Debounces, cooldowns (450 ms, 10 s) | policy (LLP 1092 accepted, not built) | time passed as arguments, Contract tasks |
 | X20 | Rich-text editing with atomic inline nodes; caret/selection read and range replace; paste interception; undo groups | Composer (Tiptap): @ / $ menus, chips, history recall, large paste → file | framework feature (DEFERRED "no rich value type") | native NSTextView composer (`T3Composer*.swift`) |
@@ -39,6 +40,46 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 | X29 | `video` from `app:/` files; a PDF viewer element | Composer video preview, PDF attachments | framework feature | AVPlayerView, PDFView natively |
 | X30 | TS can announce a topic / invalidate a resource; pixel readback; any-type file picker with bytes and image transcode | Wake reads, image accent colour, attachments | framework feature | `R10Connect`, `T3ImageAccent`, `T3ComposerAttach` |
 | X35 | A password `input` whose value stays out of the agent's tree, with `autocomplete` ([#134](https://github.com/ccheever/exact2/issues/134)) | SSH Password Required dialog | host + agent | native `t3-ssh-password` secure field (`T3SshAuth.swift`); the module reads it on Continue |
+| X43 | `aria-checked="mixed"` on a switch or checkbox ([#120](https://github.com/ccheever/exact2/issues/120)) | Scoped switches whose targets disagree (D15) | contract/host | the app draws the mixed thumb; the switch reports unchecked |
+| X46 | A build step that makes app assets before the Apple bundle copies `assets/` | The terminal page (`terminal-host/build.mjs` output) | build | run `bun terminal-host/build.mjs` (app.json `commands.terminal`) before the bundle build; without it the terminal stays blank and its status names the load error |
+
+
+## Current state on the pin (2026-10-06, exact2 `c12832e82`)
+
+Each open item was reproduced for its upstream issue on exact2 `4c893fef6`, which adds only a QUEUE line and a test wait (`22903cc75`) over the pin, so each reproduction holds on the pin. "fix built" means a fix exists on a local `daehyeon/fw-*` branch, not on main. Every workaround below is still in the clone.
+
+| ID | Issue | Current state on the pin | Workaround kept |
+|---|---|---|---|
+| X3 | [#102](https://github.com/ccheever/exact2/issues/102) (+ #136, #137) | Open. The macOS host still sends a root font size of 16; Interface font size is saved and not applied. | none |
+| X4 | [#103](https://github.com/ccheever/exact2/issues/103) | Open. `assets/` is still the only bundle tree, with mode 0644 and the path-segment rule. | archive plan (embedded server not built) |
+| X5 | [#104](https://github.com/ccheever/exact2/issues/104) | Open. A scheme URL reaches only a navigation root's `navigate`. | none |
+| X6 | [#105](https://github.com/ccheever/exact2/issues/105) | Open. No module quit hook; `destroy()` does not run at ⌘Q. | none |
+| X7 | [#106](https://github.com/ccheever/exact2/issues/106) (+ #135) | Open. `app.json` writes no ATS keys. | rendered HTML loads its token directory only |
+| X8 | [#107](https://github.com/ccheever/exact2/issues/107) | Open on main; fix built. | real-input sessions only |
+| X9 | [#108](https://github.com/ccheever/exact2/issues/108) | Open on main; fix built. `app.contract` holds every resource. | split views, root keeps state |
+| X10 | [#128](https://github.com/ccheever/exact2/issues/128) | Open (code-wrap breaks, placeholder colour, balance, smoothing). | none (visible difference) |
+| X11 | [#129](https://github.com/ccheever/exact2/issues/129) | Open. Backdrop blur sees only the parent's paint. | opaque composer |
+| X12 | [#130](https://github.com/ccheever/exact2/issues/130) | Open. | measured height |
+| X13 | not filed | Unverified on macOS (the web behavior is designed). | partial (r12 Escape) |
+| X14 | [#109](https://github.com/ccheever/exact2/issues/109) | Open. A let-go answer's native replies are still dropped. `f96641ddd` lets an answer wait on another live answer's fetch, but not on one that was let go. | `T3ReadGate.swift`; `readDetail` still reads per answer (`r6-pr-actions.ts`) |
+| X15 | [#110](https://github.com/ccheever/exact2/issues/110) | Open. | `R10Connect.swift` re-issues chords |
+| X16 | [#111](https://github.com/ccheever/exact2/issues/111) | Open. | `t3-plain-text` hook |
+| X17 | [#112](https://github.com/ccheever/exact2/issues/112) | Partly fixed: `position-area` top, bottom and center work (`2c6b551ba`); no `position-try` flip, no `span-left` or side areas. | end-aligned and flipping menus keep fixed placement |
+| X18 | [#123](https://github.com/ccheever/exact2/issues/123) | Open. | cross-fade |
+| X19 | [#124](https://github.com/ccheever/exact2/issues/124) | Open on main; fix built. | time as arguments, Contract tasks |
+| X20 | [#125](https://github.com/ccheever/exact2/issues/125) | Open on main; fix built. | native NSTextView composer |
+| X21 | [#126](https://github.com/ccheever/exact2/issues/126) | Open on main; fix built. | Swift transport |
+| X22 | [#127](https://github.com/ccheever/exact2/issues/127) | Open on main; fix built. | `t3-frame`, `t3-anchor`, `t3-turn` hooks |
+| X23 | [#138](https://github.com/ccheever/exact2/issues/138) | Open. | `R9Input.swift`, `T3TimelineTurns.swift` |
+| X24 | [#139](https://github.com/ccheever/exact2/issues/139) | Open. | `t3-rehover` |
+| X25 | [#140](https://github.com/ccheever/exact2/issues/140) | Open (keyup, `code`, `repeat`, held modifiers, capture phase; window shortcuts are heard before a focused field's key handler). Modifiers on keydown are fixed (`8a0afbeab`): Shift+F10 on draft rows and right-panel tabs is now Contract. | `T3ComposerIntent`, `T3KeyRecorder`, `R8KeysLauncher`, `R9Input`; the tab rename field's Escape in `RightPanelTabsInput.swift` |
+| X26 | [#141](https://github.com/ccheever/exact2/issues/141) | Open. | `T3Menus.swift`, `R8KeysMenus.swift`, `T3Sidebar.swift` |
+| X27 | [#113](https://github.com/ccheever/exact2/issues/113) | Open. | `T3WindowChrome.swift`, `R8PointerWindowFrame.swift` |
+| X28 | [#114](https://github.com/ccheever/exact2/issues/114) | Open (policy). | `T3Notifications.swift` |
+| X29 | [#115](https://github.com/ccheever/exact2/issues/115) | Open. | AVPlayerView, PDFView |
+| X30 | [#116](https://github.com/ccheever/exact2/issues/116) | Open (policy). | `R10Connect`, `T3ImageAccent`, `T3ComposerAttach` |
+
+X1 ([#100](https://github.com/ccheever/exact2/issues/100)) and X2 ([#101](https://github.com/ccheever/exact2/issues/101)) are policy decisions; both features stay unbuilt.
 
 ---
 
@@ -176,15 +217,18 @@ On main, `__exact_forget` still drops a let-go answer's pending native fetches u
 
 ---
 
-## Already fixed on exact2 main (remove clone workarounds after the rebase)
+## Already fixed on exact2 main
 
-- `pointer-events: none` on boxes and hit testing of visible overflow (`652a6c865`, `c44607c7d`).
-- `cursor` keywords on macOS (`c6136f39d`).
-- Popover placement above/below the invoker with `position-area` (`2c6b551ba`).
-- Key events carry modifiers; `preventDefault()` claims a key (`f35b3eafc`, `8a0afbeab`).
-- Key events bubble to ancestors with a `key` handler, `tabindex` exists, so rows can take keys (`f35b3eafc`, `d672f9372`).
-- Awaiting another answer's fetch waits for it on Hermes main placement (`f96641ddd`).
-- `title` maps to a native tooltip (`2bfebe63e`).
+Checked on the pin `c12832e82` with main's own tests: `bun host/apple/build.mjs --test` (795 ExactKit tests, 0 failures; `ClipMacTests`, `CollectionMacTests.testCSSCursorKeywordsReachAppKit`, `PositionAreaTests`, `ChooserMacTests.testTheMenuPopsUpByItsPositionArea`, `AccessibilityTests.testTabindexMakesABoxFocusableAndOrdersTab`) and `cargo test -p exact-js --test it an_answer_awaiting_another_answers_fetch` (1 pass). Workarounds removed by task `20261005-main-fix-adoption`:
+
+| Fixed on main | What the clone did | Now |
+|---|---|---|
+| `pointer-events: none` on boxes, inherited, and hit testing of visible overflow (`652a6c865`, `c44607c7d`) | `inert=true` on 20 tooltip, hover-card, drag-ghost, fade and probe layers; the composer controls row reached 10pt left (margin -10, padding 10) to hold the model picker's `-ms-2.5` | `pointer-events="none"` alone; the row has no hit padding and the footer reads its own width. Modal covers keep `inert` (HTML's meaning). The sidebar rail and edge tips stay window-level: a later sibling (the chat column) paints and hit-tests above a strip reaching past the sidebar |
+| `cursor` keywords on macOS (`c6136f39d`) | none | pointer on the shared button styles, links and sidebar rows and buttons; `w-resize` on the sidebar rail, `col-resize` on the right panel's edge. Buttons with inline styles elsewhere, and disabled buttons, still show the arrow or the hand where the reference differs |
+| `position-area` on a popover (`2c6b551ba`) | absolute offsets (`bottom="100%"`, `left=-134`) | the SnapShot Accessibility data and Usage unpriced popovers use `position-area="top"` |
+| Key modifiers and `preventDefault()` (`f35b3eafc`, `8a0afbeab`); bubbling and `tabindex` (`d672f9372`) | a hidden 1x1 `aria-keyshortcuts="Shift+F10"` button while a draft row held focus; a native monitor for Shift+F10 on a right-panel tab | the draft row's and the tab's own `key` handlers read Shift+F10 |
+| Awaiting another answer's fetch (`f96641ddd`) | `readDetail` reads per answer | kept: a let-go answer's reply is still dropped (X14, #109) |
+| `title` maps to a native tooltip (`2bfebe63e`) | no tooltip where the reference uses `title` | `title` on the pending question's toggle and Dismiss, the project group's settings button, a license's Project source link, and the device rail's text-size and more-actions triggers |
 
 Rebase notes (clone-side edits, not exact2 asks): LLP 1091 D1 refuses names reached only through another file's `use` (e.g. `markdown.contract` uses `Icon`; `class=Control` without `use`). A `button` is now Chrome's block `<button>` with centred content (`e8bc9c846`). The clone's 9 `role="alertdialog"` overlays are columns without `popover`, so `lower-alertdialog` does not refuse them.
 
@@ -202,6 +246,15 @@ Source: a map of every clone hook and native component to the exact2 gap behind 
 - **X28.** `showNotification` exists (`4754c6d9e`), but DEFERRED refuses notification actions and badges (`rules/DEFERRED.md:367-369`); no focus fact (`runner/src/page.rs:21-36`).
 - **X29.** `video` takes only http(s) or bundled assets (`Mac/NodeViewMac.swift:402-407`); `image` takes `app:/`.
 - **X30.** TS `native` has only available/call/watch/later (`js/src/prelude.js:820-842`); Canvas readback is refused (LLP 1056:387); a file `input` needs a literal `accept`.
+
+## Settings scope and the theme editor: declared differences
+
+Task `20261005-settings-scoped-controls-and-theme-editor` (D15, D16).
+- **Mixed switch, accessibility (X43, [#120](https://github.com/ccheever/exact2/issues/120)).** `ScopedSwitch` (`settings-scoped-switch.contract`) draws the reference's mixed state (thumb centred at 70 % on the unchecked track). `aria-checked` takes only a boolean, so VoiceOver hears "off" where the reference says "mixed".
+- **Header drag from a button (X13).** A Contract `pan` takes a drag that starts on a nested button once it passes the slop; the reference ignores pointer-downs on the header's buttons, inputs and links. A tap on Minimize or Close still presses.
+- **Window resize clamp (X22, [#127](https://github.com/ccheever/exact2/issues/127)).** No window resize event reaches a component; a window-sized, inert, clipped tracker inside the panel hears `resize=` instead, and its action shrinks the size, then clamps and stores the place as the reference's listener does.
+- **Inspect app colors (X30, [#116](https://github.com/ccheever/exact2/issues/116)).** Not built (plan decision U18 pending).
+- **X46** (new — record at prepare; task `20261005-terminal-surface`). The Apple build copies `assets/` as it is (`host/apple/build.mjs` `copyAppleStaticTrees`); app.json `commands` are verbs for `exact.mjs`, not build steps. Generated files are not committed (rules/RULES.md), so the terminal page and its WASM/font copies (ignored by git) exist only after `bun terminal-host/build.mjs`. A fresh checkout's bundle has no page: the terminal view stays blank and its status (`state.presentation.terminals[].error`) names the failed load. **Support needed:** a manifest-declared pre-bake command (or a bundler entry for app assets) that the Apple, web and delivery builds run.
 
 ## Not exact2 asks (stay in the app module)
 

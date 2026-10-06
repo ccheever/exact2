@@ -1,13 +1,13 @@
 ---
 name: 20261005-environment-routes
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+branch: feat(example)/t3-code-environment-routes
+pr_url: https://github.com/ccheever/exact2/pull/148
 verified_commit: null
 ---
 
@@ -111,13 +111,51 @@ Required environment: Xcode 27.0, pinned Bun, reference oracle runtime, lane por
 
 ## Progress
 
-Planned.
+2026-10-06, implemented (verification: unverified). Built from the parallel-wave base `d78ac86ff`; the
+hot-file-split, clone-on-main and desktop-oracle prerequisites were not merged first (plan.md
+"Parallel implementation").
+
+- Route model: `connection-routes.ts` (routes.ts, gitHubRoutingConnectionKey, registry route edits) and
+  `host-classification.ts`, with `connection-routes.test.ts` (all 13 routes.test.ts cases and the registry
+  route cases, original names) and `host-classification.test.ts`.
+- Store: `T3SavedEnvironments` keeps one entry per environment id with `routes[]` (`id, origin, kind,
+  learned, credential, authorization?, ssh?`); entries saved per origin migrate on read. Keychain items stay
+  keyed by origin; a learned route's `credential` names the owner origin. The entry's `origin` is its home
+  (the first address, kept while that route exists), so `environmentKey` and the fleet keys did not change;
+  the focused connection, whose origin is now the route in use, is matched by environment id.
+- Walk and fallback: `T3Routes.swift` (connectOverRoutes, checkRoute 2.5 s, preflight, 60 s / network /
+  activation better-route check, 5 min cooldown, `T3_ROUTE_CHECK_INTERVAL_MS`). `T3Transport.swift` hooks:
+  connect loads the routes, start walks them, a failed route moves on, the socket's open records
+  `activeRouteId`, `setRoutes`, `pairEnvironment` `expectedEnvironmentId`, status `activeRouteId` /
+  `homeOrigin`.
+- Learned routes: `learnRoutes` (connection-routes-ops.ts) runs from `fleet.sync` for the focus and each
+  connected background environment after `server.getConfig.directEndpoints`.
+- Different machine: Add route and the SSH route pass `expectedEnvironmentId`; the transport refuses before
+  `/oauth/token` with the reference messages.
+- UI: route count control, Routes / Hide routes menu item, the routes list (In use, found automatically,
+  remove with "Remove <label> route?", Add route), "Add a route to <label>" dialog, toasts, `via <route>`.
+  Reorder uses the host's list reorder (`reorderdrop` / `reorderFor`), which supplies pointer drag and the
+  keyboard (Space, arrows, Escape).
+- GitHub sharing: one route keeps the clone's key; several use the sorted non-learned route keys.
+
+Remaining differences and limits:
+- A learned plain-HTTP LAN route is listed ("found automatically") but this client never sends a credential
+  over plain HTTP to a non-loopback host (`T3Endpoint`), so the walk counts it silent. The reference
+  desktop connects over it.
+- Switching to a better route replaces the session: the row reads "Reconnecting" for the moment of the
+  switch (the reference keeps its supervisor state "connected" through the swap).
+- Timers are native (#124); the walk reuses the Swift transport (#126).
+- Not run: visual pairs against the oracle, reduced-motion pair, keyboard reorder and Escape/focus return
+  (`tree --ax`), real pointer drag and relaunch persistence (attended), credential-discipline trace with the
+  trace proxy (covered by the transport test `testTheWalkSkipsAnotherMachineAtASavedAddressAndNeverSendsItACredential`
+  only), SSH route add on a real host.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 | `2ec7b58e1` | bun test 1238 pass / 0 fail (base 1200); strict tsc clean; contract build 2164 slots, 42 resources; transport AppKit 43/0 (RouteTests 7), fleet 8/0, r10-connect 5/0, ssh 4/0 (1 skipped), r8-pointer 3/0; caps within budget; `cargo test -p t3-code-macos --lib` 10/0; five checks: build, test, clippy -D warnings, fmt --check, boot all pass; macOS bundle builds | unit and AppKit logs (not committed) | live drive partial (below) |
+| live drive | `4d31b59d5` bundle | Lane servers on 16120 (bound 0.0.0.0, label "Route Lab") and 16122 ("Studio Lab"), a TCP proxy 16121→16120, `T3_ROUTE_CHECK_INTERVAL_MS=1000`, one agent session: paired through the proxy, Settings › Connections, `environment-routes-toggle` → `environment-route-add` → host `http://127.0.0.1:16120` + code → Add route. Tree after: one row, `environment-status-…` "via This device · Connected · 0.0.45", the count "4 routes" (proxy, direct and the server's reported LAN addresses, learned), `environment-route-in-use-1` "In use", routes 3 and 4 without a remove button, dialog title "Add a route to Route Lab". The dialog stayed open after the success (`connectionOp` did not treat `environment-route-add` as a pairing; fixed in `2ec7b58e1`, contract build only). The drive script's wait on that close timed out, so different-machine, fallback/failback and remove-confirm steps did not run live. The first attempt's script skipped pairing (no app code reached). Per the one-drive rule no third drive was run. | `01-add-route-dialog.png` (pairing code redacted) | live: different machine, fallback/failback, remove confirm unverified on macOS (covered by RouteTests and connections-routes.test.ts) |
 
 ## Next action
 

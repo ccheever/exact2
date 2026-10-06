@@ -35,7 +35,6 @@ final class TabInputTests: XCTestCase {
         install("tab-close:device:test", node: 2, view: close)
         install("tab-rename:device:test", node: 3, view: nil)
         install("tab-cancel:device:test", node: 4, view: nil)
-        install("tab-menu:device:test", node: 5, view: nil)
     }
     private func install(_ name: String, node: UInt32, view: NSView?) {
         let element = ExactElement(hook: .t3Anchor, id: name, node: node, hooks: hooks)
@@ -73,13 +72,14 @@ final class TabInputTests: XCTestCase {
         XCTAssertNotNil(input.handle(mouse(.otherMouseDown)))
         XCTAssertTrue(tabActions.isEmpty)
     }
-    func testShiftF10UsesFocusedTabMenu() {
+    func testShiftF10PassesToTheTabsOwnKeyHandler() {
+        // The tab's buttons answer Shift+F10 in Contract (r4-surfaces.contract R4TabChip tabKey); the monitor leaves it alone.
         let button = NSButton(frame: NSRect(x: 24, y: 0, width: 90, height: 24))
         elements[0].view!.addSubview(button)
         window.makeFirstResponder(button)
         let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .shift, timestamp: 0,
-                                    windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 109)!
-        XCTAssertNil(input.handle(event))
-        XCTAssertEqual(tabActions.map { $0.0 }, [5])
+                                    windowNumber: window.windowNumber, context: nil, characters: "\u{F70D}", charactersIgnoringModifiers: "\u{F70D}", isARepeat: false, keyCode: 109)!
+        XCTAssertNotNil(input.handle(event))
+        XCTAssertTrue(tabActions.isEmpty)
     }
 }
