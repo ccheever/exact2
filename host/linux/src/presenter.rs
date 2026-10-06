@@ -1335,8 +1335,19 @@ impl<D: DataSource> Presenter<D> {
 
     /// Another host took over: it is measured as the last was, and counted.
     pub(crate) fn replaced(&mut self) {
-        self.brush.paint_epoch = None; // A new kernel may have the same epoch.
-        self.chosen.clear(); // A new runner reuses view ids.
+        // A new kernel may have the same epoch.
+        self.brush.paint_epoch = None;
+        // A new runner reuses view ids and node keys: an unbound control's
+        // own state, a choice or typed text (LLP 1069.001 D4), an edit to
+        // commit, a caret, an open menu, a hover or a held pointer is not
+        // its tree's, as Apple's reset and the web's rebuilt page have it.
+        self.chosen.clear();
+        self.controls.clear();
+        self.edited = None;
+        self.fields.clear();
+        self.menu = None;
+        self.hovered.clear();
+        self.pointer_held = None;
         self.hosts += 1;
         self.measure();
     }
