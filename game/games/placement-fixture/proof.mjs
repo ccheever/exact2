@@ -15,7 +15,7 @@ if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,e
   const start=async world=>{const s=await open({size:[1280,720],...world?{world}:{}});await s.tap('play');return s;};
   const s=await start(),w=s.world('world');
   const node=(tree,id)=>tree.nodes.find(n=>n.props?.testId===id);
-  const box=async id=>(await s.layout(id)).nodes.find(n=>n.testId===id);
+  const box=async id=>(await s.layout()).nodes.find(n=>n.testId===id);
   const covered=await box('hud'), pull=await box('pull');
   const overlap=[pull.x+pull.w/2,pull.y+pull.h-5];
   check('HUD overlaps Pull',overlap[0]>covered.x && overlap[0]<covered.x+covered.w && overlap[1]>covered.y && overlap[1]<covered.y+covered.h,{covered,pull});
