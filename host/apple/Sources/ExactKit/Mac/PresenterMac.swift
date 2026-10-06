@@ -118,6 +118,7 @@ final class Presenter {
             guard let self else { return false }
             return !self.applying && !self.resetting
         }
+        viewport.pressedGround = { [weak self] in self?.selection.clear() }
         viewport.documentView = root
         viewport.hasVerticalScroller = true
         viewport.hasHorizontalScroller = true
@@ -598,7 +599,7 @@ final class Presenter {
         transformBindings.removeAll()
         transformGeometry.reset()
         videoVisibility?.reset()
-        selection.structureChanged()
+        selection.structureChanged(); selection.clear() // a selection of the retired tree, unreported
         visibleText.removeAll()
         textViewportIndex = nil
         stopPump()
