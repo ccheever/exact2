@@ -146,8 +146,7 @@ guide's rules don't make obvious.
   needs) is a scroll container, and `touch-action` is resolved from the touched element
   up to its nearest scroll container (Pointer Events), so the grip's `none` is never
   consulted: where the page can scroll the browser takes a touch that starts on the
-  title, and nothing lifts or is logged. On iOS the title is not a scroll view and the
-  card lifts. A mouse, or a finger on the grip's
+  title, and nothing lifts or is logged. A mouse, or a finger on the grip's
   padding, works. Driven at phone size on the web: the card stays; without the overflow,
   or with `touch-action="none"` (or `pointer-events="none"`) on the title, it moves. Fix:
   put `touch-action="none"` on that text too. (Authoring bench, LLP 1087, r32 and r33
