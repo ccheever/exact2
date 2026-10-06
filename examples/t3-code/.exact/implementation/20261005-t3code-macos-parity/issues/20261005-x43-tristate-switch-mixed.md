@@ -1,10 +1,10 @@
 ---
 name: 20261005-x43-tristate-switch-mixed
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-not-planned
 kind: framework-gap (unconfirmed)
 blocks: [20261005-settings-scoped-controls-and-theme-editor]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/120
 reproduced_on: null
 ---
 
@@ -55,5 +55,4 @@ Bind `aria-checked` to the row's tri-state in `settings-rows.contract` (and the 
 
 ## Status and next action
 
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+Filed as #120; closed, not planned (2026-10-07). The app keeps its mixed thumb (`settings-scoped-switch.contract`); the switch reports unchecked, so VoiceOver hears "off" where the reference says "mixed". A declared difference, recorded in `EXACT2-GAPS.md`.

@@ -1,10 +1,10 @@
 ---
 name: 20261005-x15-non-latin-key-equivalents
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap
 blocks: [20261005-desktop-shell-details, 20261005-terminal-layout, 20261005-terminal-surface, 20261005-thread-commands-and-keys]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/110
 reproduced_on: null
 ---
 
@@ -120,6 +120,5 @@ the five tickets above and `20261005-main-fix-adoption`'s key-hook audit. `issue
 the rows and that no chord rewriting remains.
 
 ## Status and next action
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's
-approval; publication only after approval).
+
+Filed as #110; closed by main #168 (merged into the feature branch 2026-10-07). #168 matches `aria-keyshortcuts` and the host's own command menu items (`ShortcutHost`) by the physical key, using the Mac's ASCII-capable layout. It does not reach menu items with another target (Edit's Copy, Paste, Undo, Select All; Quit; Close Window; the clone's Reload and Paste as Text), the terminal's WKWebView, or the module's own key monitors (the composer's queued-edit chords, the SnapShot shortcut). So task `20261007-adopt-main-fixes-input` kept `R10Connect.latinChord` and its tests; `T3Menus` and `R9Input` keep their key-code fallbacks for the same reason. Still missing upstream: physical-key matching for menu items whose target is not the host's shortcut host, and `KeyboardEvent.code` for a `key=` handler (X25). The attended Korean 2-Set check was not run (no real input).

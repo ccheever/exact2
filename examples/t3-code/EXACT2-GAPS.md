@@ -23,8 +23,8 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 | X12 | Textarea field sizing | Composer height with long chips | host | measured height |
 | X13 | Hover and key events during a pan | Sidebar row-action sweep | host | partial (r12) |
 | X14 | Native replies survive a let-go or refused answer | Snapshot reads with `native.later` | js runtime | `T3ReadGate.swift` (the `js/src/parking.rs` edit is not on the main-based branch) |
-| X15 | Key equivalents under a non-Latin input source | ⌘B, ⌘K and menu chords under Korean 2-Set | host | `R10Connect.swift` re-issues chords |
-| X16 | `autocorrect="off"` also turns off smart quotes, dashes, text replacement | Exact bytes typed in composer and Files editor | host | `t3-plain-text` hook |
+| X15 | Key equivalents under a non-Latin input source ([#110](https://github.com/ccheever/exact2/issues/110), closed by main #168 for declared chords only) | Menu items the host does not own, the terminal's web view and the module's own key readers under Korean 2-Set | host | `R10Connect.swift` re-issues chords (kept) |
+| X16 | `autocorrect="off"` also turns off smart quotes, dashes, text replacement ([#111](https://github.com/ccheever/exact2/issues/111), fixed by main #160) | none now | host | none: every textarea has `autocorrect="off"` (adopted) |
 | X17 | Popover side areas and `position-try` flips | Hover cards and tooltips that flip near edges | contract/host | `position-area` top/bottom; fixed placement for end-aligned and flipping layers |
 | X18 | SVG path `d` animation | Morphing icons | host | cross-fade |
 | X19 | Timers/clock in data sources | Debounces, cooldowns (450 ms, 10 s) | policy (LLP 1092 accepted, not built) | time passed as arguments, Contract tasks |
@@ -39,9 +39,10 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 | X28 | Notification click → app action, Dock badge, window-focus fact | Thread notifications | policy (DEFERRED refuses actions/badges) | `T3Notifications.swift` |
 | X29 | `video` from `app:/` files; a PDF viewer element | Composer video preview, PDF attachments | framework feature | AVPlayerView, PDFView natively |
 | X30 | TS can announce a topic / invalidate a resource; pixel readback; any-type file picker with bytes and image transcode | Wake reads, image accent colour, attachments | framework feature | `R10Connect`, `T3ImageAccent`, `T3ComposerAttach` |
-| X35 | A password `input` whose value stays out of the agent's tree, with `autocomplete` ([#134](https://github.com/ccheever/exact2/issues/134)) | SSH Password Required dialog | host + agent | native `t3-ssh-password` secure field (`T3SshAuth.swift`); the module reads it on Continue |
-| X43 | `aria-checked="mixed"` on a switch or checkbox ([#120](https://github.com/ccheever/exact2/issues/120)) | Scoped switches whose targets disagree (D15) | contract/host | the app draws the mixed thumb; the switch reports unchecked |
+| X35 | A password `input` whose value stays out of every agent output ([#134](https://github.com/ccheever/exact2/issues/134), closed by main #167: the tree, `layout` and `type` reply mask it; agent `state` still prints the slot that holds it) | SSH Password Required dialog | host + agent | native `t3-ssh-password` secure field (`T3SshAuth.swift`, kept); the module reads it on Continue |
+| X43 | `aria-checked="mixed"` on a switch or checkbox ([#120](https://github.com/ccheever/exact2/issues/120), closed, not planned) | Scoped switches whose targets disagree (D15) | contract/host | the app draws the mixed thumb; the switch reports unchecked (kept) |
 | X46 | A build step that makes app assets before the Apple bundle copies `assets/` | The terminal page (`terminal-host/build.mjs` output) | build | run `bun terminal-host/build.mjs` (app.json `commands.terminal`) before the bundle build; without it the terminal stays blank and its status names the load error |
+| X47 | A focus ring on a custom pressable box ([#179](https://github.com/ccheever/exact2/issues/179), filed 2026-10-07) | Keyboard focus on the clone's custom buttons, rows and toggles | host | none: the feature branch dropped its local `NodeViewMac.swift` focus-mask patch (`4cdb8aa63`), so a focused custom button shows no ring until main fixes it |
 
 
 ## Current state on the pin (2026-10-06, exact2 `c12832e82`)
@@ -62,8 +63,8 @@ Each open item was reproduced for its upstream issue on exact2 `4c893fef6`, whic
 | X12 | [#130](https://github.com/ccheever/exact2/issues/130) | Open. | measured height |
 | X13 | not filed | Unverified on macOS (the web behavior is designed). | partial (r12 Escape) |
 | X14 | [#109](https://github.com/ccheever/exact2/issues/109) | Open. A let-go answer's native replies are still dropped. `f96641ddd` lets an answer wait on another live answer's fetch, but not on one that was let go. | `T3ReadGate.swift`; `readDetail` still reads per answer (`r6-pr-actions.ts`) |
-| X15 | [#110](https://github.com/ccheever/exact2/issues/110) | Open. | `R10Connect.swift` re-issues chords |
-| X16 | [#111](https://github.com/ccheever/exact2/issues/111) | Open. | `t3-plain-text` hook |
+| X15 | [#110](https://github.com/ccheever/exact2/issues/110) | Closed by main #168 (2026-10-07 merge): `aria-keyshortcuts` and the host's command menu items match the physical key. Not covered: menu items without the host's shortcut target (Copy, Paste, Undo, Quit, Close Window, Reload, Paste as Text), the terminal's web view, the module's own key monitors. | `R10Connect.swift` re-issues chords (kept; adopt-main-fixes-input) |
+| X16 | [#111](https://github.com/ccheever/exact2/issues/111) | Fixed by main #160. | none: the hook's switch-off is removed; every textarea has `autocorrect="off"` (adopt-main-fixes-input) |
 | X17 | [#112](https://github.com/ccheever/exact2/issues/112) | Partly fixed: `position-area` top, bottom and center work (`2c6b551ba`); no `position-try` flip, no `span-left` or side areas. | end-aligned and flipping menus keep fixed placement |
 | X18 | [#123](https://github.com/ccheever/exact2/issues/123) | Open. | cross-fade |
 | X19 | [#124](https://github.com/ccheever/exact2/issues/124) | Open on main; fix built. | time as arguments, Contract tasks |
@@ -78,6 +79,11 @@ Each open item was reproduced for its upstream issue on exact2 `4c893fef6`, whic
 | X28 | [#114](https://github.com/ccheever/exact2/issues/114) | Open (policy). | `T3Notifications.swift` |
 | X29 | [#115](https://github.com/ccheever/exact2/issues/115) | Open. | AVPlayerView, PDFView |
 | X30 | [#116](https://github.com/ccheever/exact2/issues/116) | Open (policy). | `R10Connect`, `T3ImageAccent`, `T3ComposerAttach` |
+| X33 | [#132](https://github.com/ccheever/exact2/issues/132) | Closed; main #171 fixed part 1 (a button press keeps the selection). Parts 2 and 3 are not on main: no selection end rectangle, no `clearSelection()`. | none to remove: Cite's `retainFocus` is the reference's `onPointerDown` `preventDefault()`; after citing the selection stays (the reference clears it) |
+| X34 | [#133](https://github.com/ccheever/exact2/issues/133) | Closed; main #178 fixed the macOS agent's hover on inline runs. `frame()` of an inline run and inline runs in agent `layout` are still missing. | none (no inline-link hover card is built) |
+| X35 | [#134](https://github.com/ccheever/exact2/issues/134) | Closed by main #167: a password field's value is masked in `tree`, `layout` and the `type` reply; `autocomplete` sets the AutoFill content type. Agent `state` still prints the slot that holds the value (main: "the app's own"). | native `t3-ssh-password` field (kept) |
+| X43 | [#120](https://github.com/ccheever/exact2/issues/120) | Closed, not planned. | the app's mixed thumb; the switch reports unchecked |
+| X47 | [#179](https://github.com/ccheever/exact2/issues/179) | Open (filed 2026-10-07). | none |
 
 X1 ([#100](https://github.com/ccheever/exact2/issues/100)) and X2 ([#101](https://github.com/ccheever/exact2/issues/101)) are policy decisions; both features stay unbuilt.
 
@@ -232,6 +238,17 @@ Checked on the pin `c12832e82` with main's own tests: `bun host/apple/build.mjs 
 
 Rebase notes (clone-side edits, not exact2 asks): LLP 1091 D1 refuses names reached only through another file's `use` (e.g. `markdown.contract` uses `Icon`; `class=Control` without `use`). A `button` is now Chrome's block `<button>` with centred content (`e8bc9c846`). The clone's 9 `role="alertdialog"` overlays are columns without `popover`, so `lower-alertdialog` does not refuse them.
 
+Fixes from main's 2026-10-07 merge (feature branch `4cdb8aa63`), task `20261007-adopt-main-fixes-input`:
+
+| Fixed on main | What the clone did | Now |
+|---|---|---|
+| #111 / X16: `autocorrect="off"` keeps the typed bytes on macOS (#160) | the `t3-plain-text` hook turned AppKit's substitutions off on the Files editor, the diff comment and the script command; the composer's text view did the same when it attached; the commit message, theme JSON, scheduled prompt and scoped-setting textareas had nothing | every editable textarea has `autocorrect="off"` (`text-entry.test.ts` checks it); the Files editor's hook is `t3-file-editor` and only takes the focus its press began |
+| #110 / X15: a shortcut's physical key under a non-Latin source (#168) | `R10Connect.swift` re-issues every ⌘/⌃ chord with its Latin letter | kept: #168 matches `aria-keyshortcuts` and the host's command menu items only; Copy, Paste, Undo, Quit, Close Window, Reload, Paste as Text, the terminal's web view and the module's key monitors still read the typed character |
+| #132 / X33 part 1: a button press keeps the selection (#171) | Cite's button is `retainFocus=true` | unchanged: that is the reference's `onPointerDown` `preventDefault()`, not a workaround; the end rectangle and `clearSelection()` (parts 2 and 3) are not on main |
+| #134 / X35: a password field's value is never in the tree, `layout` or a `type` reply (#167) | the SSH dialog's field is the module's native secure field | kept: the value would be a Contract state slot, which agent `state` prints; the provider and Bitbucket password inputs are now masked in the tree with no clone change |
+| #133 / X34: the macOS agent hovers inline runs (#178) | nothing (no inline-link hover card) | `pr-links-previews-and-routing` can drive an inline link's hover; its card still has no frame to anchor to |
+
+
 ## X20–X30 detail
 
 Source: a map of every clone hook and native component to the exact2 gap behind it, checked on main `d2cb661eb`.
@@ -240,7 +257,7 @@ Source: a map of every clone hook and native component to the exact2 gap behind 
 - **X22.** `frame()` now reads viewport space (`e73605835`), but works only in actions and is not reactive (`docs/contract-for-humans.md:1150-1156`).
 - **X23.** Main added `wheel`, ScrollEvent extents, scroll anchoring and `scrollIntoView(id, block, behavior)` (`2bfebe63e`, `09fc9b0d4`, `cef67560c`, `fbcc4ecb2`). Missing: restore by key for a top-level list (LLP 1070:261), offsets, and smooth landing on native hosts.
 - **X24.** Hover comes only from NSTrackingArea enter/exit when the pointer moves (`Mac/NodeViewMac.swift:321-354`).
-- **X25.** Shortcuts match `charactersIgnoringModifiers` (`Mac/ShortcutsMac.swift:50-64`); `aria-keyshortcuts` buttons hear chords before a focused element's `key` handler (`docs/contract-grammar.md:775-777`).
+- **X25.** Shortcuts match `charactersIgnoringModifiers` (`Mac/ShortcutsMac.swift:50-64`; since #168 a non-Latin character falls back to the physical key); `aria-keyshortcuts` buttons hear chords before a focused element's `key` handler (`docs/contract-grammar.md:775-777`).
 - **X26.** The host menu bar is fixed (`Mac/DevMenuMac.swift:141-181`). App chords now win over host items (`9824f0e3a`). Submenus are out (LLP 1021:614).
 - **X27.** `viewport-fit=cover` has no title-row or traffic-light setting (`ExactMac/main.swift:209-223`); the frame autosave is restored before the final style (`:310-313`).
 - **X28.** `showNotification` exists (`4754c6d9e`), but DEFERRED refuses notification actions and badges (`rules/DEFERRED.md:367-369`); no focus fact (`runner/src/page.rs:21-36`).
@@ -250,7 +267,7 @@ Source: a map of every clone hook and native component to the exact2 gap behind 
 ## Settings scope and the theme editor: declared differences
 
 Task `20261005-settings-scoped-controls-and-theme-editor` (D15, D16).
-- **Mixed switch, accessibility (X43, [#120](https://github.com/ccheever/exact2/issues/120)).** `ScopedSwitch` (`settings-scoped-switch.contract`) draws the reference's mixed state (thumb centred at 70 % on the unchecked track). `aria-checked` takes only a boolean, so VoiceOver hears "off" where the reference says "mixed".
+- **Mixed switch, accessibility (X43, [#120](https://github.com/ccheever/exact2/issues/120)).** `ScopedSwitch` (`settings-scoped-switch.contract`) draws the reference's mixed state (thumb centred at 70 % on the unchecked track). `aria-checked` takes only a boolean, so VoiceOver hears "off" where the reference says "mixed". #120 was closed, not planned: this stays a declared difference.
 - **Header drag from a button (X13).** A Contract `pan` takes a drag that starts on a nested button once it passes the slop; the reference ignores pointer-downs on the header's buttons, inputs and links. A tap on Minimize or Close still presses.
 - **Window resize clamp (X22, [#127](https://github.com/ccheever/exact2/issues/127)).** No window resize event reaches a component; a window-sized, inert, clipped tracker inside the panel hears `resize=` instead, and its action shrinks the size, then clamps and stores the place as the reference's listener does.
 - **Inspect app colors (X30, [#116](https://github.com/ccheever/exact2/issues/116)).** Not built (plan decision U18 pending).
