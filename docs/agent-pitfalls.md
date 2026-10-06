@@ -704,3 +704,11 @@ guide's rules don't make obvious.
   terminal failed to initialize". Before telling a person the app is up,
   confirm its process (`pgrep -f <binary>`) and kill a failed window's
   instance before retrying (LLP 1101.002 §0 P16).
+
+- **An external native app rebuilds on every unchanged direct Cargo invocation.**
+  Cargo treats a missing optional `assets`/`deck` input as perpetually dirty;
+  watching its parent recursively would also watch app-local build outputs.
+  Use the host builder (`bun exact.mjs windows` for a generated Windows game).
+  It recomputes `EXACT_ASSET_ROOTS` before each Cargo invocation; the bake watches
+  that inventory for first creation and existing roots for content changes.
+  Do not set this variable to a fixed hand-maintained list for direct Cargo.
