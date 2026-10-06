@@ -1,4 +1,5 @@
-//! The linked capability `format`: `formatDate` and `formatNumber`.
+//! The linked capability `format`: `formatDate`, `formatNumber`, `toFixed`
+//! and `formatDecimal` (LLP 1102 §3.2, decided (c)).
 //!
 //! @ref LLP 1054.000.003 D2 (dates), D3 (compact numbers), D7 (bounded
 //! input), D8 (linked by use, the router's way)
@@ -20,13 +21,14 @@ pub fn formatting(f: Stdlib, args: &[Value]) -> Option<Value> {
     let style = |i: usize| args.get(i).and_then(Value::as_str);
     Some(match f {
         Stdlib::FormatDate => {
-            let month_year = match style(2)? {
-                "medium" => false,
-                "month-year" => true,
+            let style = match style(2)? {
+                "medium" => Style::Medium,
+                "month-year" => Style::MonthYear,
+                "iso" => Style::Iso,
                 _ => return None,
             };
             match wall_ms(num(0)?, num(1)?) {
-                Some(wall) => date(wall, month_year),
+                Some(wall) => date(wall, style),
                 None => Value::str(""),
             }
         }
@@ -34,6 +36,8 @@ pub fn formatting(f: Stdlib, args: &[Value]) -> Option<Value> {
             "compact" => compact(num(0)?),
             _ => return None,
         },
+        Stdlib::ToFixed => to_fixed(num(0)?, digits(num(1)?, 100)?),
+        Stdlib::FormatDecimal => format_decimal(num(0)?, digits(num(1)?, 20)?),
         _ => return None,
     })
 }
@@ -53,14 +57,38 @@ const MONTHS: [&str; 12] = [
     "December",
 ];
 
-/// `Sep 26, 2026` (`{ dateStyle: "medium" }`) or `September 2026`
-/// (`{ month: "long", year: "numeric" }`) of a wall time in range. `en-US`'s
-/// short months are the first three letters of the long ones.
-fn date(wall: f64, month_year: bool) -> Value {
+/// A `formatDate` style.
+#[derive(Clone, Copy, PartialEq)]
+enum Style {
+    Medium,
+    MonthYear,
+    Iso,
+}
+
+/// `Sep 26, 2026` (`{ dateStyle: "medium" }`), `September 2026`
+/// (`{ month: "long", year: "numeric" }`) or `2026-09-26` (LLP 1102 §3.4: the
+/// date part of `toISOString`) of a wall time in range. `en-US`'s short months are the first three letters of
+/// the long ones.
+fn date(wall: f64, style: Style) -> Value {
     let (year, month, day) = civil((wall / 86_400_000.0).floor() as i64);
-    let name = MONTHS[month as usize - 1];
     let mut out = String::with_capacity(16);
-    if month_year {
+    if style == Style::Iso {
+        // `wall_ms` admits years 1–9999 only (D7), so four digits always.
+        let pad = |out: &mut String, n: f64, width: usize| {
+            let mut digits = String::new();
+            push_number(n, &mut digits);
+            out.extend(std::iter::repeat_n('0', width.saturating_sub(digits.len())));
+            out.push_str(&digits);
+        };
+        pad(&mut out, year as f64, 4);
+        out.push('-');
+        pad(&mut out, f64::from(month), 2);
+        out.push('-');
+        pad(&mut out, f64::from(day), 2);
+        return Value::str(&out);
+    }
+    let name = MONTHS[month as usize - 1];
+    if style == Style::MonthYear {
         out.push_str(name);
     } else {
         out.push_str(&name[..3]);
@@ -152,4 +180,190 @@ fn compact(n: f64) -> Value {
         out.push(['K', 'M', 'B', 'T'][scale - 1]);
     }
     Value::str(&out)
+}
+
+/// A digits argument the compiler admitted (a whole-number literal up to
+/// `max`); `None` for any other, as for a style it would have refused.
+fn digits(d: f64, max: u32) -> Option<u32> {
+    (d.fract() == 0.0 && (0.0..=f64::from(max)).contains(&d)).then_some(d as u32)
+}
+
+/// JavaScript's `Number.prototype.toFixed(digits)` (ECMA-262 §21.1.3.3), on
+/// the exact binary value: the integer `n` nearest `|x| × 10^digits`, the
+/// larger of two (a tie away from zero), so `1.005` at 2 is `1.00`; the
+/// sign of any `x < 0` (`-0.001` is `-0.00`, `-0` is `0.00`); `|x| ≥ 10^21`
+/// as `toString` prints it. A non-finite `x` is `""` (D7), where JavaScript
+/// prints `NaN` or `Infinity`.
+fn to_fixed(x: f64, digits: u32) -> Value {
+    if !x.is_finite() {
+        return Value::str("");
+    }
+    let mut out = String::new();
+    if x.abs() >= 1e21 {
+        push_number(x, &mut out);
+        return Value::str(&out);
+    }
+    // |x| = m × 2^e exactly.
+    let bits = x.to_bits();
+    let (exp, frac) = ((bits >> 52) & 0x7ff, bits & ((1 << 52) - 1));
+    let (m, e) = if exp == 0 {
+        (frac, -1074)
+    } else {
+        (frac | 1 << 52, exp as i32 - 1075)
+    };
+    let mut n = Big::from(m);
+    for _ in 0..digits {
+        n.mul_add(10, 0);
+    }
+    if e >= 0 {
+        n.shl(e as u32);
+    } else {
+        // Half an ulp of the result's last place, then the floor: ties up.
+        let mut half = Big::from(1);
+        half.shl(e.unsigned_abs() - 1);
+        n.add(&half);
+        n.shr(e.unsigned_abs());
+    }
+    if x < 0.0 {
+        out.push('-');
+    }
+    push_places(&n.decimal(), digits, &mut out);
+    Value::str(&out)
+}
+
+/// `formatDecimal(units, digits)` (LLP 1102 §3.2): the integer `units` of a
+/// smallest unit as a decimal with `digits` places, exactly; `-0` is `0`;
+/// `""` for a count that is not an integer or not finite.
+fn format_decimal(units: f64, digits: u32) -> Value {
+    if !units.is_finite() || units.fract() != 0.0 {
+        return Value::str("");
+    }
+    let bits = units.to_bits();
+    let (exp, frac) = ((bits >> 52) & 0x7ff, bits & ((1 << 52) - 1));
+    let mut n = Big::from(if exp == 0 { frac } else { frac | 1 << 52 });
+    let e = exp as i32 - 1075;
+    // An integer's bits below its unit are zero, so the shift is exact.
+    if e >= 0 {
+        n.shl(e as u32);
+    } else if exp != 0 {
+        n.shr(e.unsigned_abs());
+    }
+    let mut out = String::new();
+    if units < 0.0 {
+        out.push('-');
+    }
+    push_places(&n.decimal(), digits, &mut out);
+    Value::str(&out)
+}
+
+/// The digits of an integer `n` read as `n / 10^places`: at least one digit
+/// before the point, `places` after it, no point for none.
+fn push_places(digits: &str, places: u32, out: &mut String) {
+    let places = places as usize;
+    let pad = (places + 1).saturating_sub(digits.len());
+    let padded: String = std::iter::repeat_n('0', pad)
+        .chain(digits.chars())
+        .collect();
+    let (int, frac) = padded.split_at(padded.len() - places);
+    out.push_str(int);
+    if places > 0 {
+        out.push('.');
+        out.push_str(frac);
+    }
+}
+
+/// A natural number in base 2^32, least significant limb first: enough for
+/// `toFixed`'s `m × 10^100 / 2^1074` and `formatDecimal`'s `m × 2^971`.
+struct Big(Vec<u32>);
+
+impl Big {
+    fn from(n: u64) -> Big {
+        Big(vec![n as u32, (n >> 32) as u32])
+    }
+
+    fn mul_add(&mut self, k: u32, add: u32) {
+        let mut carry = u64::from(add);
+        for limb in &mut self.0 {
+            let t = u64::from(*limb) * u64::from(k) + carry;
+            *limb = t as u32;
+            carry = t >> 32;
+        }
+        if carry > 0 {
+            self.0.push(carry as u32);
+        }
+    }
+
+    fn add(&mut self, other: &Big) {
+        if self.0.len() < other.0.len() {
+            self.0.resize(other.0.len(), 0);
+        }
+        let mut carry = 0u64;
+        for (i, limb) in self.0.iter_mut().enumerate() {
+            let t = u64::from(*limb) + u64::from(other.0.get(i).copied().unwrap_or(0)) + carry;
+            *limb = t as u32;
+            carry = t >> 32;
+        }
+        if carry > 0 {
+            self.0.push(carry as u32);
+        }
+    }
+
+    fn shl(&mut self, bits: u32) {
+        let (words, bits) = ((bits / 32) as usize, bits % 32);
+        let mut out = vec![0u32; words];
+        let mut carry = 0u32;
+        for &limb in &self.0 {
+            out.push(if bits == 0 {
+                limb
+            } else {
+                limb << bits | carry
+            });
+            carry = if bits == 0 { 0 } else { limb >> (32 - bits) };
+        }
+        out.push(carry);
+        self.0 = out;
+    }
+
+    /// The floor of `self / 2^bits`.
+    fn shr(&mut self, bits: u32) {
+        let (words, bits) = ((bits / 32) as usize, bits % 32);
+        let src = self.0.get(words..).unwrap_or(&[]);
+        self.0 = (0..src.len())
+            .map(|i| {
+                let hi = src.get(i + 1).copied().unwrap_or(0);
+                if bits == 0 {
+                    src[i]
+                } else {
+                    src[i] >> bits | hi << (32 - bits)
+                }
+            })
+            .collect();
+    }
+
+    /// Decimal digits, no leading zeros (`"0"` for zero).
+    fn decimal(mut self) -> String {
+        let mut chunks = Vec::new();
+        while self.0.iter().any(|&l| l != 0) {
+            let mut rem = 0u64;
+            for limb in self.0.iter_mut().rev() {
+                let t = rem << 32 | u64::from(*limb);
+                *limb = (t / 1_000_000_000) as u32;
+                rem = t % 1_000_000_000;
+            }
+            chunks.push(rem as u32);
+        }
+        let mut out = String::new();
+        for (i, chunk) in chunks.iter().rev().enumerate() {
+            let mut text = String::new();
+            push_number(f64::from(*chunk), &mut text);
+            if i > 0 {
+                out.extend(std::iter::repeat_n('0', 9 - text.len()));
+            }
+            out.push_str(&text);
+        }
+        if out.is_empty() {
+            out.push('0');
+        }
+        out
+    }
 }

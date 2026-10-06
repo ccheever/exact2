@@ -173,6 +173,10 @@ pub struct Env {
     pub viewport_width: f32,
     /// Layout viewport height in points.
     pub viewport_height: f32,
+    /// A terminal's border rule (LLP 1101 §4, LLP 1101.001 P13): a drawn
+    /// side occupies one cell. Set by the terminal host on its own kernel;
+    /// no other host sees it.
+    pub cell_borders: bool,
 }
 
 impl Default for Env {
@@ -194,6 +198,7 @@ impl Env {
             segments: Vec::new(),
             viewport_width: 0.0,
             viewport_height: 0.0,
+            cell_borders: false,
         }
     }
 
@@ -243,6 +248,14 @@ impl Env {
             cols,
             rows,
             segments,
+            ..self.clone()
+        }
+    }
+
+    /// This environment with the terminal's border rule on or off.
+    pub fn with_cell_borders(&self, on: bool) -> Env {
+        Env {
+            cell_borders: on,
             ..self.clone()
         }
     }

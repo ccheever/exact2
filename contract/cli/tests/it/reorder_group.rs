@@ -636,6 +636,59 @@ fn a_sample_outside_every_list_leaves_the_certified_gap() {
     );
 }
 
+/// A list's rows remeasured at `size`, its port and scroll as they were.
+fn remeasure<D: DataSource>(r: &mut Runner<D>, list: &str, size: f64) {
+    let view = r.kernel().node_by_key(key(r, list)).unwrap().id;
+    let c = r
+        .collections()
+        .into_iter()
+        .find(|c| c.view == view)
+        .unwrap();
+    r.collection_feedback(CollectionFeedback {
+        view: c.view,
+        revision: c.revision,
+        scroll_sequence: c.scroll_sequence,
+        offset: 0.,
+        port_cross: 100.,
+        port_main: 100.,
+        cross: 100.,
+        measurements: c
+            .rows
+            .iter()
+            .map(|row| RowMeasurement {
+                view: row.view,
+                epoch: row.epoch,
+                size,
+            })
+            .collect(),
+        focus_view: None,
+        interaction_view: None,
+    })
+    .unwrap();
+}
+
+#[test]
+fn a_remeasure_within_noise_keeps_the_certified_gap() {
+    // A row remeasured float32 ulps off (20 as 19.99997, Linux Chrome's
+    // translated rows) is noise: the target's revision and extent stay, so
+    // the drop on the gap certified before it lands. A real change still
+    // makes that gap stale.
+    for (size, lands) in [(20.0 - 0.00003, true), (20.5, false)] {
+        let mut r = boot(Mode::Now);
+        let token = lift(&mut r, "a1", true);
+        assert!(matches!(
+            into(&mut r, token, "list-b", 25.),
+            ReorderProgress::Accepted { .. }
+        ));
+        remeasure(&mut r, "list-b", size);
+        assert_eq!(
+            drop_on(&mut r, token, "list-b"),
+            lands,
+            "remeasured at {size}"
+        );
+    }
+}
+
 #[test]
 fn keys_and_custom_actions_step_the_gap_across_lists_and_clamp() {
     let mut r = boot(Mode::Now);

@@ -18,6 +18,12 @@
 use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
+
+/// A row remeasured within this of the height it already has keeps that
+/// height: a translated row reads float32 ulps off (58 as 57.99997), and a
+/// revision bumped by that would refuse the drop a gap was certified for
+/// (LLP 1094 D7; list.js `MEASURE_NOISE`).
+pub(crate) const MEASURE_NOISE: f64 = 0.01;
 mod gaps;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -400,6 +406,24 @@ impl SizeIndex {
 
     /// Returns false for stale, deleted, or mismatched rows. Errors never mutate
     /// metadata; NaN/infinite/negative heights are rejected even for stale reports.
+    /// Whether a remeasure at `size` is noise on row `index`'s measured
+    /// height: within [`MEASURE_NOISE`] and on the same side of zero (a
+    /// zero-height row is skipped by windows and revived by invalidation).
+    pub(crate) fn noise_at(&self, index: usize, size: f64) -> bool {
+        self.is_measured_at(index)
+            && self
+                .height(index)
+                .is_some_and(|h| (h == 0.0) == (size == 0.0) && (h - size).abs() <= MEASURE_NOISE)
+    }
+    /// The height a remeasure at `size` leaves row `index`: its measured
+    /// height where the remeasure is noise, else `size`.
+    pub(crate) fn denoised(&self, index: usize, size: f64) -> f64 {
+        if self.noise_at(index, size) {
+            self.height(index).unwrap_or(size)
+        } else {
+            size
+        }
+    }
     pub(crate) fn set_measured_height(
         &mut self,
         key: &str,

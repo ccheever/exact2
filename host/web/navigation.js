@@ -38,7 +38,7 @@ const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationK
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
 // Agent launch facts belong to the carrier, not the router's typed URL. Keep
 // them on every History entry so a browser reload retains its agent adapter.
-const agentParameters = ['agent', 'seed', 'locale', 'timeZone', 'epoch', 'storage'];
+const agentParameters = ['agent', 'seed', 'locale', 'timeZone', 'epoch', 'storage', 'failFetch'];
 function historyURL(path) {
   if (!AGENT_ADMITTED) return location.origin + path;
   const facts = launched();
@@ -941,14 +941,16 @@ export function guestType(frame, request) {
     const key = String(request.key);
     target.dispatchEvent(new guest.KeyboardEvent("keydown", { key, bubbles: true, composed: true }));
     target.dispatchEvent(new guest.KeyboardEvent("keyup", { key, bubbles: true, composed: true }));
-    return { typed: request.id, guest: true, key, value: "value" in target ? target.value : target.textContent };
+    return { typed: request.id, guest: true, key, value: guestValue(target) };
   }
   const text = String(request.text ?? "");
   if ("value" in target) target.value = text; else target.textContent = text;
   target.dispatchEvent(new guest.InputEvent("input", { data: text, inputType: "insertText", bubbles: true, composed: true }));
   target.dispatchEvent(new guest.Event("change", { bubbles: true, composed: true }));
-  return { typed: request.id, guest: true, value: "value" in target ? target.value : target.textContent };
+  return { typed: request.id, guest: true, value: guestValue(target) };
 }
+// What a guest field holds, as the reply shows it: a password's is a fixed mark, whatever its length (#134).
+const guestValue = (target) => "value" in target ? (target.type === "password" && target.value ? "•••" : target.value) : target.textContent;
 
 // @ref LLP 1069.001 D4 (amended 2026-10-04) — a select, range or date is
 // controlled as a text field is: the committed `value` is written when it

@@ -240,9 +240,11 @@ function fixture(agentMode = true) {
   const logs = { next: 1, from: 0, lines: ['boot'] };
   const box = { x: 0, y: 0, width: 100, height: 50, left: 0, top: 0, right: 100, bottom: 50 };
   const el = { isConnected: true, localName: 'p', dataset: {}, clientWidth: 100, clientHeight: 50,
-    getBoundingClientRect: () => box, hasAttribute: () => false };
+    // A real element's client rects: one box, as an unfragmented node has (glue.js reads them for column_fragments, LLP 1093 D12).
+    getBoundingClientRect: () => box, getClientRects: () => [box], hasAttribute: () => false };
   const root = { dataset: {}, replaceChildren() { events.push('replace'); } };
-  const context = vm.createContext({ events, agentMode, root, views: new Map([[1, el]]),
+  // glue.js: `agentKeepsStore = !agentMode || ?storage`; the fixture's drive names no store.
+  const context = vm.createContext({ events, agentMode, agentKeepsStore: !agentMode, root, views: new Map([[1, el]]),
     state, outline, logs, textflow: null, flowLoading: null, flowContexts: [], flowDue: null, flowFrames: false, present() {}, lists: new Map(),
     Date: class extends Date { static now() { return 123; } }, performance: { now: () => 10 }, TextEncoder, Uint8Array,
     HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {}, HTMLVideoElement: class {}, HTMLMediaElement: class {},
@@ -282,7 +284,7 @@ function fixture(agentMode = true) {
     preferences: () => '{}', localAssetURL: source => source,
     launchLocation: () => launchLocation(context), // the launch path less the drive's facts (feed F16)
   });
-  vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
+  vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset', 'const shownValue'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   context.reportPlace = placeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   context.reportTime = timeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   return context;
@@ -877,7 +879,7 @@ async function startupFixture(rustOnly = false) {
     root: { dataset: {}, setAttribute(key, value) { this[key] = value; } },
     views: new Map(), retiredViews: new WeakSet(), authoredDisabled: new WeakMap(),
     inputReady: false, inputHandlers: null, wasm: null, memory: null, logicInfo: null,
-    moduleLoader: null, activeModule: null, timerFactory: null, agentMode: false,
+    moduleLoader: null, activeModule: null, timerFactory: null, agentMode: false, agentKeepsStore: true, // glue.js: !agentMode || ?storage
     performance: { now: () => 1 }, t0: 0, URL, localStorage: { length: 0 }, AbortController,
     document: { querySelectorAll: () => [] }, // no preload: the glue fetches ./app.wasm
     fetch: async () => ({}), WebAssembly: { instantiateStreaming: async () => ({ instance: { exports } }), Module: { customSections: () => [], imports: () => [] } },

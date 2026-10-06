@@ -37,6 +37,16 @@ pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, String)]) -
         .collect()
 }
 
+/// Every kept entry in `snapshot`: what an app that keeps no answers
+/// forgets (LLP 1069.008.000 D7).
+pub(super) fn all(snapshot: &[(String, String)]) -> Vec<String> {
+    snapshot
+        .iter()
+        .filter(|(name, _)| name.starts_with(Store::KEPT))
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
 pub(super) fn kept_name(resource: &str) -> String {
     let mut name = String::from(Store::KEPT);
     name.push_str(resource);

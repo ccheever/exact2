@@ -956,3 +956,44 @@ whole flight.) `CollectionIOS.swift` `animateOffset`, `OffsetDriver`;
 `SmoothCollectionIOSTests`; measured with `scripts/motion-trace.mjs` on
 Signal Clone's send: one motion, max deviation 0.014 from a 0.3 s
 ease-in-out (before: 0.27, and a 12-pt jump).
+
+**One target before the first frame, and a port at a device pixel
+(2026-10-05).** Measured on Signal Clone in the simulator, a send's measured
+row (−1 pt) and a reply's (−16 pt) arrive 0.5 to 4 ms after the estimated
+one (+64 pt), inside the frame the motion starts on. So:
+- A target that arrives before the motion's first frame (`OffsetDriver.drawn`),
+  with the port where the motion began, replaces its target and keeps its
+  start: one ease, not a retarget. One that folds back onto the port ends it. After a
+  frame has shown, a retarget is a fresh ease from what shows, as before.
+- A start whose target has folded back to within half a point of the port,
+  and a smooth correction under half a point, set the offset and run no
+  frames. (Each was 0.3 s of the display link moving 0.17 pt.)
+- A host rounds its offset to device pixels (UIKit's `contentOffset`, a
+  browser's `scrollTop`): an end at 4405.1667 pt shows as 4405.333 at 3x.
+  The runner took any port more than 0.01 pt from its target as off it,
+  so it sent the same correction with every commit (four a second under a
+  250 ms poll), an opening list never settled (`settle_start` needs no
+  correction owed), and with its opening unsettled no follow was smooth:
+  in such a session every sent message snapped. The runner now takes a port
+  within half a point of a followed end it has already sent as at it
+  (`at_target`, `collection/start.rs`, and the web JS target's `list.js`,
+  which mirrors it). An end that moved, by any amount, is sent once. A row
+  anchor keeps 0.01: a row above it measured 0.4 pt taller is a real move,
+  and such moves add up report on report. Half a point is half a pixel
+  at 1x and more at any finer scale; a per-host half pixel would need each
+  host's scale in its reports. The web hosts take the runner's corrections,
+  so the same loop under a browser's device-pixel `scrollTop` ends with it.
+- Not done: the host resolving a followed end from its own layout, a
+  correction that names the end, not an offset (proposal on
+  `ide/doc/followed-end-one-target`). With the second target inside the
+  first frame it buys no visible change and adds a second source of truth
+  for the extent; `QUEUE.md` keeps it.
+
+Tests: `SmoothCollectionIOSTests`
+(`testATargetBeforeTheFirstFrameIsTheMotionsOneTarget`,
+`testASmoothCorrectionUnderHalfAPointIsSet`), the runner's
+`a_port_rounded_to_a_device_pixel_is_at_its_followed_end`,
+`a_half_pixel_extent_is_reached_by_a_rounded_port`,
+`an_opening_at_a_half_pixel_end_settles_and_then_follows_smoothly`,
+`an_end_moved_by_less_than_half_a_point_is_still_followed` and
+`a_row_anchors_small_moves_still_correct`.

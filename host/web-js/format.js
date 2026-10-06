@@ -1,4 +1,4 @@
-// `formatTime`, `formatDate` and `formatNumber` on the JS target: the runner's
+// `formatTime`, `formatDate`, `formatNumber`, `toFixed` and `formatDecimal` on the JS target: the runner's
 // `en-US` strings (runner/src/stdlib.rs `format_time`, runner/src/format.rs),
 // checked against the same Intl oracle rows (runner/tests/it/format.rs).
 /** `wall_ms` (runner/src/stdlib.rs): the instant clipped, then shifted by the
@@ -18,7 +18,7 @@ export function x_formatTime(ms, off) {
 }
 // `formatDate` and `formatNumber`, runner/src/format.rs's `en-US` strings.
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-/** `Sep 26, 2026` ("medium") or `September 2026` ("month-year"): Hinnant's `civil_from_days`. */
+/** `Sep 26, 2026` ("medium"), `September 2026` ("month-year") or `2026-09-26` ("iso"): Hinnant's `civil_from_days`. */
 export function x_formatDate(ms, off, style) {
   const w = wall(ms, off);
   if (w === null) return "";
@@ -26,7 +26,9 @@ export function x_formatDate(ms, off, style) {
   const yoe = Math.floor((doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365);
   const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100)), mp = Math.floor((5 * doy + 2) / 153);
   const day = doy - Math.floor((153 * mp + 2) / 5) + 1, month = mp < 10 ? mp + 3 : mp - 9, year = yoe + era * 400 + (month <= 2 ? 1 : 0);
-  const name = MONTHS[month - 1];
+  const name = MONTHS[month - 1], pad = (n, w) => String(n).padStart(w, "0");
+  // "iso" (LLP 1102 §3.4): the date part of `toISOString`; `wall` admits years 1–9999 only, so four digits.
+  if (style === "iso") return `${pad(year, 4)}-${pad(month, 2)}-${pad(day, 2)}`;
   return style === "month-year" ? `${name} ${year}` : `${name.slice(0, 3)} ${day}, ${year}`;
 }
 /** A non-negative number's shortest round-trip digits, never exponential (Rust's `{}`). */
@@ -52,4 +54,13 @@ export function x_formatNumber(n) {
   kept = kept.replace(/0+$/, "");
   const grouped = !int ? "0" : int.length >= 5 ? int.replace(/\B(?=(\d{3})+$)/g, ",") : int;
   return (n < 0 ? "-" : "") + grouped + (kept ? "." + kept : "") + (scale ? "KMBT"[scale - 1] : "");
+}
+/** `toFixed(n, digits)` (LLP 1102 §3.2): JavaScript's own, except a non-finite `n` prints "" (D7), not `NaN`/`Infinity`. */
+export const x_toFixed = (n, d) => Number.isFinite(n) ? n.toFixed(d) : "";
+/** `formatDecimal(units, digits)`: an integer count of a smallest unit with `digits` places, exactly (a BigInt of it);
+ * `-0` is `0`, and a count that is not an integer, or not finite, is "". */
+export function x_formatDecimal(u, d) {
+  if (!Number.isInteger(u)) return "";
+  const s = BigInt(Math.abs(u)).toString().padStart(d + 1, "0");
+  return (u < 0 ? "-" : "") + (d ? s.slice(0, -d) + "." + s.slice(-d) : s);
 }

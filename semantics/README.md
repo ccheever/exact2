@@ -77,8 +77,13 @@ cargo run --release -p contract-difftest -- arith --count 1000000
 operand pair (random bits; edge values and their neighbours; pairs that
 cancel or sit a few exponents apart; integers around `2^53`; operands
 near overflow and underflow) and natural number, `+ - * / %`, `floor`,
-`max`, `min`, `trunc`, negation, a natural number as a double, and
-`< <= ==`, as the runner computes them, compared by bits (every NaN one).
+`max`, `min`, `trunc`, negation, a natural number as a double, `ceil`,
+`round` (JavaScript's `Math.round`), and `< <= ==`, as the runner computes
+them, compared by bits (every NaN one); and, for a numeral and two dates
+each case carries, `parseNumber` and `calendarDiff` in years and months
+(LLP 1102 §3.1, §3.4), the runner's `stdlib` against `Contract.Value`'s;
+and, at a random digit count each, `toFixed` and `formatDecimal` (§3.2),
+the `format` capability against `Contract.Format`'s.
 `numbers` does the same for number printing.
 
 `types` runs the Lean checker (`Contract.check`) against the Rust one: every

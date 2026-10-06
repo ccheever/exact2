@@ -112,6 +112,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var clipBox: NSView?
     /// The box's border, gradient and image pixels as sublayers (`BoxLayerMac.swift`).
     var boxBorder: CALayer?
+    var fieldFocused = false { didSet { if fieldFocused != oldValue { applyBoxLayer(); needsDisplay = true } } } // LLP 1104 D4
     var boxFill: CALayer?
     /// `drawsPaint`, kept: AppKit asks `wantsUpdateLayer` of every view as it
     /// builds the layer tree each display cycle, and the decision reads
@@ -225,22 +226,17 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func becomeFirstResponder() -> Bool {
         guard !formDisabled else { return false }
         let ok = super.becomeFirstResponder()
-        if ok { presenter?.collections.pinsChanged() }
+        if ok { presenter?.collections.pinsChanged(); presenter?.selection.focusEntered(self) }
         if ok, handlers.contains("focus") { presenter?.focus(id) }
         return ok
     }
     override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
-        if ok { presenter?.selection.clear() }
+        if ok { presenter?.selection.focusLeft() }
         if ok { presenter?.collections.pinsChanged() }
         if ok && !isSurfaceControl { inputCanvas?.canvasInput?.blur() }
         if ok, handlers.contains("blur") { presenter?.blur(id) }
         return ok
-    }
-    // AppKit's default mask bounds are empty, even when a view draws a mask.
-    // The bounds and drawing must describe the same custom control.
-    override var focusRingMaskBounds: NSRect {
-        field == nil && pressable ? bounds : .zero
     }
     override func drawFocusRingMask() {
         guard field == nil, pressable else { return }
@@ -467,7 +463,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         self.kind = kind
         self.presenter = presenter
         super.init(frame: .zero)
-        focusRingType = .exterior
         wantsLayer = kind != "text"
         // A frame change during live resize repaints at the new width
         // instead of stretching stale pixels.
@@ -958,10 +953,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 if let editor = f.currentEditor() as? NSTextView { writeValue(v, into: editor) } else if f.stringValue != v { f.stringValue = v }
             }
             applyPlaceholder(f)
+            f.contentType = Autofill.contentType(props["autocomplete"], fallback: nil) // LLP 1102 §3.6
             f.isEnabled = !disabled
             f.isEditable = !disabled && props["editable"] != "false"
-            (f.currentEditor() as? NSTextView)?.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
-            (f.currentEditor() as? NSTextView)?.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
+            if let editor = f.currentEditor() as? NSTextView { applyTextChecking(editor) }
         }
         // Each AppKit accessibility write posts a notification, changed or
         // not: write only what differs from the last write (a new view's
@@ -1023,6 +1018,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         repaintThrough()
         if presenter?.views[id] === self { firstDraw() }
+    }
+
+    /// Whether the style clips the children (`overflow: hidden`; a paragraph's
+    /// any overflow but `visible`; line-clamp, LLP 1054 P3). Without a clip box
+    /// it is `clipsToBounds` (`applyStyle`; a landing flight, `FlightsMac`).
+    var overflowClips: Bool {
+        let over = [style["overflow_x"]?.string ?? "visible", style["overflow_y"]?.string ?? "visible"]
+        return kind == "text" ? over.contains { $0 != "visible" } || number("line_clamp") > 0 : over.contains("hidden")
     }
 
     func applyStyle(_ s: NodeStyle) {
@@ -1105,15 +1108,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // `overflow: hidden` clips the children, to the box's rounded corners
         // as the web and UIKit do (LLP 1054 P2). One radius rides the layer;
         // differing radii clip to the bounds, as UIKit's layer path does.
-        let clips = ox == "hidden" || oy == "hidden" || (paragraph && [s["overflow_x"]?.string, s["overflow_y"]?.string].contains { ($0 ?? "visible") != "visible" })
-        // CSS's line-clamp implies `overflow: hidden`: a clamped paragraph's
-        // one over-wide word must not paint over its neighbour (LLP 1054 P3).
-        let clamped = kind == "text" && number("line_clamp") > 0
         // On a layer-backed view this is the layer's `masksToBounds`, unless
         // the node casts a shadow that clipping would clip (`BoxShadow.swift`).
         // A paragraph paints its own text, which a box would not clip.
-        syncClipBox(clips && kind != "text" && shadowColor != nil && scroll == nil && overlay == nil && materialContent == nil)
-        let clipped = (clips || clamped) && clipBox == nil
+        syncClipBox(overflowClips && kind != "text" && shadowColor != nil && scroll == nil && overlay == nil && materialContent == nil)
+        let clipped = overflowClips && clipBox == nil
         if clipsToBounds != clipped { clipsToBounds = clipped }
         applyClipRadius()
         applyShadow()
@@ -1418,7 +1417,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var hasPressableAncestor: Bool {
         var next = superview
         while let view = next {
-            if let node = view as? NodeView, (node.pressable || node.isSurfaceControl) { return true }
+            if let node = view as? NodeView, (node.pressable || node.isSurfaceControl || node.isButton) { return true }
             next = view.superview
         }
         return false

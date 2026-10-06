@@ -1,13 +1,13 @@
 //! LLP 1026 D11a: unqualified durability must refuse before touching the store.
-use super::support::{embedded, Temp};
-use exact_update::{Store, Trust};
+use super::support::{embedded, open_store, Temp};
+use exact_update::Trust;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 fn refuse(path: &Path, trust: Trust) {
     let mut facts = embedded(&[]);
     facts.trust = trust;
-    let error = match Store::open(path, facts) {
+    let error = match open_store(path, facts) {
         Ok(_) => panic!("Windows durable storage must not open"),
         Err(error) => error,
     };

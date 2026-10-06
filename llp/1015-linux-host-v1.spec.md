@@ -476,8 +476,9 @@ at or above the focus, by the web's name, then does its default: Enter or Space
 presses a button and Enter a link; Enter submits a single-line input (its
 `submit`) or breaks a textarea's line; Backspace deletes; a character is typed.
 Pointer moves dispatch `hover` into and out of every node with a handler (the
-web's `mouseenter`/`mouseleave`); the agent's `tap … hover` moves the pointer
-there and never presses. A `type="password"` value paints one bullet a
+web's `mouseenter`/`mouseleave`), and so does a painted frame that moved
+content under the resting pointer (no contact or button down; #139); the
+agent's `tap … hover` moves the pointer there and never presses. A `type="password"` value paints one bullet a
 character. A fully transparent subtree walks through a backend that draws
 nothing, so its boxes stay hit (CSS opacity is paint only). The store here is a
 memory store (LLP 1018): its write log is dropped with each commit rather than

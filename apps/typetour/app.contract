@@ -342,7 +342,7 @@ component TypeTour
               button press=go("messages") testId="composer-add" aria-label="Add attachment" width=34 height=34 border-radius=17 background-color="light-dark(#e9e9eb, #2c2c2e)" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
                 text "+" font-family="Exciting Lilt" font-weight=700 font-size=20 color="light-dark(#000000, #ffffff)"
               row flex=1 min-width=0 height=36 border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#c6c6c8, #48484a)" align-items="center" padding-left=14 padding-right=4 gap=6
-                input id="composer" testId="composer" value=draft input=write submit=sendDraft placeholder="Message" aria-label="Message" flex=1 min-width=0 height=34 border-width=0 font-size=(17 * scale) color="light-dark(#000000, #ffffff)"
+                input appearance="none" id="composer" testId="composer" value=draft input=write submit=sendDraft placeholder="Message" aria-label="Message" flex=1 min-width=0 height=34 border-width=0 font-size=(17 * scale) color="light-dark(#000000, #ffffff)"
                 when draft != ""
                   button press=sendDraft testId="send" aria-label="Send" width=28 height=28 border-radius=14 background-color="#0a84ff" display="flex" flex-direction="row" align-items="center" justify-content="center"
                     text "↑" font-size=16 font-weight=700 color="#ffffff"

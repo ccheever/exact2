@@ -739,6 +739,14 @@ impl Kernel {
         self.replace_env(next)
     }
 
+    /// Lay borders out as a terminal does: a drawn side is one cell (LLP
+    /// 1101.001 P13). The terminal host sets it on its own kernel before
+    /// the tree is built; it is this kernel's alone.
+    pub fn set_cell_borders(&mut self, on: bool) {
+        let next = self.arena.env().with_cell_borders(on);
+        let _ = self.replace_env(next);
+    }
+
     fn replace_env(&mut self, env: Env) -> Result<bool, KernelError> {
         if *self.arena.env() == env {
             return Ok(false);

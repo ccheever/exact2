@@ -282,13 +282,15 @@ extension Agent {
         }
         node["scroll"] = scroll
         node["clip"] = clip
-        var visible: [String: Any] = ["hidden": host.isHiddenOrHasHiddenAncestor, "inert": host.inert, "inViewport": b.intersects(NSRect(origin: .zero, size: clipView.bounds.size)), "clipped": clipped]
+        // CSS `visibility: hidden` with nothing of it showing, or a hidden run (e28279b3b keeps the view).
+        let cssHidden = !host.accessibilityExposed || presenter.inlineText(UInt32(id))?.hidden == true
+        var visible: [String: Any] = ["hidden": host.isHiddenOrHasHiddenAncestor || cssHidden, "inert": host.inert, "inViewport": b.intersects(NSRect(origin: .zero, size: clipView.bounds.size)), "clipped": clipped]
         if host.isHiddenOrHasHiddenAncestor {
             // Name the ancestor that hides it, never leave a reader guessing.
             var s: NSView? = host
             while let v = s, !v.isHidden { s = v.superview }
             if let v = s { visible["hiddenBy"] = (v as? NodeView).map { "#\($0.id)" } ?? String(describing: Swift.type(of: v)) }
-        }
+        } else if cssHidden { visible["hiddenBy"] = "visibility" }
         node["visible"] = visible
         var native: [String: Any] = ["view": String(describing: Swift.type(of: v)), "sheet": false]
         if presenter.inlineText(UInt32(id)) != nil { native["inline"] = true }
@@ -393,6 +395,8 @@ extension Agent {
             let b = box(v)
             let p = CGPoint(x: req["x"] as? Double ?? b.midX, y: req["y"] as? Double ?? b.midY)
             contactClock = ProcessInfo.processInfo.systemUptime
+            // The button is down: the pointer no longer rests where it hovered.
+            presenter.agentPointer = nil
             send(.leftMouseDown, p)
             contact = p
             return ["contact": Int(v.id), "phase": "down", "at": at(p), "delivery": "platform"]
@@ -449,12 +453,8 @@ extension Agent {
         }
         if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["mouse"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
-            guard node.window != nil, !node.inert, !node.disabled else { return ["error": "inline node #\(id) is unavailable"] }
-            if req["hover"] as? Bool == true {
-                presenter.hoverInline(run.handlers.contains("hover") ? id : nil)
-                return ["tapped": Int(id), "hover": true]
-            }
-            if node.activateInline(id) { return ["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"] }
+            guard node.window != nil, !node.inert, !node.disabled, !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
+            if req["hover"] as? Bool != true, node.activateInline(id) { return ["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"] }
         }
 
         if let phase = req["phase"] as? String { return contact(phase, req) }
@@ -482,6 +482,11 @@ extension Agent {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         let b = v.tapBox(box(v))
+        // A wrapped run's union can include blank space. Hover a painted
+        // fragment, then let the normal hit test decide who receives it.
+        let inlinePoint = req["hover"] as? Bool == true && (req["id"] as? UInt32).flatMap(presenter.inlineText) != nil
+            ? tapPoint(req, node: v) : nil
+        let center = inlinePoint ?? CGPoint(x: b.midX, y: b.midY)
         // The middle of the box as seen — through a surface's placement when
         // there is one (LLP 1014 D5) — as a point in the window. `at` is a
         // point in the view (a mouse click, a context menu), the same
@@ -492,13 +497,16 @@ extension Agent {
             return CGPoint(x: raw[0], y: raw[1])
         }()
         if req["at"] != nil, localAt == nil { return ["error": "at needs two finite numbers"] }
-        let p = localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? b.midX) + clip.bounds.origin.x, y: (req["y"] as? Double ?? b.midY) + clip.bounds.origin.y), to: nil)
-        let at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(b.midX), Agent.r2(b.midY)]
+        let p = localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? center.x) + clip.bounds.origin.x, y: (req["y"] as? Double ?? center.y) + clip.bounds.origin.y), to: nil)
+        let at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(req["x"] as? Double ?? center.x), Agent.r2(req["y"] as? Double ?? center.y)]
         if req["wheel"] == nil,
            !clip.bounds.contains(clip.convert(p, from: nil)) {
             return ["error": "tap #\(v.id): its middle is outside the viewport; scroll it into view first"]
         }
         if req["hover"] as? Bool == true {
+            // The pointer rests here until the next hover: a layout that moves
+            // other content under it is hit-tested again (`followPointer`).
+            presenter.agentPointer = p
             if let node = win.contentView?.hitTest(p) as? NodeView, node.canvasInput != nil,
                let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
                 node.mouseMoved(with: event)
@@ -515,10 +523,21 @@ extension Agent {
                 node.pointerHovered(event)
                 presenter.flushHoverMove()
             }
-            var n: NSView? = win.contentView?.hitTest(p) ?? v
-            while let cur = n, !((cur as? NodeView)?.handlers.contains("hover") ?? false) { n = cur.superview }
-            if let node = n as? NodeView { presenter.hover(node, true) } else if let h = presenter.hovered { presenter.hover(h, false) }
-            return ["tapped": Int(v.id), "hover": true, "at": at]
+            var n: NSView? = win.contentView?.hitTest(p)
+            var inline: UInt32?
+            while let cur = n {
+                if let node = cur as? NodeView {
+                    inline = node.inlineTarget(at: node.local(p), handler: "hover")?.id
+                    if inline != nil || node.handlers.contains("hover") { break }
+                }
+                n = cur.superview
+            }
+            presenter.hoverInline(inline)
+            if inline == nil {
+                if let node = n as? NodeView { presenter.hover(node, true) }
+                else if let h = presenter.hovered { presenter.hover(h, false) }
+            }
+            return ["tapped": req["id"] as? Int ?? Int(v.id), "hover": true, "at": at]
         }
         if let wheel = req["wheel"] as? [Double], wheel.count == 2 {
             // The web's sign (a positive dy scrolls down), pixel units. The
@@ -539,6 +558,8 @@ extension Agent {
             // and outside the session clock; `layout` reports the overscroll
             // it leaves behind.
             guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
+            // A wheel is the mouse's, where it then rests (CDP's `mouseWheel` moves it there too).
+            presenter.agentPointer = p
             let gesture = req["gesture"] as? Bool == true
             // The modifiers held (studio diary R3: ⌘-scroll; a pinch is Control's).
             var flags: NSEvent.ModifierFlags = []
@@ -790,7 +811,7 @@ extension Agent {
                         return ["phase": "up", "delivery": "recognized"]
                     }
                 }
-                return ["typed": Int(v.id), "key": chord, "value": v.textArea?.string ?? v.field?.stringValue ?? ""]
+                return ["typed": Int(v.id), "key": chord, "value": Agent.shownValue(v.textArea?.string ?? v.field?.stringValue ?? "", of: v)]
             }
             if v.kind == "native" { return nativeType(v, req, token: nativeToken) }
             // Accessory test windows may have a first responder before
@@ -813,7 +834,7 @@ extension Agent {
                     return ["typed": Int(v?.id ?? 0), "phase": "up", "delivery": "platform"]
                 }
             }
-            return ["typed": Int(v.id), "key": key, "value": v.textArea?.string ?? v.field?.stringValue ?? ""]
+            return ["typed": Int(v.id), "key": key, "value": Agent.shownValue(v.textArea?.string ?? v.field?.stringValue ?? "", of: v)]
         }
         if let f = v.textArea {
             if !win.isKeyWindow { win.makeKey() }
@@ -834,7 +855,7 @@ extension Agent {
         guard let editor = f.currentEditor() as? NSTextView else { return ["error": "the field has no editor"] }
         editor.selectAll(nil)
         editor.insertText(text, replacementRange: editor.selectedRange())
-        return ["typed": Int(v.id), "value": f.stringValue]
+        return ["typed": Int(v.id), "value": Agent.shownValue(f.stringValue, of: v)]
     }
 
     /// `CGWindowListCreateImage` of one window of this process, without its

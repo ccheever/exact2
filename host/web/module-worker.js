@@ -19,7 +19,7 @@ const pending = new Map();
 const owed = new Map();
 const scratch = owner => ({owner, store:new Map(), grants:new Set(), reads:[], writes:[], externalRead:false, entropy:false, topics:[], requests:new Map()});
 function release(owner, callId) {
-  if (self.__exact_forget(String(callId)) !== 'storage') { storage.retire(owner); return; }
+  if (!String(self.__exact_forget(String(callId))).startsWith('storage')) { storage.retire(owner); return; } // 'storage', or 'storage rejected'
   owed.set(callId, owner);
 }
 // The page's SHA-256 digests in flight, on a LAN dev page (see `init`).

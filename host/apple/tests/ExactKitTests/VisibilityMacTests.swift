@@ -74,5 +74,52 @@ final class VisibilityMacTests: XCTestCase {
         let ownHit = hit(parent, NSPoint(x: 20, y: 60))
         XCTAssertFalse(ownHit === parent)
     }
+
+    /// What e28279b3b left: a box hidden while focused gives the focus up
+    /// (on the next turn), and hidden text is no link or target while a
+    /// visible run inside a hidden link still follows it, as a click bubbles.
+    func testAHiddenBoxGivesUpFocusAndHiddenTextIsNoTarget() throws {
+        let p = presenter()
+        let window = try XCTUnwrap(self.window)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["tabIndex": "0"], "handlers": ["press"], "style": [:]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 40.0],
+        ]))
+        let box = try XCTUnwrap(p.views[1])
+        XCTAssertTrue(window.makeFirstResponder(box))
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["visibility": "hidden"]]]))
+        XCTAssertTrue(window.firstResponder === box, "not inside the batch")
+        let deadline = Date().addingTimeInterval(10)
+        while window.firstResponder === box, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        XCTAssertFalse(window.firstResponder === box, "hidden, it gives up the focus it had")
+
+        let session = ExactApp.shared.makeSession(label: "hidden-run") // a text engine, to lay runs out
+        defer { session.destroy() }
+        let q = session.presenter
+        q.apply(wireBatch([
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "x"], "style": ["font_size": 16]],
+            ["op": "roots", "ids": [3]],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 300.0, "h": 40.0],
+        ]))
+        let text = try XCTUnwrap(q.views[3])
+        var hidden = InlineStyle(), shown = InlineStyle()
+        try hidden.set("visibility", .string("hidden"))
+        try shown.set("visibility", .string("visible"))
+        text.props = [:]
+        q.applyParagraph(3, [
+            InlineText(id: 10, parent: 3, props: ["href": "https://example.com/hidden"], style: hidden, handlers: [], paints: false),
+            InlineText(id: 11, parent: 10, props: ["text": "Hidden "], style: hidden, handlers: [], paints: true),
+            InlineText(id: 12, parent: 10, props: ["text": "Shown"], style: shown, handlers: [], paints: true),
+        ])
+        let rect = { (id: UInt32) throws -> CGRect in try XCTUnwrap(text.inlineRects(try XCTUnwrap(text.inlineText.first { $0.id == id })).first) }
+        let hiddenAt = try rect(11), shownAt = try rect(12)
+        XCTAssertNil(text.inlineTarget(at: CGPoint(x: hiddenAt.midX, y: hiddenAt.midY)), "hidden text is no target")
+        XCTAssertNil(text.inlineLink(at: CGPoint(x: hiddenAt.midX, y: hiddenAt.midY)), "nor its hidden link followed there")
+        XCTAssertEqual(text.inlineLink(at: CGPoint(x: shownAt.midX, y: shownAt.midY)), "https://example.com/hidden",
+                       "a visible run's click reaches the hidden link holding it")
+        XCTAssertEqual(text.inlineActivationTarget(at: CGPoint(x: shownAt.midX, y: shownAt.midY))?.id, 10)
+        XCTAssertTrue(q.inlineEnabled(10), "and activates it")
+    }
 }
 #endif

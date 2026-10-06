@@ -58,7 +58,6 @@ pub(crate) unsafe extern "C" fn host_door(
                 // A read even at bake: the build compiles no answer that tried.
                 (*store).observe_external_read();
                 if state.baking {
-                    state.bake_refusals += 1;
                     Err("bake".into())
                 } else {
                     // `a` is the path a file operation names: a document

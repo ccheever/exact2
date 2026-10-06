@@ -33,7 +33,7 @@ pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'stati
             return Some("independent HTTP response limit must be 1..=64 MiB");
         }
     }
-    None
+    request.timeout_refusal()
 }
 
 pub(crate) fn quote(s: &str, out: &mut String) {
@@ -591,6 +591,9 @@ impl Batch {
                 ",\"nativeHttp\":\"independent\",\"maxResponseBytes\":{}",
                 max_response_bytes
             );
+        }
+        if let Some(ms) = r.request.timeout_ms {
+            push_text!(&mut s, ",\"timeoutMs\":{}", ms);
         }
         s.push_str(",\"method\":");
         quote(&r.request.method, &mut s);

@@ -207,13 +207,13 @@ component Fieldnotes
               text "Show saved backup" color="#31554a"
           input id="export-file" testId="export-file" display="none" change=exported cancel=exportCancelled
           when backupText != ""
-            textarea font-family="sans-serif" value=backupText readonly=true aria-label="Backup text to copy" testId="backup-text" height=130 width="100%" box-sizing="border-box" padding=12 font-size=12 background-color="#ffffff" border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=7
+            textarea appearance="none" font-family="sans-serif" value=backupText readonly=true aria-label="Backup text to copy" testId="backup-text" height=130 width="100%" box-sizing="border-box" padding=12 font-size=12 background-color="#ffffff" border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=7
             row gap=10 align-items="center" flex-wrap="wrap"
               button press=exportBackup disabled=busy testId="export-backup" padding=10
                 text "Export backup file…" color="#31554a"
               when exportNote != ""
                 text exportNote font-size=13 color="#63766a" testId="export-note"
-          textarea font-family="sans-serif" value=importText input=changeImport aria-label="Paste a Fieldnotes backup" placeholder="Paste backup text here, or leave empty to restore this device's saved backup" testId="import-text" height=90 width="100%" box-sizing="border-box" padding=12 font-size=13 background-color="#ffffff" border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=7
+          textarea appearance="none" font-family="sans-serif" value=importText input=changeImport aria-label="Paste a Fieldnotes backup" placeholder="Paste backup text here, or leave empty to restore this device's saved backup" testId="import-text" height=90 width="100%" box-sizing="border-box" padding=12 font-size=13 background-color="#ffffff" border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=7
           input type="file" accept="application/json" id="import-file" testId="import-file" display="none" change=importPicked
           when confirmRestore
             row gap=12 align-items="center" flex-wrap="wrap"
@@ -232,7 +232,7 @@ component Fieldnotes
         row testId="workspace" flex=1 min-height=400 gap=16 flex-wrap="wrap" align-items="stretch"
           column testId="sidebar" flex=1 min-width=220 min-height=400 gap=12
             row gap=6 align-items="center" flex-shrink=0
-              input id="search" value=query input=search placeholder="Search your notes" aria-label="Search notes" testId="search" flex=1 min-width=0 box-sizing="border-box" padding=12 border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=9 background-color="#ffffff" font-size=14
+              input appearance="none" id="search" value=query input=search placeholder="Search your notes" aria-label="Search notes" testId="search" flex=1 min-width=0 box-sizing="border-box" padding=12 border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=9 background-color="#ffffff" font-size=14
               button press=closeSearch testId="close-search" aria-label="Close search" aria-keyshortcuts="Escape" padding=10 border-radius=8 background-color="#e9eee4"
                 image "symbol:close" font-size=18 font-weight=400 tint-color="#31554a"
             scroll testId="note-list" flex=1 min-height=160
@@ -255,8 +255,8 @@ component Fieldnotes
               text (editingId == "" ? "A NEW PAGE" : "YOUR NOTE") font-size=11 font-weight=700 letter-spacing=2 color="#63766a"
               button press=togglePin disabled=(busy or not openedReady) testId="pin-note" padding=8
                 text (fields.pinned ? "Pinned" : "Pin note") font-size=13 color="#63766a"
-            input id="note-title" value=(pending(opened) ? "" : fields.title) readonly=(pending(opened) or not openedReady) input=changeTitle placeholder="Untitled note" aria-label="Note title" testId="note-title" width="100%" box-sizing="border-box" padding=10 font-family="serif" font-size=27 border-width=0 background-color="#fffefa"
-            textarea id="note-body" font-family="sans-serif" value=(pending(opened) ? "" : fields.body) readonly=(pending(opened) or not openedReady) input=changeBody placeholder="What's on your mind?" aria-label="Note body" testId="note-body" width="100%" flex=1 min-height=160 box-sizing="border-box" padding=10 font-size=16 line-height="24px" border-width=0 background-color="#fffefa"
+            input appearance="none" id="note-title" value=(pending(opened) ? "" : fields.title) readonly=(pending(opened) or not openedReady) input=changeTitle placeholder="Untitled note" aria-label="Note title" testId="note-title" width="100%" box-sizing="border-box" padding=10 font-family="serif" font-size=27 border-width=0 background-color="#fffefa"
+            textarea appearance="none" id="note-body" font-family="sans-serif" value=(pending(opened) ? "" : fields.body) readonly=(pending(opened) or not openedReady) input=changeBody placeholder="What's on your mind?" aria-label="Note body" testId="note-body" width="100%" flex=1 min-height=160 box-sizing="border-box" padding=10 font-size=16 line-height="24px" border-width=0 background-color="#fffefa"
             row gap=10 align-items="center" flex-wrap="wrap" flex-shrink=0
               button press=save disabled=(busy or not openedReady or not dirty or (fields.title == "" and fields.body == "")) testId="save-note" aria-keyshortcuts="Meta+S Control+S" padding=12 background-color="#31554a" border-radius=7
                 text "Save note" color="#ffffff" font-weight=600

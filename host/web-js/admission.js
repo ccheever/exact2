@@ -1,4 +1,5 @@
 import { admitsNetwork, admitsSecret, coversPath, createGrantSet, grantError, hasGrant, rawGrantText, scopedGrantSet, unionGrantSets } from '../web/grant-admission.js';
+import { faultMessage, takeFault } from '../web/faults.js';
 export { admitsNetwork, admitsSecret, coversPath, createGrantSet, grantError, hasGrant, rawGrantText, sameGrantDeclaration, scopedGrantSet, unionGrantSets } from '../web/grant-admission.js';
 
 // Captured while the entry graph loads. App source injection never replaces
@@ -15,10 +16,20 @@ const noHeaders = headers => headers == null || [...new Headers(headers)].length
 const hostAsset = (input, init) => assetPath(input) && String(init.method ?? 'GET').toUpperCase() === 'GET'
   && init.body == null && noHeaders(init.headers);
 
+// `exactTimeout` (ms): the whole exchange ends by then, as on native, and the
+// fetch rejects with a FetchError of kind "Timeout".
+function deadlineOf(init) {
+  const ms = init.exactTimeout;
+  if (ms === undefined) return null;
+  if (!Number.isInteger(ms) || ms < 1 || ms > 3600000) throw new TypeError('exactTimeout must be an integer number of milliseconds from 1 to 3600000');
+  return { ms, signal: AbortSignal.timeout(ms) };
+}
+
 export async function fetchWith(set, input, init = {}) {
-  let value, asset;
+  let value, asset, deadline, signal;
+  init ??= {};
+  deadline = deadlineOf(init);
   try {
-    init ??= {};
     asset = hostAsset(input, init);
     value = typeof Request === 'function' && input instanceof Request ? input.url
       : asset ? new URL(String(input), globalThis.location?.href).href : new URL(String(input)).href;
@@ -27,17 +38,40 @@ export async function fetchWith(set, input, init = {}) {
   const invalid = grantError(set);
   if (invalid) throw new FetchError('Refused', invalid);
   if (!asset && !admitsNetwork(set, value, 'fetch')) throw new FetchError('Refused', refusal('net.fetch'));
+  // @ref LLP 1103 D1, D2 — a driver fault: the refused connection's failure, never sent.
+  if (!asset && takeFault(value)) throw new FetchError('Network', faultMessage(value));
   try {
-    const response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...init, redirect: 'follow' });
+    const { exactTimeout: _, ...rest } = init;
+    // The caller's signal, from `init` or the input `Request` (`null`
+    // clears the Request's, `undefined` keeps it, as `fetch` has them).
+    const own = rest.signal !== undefined ? rest.signal : typeof Request === 'function' && input instanceof Request ? input.signal : undefined;
+    // The deadline reaches the request only until its body is read: a
+    // response that arrived in time stays readable after the deadline.
+    let relay;
+    if (deadline) {
+      const ended = new AbortController();
+      relay = () => ended.abort(deadline.signal.reason);
+      deadline.signal.addEventListener('abort', relay, { once: true });
+      signal = own ? AbortSignal.any([own, ended.signal]) : ended.signal;
+    } else signal = rest.signal;
+    const response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...rest, ...(signal ? { signal } : {}), redirect: 'follow' });
     // A redirect that left the grants names where it led (podcast F5), as
     // the native executor does; the browser followed it to this last hop.
     if (response.url && (asset
       ? new URL(response.url).origin !== globalThis.location?.origin
       : !admitsNetwork(set, response.url, 'fetch'))) throw new FetchError('Refused', `${refusal('net.fetch')}: redirected to ${new URL(response.url).origin}`);
+    // Its clone is read whole within the deadline, so a stalled body is this
+    // fetch's Timeout; the response keeps its URL, type and null body, and
+    // its own read is served from what the clone took.
+    if (deadline) {
+      await response.clone().arrayBuffer();
+      deadline.signal.removeEventListener('abort', relay);
+    }
     return response;
   }
   catch (error) {
     if (error instanceof FetchError) throw error;
+    if (deadline && signal?.aborted && signal.reason === deadline.signal.reason) throw new FetchError('Timeout', `the request timed out after ${deadline.ms} ms`);
     throw new FetchError('Network', error?.message ?? error);
   }
 }

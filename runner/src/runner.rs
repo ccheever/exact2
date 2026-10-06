@@ -11,6 +11,7 @@ mod background;
 mod commit;
 mod control;
 mod event;
+pub mod faults;
 mod field;
 pub use field::{FieldSelection, SelectionDirection};
 mod host_kinds;
@@ -140,6 +141,8 @@ pub enum RunnerError {
     },
     Shape {
         resource: String,
+        /// Where the answer first differs from the declared shape.
+        why: String,
     },
     UnknownView(ViewId),
     /// A typed host event carries invalid numeric values. No action ran.
@@ -463,6 +466,8 @@ pub struct Runner<D: DataSource> {
     /// What happened, one line each, for the agent API's `logs`: the last
     /// [`JOURNAL_RING`] lines, and how many were dropped before them.
     journal: std::collections::VecDeque<String>,
+    /// The driver's fetch faults (LLP 1103).
+    faults: faults::Faults,
     /// Device requests held for the agent (LLP 1069.007 D3): not I/O.
     device_holds: Vec<device::Hold>,
     /// Notifications the app posted under the agent (`state.notifications`):
@@ -677,6 +682,7 @@ impl<D: DataSource> Runner<D> {
             now_ms: self.now_ms,
             store: self.store.snapshot(),
             forgot_waiting: self.queued(),
+            faults: (!self.faults.is_empty()).then(|| self.faults.spec()),
         }
     }
 
@@ -757,8 +763,11 @@ impl<D: DataSource> Runner<D> {
         }
         let same_logic = carried.is_none_or(|c| c.data_revision.as_deref() == data.revision());
         data.bind(&plan);
-        // A cold boot forgets the kept answers no declared reader seeds.
+        // A cold boot forgets the kept answers no declared reader seeds; an
+        // app granting Health forgets them all, at every boot (LLP 1069.008.000 D7).
+        let private = crate::device::keeps_no_answers(data.grants());
         let obsolete_kept = match carried {
+            _ if private => kept::all(&snapshot),
             None => kept::obsolete(&plan, &snapshot),
             Some(_) => Vec::new(),
         };
@@ -781,7 +790,7 @@ impl<D: DataSource> Runner<D> {
                                 .iter()
                                 .any(|(n, s)| n == resource && s == plan.str(r.source))
                     });
-                if !compatible {
+                if private || !compatible {
                     store.forget_kept(name);
                 }
             }
@@ -888,6 +897,7 @@ impl<D: DataSource> Runner<D> {
             settled: None,
             derive_store_dependent: Vec::new(),
             journal: std::collections::VecDeque::new(),
+            faults: faults::Faults::from_env(),
             device_holds: Vec::new(),
             notifications: Vec::new(),
             auth: Default::default(),
@@ -937,7 +947,7 @@ impl<D: DataSource> Runner<D> {
         // empty-store placeholder is the fallback (settlement); either way
         // the resource is asked again at `data_ready`.
         let ready = runner.data.ready();
-        runner.keeps_answers = !ready || carried.is_some_and(|c| c.keeps_answers);
+        runner.keeps_answers = !private && (!ready || carried.is_some_and(|c| c.keeps_answers));
         runner.stale = vec![false; runner.plan.resources.len()];
         runner.entropy_readers = vec![false; runner.plan.resources.len()];
         runner.awaiting = vec![false; runner.plan.resources.len()];
@@ -1035,6 +1045,9 @@ impl<D: DataSource> Runner<D> {
         runner.publish_surfaces(surfaces);
         let line = lines::boot(carried.is_some(), runner.kernel.live_count(), receipt.epoch);
         runner.log(line);
+        if let Some(spec) = carried.and_then(|c| c.faults.as_deref()) {
+            runner.faults = faults::Faults::parse(spec).unwrap_or_default();
+        }
         for (name, n) in carried
             .map(|c| c.forgot_waiting.as_slice())
             .unwrap_or_default()

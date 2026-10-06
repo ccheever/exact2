@@ -712,3 +712,46 @@ fn an_unbound_field_holds_its_typed_text_until_its_bound_value_changes() {
     p.type_text(loud, "hi").unwrap();
     assert_eq!(p.field_text(loud), "hi!");
 }
+
+#[test]
+fn a_reload_forgets_unbound_controls_own_state() {
+    // A restart replaces the tree and its runner reuses view ids: an unbound
+    // checkbox's own state, or a field's typed text, is not the new tree's
+    // (LLP 1069.001 D4; `Presenter::replaced`).
+    let src = r#"component App
+  view
+    column
+      input type="checkbox" testId="box"
+      input testId="free"
+"#;
+    let plan = contract::compile(src).unwrap().encode();
+    let (mut p, error) = Presenter::boot_with(
+        &plan,
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let (box_id, free) = (id(&p, "box"), id(&p, "free"));
+    p.tap(box_id).unwrap();
+    assert_eq!(p.controls.get(&box_id), Some(&true));
+    p.type_text(free, "draft").unwrap();
+    assert_eq!(p.field_text(free), "draft");
+    assert_eq!(p.edited, Some(free));
+    p.reload(&plan, Keeps).unwrap();
+    assert_eq!(
+        p.edited, None,
+        "the old field's edit is not the new one's to commit"
+    );
+    assert!(p.fields.is_empty());
+    let (box_id, free) = (id(&p, "box"), id(&p, "free"));
+    assert_eq!(
+        p.controls.get(&box_id),
+        None,
+        "the checkbox starts unchecked again"
+    );
+    assert_eq!(p.field_text(free), "");
+}

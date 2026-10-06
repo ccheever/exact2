@@ -551,6 +551,8 @@ component MessageBubble
         let plan = contract::compile(source).unwrap().encode();
         let assets = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain"));
         let (mut p, error) = if region {
+            // A region an earlier boot in this test dropped retires first.
+            crate::content_region::test_wait_idle();
             Presenter::boot_with_content_region(
                 &plan,
                 data,

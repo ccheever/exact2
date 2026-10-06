@@ -404,7 +404,12 @@ fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
         for i in crate::vm::instructions(plan.code(code)).flatten() {
             if i.op == Opcode::Call {
                 match Stdlib::from_wire(i.args[0] as u8) {
-                    Some(Stdlib::FormatDate | Stdlib::FormatNumber) => format = true,
+                    Some(
+                        Stdlib::FormatDate
+                        | Stdlib::FormatNumber
+                        | Stdlib::ToFixed
+                        | Stdlib::FormatDecimal,
+                    ) => format = true,
                     Some(Stdlib::Frame | Stdlib::Measure | Stdlib::ElementFromPoint) => {
                         geometry = true
                     }

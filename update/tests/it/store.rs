@@ -346,14 +346,14 @@ fn a_signed_sequence_cannot_name_two_bundles() {
     let mut first = Bundle::new(4, b"plan four");
     first.signer = Some(("k1".into(), signing.clone()));
     let mut origin = Origin::of(&first);
-    let mut store = Store::open(temp.path(), embedded(&keys)).unwrap();
+    let mut store = open_store(temp.path(), embedded(&keys)).unwrap();
     assert!(matches!(origin.check(&mut store), Ok(Check::Staged { .. })));
 
     let mut equivocation = Bundle::new(4, b"another plan");
     equivocation.signer = Some(("k1".into(), signing.clone()));
     origin.serving(&equivocation);
     drop(store); // The preceding launch releases its exclusive store ownership.
-    let mut next = Store::open(temp.path(), embedded(&keys)).unwrap();
+    let mut next = open_store(temp.path(), embedded(&keys)).unwrap();
     let refusal = origin.check(&mut next).unwrap_err();
     assert!(
         refusal.contains("used sequence cannot equivocate"),
@@ -488,7 +488,7 @@ fn a_signed_head_verifies_with_the_right_key_and_is_refused_with_the_wrong_one()
     let mut origin = Origin::of(&bundle);
 
     let good = Temp::new("signed-good");
-    let mut store = Store::open(
+    let mut store = open_store(
         good.path(),
         embedded(&[("k1", signing.verifying_key().to_bytes())]),
     )
@@ -497,7 +497,7 @@ fn a_signed_head_verifies_with_the_right_key_and_is_refused_with_the_wrong_one()
 
     // The same key id, another key: the signature does not verify.
     let wrong = Temp::new("signed-wrong");
-    let mut store = Store::open(
+    let mut store = open_store(
         wrong.path(),
         embedded(&[("k1", key(9).verifying_key().to_bytes())]),
     )
@@ -508,7 +508,7 @@ fn a_signed_head_verifies_with_the_right_key_and_is_refused_with_the_wrong_one()
 
     // A key id this binary does not carry at all.
     let unknown = Temp::new("signed-unknown");
-    let mut store = Store::open(
+    let mut store = open_store(
         unknown.path(),
         embedded(&[("k2", signing.verifying_key().to_bytes())]),
     )
@@ -530,7 +530,7 @@ fn an_unsigned_head_requires_explicit_development_policy() {
     let mut origin = Origin::of(&bundle);
 
     let release = Temp::new("unsigned-release");
-    let mut store = Store::open(
+    let mut store = open_store(
         release.path(),
         embedded(&[("k1", key(7).verifying_key().to_bytes())]),
     )
@@ -566,7 +566,7 @@ fn a_production_store_with_no_keys_refuses_unsigned_and_signed_heads() {
         let mut origin = Origin::of(&bundle);
         let mut facts = embedded(&[]);
         facts.trust = exact_update::Trust::Production;
-        let mut store = Store::open(temp.path(), facts).unwrap();
+        let mut store = open_store(temp.path(), facts).unwrap();
         let refusal = origin.check(&mut store).unwrap_err();
         assert!(refusal.contains("no verification keys"), "{refusal}");
         assert_eq!(origin.asked.len(), 1, "no payloads fetched");
@@ -591,7 +591,7 @@ fn development_does_not_ignore_a_supplied_unverifiable_signature() {
     let mut facts = embedded(&[("k1", key(7).verifying_key().to_bytes())]);
     facts.trust = exact_update::Trust::Development;
     drop(store); // The preceding launch releases its exclusive store ownership.
-    let mut store = Store::open(temp.path(), facts).unwrap();
+    let mut store = open_store(temp.path(), facts).unwrap();
     origin.serving(&Bundle::new(4, b"unsigned local plan"));
     assert!(matches!(origin.check(&mut store), Ok(Check::Staged { .. })));
 }
@@ -742,7 +742,7 @@ fn an_unknown_record_codec_selects_entry_zero_and_leaves_the_record_alone() {
     let foreign = b"{\"codec\":999,\"selected\":\"beef\",\"lastGood\":null,\"failures\":0}";
     std::fs::write(&record, foreign).unwrap();
 
-    let mut store = Store::open(temp.path(), embedded(&[])).unwrap();
+    let mut store = open_store(temp.path(), embedded(&[])).unwrap();
     assert!(store.frozen());
     assert_eq!(store.select().entry, None);
     assert_eq!(store.select().seq, EMBEDDED_SEQ);
@@ -794,7 +794,7 @@ fn a_record_from_another_cohort_starts_this_one_at_entry_zero() {
     let mut moved = embedded(&[]);
     moved.compatibility_id = "1111111111111111".into();
     drop(store); // The preceding launch releases its exclusive store ownership.
-    let store = Store::open(temp.path(), moved).unwrap();
+    let store = open_store(temp.path(), moved).unwrap();
     assert_eq!(
         store.select().entry,
         None,
@@ -817,7 +817,7 @@ fn a_record_from_another_channel_starts_at_entry_zero() {
     let mut beta = embedded(&[]);
     beta.channel = "beta".into();
     drop(store); // The preceding launch releases its exclusive store ownership.
-    let store = Store::open(temp.path(), beta).unwrap();
+    let store = open_store(temp.path(), beta).unwrap();
     assert_eq!(store.select().entry, None);
     assert_eq!(store.select().seq, EMBEDDED_SEQ);
     assert_eq!(store.status().stream, "embedded");
@@ -988,7 +988,7 @@ fn a_head_naming_the_embedded_plan_and_assets_is_current_and_downloads_nothing()
         "mark.png".into(),
         (sha256_hex(b"a mark"), 6),
     )]));
-    let mut store = Store::open(temp.path(), carried.clone()).unwrap();
+    let mut store = open_store(temp.path(), carried.clone()).unwrap();
     assert!(matches!(
         origin.check_embedding(&mut store, &[("mark.png", b"a mark")]),
         Ok(Check::Current { sunset: None })
@@ -1006,7 +1006,7 @@ fn a_head_naming_the_embedded_plan_and_assets_is_current_and_downloads_nothing()
     let update = Bundle::new(4, b"plan three").asset("mark.png", b"a mark");
     origin.serving(&update);
     drop(store); // The preceding launch releases its exclusive store ownership.
-    let mut store = Store::open(temp.path(), carried.clone()).unwrap();
+    let mut store = open_store(temp.path(), carried.clone()).unwrap();
     let Ok(Check::Staged { entry, .. }) =
         origin.check_embedding(&mut store, &[("mark.png", b"an older mark")])
     else {
@@ -1017,7 +1017,7 @@ fn a_head_naming_the_embedded_plan_and_assets_is_current_and_downloads_nothing()
 
     // And a binary that does not embed the asset at all stages it too.
     let temp = Temp::new("embedded-plan-no-asset");
-    let mut store = Store::open(temp.path(), carried).unwrap();
+    let mut store = open_store(temp.path(), carried).unwrap();
     assert!(matches!(origin.check(&mut store), Ok(Check::Staged { .. })));
 }
 
@@ -1044,7 +1044,7 @@ fn every_asset_url_is_admitted_before_embedded_current_advances_the_floor() {
 
     let mut carried = embedded(&[]);
     carried.embedded_plan_sha256 = Some(sha256_hex(b"plan three"));
-    let mut store = Store::open(temp.path(), carried).unwrap();
+    let mut store = open_store(temp.path(), carried).unwrap();
     store.boot_succeeded(&store.generation()).unwrap();
     let record = temp.path().join("record.json");
     let before = std::fs::read(&record).unwrap();
@@ -1182,7 +1182,7 @@ fn the_canonical_bytes_are_what_a_head_is_signed_over() {
         format!("{ORIGIN}/.exact/release/{COHORT}/exact.json"),
         shuffled.into_bytes(),
     );
-    let mut store = Store::open(
+    let mut store = open_store(
         temp.path(),
         embedded(&[("k1", signing.verifying_key().to_bytes())]),
     )
@@ -1199,7 +1199,7 @@ fn the_canonical_bytes_are_what_a_head_is_signed_over() {
         format!("{ORIGIN}/.exact/release/{COHORT}/exact.json"),
         edited.into_bytes(),
     );
-    let mut store = Store::open(
+    let mut store = open_store(
         temp.path(),
         embedded(&[("k1", signing.verifying_key().to_bytes())]),
     )
@@ -1220,19 +1220,19 @@ fn reserializing_a_bad_signed_bundle_does_not_evade_quarantine() {
     let mut origin = Origin::of(&bundle);
     let temp = Temp::new("canonical-quarantine");
     let carried = embedded(&[("k1", signing.verifying_key().to_bytes())]);
-    let mut store = Store::open(temp.path(), carried.clone()).unwrap();
+    let mut store = open_store(temp.path(), carried.clone()).unwrap();
     let Ok(Check::Staged { entry, .. }) = origin.check(&mut store) else {
         panic!("the signed bundle should stage");
     };
 
     drop(store); // The preceding launch releases its exclusive store ownership.
     for _ in 0..2 {
-        let mut launch = Store::open(temp.path(), carried.clone()).unwrap();
+        let mut launch = open_store(temp.path(), carried.clone()).unwrap();
         assert_eq!(launch.select().entry.as_deref(), Some(entry.as_str()));
         launch.boot_started().unwrap();
     }
     assert_eq!(
-        Store::open(temp.path(), carried.clone())
+        open_store(temp.path(), carried.clone())
             .unwrap()
             .select()
             .entry,
@@ -1246,7 +1246,7 @@ fn reserializing_a_bad_signed_bundle_does_not_evade_quarantine() {
     assert_ne!(&pretty, raw);
     origin.files.insert(head_url, pretty);
 
-    let mut store = Store::open(temp.path(), carried).unwrap();
+    let mut store = open_store(temp.path(), carried).unwrap();
     let refusal = origin.check(&mut store).unwrap_err();
     assert!(
         refusal.contains("failed to reach first pixel twice"),
@@ -1323,7 +1323,7 @@ fn complete_rosters_represent_embedded_and_stored_removal_then_readdition() {
         "mark.png".into(),
         (sha256_hex(b"old"), 3),
     )]));
-    let mut store = Store::open(temp.path(), binary).unwrap();
+    let mut store = open_store(temp.path(), binary).unwrap();
     for (seq, asset) in [
         (4, None),
         (5, Some(b"new".as_slice())),
@@ -1364,13 +1364,13 @@ fn embedded_current_and_fallback_keep_the_accepted_canonical_digest() {
     let mut binary = embedded(&[]);
     binary.embedded_plan_sha256 = Some(sha256_hex(b"same"));
     binary.embedded_assets = Some(Default::default());
-    let mut store = Store::open(temp.path(), binary.clone()).unwrap();
+    let mut store = open_store(temp.path(), binary.clone()).unwrap();
     assert!(matches!(
         Origin::of(&first).check(&mut store).unwrap(),
         Check::Current { .. }
     ));
     drop(store);
-    let mut store = Store::open(temp.path(), binary.clone()).unwrap();
+    let mut store = open_store(temp.path(), binary.clone()).unwrap();
     let mut other = Bundle::new(4, b"same");
     other.sunset = Some(("changed metadata at the same seq".into(), None));
     assert!(Origin::of(&other)
@@ -1380,7 +1380,7 @@ fn embedded_current_and_fallback_keep_the_accepted_canonical_digest() {
     let baked = Temp::new("baked-digest");
     binary.seq = 4;
     binary.entry_digest = Some(Envelope::parse(json.as_bytes()).unwrap().digest);
-    let mut store = Store::open(baked.path(), binary).unwrap();
+    let mut store = open_store(baked.path(), binary).unwrap();
     assert!(Origin::of(&other)
         .check(&mut store)
         .unwrap_err()
@@ -1401,7 +1401,7 @@ fn an_exclusive_owner_protects_signed_floors_and_live_downloads() {
     let signing = key(73);
     let keys = [("k1", signing.verifying_key().to_bytes())];
     if let Some(dir) = std::env::var_os(CHILD_DIR) {
-        let result = Store::open(std::path::Path::new(&dir), embedded(&keys));
+        let result = open_store(std::path::Path::new(&dir), embedded(&keys));
         if std::env::var_os("EXACT_UPDATE_OWNER_RELEASED").is_some() {
             assert_eq!(result.unwrap().select().seq, 5);
         } else {
@@ -1410,8 +1410,8 @@ fn an_exclusive_owner_protects_signed_floors_and_live_downloads() {
         return;
     }
     let temp = Temp::new("exclusive-signed-owner");
-    let mut store = Store::open(temp.path(), embedded(&keys)).unwrap();
-    assert!(Store::open(temp.path(), embedded(&keys))
+    let mut store = open_store(temp.path(), embedded(&keys)).unwrap();
+    assert!(open_store(temp.path(), embedded(&keys))
         .unwrap_err()
         .contains("exclusive owner"));
     let mut newer = Bundle::new(5, b"plan five");
@@ -1433,7 +1433,13 @@ fn an_exclusive_owner_protects_signed_floors_and_live_downloads() {
         if released {
             command.env("EXACT_UPDATE_OWNER_RELEASED", "1");
         }
-        assert!(command.status().unwrap().success());
+        let out = finished(&mut command);
+        assert!(
+            out.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
     };
     child(false);
     assert!(
@@ -1442,7 +1448,7 @@ fn an_exclusive_owner_protects_signed_floors_and_live_downloads() {
     );
     drop(store);
     child(true);
-    let mut reopened = Store::open(temp.path(), embedded(&keys)).unwrap();
+    let mut reopened = open_store(temp.path(), embedded(&keys)).unwrap();
     let mut older = Bundle::new(4, b"plan four");
     older.signer = Some(("k1".into(), signing));
     origin.serving(&older);

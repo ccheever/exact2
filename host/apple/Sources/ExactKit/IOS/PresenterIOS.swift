@@ -764,6 +764,7 @@ final class Presenter {
         }
         var beganGeometry = false
         var touchedIDs: [UInt32] = []
+        let rowsOnly = onlyListRows(batch)
         for op in batch.ops {
             let kind = op.op
             switch kind {
@@ -950,7 +951,9 @@ final class Presenter {
         }
         pendingScrolls = pendingScrolls.filter { views[$0]?.pendingScrollTop != nil || views[$0]?.pendingScrollLeft != nil }
         if !flights.isEmpty { flightsBatchApplied() }
-        navigation.sync(batch)
+        // A batch that only builds, moves or drops a list's rows changes no
+        // route, header or bar: the projection would come out the same.
+        if !rowsOnly || navigation.syncOwed { navigation.sync(batch) }
         #if os(tvOS)
         menuKey.sync()
         focusGuides.sync()

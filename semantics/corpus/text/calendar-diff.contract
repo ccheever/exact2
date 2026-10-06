@@ -1,0 +1,37 @@
+// calendarDiff (LLP 1102 §3.4): whole years or months between two
+// YYYY-MM-DD dates, counted as an age is: a Feb 29 start completes a year
+// on Mar 1 of a common year, a Jan 31 start a month on Mar 1. Earlier
+// second date: the count back, negated. Not a date: none.
+fn shown(n: option<number>): string = match n { case some(v) => toString(v), case none => "none" }
+fn years(a: string, b: string): string = shown(calendarDiff(a, b, "years"))
+fn months(a: string, b: string): string = shown(calendarDiff(a, b, "months"))
+
+component App
+  state today = "2026-06-14"
+  derive age = years("1990-06-15", today)
+  derive leap = `${years("2024-02-29", "2025-02-28")} ${years("2024-02-29", "2025-03-01")} ${years("2024-02-29", "2028-02-29")} ${months("2024-02-29", "2025-02-28")}`
+  derive monthly = `${months("2024-01-31", "2024-02-29")} ${months("2024-01-31", "2024-03-01")} ${months("2024-03-31", "2024-04-30")} ${months("2024-04-30", "2024-05-31")}`
+  derive back = `${years("2026-06-14", "1990-06-15")} ${months("2024-03-01", "2024-01-31")} ${months("2024-05-05", "2024-05-05")}`
+  derive bad = `${years("2025-02-29", today)} ${months("2024-13-01", today)} ${years("2024-1-01", today)} ${months("", today)} ${years(today, " 2024-01-01")}`
+  derive span = `${years("0000-01-01", "9999-12-31")} ${months("0000-01-01", "9999-12-31")}`
+  action birthday
+    today = "2026-06-15"
+  view
+    column
+      text age testId="age"
+      text leap testId="leap"
+      text monthly testId="months"
+      text back testId="back"
+      text bad testId="bad"
+      text span testId="span"
+      button "next day" press=birthday testId="next"
+
+test "values"
+  expect text "age" == "35"
+  expect text "leap" == "0 1 4 11"
+  expect text "months" == "0 1 0 1"
+  expect text "back" == "-35 -1 0"
+  expect text "bad" == "none none none none none"
+  expect text "span" == "9999 119999"
+  tap "next"
+  expect text "age" == "36"

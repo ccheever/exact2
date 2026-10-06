@@ -1,0 +1,33 @@
+# The coding-agent harness's data module (LLP 1101): the transcript, the
+# agent loop over the model providers, the tools it runs, and the demo art
+# and animations. It answers exactly the shapes in `../shapes.contract`.
+[package]
+name = "harness-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The coding-agent terminal app's data module: session, agent loop, providers, tools, art"
+publish = false
+
+[lib]
+name = "harness_data"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
+markdown-parse = { path = "../../markdown/parse" }
+serde_json = "1.0"
+unicode-width = "0.2"
+png = "=0.18.1"
+rustix = { version = "1.1", features = ["process"] }
+ureq = { version = "=3.4.0", default-features = false, features = ["rustls"] }
+
+# `build.rs` generates the seam's Rust types from `../shapes.contract`
+# with `contract rust` (LLP 1101.002 P9).
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+
+[dev-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-kernel = { path = "../../../kernel" }

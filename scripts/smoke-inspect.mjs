@@ -3,10 +3,62 @@
 // host sections (D2, D3); 7a, `layout agree` (LLP 1080.001 D5) at the drive's
 // settled points; and the pooling drive on Carousel's virtualized feed.
 import { render } from './agent-inspect.mjs';
+import { spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import { HOST_DEV } from './app.mjs';
 
 const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// An HTTP guest must not become mixed content merely because the native
+// host supplies a wrapper (#106). Loopback IP needs no ATS exception, so
+// the existing smoke app can exercise the WebKit path without changing
+// its manifest. The named-host ATS opt-in is verified on a built bundle.
+export async function httpFrameSmoke({ host, open, check }) {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-http-frames-'));
+  const source = resolve(dir, 'app.contract'), plan = resolve(dir, 'app.plan');
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });
+    // No viewport meta: a top-level iOS load would report 980, not 300.
+    res.end('<!doctype html><p id="result">script blocked</p><script>document.getElementById("result").textContent = "script ran at " + innerWidth + " origin " + self.origin; parent.postMessage("http-ready", "*")</script>');
+  });
+  let s;
+  try {
+    await new Promise((done, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', done); });
+    const url = `http://127.0.0.1:${server.address().port}/`;
+    writeFileSync(source, `component Frames
+  state received = ""
+  action message(payload)
+    received = payload
+  view
+    column
+      iframe src="${url}" width=300 height=70 testId="http-open"
+      iframe src="${url}" sandbox="" width=300 height=70 testId="http-blocked"
+      iframe src="${url}" sandbox="allow-scripts" message=message width=300 height=70 testId="http-scripts"
+`);
+    const built = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', source, '-o', plan], { cwd: resolve(import.meta.dir, '..'), encoding: 'utf8' });
+    if (!check(built.status === 0, `${host} HTTP iframe fixture compiles: ${built.stderr}`)) return;
+    s = await open({ host, plan });
+    const expected = { 'http-open': `script ran at 300 origin ${new URL(url).origin}`, 'http-blocked': 'script blocked', 'http-scripts': 'script ran at 300 origin null' };
+    const guest = (tree, id) => byTestId(tree, id)?.guest?.find(n => n.id === 'result')?.text;
+    let tree, state;
+    for (let i = 0; i < 100; i++) {
+      tree = await s.tree(); state = await s.state();
+      if (Object.entries(expected).every(([id, text]) => byTestId(tree, id)?.loading === false && guest(tree, id) === text) && state.slots.received === 'http-ready') break;
+      await sleep(50);
+    }
+    for (const [id, text] of Object.entries(expected)) {
+      check(byTestId(tree, id)?.loading === false, `${host} ${id}: HTTP guest did not finish loading`);
+      check(guest(tree, id) === text, `${host} ${id}: expected ${text}, got ${JSON.stringify(guest(tree, id))}`);
+    }
+    check(state.slots.received === 'http-ready', `${host} HTTP sandboxed guest did not deliver its message`);
+  } catch (error) { check(false, `${host} HTTP iframe fixture: ${error.message}`); }
+  finally { try { await s?.close(); } finally { await new Promise(done => server.close(done)); rmSync(dir, { recursive: true, force: true }); } }
+}
 
 // 2b. `layout <node>` (LLP 1035.002 D1): the runner's half names where
 // each value came from, the host's half the spaces it has; the explained

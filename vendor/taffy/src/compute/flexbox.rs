@@ -1027,6 +1027,52 @@ fn determine_flex_base_size(
 
         drop(child_style);
 
+        // EXACT PATCH 28: CSS Flexbox §9.2 3E. A column item whose cross size
+        // is auto and not definite is measured for its main size at
+        // fit-content: max(min-content, min(max-content, available)). Measured
+        // under the available width alone, a row container sized itself to
+        // its items' summed bases, so its text took one line, and the item's
+        // height stayed one line after it was laid out at the narrower
+        // fit-content width (determine_hypothetical_cross_size, the same
+        // condition). Leaves wrap to their available space already; a sizing
+        // keyword keeps its own width; a ratio keeps its own path. Measured
+        // only when a probe below needs it.
+        let fit_content_available = match cross_axis_available_space.maybe_sub(cross_axis_margin_sum) {
+            AvailableSpace::Definite(available)
+                if !dir.is_row()
+                    && provisional_cross_removed.cross(dir).is_none()
+                    && child.size_style.cross(dir).is_auto()
+                    && child.aspect_ratio.is_none()
+                    && !tree.get_flexbox_child_style(child.node).is_compressible_replaced()
+                    && tree.child_count(child.node) > 0 =>
+            {
+                Some(available)
+            }
+            _ => None,
+        };
+        let mut fit_content_known: Option<Size<Option<f32>>> = None;
+        let fit_content_floor = (child.padding + child.border).cross_axis_sum(dir);
+        let (fit_content_min, fit_content_max) = (child.min_size.cross(dir), child.max_size.cross(dir));
+        let mut known_for_probe = |tree: &mut _| -> Size<Option<f32>> {
+            let Some(available) = fit_content_available else { return provisional_cross_removed };
+            *fit_content_known.get_or_insert_with(|| {
+                // The final width's own helper and clamp
+                // (determine_hypothetical_cross_size), so the two agree.
+                let fit_content = crate::compute::common::fit_content_width(
+                    tree,
+                    child.node,
+                    provisional_cross_removed,
+                    Size { width: true, height: true },
+                    child_parent_size,
+                    available,
+                    SizingMode::ContentSize,
+                )
+                .maybe_clamp(fit_content_min, fit_content_max)
+                .max(fit_content_floor);
+                provisional_cross_removed.with_cross(dir, Some(fit_content))
+            })
+        };
+
         child.flex_basis = 'flex_basis: {
             // A. If the item has a definite used flex basis, that’s the flex base size.
 
@@ -1130,9 +1176,10 @@ fn determine_flex_base_size(
                 .with_cross(dir, cross_axis_available_space.maybe_sub(cross_axis_margin_sum));
 
             debug_log!("COMPUTE CHILD BASE SIZE:");
+            let known = known_for_probe(tree);
             break 'flex_basis tree.measure_child_size(
                 child.node,
-                provisional_cross_removed,
+                known,
                 child_parent_size,
                 child_available_space,
                 SizingMode::ContentSize,
@@ -1174,9 +1221,10 @@ fn determine_flex_base_size(
                     .with_cross(dir, cross_axis_available_space.maybe_sub(cross_axis_margin_sum));
 
                 debug_log!("COMPUTE CHILD MIN SIZE:");
+                let known = known_for_probe(tree);
                 tree.measure_child_size(
                     child.node,
-                    provisional_cross_removed,
+                    known,
                     child_parent_size,
                     child_available_space,
                     SizingMode::ContentSize,

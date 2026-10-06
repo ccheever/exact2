@@ -1008,12 +1008,16 @@ fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
     std::fs::write(
         stage.join("__exact_bundle.mjs"),
         r#"
-import { assertCapturedModule } from './__exact_config.mjs';
+import { assertCapturedModule, ambientRefusals } from './__exact_config.mjs';
 export default {
   input: '__exact_entry.ts',
   tsconfig: '__exact_tsconfig.json',
   plugins: [{ name: 'captured-sources', load(id) {
     assertCapturedModule(process.cwd(), id);
+    return null;
+  }, transform(code, id) {
+    const why = ambientRefusals(process.cwd(), id, code, (c, o) => this.parse(c, o));
+    if (why.length) throw new Error(why.join('\n'));
     return null;
   }}],
 };

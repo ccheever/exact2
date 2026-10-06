@@ -381,7 +381,8 @@ final class WebViews {
           // Script input is intentionally isTrusted:false (@ref LLP 1020 D4).
           target.focus();
           \(action)
-          return JSON.stringify({ok:true, value:'value' in target ? target.value : target.textContent});
+          // A password's value is never agent output (#134): a fixed mark.
+          return JSON.stringify({ok:true, value:'value' in target ? (target.type === 'password' && target.value ? '•••' : target.value) : target.textContent});
         })()
         """
         let object: [String: Any]

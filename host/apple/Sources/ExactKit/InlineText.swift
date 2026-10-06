@@ -17,6 +17,9 @@ struct InlineText {
     var namesTint: Bool { colorRef?.namesTint == true || backgroundRef?.namesTint == true || paint.namesTint }
     let handlers: Set<String>
     let paints: Bool
+    /// Its computed `visibility: hidden`: its text is no target
+    /// (`inlineTarget`), though it hears a visible run's click inside it.
+    var hidden: Bool { lightRun.hidden }
     var range: NSRange = NSRange(location: 0, length: 0)
 
     init(id: UInt32, parent: UInt32, props: [String: String], style: InlineStyle,
@@ -155,7 +158,14 @@ extension NodeView {
         }
         guard lo > 0 else { return nil }
         var run: InlineText? = inlineText[lo - 1]
+        var innermost = true
         while let current = run {
+            // Hidden text is no target; a visible run's hidden container
+            // still hears it, as a DOM event bubbles through it.
+            if innermost, NSLocationInRange(offset, current.range) {
+                if current.hidden { return nil }
+                innermost = false
+            }
             if NSLocationInRange(offset, current.range),
                handler.map({ current.handlers.contains($0) }) ?? (current.props["href"] != nil || current.paints) { return current }
             run = presenter?.inlineText(current.parent)
@@ -172,7 +182,7 @@ extension NodeView {
         var start = 0
         for run in paragraphSpec().runs {
             let end = start + run.text.utf16.count
-            if offset >= start && offset < end { return run.href.isEmpty ? nil : run.href }
+            if offset >= start && offset < end { return run.href.isEmpty || run.hidden ? nil : run.href }
             start = end
         }
         return nil

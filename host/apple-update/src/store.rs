@@ -821,6 +821,9 @@ mod tests {
         asset(selected.token, 7);
         assert_eq!(*lock(&OUTPUT), vec![0]);
         // A new process must re-prove the plan, before counting or blessing it.
+        // The last process's owner goes first: the store's lock is exclusive
+        // (d3c84c2ba), and a second open in one process is refused.
+        *lock(&CLIENT) = None;
         let client = Client::open_at(&base, &base, COMPAT, b"embedded", Some(ORIGIN)).unwrap();
         *lock(&CLIENT) = Some(client);
         {
