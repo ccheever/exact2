@@ -63,7 +63,8 @@ component ProviderAccentPicker
     box position="relative" flex-shrink=0
       button press=open popovertarget=`provider-accent-${editorId}` hover=hover aria-label=`${accent == "" ? "Add" : "Change"} accent color for ${title}` disabled=(not writable) testId="provider-accent" display="flex" flex-direction="row" align-items="center" justify-content="center" width=28 height=28 padding=0 box-sizing="border-box" border-radius=8 border-width=0 background-color=(accent != "" ? accent : (hovered ? "light-dark(#27272914, #f5f5f514)" : "#00000000"))
         when accent == ""
-          CnGlyph(name="plus", size=16, color="light-dark(#27272a, #f5f5f5)")
+          // Button variant="ghost-muted": muted-foreground, foreground on hover.
+          CnGlyph(name="plus", size=16, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
       column id=`provider-accent-${editorId}` popover="auto" position="absolute" margin-top=6 width=226
         column width=226 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffffd5, #171717d5)" box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" role="dialog" aria-label="Accent color" testId="provider-accent-panel"
           column width=224 background-color="light-dark(#ffffff, #0a0a0a)"

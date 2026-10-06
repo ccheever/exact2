@@ -121,6 +121,18 @@ describe('header and panels', () => {
     expect(titleMenu(fakeClient({ projectId: 'p1' }), 0).map(item => item.label)).toEqual(['Project settings']);
   });
 
+  test('the title menu reads settle and snooze as useThreadActionMenu does', () => {
+    const caps = { threadSettlement: true, threadSnooze: true };
+    const menu = (fields: Obj, now = Date.parse('2026-10-04T10:00:00Z')) => titleMenu(fakeClient({ threadId: 't1', shell: { threads: [{ id: 't1', projectId: 'p1', title: 'T', status: 'idle', ...fields }], projects: [] },
+      config: { environment: { capabilities: caps } } }), now).filter(item => item.submenu === '').map(item => item.id);
+    // An auto-settled thread (settledAt, no override) still offers Settle; only an explicit settle offers Un-settle.
+    expect(menu({ settledAt: '2026-10-01T00:00:00Z', settledOverride: null })).toContain('settle');
+    expect(menu({ settledOverride: 'settled' })).toContain('unsettle');
+    // A snooze whose time has passed is awake: Snooze, not Wake thread.
+    expect(menu({ snoozedUntil: '2026-10-03T00:00:00Z' })).toContain('snooze');
+    expect(menu({ snoozedUntil: '2026-10-05T00:00:00Z' })).toContain('unsnooze');
+  });
+
   test('offsets skip submenu children', () => {
     expect(withOffsets([{ id: 'a', submenu: '', separated: false }, { id: 'b', submenu: 'a', separated: false, offset: 0 }, { id: 'c', submenu: '', separated: true }] as never).map(item => (item as { offset: number }).offset)).toEqual([5, 0, 42]);
   });

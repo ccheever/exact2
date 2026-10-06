@@ -140,12 +140,15 @@ component DiffToolbar
         text data.diffScopeLabel font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
         ReqIcon(name="chevron-down", size=14, color="light-dark(#27272a, #f5f5f5)")
       box flex=1
-      row gap=4 align-items="center" flex-shrink=0 margin-right=4 role="group" aria-label=`${data.diffAdditions} additions, ${data.diffDeletions} deletions`
-        text `+${data.diffAdditions}` font-family="ui-monospace" font-size=11 letter-spacing=-0.17 line-height="16px" color=diffInk(data.look.diff, "add-count")
-        text `-${data.diffDeletions}` font-family="ui-monospace" font-size=11 letter-spacing=-0.17 line-height="16px" color=diffInk(data.look.diff, "del-count")
+      // DiffPanel header: the stat shows with files to count, refresh with a git workspace, expand-all and the tree with files.
+      when length(data.diffFiles) > 0 or data.diffAdditions + data.diffDeletions > 0
+        row gap=4 align-items="center" flex-shrink=0 margin-right=4 role="group" aria-label=`${data.diffAdditions} additions, ${data.diffDeletions} deletions`
+          text `+${data.diffAdditions}` font-family="ui-monospace" font-size=11 letter-spacing=-0.17 line-height="16px" color=diffInk(data.look.diff, "add-count")
+          text `-${data.diffDeletions}` font-family="ui-monospace" font-size=11 letter-spacing=-0.17 line-height="16px" color=diffInk(data.look.diff, "del-count")
       when data.diffCanRefresh
         DiffTool(icon="refresh", label=(data.diffLoading ? "Refreshing diff" : "Refresh diff"), pressed=false, toggle=false, radius=8, testId="diff-refresh", choose=command("diff-refresh", "", "", 0))
-      DiffTool(icon=(data.diffAllCollapsed ? "unfold" : "fold"), label=(data.diffAllCollapsed ? "Expand all files" : "Collapse all files"), pressed=false, toggle=false, radius=8, testId="diff-expand-all", choose=command("diff-view", (data.diffAllCollapsed ? "expand-all" : "collapse-all"), "", 0))
+      when length(data.diffFiles) > 0
+        DiffTool(icon=(data.diffAllCollapsed ? "unfold" : "fold"), label=(data.diffAllCollapsed ? "Expand all files" : "Collapse all files"), pressed=false, toggle=false, radius=8, testId="diff-expand-all", choose=command("diff-view", (data.diffAllCollapsed ? "expand-all" : "collapse-all"), "", 0))
       row padding=2 gap=2 border-radius=10 background-color="light-dark(#e6e6e8, #121212)" role="group" aria-label="Diff layout" flex-shrink=0
         button press=command("diff-view", "layout", "stacked", 0) aria-label="Stacked diff view" testId="diff-stacked" width=32 height=24 padding=0 border-radius=8 border-width=0 background-color=(data.diffLayout == "stacked" ? "light-dark(#fcfcfc, #202020)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
           when data.diffLayout == "stacked"
@@ -159,7 +162,8 @@ component DiffToolbar
             DiffGlyph(name="split", size=14, color="light-dark(#71717a, #818181)")
       DiffTool(icon="wrap", label=(data.diffWrap ? "Disable diff line wrapping" : "Enable diff line wrapping"), pressed=data.diffWrap, toggle=true, radius=10, testId="diff-wrap", choose=command("diff-view", "wrap", "", 0))
       DiffTool(icon="pilcrow", label=(data.diffIgnoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"), pressed=data.diffIgnoreWhitespace, toggle=true, radius=10, testId="diff-whitespace", choose=command("diff-whitespace", "", "", 0))
-      DiffTool(icon="tree", label=(data.diffTree ? "Hide file tree" : "Show file tree"), pressed=data.diffTree, toggle=true, radius=10, testId="diff-tree-toggle", choose=command("diff-view", "tree", "", 0))
+      when length(data.diffFiles) > 0
+        DiffTool(icon="tree", label=(data.diffTree ? "Hide file tree" : "Show file tree"), pressed=data.diffTree, toggle=true, radius=10, testId="diff-tree-toggle", choose=command("diff-view", "tree", "", 0))
 
 component DiffTool
   props
