@@ -1,279 +1,48 @@
-//! Link the lean Hermes VM when a build of it is present, and compile the
-//! test fixture (`tests/fixtures/caltrain.ts`) to bytecode with the bake's
-//! own toolchain: Rolldown, then `hermesc` (LLP 1027 D5).
+//! Build Exact's small caller-owned Hermes shim and trusted prelude.
 //!
-//! The engine is the vanilla Hermes build the ibex repo produces
-//! (`ios/Frameworks-vanilla/`, receipt beside it): the bytecode-only
-//! `hermesvmlean` archive, JSI, and the headers. iOS uses matching lean CMake
-//! builds, one per platform, which `host/apple/build.mjs --ios` (and `--tvos`)
-//! builds once per machine into
-//! `~/.cache/exact/hermes/<pin>-lean-ios/{ios,ios-simulator,tvos,tvos-simulator}`
-//! (EXACT_HERMES_IOS_DIR overrides; LLP 1027 D6, LLP 1036.001 D5).
-//! All linked engine archives are captured in OUT_DIR for the bake receipt.
-//! On macOS, iOS, Linux and Windows a missing engine is a build error naming how to
-//! provision it; `EXACT_JS_ENGINE=stub` instead builds a stub whose
-//! `Module::load` refuses by name. Other targets are always the stub.
-//! `EXACT_HERMES_DIR`, `EXACT_HERMESC`, and `EXACT_ROLLDOWN` point at the
-//! three tools when they are somewhere else; Linux also honors
-//! `HERMES_INCLUDE_DIR` / `HERMES_LIB_DIR`. On macOS, without a sibling ibex,
-//! the engine and compiler are looked for in the machine's cache,
-//! `~/.cache/exact/hermes-macos/{engine,hermesc}` (`js/bake` looks there too),
-//! whose `engine/hermes-input-receipt.json` must name the pin.
-//!
-//! The pin is vanilla Hermes 260318099.0.0-stable, facebook/hermes
-//! `hermes.rs`'s HERMES_PIN, the one place it is written (ibex's
-//! `ios/Frameworks-vanilla/hermes-input-receipt.json`, where ibex wrote one,
-//! must name it). SHA-256 of the provisioned inputs (2026-08-28):
-//!
-//! - macOS `libhermesvmlean_a.a` `494f925f1aa667ebbb622be3da156af9c75465971201d438bf82945b50d36aa6`
-//! - macOS `libjsi.a` `b6a497618b6363fb1ed5ed0667b8441769cd232cdfaaa5ba9ed874c9fbb0fdde`
-//! - macOS `libboost_context.a` `cb3ffcfa31e515ff03978425e8618992fd77362b92e0ed94487f3e2d531012cb`
-//! - `hermesc-macos-arm64` `fa070c2feddee6968c6a5aef1c92bfb84c075be1471c4733ad0361b680d73132`
+//! Ibex owns its JSI adapter and compiled binding scripts. `hermes-lean-sys`
+//! owns the matching headers, compiler, archive selection, and native link
+//! lines; this build script consumes only the metadata those crates export.
 
 use std::env;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-
-// Non-Windows builds use only the shared pin; Windows also uses the resolver.
-#[allow(dead_code)]
-mod hermes;
-use hermes::HERMES_PIN;
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(exact_js_engine)");
-    for var in [
-        "BUN",
-        "EXACT_JS_ENGINE",
-        "EXACT_HERMES_DIR",
-        "EXACT_HERMES_IOS_DIR",
-        "EXACT_HERMESC",
-        "EXACT_ROLLDOWN",
-        "HERMES_INCLUDE_DIR",
-        "HERMES_LIB_DIR",
-        "HOME",
-        "LOCALAPPDATA",
-    ] {
-        println!("cargo:rerun-if-env-changed={var}");
+    for name in ["BUN", "EXACT_JS_ENGINE", "EXACT_ROLLDOWN"] {
+        println!("cargo:rerun-if-env-changed={name}");
     }
-    println!("cargo:rerun-if-changed=src/shim.cc");
-    println!("cargo:rerun-if-changed=src/prelude.js");
-    println!("cargo:rerun-if-changed=src/pure.js");
-    println!("cargo:rerun-if-changed=src/standard.js");
-    println!("cargo:rerun-if-changed=hermes.rs");
     for source in [
-        "windows-intl.json",
-        "windows-intl.patch",
-        "windows-intl-case.inc",
-        "windows-intl-date.inc",
-        "windows-intl-number.inc",
-        "windows-intl-probe.js",
-        "windows-intl-probe.cc",
+        "src/shim.cc",
+        "src/pure.js",
+        "src/standard.js",
+        "src/prelude.js",
     ] {
         println!("cargo:rerun-if-changed={source}");
     }
 
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    // ibex2's sources are vendored; the engine builds stay in the ibex checkout.
-    let ibex = manifest.join("../../ibex");
-    let bindings = manifest.join("../vendor/ibex2");
-    for file in [
-        "include/ibex2_jsi.h",
-        "src/engine/ibex2_jsi.cc",
-        "src/bindings/abort.js",
-        "src/bindings/crypto.js",
-        "src/bindings/domexception.js",
-        "src/bindings/harden.js",
-        "src/bindings/sqlite.js",
-        "src/bindings/url.js",
-    ] {
-        println!("cargo:rerun-if-changed={}", bindings.join(file).display());
-    }
-    // Engine and compiler come from one place: the cache only when there is
-    // no sibling ibex at all and no engine named, so the two are never mixed;
-    // a cache selected must carry a receipt naming the pin.
-    let cache =
-        PathBuf::from(env::var_os("HOME").unwrap_or_default()).join(".cache/exact/hermes-macos");
-    let from_cache = cfg!(target_os = "macos")
-        && env::var_os("EXACT_HERMES_DIR").is_none()
-        && !ibex.exists()
-        && cache.join("engine").is_dir();
-    let cached = |sibling: PathBuf, name: &str| {
-        if from_cache {
-            cache.join(name)
-        } else {
-            sibling
-        }
-    };
-    let engine = env::var("EXACT_HERMES_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| cached(ibex.join("ios/Frameworks-vanilla"), "engine"));
-    // Before the stub's return too: the bake compiles with the cache's hermesc either way.
-    if from_cache {
-        let receipt = std::fs::read_to_string(cache.join("engine/hermes-input-receipt.json"));
-        assert!(
-            receipt.is_ok_and(|r| r.contains(&format!("\"sourceCommit\": \"{HERMES_PIN}\""))),
-            "exact-js: the cached Hermes at {} has no engine/hermes-input-receipt.json naming facebook/hermes {HERMES_PIN} (\"sourceCommit\"); add one if it is that build, or name an engine with EXACT_HERMES_DIR",
-            cache.display()
-        );
-    }
-    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    let target = env::var("TARGET").unwrap_or_default();
-    let stub = env::var("EXACT_JS_ENGINE").as_deref() == Ok("stub");
-    let windows = if target_os == "windows" && !stub {
-        assert!(
-            !env::var("CARGO_CFG_TARGET_FEATURE")
-                .unwrap_or_default()
-                .split(',')
-                .any(|s| s == "crt-static"),
-            "exact-js: Windows lean Hermes requires the dynamic MSVC CRT; crt-static is unsupported"
-        );
-        let compiler = hermes::compiler().unwrap_or_else(|e| panic!("{e}"));
-        let install = hermes::resolve(&target, Some(&compiler)).unwrap_or_else(|e| panic!("{e}"));
-        for input in &install.inputs {
-            println!("cargo:rerun-if-changed={}", input.display());
-        }
-        // New unrecorded payloads also invalidate an accepted complete install.
-        println!("cargo:rerun-if-changed={}", install.root.display());
-        println!(
-            "cargo:rustc-env=EXACT_JS_ENGINE_INPUTS={}",
-            install.receipt_sha256
-        );
-        Some(install)
-    } else {
-        None
-    };
-    // The iOS input is a pair of lean CMake builds, not the full framework
-    // (which also contains a compiler). No engine bytes enter Rust-only apps.
-    let ios = || {
-        env::var_os("EXACT_HERMES_IOS_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                PathBuf::from(env::var_os("HOME").expect("HOME"))
-                    .join(".cache/exact/hermes")
-                    .join(format!("{}-lean-ios", &HERMES_PIN[..12]))
-            })
-    };
-    let linux = ibex.join("linux-vanilla");
-    // tvOS's lean builds sit beside iOS's, one directory per SDK.
-    let apple_mobile = matches!(target_os.as_str(), "ios" | "tvos");
-    let (headers, static_dir, engine_lib_name, extra_libs) = if let Some(install) = &windows {
-        (
-            install.headers.clone(),
-            install.root.join("windows-static"),
-            "hermesvmlean_a".to_owned(),
-            install.archives[1..].to_vec(),
-        )
-    } else if apple_mobile {
-        let simulator = target.ends_with("-sim") || target.starts_with("x86_64-");
-        let static_dir = ios()
-            .join(match (target_os.as_str(), simulator) {
-                ("tvos", true) => "tvos-simulator",
-                ("tvos", false) => "tvos",
-                (_, true) => "ios-simulator",
-                (_, false) => "ios",
-            })
-            .join("lib");
-        let build = static_dir.parent().expect("iOS build directory");
-        (
-            engine.join("hermes-headers"),
-            static_dir.clone(),
-            "hermesvmlean_a".to_string(),
-            vec![
-                build.join("jsi/libjsi.a"),
-                build.join("external/boost/boost_1_86_0/libs/context/libboost_context.a"),
-            ],
-        )
-    } else if target_os == "linux" {
-        let headers = env::var("HERMES_INCLUDE_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| linux.join("hermes-headers"));
-        let static_dir = env::var("HERMES_LIB_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| linux.join("lib"));
-        let engine_lib_name = "hermesvmlean_a".to_string();
-        (
-            headers,
-            static_dir.clone(),
-            engine_lib_name,
-            vec![
-                static_dir.join("libjsi.a"),
-                static_dir.join("libboost_context.a"),
-            ],
-        )
-    } else {
-        let static_dir = engine.join("macos-static");
-        (
-            engine.join("hermes-headers"),
-            static_dir.clone(),
-            "hermesvmlean_a".to_string(),
-            vec![
-                static_dir.join("libjsi.a"),
-                static_dir.join("libboost_context.a"),
-            ],
-        )
-    };
-    // Provisioning an iOS engine after a stub build must invalidate it.
-    // macOS's external SDK archives are captured in OUT_DIR below, not
-    // traversed as repository source directories by the bake receipt.
-    if apple_mobile {
-        println!("cargo:rerun-if-changed={}", static_dir.display());
-    }
-    let engine_archive = windows.as_ref().map_or_else(
-        || static_dir.join(format!("lib{engine_lib_name}.a")),
-        |install| install.archives[0].clone(),
-    );
-    let hermes_target = matches!(
-        target_os.as_str(),
-        "macos" | "ios" | "tvos" | "linux" | "windows"
-    );
-    // The explicit selection wins before any engine input is inspected.
-    let provisioned =
-        headers.is_dir() && engine_archive.is_file() && extra_libs.iter().all(|lib| lib.is_file());
-    if !hermes_target || stub || !provisioned {
-        if hermes_target {
-            assert!(
-                stub,
-                "exact-js: no Hermes for {target_os} at {}. Provision the pinned engine (js/build.rs header): macOS, ibex ./scripts/build-hermes.sh --vanilla (EXACT_HERMES_DIR if elsewhere, or ~/.cache/exact/hermes-macos/engine); iOS, bun host/apple/build.mjs --ios builds them (LLP 1036.001 D5; EXACT_HERMES_IOS_DIR); Linux, ibex ./scripts/build-hermes-linux.sh --vanilla --release --intl (HERMES_LIB_DIR). Or set EXACT_JS_ENGINE=stub for an executor that refuses to load.",
-                static_dir.display()
-            );
-            println!("cargo:warning=exact-js: EXACT_JS_ENGINE=stub; the executor refuses to load");
-        }
+    if env::var("EXACT_JS_ENGINE").as_deref() == Ok("stub") {
+        println!("cargo:warning=exact-js: EXACT_JS_ENGINE=stub; the executor refuses to load");
         return;
     }
-    // Headers, compiler and VM come from one commit.
-    if let Some(receipt) = windows
-        .is_none()
-        .then(|| std::fs::read_to_string(engine.join("hermes-input-receipt.json")))
-        .and_then(Result::ok)
-    {
-        let commit = receipt
-            .split_once("\"sourceCommit\": \"")
-            .and_then(|(_, rest)| rest.get(..40))
-            .unwrap_or("none");
-        assert!(
-            commit == HERMES_PIN,
-            "exact-js: ibex's Hermes at {} is facebook/hermes {commit}; js/build.rs pins {HERMES_PIN}",
-            engine.display()
-        );
+
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if !matches!(target_os.as_str(), "macos" | "ios" | "linux" | "windows") {
+        return;
     }
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let ibex = manifest.join("../vendor/ibex/crates/ibex2");
+    let headers = required_path("DEP_HERMES_LEAN_INCLUDE_DIR");
+    let hermesc = required_path("DEP_HERMES_LEAN_HERMESC_PATH");
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
-    let mut library_paths = vec![engine_archive];
-    library_paths.extend(extra_libs);
-    // The normal bake receipt inventories OUT_DIR archives. Capture all three
-    // actual linked inputs there, including the engine, not just our shim.
-    for source in library_paths {
-        if apple_mobile {
-            println!("cargo:rerun-if-changed={}", source.display());
-        }
-        std::fs::copy(&source, out.join(source.file_name().expect("archive name")))
-            .unwrap_or_else(|e| panic!("cannot capture {}: {e}", source.display()));
-    }
 
     let mut shim = cc::Build::new();
     if target_os == "macos" {
-        // Cargo builds the bake's host dependency in the iOS invocation too.
-        // Its inherited SDKROOT must not turn the host shim into an iOS input.
+        // An inherited SDKROOT from an Apple cross-build must not turn this
+        // host-side shim into an iOS input.
         let sdk = Command::new("xcrun")
             .args(["--sdk", "macosx", "--show-sdk-path"])
             .output()
@@ -282,38 +51,10 @@ fn main() {
         shim.flag("-isysroot")
             .flag(String::from_utf8(sdk.stdout).expect("SDK path").trim());
     }
-    // cl.exe's include search rejects the verbatim prefix returned by Rust's
-    // canonicalize, even for an existing short path. Keep canonical receipt
-    // inputs above; pass the same disk/UNC location in cl's accepted spelling.
-    let compiler_headers = if target_os == "windows" {
-        let mut parts = headers.components();
-        let base = match parts.next() {
-            Some(std::path::Component::Prefix(prefix)) => match prefix.kind() {
-                std::path::Prefix::VerbatimDisk(drive) => {
-                    Some(PathBuf::from(format!("{}:", drive as char)))
-                }
-                std::path::Prefix::VerbatimUNC(server, share) => {
-                    Some(PathBuf::from(r"\\").join(server).join(share))
-                }
-                _ => None,
-            },
-            _ => None,
-        };
-        base.map_or_else(
-            || headers.clone(),
-            |mut path| {
-                path.extend(parts);
-                path
-            },
-        )
-    } else {
-        headers.clone()
-    };
     shim.cpp(true)
         .file("src/shim.cc")
-        .file(bindings.join("src/engine/ibex2_jsi.cc"))
-        .include(bindings.join("include"))
-        .include(&compiler_headers)
+        .include(ibex.join("include"))
+        .include(headers)
         .std("c++17");
     if target_os == "windows" {
         shim.static_crt(false)
@@ -324,103 +65,30 @@ fn main() {
         shim.flag("-stdlib=libc++");
     }
     shim.compile("exact_js_shim");
-    println!("cargo:rustc-link-search=native={}", out.display());
-    println!("cargo:rustc-link-lib=static={engine_lib_name}");
-    println!("cargo:rustc-link-lib=static=jsi");
-    println!("cargo:rustc-link-lib=static=boost_context");
-    if target_os == "windows" {
-        for library in ["icuuc", "icui18n", "icudata"] {
-            println!("cargo:rustc-link-lib=static={library}");
-        }
-        for library in hermes::SYSTEM_LIBRARIES {
-            println!("cargo:rustc-link-lib={library}");
-        }
-    } else if target_os == "linux" {
-        println!("cargo:rustc-link-lib=stdc++");
-        println!("cargo:rustc-link-lib=pthread");
-        println!("cargo:rustc-link-lib=dl");
-        println!("cargo:rustc-link-lib=m");
-        println!("cargo:rustc-link-lib=z");
-        println!("cargo:rustc-link-lib=icui18n");
-        println!("cargo:rustc-link-lib=icuuc");
-        println!("cargo:rustc-link-lib=icudata");
-    } else {
-        println!("cargo:rustc-link-lib=c++");
-        println!("cargo:rustc-link-lib=framework=CoreFoundation");
-        println!("cargo:rustc-link-lib=framework=Foundation");
-    }
     println!("cargo:rustc-cfg=exact_js_engine");
 
-    // The prelude and the fixtures: the prelude straight through hermesc;
-    // each fixture TypeScript → one script (Rolldown) → bytecode (hermesc),
-    // the bake's own two steps, into OUT_DIR for the crate and its tests.
-    let arch = match env::consts::ARCH {
-        "aarch64" => "arm64",
-        _ => "x64",
-    };
-    let hermesc = env::var("EXACT_HERMESC")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            if let Some(install) = &windows {
-                install.compiler.clone()
-            } else if cfg!(target_os = "linux") {
-                ibex.join(format!("tools/hermes-vanilla/hermesc-linux-{arch}"))
-            } else {
-                cached(
-                    ibex.join(format!("tools/hermes-vanilla/hermesc-macos-{arch}")),
-                    "hermesc",
-                )
-            }
-        });
-    let rolldown = env::var("EXACT_ROLLDOWN")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| hermes::package_tool(&manifest.join(".."), "rolldown"));
-    assert!(
-        hermesc.is_file(),
-        "exact-js: hermesc not found at {} (EXACT_HERMESC, ~/.cache/exact/hermes-macos/hermesc, or ibex: ./scripts/build-hermes.sh --vanilla)",
-        hermesc.display()
-    );
-    assert!(
-        rolldown.is_file(),
-        "exact-js: rolldown not found at {} (run `bun install` at the repo root, or set EXACT_ROLLDOWN)",
-        rolldown.display()
-    );
-    // Async break checks in every loop and function: what lets another thread
-    // interrupt a running call (LLP 1048.000 D10), as the bake compiles.
-    let compile = |script: &PathBuf, bytecode: &PathBuf| {
+    let compile = |script: &Path, bytecode: &Path| {
         let status = Command::new(&hermesc)
             .args(["-O", "-emit-async-break-check", "-emit-binary", "-out"])
             .arg(bytecode)
             .arg(script)
             .status()
-            .unwrap_or_else(|e| panic!("exact-js: cannot run {}: {e}", hermesc.display()));
+            .unwrap_or_else(|error| panic!("exact-js: cannot run {}: {error}", hermesc.display()));
         assert!(
             status.success(),
             "exact-js: hermesc failed on {}",
             script.display()
         );
     };
-    // Pure class shapes share Ibex's URL implementation, and its `crypto`
-    // (ops 70/71, OS entropy) is what the prelude wraps as a counted read
-    // (LLP 1069.005 D2); its AbortController and `standard.js` are the rest
-    // of the web's globals a module expects. All are baked; the runtime only
-    // evaluates bytecode, before any application module.
-    let prelude = [
-        manifest.join("src/pure.js"),
-        bindings.join("src/bindings/url.js"),
-        bindings.join("src/bindings/domexception.js"),
-        bindings.join("src/bindings/crypto.js"),
-        bindings.join("src/bindings/abort.js"),
-        manifest.join("src/standard.js"),
-        manifest.join("src/prelude.js"),
-    ]
-    .iter()
-    .map(|path| std::fs::read_to_string(path).expect("prelude source"))
-    .collect::<Vec<_>>()
-    .join("\n")
-        + "\nglobalThis.__exact_finish_pure();\n";
-    // This trusted marker selects the error-number vocabulary, then the
-    // prelude removes it before any app bytecode can observe it.
+
+    // Ibex installs PURE | CRYPTO | ABORT first. These are only Exact's
+    // trusted policy and data-seam layers; application bytecode follows after
+    // Adapter::capture_intrinsics() and Adapter::harden().
+    let prelude = ["src/pure.js", "src/standard.js", "src/prelude.js"]
+        .iter()
+        .map(|source| std::fs::read_to_string(manifest.join(source)).expect("prelude source"))
+        .collect::<Vec<_>>()
+        .join("\n");
     let prelude = if target_os == "windows" {
         "globalThis.__exact_windows_storage = true;\n".to_owned() + &prelude
     } else {
@@ -429,21 +97,14 @@ fn main() {
     let prelude_path = out.join("prelude.js");
     std::fs::write(&prelude_path, prelude).expect("write combined prelude");
     compile(&prelude_path, &out.join("prelude.hbc"));
-    if let Some(install) = &windows {
-        let hbc = std::fs::read(out.join("prelude.hbc")).expect("compiled prelude");
-        assert!(
-            hbc.len() >= 12
-                && u32::from_le_bytes(hbc[8..12].try_into().unwrap()) == install.bytecode_version,
-            "exact-js: compiler emitted a different bytecode version than its Windows receipt"
-        );
-    }
-    compile(
-        &bindings.join("src/bindings/harden.js"),
-        &out.join("storage-harden.hbc"),
-    );
-    compile(
-        &bindings.join("src/bindings/sqlite.js"),
-        &out.join("storage-sqlite.hbc"),
+
+    let rolldown = env::var("EXACT_ROLLDOWN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| package_tool(&manifest.join(".."), "rolldown"));
+    assert!(
+        rolldown.is_file(),
+        "exact-js: rolldown not found at {} (run `bun install`, or set EXACT_ROLLDOWN)",
+        rolldown.display()
     );
     for name in [
         "caltrain",
@@ -471,8 +132,7 @@ fn main() {
                     .any(|word| matches!(word.rsplit('/').next(), Some("node" | "bun")))
         });
         let mut bundler = if javascript {
-            // `BUN` names the Bun to run it with, else the first on PATH.
-            let mut command = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()));
+            let mut command = Command::new(env::var_os("BUN").unwrap_or_else(|| "bun".into()));
             command.arg(&rolldown);
             command
         } else {
@@ -483,7 +143,7 @@ fn main() {
             .args(["--format", "iife", "--file"])
             .arg(&script)
             .status()
-            .unwrap_or_else(|e| panic!("exact-js: cannot run {}: {e}", rolldown.display()));
+            .unwrap_or_else(|error| panic!("exact-js: cannot run {}: {error}", rolldown.display()));
         assert!(
             status.success(),
             "exact-js: rolldown failed on {}",
@@ -491,4 +151,17 @@ fn main() {
         );
         compile(&script, &out.join(format!("{name}.hbc")));
     }
+}
+
+fn required_path(name: &str) -> PathBuf {
+    PathBuf::from(
+        env::var(name).unwrap_or_else(|_| panic!("{name} was not exported by hermes-lean-sys")),
+    )
+}
+
+fn package_tool(root: &Path, name: &str) -> PathBuf {
+    let bin = root.join("node_modules/.bin").join(name);
+    #[cfg(windows)]
+    let bin = bin.with_extension("cmd");
+    bin
 }

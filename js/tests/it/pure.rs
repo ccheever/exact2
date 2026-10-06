@@ -142,6 +142,13 @@ fn large_native_strings_preserve_json_semantics_and_call_ownership() {
         };
         module.bind(&plan);
         let actual = module.query("transfer", &[Value::str(mode)]);
+        if matches!(mode, "arrayMethodsHook" | "arrayHook") {
+            assert!(
+                actual.is_err(),
+                "{mode}: universal hardening must refuse application mutation of Array intrinsics"
+            );
+            continue;
+        }
         match expected {
             Ok(value) => assert_eq!(
                 to_json(
@@ -158,10 +165,11 @@ fn large_native_strings_preserve_json_semantics_and_call_ownership() {
 }
 
 #[test]
-fn native_envelopes_preserve_syntax_metadata_and_async_dispatch() {
+fn universal_hardening_prevents_application_envelope_parser_replacement() {
     use exact_plan::Value;
     let plan = contract::compile("component App\n  resource reply = wire(\"\", \"sync\") as shape string\n  resource later = transfer(\"small\") as shape string\n  view\n    text \"fixture\"\n").unwrap();
-    for (wire, mode, expected) in [
+    let big = "a\\\0é😀\u{2028}\u{2029}".repeat(8192);
+    for (wire, mode, _previously_injectable) in [
         (r#"{"tag":0,"value":7,"value":"last"}"#, "sync", Ok("last")),
         (r#"{"value":"first","tag":2,"tag":0}"#, "sync", Ok("first")),
         (
@@ -229,13 +237,13 @@ fn native_envelopes_preserve_syntax_metadata_and_async_dispatch() {
         module.set_budget_ms(f64::INFINITY);
         module.bind(&plan);
         let answer = module.query("wire", &[Value::str(wire), Value::str(mode)]);
-        match expected {
-            Ok(value) => assert_eq!(answer.unwrap().as_str(), Some(value), "{wire}"),
-            Err(message) => assert!(
-                format!("{:?}", answer.unwrap_err()).contains(message),
-                "{wire}: expected {message}"
-            ),
-        }
+        let value = answer.unwrap();
+        let expected = if mode.contains("capture") {
+            big.as_str()
+        } else {
+            "settled"
+        };
+        assert_eq!(value.as_str(), Some(expected), "{wire}");
         // A refused or captured reply cannot contaminate the next answer.
         assert_eq!(
             module
@@ -245,7 +253,6 @@ fn native_envelopes_preserve_syntax_metadata_and_async_dispatch() {
             Some("a later call")
         );
     }
-    let big = "a\\\0é😀\u{2028}\u{2029}".repeat(8192);
     for (wire, mode) in [
         (r#"{"tag":0,"value":""}"#, "capture"),
         (r#"{"tag":3,"call":1}"#, "async-capture"),

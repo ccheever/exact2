@@ -50,7 +50,8 @@ struct State {
   BytesFn bytes;
   void *ctx;
   // Destroy the adapter (and its JSI roots) before the runtime.
-  std::unique_ptr<ibex2::jsi_adapter::Adapter> storage;
+  std::unique_ptr<ibex2::jsi_adapter::Adapter> adapter;
+  const void *grants;
   size_t capture_limit;
   size_t capture_bytes = 0;
   std::vector<CapturedString> captures;
@@ -187,7 +188,11 @@ int fail(char **out, const std::string &message, int code) {
 
 extern "C" {
 
-void *exact_js_create(uint32_t max_heap_bytes, HostFn host, BytesFn bytes, void *ctx) {
+void *exact_js_create(uint32_t max_heap_bytes, HostFn host, BytesFn bytes, void *ctx,
+                      const void *queue, const Ibex2Bindings *bindings,
+                      const void *grants,
+                      const ibex2::jsi_adapter::CompiledScript *scripts,
+                      size_t script_count) {
   try {
     auto gc = ::hermes::vm::GCConfig::Builder().withMaxHeapSize(max_heap_bytes).build();
     auto config = ::hermes::vm::RuntimeConfig::Builder()
@@ -197,21 +202,21 @@ void *exact_js_create(uint32_t max_heap_bytes, HostFn host, BytesFn bytes, void 
                       .build();
     auto rt = facebook::hermes::makeHermesRuntimeNoThrow(config);
     if (!rt) return nullptr;
-    auto *state = new State{std::move(rt), {}, host, bytes, ctx, nullptr, max_heap_bytes, 0, {}};
-    install_console(state);
-    install_host(state);
-    install_bytes(state);
-    install_capture(state);
-    // Pure Ibex text bindings preserve typed buffers without JSON byte arrays.
-    // No task queue or grants are required by these synchronous operations.
-    auto global = state->rt->global();
-    ibex2::jsi_adapter::set_binding(*state->rt, global, "__exact_encode", 20, nullptr);
-    ibex2::jsi_adapter::set_binding(*state->rt, global, "__exact_decode", 21, nullptr);
-    // OS entropy for ibex2's `crypto` binding, which the prelude wraps so a
-    // draw counts as a device read (LLP 1069.005 D2). Stateless ops.
-    ibex2::jsi_adapter::set_binding(*state->rt, global, "__ibex2_random_uuid", 70, nullptr);
-    ibex2::jsi_adapter::set_binding(*state->rt, global, "__ibex2_get_random_values", 71, nullptr);
-    return state;
+    auto state = std::make_unique<State>(State{std::move(rt), {}, host, bytes, ctx, nullptr,
+                                               grants, max_heap_bytes, 0, {}});
+    install_console(state.get());
+    install_host(state.get());
+    install_bytes(state.get());
+    install_capture(state.get());
+    state->adapter = std::make_unique<ibex2::jsi_adapter::Adapter>(*state->rt, queue);
+    ibex2::jsi_adapter::InstallOptions options;
+    options.abort_hooks = "__exact_ibex2_abort_hooks";
+    options.defer_intrinsic_snapshot = true;
+    constexpr auto groups = ibex2::jsi_adapter::GROUP_PURE |
+                            ibex2::jsi_adapter::GROUP_CRYPTO |
+                            ibex2::jsi_adapter::GROUP_ABORT;
+    state->adapter->install_with(groups, bindings, scripts, script_count, options);
+    return state.release();
   } catch (...) {
     return nullptr;
   }
@@ -231,19 +236,15 @@ int exact_js_load(void *h, const uint8_t *data, size_t len, char **out) {
 }
 
 // Trusted initialization only: no application code or microtasks run here.
-int exact_js_install_storage(void *h, const void *queue, const void *grants,
-                             const uint8_t *sqlite, size_t sqlite_len,
-                             const uint8_t *harden, size_t harden_len, char **out) {
+int exact_js_install_storage(void *h, const uint8_t *sqlite, size_t sqlite_len, char **out) {
   auto *state = static_cast<State *>(h);
   auto &rt = *state->rt;
   try {
-    if (state->storage) return fail(out, "storage is already installed", 1);
-    state->storage = std::make_unique<ibex2::jsi_adapter::Adapter>(rt, queue);
     auto factory_bytes = std::make_shared<OwnedBytes>(
         std::vector<uint8_t>(sqlite, sqlite + sqlite_len));
     auto factory = rt.evaluateJavaScript(factory_bytes, "storage-sqlite.hbc")
                        .getObject(rt).getFunction(rt);
-    rt.global().setProperty(rt, "__exact_storage", state->storage->storage(grants, factory));
+    rt.global().setProperty(rt, "__exact_storage", state->adapter->storage(state->grants, factory));
     rt.global().getPropertyAsFunction(rt, "__exact_install_storage").call(rt);
     // The prelude captures storage in its closure; no capability-bearing
     // temporary may remain when hardening locks global property descriptors.
@@ -253,9 +254,22 @@ int exact_js_install_storage(void *h, const void *queue, const void *grants,
       if (!remove.call(rt, rt.global(), jsi::String::createFromUtf8(rt, name)).getBool())
         return fail(out, "storage initialization could not remove its temporary global", 1);
     }
-    auto harden_bytes = std::make_shared<OwnedBytes>(
-        std::vector<uint8_t>(harden, harden + harden_len));
-    rt.evaluateJavaScript(harden_bytes, "storage-harden.hbc");
+    return 0;
+  } catch (const jsi::JSError &e) {
+    return fail(out, e.getMessage(), 1);
+  } catch (const std::exception &e) {
+    return fail(out, e.what(), 2);
+  }
+}
+
+// Complete the trusted bootstrap on every runtime, whether it has storage or
+// not. Application bytecode is evaluated only after this succeeds.
+int exact_js_harden(void *h, const uint8_t *harden, size_t harden_len, char **out) {
+  auto *state = static_cast<State *>(h);
+  try {
+    state->adapter->capture_intrinsics();
+    ibex2::jsi_adapter::CompiledScript script{"harden", harden, harden_len};
+    state->adapter->harden(script);
     return 0;
   } catch (const jsi::JSError &e) {
     return fail(out, e.getMessage(), 1);
@@ -268,7 +282,7 @@ int exact_js_install_storage(void *h, const void *queue, const void *grants,
 int exact_js_deliver_storage_one(void *h, bool *delivered, char **out) {
   auto *state = static_cast<State *>(h);
   try {
-    *delivered = state->storage && state->storage->deliver_one();
+    *delivered = state->adapter && state->adapter->deliver_one();
     return 0;
   } catch (const jsi::JSError &e) {
     return fail(out, e.getMessage(), 1);
@@ -376,6 +390,10 @@ void exact_js_take_log(void *h, char **out) {
 
 void exact_js_free(char *p) { std::free(p); }
 
-void exact_js_destroy(void *h) { delete static_cast<State *>(h); }
+void exact_js_destroy(void *h) {
+  auto *state = static_cast<State *>(h);
+  if (state->adapter) state->adapter->detach();
+  delete state;
+}
 
 }  // extern "C"

@@ -27,12 +27,24 @@ mod real {
         *mut *mut c_char,
     ) -> i32;
 
+    #[repr(C)]
+    struct CompiledScript {
+        name: *const c_char,
+        bytes: *const u8,
+        len: usize,
+    }
+
     extern "C" {
         fn exact_js_create(
             max_heap_bytes: u32,
             host: HostFn,
             bytes: BytesFn,
             ctx: *mut c_void,
+            queue: *const c_void,
+            bindings: *const c_void,
+            grants: *const c_void,
+            scripts: *const CompiledScript,
+            script_count: usize,
         ) -> *mut c_void;
         fn exact_js_load(h: *mut c_void, data: *const u8, len: usize, out: *mut *mut c_char)
             -> i32;
@@ -57,10 +69,12 @@ mod real {
         fn exact_js_clear_captures(h: *mut c_void);
         fn exact_js_install_storage(
             h: *mut c_void,
-            queue: *const c_void,
-            grants: *const c_void,
             sqlite: *const u8,
             sqlite_len: usize,
+            out: *mut *mut c_char,
+        ) -> i32;
+        fn exact_js_harden(
+            h: *mut c_void,
             harden: *const u8,
             harden_len: usize,
             out: *mut *mut c_char,
@@ -121,11 +135,42 @@ mod real {
             host: HostFn,
             bytes: BytesFn,
             ctx: *mut c_void,
+            context: &ibex2::bindings::Context,
         ) -> Result<Engine, String> {
+            hermes_lean_sys::ensure_linked();
+            use ibex2::bindings::Groups;
+            let groups = Groups::PURE | Groups::CRYPTO | Groups::ABORT;
+            let compiled =
+                ibex2::bindings::compiled_scripts(groups).map_err(|error| error.to_string())?;
+            let names = compiled
+                .iter()
+                .map(|script| CString::new(script.name).expect("binding name has no NUL"))
+                .collect::<Vec<_>>();
+            let scripts = compiled
+                .iter()
+                .zip(&names)
+                .map(|(script, name)| CompiledScript {
+                    name: name.as_ptr(),
+                    bytes: script.bytes.as_ptr(),
+                    len: script.bytes.len(),
+                })
+                .collect::<Vec<_>>();
             // SAFETY: the shim returns null or a pointer we own until destroy;
-            // `ctx` must outlive the engine, which `Module` guarantees by
-            // boxing it for its own lifetime.
-            let h = unsafe { exact_js_create(max_heap_bytes, host, bytes, ctx) };
+            // `ctx` and Context outlive the engine. Installation consumes the
+            // script descriptors synchronously and retains its own JSI roots.
+            let h = unsafe {
+                exact_js_create(
+                    max_heap_bytes,
+                    host,
+                    bytes,
+                    ctx,
+                    context.state_ptr(),
+                    context.bindings_ptr().cast(),
+                    context.grants_ptr(),
+                    scripts.as_ptr(),
+                    scripts.len(),
+                )
+            };
             if h.is_null() {
                 return Err("the Hermes runtime could not be created".into());
             }
@@ -134,27 +179,39 @@ mod real {
 
         /// Install only during trusted initialization, after the prelude and
         /// before app code. The caller keeps `context` alive until Engine drops.
-        pub fn install_storage(
-            &mut self,
-            context: &ibex2::bindings::Context,
-        ) -> Result<(), String> {
-            const SQLITE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/storage-sqlite.hbc"));
-            const HARDEN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/storage-harden.hbc"));
+        pub fn install_storage(&mut self) -> Result<(), String> {
+            use ibex2::bindings::Groups;
+            let sqlite = ibex2::bindings::compiled_scripts(Groups::STORAGE)
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .find(|script| script.name == "sqlite")
+                .expect("STORAGE compiles sqlite");
             let mut out = std::ptr::null_mut();
-            // SAFETY: Module owns the context beyond this engine's lifetime;
-            // the shim retains bytecode buffers and borrows the Arc-backed state.
+            // SAFETY: the binding bytecode is static and the engine is live.
             let status = unsafe {
                 exact_js_install_storage(
                     self.0,
-                    context.state_ptr(),
-                    context.grants_ptr(),
-                    SQLITE.as_ptr(),
-                    SQLITE.len(),
-                    HARDEN.as_ptr(),
-                    HARDEN.len(),
+                    sqlite.bytes.as_ptr(),
+                    sqlite.bytes.len(),
                     &mut out,
                 )
             };
+            let text = take(out);
+            if status == 0 {
+                Ok(())
+            } else {
+                Err(text)
+            }
+        }
+
+        /// Capture Exact's trusted prelude additions, then freeze the realm
+        /// through Ibex's guarded hardening entrance.
+        pub fn harden(&mut self) -> Result<(), String> {
+            let harden = ibex2::bindings::HARDEN_BYTECODE;
+            let mut out = std::ptr::null_mut();
+            // SAFETY: static bytecode belongs to the same hermesc resolution.
+            let status =
+                unsafe { exact_js_harden(self.0, harden.as_ptr(), harden.len(), &mut out) };
             let text = take(out);
             if status == 0 {
                 Ok(())
@@ -391,16 +448,17 @@ mod real {
             _host: HostFn,
             _bytes: BytesFn,
             _ctx: *mut c_void,
+            _context: &ibex2::bindings::Context,
         ) -> Result<Engine, String> {
             Err(NONE.into())
         }
         pub fn raw(&self) -> Raw {
             Raw
         }
-        pub fn install_storage(
-            &mut self,
-            _context: &ibex2::bindings::Context,
-        ) -> Result<(), String> {
+        pub fn install_storage(&mut self) -> Result<(), String> {
+            Err(NONE.into())
+        }
+        pub fn harden(&mut self) -> Result<(), String> {
             Err(NONE.into())
         }
         pub fn deliver_storage_one(&mut self) -> Result<bool, String> {

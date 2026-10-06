@@ -10,8 +10,9 @@ description = "The TypeScript data-source executor (LLP 1027): an app's `app.ts`
 crate-type = ["rlib"]
 
 [dependencies]
-ibex2-sqlite = { path = "../vendor/ibex2-sqlite" }
-ibex2 = { path = "../vendor/ibex2", default-features = false }
+ibex2-sqlite = { path = "../vendor/ibex/crates/ibex2-sqlite" }
+ibex2 = { path = "../vendor/ibex/crates/ibex2", default-features = false, features = ["bindings", "crypto"] }
+hermes-lean-sys = { path = "../vendor/ibex/crates/hermes-lean-sys", default-features = false, features = ["link-lean"] }
 exact-data = { path = "../data" }
 exact-js-value = { path = "value" }
 exact-plan = { path = "../plan" }
@@ -21,8 +22,7 @@ sha2 = "0.10"
 
 [build-dependencies]
 cc = "1"
-serde_json = "1.0"
-sha2 = "0.10"
+hermes-lean-sys = { path = "../vendor/ibex/crates/hermes-lean-sys", default-features = false }
 
 [dev-dependencies]
 caltrain-data = { path = "../apps/caltrain/data" }

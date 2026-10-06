@@ -2,7 +2,7 @@
 // lacks, in JavaScript: `structuredClone`, `queueMicrotask`, and ES2023's
 // copying array methods Hermes has not built (`toSorted`, and the typed
 // arrays' `toReversed`/`toSorted`/`with`). Hermes only: a browser realm has
-// its own. `AbortController` is Ibex's (vendor/ibex2/src/bindings/abort.js),
+// its own. `AbortController` is Ibex's (vendor/ibex/crates/ibex2/src/bindings/abort.js),
 // evaluated before this file. The list of what every executor has is in
 // docs/reference.md ("What a data module can use"; pomodoro F4, calc F2).
 // @ref LLP 1027 D10 — what the module can use
