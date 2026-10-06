@@ -13,7 +13,7 @@ import { fanoutView } from './r3-composer-controls-fanout';
 import { chordGlyphs, optionValue, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './r3-composer-controls-model';
 import { sendChords } from './composer-editor-intent';
 import { measuredLabels } from './r5-composer-measure';
-import { composerMenus, effortMenuWidth, measured, probe } from './r5-composer-menus';
+import { composerMenus, effortMenuWidth, measured, probe, traitsMenuHeight } from './r5-composer-menus';
 import { environmentView } from './r4-git-env';
 import { ULTRATHINK_LOCKED_MESSAGE, ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state'; // composer-fidelity G9
 import { ultrathinkFrame } from './composer-ultrathink';
@@ -183,7 +183,7 @@ export function composerView(client: ComposerSource, requests: { approval: boole
     planVisible, planActive: planVisible && client.interactionMode === 'plan',
     ultrathink: ultrathinkFrame(client, prompt),
     more: more.items, moreCount: more.count, restingMore: restingMore.items, restingMoreCount: restingMore.count,
-    moreMenuWidth: effortMenuWidth(client.presentation, more.items), restingMoreMenuWidth: effortMenuWidth(client.presentation, restingMore.items), // composer-fidelity G9: the spectrum ring and the model icon's chroma
+    moreMenuWidth: effortMenuWidth(client.presentation, more.items), restingMoreMenuWidth: effortMenuWidth(client.presentation, restingMore.items), moreMenuHeight: traitsMenuHeight(more.items), restingMoreMenuHeight: traitsMenuHeight(restingMore.items), // composer-fidelity G9: the spectrum ring and the model icon's chroma
     traitsX: anchors.traits.x, traitsWidth: anchors.traits.width, runtimeX: anchors.runtime.x, runtimeWidth: anchors.runtime.width, moreX: anchors.more.x, moreWidth: anchors.more.width,
     keyEffort: commandChords(client.config, 'composer.effort', 'Meta+Shift+E'), keyMode: commandChords(client.config, 'composer.mode', 'Meta+Shift+A'),
   };

@@ -207,6 +207,8 @@ shape ComposerView
   menuProbes: list<R5Probe>
   effortMenuWidth: number
   runtimeMenuWidth: number
+  effortMenuHeight: number
+  runtimeMenuHeight: number
   planVisible: bool
   planActive: bool
   // composer-fidelity G9: the prompt drives the ultrathink frame (composer-ultrathink.ts).
@@ -225,6 +227,8 @@ shape ComposerView
   restingMoreCount: number
   moreMenuWidth: number
   restingMoreMenuWidth: number
+  moreMenuHeight: number
+  restingMoreMenuHeight: number
   moreX: number
   moreWidth: number
   traitsX: number
