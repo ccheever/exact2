@@ -13,6 +13,7 @@ import { providerAvailable } from './protocol';
 import { scopedPatch, fetchIntervalPatch } from './source-control-view';
 import { archiveCommand } from './settings-a-archive';
 import { deviceToolsCommand } from './settings-a-integrations';
+import { devicePlatformsCommand } from './device-support';
 import { telemetryCommand, telemetryLocal } from './settings-a-telemetry';
 import { openLogsFolder } from './diagnostics-view';
 import { bitbucketCommand } from './settings-a-bitbucket';
@@ -98,6 +99,7 @@ export function storagePatch(settings: Obj, projectId: string, key: string, raw:
 export async function restCommand(client: T3Client, native: Native, storage: Files, op: string, scope: string, value: string): Promise<string> {
   if (op.startsWith('archive-')) return archiveCommand(client, native, storage, op, scope, value);
   if (op === 'device-tools') return deviceToolsCommand(client, native, params(value));
+  if (op === 'device-platforms') return devicePlatformsCommand(client, native); // 5318d054a5: Simulator support Refresh
   if (op === 'diag-open-logs') return openLogsFolder(client, native);
   if (op === 'bitbucket') return bitbucketCommand(client, native, str(params(value).environment), params(value), () => { viewState(client).rescan++; });
   if (op.startsWith('diag-')) return telemetryCommand(client, native, op, params(value)); // settings-a-telemetry.ts

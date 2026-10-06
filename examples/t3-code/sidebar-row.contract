@@ -250,10 +250,17 @@ component SidebarPinButton
     run: action
     hoverCard: action
     hoverId: string
+  // 1e2ecbd975 (6e0abd5a10, Sidebar.tsx pinIndicator): pin at rest, pin-off on hover and on
+  // keyboard focus, so the icon reads as the action. The disabled "Pinned" case keeps the pin.
+  // exact2: focus is a local state from focus=/blur= (any focus, not only focus-visible).
+  state focused = false
+  action focusPin(on: bool)
+    focused = on
+  derive hovered = hoverId == `${t.hoverKey}#unpin`
   view
     SidebarTip(tip=`${t.hoverKey}#unpin`, hoverCard=hoverCard)
-      button press=run("unpin", t.id, "") disabled=(busy or not t.canPin) aria-label=(t.canPin ? "Unpin thread" : "Pinned") testId=`unpin-${t.id}` width=12 height=12 padding=0 flex-shrink=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
-        SidebarIcon(name="pin", size=12, color=(t.canPin and hoverId == `${t.hoverKey}#unpin` ? "light-dark(#27272a, #f1f3f7)" : "light-dark(#71717ba6, #a3a3a3a6)"))
+      button press=run("unpin", t.id, "") focus=focusPin(true) blur=focusPin(false) disabled=(busy or not t.canPin) aria-label=(t.canPin ? "Unpin thread" : "Pinned") testId=`unpin-${t.id}` width=12 height=12 padding=0 flex-shrink=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+        SidebarIcon(name=(t.canPin and (hovered or focused) ? "pin-off" : "pin"), size=12, color=(t.canPin and hovered ? "light-dark(#27272a, #f1f3f7)" : "light-dark(#71717ba6, #a3a3a3a6)"))
 
 // "Woke" stays visible and pressable while the hover actions appear beside it.
 component SidebarWokeButton
