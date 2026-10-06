@@ -1,6 +1,7 @@
 # Adopt the split ibex2 (bindings door on the lean VM, pinned Hermes bundles) in exact-js
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Done 2026-10-06 (exact2 2ce193976..436a35f43): vendors expo/ibex 7f77c82 under vendor/ibex/crates, exact-js on the bindings door (PURE|CRYPTO|ABORT, abort hooks, deferred capture, universal harden; INTL on Linux/Windows), Hermes 260318099.0.4 v4 bundles via install-once + forced-offline builds, setup --check delegates to the installer; verified macOS, iOS/tvOS Simulator, Linux, Windows
 **Systems:** js (exact-js), vendor/ibex/crates/ibex2, Hermes engine pin, build
 **Severity:** P2 (no breakage today; exact2 runs on its ibex1-era vendor)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
