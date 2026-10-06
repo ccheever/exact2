@@ -9,7 +9,7 @@
 // after three minutes. The dialog is Contract (ssh-prompt.contract); its field is the
 // native secure field below, which the module reads on Continue, so the password never
 // enters TypeScript or Contract state (X35: since exact2 #134 a Contract password input's
-// value is masked in the agent's tree, but agent `state` still prints the slot it binds).
+// value is masked in agent output, but the app's state and data module stay outside that).
 import Foundation
 import AppKit
 
