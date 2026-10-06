@@ -59,9 +59,12 @@ final class RasterSpool: @unchecked Sendable {
             unlink(root.path)
         }
         if mkdir(root.path, 0o700) != 0, errno != EEXIST { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        // A link that could not be unlinked (an immutable link, a read-only
+        // tmp) is not a root: nothing is opened through it.
+        guard lstat(root.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { throw POSIXError(.ENOTDIR) }
         let namespace = try lockFile(root.appendingPathComponent(".namespace.lock"), create: true, attempts: attempts)
         defer { close(namespace) }
-        // Swept and made only inside a real directory.
+        // Swept and made only inside a real directory, checked again under the lock.
         guard lstat(root.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { throw POSIXError(.ENOTDIR) }
         sweep(root)
         let mine = root.appendingPathComponent(UUID().uuidString, isDirectory: true)

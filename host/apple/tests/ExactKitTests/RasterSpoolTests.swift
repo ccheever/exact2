@@ -140,6 +140,21 @@ final class RasterSpoolTests: XCTestCase {
         XCTAssertEqual(info.st_mode & S_IFMT, S_IFDIR, "the root is a real directory now")
     }
 
+    /// A link in the root's place that cannot be unlinked (its directory is
+    /// read-only) is not followed: nothing is created in its target (Grok r3
+    /// finding 1).
+    func testALinkThatCannotBeUnlinkedIsNotFollowed() throws {
+        let elsewhere = fm.temporaryDirectory.appendingPathComponent("raster-elsewhere-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: elsewhere) }
+        let linked = root.appendingPathComponent("exact-raster")
+        try fm.createSymbolicLink(at: linked, withDestinationURL: elsewhere)
+        XCTAssertEqual(chmod(root.path, 0o555), 0)
+        XCTAssertThrowsError(try RasterSpool.establish(in: linked))
+        XCTAssertEqual(chmod(root.path, 0o700), 0)
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: elsewhere.path), [], "no lock file or spool in the link's target")
+    }
+
     /// Two launches both see the symlinked root; the second is paused there
     /// while the first repairs it and spools, then resumes its own repair:
     /// the first's live spool survives (Astra r2 finding 1, r3 finding 1).
