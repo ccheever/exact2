@@ -14,8 +14,9 @@ import { EnvironmentFleet, type FleetEntry } from './settings-b-fleet';
 import { setJobs, type OutdatedJob } from './settings-b-outdated';
 import { noteNow } from './composer-controls';
 import { chooseLoadBalancedEnvironment, decodeHostResources } from './load-balancing';
-import { autoBalanceSend, autoBalanceState, chooseAutoEnvironment, draftSelection, loadHostResources, noteBalancePrefs, resetHostResources,
+import { autoBalancePrepare, autoBalanceSend, autoBalanceState, chooseAutoEnvironment, draftSelection, loadHostResources, noteBalancePrefs, resetHostResources,
   setDraftSelection, withAutoOption } from './auto-balance';
+import { snapshot } from './presentation';
 import { autoBalanceUpdateBanner, autoBalanceUpdateMachines, desktopAppsConfirmMessage, machineRow, updateServers, updatesPending,
   type BannerEnvironment } from './auto-balance-banner';
 import type { ServerUpdateTarget, UpdateDeps } from './server-update';
@@ -174,9 +175,9 @@ function entry(id: string, label: string, phase: FleetEntry['phase'] = 'connecte
     generation: 1, synchronized: 1, lastEvent: 0, subscriptions: {}, config, shell: { projects: [{ id: `p${id}`, workspaceRoot: '/repos/shared', repositoryIdentity: identity }], threads: [], sequence: 0 } as never,
     scopes: [], error: '', requested: true };
 }
-type Setup = { client: T3Client; source: EnvironmentFleet; native: Native; calls: Obj[]; replies: Record<string, unknown> };
+type Setup = { client: T3Client; source: EnvironmentFleet; native: Native; calls: Obj[]; replies: Record<string, unknown>; hooks: { connect?: (request: Obj) => unknown } };
 function setup(machines: FleetEntry[] = [entry('b', 'Studio'), entry('c', 'Build box')], replies: Record<string, unknown> = {}): Setup {
-  const client = new T3Client(), source = new EnvironmentFleet(), calls: Obj[] = [];
+  const client = new T3Client(), source = new EnvironmentFleet(), calls: Obj[] = [], hooks: Setup['hooks'] = {};
   for (const machine of machines) source.entries.set(machine.key, machine);
   Object.assign(client, { environmentId: 'a', origin: 'http://192.0.2.10:3773', projectId: 'pa', threadId: '', connection: 'connected', configLive: true, shellLive: true,
     config: configFor('Laptop'), providerId: 'codex', modelId: 'gpt-5' });
@@ -185,12 +186,26 @@ function setup(machines: FleetEntry[] = [entry('b', 'Studio'), entry('c', 'Build
   noteBalancePrefs(client, { loadBalancingEnabled: true, loadBalancingWeights: {}, githubRouting: {} });
   const native: Native = { available: true, watch() {}, later: async input => {
     const request = obj(input); calls.push(request);
+    if (request.op === 'connect') {
+      // The Run on move refocuses the window's connection on the chosen machine (T3Transport connect).
+      const failure = await hooks.connect?.(request);
+      if (failure instanceof Error) return { ok: false, generation: 0, error: { kind: 'Connection', message: failure.message } };
+      const target = machines.find(machine => machine.origin === request.origin);
+      return { ok: true, generation: 2, value: { state: 'connected', origin: String(request.origin), environmentId: target?.environmentId ?? '', message: '' } };
+    }
     if (request.op !== 'request') return { ok: true, generation: Number(request.generation ?? 0), value: {} };
     const target = String(request.fleet ?? '').split('\n')[1] ?? 'a', reply = replies[target || 'a'];
     if (reply instanceof Error) return { ok: false, generation: Number(request.generation ?? 0), error: { kind: 'Timeout', message: reply.message, uncertain: true } };
     return { ok: true, generation: Number(request.generation ?? 0), value: reply ?? sample(0.5) };
   } };
-  return { client, source, native, calls, replies };
+  return { client, source, native, calls, replies, hooks };
+}
+
+/** What the window's next synchronization of the machine the draft moved to brings (synchronize: config, shell, defaults). */
+function synchronizedOn(client: T3Client, label: string, model = 'gpt-5'): void {
+  Object.assign(client, { connection: 'connected', configLive: true, shellLive: true, threadLive: true, config: configFor(label) });
+  client.shell.projects = [{ id: client.projectId, workspaceRoot: '/repos/shared', repositoryIdentity: identity }] as never;
+  Object.assign(client, { providerId: 'codex', modelId: model, runtimeMode: 'approval-required', interactionMode: 'default' }); // chooseDefaults
 }
 
 describe('Auto balance (ChatView automaticEnvironment, useLoadBalancedEnvironment)', () => {
@@ -206,12 +221,81 @@ describe('Auto balance (ChatView automaticEnvironment, useLoadBalancedEnvironmen
     await loadHostResources(client, native, state.fetch, NOW, source);
     // One server.getHostResources per candidate, each with the 5 s deadline, over its own transport.
     expect(calls.filter(call => call.method === 'server.getHostResources').map(call => [call.fleet ? String(call.fleet).split('\n')[1] : 'a', call.timeout])).toEqual([['c', 5], ['b', 5], ['a', 5]]);
-    // b is busy (0.96); c's sample is stale by its own clock, but receipt time is the client's: c is idle and wins.
+    // b is busy (0.96); c's sample is stale by its own clock, but receipt time is the client's: c is idle and wins,
+    // and the draft moves there with its auto selection (setDraftThreadContext's projectRef).
+    expect(client.environmentId).toBe('c');
+    expect(client.draftKey).toBe('c:new:pc');
     expect(draftSelection(client)).toEqual({ selection: 'auto', choice: 'c' });
+    expect(draftSelection(client, 'a:new:pa')).toEqual({ selection: '', choice: '' });
+    synchronizedOn(client, 'Build box');
     const after = autoBalanceState(client, NOW, source);
-    expect([after.automatic, after.needs, after.label, after.fetch]).toEqual([true, false, 'Auto balance', '']);
-    // The resolution records the machine; nothing refocuses while the user types.
-    expect(client.environmentId).toBe('a');
+    expect([after.automatic, after.needs, after.chosen, after.label, after.fetch]).toEqual([true, false, 'c', 'Auto balance', '']);
+  });
+
+  test('a choice that resolves while the user types moves the draft and keeps its text, owner, workspace and model', async () => {
+    const { client, source, native, hooks } = setup(undefined, { a: sample(0.5), b: sample(0.96), c: sample(0.1) });
+    const typed = 'Draft typed while machines are checked';
+    client.local.drafts[client.draftKey] = typed;
+    (client.local.composerControls.contexts ??= {})[client.draftKey] = { envMode: 'worktree', branch: '', worktreePath: '' };
+    Object.assign(client, { modelId: 'gpt-5', runtimeMode: 'full-access', interactionMode: 'plan' });
+    const owner = snapshot(client).composerOwner;
+    expect(owner).toBe('http://192.0.2.10:3773:pa:');
+    // A keystroke reaches the old key while the window's connection moves (the 'draft' op ran first).
+    hooks.connect = () => { client.local.drafts['a:new:pa'] = `${typed}!`; };
+    await loadHostResources(client, native, autoBalanceState(client, NOW, source).fetch, NOW, source);
+    expect([client.environmentId, client.projectId, client.draftKey]).toEqual(['c', 'pc', 'c:new:pc']);
+    expect(client.local.drafts).toEqual({ 'c:new:pc': `${typed}!` });
+    expect(draftContext(client)).toMatchObject({ envMode: 'worktree' });
+    expect(draftSelection(client)).toEqual({ selection: 'auto', choice: 'c' });
+    // app.contract's composerText keeps the window's typed text while the owner holds: the field is not
+    // rewritten, so its caret and focus stay where the user left them.
+    expect(snapshot(client).composerOwner).toBe(owner);
+    synchronizedOn(client, 'Build box');
+    expect(snapshot(client)).toMatchObject({ composerOwner: owner, draft: `${typed}!`, projectId: 'pc' });
+    // The moved draft keeps its model and modes over the machine's defaults.
+    await autoBalancePrepare(client, null);
+    expect([client.providerId, client.modelId, client.runtimeMode, client.interactionMode]).toEqual(['codex', 'gpt-5', 'full-access', 'plan']);
+    // Leaving the draft drops the kept owner: another draft's owner is its own.
+    Object.assign(client, { threadId: 't9' });
+    expect(snapshot(client).composerOwner).toBe(`${client.origin}:pc:t9`);
+  });
+
+  test('the composer reads its typed text through the draft owner, which a moved draft keeps', async () => {
+    const contract = await Bun.file(new URL('./app.contract', import.meta.url)).text();
+    expect(contract).toContain('derive composerOwner = data.composerOwner');
+    expect(contract).toContain('derive composerText = draftOwner == `${composerOwner}${data.requestKey}` ? draft : data.draft');
+    // The load's result lands as data only: no focus move, no draft owner reset.
+    const load = contract.slice(contract.indexOf('action balanceLoadNow'), contract.indexOf('\n', contract.indexOf('action balanceLoadNow') + 30) + 1);
+    expect(load).not.toContain('focus(');
+    expect(load).not.toContain('draftOwner');
+  });
+
+  test('a move whose connection fails leaves the draft, its text and its unresolved Auto selection where they were', async () => {
+    const { client, source, native, hooks } = setup(undefined, { a: sample(0.5), b: sample(0.96), c: sample(0.1) });
+    client.local.drafts[client.draftKey] = 'Keep me';
+    hooks.connect = () => new Error('The connection was refused.');
+    await loadHostResources(client, native, autoBalanceState(client, NOW, source).fetch, NOW, source);
+    expect([client.environmentId, client.draftKey, client.local.drafts['a:new:pa'], client.local.drafts['c:new:pc']]).toEqual(['a', 'a:new:pa', 'Keep me', undefined]);
+    expect(draftSelection(client).choice).toBe('');
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not switch machine', description: 'The connection was refused.' });
+  });
+
+  test('a send waits for a move in flight and sends from the machine the draft moved to', async () => {
+    const { client, source, native, hooks } = setup(undefined, { a: sample(0.5), b: sample(0.96), c: sample(0.1) });
+    let release = () => {};
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let connecting = false;
+    hooks.connect = () => { connecting = true; return gate; };
+    const load = loadHostResources(client, native, autoBalanceState(client, NOW, source).fetch, NOW, source);
+    for (let turn = 0; turn < 100 && !connecting; turn++) await Promise.resolve();
+    expect(connecting).toBe(true);
+    let sentFrom = '';
+    const send = autoBalanceSend(client, native, async () => { sentFrom = client.environmentId; }, source);
+    await Promise.resolve();
+    expect(sentFrom).toBe('');
+    release();
+    await Promise.all([load, send]);
+    expect(sentFrom).toBe('c');
   });
 
   test('a draft with no provider chosen yet balances over the requested driver (Codex)', () => {
@@ -234,6 +318,7 @@ describe('Auto balance (ChatView automaticEnvironment, useLoadBalancedEnvironmen
   test('picking a machine is manual and clears the choice; picking Auto asks every machine again', async () => {
     const { client, source, native } = setup();
     await loadHostResources(client, native, autoBalanceState(client, NOW, source).fetch, NOW, source);
+    synchronizedOn(client, client.environmentId === 'c' ? 'Build box' : client.environmentId === 'b' ? 'Studio' : 'Laptop');
     expect(draftSelection(client).selection).toBe('auto');
     setDraftSelection(client, { selection: 'manual', choice: '' });
     const manual = autoBalanceState(client, NOW, source);
