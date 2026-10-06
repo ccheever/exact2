@@ -138,8 +138,16 @@ when done:
   app still gets no callbacks (LLP 1009 D4).
 - A user asks with the frame-rate range it needs; the clock asks for the
   highest range among current users.
-- Users tick in a fixed order (session, scroll, heavy leaves, SVG filters)
-  instead of the order their links happened to fire.
+- Users tick in a fixed order (session, a list's smooth correction, a
+  navigation transition's reveal, scroll, heavy leaves, SVG filters) instead
+  of the order their links happened to fire. The correction and the reveal
+  also moved onto the clock (`9810e695`), so it has six users.
+- A user that moves something on screen asks for the display's full rate
+  (`FrameClock.full(on:)`). Their own links had asked for nothing, which a
+  ProMotion panel ran at its full rate; on one shared link, `.default` is a
+  timer's and never raises the rate, so a paint-only cap of 60 would
+  otherwise have slowed a correction or a reveal under a breathing fade
+  (review, 2026-10-05).
 - The pump keeps its request until the scroll has been still for two frames,
   so a long scroll is one request, not one per frame.
 - macOS keeps per-view links, since a link there belongs to a screen.

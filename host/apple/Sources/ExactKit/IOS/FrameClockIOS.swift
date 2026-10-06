@@ -35,8 +35,10 @@ final class FrameClock: NSObject {
     var running: Bool { link.map { !$0.isPaused } ?? false }
     func wants(_ owner: AnyObject) -> Bool { users[ObjectIdentifier(owner)]?.owner != nil }
 
-    /// `owner` takes frames at `rate` until `drop`; asking again only
-    /// changes its rate or tick.
+    /// Main thread only. `owner` takes frames at `rate` until `drop` or its
+    /// release (a released owner is let go at the next frame, so an owner
+    /// that may die off the main thread need not drop itself); asking again
+    /// only changes its rate or tick.
     func want(_ owner: AnyObject, _ order: Order, rate: CAFrameRateRange = .default, tick: @escaping (CADisplayLink) -> Void) {
         users[ObjectIdentifier(owner)] = User(owner: owner, order: order, rate: rate, tick: tick)
         update()
@@ -46,7 +48,18 @@ final class FrameClock: NSObject {
         update()
     }
 
+    /// What something moving on screen asks for: the display's full rate,
+    /// never under 60 (`screen` nil: the app's fastest).
+    static func full(on screen: UIScreen?) -> CAFrameRateRange {
+        let fastest = screen?.maximumFramesPerSecond
+            ?? UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen.maximumFramesPerSecond }.max() ?? 60
+        let m = Float(fastest)
+        return CAFrameRateRange(minimum: min(60, m), maximum: m, preferred: m)
+    }
+
     /// The highest of the users' ranges; `.default` when none asks for one.
+    /// `.default` is a timer's (LLP 1061 D4): it never raises the rate, so
+    /// motion asks with `full(on:)`.
     var rate: CAFrameRateRange {
         users.values.reduce(CAFrameRateRange.default) { a, u in
             let b = u.rate
@@ -64,6 +77,8 @@ final class FrameClock: NSObject {
         if l.preferredFrameRateRange != r { l.preferredFrameRateRange = r }
         l.isPaused = false
     }
+    deinit { link?.invalidate() }
+
     private func make() -> CADisplayLink {
         let l = CADisplayLink(target: Target(self), selector: #selector(Target.tick(_:)))
         l.isPaused = true

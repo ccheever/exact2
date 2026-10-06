@@ -353,7 +353,7 @@ final class OffsetDriver: NSObject {
     }
     func start() {
         began = CACurrentMediaTime()
-        FrameClock.shared.want(self, .offsetDriver) { [weak self] in self?.frame($0) }
+        FrameClock.shared.want(self, .offsetDriver, rate: FrameClock.full(on: scroll?.window?.screen)) { [weak self] in self?.frame($0) }
     }
     func retarget(_ target: CGPoint, serial: Int) {
         guard let scroll else { return }

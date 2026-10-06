@@ -37,6 +37,21 @@ final class FrameClockIOSTests: XCTestCase {
         XCTAssertEqual(clock.link?.preferredFrameRateRange, CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60))
     }
 
+    /// Motion asks for the display's full rate, and a paint-only cap or a
+    /// timer's `.default` never lowers it (LLP 1061 D4).
+    func testMotionAtTheFullRateOutranksAPaintCap() {
+        let clock = FrameClock()
+        let paint = Owner(), driver = Owner(), timer = Owner()
+        let full = FrameClock.full(on: nil)
+        XCTAssertGreaterThanOrEqual(full.maximum, 60)
+        XCTAssertEqual(full.minimum, min(60, full.maximum))
+        clock.want(timer, .session) { _ in }
+        clock.want(paint, .svgFilter, rate: CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)) { _ in }
+        clock.want(driver, .offsetDriver, rate: full) { _ in }
+        XCTAssertEqual(clock.link?.preferredFrameRateRange.maximum, full.maximum)
+        XCTAssertEqual(clock.link?.preferredFrameRateRange.minimum, max(30, full.minimum))
+    }
+
     func testUsersTickInOrderAndADroppedOneDoesNot() throws {
         let clock = FrameClock()
         let session = Owner(), scroll = Owner(), leaves = Owner()

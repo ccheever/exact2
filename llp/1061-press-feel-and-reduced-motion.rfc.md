@@ -127,8 +127,9 @@ running curve or live keyframe animation of `translate`, `scale`, `rotate`,
 `"spatial":true`. A fade or a colour change reads the same at 60 Hz, so
 paint-only motion (an `infinite` 4.2 s breathing opacity that runs for
 minutes) asks `CAFrameRateRange(30, 60, 60)` (2026-09-27). The link exists
-only while something wants frames, so an idle app drops to no link at all; a
-link kept only for a timer stays at `.default`.
+only while something wants frames, so an idle app gets no callbacks; on iOS
+the app's one link (`FrameClock`) is paused then rather than dropped
+(2026-10-05). A link kept only for a timer stays at `.default`.
 `CADisableMinimumFrameDurationOnPhone` was already set. *Rejected:* a rate
 from an animation's speed (the engine knows no box size, so no pixels per
 frame); a rate by iteration length (a slow spin still judders).

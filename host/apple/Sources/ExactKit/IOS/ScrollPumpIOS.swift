@@ -183,8 +183,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     /// work is owed, asked for once per scroll, not once per frame.
     private func start() {
         guard !FrameClock.shared.wants(self) else { return }
-        let maximum = Float(presenter?.viewport.window?.screen.maximumFramesPerSecond ?? 60)
-        FrameClock.shared.want(self, .scroll, rate: CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)) { [weak self] in self?.tick($0) }
+        FrameClock.shared.want(self, .scroll, rate: FrameClock.full(on: presenter?.viewport.window?.screen)) { [weak self] in self?.tick($0) }
     }
     /// Once scrolling has been still for `restDelay` after a scroll or a
     /// batch, the session trims its caches to what shows, as a browser

@@ -156,7 +156,7 @@ final class SvgFilterLive {
     private func animate(_ on: Bool) {
         #if os(iOS) || os(tvOS)
         if on, !FrameClock.shared.wants(self) {
-            FrameClock.shared.want(self, .svgFilter) { [weak self] _ in self?.tick() }
+            FrameClock.shared.want(self, .svgFilter, rate: FrameClock.full(on: nil)) { [weak self] _ in self?.tick() }
         } else if !on {
             FrameClock.shared.drop(self)
         }
@@ -179,12 +179,6 @@ final class SvgFilterLive {
 
     /// Stop drawing (the element is gone).
     func stop() { animate(false); last = nil; pending = nil }
-
-    deinit {
-        #if os(iOS) || os(tvOS)
-        FrameClock.shared.drop(self)
-        #endif
-    }
 
     /// Main thread: start the next draw when none is running.
     private func kick() {

@@ -209,7 +209,7 @@ final class HeavyLeaves: NSObject, UIGestureRecognizerDelegate {
 
     private func start() {
         guard !FrameClock.shared.wants(self) else { return }
-        FrameClock.shared.want(self, .heavyLeaves) { [weak self] _ in self?.tick() }
+        FrameClock.shared.want(self, .heavyLeaves, rate: FrameClock.full(on: presenter.viewport.window?.screen)) { [weak self] _ in self?.tick() }
     }
     /// One leaf a frame, visible first, once its list is still enough — or
     /// at once when focus moved into it or its row went.

@@ -694,7 +694,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
 
     private func startRevealing() {
         guard !FrameClock.shared.wants(self) else { return }
-        FrameClock.shared.want(self, .navigationReveal) { [weak self] _ in self?.revealTick() }
+        FrameClock.shared.want(self, .navigationReveal, rate: FrameClock.full(on: presenter.viewport.window?.screen)) { [weak self] _ in self?.revealTick() }
     }
 
     private func revealTick() {
