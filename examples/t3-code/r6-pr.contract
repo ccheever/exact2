@@ -99,7 +99,7 @@ component R6CheckRow
           text check.name min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size=12 line-height="16px" color=r6Ink()
       text check.label flex-shrink=0 font-size=12 line-height="16px" color=r6Muted()
       when check.url != ""
-        link href=check.url aria-label=`Details: ${check.name}` flex-shrink=0 text-decoration-line="none"
+        link cursor="pointer" href=check.url aria-label=`Details: ${check.name}` flex-shrink=0 text-decoration-line="none"
           text "Details" font-size=12 line-height="16px" color=r6Primary()
 
 // The tooltip card above the row's link half.
@@ -108,7 +108,7 @@ component R6PrCardView
     card: R6PrCard
     shown: bool
   view
-    row position="absolute" bottom=36 left=(card.clamped ? -8 : card.flipped ? -400 : 0) right=(card.flipped and not card.clamped ? 0 : -400) justify-content=(card.flipped and not card.clamped ? "flex-end" : "flex-start") pointer-events="none" inert=true z-index=140
+    row position="absolute" bottom=36 left=(card.clamped ? -8 : card.flipped ? -400 : 0) right=(card.flipped and not card.clamped ? 0 : -400) justify-content=(card.flipped and not card.clamped ? "flex-end" : "flex-start") pointer-events="none" z-index=140
       column max-width=card.maxWidth padding-left=13 padding-right=13 padding-top=13 padding-bottom=13 box-sizing="border-box" gap=8 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" opacity=(shown ? 1 : 0) transition=(shown ? "opacity 150ms ease 600ms" : "opacity 0ms") role="tooltip" aria-hidden=(not shown) testId=(shown ? "details-pr-card" : "details-pr-card-hidden")
         row gap=6 align-items="baseline" min-width=0
           text card.title min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size=12 line-height="12px" font-weight=500 color=r6Ink()

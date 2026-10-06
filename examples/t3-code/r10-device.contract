@@ -9,7 +9,7 @@ component R10DevLeftTip
     label: string
     shown: bool
   view
-    row position="absolute" right="100%" top=0 bottom=0 padding-right=4 align-items="center" justify-content="flex-end" width=360 pointer-events="none" inert=true z-index=140
+    row position="absolute" right="100%" top=0 bottom=0 padding-right=4 align-items="center" justify-content="flex-end" width=360 pointer-events="none" z-index=140
       TipCard(label=label, shown=shown)
 
 // The failed command's "!" (role alert), its message on hover.

@@ -49,10 +49,11 @@ const REFRESH_MS = 10 * 60_000; // useLiveRefresh(…, { intervalMs: 10 * 60_000
 const RETRY_MS = 30_000;
 /**
  * pullRequestEnvironment.detail merged with .checks where the environment reports them. Each answer
- * reads for itself and shares only resolved values: Exact refuses an answer that awaits a promise
- * another answer started (js/src/lib.rs, "pending on nothing"), and a superseded answer's replies
- * never arrive. An entry whose read is still out (or was dropped with its answer) is not fresh, so
- * the next answer reads again; the latest read to finish is the one kept.
+ * reads for itself and shares only resolved values. Since exact2 f96641ddd an answer awaiting another
+ * answer's fetch waits for it while that answer lives, but a let-go answer's native replies are still
+ * dropped (#109), so a shared in-flight promise could hang every answer that awaits it. An entry whose
+ * read is still out (or was dropped with its answer) is not fresh, so the next answer reads again; the
+ * latest read to finish is the one kept.
  */
 export async function readDetail(client: T3Client, native: Native, reference: Obj | null, now: number): Promise<Obj | null> {
   if (!reference || num(reference.number) <= 0 || !str(reference.repository)) return null;

@@ -67,9 +67,12 @@ describe('keyboard context menus on sidebar rows (refkbd.mjs on the f870c41 refe
     expect(rowKeyMenu('t1', 'ContextMenu')).toEqual({ op: 'menu', id: 't1', value: 'row', anchor: 'center' });
     expect(rowKeyMenu('draft:p1', 'ContextMenu')).toEqual({ op: 'draft-menu', id: 'p1', value: 'key', anchor: 'bottom-left' });
     expect(rowKeyMenu('t1', '')?.anchor).toBe('center');
-    // Shift+F10 is the draft row's window shortcut; F10 at the row key handler (no modifiers) is not a menu key.
-    for (const key of ['F10', '', 'Enter', ' ', 'a', 'Escape']) expect(rowKeyMenu('t1', key)).toBeNull();
+    // Shift+F10 opens only a draft row's menu (its own handler); a thread row has none on macOS, and F10 alone is no menu key.
+    for (const key of ['F10', 'Shift+F10', '', 'Enter', ' ', 'a', 'Escape']) expect(rowKeyMenu('t1', key)).toBeNull();
+    expect(rowKeyMenu('draft:p1', 'Shift+F10')).toEqual({ op: 'draft-menu', id: 'p1', value: 'key', anchor: 'bottom-left' });
+    for (const key of ['F10', 'Enter', ' ', 'a']) expect(rowKeyMenu('draft:p1', key)).toBeNull();
     expect(rowKeyMenu('draft:', 'ContextMenu')).toBeNull();
+    expect(rowKeyMenu('draft:', 'Shift+F10')).toBeNull();
     expect(isMenuKey('ContextMenu')).toBe(true);
   });
 
@@ -83,10 +86,10 @@ describe('keyboard context menus on sidebar rows (refkbd.mjs on the f870c41 refe
     expect(menuAnchor(client)).toEqual({});
   });
 
-  test('a draft row: ContextMenu and the Shift+F10 shortcut anchor at the row; the right click at the pointer', async () => {
+  test('a draft row: ContextMenu and Shift+F10 at its key handler anchor at the row; the right click at the pointer', async () => {
     const { client, calls } = fake([shell('t1')]);
     await sidebarCommand(client, native, files, 'row-key', 'draft:p1', 'ContextMenu', NOW);
-    await sidebarCommand(client, native, files, 'draft-menu', 'p1', 'key', NOW);
+    await sidebarCommand(client, native, files, 'row-key', 'draft:p1', 'Shift+F10', NOW);
     await sidebarCommand(client, native, files, 'draft-menu', 'p1', '', NOW);
     const menus = calls.filter(call => call.op === 'sidebarMenu');
     expect(menus.map(call => call.anchor)).toEqual(['bottom-left', 'bottom-left', undefined]);

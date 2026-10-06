@@ -201,7 +201,7 @@ component AddProviderDialog
                                     text agent.description font-size=12 line-height="16px" margin-top=2 color="light-dark(#71717b, #818181)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" width="100%"
                               row gap=6 align-items="center" flex-shrink=0
                                 when agent.link != ""
-                                  link href=agent.link aria-label=`About ${agent.name}` width=24 height=24 display="flex" align-items="center" justify-content="center" border-radius=8 testId=`acp-about-${agent.id}`
+                                  link cursor="pointer" href=agent.link aria-label=`About ${agent.name}` width=24 height=24 display="flex" align-items="center" justify-content="center" border-radius=8 testId=`acp-about-${agent.id}`
                                     PvIcon(name="external", size=14, color="light-dark(#71717b, #818181)")
                                 button press=op("acp-prepare", "", agent.id, agent.name, true) class=PvOutline height=24 padding-left=7 padding-right=7 font-size=12 disabled=(agent.added or busy) aria-label=`${agent.added ? "Already added" : (busy ? "Preparing" : "Add")} ${agent.name}` testId=`acp-add-${agent.id}`
                                   text (agent.added ? "Added" : "Add") font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"

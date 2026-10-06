@@ -14,6 +14,7 @@ style AeField
   box-sizing="border-box" width="100%" height=32 padding-left=11 padding-right=11 border-radius=10 border-style="solid" border-width=1
   border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
 style AeOutline
+  cursor="pointer"
   display="flex" flex-direction="row" align-items="center" justify-content="center" gap=8 box-sizing="border-box" height=32 padding-left=11 padding-right=11
   border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" box-shadow="0 1px 2px #0000000d" flex-shrink=0
 style AeOverlay
