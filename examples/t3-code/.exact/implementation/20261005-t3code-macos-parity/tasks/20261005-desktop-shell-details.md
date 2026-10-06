@@ -1,13 +1,13 @@
 ---
 name: 20261005-desktop-shell-details
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+branch: feat(example)/t3-code-desktop-shell-details
+pr_url: https://github.com/ccheever/exact2/pull/152
 verified_commit: null
 ---
 
@@ -110,13 +110,22 @@ Required environment: Xcode 27.0, pinned Bun, the oracle build; a Korean input s
 
 ## Progress
 
-Planned.
+2026-10-06: implemented on `feat(example)/t3-code-desktop-shell-details` (rebased on the feature branch after #147 hot-file-split and #143 legacy-sidebar). Verification: unverified.
+
+1. **Icon picker "Open in Finder"**: done. `desktop-shell-favicon.ts` (canPickExternalProjectFavicon, getLocalFileManagerName, the pick op), the footer's trailing action in `settings-b-icons.contract` (disabled while the command is pending), `T3Menus.pickProjectFavicon` / `faviconPanel` (one image of WORKSPACE_IMAGE_PREVIEW_EXTENSIONS, starting at the workspace root, a sheet on the main window), routed by `T3Module+Shell.swift`. A pick selects the absolute path and closes the dialog; a failure toasts "Could not open image picker" and keeps it open; cancel keeps it open. Offered only for a loopback origin (stand-in for the primary environment until local-primary-environment merges). Under the agent the picker takes the first image in the data root's `imports/`.
+2. **Theme-file picker**: done. `T3ContextMenu.openText` as pickThemeFiles (JSON, several files, `~/.vscode/extensions` when it exists with HOME read first, 256 KiB cap → `{name, size, text: ""}`, unreadable → `{name, size: 0, text: ""}`, `cancelled`). `settings-appearance-import.ts`: MAX_THEME_FILE_BYTES, describeOversizedThemeFile, readThemeFiles; one file fills the editor for review (the contract shows `data.json` until the person types), several import as a batch with "<file>: too large" / "<file>: <reason>" joined by " — ".
+3. **System locale**: done. `T3Locale.swift` (Locale.current, `_` → `-`) in the status presentation; `timestamp-format.ts` ports resolveTimestampLocale, resolveWeekStartsOn and the cached formatters; sidebar, timeline and usage formatting use it. X36 tested: Hermes honors explicit tags (#118), so no Swift formatting; `Intl.Locale` is missing there, so resolveWeekStartsOn answers undefined on macOS (no consumer: the clone's custom snooze is a date input, not a calendar). Calls the reference leaves at the runtime default (weekday names, "Resets …") pass en-US, the packaged Electron app's default.
+4. **⌘W held**: done. `T3Menus.dropsHeldClose`: auto-repeat ⌘W without ⌥/⇧ is dropped in the key monitor, matched by key code 13 or "w" (Korean 2-Set, X15/#110).
+5. **Quit hold**: done. T3QuitHold ported line by line (getMode answered later or failed, generation guard, the double-press window from keydown, modifier keydowns from flagsChanged); conceal leaves full screen, sets the window's alpha to 0 and keeps it key (`concealPendingQuit`); the app's mode read stays synchronous behind the async-capable `getMode`.
+6. **Full-screen state**: done. `T3FullScreen.swift` (style mask at attach, did-enter/did-exit → `t3.status`), `controlsLeft` in the snapshot (`workspaceControlsLeft`: 90, or 0.75rem in full screen), consumed by every title row that used 90/91/130 (sidebar, legacy sidebar, chat header, landing, pull requests, usage, settings nav and header) and by the sidebar minimum width.
+
+Not done / limits: full screen and the quit hold were not entered in a live drive (the agent window is never key, X27/#113); ⌘W and ⌘Q holds under real keys and Korean 2-Set are "unverified (attended)"; the oracle and trace-diff rows were not run (desktop-oracle-and-trace will not be built); the locale table against the oracle was not run (Bun ICU output is tested; #118 records Hermes = Chrome for these tags); the server's `--auto-bootstrap-project-from-cwd` created no project, so the lane seeds one with `t3 project add`.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1, 2026-10-06 | `07c950353` on `da40e6590` | `bun test examples/t3-code` 1350 pass / 0 fail (124 files; base 1321, +29 in `desktop-shell-details.test.ts`); strict tsc clean; `contract build` 2185 slots, 43 resources, 48348 nodes; `cargo test -p t3-code-macos --lib` 10/0; AppKit menus 43/0 (29 QuitHold.test.ts cases by name + conceal, held ⌘W, favicon panel, full-screen fact), contextmenu 13/0, r8-keys 4/0, r10-connect 5/0 (compiles `T3Module*.swift`); caps pass; five checks (build, test, clippy+fmt, caps, boot) pass; macOS bundle builds | One BEFORE drive (evidence base `da40e6590`) and one AFTER drive, `agent.mjs` session at 1280×840 against an isolated reference server on 16090 (project seeded with `t3 project add`): Open in Finder shown, pick closed the dialog and set the icon path; Choose files imported Night Owl and reported "b-huge.json: too large" (before: "This theme file uses an unsupported version. Expected 1." and nothing imported). The first AFTER drive missed one tap (Add project script, no press logged); the second passed every step | full screen and quit hold live, ⌘W/⌘Q under real keys and Korean 2-Set (attended); oracle and trace-diff rows not run |
 
 ## Next action
 

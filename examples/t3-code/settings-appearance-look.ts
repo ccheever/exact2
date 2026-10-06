@@ -11,7 +11,7 @@ import { CLIENT_DEFAULTS, decodeClientPrefs, type ClientPrefs } from './settings
 import { fontStack, palette, themeRoles } from './settings-appearance';
 import type { CustomTheme } from './settings-themes';
 import type { DiffState } from './diff';
-import { previewTheme } from './settings-appearance-editor';
+import { STANDARD, previewTheme } from './settings-appearance-editor';
 
 export type Look = {
   themed: boolean; mode: string;
@@ -19,6 +19,7 @@ export type Look = {
   surface: string; popover: string; border: string; input: string; text: string; muted: string; accent: string; accentText: string; message: string;
   chatMax: number; artwork: boolean; pill: string; diff: string;
   diffAdd: string; diffDel: string; diffAddSurface: string; diffDelSurface: string; diffAddLine: string; diffDelLine: string;
+  terminalLight: string; terminalDark: string; terminalFont: string; terminalSize: number;
   fontSans: string; fontSize: number; codeFont: string; codeSize: number; wordWrap: boolean; smoothing: boolean; panelMs: number;
   contextStrip: boolean; contextMeter: boolean; richText: boolean; skillsInSlash: boolean; followUp: string; legacySidebar: boolean;
   confirmUnpin: boolean; confirmArchive: boolean; confirmDelete: boolean;
@@ -48,6 +49,9 @@ export function look(client: T3Client): Look {
   const diff = DIFF[prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green'];
   return {
     themed, mode,
+    terminalLight: terminalTheme(prefs.themeLight, 'light', custom), terminalDark: terminalTheme(prefs.themeDark, 'dark', custom),
+    terminalFont: prefs.typographyAdvanced ? prefs.fontFamilyTerminal : prefs.fontFamilyCode,
+    terminalSize: prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode,
     canvas: pal.canvas, sidebar: pal.sidebar, sidebarBorder: pal.sidebarBorder, sidebarText: pal.sidebarText, sidebarMuted: pal.sidebarMuted, rowActive: pal.rowActive,
     message: messageSurface(prefs, custom, mode), surface: pal.surface, popover: pal.popover, border: pal.border, input: pal.input, text: pal.text, muted: pal.muted, accent: pal.accent, accentText: pal.accentText,
     diff: prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green', chatMax: CHAT_MAX[prefs.chatWidth] ?? 736, artwork: prefs.environmentIdentificationMode === 'artwork', pill: prefs.environmentIdentificationMode === 'pill' ? 'Nightly' : '',
@@ -87,4 +91,27 @@ export function rememberDiffLayout(client: T3Client, layout: string): void {
   local.clientSettings = { ...prefsOf(client), diffLayout: layout };
   const state = (client as unknown as { diffState: DiffState }).diffState;
   seeded.set(state, `${layout}|${local.clientSettings.diffIgnoreWhitespace}|${local.clientSettings.wordWrap}|${local.clientSettings.diffFilesCollapsed}`);
+}
+
+// Terminal roles from T3 Code 1e2ecbd975 packages/shared/src/themePalettes.ts, converted
+// from OKLCH to sRGB like settings-appearance.ts. Order: background, foreground, cursor, selection.
+const TERMINAL_PALETTES: Record<string, readonly [string, string]> = {
+  't3-chat': ['#fdf7fd #501854 #db2777 #f1c4e6', '#1f1a24 #f9f8fb #db2777 #362d3d'],
+  grove: ['#f3f7f4 #241523 #1b7d50 #cce1d7', '#1b2821 #fffaff #69d69a #36654c'],
+  ocean: ['#f5f7f8 #241523 #2672af #d0dfeb', '#17212b #fffaff #70b9ee #36566f'],
+  ember: ['#f9f7f5 #241523 #ae552a #ebdad1', '#291e1a #fffaff #f09a64 #6e4934'],
+  iris: ['#f8f7f9 #241523 #7253b9 #e0d9ee', '#1d1929 #fffaff #9d7df2 #4a3c70'],
+};
+/** JSON for the native terminal bridge; custom/editor roles override the standard palette. */
+export function terminalTheme(id: string, mode: 'light' | 'dark', custom: CustomTheme[]): string {
+  const own = custom.find(theme => theme.id === id);
+  const roles = { ...STANDARD[mode], ...(own ? own[mode] ?? own[own.appearance] ?? {} : {}) };
+  const builtIn = own ? undefined : TERMINAL_PALETTES[id]?.[mode === 'dark' ? 1 : 0].split(' ');
+  const rgb = (hex: string) => ({ r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) });
+  return JSON.stringify({ dark: mode === 'dark',
+    background: rgb(builtIn?.[0] ?? roles.terminalBackground ?? '#fcfcfc'),
+    foreground: rgb(builtIn?.[1] ?? roles.terminalForeground ?? '#27272a'),
+    cursor: rgb(builtIn?.[2] ?? roles.terminalCursor ?? '#26384e'),
+    selectionBackground: builtIn?.[3] ?? (own ? roles.terminalSelection : mode === 'dark' ? 'rgba(180, 203, 255, 0.25)' : 'rgba(37, 63, 99, 0.2)'),
+  });
 }

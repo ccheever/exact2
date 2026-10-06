@@ -1,0 +1,42 @@
+[
+  {
+    "mode": "light",
+    "size": [
+      1440,
+      840
+    ],
+    "meanAbsoluteChannelDifference": 1.2151920745149913,
+    "differentPixels": 36255,
+    "totalPixels": 1209600
+  },
+  {
+    "mode": "dark",
+    "size": [
+      1440,
+      840
+    ],
+    "meanAbsoluteChannelDifference": 1.580378086419753,
+    "differentPixels": 38443,
+    "totalPixels": 1209600
+  },
+  {
+    "mode": "grove",
+    "size": [
+      1440,
+      840
+    ],
+    "meanAbsoluteChannelDifference": 1.2222362764550265,
+    "differentPixels": 36581,
+    "totalPixels": 1209600
+  },
+  {
+    "mode": "custom",
+    "size": [
+      1440,
+      840
+    ],
+    "meanAbsoluteChannelDifference": 1.0252606922398588,
+    "differentPixels": 37776,
+    "totalPixels": 1209600
+  }
+]

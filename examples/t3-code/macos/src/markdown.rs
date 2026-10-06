@@ -36,6 +36,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "composerWorkspace",
             "refreshComposerWorkspace",
             "refreshTimelineReads",
+            "highlightSlice",
             "composerBranches",
             "acpRegistry",
             "connectionsPage",

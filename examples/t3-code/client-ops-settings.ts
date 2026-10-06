@@ -3,6 +3,7 @@
 // tasks, scoped and storage settings, archived threads, model and permission
 // defaults, provider instances). Every write re-reads the server's current
 // state first and refuses a stale scope.
+import { currentTasks, liveEnvironment } from './live-streams';
 import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
 import { bindingId, shortcutInput, whenExpression, validShortcut, validWhen } from './keybinding-settings';
@@ -67,7 +68,7 @@ async function manageScheduledTask(this: T3Client, native: Native, scope: string
   if (extra !== undefined || environmentId !== this.environmentId) throw new ClientError('That environment is no longer selected.');
   const shell = applyShell(initialShell(), await this.http(native, '/api/orchestration/shell'));
   if (projectScope && !shell.projects.some(project => project.id === projectScope)) throw new ClientError('That checkout is no longer available.');
-  const input = obj(JSON.parse(text)), tasks = arr((await this.request(native, 'scheduledTasks.list', {})).tasks);
+  const input = obj(JSON.parse(text)), tasks = await currentTasks(liveEnvironment(this, native, this.environmentId)!); // live-streams.ts: the stream's list
   const task = tasks.find(task => task.id === input.id);
   if ((op !== 'task-save' || input.id) && (!task || (projectScope && task.projectId !== projectScope))) throw new ClientError('This scheduled task no longer exists in the selected scope.');
   let payload: Obj, method: string;

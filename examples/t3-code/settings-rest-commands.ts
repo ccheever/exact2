@@ -8,11 +8,11 @@ import { ClientError, type Files, type Native } from './protocol';
 import { applyShell, arr, initialShell, obj, str, type Json, type Obj } from './domain';
 import { shortcutInput, whenExpression, validShortcut, validWhen } from './keybinding-settings';
 import { rowId } from './keybinding-view';
-import { taskInput } from './scheduled-view';
-import { providerAvailable } from './protocol';
+import { scheduledTaskCommand } from './scheduled-tasks-commands';
 import { scopedPatch, fetchIntervalPatch } from './source-control-view';
 import { archiveCommand } from './settings-a-archive';
 import { deviceToolsCommand } from './settings-a-integrations';
+import { devicePlatformsCommand } from './device-support';
 import { telemetryCommand, telemetryLocal } from './settings-a-telemetry';
 import { openLogsFolder } from './diagnostics-view';
 import { bitbucketCommand } from './settings-a-bitbucket';
@@ -98,6 +98,7 @@ export function storagePatch(settings: Obj, projectId: string, key: string, raw:
 export async function restCommand(client: T3Client, native: Native, storage: Files, op: string, scope: string, value: string): Promise<string> {
   if (op.startsWith('archive-')) return archiveCommand(client, native, storage, op, scope, value);
   if (op === 'device-tools') return deviceToolsCommand(client, native, params(value));
+  if (op === 'device-platforms') return devicePlatformsCommand(client, native); // 5318d054a5: Simulator support Refresh
   if (op === 'diag-open-logs') return openLogsFolder(client, native);
   if (op === 'bitbucket') return bitbucketCommand(client, native, str(params(value).environment), params(value), () => { viewState(client).rescan++; });
   if (op.startsWith('diag-')) return telemetryCommand(client, native, op, params(value)); // settings-a-telemetry.ts
@@ -122,30 +123,7 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
     client.config = { ...client.config, keybindings: result.keybindings ?? client.config.keybindings };
     return '';
   }
-  if (op === 'task') {
-    // ScheduledTaskRow / ScheduledTaskEditorDialog: membership and existence are
-    // re-read from the server; provider options survive an unchanged model.
-    const { projectId: scopeProject, shell } = await currentScope(client, access, scope);
-    const tasks = arr((await access.request('scheduledTasks.list', {})).tasks);
-    const task = input.id ? tasks.find(entry => entry.id === input.id) : undefined;
-    if (input.id && (!task || (scopeProject && task.projectId !== scopeProject))) throw new ClientError('This scheduled task no longer exists.');
-    if (input.action === 'save') {
-      let payload: Obj;
-      try { payload = taskInput(input, task); } catch (error) { throw new ClientError(error instanceof Error ? error.message : 'Could not save scheduled task.'); }
-      if (!shell.projects.some(project => project.id === payload.projectId) || (scopeProject && payload.projectId !== scopeProject)) throw new ClientError('Scheduled task is incomplete: Add a title, prompt, project, and model.');
-      const selection = obj(payload.modelSelection), config = await access.request('server.getConfig');
-      const provider = arr(config.providers).find(entry => entry.instanceId === selection.instanceId && providerAvailable(entry));
-      if (!provider || !arr(provider.models).some(model => model.slug === selection.model && model.isUnavailable !== true)) throw new ClientError('Could not save scheduled task: Choose an available provider and model.');
-      await access.request('scheduledTasks.upsert', payload, true);
-      return '';
-    }
-    if (!task) throw new ClientError('This scheduled task no longer exists.');
-    if (input.action === 'toggle') await access.request('scheduledTasks.setEnabled', { id: str(task.id), enabled: input.enabled === 'true' }, true);
-    else if (input.action === 'delete') await access.request('scheduledTasks.delete', { id: str(task.id) }, true);
-    else if (input.action === 'run') await access.request('scheduledTasks.runNow', { id: str(task.id) }, true);
-    else throw new ClientError('Unsupported scheduled task action.');
-    return '';
-  }
+  if (op === 'task') return scheduledTaskCommand(client, native, scope, input); // scheduled-tasks-commands.ts: the live list, any environment
   if (op === 'scoped' || op === 'fetch-interval' || op === 'device') {
     // ProjectDefaultsSettings / SourceControlWritingSettings / BranchNamingSettings /
     // GitFetchIntervalSettings / DeviceIntegrationControls writes.

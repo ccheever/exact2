@@ -14,6 +14,9 @@ use ShellEditorIcon from "./shell-icons.contract"
 use TipBubble from "./shell-tip.contract"
 use FileTypeIcon from "./timeline-files.contract"
 use synColor from "./markdown.contract"
+use synSlant from "./markdown.contract"
+use DiffCommentCard, DiffDraftCard from "./diff-comments.contract"
+use DiffGlyph from "./diff-glyphs.contract"
 use MarkdownBlocks from "./markdown.contract"
 use R4Icon from "./r4-surfaces-icons.contract"
 
@@ -174,6 +177,19 @@ component R4FilePreview
   props
     files: R4Files
     local: action
+  // diff-review: the open comment draft's text (FilePreviewPanel's annotation draft).
+  state draftText = ""
+  action editDraft(text: string)
+    draftText = text
+  action beginComment(line: number)
+    draftText = ""
+    local("surface-files-comment-begin", files.path, `${line}`)
+  action cancelComment
+    draftText = ""
+    local("surface-files-comment-cancel", files.path, "")
+  action saveComment
+    local("surface-files-comment-save", files.path, draftText)
+    draftText = ""
   view
     when files.preview == "loading"
       column flex=1 align-items="center" justify-content="center" testId="file-loading"
@@ -200,22 +216,44 @@ component R4FilePreview
         // r8-pointer: the editor fills the pane, so a click below the last line lands in it (focus, caret at the end).
         column position="relative" width=(files.wrap ? "100%" : "auto") min-width="100%" min-height="100%" padding-top=8 padding-bottom=8 box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" press=local("surface-files-begin-edit", files.path, "") role="code" aria-label=files.path testId="file-lines"
           each line in files.lines key=line.id
-            R4CodeRow(line=line, gutter=files.gutter, wrap=files.wrap)
+            when line.kind == "line"
+              R4CodeRow(line=line, gutter=files.gutter, wrap=files.wrap, path=files.path, open=(files.commentOpen or files.editing), local=local, begin=beginComment)
+            when line.kind == "note"
+              DiffCommentCard(text=line.text, remove=local("surface-files-comment-delete", files.path, line.entry))
+            when line.kind == "draft"
+              DiffDraftCard(rangeLabel=line.label, text=draftText, edit=editDraft, cancel=cancelComment, save=saveComment)
           // Editing keeps the coloured, numbered lines: the editor's own text is clear over them, its caret and selection visible.
           when files.editing
             textarea id="file-editor" hook="t3-plain-text" value=files.editorText input=local("surface-files-edit", files.path) blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top=7 right=0 bottom=9 padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family="ui-monospace" font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false"
 
+// A press on the number selects the line (Shift extends); the gutter's "+" comments on the selection or the line.
 component R4CodeRow
   props
     line: R4CodeLine
     gutter: number
     wrap: bool
+    path: string
+    open: bool
+    local: action
+    begin: action
+  state hovering = false
+  action hover(over: bool)
+    hovering = over
+  action pick(e: MouseEvent)
+    if not open
+      local((e.shiftKey ? "surface-files-comment-line-shift" : "surface-files-comment-line"), path, `${line.line}`)
+  action comment
+    if not open
+      begin(line.line)
   view
-    row width="100%" align-items="flex-start"
-      text line.number width=gutter flex-shrink=0 padding-right=9.83 box-sizing="border-box" text-align="right" font-family="ui-monospace" font-size=13 line-height="20px" font-variant-numeric="tabular-nums" color="light-dark(#565656, #9d9d9d)"
+    row width="100%" align-items="flex-start" hover=hover position="relative" background-color=(line.selected ? "light-dark(#fef3c7, #3a3112)" : "#00000000")
+      text line.number press=pick aria-label=`Select line ${line.number}` testId=`file-line-${line.number}` width=gutter flex-shrink=0 padding-right=9.83 box-sizing="border-box" text-align="right" font-family="ui-monospace" font-size=13 line-height="20px" font-variant-numeric="tabular-nums" color="light-dark(#565656, #9d9d9d)"
       text flex=1 min-width=0 padding-left=7.8 padding-right=7.8 box-sizing="border-box" font-family="ui-monospace" font-size=13 line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         each run in line.runs key=run.id
-          text run.text color=synColor(run.syntax)
+          text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax)
+      when not open
+        button press=comment aria-label=`Comment on line ${line.number}` testId=`file-comment-${line.number}` position="absolute" left=2 top=2 width=16 height=16 padding=0 border-radius=4 border-width=0 opacity=(hovering ? 1 : 0) background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" justify-content="center"
+          DiffGlyph(name="plus", size=12, color="#ffffff")
 
 // FileBrowserPanel: refresh, "Search files" and expand/collapse all (36pt, 4pt
 // below in the inline panel), status lines, then the compact tree (24pt rows,

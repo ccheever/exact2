@@ -9,6 +9,7 @@ import { ClientError, type Files, type Native } from './protocol';
 import { pushToast } from './toast';
 import type { T3Client } from './client';
 import { composerNow } from './composer-controls';
+import { RUNTIME_LOCALE } from './timestamp-format';
 
 const DRIVER_LABELS: Record<string, string> = { codex: 'Codex', claudeAgent: 'Claude', cursor: 'Cursor', grok: 'Grok', opencode: 'OpenCode', antigravity: 'Antigravity', pi: 'Pi', acpRegistry: 'ACP Registry' };
 
@@ -102,7 +103,7 @@ export function usageNotices(client: T3Client, now: number): UsageNotice[] {
     const snoozed = recovery.snooze === true && recovery.runId === runId && recovery.resetAt === resetAt && !!resetAt
       && Date.parse(str(shell.snoozedUntil)) === Date.parse(resetAt);
     notices.push({ id: `usage-limit-recovery:${runId}`, variant: 'warning', icon: 'gauge', title: 'Usage limit reached', priority: 1,
-      description: resetAt ? `Resets ${new Date(resetAt).toLocaleString()}` : 'Reset time unavailable; retry manually',
+      description: resetAt ? `Resets ${new Date(resetAt).toLocaleString(RUNTIME_LOCALE)}` : 'Reset time unavailable; retry manually',
       action: canSchedule ? 'cc:limit-resume' : '', actionLabel: scheduled ? 'Cancel auto-resume' : 'Resume at reset',
       action2: canSchedule && !snoozed && Date.parse(resetAt) > now ? 'cc:limit-snooze' : '', action2Label: 'Snooze until reset', dismiss: '', dismissLabel: '', lines: [], actionReason: '', dismissId: '', segments: [] });
   }
