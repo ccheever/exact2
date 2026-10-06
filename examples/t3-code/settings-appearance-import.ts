@@ -9,6 +9,7 @@ import { obj, str, type Obj } from './domain';
 import { parseThemeFile, themeIdFromName, toHex, type CustomTheme } from './settings-themes';
 import { STANDARD, updateFamily } from './settings-appearance-editor';
 import { pushToast } from './toast';
+import { letGo } from './let-go';
 
 export const SUGGESTED_SEARCHES = ['Dracula', 'Catppuccin', 'Nord', 'Tokyo Night'];
 export const SORT_OPTIONS: [string, string][] = [['downloadCount', 'Most downloaded'], ['rating', 'Best rated'], ['timestamp', 'Newest'], ['relevance', 'Most relevant']];
@@ -304,7 +305,7 @@ export async function themeImportCommand(client: T3Client, native: Native | null
     if (!state.query.trim()) { state.results = null; state.error = ''; return ''; }
     state.searching = true; state.error = '';
     try { state.results = await searchOpenVsx(client, native, state.query.trim(), state.sort); }
-    catch (error) { state.error = error instanceof Error ? error.message : 'Open VSX search is unavailable right now.'; state.results = null; }
+    catch (error) { if (letGo(error)) throw error; state.error = error instanceof Error ? error.message : 'Open VSX search is unavailable right now.'; state.results = null; }
     finally { state.searching = false; }
     return '';
   }
@@ -319,7 +320,9 @@ export async function themeImportCommand(client: T3Client, native: Native | null
     try { addManyThemes(client, await installOpenVsx(client, native, ext), openVsxCollection(ext.id)); resetImport(client); }
     catch (error) {
       // The search section shows the failure; the dialog stays open.
-      state.installing = ''; state.error = error instanceof Error ? error.message : 'That theme could not be added.';
+      state.installing = '';
+      if (letGo(error)) throw error;
+      state.error = error instanceof Error ? error.message : 'That theme could not be added.';
       throw new ClientError('toasted:');
     }
     return '';

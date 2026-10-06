@@ -10,6 +10,7 @@
 // atoms; Pierre's two expand arrows on a long range are one control that opens the 100 lines below
 // the previous hunk.
 import { arr, str, type Obj } from './domain';
+import { letGo } from './let-go';
 
 export type DiffSourceKind = 'working-tree' | 'branch-range';
 export type FileStat = { path: string; previousPath: string | null; additions: number; deletions: number };
@@ -71,8 +72,10 @@ export async function loadFilePatches(lazy: LazyPatches, source: DiffSource, ign
   const files = unanswered(lazy);
   for (const file of files) lazy.patches.set(file.path, { state: 'loading', diff: '', truncated: false });
   await Promise.all(files.map(async file => {
-    const result = await send('review.getDiffPreview', filePatchPayload(source, file, ignoreWhitespace)).catch((error: unknown) => error instanceof Error ? error : new Error(String(error)));
-    adoptFilePatch(lazy, file, result);
+    const result = await send('review.getDiffPreview', filePatchPayload(source, file, ignoreWhitespace)).catch((error: unknown) => letGo(error) ? null : error instanceof Error ? error : new Error(String(error)));
+    // A let-go request is not an error: the file is asked again (let-go.ts).
+    if (result === null) lazy.patches.delete(file.path);
+    else adoptFilePatch(lazy, file, result);
   }));
 }
 /** Retry by path: forget the answer so the next load asks again. */

@@ -9,6 +9,7 @@ import { arr, num, obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { relativeTimeLabel } from './settings-data';
 import { pushToast } from './toast';
+import { letGo } from './let-go';
 
 // ── Formatting (ResourceTelemetryDiagnostics.tsx) ───────────────────────────
 export function formatBytes(value: number): string {
@@ -109,7 +110,7 @@ export async function syncTelemetry(client: T3Client, native: Native | null | un
   if (state.generation !== generation) state.snapshot = null;
   state.generation = generation;
   try { state.id = str((await client.restAccess(native).call({ op: 'subscribe', key: TELEMETRY_KEY, method: 'subscribeResourceTelemetry', payload: {} })).id); state.error = ''; }
-  catch (error) { state.id = ''; state.error = error instanceof Error ? error.message : 'Could not start resource telemetry.'; }
+  catch (error) { state.id = ''; if (!letGo(error)) state.error = error instanceof Error ? error.message : 'Could not start resource telemetry.'; }
 }
 
 const WINDOWS: Record<string, [number, number]> = { '5m': [300_000, 15_000], '15m': [900_000, 30_000], '30m': [1_800_000, 60_000], '1h': [3_600_000, 120_000] };
@@ -118,7 +119,7 @@ async function history(client: T3Client, native: Native, now: number, refresh: n
   // resourceTelemetryHistory: staleTimeMs 5_000.
   if (state.history && state.history.key === key && now - state.history.at < 5000) return state.history;
   try { state.history = { key, at: now, value: await client.restAccess(native).request('server.getResourceTelemetryHistory', { windowMs: window[0], bucketMs: window[1] }), error: '' }; }
-  catch (error) { state.history = { key, at: now, value: state.history?.value ?? null, error: error instanceof Error ? error.message : 'Could not load resource history.' }; }
+  catch (error) { if (letGo(error)) throw error; state.history = { key, at: now, value: state.history?.value ?? null, error: error instanceof Error ? error.message : 'Could not load resource history.' }; }
   return state.history;
 }
 
@@ -262,7 +263,7 @@ export async function telemetryCommand(client: T3Client, native: Native, op: str
   const state = stateOf(client), access = client.restAccess(native);
   if (op === 'diag-retry') {
     try { const result = await access.request('server.retryResourceTelemetry', {}, true); if (result.snapshot) state.snapshot = obj(result.snapshot); state.error = ''; }
-    catch (error) { pushToast(client, { kind: 'error', title: 'Could not restart resource monitor', description: error instanceof Error ? error.message : 'The resource monitor retry failed.' }); }
+    catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Could not restart resource monitor', description: error instanceof Error ? error.message : 'The resource monitor retry failed.' }); }
     return '';
   }
   if (op === 'diag-kill-cancel') { state.kill = null; return ''; }
@@ -283,6 +284,7 @@ export async function telemetryCommand(client: T3Client, native: Native, op: str
       pushToast(client, { kind: 'error', title: `Could not send ${signal}`, description: typeof message === 'string' && message ? message : `Failed to send ${signal} to process ${pid}.` });
     }
   } catch (error) {
+    if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: `Could not send ${signal}`, description: error instanceof Error ? error.message : `Failed to send ${signal}.` });
   } finally { state.signaling.delete(key); }
   return '';
