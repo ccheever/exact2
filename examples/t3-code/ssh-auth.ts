@@ -4,7 +4,7 @@
 // T3SshAuth.swift holds the queue and runs `ssh` again with the askpass helper; the
 // password lives only in the native secure field and the child's environment, never
 // here: the dialog's Continue asks the module to read the field it drew
-// (`t3-ssh-password`, X35 / #134 workaround). This file has the pure parts, ported
+// (`t3-ssh-password`, X35: exact2 #134 masks only the field's own value in agent output, not the app's state or this module). This file has the pure parts, ported
 // for their tests and for the dialog's view, and the dialog's data source.
 import { obj, str, num } from './domain';
 import { bridgeReply, type Native } from './protocol';

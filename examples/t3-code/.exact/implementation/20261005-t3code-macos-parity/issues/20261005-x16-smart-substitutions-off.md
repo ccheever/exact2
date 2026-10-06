@@ -1,10 +1,10 @@
 ---
 name: 20261005-x16-smart-substitutions-off
 plan: 20261005-t3code-macos-parity
-status: draft
+status: adopted
 kind: framework-gap
 blocks: [20261005-composer-fidelity, 20261005-diff-review-engine, 20261005-pr-writing-and-metadata]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/111
 reproduced_on: null
 ---
 
@@ -102,6 +102,5 @@ To confirm on the pinned `main` at `issue-open`.
   `issue-close` verifies bytes with the AppKit case and one attended pass.
 
 ## Status and next action
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval;
-publication only after approval).
+
+Filed as #111; fixed by main #160. Adopted by task `20261007-adopt-main-fixes-input`: the `t3-plain-text` switch-off is removed (Files editor, diff comment, script command and composer), the Files editor's hook is renamed `t3-file-editor` (it still takes the focus its press began), and `autocorrect="off"` is on every editable textarea (commit message, theme JSON, scheduled prompt and scoped setting added); `text-entry.test.ts` checks it. Link and data detection, text completion and smart insert/delete are no longer forced off: they are AppKit's defaults again, as #160 leaves them. The attended real-keyboard pass was not run.

@@ -1,8 +1,7 @@
 import AppKit
 import XCTest
 
-// Lane r5-panels (T3PanelsNative.swift): the Files editor's text view types
-// exactly what was typed; PullRequestUnavailableError reads as the reference's
+// Lane r5-panels (T3PanelsNative.swift): PullRequestUnavailableError reads as the reference's
 // sentence; a sent attachment's text preview and Save file over a stubbed
 // asset route (no network). Lane r13-panels: a press below the Files editor's last line, with the
 // composer holding the focus, gives the mounted editor the focus with the caret at the end, and
@@ -63,12 +62,12 @@ final class FileEditorFixture {
         editor.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
         editor.string = "# pr-demo\nStatus: main moved on\n"
     }
-    /// The press began editing: the editor mounts (a new `t3-plain-text` node) and its hook runs.
+    /// The press began editing: the editor mounts (a new `t3-file-editor` node) and its hook runs.
     func mount() {
         lines.addSubview(editor)
-        let element = ExactElement(hook: .t3PlainText, id: "file-editor", node: 7, hooks: hooks)
+        let element = ExactElement(hook: .t3FileEditor, id: "file-editor", node: 7, hooks: hooks)
         element.view = editor; element.platform = editor
-        T3PlainText.install(element)
+        T3FileEditor.install(element)
         tick()
     }
     /// A key typed on the keyboard, sent the way the window routes it: to its first responder.
@@ -93,7 +92,7 @@ final class PanelsTests: XCTestCase {
         f.lines.addSubview(f.editor); f.editor.layoutManager?.ensureLayout(for: f.editor.textContainer!)
         let below = f.point(x: 20, below: 250)
         f.editor.removeFromSuperview()
-        T3PlainText.recordPress(f.window, at: below)
+        T3FileEditor.recordPress(f.window, at: below)
         f.mount()
         XCTAssertTrue(f.window.firstResponder === f.editor, "the editor takes the focus from the composer")
         XCTAssertEqual(f.editor.selectedRange(), NSRange(location: (f.editor.string as NSString).length, length: 0), "caret at the end of the last line")
@@ -109,7 +108,7 @@ final class PanelsTests: XCTestCase {
         let glyph = f.editor.layoutManager!.boundingRect(forGlyphRange: NSRange(location: 3, length: 1), in: f.editor.textContainer!)
         let onLine = f.editor.convert(NSPoint(x: glyph.minX + f.editor.textContainerOrigin.x + 1, y: glyph.midY + f.editor.textContainerOrigin.y), to: nil)
         f.editor.removeFromSuperview()
-        T3PlainText.recordPress(f.window, at: onLine)
+        T3FileEditor.recordPress(f.window, at: onLine)
         f.mount()
         XCTAssertTrue(f.window.firstResponder === f.editor)
         XCTAssertEqual(f.editor.selectedRange().location, 3, "the caret before the pressed character")
@@ -120,7 +119,7 @@ final class PanelsTests: XCTestCase {
     /// An agent's tap carries no AppKit event (and an old press does not count): caret at the end.
     func testATapWithoutAPressPointGoesToTheEnd() {
         let f = FileEditorFixture()
-        T3PlainText.recordPress(f.window, at: f.point(x: 20, below: 2))
+        T3FileEditor.recordPress(f.window, at: f.point(x: 20, below: 2))
         tick(1.1)
         f.window.makeFirstResponder(nil)
         f.mount()
@@ -128,45 +127,10 @@ final class PanelsTests: XCTestCase {
         XCTAssertEqual(f.editor.selectedRange().location, (f.editor.string as NSString).length)
         // The editor mounts once per press: a later hook call on the same node changes nothing.
         f.window.makeFirstResponder(f.composer)
-        let element = ExactElement(hook: .t3PlainText, id: "file-editor", node: 7, hooks: f.hooks)
+        let element = ExactElement(hook: .t3FileEditor, id: "file-editor", node: 7, hooks: f.hooks)
         element.view = f.editor; element.platform = f.editor; element.isNew = false
-        T3PlainText.install(element); tick()
+        T3FileEditor.install(element); tick()
         XCTAssertTrue(f.window.firstResponder === f.composer)
-    }
-
-    private func typed(_ text: String, plain: Bool) -> String {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
-        let view = NSTextView(frame: window.contentView!.bounds)
-        window.contentView!.addSubview(view)
-        window.makeFirstResponder(view)
-        // The settings a person's macOS defaults can turn on for any text view.
-        view.isAutomaticQuoteSubstitutionEnabled = true
-        view.isAutomaticDashSubstitutionEnabled = true
-        view.isAutomaticTextReplacementEnabled = true
-        if plain { T3PlainText.apply(view) }
-        for character in text { view.insertText(String(character), replacementRange: view.selectedRange()) }
-        // AppKit applies substitutions as text checking after input; run it the way typing does.
-        view.checkTextInDocument(nil)
-        return view.string
-    }
-
-    func testControlSubstitutesAndPlainTextDoesNot() {
-        let text = "x = \"0.1.0\"; it's -- done"
-        let control = typed(text, plain: false)
-        print("control (substitutions on):", control)
-        XCTAssertNotEqual(control, text, "the control should show AppKit's substitutions")
-        XCTAssertEqual(typed(text, plain: true), text)
-    }
-
-    func testApplyTurnsEverySubstitutionOff() {
-        let view = NSTextView()
-        view.isAutomaticQuoteSubstitutionEnabled = true; view.isAutomaticDashSubstitutionEnabled = true
-        view.isAutomaticTextReplacementEnabled = true; view.isAutomaticSpellingCorrectionEnabled = true
-        view.isAutomaticLinkDetectionEnabled = true; view.isAutomaticDataDetectionEnabled = true; view.smartInsertDeleteEnabled = true
-        T3PlainText.apply(view)
-        XCTAssertFalse(view.isAutomaticQuoteSubstitutionEnabled); XCTAssertFalse(view.isAutomaticDashSubstitutionEnabled)
-        XCTAssertFalse(view.isAutomaticTextReplacementEnabled); XCTAssertFalse(view.isAutomaticSpellingCorrectionEnabled)
-        XCTAssertFalse(view.isAutomaticLinkDetectionEnabled); XCTAssertFalse(view.isAutomaticDataDetectionEnabled); XCTAssertFalse(view.smartInsertDeleteEnabled)
     }
 
     func testUnavailableMessages() {

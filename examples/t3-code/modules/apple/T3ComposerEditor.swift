@@ -99,9 +99,6 @@ final class T3ComposerEditor {
     private func attach(_ view: NSTextView) {
         detach()
         textView = view
-        // r5-integrate: the reference composer is a browser textarea, which never substitutes; AppKit's smart
-        // dashes turned a typed `-->` into `—>` (a Mermaid prompt failed to parse). Same switch-off as the Files editor.
-        T3PlainText.apply(view)
         if view.delegate !== proxy {
             proxy.inner = view.delegate as? NSObject
             view.delegate = proxy

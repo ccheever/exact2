@@ -1,11 +1,10 @@
 // Lane r5-panels: the right panel's native needs.
 //
-// 1. The Files editor writes exactly what was typed. A Contract textarea maps
-//    `autocorrect="off"` to spelling only, so AppKit's smart quotes, smart
-//    dashes, text replacement and link detection stay on and `"0.1.0"` would be
-//    saved as `“0.1.0”`. The `t3-plain-text` hook turns every substitution off on
-//    that text view (the reference's editor is a plain browser textarea, which
-//    never substitutes).
+// 1. The Files editor (hook `t3-file-editor`) takes the focus when a press in the
+//    file's body mounts it. It writes exactly what was typed through its
+//    `autocorrect="off"`, which exact2 #111 maps to no smart quotes, dashes or
+//    text replacement (the reference's editor is a browser textarea, which never
+//    substitutes).
 // 2. A sent attachment's preview (MIT reference, see LICENSE-T3:
 //    components/files/AttachmentFilePreview.tsx): its text is read from the
 //    signed asset URL with a 1 MB range (FILE_TEXT_PREVIEW_MAX_BYTES), and Save
@@ -14,10 +13,9 @@
 import AppKit
 import Foundation
 
-enum T3PlainText {
+enum T3FileEditor {
     static func install(_ element: ExactElement) {
-        guard element.hook == .t3PlainText, let view = element.textView else { return }
-        apply(view)
+        guard element.hook == .t3FileEditor, let view = element.textView else { return }
         watchPresses()
         if element.isNew, element.id == fileEditorId { focusFileEditor(element, view) }
     }
@@ -82,18 +80,6 @@ enum T3PlainText {
     }
     /// Tests stand in for a press.
     static func recordPress(_ window: NSWindow, at point: NSPoint) { press = (window, point, ProcessInfo.processInfo.systemUptime) }
-
-    /// Every automatic substitution AppKit can apply while typing, off.
-    static func apply(_ view: NSTextView) {
-        if view.isAutomaticQuoteSubstitutionEnabled { view.isAutomaticQuoteSubstitutionEnabled = false }
-        if view.isAutomaticDashSubstitutionEnabled { view.isAutomaticDashSubstitutionEnabled = false }
-        if view.isAutomaticTextReplacementEnabled { view.isAutomaticTextReplacementEnabled = false }
-        if view.isAutomaticSpellingCorrectionEnabled { view.isAutomaticSpellingCorrectionEnabled = false }
-        if view.isAutomaticLinkDetectionEnabled { view.isAutomaticLinkDetectionEnabled = false }
-        if view.isAutomaticDataDetectionEnabled { view.isAutomaticDataDetectionEnabled = false }
-        if view.isAutomaticTextCompletionEnabled { view.isAutomaticTextCompletionEnabled = false }
-        if view.smartInsertDeleteEnabled { view.smartInsertDeleteEnabled = false }
-    }
 }
 
 enum T3AttachmentFiles {

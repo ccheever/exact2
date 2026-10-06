@@ -1,10 +1,10 @@
 ---
 name: 20261005-x35-secure-text-entry
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap (unconfirmed)
 blocks: [20261005-managed-codex-chatgpt, 20261005-provider-settings-upkeep, 20261005-provider-sign-in-and-install, 20261005-ssh-password-and-remote-open]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/134
 reproduced_on: null
 ---
 
@@ -73,5 +73,4 @@ Under A: the SSH password dialog uses the Contract field and drops the native se
 
 ## Status and next action
 
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (check the capability on the pin first; if it already exists, record it and close this issue; otherwise reproduce, search for duplicates and prepare the report for the user's approval; publication only after approval).
+Filed as #134; closed by main #167: an `input type="password"`'s value is `•••` in `tree`, `layout` and the `type` reply on every host, and `autocomplete` sets the AutoFill content type. The clone's provider and Bitbucket password inputs are masked with no change. task `20261007-adopt-main-fixes-input` kept the SSH dialog's native secure field: main's docs leave "what the app stores (`state.slots`, its data module)" outside the guarantee, and a Contract field would carry the password through a component state slot, the action that answers the prompt and the data module's native request. The native field keeps it out of all three, which the SSH acceptance's secret audit relied on. (In this task's drive, agent `state` did not list the theme dialog's component-local draft, so a `state` reply may not show such a slot; the data-module path remains.) Still missing upstream: a password field whose value reaches a native module without passing through app state, or a stated guarantee for that path.
