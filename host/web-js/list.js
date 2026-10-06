@@ -15,6 +15,12 @@ const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 
 const atTarget = (a, c, offset, sent) => { const gap = Math.abs(c - offset); return gap <= 0.01 || (a.follows && gap <= 0.5 && Math.abs(c - sent) <= 0.01); };
 const lead = (port, v) => { const extra = Math.min(Math.abs(v) * LEAD_SECONDS, port * 2); return v > 0 ? [port, port + extra] : [port + extra, port]; };
 const same = Object.is;
+// A row remeasured within this of the height it already has keeps that
+// height (mod.rs `MEASURE_NOISE`): a translated row reads float32 ulps off
+// (58 as 57.99997), and a revision bumped by that would refuse the drop a
+// gap was certified for (LLP 1094 D7).
+const MEASURE_NOISE = 0.01;
+const noise = (index, key, position, size) => index.measured(key) && Math.abs(index.h[position] - size) <= MEASURE_NOISE;
 
 // ---------------------------------------------------------------- the size index (index.rs)
 // A sum tree over row heights; `me` is each leaf's measured epoch (0: an
@@ -502,7 +508,7 @@ class Collection {
   dims(f) { const g = this.geometry; return g && g.port_cross === f.port_cross && g.port_main === f.port_main && g.cross === f.cross && g.focus_view === f.focus_view && g.interaction_view === f.interaction_view; }
   measure(byView, r) {
     const m = this.mounted[byView.get(r.view)], key = this.index.order[m.position];
-    this.index.setMeasured(key, m.token, r.size);
+    this.index.setMeasured(key, m.token, noise(this.index, key, m.position, r.size) ? this.index.h[m.position] : r.size);
     if (r.size === 0) this.zeros.add(key); else this.zeros.delete(key);
   }
   feedback(f, byView, fill) {
@@ -547,7 +553,7 @@ class Collection {
     if (!g) return undefined;
     const remeasures = r => {
       const m = this.mounted[byView.get(r.view)], key = this.index.order[m.position];
-      return this.index.token(key) === m.token && !(this.index.measured(key) && this.index.h[m.position] === r.size && (r.size === 0) === this.zeros.has(key));
+      return this.index.token(key) === m.token && !(noise(this.index, key, m.position, r.size) && (r.size === 0) === this.zeros.has(key));
     };
     if (f.measurements.some(remeasures) || this.restoredAt || this.atEnd || this.target || this.pending || this.correction || !this.dims(f)) return undefined;
     const a = this.index.anchor(f.offset, g.port_main, this.followEnd);

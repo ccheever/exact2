@@ -111,6 +111,11 @@ fn travel_inside_the_realized_window_moves_only_the_geometry() {
     assert_eq!(after.rows, before.rows);
     assert_eq!(h.collection().children, children);
     assert_eq!(h.collection().geometry.as_ref().unwrap().offset, 3231.0);
+    // A translated row remeasures float32 ulps off (58 as 57.99997): noise,
+    // not a measurement, so the revision a drop certified stays.
+    assert!(!h.send(report(&h, 3231.0, -0.00003)));
+    assert_eq!(h.snapshot().revision, before.revision);
+    assert_eq!(h.snapshot().rows, before.rows);
     // A new height is a measurement: the window realizes again.
     assert!(h.send(report(&h, 3231.0, 8.0)));
     assert_ne!(h.snapshot().revision, before.revision);
