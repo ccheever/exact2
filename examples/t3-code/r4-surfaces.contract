@@ -1,3 +1,5 @@
+use TerminalContent from "./terminal.contract"
+use Look from "./settings-appearance-look.contract"
 // The right panel's tab bar and its non-diff surfaces (lane r4-surfaces,
 // r4-surfaces-panel.ts), measured on the served reference (MIT, see LICENSE-T3:
 // RightPanelTabs.tsx, ui/panel-tab-close-button.tsx, PanelLayoutControls.tsx,
@@ -46,6 +48,9 @@ component R4PanelHeader
     detailsOpen: bool
     keyThreadPanel: string
     keyRightPanel: string
+    terminalAvailable: bool // terminal-drawer: the layout controls' toggle
+    terminalOpen: bool
+    keyTerminal: string
     still: bool
     ui: action
     details: action
@@ -53,9 +58,9 @@ component R4PanelHeader
     scheme: string
   view
     when scheme == "dark"
-      R4HeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, still=still, ui=ui, details=details, local=local)
+      R4HeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, terminalAvailable=terminalAvailable, terminalOpen=terminalOpen, keyTerminal=keyTerminal, still=still, ui=ui, details=details, local=local)
     else
-      R4HeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, still=still, ui=ui, details=details, local=local)
+      R4HeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, terminalAvailable=terminalAvailable, terminalOpen=terminalOpen, keyTerminal=keyTerminal, still=still, ui=ui, details=details, local=local)
 
 // The bar itself, rebuilt per scheme by R4PanelHeader so its SVG glyphs resolve light-dark().
 component R4HeaderBar
@@ -67,6 +72,9 @@ component R4HeaderBar
     detailsOpen: bool
     keyThreadPanel: string
     keyRightPanel: string
+    terminalAvailable: bool // terminal-drawer: the layout controls' toggle
+    terminalOpen: bool
+    keyTerminal: string
     still: bool
     ui: action
     details: action
@@ -133,9 +141,9 @@ component R4HeaderBar
             MorphPair(first="maximize", second="minimize", on=maximized, size=16, color="light-dark(#27272acc, #f5f5f5cc)", onColor="light-dark(#27272acc, #f5f5f5cc)", still=still)
           TipBubble(label=(maximized ? "Restore panel size" : "Maximize panel"), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "maximize"))
       box position="relative" flex-shrink=0 hover=hover("terminal")
-        button disabled=true aria-label="Toggle terminal drawer" testId="panel-toggle-terminal" width=28 height=28 padding=0 border-radius=10 border-width=0 opacity=0.64 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="#00000000"
+        button press=ui("terminal", "") disabled=(not terminalAvailable) aria-label="Toggle terminal drawer" aria-pressed=terminalOpen testId="panel-toggle-terminal" width=28 height=28 padding=0 border-radius=10 border-width=0 opacity=(terminalAvailable ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(terminalAvailable and (terminalOpen or hovered == "terminal") ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
           ShellIcon(name="panel-bottom", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
-        TipBubble(label="Terminal drawer is unavailable", side="bottom", align="end", offset=32, inset=40, shown=(hovered == "terminal"))
+        TipBubble(label=(terminalAvailable ? (keyTerminal == "" ? "Toggle terminal drawer" : `Toggle terminal drawer (${keyTerminal})`) : "Terminal drawer is unavailable"), side="bottom", align="end", offset=32, inset=40, shown=(hovered == "terminal"))
       box position="relative" flex-shrink=0
         button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=((panel.deviceSetup or panel.files.editorsOpen) ? "" : "Escape") testId="panel-toggle-right" width=28 height=28 padding=0 border-radius=10 border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)"
           ShellIcon(name="panel-right", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
@@ -239,6 +247,9 @@ component R4AddItem
 // The active non-diff surface under the tab bar.
 component R4SurfaceBody
   props
+    look: Look
+    confirm: action
+    closePending: bool
     panel: R4Panel
     scheme: string
     sheet: bool
@@ -246,6 +257,8 @@ component R4SurfaceBody
     command: action
     paletteShow: action
   view
+    when panel.kind == "terminal"
+      TerminalContent(view=panel.terminal, look=look, dark=(scheme == "dark"), closePending=closePending, command=command, confirm=confirm)
     when panel.kind == "files" or panel.kind == "file"
       R4FilesBody(files=panel.files, scheme=scheme, sheet=sheet, local=local)
     when panel.kind == "pull-requests"

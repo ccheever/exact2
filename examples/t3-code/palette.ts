@@ -4,6 +4,7 @@
 // page, the query and the highlight. The add-project pages live in palette-add.ts,
 // the file picker and content search in palette-files.ts.
 import type { T3Client } from './client';
+import { terminalProcessCount } from './sidebar-view';
 import { arr, obj, str, type Obj } from './domain';
 import { projectIdentity } from './presentation';
 import { searchSettings, searchContext, breadcrumbLabel } from './settings-search';
@@ -19,6 +20,7 @@ export type PalettePart = { id: string; text: string; hit: boolean; cls: string 
 export type PaletteRow = {
   key: string; index: number; header: string; headerGap: boolean; kind: string; op: string; arg: string; arg2: string;
   icon: string; prefix: string; title: string; bold: string; description: string; shortcut: string; timestamp: string; trailing: string;
+  terminalCount: number;
   badge: string; badgeOp: string; checkbox: boolean; checked: boolean; project: string; projectInk: string; projectSurface: string; env: string;
   branch: string; provider: string; current: boolean; matchLabel: string; matchParts: PalettePart[]; titleParts: PalettePart[]; line: string; orbs: Orb[]; top: number; height: number;
 };
@@ -33,7 +35,7 @@ export type PaletteView = {
 
 export const RECENT_THREAD_LIMIT = 12;
 const blankRow: PaletteRow = { key: '', index: -1, header: '', headerGap: false, kind: 'action', op: '', arg: '', arg2: '', icon: '', prefix: '', title: '', bold: '',
-  description: '', shortcut: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '',
+  terminalCount: 0, description: '', shortcut: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '',
   branch: '', provider: '', current: false, matchLabel: '', matchParts: [], titleParts: [], line: '', orbs: [], top: 0, height: 32 };
 export function row(fields: Partial<PaletteRow>): PaletteRow { return { ...blankRow, ...fields }; }
 
@@ -160,7 +162,7 @@ export function threadItems(client: T3Client, now: number, matches: Map<string, 
       terms: [str(thread.title), ...arr(thread.pullRequests).map(pr => `#${str(pr.number)}`), projectTitle, str(thread.branch), str(match?.snippet), str(thread.id)],
       row: row({ key: str(thread.id), op: 'thread', arg: str(thread.id), icon: 'message-square', title: str(thread.title, 'Untitled thread'), timestamp: relativeLabel(stampIso, now),
         project: projectTitle ? identity.projectMark : '', projectInk: identity.projectInk, projectSurface: identity.projectSurface, description: projectTitle, env: projectTitle ? 'Local' : '',
-        branch: str(thread.branch), provider: str(instance?.driver), current: thread.id === client.threadId,
+        terminalCount: terminalProcessCount(client, str(thread.id)), branch: str(thread.branch), provider: str(instance?.driver), current: thread.id === client.threadId,
         matchLabel: content.length ? (source === 'user' ? 'You:' : 'Agent:') : '', matchParts: content }) };
   });
 }

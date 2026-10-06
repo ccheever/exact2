@@ -1,17 +1,17 @@
 ---
 name: 20261005-terminal-drawer
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: in-progress
 verification: unverified
-delivery: none
+delivery: open
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-terminal-drawer
+pr_url: https://github.com/ccheever/exact2/pull/175
 verified_commit: null
 ---
 
-# Terminal drawer: one shell per thread on the server's terminal sessions
+# Terminal sessions and bottom drawer
 
 ## Outcome
 
@@ -167,14 +167,83 @@ Required environment: lane backend at the pin, oracle build, Xcode 27.0, Bun 1.4
 
 ## Progress
 
-Planned. No branch.
+2026-10-06: implemented on `feat(example)/t3-code-terminal-drawer` (base `9670b0723`).
+
+- Ported with original test names: `terminalOutput` (TS twin + Swift `T3TerminalOutput`, shared
+  `macos/tests/terminal/vectors.json`, 11 vectors read by bun and AppKit), `terminalSession` (21),
+  `terminalSessions` (6), `terminalUiStateStore` (14), `terminalLabels` (8), `terminalCloseConfirm` (4),
+  drawer helpers (exit rule, mounted threads 2 + a 12-thread case, fonts 4, project scripts 3, new clamp tests).
+- Sessions are native (`T3TerminalSessions.swift`): `terminal.attach` is a side stream of the transport
+  (`T3Transport+Terminal.swift`): not the inbox, not the 16-stream cap (44 at most); each chunk is
+  acknowledged after the 512 KiB buffer holds it; a lost socket ends the streams and they attach again.
+  `terminal.write` (one RPC per input) and `terminal.resize` (latest-wins) go native. The view writes
+  `[terminal] <message>` lines and reports `Process exited` once; the tab then closes without a confirm.
+- Drawer (`terminal.contract`): below the chat column, 6 pt `pan` separator (commit at release), Close
+  toolbar button with the app confirm dialog (`Close terminal "Terminal 1"?` / "This stops the running
+  process and clears its history."), empty state with New Terminal, height animation when `panelMs > 0`
+  and motion is not reduced. Toggle: ⌘J (MAIN_ROWS), chat header, right panel header, launcher bar.
+- Client (`terminal-drawer-view.ts`): toggle/new/close/exited/height ops, `terminal.open` with cwd,
+  worktree and the project script env, close with `deleteHistory:true` then `exit\n` on failure,
+  `subscribeTerminalMetadata` (labels, reconcile, suppressed closed ids; an authorization failure is
+  not retried), thread delete closes the thread's terminals before `thread.delete`, state saved per
+  thread under `terminal` in `t3-code.json`. Mounted threads (active + 10 hidden) keep their sessions
+  natively without a web view (`terminalRetain`); a view replays the buffer when its thread returns.
+- Decision U19: the paste is not split; the server's refusal shows as `[terminal] <message>`.
+- Focus on close (ChatView.tsx:7545-7565, the `terminalOpen` effect): whenever the drawer closes the reference
+  focuses the composer on the next frame, and opening it focuses the terminal. The clone now focuses the
+  composer on every close path: ⌘J and the layout toggles, the confirmed Close, and the shell's exit
+  (`app.contract` `command` and `confirmUi`). Checked by the Contract build and the Bun suite; not driven (drive limit).
+
+Not done / limits: split, tabs, New in the toolbar (20261005-terminal-layout); drafts without a server
+thread have no drawer (the clone's drafts carry no thread id); a background (fleet) environment's
+thread has no drawer (sessions use the focused transport); the chat canvas layout still measures the
+window height, not the height above the drawer; under the agent the terminal takes the system scheme, so it can be dark in a light
+window (spike note). Oracle and trace-diff rows: not run. Attended rows: unverified (attended).
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (implementation) | `0f66bbb0e` (drive build), checks at `c7e240c80` | `bun test examples/t3-code` 1921 pass / 1 skip / 0 fail (base 1829); strict tsc clean; `contract build` 2324 slots, 44 resources; `cargo test -p t3-code-macos --lib` 10/0; AppKit: terminal 13 pass + 1 skip, transport 49/0, composer 45/0, menus 43/0, r5-panels 8/0, every other binary pass (mermaid needs a server, timeline-keyboard separate recipe: not run); caps pass; five checks pass (build, test 2928 pass, clippy, fmt, caps, boot); macOS bundle builds | Live drive (one AFTER call after two runs that stopped in the welcome wizard on the recipe): paired with the lane server (port 16200, `SHELL=/bin/sh`), opened seeded thread "Drawer one", `toggle-terminal` → drawer 280 pt, `touch drawer-proof` + `ls` (file created in the thread folder; screen `drawer-proof README.md`), separator drag −120 → 400, `seq 1 200000` ran and the drawer kept answering, Close → confirm text as above, Cancel kept it, Confirm closed it (`metadata` 0 sessions), reopen + `exit` → `[terminal] Process exited` and the drawer closed. BEFORE drive on the base shows the disabled toggle | The drive exposed "the reply was not JSON" (an ArraySlice in the terminal status) — fixed in `9d4fd4deb` with a test, not re-driven (drive limit). Flood: retained bytes and Ack counts were not visible to the agent (native status is not in `state`); covered by the transport and vector tests. Relaunch replay, 3-thread switching, Settings font/theme, three-scope session: not driven (unit tests only). Attended: ⌘J with the terminal focused, Korean typing, live window resize |
+| 2 (⌘J focus) | after `da0cdf31f` | Matches the reference: composer focus on every drawer close. `contract build` 2328 slots, 45 resources; `bun test examples/t3-code` 1959 pass / 1 skip / 0 fail | Reference read: `ChatView.tsx:7545-7565` | Not driven (one-drive rule); attended row "⌘J closes and the composer has focus" |
+
+## Repair verification, 2026-10-06
+
+The user requested terminal verification, repair of discovered bugs, and PR evidence. The previous
+Electron comparison is preserved at PR #175 comment 6017408751 and on the `t3-code-evidence`
+branch, commit `a80581a8dc5ac3995da6abf8af1723fb187ec0da`.
+
+Two defects were reproduced and repaired:
+
+- Delayed WebKit/WASM readiness reclaimed focus after the user typed in the composer. Focus is
+  now requested when the terminal mounts; readiness completes it only if the terminal still owns
+  the native first responder. AppKit tests exercise initial focus, composer focus during loading,
+  and a later explicit focus request.
+- A failed resize was recorded as applied, so a disconnected resize remained stale after
+  reconnection. The session now keeps the desired grid separately from the successful grid and
+  reapplies it on attach. Loopback WebSocket tests cover disconnected resize, failure retry,
+  successful deduplication, and coalescing of pending sizes.
+
+Guidance remains `20261005-platforms-v3`: accessibility, state/data, testing/debugging. These are
+app-native repairs; no framework or dependency changes. Repair verification passed: terminal XCTest 16 executed / 1 skipped / 0 failures; transport
+XCTest 51 executed / 2 skipped / 0 failures; Bun 2115 passed / 1 skipped; Cargo 2928 passed /
+18 ignored; build, Clippy, fmt, caps and boot passed. Both repair source identity and root-check
+source identity remained unchanged. Independent review found no blocking repair findings.
+Actual macOS capture confirms initial focus, composer focus retention, shell filesystem effect,
+280→400 resize with settled 21×129 grid, ⌘J focus return, Cancel retention and confirmed close.
+Evidence: `t3-code-evidence` branch, `evidence/terminal-drawer/20261006-repairs/README.md`.
+
+The previous live focus recipe was confounded by an asynchronous open. A new actual WKWebView
+regression compiled with the original view fails at the expected composer-focus assertion;
+the repaired view passes. The corrected live sequence checks drawer-open before typing.
+Full parity acceptance remains open for the previously unverified normal-launch persistence,
+physical Korean IME, three-scope authorization, and visual/motion rows.
 
 ## Next action
 
-`prepare` after `20261005-terminal-surface` merges with a GO verdict and `20261005-remote-scopes-and-update-commands` merges.
+Review the repairs and evidence on PR #175. Keep the overall ticket active until the remaining
+acceptance rows have direct evidence.
+
+## Expanded verification, 2026-10-07
+
+PR #175 now also carries terminal-layout, terminal-integrations and sign-in-terminals. Normal app restart, physical first-input Korean composition, three-scope refusal, 44-session transport capacity, retained drawer animation/reversal/reduced motion, native paste and terminal focus have direct evidence. Source review caught reused-ID resize and blurred-composer caret defects; their regressions are preserved with the repair checks. The [acceptance matrix](https://github.com/ccheever/exact2/blob/t3-code-evidence/evidence/terminal-drawer/20261007-expanded-parity/MATRIX.md) distinguishes actual GUI, transport and component checks. Full parity remains unverified, including the unresolved [Browser dependency #100](https://github.com/ccheever/exact2/issues/100).

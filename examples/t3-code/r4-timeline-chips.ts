@@ -17,7 +17,7 @@ export interface ChipView {
   id: string; href: string; kind: string; label: string; size: string; tip: string;
   detail: string; icon: string; target: string; owner: string;
 }
-export interface MarkdownEnv { codeFont: string; codeSize: number; wrap: boolean; chips: ChipView[] }
+export interface MarkdownEnv { codeFont: string; codeSize: number; wrap: boolean; chips: ChipView[]; runCommands: string[] }
 
 const CONTEXT_LINK = /(!?)\[([^\]\n]{0,512})\]\((t3-context:\/\/v1\/([a-z][a-z0-9-]{0,39})\/([a-z0-9_-]{1,128}))\)/gi;
 // MARKDOWN_LINK_HREF_PATTERN, minus web and context links: what the parser marks as a file link.
@@ -104,8 +104,8 @@ function contextChip(href: string, kind: string, label: string, record: Obj | un
       const video = isVideo(attachment);
       return { ...base, kind: video ? 'video' : 'file', label: middleTruncate(name), size, tip: `${name}\n${size}`, icon: video ? '' : fileIconToken(name), target: str(attachment.id) };
     }
-    case 'terminal': return { ...base, kind: 'terminal', label: str(record.label, label),
-      tip: `${str(record.terminalLabel)} lines ${num(record.lineStart)}-${num(record.lineEnd)}`, detail: str(record.text) };
+    case 'terminal': return { ...base, kind: 'terminal', label: str(record.label, label), size: num(record.lineStart) === num(record.lineEnd) ? `Line ${num(record.lineStart)}` : `Lines ${num(record.lineStart)}–${num(record.lineEnd)}`,
+      tip: str(record.terminalLabel), detail: str(record.text) };
     case 'element': return { ...base, kind: 'element', label: str(record.label, label), tip: str(record.pageTitle).trim() || str(record.pageUrl),
       detail: [str(record.selector) || `<${str(record.tagName)}>`, str(record.htmlPreview).trim()].filter(Boolean).join('\n') };
     case 'preview-annotation': return { ...base, kind: 'element', label: str(record.label, label), tip: str(record.pageTitle).trim() || str(record.pageUrl) || 'Preview annotation',
@@ -127,7 +127,7 @@ export function markdownEnv(client: T3Client): MarkdownEnv {
   const prefs = (client.local as unknown as { clientSettings?: ClientPrefs } | undefined)?.clientSettings || decodeClientPrefs({});
   const size = Number(prefs.fontSizeCode);
   return { codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace', codeSize: Number.isFinite(size) ? Math.min(18, Math.max(10, Math.round(size))) : 13,
-    wrap: prefs.wordWrap !== false, chips: [] };
+    wrap: prefs.wordWrap !== false, chips: [], runCommands: [] };
 }
 /** Settings → Appearance → Diff colors: "blue-orange" or the default "red-green". */
 export function diffSchemeOf(client: { local: object }): string {

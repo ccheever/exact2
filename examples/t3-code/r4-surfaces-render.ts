@@ -7,7 +7,7 @@ import { fileIconToken } from './timeline-files';
 export type Run = { id: string; text: string; weight: number; slant: string; mono: boolean; href: string; kind: string; icon: string };
 export type Block = { id: string; kind: string; depth: number; marker: string; text: string; href: string; header: boolean; runs: Run[]; cells: { id: string; runs: Run[] }[]; gap: number; flow: boolean;
   // r4-timeline: markdown.contract ChatBlock's table fields (a `table` block's rows and sizing columns, its Markdown and CSV); empty here.
-  rows: { id: string; header: boolean; cells: { id: string; runs: Run[] }[] }[]; columns: { id: string; sizer: Run[]; capped: boolean; header: boolean; grow: number; align: string }[]; markdown: string; csv: string };
+  rows: { id: string; header: boolean; cells: { id: string; runs: Run[] }[] }[]; columns: { id: string; sizer: Run[]; capped: boolean; header: boolean; grow: number; align: string }[]; markdown: string; csv: string; closedFence: boolean };
 export type Document = { id: string; blocks: Block[] };
 
 const run = (id: number, text: string, extra: Partial<Run> = {}): Run => ({ id: String(id), text, weight: 400, slant: 'normal', mono: false, href: '', kind: '', icon: '', ...extra });
@@ -42,7 +42,7 @@ export function markdownDocument(id: string, text: string): Document {
   const blocks: Block[] = [];
   const add = (kind: string, fields: Partial<Block>) => {
     const previous = blocks[blocks.length - 1], depth = fields.depth ?? 0;
-    blocks.push({ id: String(blocks.length), kind, depth, marker: '', text: '', href: '', header: false, runs: [], cells: [], flow: false, rows: [], columns: [], markdown: '', csv: '', ...fields, gap: gapFor(previous, kind, depth) });
+    blocks.push({ id: String(blocks.length), kind, depth, marker: '', text: '', href: '', header: false, runs: [], cells: [], flow: false, rows: [], columns: [], markdown: '', csv: '', closedFence: false, ...fields, gap: gapFor(previous, kind, depth) });
   };
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   let paragraph: string[] = [];
@@ -59,7 +59,7 @@ export function markdownDocument(id: string, text: string): Document {
       flush();
       const body: string[] = [];
       for (index++; index < lines.length && !lines[index]!.trim().startsWith(fence[1]!); index++) body.push(lines[index]!);
-      add('code', { text: body.join('\n'), href: fence[2] ?? '' });
+      add('code', { text: body.join('\n'), href: fence[2] ?? '', closedFence: index < lines.length });
       continue;
     }
     const heading = /^(#{1,6})\s+(.*)$/.exec(line);

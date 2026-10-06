@@ -34,6 +34,10 @@ import { DEVICE_STATE_KEY, deviceStateEvent } from './r4-surfaces-device';
 import { LIVE_KEYS, liveEvent } from './live-streams';
 import { WORKTREE_SETUP_KEY, worktreeSetupEvent } from './timeline-worktree';
 import { GIT_ACTION_KEY, gitActionEvent } from './r4-git-actions';
+import { TERMINAL_METADATA_KEY, terminalMetadataEvent } from './terminal-drawer-view'; // terminal-drawer
+import { adoptTerminalContexts } from './terminal-integrations';
+import { providerAuthEvent } from './provider-auth-terminal';
+import { adoptTerminalPrefs } from './terminal-ui-state'; // terminal-drawer
 import { obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThread, mergeHistory,
   readyCheckpoint, type Obj, type Shell, type ThreadState } from './domain';
 import { ClientError, bridgeReply, providerAvailable, applyConfig, type Native, type Files } from './protocol';
@@ -175,11 +179,13 @@ export class T3Client {
       next.customThemes = decodeCustomThemes(saved.customThemes);
       adoptModelPrefs(next, saved); // settings-b: model visibility/order (settings-b-models.ts)
       next.composerControls = decodeComposerControls(saved.composerControls);
+      adoptTerminalContexts(next, saved);
       adoptStash(next, saved); // composer-editor: the prompt stash (composer-editor-stash.ts)
       adoptComposerFiles(next, saved); // composer-editor: folded pastes (composer-editor-files.ts)
       adoptPagesPrefs(next, saved); // pages: page preferences and the first-run flag (pages-prefs.ts)
       adoptShellPrefs(next, saved); // shell: notice dismissals and closed workspace cards (shell-prefs.ts)
       adoptFilesPrefs(next, saved); // r5-panels: Files explorer and render preferences (r5-panels-prefs.ts)
+      adoptTerminalPrefs(next, saved); // terminal-drawer: each thread's drawer (terminal-ui-state.ts)
       if (groupingModes.includes(str(saved.lastGroupingMode))) next.lastGroupingMode = str(saved.lastGroupingMode);
       const device = obj(saved.deviceSettings);
       next.deviceSettings.composerCollapseOnScroll = device.composerCollapseOnScroll !== false;
@@ -468,7 +474,9 @@ export class T3Client {
         if (key === VCS_STATUS_KEY) { vcsStatusEvent(this, entry); continue; } // shell-vcs.ts: the workspace card's git status
         if (key === GIT_ACTION_KEY) { gitActionEvent(this, entry); continue; } // r4-git-actions.ts: the card's git.runStackedAction stream
         if (key === DEVICE_STATE_KEY) { deviceStateEvent(this, entry); continue; } // r4-surfaces-device.ts: the device hub state
+        if (providerAuthEvent(this, entry)) continue;
         if (LIVE_KEYS.includes(key)) { liveEvent(this, entry); continue; } // live-streams.ts: scheduled tasks and project clones
+        if (key === TERMINAL_METADATA_KEY) { terminalMetadataEvent(this, entry); continue; } // terminal-drawer-view.ts: terminal labels and sessions
         if (!this.subscriptions[key] || str(entry.subscriptionId) !== this.subscriptions[key]) continue;
         // T3Transport resubscribes a failed stream on this session after a backoff (250 ms
         // doubling to 30 s); an authorization failure waits for the next session (c5a929e).
@@ -601,7 +609,7 @@ export class T3Client {
 
   async command(op: string, id: string, value: string, n: number, native: Native | null | undefined, storage: Files): Promise<{ revision: number; message: string }> {
     if (!native?.available) return { revision: ++this.revision, message: 'Open this app on macOS to connect to T3 Code.' };
-    const local = ['draft', 'answer', 'choice', 'previous-question', 'search', 'sidebar', 'dismiss-error', 'close-diff', 'favorite-model', 'copy-message', 'grouping-mode', 'grouping-override', 'device-setting', 'setting-snapshot', 'remove-snapshot', 'snapshot-preview-sound', 'snapshot-shortcut-record', 'snapshot-shortcut-save', 'copy-diagnostic'].includes(op) || op.startsWith('restlocal:') || op.startsWith('chatlocal:') || op.startsWith('editorlocal:') || op.startsWith('shelllocal:') || op.startsWith('cclocal:') || op.startsWith('sidebarlocal:') || op.startsWith('pageslocal:') || DIFF_LOCAL_OPS.includes(op);
+    const local = ['draft', 'answer', 'choice', 'previous-question', 'search', 'sidebar', 'dismiss-error', 'close-diff', 'favorite-model', 'copy-message', 'grouping-mode', 'grouping-override', 'device-setting', 'setting-snapshot', 'remove-snapshot', 'snapshot-preview-sound', 'snapshot-shortcut-record', 'snapshot-shortcut-save', 'copy-diagnostic'].includes(op) || op.startsWith('restlocal:') || op.startsWith('chatlocal:') || op.startsWith('editorlocal:') || op.startsWith('shelllocal:') || op.startsWith('cclocal:') || op.startsWith('sidebarlocal:') || op.startsWith('pageslocal:') || op.startsWith('terminallocal:') || op.startsWith('terminalpanellocal:') || DIFF_LOCAL_OPS.includes(op);
     const epoch = local ? this.commandEpoch : ++this.commandEpoch;
     if (!local) {
       if (this.busy && this.pending) this.pending.uncertain = true;

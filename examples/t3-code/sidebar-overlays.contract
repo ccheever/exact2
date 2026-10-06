@@ -213,7 +213,7 @@ component SidebarPlacedHoverCard
     height: number
     viewportHeight: number
     shown: bool
-  derive rows = (t.projectName != "" ? 1 : 0) + (t.hoverEnvironment != "" ? 1 : 0) + (t.branch != "" ? 1 : 0) + (t.hoverModel != "" ? 1 : 0) + (t.hoverHandoff != "" ? 1 : 0) + (t.hoverError != "" ? 1 : 0)
+  derive rows = (t.projectName != "" ? 1 : 0) + (t.hoverEnvironment != "" ? 1 : 0) + (t.branch != "" ? 1 : 0) + (t.hoverModel != "" ? 1 : 0) + (t.hoverHandoff != "" ? 1 : 0) + (t.hoverError != "" ? 1 : 0) + (t.terminalCount > 0 ? 1 : 0)
   derive cardH = 41 + (rows > 0 ? 2 + 22 * rows : 0)
   derive aTop = top + (t.card ? 2 : 0)
   derive aBottom = top + height - (t.card ? 2 : 0)
@@ -256,6 +256,11 @@ component SidebarHoverCard
           row gap=8 align-items="center" height=16
             SidebarIcon(name="arrow-right-left", size=12, color="light-dark(#71717b, #818181)")
             text t.hoverHandoff font-size=12 line-height="16px" color="light-dark(#27272abf, #f5f5f5bf)" line-clamp=1
+        when t.terminalCount > 0
+          row gap=8 align-items="center"
+            svg width=12 height=12 viewBox="0 0 24 24" fill="none" stroke="light-dark(#009689, #96f7e4e6)" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true flex-shrink=0
+              path d="m4 17 6-5-6-5M12 19h8"
+            text t.terminalLabel font-size=12 line-height="16px" color="light-dark(#27272abf, #f5f5f5bf)" line-clamp=1
         when t.hoverError != ""
           row gap=8 align-items="center" height=16
             SidebarIcon(name="circle-alert", size=12, color=(t.hoverErrorWarning ? "#fe9a00" : "light-dark(#fb2c36, #fb414a)"))

@@ -43,11 +43,29 @@ shape WelcomeAgent
   summary: string
   state: string
   badge: string
+  terminalOpen: bool
+  terminalAvailable: bool
+shape WelcomeSetupTerminal
+  font: string
+  fontSize: number
+  light: string
+  dark: string
+  open: bool
+  ready: bool
+  retry: bool
+  status: string
+  environmentId: string
+  terminalId: string
+  driver: string
+  cwd: string
+  providerInstanceId: string
+  threadId: string
 shape WelcomeMachine
   key: string
   label: string
   agents: list<WelcomeAgent>
   chatgpt: bool
+  terminal: WelcomeSetupTerminal
 shape WelcomeCandidate
   key: string
   title: string
@@ -137,6 +155,7 @@ component WelcomeGhost
   props
     label: string
     small: bool
+    terminalIcon: bool
     disabled: bool
     press: action
     testId: string
@@ -145,7 +164,9 @@ component WelcomeGhost
     over = value
   view
     button press=press hover=hover disabled=disabled testId=testId height=(small ? 24 : 32) padding-left=(small ? 7 : 11) padding-right=(small ? 7 : 11) box-sizing="border-box" border-radius=8 border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
-      text label font-size=(small ? 12 : 14) line-height=(small ? "16px" : "20px") font-weight=500 white-space="nowrap" color=(over and not disabled ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+      when terminalIcon
+        PgIcon(name="terminal", size=14, color="light-dark(#71717b, #818181)")
+      text label margin-left=(terminalIcon ? 6 : 0) font-size=(small ? 12 : 14) line-height=(small ? "16px" : "20px") font-weight=500 white-space="nowrap" color=(over and not disabled ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
 
 // The modal (Dialog with disablePointerDismissal): Escape and outside clicks do nothing.
 component WelcomeWizard
@@ -181,7 +202,7 @@ component WelcomeWizard
             when step == "connect"
               WelcomeConnect(view=view, busy=busy, error=error, link=link, pairOpen=pairOpen, helpOpen=helpOpen, local=local, editLink=editLink, pair=pair, togglePair=togglePair, toggleHelp=toggleHelp, copy=copy, setup=setup)
             when step == "agents"
-              WelcomeAgents(view=view, busy=busy, local=local, go=go, chatgpt=chatgpt)
+              WelcomeAgents(view=view, scheme=scheme, busy=busy, local=local, go=go, chatgpt=chatgpt)
             when step == "import"
               WelcomeImport(view=view, busy=busy, local=local, finish=finish)
 
@@ -303,6 +324,7 @@ component WelcomeCommand
 // AgentsStep: one section per computer; Codex accounts first, then Claude.
 component WelcomeAgents
   props
+    scheme: string
     view: WelcomeView
     busy: bool
     local: action
@@ -317,16 +339,19 @@ component WelcomeAgents
             text machine.label margin-bottom=8 font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
             column width="100%" gap=6
               each agent in machine.agents key=agent.key
-                WelcomeAgentCard(agent=agent, busy=busy, local=local)
+                WelcomeAgentCard(agent=agent, machine=machine.key, busy=busy, local=local)
+            when machine.terminal.open
+              WelcomeSetup(terminal=machine.terminal, scheme=scheme, local=local)
             when machine.chatgpt
               row margin-top=12
-                WelcomeGhost(label="Connect another ChatGPT account", small=true, disabled=busy, press=chatgpt, testId="welcome-another-chatgpt")
+                WelcomeGhost(terminalIcon=false, label="Connect another ChatGPT account", small=true, disabled=busy, press=chatgpt, testId="welcome-another-chatgpt")
       row width="100%" margin-top=24 justify-content="flex-end"
         WelcomePrimary(label="Continue", icon="arrow-right", disabled=busy, press=go("import"), testId="welcome-agents-continue")
 
 component WelcomeAgentCard
   props
     agent: WelcomeAgent
+    machine: string
     busy: bool
     local: action
   view
@@ -340,7 +365,7 @@ component WelcomeAgentCard
         text agent.summary font-size=12 line-height="19.5px" color="light-dark(#71717b, #818181)"
       when agent.kind == "codex-setup"
         row flex-shrink=0 gap=8 align-items="center"
-          WelcomeGhost(label="Use existing CLI", small=false, disabled=busy, press=local("codex-mode", agent.instanceId, "existing"), testId="welcome-codex-existing")
+          WelcomeGhost(terminalIcon=false, label="Use existing CLI", small=false, disabled=busy, press=local("codex-mode", agent.instanceId, "existing"), testId="welcome-codex-existing")
           button press=local("codex-mode", agent.instanceId, "managed") disabled=busy testId="welcome-codex-chatgpt" height=28 padding-left=9 padding-right=9 box-sizing="border-box" gap=6 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" box-shadow="inset 0 1px 0 #ffffff29" display="flex" flex-direction="row" align-items="center"
             ProviderMark(driver="codex", size=16, color="#ffffff")
             text "Continue with ChatGPT" font-size=14 line-height="20px" font-weight=500 color="#ffffff" white-space="nowrap"
@@ -348,7 +373,9 @@ component WelcomeAgentCard
         row flex-shrink=0 gap=6 align-items="center"
           PgIcon(name="check", size=14, color="light-dark(#007a55, #00d492)")
           text "Ready" font-size=12 line-height="16px" font-weight=500 color="light-dark(#007a55, #00d492)"
-      when agent.kind == "card" and agent.state != "ready"
+      when agent.kind == "card" and (agent.state == "install" or agent.state == "signIn")
+        WelcomeGhost(label=agent.badge, small=true, terminalIcon=true, disabled=(busy or agent.terminalOpen or not agent.terminalAvailable), press=local("terminal-open", machine, agent.key), testId=`welcome-terminal-${agent.key}`)
+      when agent.kind == "card" and agent.state != "ready" and agent.state != "install" and agent.state != "signIn"
         text agent.badge flex-shrink=0 font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
 
 // ImportStep: the scan, the candidates as checkboxes, then skip or import.
@@ -367,15 +394,15 @@ component WelcomeImport
             PgIcon(name="refresh-cw", size=20, color="light-dark(#71717b, #818181)")
             text "Looking for projects from Claude Code and Codex…" font-size=14 line-height="20px" text-align="center" color="light-dark(#71717b, #818181)"
           row width="100%" justify-content="flex-end"
-            WelcomeGhost(label="Do not import projects", small=false, disabled=false, press=finish, testId="welcome-skip-import")
+            WelcomeGhost(terminalIcon=false, label="Do not import projects", small=false, disabled=false, press=finish, testId="welcome-skip-import")
       else
         WelcomeTitle(title="Choose your projects", description="Import projects and conversations from your selected computers.")
         when view.candidateCount > 0
           row width="100%" margin-top=20 align-items="center" justify-content="space-between" gap=12
             text view.selectionLabel font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" role="status"
             row gap=4 align-items="center"
-              WelcomeGhost(label="Select all", small=true, disabled=(view.importing or view.selectedCount == view.candidateCount), press=local("pick-all", "", ""), testId="welcome-select-all")
-              WelcomeGhost(label="Select none", small=true, disabled=(view.importing or view.selectedCount == 0), press=local("pick-none", "", ""), testId="welcome-select-none")
+              WelcomeGhost(terminalIcon=false, label="Select all", small=true, disabled=(view.importing or view.selectedCount == view.candidateCount), press=local("pick-all", "", ""), testId="welcome-select-all")
+              WelcomeGhost(terminalIcon=false, label="Select none", small=true, disabled=(view.importing or view.selectedCount == 0), press=local("pick-none", "", ""), testId="welcome-select-none")
         column width="100%" margin-top=8 gap=2
           when view.scanError != ""
             row width="100%" align-items="center" justify-content="space-between" gap=12 role="alert"
@@ -394,5 +421,24 @@ component WelcomeImport
                 text candidate.path font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" text-align="left" line-clamp=1
               text candidate.detail flex-shrink=0 font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
         row width="100%" margin-top=24 flex-wrap="wrap" justify-content="flex-end" align-items="center" gap=12
-          WelcomeGhost(label="Do not import projects", small=false, disabled=(view.importing or busy), press=finish, testId="welcome-skip-import")
+          WelcomeGhost(terminalIcon=false, label="Do not import projects", small=false, disabled=(view.importing or busy), press=finish, testId="welcome-skip-import")
           WelcomePrimary(label=view.importLabel, icon="", disabled=(view.importing or busy or view.selectedCount == 0), press=local("import", "", ""), testId="welcome-import")
+
+component WelcomeSetup
+  props
+    scheme: string
+    terminal: WelcomeSetupTerminal
+    local: action
+  action exited(message: string)
+    local("terminal-exited", terminal.environmentId, message)
+  view
+    column width="100%" margin-top=16 border-radius=10 overflow="hidden" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#fcfcfc, #0a0a0a)" testId="welcome-setup-terminal"
+      row padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 gap=4 align-items="center" border-bottom-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0f)"
+        text terminal.status flex=1 font-size=11 line-height="16px" color="light-dark(#71717b, #818181)"
+        when terminal.retry
+          WelcomeGhost(terminalIcon=false, label="Retry", small=true, disabled=false, press=local("terminal-retry", terminal.environmentId, ""), testId="welcome-terminal-retry")
+        WelcomeGhost(terminalIcon=false, label="Close", small=true, disabled=false, press=local("terminal-close", terminal.environmentId, ""), testId="welcome-terminal-close")
+      box height=256 width="100%"
+        when terminal.ready
+          each key in [terminal.terminalId] key=key
+            t3-terminal terminal=terminal.terminalId environment=terminal.environmentId thread=terminal.threadId cwd=terminal.cwd provider-instance=terminal.providerInstanceId scheme=scheme terminal-theme=(scheme == "dark" ? terminal.dark : terminal.light) terminal-font=terminal.font terminal-font-size=terminal.fontSize focus-request=1 message=exited aria-label=`Install ${terminal.driver}` testId="welcome-terminal-view" width="100%" height="100%"

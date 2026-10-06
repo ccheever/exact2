@@ -1,3 +1,4 @@
+import type { PanelTerminal } from './terminal-panel';
 // Lane r11-device: the rest of the right panel's surfaces survive a relaunch (MIT reference, see
 // LICENSE-T3: apps/web/src/rightPanelStore.ts persists every surface of `byThreadKey` and
 // migratePersistedRightPanelState reads them back). Lane r10-device kept the Files explorer, file
@@ -13,12 +14,13 @@ import type { AttachmentMeta } from './r5-panels-attach';
 import type { DeviceTarget } from './r6-media-device';
 
 export type R11SavedSurface =
+  | { id: string; kind: 'terminal'; path: ''; line: 0; terminal: PanelTerminal }
   | { id: 'diff'; kind: 'diff'; path: ''; line: 0 }
   | { id: string; kind: 'device'; path: ''; line: 0; device?: DeviceTarget; title?: string }
   | { id: string; kind: 'pull-request'; path: ''; line: 0; pr: PrTarget }
   | { id: string; kind: 'attachment'; path: string; line: 0; attachment: AttachmentMeta };
-export type R11Surface = { id: string; kind: string; path: string; line: number; pr?: unknown; attachment?: unknown; device?: unknown; title?: string };
-export const R11_KINDS = new Set(['diff', 'device', 'pull-request', 'attachment']);
+export type R11Surface = { id: string; kind: string; path: string; line: number; pr?: unknown; attachment?: unknown; device?: unknown; title?: string; terminal?: unknown };
+export const R11_KINDS = new Set(['terminal', 'diff', 'device', 'pull-request', 'attachment']);
 
 /** rightPanelStore's DeviceTabTarget, or nothing when malformed. */
 export function deviceTarget(value: unknown): DeviceTarget | undefined {
@@ -42,6 +44,13 @@ function attachmentOf(value: unknown): AttachmentMeta | null {
 
 /** One of this lane's surfaces as saved, or null (not one of them, or malformed). */
 export function keepR11(surface: R11Surface): R11SavedSurface | null {
+  if (surface.kind === 'terminal') {
+    const raw = obj(surface.terminal);
+    const ids = Array.isArray(raw.terminalIds) ? [...new Set(raw.terminalIds.filter((id): id is string => typeof id === 'string' && id.length > 0))] : [];
+    const first = ids[0];
+    if (!first || !surface.id.startsWith('terminal:')) return null;
+    return { id: surface.id, kind: 'terminal', path: '', line: 0, terminal: { terminalIds: ids, activeTerminalId: ids.includes(str(raw.activeTerminalId)) ? str(raw.activeTerminalId) : first, splitDirection: raw.splitDirection === 'vertical' ? 'vertical' : 'horizontal' } };
+  }
   if (surface.kind === 'diff') return surface.id === 'diff' ? { id: 'diff', kind: 'diff', path: '', line: 0 } : null;
   if (surface.kind === 'device') {
     const device = deviceTarget(surface.device);
@@ -62,7 +71,7 @@ export function keepR11(surface: R11Surface): R11SavedSurface | null {
 
 /** A saved record's surface fields as read back (the raw entry, before keepR11 re-validates it). */
 export function readR11(entry: Obj): R11Surface {
-  return { id: str(entry.id), kind: str(entry.kind), path: str(entry.path), line: num(entry.line), pr: entry.pr, attachment: entry.attachment, device: entry.device, title: str(entry.title) };
+  return { id: str(entry.id), kind: str(entry.kind), path: str(entry.path), line: num(entry.line), pr: entry.pr, attachment: entry.attachment, device: entry.device, title: str(entry.title), terminal: entry.terminal };
 }
 
 /** What the restored panel must do once it is in place: reopen the Diff's own panel and name the device. */

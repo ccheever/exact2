@@ -38,6 +38,9 @@ import { chatCanvasView } from './chat-canvas-view'; // floating-device-player
 import { sidebarLaunchWidth } from './r4-polish-sidebar-width';
 import { highlightSlice, startHighlightTurn } from './r12-render-highlight';
 import { noteServerUpdateClock } from './server-update-notices'; // server-update-banner
+import { terminalDrawerView, terminalOpen } from './terminal-drawer-view';
+import { terminalFocused } from './terminal-focus';
+import { watchProviderAuth, providerAuthOp } from './provider-auth-terminal'; // terminal-drawer
 
 export const appId = 'com.exact.t3code.macos';
 export const grants = '';
@@ -81,9 +84,10 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'sshPromptAnswer') return sshPromptAnswer(native, String(args[0] || ''), String(args[1] || ''));
   if (source === 'settingsBSshHosts') return sshHostsView(client, native, args[0] === true, String(args[1] ?? '')); // settings-b-ssh.ts
   if (source === 'settingsBPicker') return iconPicker(client, native, String(args[0] || ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), String(args[4] || ''), String(args[5] || ''), Number(args[6]) || 0); // settings-b-icons.ts
-  if (source === 'providerPage') return providerPage(client, String(args[0] || ''), Number(args[3]) || 0);
+  if (source === 'providerPage') { const id = String(args[0] || '') || providerPage(client, '', Number(args[3]) || 0).editors[0]?.id || ''; if (native?.available) await watchProviderAuth(client, native, id); return providerPage(client, id, Number(args[3]) || 0); }
   if (source === 'providerWizard') return providerWizard(client, args[0] === true, Number(args[1]) || 0, String(args[2] || 'codex'), args[3] === true, String(args[4] || ''), args[5] === true, String(args[6] || ''));
   if (source === 'acpRegistry') return acpRegistry(client, native, String(args[0] || ''), args[1] === true, Object.values(obj(obj(client.config.settings).providerInstances)).filter(entry => obj(entry).driver === 'acpRegistry').map(entry => str(obj(obj(entry).config).agentId)));
+  if (source === 'providerChange' && args[0] === 'provider-auth-event') { if (native?.available) await providerAuthOp(client, native, 'provider-auth-event', String(args[1] || ''), JSON.stringify({ value: String(args[3] ?? '') })); return { revision: ++client.revision, message: '' }; }
   if (source === 'providerChange') return client.command(String(args[0] || ''), String(args[1] || ''), args[0] === 'favorite-model' ? String(args[2] || '') : JSON.stringify({ key: String(args[2] ?? ''), value: String(args[3] ?? '') }), 0, native, storage);
   if (source === 'providerAdd') return client.command('provider-add', String(args[2] || ''), JSON.stringify({ driver: args[0], label: args[1], accentColor: args[3], fields: providerFieldValues(String(args[0] || ''), args.slice(4, 9).map(value => String(value ?? ''))) }), 0, native, storage);
   if (source === 'keybindingSettings') return keybindingSettings(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[3] || ''), String(args[4] || ''), String(args[5] || ''), String(args[6] || ''));
@@ -103,7 +107,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
     const override = obj(obj(settings.projectSettingsOverrides)[projectId]);
     const available = client.ready && (!environmentId || environmentId === client.environmentId) && (!projectId || client.shell.projects.some(project => project.id === projectId));
     const model = obj(override.defaultModelSelection || settings.defaultModelSelection);
-    return { defaultModelExplicit: available && typeof settings.defaultModelSelection === "object" && settings.defaultModelSelection !== null, defaultModel: available ? [str(model.instanceId), str(model.model)].filter(Boolean).join(" / ") : "", modelOverridden: available && typeof override.defaultModelSelection === "object" && override.defaultModelSelection !== null, environmentId: client.environmentId, available, permission: available ? str(override.defaultRuntimeMode || settings.defaultRuntimeMode, 'approval-required') : '', overridden: available && typeof override.defaultRuntimeMode === 'string', environmentPermission: available ? str(settings.defaultRuntimeMode, 'approval-required') : '', ...client.local.deviceSettings, ...claimBoldChord(keyboardSettings(client.config, args[3] === true, { modalOpen: args[4] === true, editableFocus: args[3] === true || args[4] === true, turnRunning: args[5] === true, draftThreadRoute: args[6] !== true, modelPickerOpen: args[7] === true }), args[3] === true, richTextComposer(client)) };
+    return { defaultModelExplicit: available && typeof settings.defaultModelSelection === "object" && settings.defaultModelSelection !== null, defaultModel: available ? [str(model.instanceId), str(model.model)].filter(Boolean).join(" / ") : "", modelOverridden: available && typeof override.defaultModelSelection === "object" && override.defaultModelSelection !== null, environmentId: client.environmentId, available, permission: available ? str(override.defaultRuntimeMode || settings.defaultRuntimeMode, 'approval-required') : '', overridden: available && typeof override.defaultRuntimeMode === 'string', environmentPermission: available ? str(settings.defaultRuntimeMode, 'approval-required') : '', ...client.local.deviceSettings, ...claimBoldChord(keyboardSettings(client.config, args[3] === true, { terminalFocus: terminalFocused(client), terminalOpen: terminalOpen(client), modalOpen: args[4] === true, editableFocus: args[3] === true || args[4] === true, turnRunning: args[5] === true, draftThreadRoute: args[6] !== true, modelPickerOpen: args[7] === true }), args[3] === true, richTextComposer(client)) };
   }
   if (source === 'modelCatalog') return modelCatalog(client, String(args[0] || ''), String(args[1] || ''));
   if (source === 'createProvider') return client.command('provider-create', String(args[0] || ''), JSON.stringify({ driver: args[1], name: args[2], binaryPath: args[3], homePath: args[4] }), 0, native, storage);
@@ -112,6 +116,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'shellDetails') return shellDetails(client, native, args[0] === true, String(args[1] || ''), args[3] === true, Number(args[4]) || 0, Number(args[5]) || 0); // args[3]: the card docks inline; args[4]: wall time; args[5]: the window right of the canvas (lane r6-pr)
   if (source === 'sidebarLaunchWidth') return sidebarLaunchWidth(client, Number(args[0]) || 0, !!native?.available); // r4-polish: the width fixed at load
   if (source === 'chatCanvas') return chatCanvasView(client, native, { width: Number(args[1]) || 0, viewportHeight: Number(args[2]) || 0, detailsInline: args[3] === true, chatMax: Number(args[4]) || 0, overlaid: args[5] === true, gesture: String(args[6] || '') }); // floating-device-player: args[7..8] re-ask when the player changes
+  if (source === 'terminalDrawer') return terminalDrawerView(client, native, Number(args[1]) || 0, Number(args[2]) || 0); // terminal-drawer: args[0] re-asks on each revision
   if (source === 'shellView') return shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true);
   if (source === 'command') return client.command(String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), Number(args[3]) || 0, native, storage);
   throw new Error(`Unknown T3 source: ${source}`);

@@ -17,9 +17,11 @@ import { closeChordTarget } from './r9-input-panel'; // lane r9-input: ⌘W clos
 import { legacyTraversal } from './legacy-sidebar-view'; // legacy-sidebar: ⌘1-9 and ⇧⌘[ / ⇧⌘] follow its visible order
 import { resolveAdjacentThreadId } from './legacy-sidebar-model';
 import { threadCommandRows } from './thread-keys'; // thread-commands-and-keys: queue and host keys
+import { terminalRows, terminalOpen } from './terminal-drawer-view';
+import { terminalFocused } from './terminal-focus'; // terminal-drawer: ⌘J
 
 export type DispatchContext = { composerFocus: boolean; editableFocus: boolean; turnRunning: boolean; modelPickerOpen: boolean; draftThreadRoute: boolean; modalOpen: boolean; settingsOpen: boolean; diffOpen: boolean;
-  paletteOpen?: boolean; paletteMode?: string; prNumber?: string; undoShown?: boolean; settingsRoute?: string; page?: string };
+  terminalFocus?: boolean; terminalOpen?: boolean; paletteOpen?: boolean; paletteMode?: string; prNumber?: string; undoShown?: boolean; settingsRoute?: string; page?: string };
 type Rule = { command: string; chord: string; whenAst: unknown };
 
 const NAMED: Record<string, string> = { ' ': 'Space', space: 'Space', escape: 'Escape', esc: 'Escape', enter: 'Enter', tab: 'Tab', arrowup: 'ArrowUp', arrowdown: 'ArrowDown', arrowleft: 'ArrowLeft', arrowright: 'ArrowRight', backspace: 'Backspace', delete: 'Delete', pageup: 'PageUp', pagedown: 'PageDown', home: 'Home', end: 'End', '+': 'Plus' };
@@ -43,7 +45,7 @@ function when(ast: unknown, context: Record<string, boolean>, depth = 0): boolea
 }
 /** Each chord's winning command in this context ('' when an unknown condition makes it undecidable). */
 export function chordWinners(bindings: Obj[], context: DispatchContext): Map<string, string> {
-  const values: Record<string, boolean> = { true: true, false: false, isDesktop: true, isWeb: false, terminalFocus: false, terminalOpen: false, previewFocus: false, previewOpen: false, usagePageOpen: false,
+  const values: Record<string, boolean> = { true: true, false: false, isDesktop: true, isWeb: false, terminalFocus: context.terminalFocus === true, terminalOpen: context.terminalOpen === true, previewFocus: false, previewOpen: false, usagePageOpen: false,
     composerFocus: context.composerFocus, editableFocus: context.editableFocus, turnRunning: context.turnRunning, modelPickerOpen: context.modelPickerOpen, draftThreadRoute: context.draftThreadRoute };
   const winners = new Map<string, string>();
   const rules: Rule[] = bindings.map(binding => ({ command: str(binding.command), chord: ariaChord(obj(binding.shortcut)), whenAst: binding.whenAst }));
@@ -95,6 +97,7 @@ export function favoriteEditor(config: Obj, last = ''): string {
 export type Dispatch = { id: string; command: string; chord: string; kind: string; target: string; extra: string; label: string };
 /** The hidden dispatch buttons: one per command with a native counterpart and a winning chord. */
 export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): Dispatch[] {
+  context = { ...context, terminalFocus: terminalFocused(client), terminalOpen: terminalOpen(client) };
   const winners = chordWinners(arr(client.config.keybindings), context);
   const chords = (command: string) => [...winners].filter(([, winner]) => winner === command).map(([chord]) => chord).join(' ');
   const out: Dispatch[] = [];
@@ -135,7 +138,7 @@ export type DispatchRow = (add: DispatchAdd, client: T3Client, threads: Obj[], b
 // order (the host files a button's first ⌘ chord as its menu key equivalent,
 // so order is kept). A feature adds a row function, here or in its own file,
 // and one entry below; no row reads another's locals.
-const MAIN_ROWS: DispatchRow[] = [paletteRows, appearanceRow, threadOrderRows, navigationRows, scratchRow, threadRows, panelRows, turnRows, modelPickerRows, threadCommandRows];
+const MAIN_ROWS: DispatchRow[] = [paletteRows, appearanceRow, threadOrderRows, navigationRows, scratchRow, threadRows, panelRows, terminalRows, turnRows, modelPickerRows, threadCommandRows];
 /** The palette, usage, theme editor and new-thread commands. */
 function paletteRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   // theme.select opens the palette on Change theme; usage.open and themeEditor.toggle run the palette's rows.

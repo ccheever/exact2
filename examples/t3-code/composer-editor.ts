@@ -19,6 +19,7 @@ import { composerFileRecords, fileChipContexts, foldLimit, pruneFiles, takeFold 
 import { imageChipContexts, imageContextRecords } from './composer-editor-attach';
 import { composerDrawer, composerStackHold, NO_DRAWER, type ComposerDrawer, type StackHold } from './composer-editor-drawer';
 import { WorkspaceDiscovery, workspaceValues } from './composer-workspace-snapshots';
+import { parseTerminalContext, formatTerminalContextReference, saveTerminalContext, terminalMessageRecords, terminalDraftRecords } from './terminal-integrations';
 import { videoOp } from './r4-composer-attachments';
 
 export type ComposerMenuRow = Omit<MenuRow, 'insert'>;
@@ -89,7 +90,7 @@ export function threadContextRecords(client: T3Client, text: string): Obj[] {
 }
 /** The message `context` for a send, or undefined when the prompt references none. */
 export function messageContext(client: T3Client, text: string): Obj | undefined {
-  const records = [...threadContextRecords(client, text), ...pullRequestRecords(client, text), ...composerFileRecords(client, text), ...imageContextRecords(client, text)];
+  const records = [...threadContextRecords(client, text), ...pullRequestRecords(client, text), ...composerFileRecords(client, text), ...imageContextRecords(client, text), ...terminalMessageRecords(client, text)];
   return records.length ? { version: 1, records } : undefined;
 }
 /** Attach the prompt's context records to a dispatch or launch payload. */
@@ -111,6 +112,8 @@ function chipContexts(client: T3Client, text: string): Record<string, string> {
   for (const record of threadContextRecords(client, text)) out[`thread/${str(record.contextId)}`] = 'thread';
   // A line comment (diff-review.ts) draws as the review-comment chip; a pull request as its state's.
   for (const record of pullRequestRecords(client, text)) out[`review-comment/${str(record.contextId)}`] = record.pullRequest ? `pr-${pullRequestState(obj(record.pullRequest))}` : 'review-comment';
+  for (const reference of contextReferences(text)) if (reference.kind === 'terminal') out[`terminal/${reference.id}`] = 'terminal\t\t';
+  for (const record of terminalDraftRecords(client, text)) out[`terminal/${str(record.contextId)}`] = `terminal\t\t${str(record.text)}`;
   return { ...out, ...fileChipContexts(client, text), ...imageChipContexts(client, text) };
 }
 
@@ -382,6 +385,15 @@ export async function insertContext(client: T3Client, native: Native, kind: stri
     const path = target.replace(/\/+$/, '');
     if (!path) throw new ClientError('Unable to add to chat');
     text = kind === 'folder' ? `@${/\s/.test(path) ? `"${path.split('\\').join('\\\\').split('"').join('\\"')}"` : path}` : fileLink(path);
+  } else if (kind === 'terminal') {
+    let decoded: unknown;
+    try { decoded = JSON.parse(target); } catch { throw new ClientError('Unable to add to chat'); }
+    const context = parseTerminalContext(decoded);
+    if (!context || !context.text) throw new ClientError('Unable to add to chat');
+    const record = terminalDraftRecords(client, client.draft).find(record => record.terminalId === context.terminalId && record.lineStart === context.lineStart && record.lineEnd === context.lineEnd);
+    if (record) return '';
+    saveTerminalContext(client, context);
+    text = formatTerminalContextReference(context);
   } else if (kind === 'citation') {
     // An assistant quote (AssistantCitationChip): `target` is its t3-citation:// href.
     if (!/^t3-citation:\/\/v1\/[^\s)]+$/.test(target)) throw new ClientError('Unable to add to chat');
