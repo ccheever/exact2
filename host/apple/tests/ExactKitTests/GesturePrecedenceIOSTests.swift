@@ -180,8 +180,8 @@ final class GesturePrecedenceIOSTests: XCTestCase {
         }
     }
 
-    /// The photo (clip 1, photo 2, handle 3) as a page of a sideways pager
-    /// (4) twice its width, `touchAction` on the handle, the clip and the
+    /// The photo (clip 1, photo 2, handle 3; 300 by 150) as a page of a
+    /// sideways pager (4, 300 by 200) twice its width, `touchAction` on the handle, the clip and the
     /// pager; `room` false makes the pager exactly one page wide.
     private func pagedPhoto(handle: String, clip: String = "auto", pager: String = "auto", room: Bool = true,
                             under: String? = nil, outer: String? = nil) -> (Presenter, NodeView) {
@@ -195,19 +195,20 @@ final class GesturePrecedenceIOSTests: XCTestCase {
             ["op": "roots", "ids": [4]],
             ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
             ["op": "content", "id": 4, "w": room ? 600.0 : 300.0, "h": 200.0],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
-            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 150.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 300.0, "h": 150.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 300.0, "h": 150.0],
             ["op": "transform-drag", "id": 3, "runtime": "1", "handleKey": "2", "target": 2, "targetKey": "4", "clip": 1, "clipKey": "6"]
         ]
         // A node inside the handle with its own touch-action, observing the
         // pointer so hit testing finds it (a node that takes nothing is
         // passed over; a press would keep the drag from the photo outright).
-        // It hangs below the handle, under the finger at (150, 220).
+        // It hangs below the handle, inside the pager, under the finger at
+        // (150, 180).
         if let under {
             ops.insert(["op": "create", "id": 5, "kind": "view", "handlers": ["pointerdown"], "style": ["touch_action": under]], at: 4)
             ops.append(["op": "children", "id": 3, "ids": [5]])
-            ops.append(["op": "frame", "id": 5, "x": 0.0, "y": 200.0, "w": 300.0, "h": 60.0])
+            ops.append(["op": "frame", "id": 5, "x": 0.0, "y": 160.0, "w": 300.0, "h": 40.0])
         }
         // The pager as a page of an outer sideways pager (6) three pages wide.
         if let outer {
@@ -269,7 +270,7 @@ final class GesturePrecedenceIOSTests: XCTestCase {
             let (p, handle) = make()
             let pan = Pan()
             pan.speed = speed
-            pan.at = CGPoint(x: 150, y: 220)
+            pan.at = CGPoint(x: 150, y: 180)
             handle.transformRecognizer = pan
             XCTAssertEqual(handle.transformShouldBegin(pan), true, label)
             withExtendedLifetime(p) {}
@@ -291,8 +292,10 @@ final class GesturePrecedenceIOSTests: XCTestCase {
         let (q, under) = pagedPhoto(handle: "pan-x", under: "pan-x")
         let pan2 = Pan()
         pan2.speed = CGPoint(x: -300, y: 0)
-        pan2.at = CGPoint(x: 150, y: 220)
+        pan2.at = CGPoint(x: 150, y: 180)
         under.transformRecognizer = pan2
+        let pager = try XCTUnwrap(q.views[4]?.scroll)
+        XCTAssertTrue(pager.hitTest(CGPoint(x: 150, y: 180), with: nil) === q.views[5], "the finger reaches the child")
         XCTAssertEqual(under.transformShouldBegin(pan2), false)
         withExtendedLifetime((p, q)) {}
     }
@@ -304,6 +307,8 @@ final class GesturePrecedenceIOSTests: XCTestCase {
     func testThePhotoFollowsAPagerAtItsEdgeToTheOneItChainsTo() throws {
         for (outer, begins) in [("auto", false), ("none", true), ("pan-y", true)] {
             let (p, handle) = pagedPhoto(handle: "pan-x", outer: outer)
+            // The photo is the inner pager's second page, the one in view.
+            p.apply(wireBatch([["op": "frame", "id": 1, "x": 300.0, "y": 0.0, "w": 300.0, "h": 150.0]]))
             try XCTUnwrap(p.views[4]?.scroll).contentOffset.x = 300
             let pan = Pan()
             pan.speed = CGPoint(x: -300, y: 0)
@@ -314,6 +319,37 @@ final class GesturePrecedenceIOSTests: XCTestCase {
             XCTAssertEqual(handle.transformShouldBegin(pan), false, "outer \(outer), mid-pager")
             withExtendedLifetime(p) {}
         }
+    }
+
+    /// A disabled scroller takes nothing (an app's hook can turn
+    /// `isScrollEnabled` off): the photo keeps the drag, or yields past it to
+    /// an enabled scroller that can take it.
+    func testADisabledPagerTakesNothing() throws {
+        for (outer, begins) in [(nil, true), ("auto", false)] as [(String?, Bool)] {
+            let (p, handle) = pagedPhoto(handle: "pan-x", outer: outer)
+            try XCTUnwrap(p.views[4]?.scroll).isScrollEnabled = false
+            let pan = Pan()
+            pan.speed = CGPoint(x: -300, y: 0)
+            handle.transformRecognizer = pan
+            XCTAssertEqual(handle.transformShouldBegin(pan), begins, "outer \(outer ?? "none")")
+            withExtendedLifetime(p) {}
+        }
+    }
+
+    /// One direction on both sides of the yield: while UIKit has no velocity
+    /// yet, the pager reads the movement that crossed the slop, as the photo
+    /// does, so the sideways drag the photo steps aside from is the pager's.
+    func testThePagerTakesTheDragThePhotoYieldsBeforeAVelocity() throws {
+        let (p, handle) = pagedPhoto(handle: "pan-x")
+        let pan = Pan()
+        pan.moved = CGPoint(x: -12, y: 2)
+        pan.at = CGPoint(x: 138, y: 102)
+        handle.transformRecognizer = pan
+        XCTAssertEqual(handle.transformShouldBegin(pan), false, "the photo yields")
+        let pager = try XCTUnwrap(p.views[4]?.scroll)
+        XCTAssertTrue(pager.admitsPan(velocity: .zero, translation: CGPoint(x: -12, y: 2), start: CGPoint(x: 150, y: 100)), "the pager takes it")
+        XCTAssertFalse(pager.admitsPan(velocity: .zero, translation: CGPoint(x: 2, y: 12), start: CGPoint(x: 150, y: 100)), "down is the photo's")
+        withExtendedLifetime(p) {}
     }
 
     /// Rule 6: a pan joining the binding's pinch is admitted whatever its
