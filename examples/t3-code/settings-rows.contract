@@ -14,6 +14,7 @@ use CnMachineIcon from "./settings-b-kit.contract"
 use InfoTip from "./settings-kit.contract"
 use AboutUpdateButton from "./settings-a-about.contract"
 use MobileBetaControl from "./settings-mobile-beta.contract"
+use ScopedSwitch from "./settings-scoped-switch.contract"
 use FontFamilyPicker from "./settings-a-fonts.contract"
 
 // "Applying settings for <project> across <environment>" with its two radio menus.
@@ -100,6 +101,7 @@ component ScopeMenu
 // and divided rows; Legacy features folds behind its trigger.
 component CoreSections
   props
+    reduced: bool
     sections: list<CoreSection>
     pal: CorePalette
     busy: bool
@@ -131,10 +133,11 @@ component CoreSections
           when not section.collapsible or legacyOpen
             column width="100%" border-radius=12 border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.card box-shadow="0 1px 2px #0000000d" box-sizing="border-box"
               each row in section.rows key=row.id
-                CoreRowView(row=row, section=section.id, pal=pal, busy=busy, menu=menu, openMenu=openMenu, closeMenu=closeMenu, change=change, slide=slide, navigate=navigate)
+                CoreRowView(reduced=reduced, row=row, section=section.id, pal=pal, busy=busy, menu=menu, openMenu=openMenu, closeMenu=closeMenu, change=change, slide=slide, navigate=navigate)
 
 component CoreRowView
   props
+    reduced: bool
     row: CoreRow
     section: string
     pal: CorePalette
@@ -186,8 +189,8 @@ component CoreRowView
         when row.kind != "version" and row.kind != "none"
           row flex-shrink=0 min-width=160 align-items="center" justify-content="flex-end" gap=8 opacity=(row.inert ? 0.5 : 1) position="relative"
             when row.kind == "switch"
-              button press=change(row.id, row.target, row.checked ? "false" : "true") role="switch" aria-checked=row.checked aria-label=row.title id=`setting-${row.id}` disabled=(busy or row.inert or row.disabled) class=SettingsGhost justify-content="flex-start" width=30 height=18 padding=2 border-radius=9 background-color=(row.checked ? pal.accent : pal.switchOff) opacity=(row.disabled ? 0.64 : 1) testId=`setting-${row.id}`
-                box width=14 height=14 border-radius=7 background-color=pal.thumb margin-left=(row.checked ? 12 : 0) box-shadow="0 1px 3px #0000000d"
+              // D15: a mixed switch turns the setting on for every selected target.
+              ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.inert or row.disabled), faded=row.disabled, on=pal.accent, off=pal.switchOff, thumb=pal.thumb, reduced=reduced, switchId=`setting-${row.id}`, press=change(row.id, row.target, row.mixed or not row.checked ? "true" : "false"))
             when row.kind == "select"
               CoreSelect(rowId=row.id, section=section, value=row.label, icon=row.icon, width=row.width, menuWidth=row.menuWidth, options=row.options, pal=pal, disabled=(busy or row.inert or row.disabled), dim=(row.inert or row.disabled), menu=menu, openMenu=openMenu, choose=change(row.id, row.target))
               when row.value2 == "configure"
