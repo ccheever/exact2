@@ -11,6 +11,7 @@ import { obj, str, type Obj } from './domain';
 import { bridgeReply, ClientError, type Native } from './protocol';
 import { pushToast } from './toast';
 import type { T3Client } from './client';
+import { withStandardScope } from './remote-scopes';
 
 export const ORCHESTRATION_PROTOCOL_VERSION = 2;
 export type OutdatedJob = { status: string; stage: string; fromVersion: string; targetVersion: string; message: string; resultVersion: string; label: string };
@@ -97,7 +98,7 @@ export async function startOutdatedUpdate(native: Native, key: string, label: st
 
 /** preparePairingRegistration for an outdated host: saved switched off when it can update itself. */
 export async function pairOutdated(native: Native, origin: string, credential: string): Promise<Obj> {
-  const reply = await bridgeReply(native, { op: 'fleetOutdatedPair', fleet: `${origin.replace(/\/+$/, '')}\n`, credential });
+  const reply = await bridgeReply(native, { op: 'fleetOutdatedPair', fleet: `${origin.replace(/\/+$/, '')}\n`, ...withStandardScope({ credential }) });
   if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
   return obj(reply.value);
 }

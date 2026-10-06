@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "task": "20261005-remote-scopes-and-update-commands",
+  "captured_at": "2026-10-06T07:46:04.936281+00:00",
+  "source": {
+    "digest": "04454aad63111ed5bcf7d6a6662270e2af511552",
+    "algorithm": "git-tree-sha1",
+    "commit": "60a28292df26bda45397934b6598e2f55d5a3053",
+    "implementation_unchanged_since_build": true
+  },
+  "source_report_sha256": "8be6f8563002de3c563fe8053171cb2406bf90cb6dd0ca10390da712ddf43d35",
+  "verification_status": "blocked",
+  "notice": "Artifact integrity only; behavior requires independent acceptance assertions.",
+  "artifacts": [
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-unlocked-legacy-session/README.md",
+      "bytes": 4752,
+      "sha256": "0ad4d094f871618bc0d799c9622547d0a71ffbc4028e1cfdac6ec698062d814f"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-unlocked-legacy-session/capture-report.json",
+      "bytes": 1270,
+      "sha256": "8be6f8563002de3c563fe8053171cb2406bf90cb6dd0ca10390da712ddf43d35"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-unlocked-legacy-session/legacy-clients-after-relaunch.json",
+      "bytes": 597,
+      "sha256": "44ee8ec056e10d73ea76612cb24ce1c612f81120b0b8c135206f619261318727"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-unlocked-legacy-session/legacy-message-tree.txt",
+      "bytes": 3074,
+      "sha256": "f333c5cc781fbb9702176a399a5652981be68d77d317ca2d5d6e3eb24767e6c6"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-unlocked-legacy-session/legacy-message.png",
+      "bytes": 350085,
+      "sha256": "739427bc7dc6f24210bf5716e803e273020c885b02ae4ec1630ab2934f4f58a1"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-unlocked-legacy-session/legacy-relaunch-tree.txt",
+      "bytes": 2858,
+      "sha256": "f5cf5e2ce2271caea2a78b0a86514d6384040b391a60ac5b55fea7e0fe341a4a"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-unlocked-legacy-session/legacy-relaunch.png",
+      "bytes": 342974,
+      "sha256": "e38df88b9a5ec47be402ce344ea4369805af644820450897d1a43117cff33d08"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-unlocked-legacy-session/legacy-session-before.json",
+      "bytes": 487,
+      "sha256": "b80929bbe8c50c5b83d32a5cbc4cc040f6a46b34a706aa238bf92b6dc4728e32"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-unlocked-legacy-session/provider-turn.json",
+      "bytes": 326,
+      "sha256": "ab61baf9e0d7f678c190b01c42d24f9b000abf9ddc6c5bdb8bcad867d96b8e92"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-unlocked-legacy-session/slow-requests-tree.txt",
+      "bytes": 6097,
+      "sha256": "63f2c13aec8b5f773f25ec88d5d93020cc05fdf3c66f0a26cae9918d321672e1"
+    },
+    {
+      "path": "evidence/20261005-remote-scopes-and-update-commands/20261006-unlocked-legacy-session/tab-restore.json",
+      "bytes": 675,
+      "sha256": "700b0d6332ca80a41f5793153ef555b69e544968eadc1267f67766770b6c8416"
+    }
+  ]
+}

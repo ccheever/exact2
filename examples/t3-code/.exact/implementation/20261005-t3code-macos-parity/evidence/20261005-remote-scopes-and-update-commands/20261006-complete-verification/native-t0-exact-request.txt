@@ -1,0 +1,99 @@
+App=com.exact.t3code.scope-review (pid 91959)
+Window: "T3 Code (Exact)", App: T3 Code (Exact).
+
+0 standard window T3 Code (Exact)
+	1 scroll area, Secondary Actions: scroll up, scroll down
+		2 button Toggle sidebar
+		3 button Go to threads
+		4 text Search
+		5 text field (settable) Search threads
+		6 button Filter threads by project
+		7 button Add project
+		8 button New thread
+		9 scroll area, Secondary Actions: scroll up, scroll down
+			10 button T0 verification message. Return T0_READY_FOR_APPRO..., Approval, 16140
+			11 button T0 verification message. Return T0_READY_FOR_APPRO..., 16140
+			12 button T0 verification message. Return T0_READY_FOR_APPRO..., 16140
+			13 button T0 verification message. Return T0_READY_FOR_APPRO..., 16140
+			14 button T0 verification message. Return T0_READY_FOR_APPRO..., 16140
+			15 button T0 verification message. Return T0_READY_FOR_APPRO..., 16140
+			16 button T0 verification message. Return T0_READY_FOR_APPRO..., 16140
+			17 button T0 verification message. Return T0_READY_FOR_APPRO..., 16140
+			18 button T0 verification message. Return T0_READY_FOR_APPRO..., 16140
+			19 button T0 verification message. Return T0_READY_FOR_APPRO..., 16140
+			20 button Legacy scope verification. Reply with LEGACY_SCOPE..., 16140
+			21 button Legacy scope verification. Reply with LEGACY_SCOPE..., 16140
+			22 button New thread, 16140
+			23 button New thread, 16140
+			24 button Toggle Settled
+			25 scroll bar 0
+				26 value indicator 0
+				27 increment arrow button
+				28 decrement arrow button
+				29 increment page button
+				30 decrement page button
+		31 button Settings
+		32 button Pull Requests
+		33 button Usage
+		34 button New thread in 16140
+		35 text /
+		36 button Thread actions for T0 verification message. Return T0_READY_FOR_APPRO...
+		37 button Toggle thread details panel
+		38 button (disabled) Toggle terminal drawer
+		39 button Toggle right panel
+		40 scroll area, Secondary Actions: scroll up, scroll down
+			41 text T0 verification message. Return T0_READY_FOR_APPROVAL and request fixture approval.
+			42 text 5:15 PM
+			43 button Copy message
+			44 text Working for 3s
+			45 button Approve this local verification fixture? No command is executed.
+		46 container Command approval
+			47 text Command approval
+			48 scroll area, Secondary Actions: scroll up, scroll down
+				49 text Command
+			50 button Decline
+			51 button Approve
+			52 button More approval options
+		53 scroll area, Secondary Actions: scroll up, scroll down
+			54 text entry area Message
+			55 scroll bar (disabled) 0
+		56 button Settings
+		57 button Command Palette
+		58 button Go to File
+		59 button Search Project Contents
+		60 button Change Theme
+		61 button Open Usage
+		62 button Toggle Theme Editor
+		63 button New Thread
+		64 button New Thread
+		65 button New Local Thread
+		66 button Appearance: System
+		67 button Previous Thread
+		68 button Next Thread
+		69 button Thread 1
+		70 button Thread 2
+		71 button Thread 3
+		72 button Thread 4
+		73 button Thread 5
+		74 button Thread 6
+		75 button Thread 7
+		76 button Thread 8
+		77 button Thread 9
+		78 button Back
+		79 button Settle Thread
+		80 button Pin Thread
+		81 button Open in Editor
+		82 button Toggle Right Panel
+		83 button Toggle Diff
+		84 button Copy Thread ID
+		85 heading Nightly needs the beta mobile app
+		86 text Nightly uses the new orchestrator. The App Store and Google Play versions of T3 Code cannot connect to it.
+		87 button Dismiss
+		88 button Get the beta app
+		89 button Dismiss notification
+	90 toolbar
+	91 close button
+	92 full screen button, Secondary Actions: zoom the window
+	93 minimize button
+
+The focused UI element is 0 standard window T3 Code (Exact).

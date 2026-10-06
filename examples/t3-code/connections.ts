@@ -16,6 +16,8 @@ import { forgetProbes, jobFor, outdatedRow, pairOutdated, probeDescriptors, prob
 import { runOnEnvironment } from './r4-git-env';
 import { balanceSources, balanceSubtitle } from './r11-misc-connections';
 import { environmentRows } from './r12-sidebar-connections';
+import { withStandardScope } from './remote-scopes';
+import { configInstallation, desktopManagedOnly, manualUpdateCopy, serverUpdateActionLabel, DESKTOP_MANAGED_NOTE } from './server-installation';
 import { gitHubRoutingConnectionKey, savedRoutes, singleRouteKey, type ConnectionRoute } from './connection-routes';
 import { moveSavedRoute, placeRoute, removeSavedRoute, routeCountLabel, routeRows, routesTransportLabel, savedEntry, savedList } from './connection-routes-ops';
 
@@ -172,6 +174,8 @@ function savedRow(source: Source, index: number, ssh: Record<string, SshTarget> 
   const lock = !Object.keys(source.config).length || !connected ? 'Connect to this environment to change its icon.'
     : capabilities.environmentIcon !== true ? "This environment's server is too old to keep an icon. Update it to choose one."
       : source.scopes.length && !source.scopes.includes('orchestration:operate') ? 'Your session on this environment cannot change its settings.' : '';
+  const showUpdate = enabled && connected && mismatch !== null;
+  const updateLabel = showUpdate && !desktopManagedOnly(capabilities) ? serverUpdateActionLabel(selfUpdate, configInstallation(source.config)) : '';
   const kind = Object.keys(source.config).length ? machineKind(source.config) : machineKind({}, source.machine);
   const detected = str(obj(obj(source.config.environment).platform).machine);
   return {
@@ -179,8 +183,10 @@ function savedRow(source: Source, index: number, ssh: Record<string, SshTarget> 
     subtitle, tooltip, errorTone: enabled && status.tone === 'error' && !outdated.resuming, enabled, dimmed: !enabled, unsupported,
     outdatedAction: outdated.action, outdatedFrom: outdated.fromVersion, progress: outdated.progress, progressFailed: outdated.failure,
     switchTip: unsupported ? 'Client not supported' : enabled ? 'Switch off' : 'Switch on', active: source.focused, traceId: source.traceId,
-    update: enabled && connected && mismatch && !(selfUpdate === 'desktop-managed' && capabilities.desktopAppUpdate !== true)
-      ? (selfUpdate ? 'Update' : 'Copy update command') : '',
+    // ServerUpdateAction (3b0093d716): the manual label follows the install; a desktop app that cannot
+    // update from here gets the sentence instead of a button.
+    update: updateLabel,
+    updateNote: showUpdate && desktopManagedOnly(capabilities) ? DESKTOP_MANAGED_NOTE : '',
     updateVersion: mismatch?.clientVersion ?? '',
     iconLock: lock,
     icons: MACHINE_KINDS.map(([id, label]) => ({ kind: id, label, selected: id === kind, note: id === (detected || 'server') ? (detected ? 'detected' : 'default') : '' })),
@@ -307,7 +313,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
       if (!target.credential && connected) throw new ClientError('Enter a pairing code.');
       if (connected) {
         // 22e9d35613 preparePairingRegistration: an outdated host that can update itself is still saved (switched off).
-        const paired = await call(native, { op: 'pairEnvironment', ...target }).catch(async error => {
+        const paired = await call(native, { op: 'pairEnvironment', ...withStandardScope(target) }).catch(async error => {
           if (!(error instanceof ClientError) || error.kind !== 'Protocol') throw error;
           try { await pairOutdated(native, target.origin, target.credential); }
           catch (outdated) {
@@ -325,7 +331,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
       }
       const before = focusOf(client);
       try {
-        const reply = await call(native, { op: 'connect', ...target });
+        const reply = await call(native, { op: 'connect', ...withStandardScope(target) });
         const opened = obj(reply.value);
         if (str(opened.environmentId)) await placeRoute(native, str(opened.environmentId), str(opened.origin)).catch(() => {});
         // r10-connect: handleAddSavedBackend's success is the same with or without a connection: the dialog
@@ -345,7 +351,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
       const target = parsePairing(host || code, code);
       if (!target.credential) throw new ClientError('Enter a pairing code.');
       const label = str(savedEntry(await savedList(native), environmentId)?.label, 'This environment');
-      const reply = await call(native, { op: 'pairEnvironment', ...target, expectedEnvironmentId: environmentId });
+      const reply = await call(native, { op: 'pairEnvironment', ...withStandardScope(target), expectedEnvironmentId: environmentId });
       await placeRoute(native, environmentId, str(obj(reply.value).origin, target.origin));
       if (client) pushToast(client, { kind: 'success', title: 'Route added', description: `${label} now has another way to connect.` });
       if (connected) await fleet.sync(native, focusOf(client));
@@ -444,9 +450,11 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
     try {
       if (!versionMismatch(str(obj(config.environment).serverVersion))) throw new ClientError('This server is already up to date.');
       if (!selfUpdate) {
-        const command = `npx t3@${CLIENT_VERSION}`;
-        await call(native, { op: 'copyText', text: command });
-        if (client) pushToast(client, { kind: 'success', title: 'Update command copied', description: `Run \`${command}\` on ${label} to update it.` });
+        // ServerUpdateAction's manual path: copy the command that matches the install; no remote call.
+        const manual = manualUpdateCopy(CLIENT_VERSION, configInstallation(config), label);
+        try { await call(native, { op: 'copyText', text: manual.command }); }
+        catch { throw new ClientError(manual.failureMessage); }
+        if (client) pushToast(client, { kind: 'success', title: manual.title, description: manual.description });
         return { status: null, generation: -1 };
       }
       const target = focused ? native : EnvironmentFleet.native(native, key);

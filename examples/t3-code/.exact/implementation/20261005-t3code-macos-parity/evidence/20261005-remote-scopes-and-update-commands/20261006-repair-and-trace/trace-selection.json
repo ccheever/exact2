@@ -1,0 +1,10 @@
+{
+  "rawSha256": "1d9e26e1205ceee01d7a69d65d12a038905715d64dbb184a72ee5cf8ce265fbe",
+  "rawRows": 549,
+  "scenarioRows": 534,
+  "startLine1Based": {
+    "native": 7,
+    "oracle": 321
+  },
+  "selection": "Start each client at its last T0-pair marker; retain every subsequent record for that client. Raw capture preserved. Native earlier markers contained no network calls; oracle earlier pairing attempt used a restored but expired 5-minute credential and failed. Fresh same-label, same-scope link used for oracle; server data restored from same stopped snapshot before that client."
+}

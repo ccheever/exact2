@@ -6,6 +6,7 @@ import type { OpOut } from './client-ops';
 import { runConnectionOp, CONNECTION_OPS } from './connections';
 import { obj, str } from './domain';
 import { ClientError, parsePairing, type Files, type Native } from './protocol';
+import { withStandardScope } from './remote-scopes';
 
 /** Connect, disconnect, the Connections settings' environment ops and Refresh. */
 export async function connectionOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
@@ -14,7 +15,7 @@ export async function connectionOps(this: T3Client, op: string, id: string, valu
     if (op === 'connect' || op === 'reconnect') {
       const target = parsePairing(id || this.origin, value);
       // Retry without a new credential probes a live socket instead of replacing it (T3Transport retryNow, 9333509).
-      const response = await this.raw(native, { op: op === 'reconnect' && !target.credential ? 'retry' : 'connect', ...target });
+      const response = await this.raw(native, { op: op === 'reconnect' && !target.credential ? 'retry' : 'connect', ...withStandardScope(target) });
       if (!response.ok) throw new ClientError(response.error!.message, response.error!.kind);
       this.adoptStatus(obj(response.value), response.generation);
       this.error = '';
