@@ -943,7 +943,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                     _ => Ty::from_roster(f.returns()),
                 }
             } else {
-                return Err(checks::unknown_function(name, scope, shapes, *span));
+                return Err(calls::unknown_function(name, scope, shapes, *span));
             }
         }
         Expr::Unary(op, inner, span) => {
