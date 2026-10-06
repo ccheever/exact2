@@ -700,3 +700,43 @@ fn send_now_asks_for_the_same_message_to_interrupt_the_turn() {
     m.send_now(&id);
     assert!(m.send_request().is_none());
 }
+
+#[test]
+fn attached_files_are_pasted_alone_before_the_words() {
+    let mut m = paired();
+    m.poll_request();
+    m.poll_done(Ok(answer(1, true)));
+    m.open("mac", "s1");
+    let path = "/Users/me/.local/share/fleet/paste/1-IMG_1.jpg";
+    m.send_text(&format!("what is this?\n\n{path}"));
+    let (url, _, body) = m.send_request().unwrap();
+    assert!(url.ends_with("/machines/mac/sessions/s1/input"));
+    assert_eq!(body, format!(r#"{{"enter":false,"text":"{path} "}}"#));
+    m.send_done(Ok(json!({"status": "ok"})));
+    let (_, _, body) = m.send_request().expect("then the words");
+    assert_eq!(body, r#"{"enter":true,"text":"what is this?"}"#);
+    m.send_done(Ok(json!({"status": "ok"})));
+    assert!(m.send_request().is_none());
+    // Claude shows the image its own way; the words still match.
+    m.transcript_request();
+    m.transcript_done(Ok(
+        r#"{"entries":[{"kind":"user","text":"[Image #1] what is this?"}]}"#.into(),
+    ));
+    assert!(m.pending.is_empty());
+}
+
+#[test]
+fn only_paste_folder_paths_split_off() {
+    use super::send::split_files;
+    let p = "/Users/me/.local/share/fleet/paste/1-a.png";
+    assert_eq!(
+        split_files(&format!("hi\n\n{p} {p}")),
+        ("hi".into(), format!("{p} {p}"))
+    );
+    assert_eq!(split_files(p), (String::new(), p.to_string()));
+    assert_eq!(
+        split_files("hi\n\nsee /tmp/x"),
+        ("hi\n\nsee /tmp/x".into(), String::new())
+    );
+    assert_eq!(split_files("plain"), ("plain".into(), String::new()));
+}

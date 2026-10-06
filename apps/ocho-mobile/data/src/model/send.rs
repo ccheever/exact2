@@ -176,10 +176,19 @@ impl Model {
                 "message",
                 serde_json::json!({ "request_id": out.request_id, "text": out.text }),
             ),
-            _ => (
-                "input",
-                serde_json::json!({ "text": out.text, "enter": true }),
-            ),
+            // Attached files are pasted first and alone, as the desktop pastes
+            // them: an agent's terminal (Claude Code's) makes a paste of image
+            // paths an attached image, but not one with words around it. The
+            // words follow, with Enter.
+            _ => {
+                let (words, files) = split_files(&out.text);
+                let body = if out.step == Step::Attach && !files.is_empty() {
+                    serde_json::json!({ "text": format!("{files} "), "enter": false })
+                } else {
+                    serde_json::json!({ "text": words, "enter": true })
+                };
+                ("input", body)
+            }
         };
         let url = conn.session_url(&self.route_of(&self.via), &out.key.0, &out.key.1, leaf);
         let bearer = conn.bearer();
@@ -216,6 +225,20 @@ impl Model {
             }
             if !attached && !self.outbox.is_empty() {
                 self.send.bump();
+            }
+            return;
+        }
+        if out.route == SendRoute::Input
+            && out.step == Step::Attach
+            && !split_files(&out.text).1.is_empty()
+        {
+            match result {
+                Ok(_) => {
+                    out.step = Step::Send;
+                    self.outbox.push_front(out);
+                    self.send.bump();
+                }
+                Err(why) => self.send_failed(out, why),
             }
             return;
         }
@@ -283,5 +306,36 @@ impl Model {
     /// This phone, to a Codex thread's subscribers.
     fn client_id(&self) -> String {
         format!("ocho-phone-{}", self.telemetry.install)
+    }
+}
+
+/// A message's words and, apart, the attached files' paths the composer put
+/// after them: the last paragraph when every word of it is a path in Fleet's
+/// paste folder.
+pub fn split_files(text: &str) -> (String, String) {
+    let (words, last) = match text.rfind("\n\n") {
+        Some(at) => (&text[..at], &text[at + 2..]),
+        None => ("", text),
+    };
+    let paths: Vec<&str> = last.split_whitespace().collect();
+    if paths.is_empty()
+        || !paths
+            .iter()
+            .all(|p| p.starts_with('/') && p.contains("/fleet/paste/"))
+    {
+        return (text.to_string(), String::new());
+    }
+    (words.trim_end().to_string(), paths.join(" "))
+}
+
+/// Whether a transcript's user entry is `sent` read back. Attached files come
+/// back as the agent shows them (`[Image #1]`, its own path), so a message
+/// with files matches on its words.
+pub fn echoes(entry: &str, sent: &str) -> bool {
+    let (words, files) = split_files(sent);
+    if files.is_empty() {
+        entry.trim() == sent.trim()
+    } else {
+        entry.contains(words.trim())
     }
 }

@@ -85,6 +85,9 @@ final class GlassComposer: ExactNativeInstance {
         config.contentInsets = .zero
         button.configuration = config
         button.accessibilityLabel = "Send"
+        // A sheet or menu over the app dims every tint beneath it, and inside
+        // glass the dimming can outlast it: send stayed grey. It never dims.
+        button.tintAdjustmentMode = .normal
         button.addAction(UIAction { [weak self] _ in self?.send() }, for: .primaryActionTriggered)
 
         var plus: UIButton.Configuration

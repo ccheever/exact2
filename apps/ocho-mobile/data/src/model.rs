@@ -1133,7 +1133,7 @@ impl Model {
                         || !entries
                             .iter()
                             .skip(p.after)
-                            .any(|e| e.kind == "user" && e.text.trim() == p.text.trim())
+                            .any(|e| e.kind == "user" && send::echoes(&e.text, &p.text))
                 });
                 if changed || before != self.pending.len() {
                     self.version += 1;
