@@ -6,7 +6,7 @@
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
 **Revised:** 2026-10-05 (F8: cosmic-text's share of a scroll's main-thread CPU on the Linux host, measured on Linux with both painters; the Summary, Recommendation and Confidence updated for it)
-**Related:** LLP 1015 §3 (the Linux host's one text engine), LLP 1001 §1, §6 (declared deviations; the injected measurer), LLP 1043 and 1043.000 (Pretext; the text-flow walker and its Chrome corpus), LLP 1053 (CSS `direction`; cosmic patch 3), LLP 1033 (the Markdown reader), `vendor/cosmic-text/EXACT-PATCHES.md`, `rules/DEFERRED.md` (Linux skips Thai word breaking, 2026-09-28; Linux editing is v2), `QUEUE.md` ("Parley for text off Apple"). External, each read 2026-10-04: crates.io `parley` 0.11.1 and `fontique` 0.11.1 sources (Apache-2.0/MIT); `~/bench/dioxus/blitz-bugs-for-nico.md`.
+**Related:** LLP 1015 §3 (the Linux host's one text engine), LLP 1001 §1, §6 (declared deviations; the injected measurer), LLP 1043 and 1043.000 (Pretext; the text-flow walker and its Chrome corpus), LLP 1053 (CSS `direction`; cosmic patch 3), LLP 1033 (the Markdown reader), `vendor/cosmic-text/EXACT-PATCHES.md`, `rules/DEFERRED.md` (Linux skips Thai word breaking, 2026-09-28; Linux editing is v2), `queue/` ("Parley for text off Apple"). External, each read 2026-10-04: crates.io `parley` 0.11.1 and `fontique` 0.11.1 sources (Apache-2.0/MIT); `~/bench/dioxus/blitz-bugs-for-nico.md`.
 
 ## Summary
 

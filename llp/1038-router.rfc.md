@@ -855,11 +855,11 @@ binds; nothing comes off it, because none of this was ever on it.
    The macOS viewport fixture caught the deferred boot taking the content rect;
    retaining `session.viewportSize` restores the full cover viewport. The original and migrated macOS
    Contracts both hit the pre-existing painted-agent-popover obstruction
-   (`QUEUE.md`); no held-contact sweep is claimed by these drives.
+   (`queue/`); no held-contact sweep is claimed by these drives.
    The five checks pass with development trust and default `TMPDIR`: build,
    752 workspace tests, clippy/format, staged caps and boot imports. Web's
    app-only assertions also exit zero through a caller that exits after the
-   smoke module completes; its natural-exit pipe issue is recorded in `QUEUE.md`.
+   smoke module completes; its natural-exit pipe issue is recorded in `queue/`.
 
    Integration (2026-09-14): lane a, then lane b, merged after the slice-1
    review fixes. The glue's history callback now calls `exact.navigate`;

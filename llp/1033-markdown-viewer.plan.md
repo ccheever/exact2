@@ -245,7 +245,7 @@ written rather than as CSS reads:
 - `line-height` is an absolute length, not CSS's unitless ratio. `1.62`
   meant 1.62 points and every line drew on top of the last. The readers use
   point values (26 for 16 px prose). This is an undeclared deviation from
-  "the web is the standard"; it is noted in `QUEUE.md`, not fixed here.
+  "the web is the standard"; it is noted in `queue/`, not fixed here.
 - ~~A style row does not cascade into the inline `text` nodes the kernel
   measures as runs, so a heading whose runs said nothing drew at 16 px. Each
   run carries its own size, weight, height and colour; the paragraph's type
@@ -304,7 +304,7 @@ bounces now when the page fits. A pane with its own elastic overscroll needs
 either `overscroll-behavior` as a kernel row (the web's property for exactly
 this, absent from `kernel/tables/schema.json`) or AppKit's native bounce
 inside `ChainingScrollView`, which today clamps by hand for the reason its
-comment gives. Neither is taken here; the entry is in `QUEUE.md`.
+comment gives. Neither is taken here; the entry is in `queue/`.
 
 Repeated `smoke.mjs macos` runs after the change show one constant failure —
 the cover-viewport titlebar difference already queued from 2026-09-06 — plus

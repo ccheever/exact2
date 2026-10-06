@@ -239,7 +239,7 @@ Messages needs belongs to Messages: Caltrain for semantics and inspection
 and focus (a multiline editor on web and Apple, LLP 1033/DEFERRED
 2026-09-07), the embedded two-session host (LLP 1031 D10) for ownership
 across sessions, the Markdown readers for text-row inheritance (their
-workaround is the QUEUE line of 2026-09-08), and Weird Castle for the
+workaround is the `queue/` entry of 2026-09-08), and Weird Castle for the
 affordances if its wordmark lane wants one.
 
 Each landing updates the owning subsystem LLP and the relevant smoke or
@@ -312,7 +312,7 @@ silent:
   and the UILabel/CoreText/WebKit finding that no single baseline
   adjustment matches both.
 - 1035.000 r1 left "how far to generalize inherited style metadata" open
-  with no candidate. The QUEUE line of 2026-09-08 — text rows do not
+  with no candidate. The `queue/` entry of 2026-09-08 — text rows do not
   cascade into inline runs, so the Markdown readers thread the type through
   as props — *is* the next failing property, with two consumers. r2 makes it
   the first slice and proposes `inherited` as schema metadata (D1).

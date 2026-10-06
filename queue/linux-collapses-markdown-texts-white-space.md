@@ -1,0 +1,1 @@
+**Linux collapses Markdown text's white space** (2026-09-26, LLP 1053 G5). The Linux host doesn't link Markdown, so it can't tell a Markdown paragraph from ordinary text, and CSS collapsing applies to it; Apple exempts Markdown. Carry the `markup` prop into the Linux paragraph spec, or give Markdown text `pre-wrap`.

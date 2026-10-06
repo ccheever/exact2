@@ -1,0 +1,1 @@
+**Linux autofocus dispatches no `focus`** (2026-09-23, native lane): focus changes now dispatch `blur`/`focus` (2731702d), but autofocus inside the commit service still sets the focus directly; the web and Apple fire `focus` for it.

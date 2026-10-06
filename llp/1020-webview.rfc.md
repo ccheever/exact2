@@ -152,7 +152,7 @@ renders nothing — exact1's lesson, restated for frame topology: an inner
 guest failure is the engine's own error page and `load`, as on the web)
 and `message` (D2). Both join
 the existing handler set in the tag table; per the events decision
-(QUEUE §2), an action can record their payload, not branch on it.
+(`queue/` §2), an action can record their payload, not branch on it.
 
 **D2 — frame topology only; messages are strings.** exact1's round-1
 review proved a top-level native webview cannot emulate iframe semantics
@@ -342,7 +342,7 @@ PR.
   entire content model — the client exists to surface Castle web decks
   (weird-castle `llp/0000`, governing invariant, confirmed 2026-08-03) —
   the way LLP 1016/1018 unblocked its login and session.
-- **The take (decided — Charlie, 2026-08-30):** QUEUE §5, **view
+- **The take (decided — Charlie, 2026-08-30):** `queue/` §5, **view
   transitions (LLP 1013, Draft)**, moves behind this work — the deck
   lane displaces the transitions lane in the working set, and 1013 keeps
   its place on the list rather than the calendar. The `webview` line

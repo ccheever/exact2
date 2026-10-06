@@ -199,7 +199,7 @@ struct SourceMap: Hashable {
 /// once. Chrome's rule cannot be applied there: iOS's SF has other vertical
 /// metrics (15.23 + 3.86 at 16 px against the Mac's 15.47 + 3.38), so
 /// rounding each gives 16 at 14 px where Chrome has 17, and the scroll
-/// fixture's cross-host 652 (smoke.mjs) would move. See QUEUE.
+/// fixture's cross-host 652 (smoke.mjs) would move. See queue/.
 enum CSSLineBox {
     /// A text advance as the browser's layout holds it: rounded up to its
     /// 1/64 px layout unit, never to a whole point (a chip's width).

@@ -642,7 +642,7 @@ else here was admitted because a real app needed it.
 - **No packaged CLI.** You work from a source checkout. `exact new` apps refer to it by
   path.
 
-[`QUEUE.md`](QUEUE.md) lists what would make sense to do next, and
+[`queue/`](queue/) lists what would make sense to do next, and
 [`llp/current/`](llp/current) holds the design documents in play.
 
 ## Repository map

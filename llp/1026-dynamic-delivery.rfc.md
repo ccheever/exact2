@@ -849,7 +849,7 @@ scheduled.** Written because Charlie asked for the exploration
 1. **The internet rung** (D1, D13). HTTPS and bounded redirects in both
    loaders (`PlanURL.swift`, `fetch.rs`); the capability path is the
    server's business; the Linux display loop's live SSE half (already a
-   QUEUE leftover). Verified by driving it: a fleet builder serving to
+   `queue/` leftover). Verified by driving it: a fleet builder serving to
    this Mac and to a phone over the internet, the agent carrier
    unreachable, a rotated link refused.
 2. **Level A** (D9, D11, D12). The update store and selection; bake's

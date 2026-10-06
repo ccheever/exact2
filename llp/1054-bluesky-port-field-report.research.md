@@ -192,7 +192,7 @@ correctness; **S3** costs time once.
 
 - **A1 (S2) — `clock settle` does not wait for images.** Every web and iOS
   screenshot showed grey placeholders; headless Chrome with a virtual-time
-  budget showed the images loading. (iOS is also in QUEUE.)
+  budget showed the images loading. (iOS is also in `queue/`.)
 - **A2 (S3) — withdrawn.** The draft said `layout` takes only an id. It
   already resolves a testId as `tree` does (`scripts/agent.mjs`, `find`);
   the port wrote a 25-line script it did not need *(revised)*.

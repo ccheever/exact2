@@ -1,0 +1,3 @@
+Native development URL latency: Charlie observes about one second for Update Lab Contract edits on the physical iPhone while localhost clients update almost immediately (2026-09-14). Notification already uses SSE. `PlanURL` now fetches up to four verified payloads concurrently after the envelope; it still creates a fresh URLSession per fetch and refetches unchanged payloads. A physical-phone sample measured envelope 56.5 ms, payload fetches 1,347.8 ms, and prepare/commit 32.1 ms (`target/update-lab-phone-timing.json`). Payload fetching dominates this sample; isolate connection setup versus transfer, then consider a shared session and verified reuse by digest. Preserve byte limits, complete-generation validation and failed-candidate retention.
+
+*Filed under “Later”.*

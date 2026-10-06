@@ -1,0 +1,1 @@
+**After LLP 1067.000 (Accepted 2026-09-27, one native module per app)**: the real microphone on Apple driven by a person (`EXACT_APP_DIR=apps/recorder bun host/apple/build.mjs --run`); grnl's move to `modules/apple` (the steps are in the RFC's "Moving an app to this shape").

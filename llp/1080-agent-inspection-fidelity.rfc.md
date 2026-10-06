@@ -23,7 +23,7 @@ for a person:
 1. **Input on iOS is not a finger.** `tap` there is `delivery: activation`,
    a hit-test followed by a direct call. Contact phases are `unsupported` on a
    phone. The simulator's real-pointer path (`pointer.swift`) no longer finds
-   a window under Xcode 27's Device Hub (QUEUE). The `_delayTouchesForEvent`
+   a window under Xcode 27's Device Hub (`queue/`). The `_delayTouchesForEvent`
    nil-insertion crash (LLP 1012, summary) passed every agent drive because
    no drive sent a `UITouch`. → **LLP 1080.000**.
 2. **The platform's own view tree is invisible.** `layout <target>` names
@@ -66,7 +66,7 @@ Frame timing and hitches, the fourth gap raised on 2026-10-03, are LLP 1079's
 ## 3. Landing order
 
 1. **Small fix first:** the iOS `screenshot` waits for in-flight image
-   decodes (QUEUE, 2026-09-25). Independent of the three.
+   decodes (`queue/`, 2026-09-25). Independent of the three.
 2. **1080.001.** It has the fewest unknowns and runs on the carriers that
    already exist. Its agreement step then guards the two after it.
 3. **1080.002.** Web first, as the oracle, then iOS, macOS and Linux.

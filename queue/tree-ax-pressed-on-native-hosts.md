@@ -1,0 +1,1 @@
+**`tree --ax` `pressed` on native hosts** (2026-10-05, authoring bench): the Chrome path keeps an aria-pressed toggle's `pressed` state; UIKit (`toggleButton`, "0"/"1"/"2") and AppKit (`AXCheckBox`/`AXToggle`, which emits `checked` and drops mixed) do not, and `CAN`/`APPLIES` in `scripts/agent-ax.mjs` do not compare it.

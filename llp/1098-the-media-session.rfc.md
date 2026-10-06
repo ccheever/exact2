@@ -102,7 +102,7 @@ asserts it with `expect mediasession`.
   Now Playing metadata (title, artist, artwork, duration, elapsed time, rate)
   and remote play/pause/seek commands. A removed session releases that
   ownership." §3: remote-command policy is a shared process capability; "a
-  leaf must not steal [it] from another Exact session." `QUEUE.md` repeats
+  leaf must not steal [it] from another Exact session." `queue/` repeats
   it twice ("Video (LLP 1042) … complete the designed track/controller and
   app audio-session ownership APIs").
 - **Today's code.**
@@ -924,7 +924,7 @@ the newline, and the `expect` arm), the step's JSON encoding
 Recorded under **Components** beside LLP 1096's entry, in its own commit
 (`c881e5f77`), which also carried out the take: LLP 1042 §5's extension
 design is deleted, its remaining-requirements bullet for the lock screen
-points here, and `QUEUE.md`'s two "Video (LLP 1042)" lines lost the clause.
+points here, and `queue/`'s two "Video (LLP 1042)" lines lost the clause.
 Round-1 review A's finding 12 put what the deleted design held into "Still
 out", each until a consumer asks:
 
@@ -944,7 +944,7 @@ out", each until a consumer asks:
 > headset's buttons and the browser's media hub. Take (offered in LLP 1098
 > §9 Q1, accepted): LLP 1042 §5's "Complete-player extension design
 > (unimplemented)", a spec with no implementer or date, is deleted, and
-> `QUEUE.md`'s "Video (LLP 1042)" lines lose "complete the designed
+> `queue/`'s "Video (LLP 1042)" lines lose "complete the designed
 > track/controller and app audio-session ownership APIs"; to the extent that
 > is not doing-list work, the admission stands on the orchestrator's waiver
 > under the same delegation. Still out, each until a consumer asks: the
@@ -1102,7 +1102,7 @@ Each commit passes the five checks.
    - **Exit:** the XCTest, the iOS refusal, podcast on macOS and the iOS
      simulator by hand; podcast's tests under `test macos`.
    - If the iOS refusal waits on LLP 1096, macOS lands first and the iOS
-     piece gets a `QUEUE.md` line.
+     piece gets a `queue/` entry.
 4. **2026-10-11, docs** (D14), after stage 2's adoptions run.
 
 ## 7. Deferred, with preconditions

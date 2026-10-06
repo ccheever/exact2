@@ -1,0 +1,1 @@
+**`z-index="auto"` is refused** (2026-10-04, files F14, the lists lane). `z_index` is an `i32` row defaulting to 0, so a conditional `z-index` cannot fall back to CSS's `auto`, and `auto` and `0` differ in CSS (only `0` makes a stacking context). A lifted, dragged row writes `z-index=(lifted ? 2 : 0)` for now.

@@ -221,7 +221,7 @@ r1 also claimed that `press-haptic` and `scroll-edge-effect` already had web arm
 8. **Docs.**
    - LLP 1001's declarations take the new names, a pointer here, and the bits from `schema.json`.
    - Every LLP that defines a renamed name gets a one-line note at the definition ("spelled `-exact-…` since LLP 1081"), whether or not it is in `llp/current/`: 1002, 1011, 1035.004, 1057.003, 1061, 1063 and 1077. Its text stays as the record.
-   - The Contract reference, `rules/DEFERRED.md` and `QUEUE.md` are updated where they quote a name.
+   - The Contract reference, `rules/DEFERRED.md` and `queue/` are updated where they quote a name.
 9. **The check** (D8).
 
 **Stage 1b: `underline line-through`.**
@@ -307,10 +307,10 @@ Charlie took the recommendations on 2026-10-03 ("do your rec"). They are recorde
 
 1. **The `-exact-apple-` tier.** **Declined (D4).** Both reviews agree.
 2. **`-apple-system-fill`.** **`-exact-system-fill`**, keeping UIKit's `systemFill` values and index 5. WebKit has no bare `-apple-system-fill` at the pinned revision (§2), so the name was never WebKit's. Swapping in a WebKit fill would change pixels.
-3. **`-apple-visual-effect`.** r1 asked whether to adopt it. Under r2's D1 it is not a browser's name: WebKit exposes it only under `useSystemAppearance`, which ordinary web content doesn't get. So there is nothing to adopt. James's underlying point was that a `style` class should be able to carry a material, and that doesn't need a new property. LLP 1069.011 D12 already makes `buttonStyle` a styleable prop, and `backgroundMaterial` and `glassGroup` can join that list. **Recommendation: no RFC; a `QUEUE.md` line for styleable materials.**
+3. **`-apple-visual-effect`.** r1 asked whether to adopt it. Under r2's D1 it is not a browser's name: WebKit exposes it only under `useSystemAppearance`, which ordinary web content doesn't get. So there is nothing to adopt. James's underlying point was that a `style` class should be able to carry a material, and that doesn't need a new property. LLP 1069.011 D12 already makes `buttonStyle` a styleable prop, and `backgroundMaterial` and `glassGroup` can join that list. **Recommendation: no RFC; a `queue/` entry for styleable materials.**
 4. **`tint-color`.** **`color` for a symbol, `-exact-tint-color` for raster images only, as stage 2.** Both reviews agree. Stage 2 now specifies each renderer, motion, caching and the computed-source case.
 5. **Names and kinds in `schema.json`.** Names and rows are many to many: `gap` sets two rows, and `translate` sets `Translate` and `TranslateZ`. So it is a mapping design, not two new fields. **Recommendation: D8's table lives in Contract with each name's kind now, and moving it into the schema is a later RFC.**
-6. **Kebab-case props.** **Recommendation: camelCase for Contract's own props, as a separate change, keeping real HTML, SVG and ARIA names.** `bitmap-width`/`bitmap-height` are a "for now" spelling Charlie is watching, so they go to him first. Recorded in `QUEUE.md` until then.
+6. **Kebab-case props.** **Recommendation: camelCase for Contract's own props, as a separate change, keeping real HTML, SVG and ARIA names.** `bitmap-width`/`bitmap-height` are a "for now" spelling Charlie is watching, so they go to him first. Recorded in `queue/` until then.
 
 ## 8. Revisions
 

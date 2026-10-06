@@ -1,0 +1,1 @@
+**Linux: Blink breaks in ordinary paragraphs** (LLP 1085 F3). cosmic-text breaks URLs after `/` where Chrome doesn't (3–5% of real rows); the textflow walker already carries Blink's table on the flow path.

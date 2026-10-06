@@ -535,7 +535,7 @@ behaviour goes in a new file (D6), not in a file near the cap.
    - **Exit:** the arrange tests, and the fixture's Linux run with `drag`
      in `LINUX_OPS`.
    - If the macOS ghost, the custom actions or `lift.rs` slip, the rest
-     lands and the slipped piece gets a `QUEUE.md` line.
+     lands and the slipped piece gets a `queue/` entry.
 
 ### As built (stages 1–5, 2026-10-04)
 

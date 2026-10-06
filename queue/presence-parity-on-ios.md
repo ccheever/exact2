@@ -1,0 +1,1 @@
+**Presence parity on iOS** (2026-09-30): resize parity is fixed on web/macOS/Linux (`issues/closed/20260927-presence-resize-diverges.md`). Sweep the shared 17-step timeline on iOS when its simulator supports the resize step. Linux's immediate exit removal is the declared LLP 1063 D8 limitation.

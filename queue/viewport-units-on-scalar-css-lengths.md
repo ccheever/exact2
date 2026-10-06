@@ -1,0 +1,1 @@
+**Viewport units on scalar CSS lengths** (kanban F9, 2026-10-04): dimension rows retain viewport units across wire and resolve on native resize; font-size, gap, spacing and border widths still use scalar rows. Extend their retained relative lengths and web emission before admitting viewport units there.

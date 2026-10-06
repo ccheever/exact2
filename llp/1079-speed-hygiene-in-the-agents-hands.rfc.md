@@ -537,7 +537,7 @@ every root, and production trust answering no counts.
   `--scaling` run did not finish in 30 minutes on this Mac: its web-host half
   re-folds a parent once per created row (`host/web/src/host.rs`
   `emit_receipts`), which is quadratic at 10000 rows. That predates this
-  change and is in `QUEUE.md`. The runner half was measured with that half
+  change and is in `queue/`. The runner half was measured with that half
   left out.
 - The JS target's development page: 800 hover commits on caltrain's station
   list took 9.7 ms against 6.7 ms with `perf.js` stubbed out, about 3.7 µs a

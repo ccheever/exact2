@@ -173,7 +173,7 @@ choice: **cheaper rows** (reuse, fewer nodes, faster text) and **earlier rows**
   clamps deltas (`presenter.rs:1266–1330`), then refines collections
   synchronously, two passes (`presenter/collection.rs:8`, `:546–727`). The legacy
   list is not wired on Linux at all (no `list_viewport` call anywhere under
-  `host/linux`; `QUEUE.md:89–94` lists Linux geometry as owed).
+  `host/linux`; `queue/` lists Linux geometry as owed).
 - **Can choose:** everything, including real holes, because it owns physics
   and presentation; a budgeted build followed by a painted placeholder band needs
   no second thread.

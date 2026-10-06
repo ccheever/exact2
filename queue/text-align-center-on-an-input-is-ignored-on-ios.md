@@ -1,0 +1,1 @@
+**`text-align="center"` on an `input` is ignored on iOS** (2026-10-04, authoring bench, LLP 1087: the tip and pomodoro apps on the iOS 27 simulator, two trials). It centers on the web; on iOS the text sits at the left. Check `NodeViewIOS`'s text field alignment.

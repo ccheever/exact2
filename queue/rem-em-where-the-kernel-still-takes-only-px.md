@@ -1,0 +1,1 @@
+**`rem`/`em` where the kernel still takes only `px`** (2026-09-27, LLP 1069.000 D3 as built): inside `calc()` and `env()`, `box-shadow`, `transform`/`translate`/`transform-origin`, `stroke-width` and the SVG number rows; `vw`/`ex`/`ch`. And a boot argument for the root font size, so a non-16 Dynamic Type costs no commit after boot. Wait for an app that writes one of them.

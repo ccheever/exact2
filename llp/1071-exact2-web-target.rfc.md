@@ -1220,7 +1220,7 @@ envelope from it would mean running those producers — the resident loop a
 second time. A native client opens `dev.mjs --wasm`, and the JS loop's 404
 says so. Retiring the wasm web target needs the resident loop's producers
 and generation stream without its wasm page (a browser on the JS build,
-reloading at each generation); that is in QUEUE.
+reloading at each generation); that is in `queue/`.
 
 **Dev reload.** The loop's ~2.2 s an edit was mostly processes that
 rebuilt nothing. Now: the Rust data module is built only when Cargo's
@@ -1444,7 +1444,7 @@ fixtures still take the wasm build: on the JS target they need what the
 JS agent does not report yet (`layout <node>`'s detail, an iframe's
 outline and load state, a host section in `state`, the tree's
 accessibility props, gesture and key deliveries), the same gaps that fail
-the smoke's Caltrain drive on the JS target (QUEUE). The router sweep
+the smoke's Caltrain drive on the JS target (`queue/`). The router sweep
 runs on both targets (landed): `navigation.rs`'s
 `browser_session_history_on_the_js_target` builds the sweep's corpus plan
 as one JS build (`host/web-js/build.mjs --plan`) served as a build tree,
@@ -1552,7 +1552,7 @@ browser's history), and where an app reaches what only one host has
 selection report; Native Fixture and Photo Editor, native modules;
 Messages, whose data sources write to storage on the Linux host where the
 page refuses storage in agent mode without `--storage`, a policy
-difference in QUEUE). Measured on the lane's 23 apps and 23 synthetic
+difference in `queue/`). Measured on the lane's 23 apps and 23 synthetic
 plans: 157 steps compared on Linux over 14 apps and 23 plans, every one
 equal; 9 apps not compared (six have no Linux host, Weatherlight's Linux
 crate builds only its render server, two are native modules). What it
@@ -1727,7 +1727,7 @@ equal on the wasm page, the JS page and the Linux reference.
   68,303 / 18,554 / 16,160 → 69,955 / 19,139 / 16,690; RealWorld
   102,883 / 29,011 / 24,666 → 104,444 / 29,634 / 25,186 (the head about
   two thirds of it, in every app with a `head`).
-- *Found beside them* (QUEUE, since closed): the JS target checked no
+- *Found beside them* (`queue/`, since closed): the JS target checked no
   `net.fetch` grant (a request outside the grants went out where the wasm
   host refused it); it has since 001e43d03, the whole-set grant admission
   (`issues/20260924-grant-readers-disagree.md`). The page consumes the Rust

@@ -643,7 +643,7 @@ the same programs at the same step. Today they cannot:
 - **The existing gap.** The JS target's `map`, `filter` and `join` are
   unmetered today: `code.rs:433` emits native `.map`/`.filter`, and `x_join`
   counts nothing. A program the runner traps on can run to completion on the
-  JS target. This is a pre-existing gap, recorded in `QUEUE.md`.
+  JS target. This is a pre-existing gap, recorded in `queue/`.
 
 **The follow-up** is an LLP of its own, "The JS target's evaluation budget".
 It covers per-invocation budget contexts at the runner's reset points, checked

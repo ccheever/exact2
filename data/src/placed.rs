@@ -441,7 +441,7 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         self.canvas_surfaces.clone()
     }
 
-    /// A worker-placed module does not draw yet (LLP 1056 stage 1; QUEUE):
+    /// A worker-placed module does not draw yet (LLP 1056 stage 1; queue/):
     /// its canvases report the error through `state`.
     fn draw(
         &mut self,

@@ -254,4 +254,4 @@ reduced-motion app writes the condition where the motion is.
   a held press is observable with the contact phases (`tap X down`, `layout`,
   `tap up`) on the web, macOS and the simulator carrier.
 - **120 Hz is unmeasured on hardware**, and the Mac's frame link asks no
-  range for motion (QUEUE).
+  range for motion (`queue/`).

@@ -1,0 +1,1 @@
+**Animated scroll to the end on send, what is left** (2026-10-02, Signal Clone; iOS, macOS and the web host built 2026-10-03, LLP 1070.000 §11). Linux and the JS web target land a smooth correction at once. A plain `scroll` still jumps on a `scrollTop` write followed to the end.

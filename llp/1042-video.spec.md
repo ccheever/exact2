@@ -304,7 +304,7 @@ The 17-kind feed on the iPad (one round): as built 105.9 fps at 947 ms/s
 CPU, base 104.2 at 977, SwiftUI 107.8 at 625. The peak-memory gap is not the
 row's: the video row grows the process as much as SwiftUI's does over a fling
 (+13 against +12 MB on the iPad); exact2 starts 13–20 MB higher on every kind
-of the feed (QUEUE).
+of the feed (`queue/`).
 
 ### A. No controller for a video without `controls` — accepted
 

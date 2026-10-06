@@ -1,0 +1,1 @@
+Contract lint fixture (2026-09-20): `conditional_style_literals_are_refused_at_the_offending_branch` expects conditional `top="0px"` to fail, but current lowering accepts that CSS length. Reconcile the fixture with current schema; full Contract tests are not green. Found while validating the independent shared-list estimate correction.

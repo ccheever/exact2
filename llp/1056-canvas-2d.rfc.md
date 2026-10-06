@@ -337,7 +337,7 @@ Context attributes are fixed: `alpha: true`, `colorSpace: "srgb"`, `willReadFreq
 
 **Apple: Swift, the main thread, a bitmap context.**
 - **Why Swift.** The Apple host's Rust is `#![deny(unsafe_code)]` (`host/apple/src/lib.rs:33`), and calling CG from Rust would be an audited `unsafe` surface per call. Platform drawing stays in Swift.
-- **The handoff.** The list crosses as one little-endian, 8-byte-aligned buffer with a version header. Rust owns it until the batch that carries it is released, so the Swift reader's `UnsafeRawBufferPointer` is valid for exactly the replay. The reader is typed, from the start. An SVG scene read as generic JSON costs 5% of the main thread in a scrolling list (`QUEUE.md`).
+- **The handoff.** The list crosses as one little-endian, 8-byte-aligned buffer with a version header. Rust owns it until the batch that carries it is released, so the Swift reader's `UnsafeRawBufferPointer` is valid for exactly the replay. The reader is typed, from the start. An SVG scene read as generic JSON costs 5% of the main thread in a scrolling list (`queue/`).
 - **The layer.** Each 2D canvas view owns a premultiplied BGRA sRGB `CGContext` at backing size. The view's own layer `contents` is `makeImage()` after each replay, so the drawing sits beneath the view's subviews with no overlay view (D10).
 - **Why the main thread.** Main-thread replay keeps a batch atomic: new pixels appear in the same `CATransaction` as the row's new text. CG itself does not need the main thread. Moving replay off it is stage 4, judged by **aggregate** replay time per frame, not by one canvas's.
 - **Not `CGLayer`.** It is a cache for repeated drawing inside one context.
@@ -552,12 +552,12 @@ These are microbenchmarks. The layer commit, the transfer, the runner's check an
 | SwiftUI | 381 (322) | 22.9 MB | 79.5, 135 | `ipad-r2` |
 | Expo + Skia `Canvas` per row | 857 (398) | 112 MB | 105.8, 127 | `ipad-r2` |
 | exact2 GPU `canvas` per row | 879 (359) | 116 MB | 108.0, 96 | `ipad-r1` |
-| exact2 SVG | 119 (114) | 53.5 MB; 38 MB after perf/crypto-svg | 118.4, 13 | `ipad-r2`; `QUEUE.md` |
+| exact2 SVG | 119 (114) | 53.5 MB; 38 MB after perf/crypto-svg | 118.4, 13 | `ipad-r2`; `queue/` |
 
 **A model of a Canvas 2D sparkline per row on the iPad.** It is not a measurement. It assumes the M1 is 2–2.5× slower than this M5 Max on this work, and about 120 µs per canvas per drawn frame for record, check, transfer and replay.
 
 - **Memory.** The layer can hold the previous image while the context holds its own buffer (`TextRaster.swift:125` discusses the same copy). So a canvas can cost two buffers: 178 KiB at 2×.
-  - 46 mounted rows (`QUEUE.md`) give 4–8 MB on the iPad and 9–18 MB on a 3× phone.
+  - 46 mounted rows (`queue/`) give 4–8 MB on the iPad and 9–18 MB on a 3× phone.
   - An illustrative subtotal is the SVG app's 38 MB plus 4–8 MB, about 42–46 MB. It is not a footprint estimate: removing the SVG layers saves some memory, and a canvas's own structures add some.
   - For comparison: GPU canvas 116 MB, Skia 112 MB, SwiftUI 23 MB.
 - **CPU when drawing follows data.** A tick changes 40 of 5,000 coins, so about 0.2 visible charts per tick, at about 0.12 ms each. The pulse is a **canvas child** with a CSS `@keyframes` animation (LLP 1014 D2 with LLP 1055), which Core Animation runs. Expected rest CPU is near the SVG app's.
@@ -613,7 +613,7 @@ The gallery, the sparkline mode and the smoke mode are apparatus. Charlie approv
 
 ## 8.1 Stage 1 as built (2026-09-27, `feat/canvas2d-stage1`)
 
-What stage 1 ships, and where it differs from the text above. `QUEUE.md` lists what it still owes.
+What stage 1 ships, and where it differs from the text above. `queue/` lists what it still owes.
 
 - **`exact-canvas`** (`canvas/`): the Rust recorder `Context2d` with web-sys's names; the list (`list.rs`: little-endian, 8-byte aligned, sealed at 1 MiB, never refused); CSS Color 4's sRGB forms with Chrome's 8-bit alpha; f64 geometry. The recorder resolves `arc`, `arcTo`, `ellipse`, `rect` and `roundRect` into canvas-space segments (§1, as built), so every replayer draws the same segments.
 - **The rules, and the TypeScript recorder.** `canvas/tests/cases.txt` holds the rules as calls, getters and throws. Headless Chrome agrees with all 14 cases (`bun canvas/tests/cases.mjs --chrome`). The Rust recorder passes them in `cargo test`, and so does `canvas/recorder.js`, the TypeScript recorder (`bun test`). `cases.rs` compares the two recorders' lists record by record. The TypeScript recorder is a hand port held to the Rust one by that comparison, not generated from a rule table as D3 says.
@@ -639,7 +639,7 @@ What stage 1 ships, and where it differs from the text above. `QUEUE.md` lists w
 
 ## 8.2 Stage 2 as built (2026-09-27, `feat/canvas2d-stage2`)
 
-What stage 2 ships, and where it differs from the text above. `QUEUE.md` lists what it still owes.
+What stage 2 ships, and where it differs from the text above. `queue/` lists what it still owes.
 
 - **The recorders.** Both recorders have every stage-2 member of §3:
   - text: `font` (Chrome's parse and serialisation), `textAlign`, `textBaseline`, `direction`, `letterSpacing`, `wordSpacing`, `fontKerning`, `fontStretch`, `fontVariantCaps`, `textRendering`, `fillText`, `strokeText` and `measureText`;
@@ -822,7 +822,7 @@ Admitted by Charlie on 2026-09-27 (§0.1). The text below is in §Components, af
    - draws are not atomic: a throw keeps what was recorded before it, as Chrome does (D4);
    - limits stay, at what browsers enforce, with a measured total budget (D4).
 
-**The spelling of the bitmap attributes (Charlie, 2026-09-27):** "let's do bitmap-width/bitmap-height for now i guess but keep an eye on whether agents stumble on it." HTML spells them `width` and `height`, which Contract already uses for the box's CSS size, so they stay `bitmap-width` and `bitmap-height`. Revisit trigger: agents (or people) writing `width`/`height` on a canvas meaning its bitmap. Contract should then say so by name, and the web's spelling (`width`/`height` meaning the bitmap on `canvas` only) is the alternative. QUEUE.md tracks it.
+**The spelling of the bitmap attributes (Charlie, 2026-09-27):** "let's do bitmap-width/bitmap-height for now i guess but keep an eye on whether agents stumble on it." HTML spells them `width` and `height`, which Contract already uses for the box's CSS size, so they stay `bitmap-width` and `bitmap-height`. Revisit trigger: agents (or people) writing `width`/`height` on a canvas meaning its bitmap. Contract should then say so by name, and the web's spelling (`width`/`height` meaning the bitmap on `canvas` only) is the alternative. `queue/` tracks it.
 
 ## 11. Appendix: the probes (2026-09-27, Apple M5 Max)
 

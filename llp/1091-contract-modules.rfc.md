@@ -7,7 +7,7 @@
 **Date:** 2026-10-04
 **Implementer:** Claude (Opus 5.5) lanes for Charlie Cheever: stage 1 on 2026-10-05, stage 2 on 2026-10-06 (§5)
 **Amends:** LLP 1017 P8 (`use`); LLP 1055.002 D1 (a timeline's name and the merged namespace)
-**Unblocks:** LLP 1055.002 D7 (module-scoped keyframes) and D8 (`use Activity from "exact:motion"`); QUEUE "Two `.contract` files cannot be shared between apps" (`apps/markdown` and `apps/llp` copy `Blocks`/`Runs`)
+**Unblocks:** LLP 1055.002 D7 (module-scoped keyframes) and D8 (`use Activity from "exact:motion"`); `queue/` "Two `.contract` files cannot be shared between apps" (`apps/markdown` and `apps/llp` copy `Blocks`/`Runs`)
 **Related:** LLP 1086 (apps outside the repo; "no npm packages yet"); LLP 1030 (delivery: the plan's sha256 is its identity). Research only: LLP 0480 (exact1's `use` imported TS and was closed), LLP 0520 (content-addressed class names with collision detection).
 
 ## Summary
@@ -66,7 +66,7 @@ Qualified access (`use * as ui`, `ui.Button(…)`) is §6, not taken now.
   scope now, "since `use` cannot reach a library outside the app directory
   and every imported name lands in one namespace".
 - **Copies across apps.** `apps/markdown` and `apps/llp` carry the same
-  `Blocks`/`Runs` renderer (QUEUE). Lexy declares its own `timeline Activity`
+  `Blocks`/`Runs` renderer (`queue/`). Lexy declares its own `timeline Activity`
   because there's no `exact:motion` (LLP 1055.002 D8).
 - **Who uses `use` today.** In this repo: `apps/messages`, `apps/messages-legacy`,
   `apps/expose`, `examples/{ios,macos}/calendar`, `contract/corpus/use`.
@@ -147,7 +147,7 @@ CSS ident, keyframes name (`motion/src/animation/parse.rs`), timeline ident
 (`kernel/src/timeline.rs`) and Lean string. It is a Rust identifier when
 the declared name is; a hyphenated shape name was already not one, and
 `contract rust` printing it raw is an existing defect this RFC doesn't
-widen (QUEUE). The cost: a name in plan bytes depends on what else is
+widen (`queue/`). The cost: a name in plan bytes depends on what else is
 loaded. That's only visible for keyframes built at runtime (D5).
 
 Tools show the program-unique name, which is the declared name except on
@@ -339,7 +339,7 @@ data code is a separate design with its own consumer.
   `apps/messages`, `apps/messages-legacy`, `apps/expose`,
   `examples/*/calendar`; signal-exact2 is told. Lexy moves to
   `exact:motion`'s `Activity`. `apps/markdown`/`apps/llp` share `Blocks` from
-  a package (the QUEUE item), as stage 2's consumer.
+  a package (the `queue/` entry), as stage 2's consumer.
 - **Docs.** `contract-for-agents.md`, `contract-for-humans.md`, and
   `contract-grammar.md` get the `use` forms and the scope rule.
 
@@ -746,7 +746,7 @@ byte-identical.
 | Astra 6 / Grok 2: an app's own link retargeted at an older file was dropped by the JS loop | Taken: freshness is the entry's own time (`lstat`) |
 | Astra 7: a Contract source in a dot directory of the app was not watched | Taken: both loops watch every source the compile read |
 | Astra 8: a linked `node_modules` directory retargeted went unseen | Taken: every link on the way to a consulted path is one watched directory entry |
-| Astra 4 / Grok 1: a Rust build does not see a package installed nearer than the one it resolved | **Declined.** Cargo can only watch files, or directories by recursive scan; the directory a nearer install would make (`apps/node_modules`, `apps/markdown/node_modules`) does not exist and its parent is a tree of other apps or the app itself, so a recursive watch would rebuild on every unrelated edit. Installing a package is a dependency change, and `cargo build` after it rebuilds the plan once any input it watches changes; the dev loops, which can watch one directory entry, do see it. Recorded in QUEUE |
+| Astra 4 / Grok 1: a Rust build does not see a package installed nearer than the one it resolved | **Declined.** Cargo can only watch files, or directories by recursive scan; the directory a nearer install would make (`apps/node_modules`, `apps/markdown/node_modules`) does not exist and its parent is a tree of other apps or the app itself, so a recursive watch would rebuild on every unrelated edit. Installing a package is a dependency change, and `cargo build` after it rebuilds the plan once any input it watches changes; the dev loops, which can watch one directory entry, do see it. Recorded in `queue/` |
 
 ## 19. Code review round 10 dispositions
 

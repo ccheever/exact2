@@ -1,0 +1,1 @@
+**Animated images: what LLP 1011.000 §4 leaves** (2026-09-27). Linux decodes no GIF or WebP at all; animated PNG, AVIF and HEICS paint their first frame on Apple; a player's frames (up to 4 MiB, else two) are outside the raster budget and never drop resolution under pressure.

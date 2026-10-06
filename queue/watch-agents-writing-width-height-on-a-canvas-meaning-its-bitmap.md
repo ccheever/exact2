@@ -1,0 +1,1 @@
+**Watch: agents writing `width`/`height` on a `canvas` meaning its bitmap** (2026-09-27, Charlie's ruling in LLP 1056 §10). Contract spells the bitmap size `bitmap-width`/`bitmap-height` because `width`/`height` are the box's CSS size. If agents or people stumble on it, make Contract name the mistake and revisit the web's spelling.

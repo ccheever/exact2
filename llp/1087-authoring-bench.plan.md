@@ -516,12 +516,12 @@ batch → grade → aggregate → triage → fix lane → A/B → confirmation �
    and experience, per cell. There is no composite score. A change that saves tokens
    but loses completion or fidelity is not a win.
 3. **Triage**: an agent clusters findings across dev-task trials, dedupes them against
-   exact2's `QUEUE.md` and `docs/issues.md`, and ranks them by frequency × estimated
+   exact2's `queue/` and `docs/issues.md`, and ranks them by frequency × estimated
    cost. Each finding is classed as a docs, diagnostic, tooling, bug or feature fix.
 4. **Fix lane**: docs, diagnostic and tooling fixes, plus bugs with a reproduction.
    - Opus 5.5 implements, and Astra xhigh and Grok 4.7 xhigh review blind.
    - Three rounds at most, then the finding is descoped or escalated.
-   - **Features, language changes, and design go to Charlie**, as a QUEUE line or an
+   - **Features, language changes, and design go to Charlie**, as a `queue/` entry or an
      RFC.
    - **Nothing in the lane adds apparatus to exact2** (RULES §Agents).
    - Pitfalls that can't be fixed yet go in `docs/agent-pitfalls.md`.

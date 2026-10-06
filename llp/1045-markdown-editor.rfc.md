@@ -464,7 +464,7 @@ Collaborative editing, a rich paste importer (HTML → Markdown), a camera or
 generic file input, image editing, highlighting beyond the fixed language
 set, table editing beyond
 source (v1 types pipes; v2 owes a grid editor or a cell-aware `format`), a Contract component
-library (`use` across apps stays as QUEUE has it), LLP 1024, and a separate rich
+library (`use` across apps stays as `queue/` has it), LLP 1024, and a separate rich
 document model. The web editor has no dependency (Charlie, 2026-09-22).
 
 ## 6. Open, for Charlie

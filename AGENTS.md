@@ -128,8 +128,9 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   opens its update store at launch and checks after first pixel
   (`EXACT_UPDATE_ORIGIN=<url>` points a dev build at a directory `serve.mjs` serves;
   `state.delivery` shows what it did).
-- `QUEUE.md` is what would make sense to do next. Add a line when you find something
-  worth doing; delete it when it lands. It decides nothing.
+- `queue/` is what would make sense to do next, one Markdown file per entry so lanes
+  never collide (`queue/README.md`). Add a file when you find something worth doing;
+  delete it when it lands. It decides nothing.
 - Each worktree builds into its own `target/`: never symlink or share another
   checkout's (the scripts refuse); a private `CARGO_TARGET_DIR` outside every
   checkout is fine. What a development Apple build takes from the machine

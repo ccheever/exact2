@@ -406,7 +406,7 @@ impl<D: DataSource> DataSource for Swappable<D> {
         self.canvas_surfaces.clone()
     }
     /// A replaced Rust module does not draw yet: its canvases report the
-    /// error through `state` (LLP 1056 stage 1; QUEUE).
+    /// error through `state` (LLP 1056 stage 1; queue/).
     fn draw(
         &mut self,
         request: &exact_runner::DrawRequest<'_>,

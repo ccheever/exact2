@@ -607,9 +607,9 @@ const LINUX_APART = {
   'markdown-stress': ['tap toggle-single', "its editor's selection report (formats, links) is the web's markup editor's, which the Linux host's text field does not make"],
   'native-fixture': [null, 'its views are native modules (LLP 1024), which the web and Apple hosts load and the Linux host does not'],
   'photo-editor': [null, 'its editor is a native module (LLP 1024), which the web and Apple hosts load and the Linux host does not'],
-  messages: ['tap conversation-maya', 'its data sources write drafts and reads to storage on the Linux host, where the page refuses storage in agent mode without --storage (QUEUE)'],
+  messages: ['tap conversation-maya', 'its data sources write drafts and reads to storage on the Linux host, where the page refuses storage in agent mode without --storage (queue/)'],
   // Pointer phases and drags reach Linux since LLP 1094 D12; where its delivery
-  // still differs from the page's, the comparison stops there (QUEUE, batch 6).
+  // still differs from the page's, the comparison stops there (queue/, batch 6).
   'synthetic-press': ['up', "a mouse press focuses the button on the page and not on the Linux host"],
   'synthetic-rowsmore': ['up', "a mouse press focuses the button on the page and not on the Linux host"],
   'synthetic-reorder': ['drag grip-5 0 -300 500', "a drag past the list's top autoscrolls on the page and not on the Linux host, so the row lands elsewhere"],

@@ -1,0 +1,1 @@
+**Apple ABI pointer-event fixture fails** (2026-10-04, A2 verification): `abi::tests::dispatch_names_every_kind_and_refuses_unknown_ones` gets `NoHandler { view: 2, event: "pointerdown" }`. Reproduced with `cargo test -p exact-apple --no-fail-fast` on both A2 and `2ab8aca10`; the eight older content-region failures noted above also persist.

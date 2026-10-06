@@ -1,0 +1,3 @@
+Apple baseline precision: the kernel preserves fractional frames and `TextEngine` preserves authored fractional line heights, but intrinsic widths, normal paragraph heights and painted baselines still round to logical points. A same-font iOS 26.5 UILabel/CoreText/WebKit fixture found that removing that rounding improves some native labels but does not consistently match either UIKit or WebKit. Resolve line-box/baseline placement with a targeted comparison before changing painting globally; Removing all measurement ceilings changed Caltrain’s established scroll extent and canvas readback; investigate those intrinsic metrics separately. Authored line-height precision alone does not establish glyph fidelity.
+
+*Filed under “Later”.*

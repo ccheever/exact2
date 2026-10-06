@@ -82,7 +82,7 @@ r2 deferred `pre` ("can wait"). The Extra Heavy feed benchmark's code row needs 
 | tabs and spaces, 16 px DejaVu Sans (`css_tests.rs`) | 131.33, 50.84, 90.84, 111, 35.22, 52.5 | | | each Chrome's, rounded up to the whole pixel this engine holds |
 
 **Declared deviations** (also in LLP 1001 §1):
-- **`system-ui` tab stops on Apple are up to 2% narrower.** Chrome sizes a tab from the space of San Francisco's untracked advance (0.28125 em below 20 px, 29.25 px per stop at 13 px); CoreText's system font applies its size-specific tracking to the space too (3.58 px at 13, so 28.64 per stop). A declared face (DejaVu Sans) matches Chrome within 1/64 px; `ui-monospace` stops are eight of its space on both, but CoreText's SF Mono advance (8.04 at 13 px) is not Chrome's (7.83), for every string, not only tabs (QUEUE).
+- **`system-ui` tab stops on Apple are up to 2% narrower.** Chrome sizes a tab from the space of San Francisco's untracked advance (0.28125 em below 20 px, 29.25 px per stop at 13 px); CoreText's system font applies its size-specific tracking to the space too (3.58 px at 13, so 28.64 per stop). A declared face (DejaVu Sans) matches Chrome within 1/64 px; `ui-monospace` stops are eight of its space on both, but CoreText's SF Mono advance (8.04 at 13 px) is not Chrome's (7.83), for every string, not only tabs (`queue/`).
 - **`ui-monospace` line boxes** are 16 px at 13 px on Apple against Chrome's 15 (the code card's lines). This predates `pre` and is queued, not fixed here.
 
 ## 1. Already fixed while benchmarking (context, not proposals)

@@ -265,7 +265,8 @@ fn share_is_a_plan_that_runs_the_command() {
 
 #[test]
 fn notifications_are_a_plan_that_runs_show_or_close_notification() {
-    // Linked by use on the web (QUEUE.md's standing rule: the web cores' size).
+    // Linked by use on the web (the web cores' size: the standing rule in
+    // queue/standing-rule-a-new-optional-web-capability-links-by-use.md).
     assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Notifications));
     for call in [
         "showNotification(title=\"Stretch\")",

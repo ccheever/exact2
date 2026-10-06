@@ -642,18 +642,16 @@ fn this_repositorys_own_documents_hold_the_invariants() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap();
-    let mut files = vec![
-        root.join("README.md"),
-        root.join("QUEUE.md"),
-        root.join("apps/markdown/README.md"),
-    ];
-    files.extend(
-        std::fs::read_dir(root.join("llp"))
-            .unwrap()
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|x| x == "md")),
-    );
+    let mut files = vec![root.join("README.md"), root.join("apps/markdown/README.md")];
+    for dir in ["queue", "llp"] {
+        files.extend(
+            std::fs::read_dir(root.join(dir))
+                .unwrap()
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|x| x == "md")),
+        );
+    }
     assert!(files.len() > 50);
     for file in files {
         let source = std::fs::read_to_string(&file).unwrap();

@@ -1,0 +1,1 @@
+**iOS sound is silenced by the ring/silent switch** (2026-10-04, fix/audio, LLP 1042 §8). An `audio` or `video` plays under the default AVAudioSession category, which the switch mutes; Safari's media element plays through it. The app-scoped audio-session arbiter of LLP 1042 §5 would pick `.playback` for media with sound.

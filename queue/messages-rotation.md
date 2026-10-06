@@ -1,0 +1,3 @@
+Messages rotation: the active keyboard guide now corrects a four-point landscape composer offset; both landscape directions, return to portrait, retained editing, Back/sheet gestures and two-session destruction pass (`/tmp/messages-rotation/`). Individual software-key typing yields pixel-identical first-three-keyboard-row crops in both landscape directions; `typeText` had left Shift selected. Remaining: native landscape header (44-point avatar, hidden name pill, Back at x=38/y=24) and the handwriting control. The orientation-plist experiment has no measured benefit and is not integrated.
+
+*Filed under “Later”.*

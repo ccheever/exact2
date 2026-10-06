@@ -611,7 +611,7 @@ factual catches against the live repo before folding. Dispositions:
 
 Landed the same day as the fold, in three commits (server 4b3ace7, Apple
 0e4cb07, Linux ab8baa2), transcribed as LLP 1023.001 with the build plan
-at 1023.000. As-built deviations from §9, each carried to QUEUE where
+at 1023.000. As-built deviations from §9, each carried to `queue/` where
 still owed: the Linux loader is one-shot per run over ibex2's transport —
 the host already linked it for the request seam, so the planned std-only
 HTTP client was never written, and the live SSE half waits for a Linux
@@ -634,6 +634,6 @@ keeps fixtures bootable), `app.id` in the envelope, and the `Accept`
 branch with `Vary` on `dev.mjs` — zero client changes, as designed. The
 Stage 1 incident replayed as a refusal naming both apps. Deviation:
 weird-castle's own declaration waits on its in-flight data file; its
-plans bake unnamed and still boot everywhere until it lands (QUEUE). The
+plans bake unnamed and still boot everywhere until it lands (`queue/`). The
 remaining §9 stage is the third: the `BundleEntry` registry, the
 launcher, system DNS-SD.

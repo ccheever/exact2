@@ -5,7 +5,7 @@
 **Systems:** All
 **Author:** Muse Code for Charlie Cheever
 **Date:** 2026-09-12
-**Related:** LLP 1000 (the map); `rules/RULES.md` §Scope (web is the standard), §Budgets (15-doc working set); `rules/DEFERRED.md` (the doing-list bar); LLP 1025 (the 2026-09-01 review); LLP 1035.005 (contract authoring ergonomics); `QUEUE.md`
+**Related:** LLP 1000 (the map); `rules/RULES.md` §Scope (web is the standard), §Budgets (15-doc working set); `rules/DEFERRED.md` (the doing-list bar); LLP 1025 (the 2026-09-01 review); LLP 1035.005 (contract authoring ergonomics); `queue/`
 
 ## Summary
 
@@ -20,7 +20,7 @@ own next step.
 
 ### F1. Native layout disagrees with CSS on percentage widths
 
-`QUEUE.md` (2026-09-08): LLP 1032's blocks ended at 30,145 points while Taffy
+`queue/` (2026-09-08): LLP 1032's blocks ended at 30,145 points while Taffy
 sized their `width: 100%; max-width: 720px` column to 67,373, leaving a white
 phantom scroll range. The readers work around it with the CSS-equivalent
 definite preferred width plus `max-width: 100%`.
@@ -28,11 +28,11 @@ definite preferred width plus `max-width: 100%`.
 Strains `rules/RULES.md` §Scope — a semantic that could follow CSS follows CSS —
 and the `AGENTS.md` parity rule: a kernel that disagrees with a bare `<div>`
 reintroduces the four-disagreeing-default-layers bug class. Resolution is a
-kernel fixture both engines agree on, per the QUEUE line.
+kernel fixture both engines agree on, per the `queue/` entry.
 
 ### F2. `line-height` is a length, not CSS's ratio
 
-`QUEUE.md` (2026-09-08): the kernel's `line_height` row is absolute points, so a
+`queue/` (2026-09-08): the kernel's `line_height` row is absolute points, so a
 unitless `1.62` draws every line on top of the last. CSS's unitless value is a
 multiple of the font size. Same rule strained as F1. Resolution is binary and
 small: implement the ratio, or declare the deviation in LLP 1001 §1 the way the
@@ -40,7 +40,7 @@ small: implement the ratio, or declare the deviation in LLP 1001 §1 the way the
 
 ### F3. Contract files cannot be shared between apps
 
-`QUEUE.md` (2026-09-08): the `Blocks`/`Runs` renderer is copied between
+`queue/` (2026-09-08): the `Blocks`/`Runs` renderer is copied between
 `apps/markdown` and `apps/llp` because `use … from` refuses a `..` segment and
 any path outside the entry file's directory. A third reader is the agreed
 trigger to widen it; widening has a compatibility-id consequence (the shared
@@ -48,11 +48,11 @@ file becomes an input to the bake).
 
 Strains the delete-don't-deprecate spirit: a refused import is a forced fork,
 and forks are how 8.2M-word corpora start. Resolution is the widening itself,
-gated on the third reader as QUEUE says — not sooner.
+gated on the third reader as `queue/` says — not sooner.
 
 ### F4. Concurrent Apple builds ship each other's binaries
 
-`QUEUE.md` (2026-09-08): `host/apple/build.mjs` links every app's `ExactMac`
+`queue/` (2026-09-08): `host/apple/build.mjs` links every app's `ExactMac`
 into one product path (`host/apple/.build/<triple>/release/ExactMac`, staged
 through one `.build/composition-<composition>`) and copies it into each app's
 bundle. Two simultaneous builds of different apps race; seen for real as
@@ -99,7 +99,7 @@ leak into authoring (they currently don't — `DeliveryState` in
 
 The working set sits at 15 of 15 with six slots held by the 1035 umbrella; this
 very document forced an archive to land. The cap is doing its job — it forced
-the trade — but the backlog (`QUEUE.md`, 478 lines) against a full working set
+the trade — but the backlog (`queue/`, 478 lines) against a full working set
 means every new line of inquiry now evicts an active lane's orientation link.
 
 Resolution is throughput, not a bigger cap: land and archive 1035 slices as
@@ -109,11 +109,11 @@ for LLP 1025.
 
 ## Confidence
 
-F1–F4 are quoted from dated `QUEUE.md` lines (2026-09-08); F4's severity rests
+F1–F4 are quoted from dated `queue/` entries (2026-09-08); F4's severity rests
 on a witnessed wrong-binary launch recorded there. F5 is a file count plus the
 author's judgment that the `AGENTS.md` paragraph length measures it. F6 is
 structural reading of `AGENTS.md` and LLP 1030's shape, not a defect claim. F7
-is counted (`caps`: working set 15 of 15; `QUEUE.md`: 478 lines). All seven were
+is counted (`caps`: working set 15 of 15; `queue/`: 478 lines). All seven were
 re-checked against the tree on the document date; none has been verified by a
 fresh reproduction run.
 

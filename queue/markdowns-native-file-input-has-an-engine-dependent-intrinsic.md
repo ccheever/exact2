@@ -1,0 +1,1 @@
+**Markdown's native file input has an engine-dependent intrinsic width** (2026-10-02, cross-browser conformance): `open-file` is 188 px in Chrome and 196.67 px in Firefox. CSS permits the user-agent widget to choose its intrinsic size; give the control an explicit size if exact must match Chrome.

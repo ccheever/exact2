@@ -1,0 +1,1 @@
+**LLP 1069.010 D4's cross-window notification** (2026-09-27, owed by slice 2, ruled Q3): Fieldnotes is still one window (`navigate-existing`), so a committed write announcing an LLP 1016.002 topic that the other session's readers re-ask is not built. It lands when Fieldnotes says `navigate-new`; the app owner, which holds both sessions, carries it.

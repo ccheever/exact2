@@ -1,0 +1,1 @@
+**CSS font generic mappings for cursive/fantasy/math/emoji/fangsong and CSS-wide font-family values** (2026-10-04, CSS lane): currently refused precisely so a generic is never silently treated as a local family.

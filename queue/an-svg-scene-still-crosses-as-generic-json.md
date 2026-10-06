@@ -1,0 +1,1 @@
+**An `svg` scene still crosses as generic JSON** (2026-09-26, perf/crypto-svg, live-fling Time Profiler on the iPad): `BatchReader.value()` plus `BatchValue.any` (every path number boxed as an NSNumber, then unboxed by `nums`) is about 5% of main-thread time while a list of sparklines scrolls. A typed scene reader goes with feat/svg-complete's scene format, not before it.

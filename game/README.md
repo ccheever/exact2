@@ -565,7 +565,7 @@ The same driver reaches web, macOS, Linux and iOS. iOS agent input is
 labelled `recognized`; it is not physical-touch evidence. Pointer-completed HUD
 buttons return focus to the input canvas, while keyboard activation retains button
 focus and consumes its activation keys. Native hover/focus-visible parity remains
-[open work](../QUEUE.md).
+[open work](../queue/).
 
 For model-directed exploratory play, import `decide` from `game/proof.mjs`.
 Pass a small `state` observation, a `goal`, a `choices` record mapping allowed

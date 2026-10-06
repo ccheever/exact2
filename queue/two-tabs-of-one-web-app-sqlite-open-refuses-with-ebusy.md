@@ -1,0 +1,1 @@
+**Two tabs of one web app: `sqlite.open` refuses with EBUSY** (2026-10-05, authoring bench audit a2-contacts): the second tab's data module gets EBUSY rather than waiting for the lock, and a source has no timer to back off with; either `open` waits (bounded) or the docs say one tab holds the database.

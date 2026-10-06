@@ -5,7 +5,7 @@
 **Systems:** Runner (`instance/collection/reuse.rs`, `realize_window`, `Runner::set_row_reuse`), Kernel (`CommitReceipt::renewed`; motion, paint motion and layout motion treat a renewed node as destroyed and created), Linux/Canvas host (`Host::commit_effects`, `Presenter::renew`, `Images::renew`; `EXACT_ROW_REUSE`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-05
-**Related:** LLP 1010 §6 (row state dies on retirement), LLP 1050.000 §7 (view reuse on iOS; "with a host reset contract"), LLP 1068 §2 (the oracle: "removed, then a new element inserted") and §4.9 (incarnations), LLP 1072 (rows built on the owner thread), `QUEUE.md` "Android steady-state CPU, what is left" (6).
+**Related:** LLP 1010 §6 (row state dies on retirement), LLP 1050.000 §7 (view reuse on iOS; "with a host reset contract"), LLP 1068 §2 (the oracle: "removed, then a new element inserted") and §4.9 (incarnations), LLP 1072 (rows built on the owner thread), `queue/` "Android steady-state CPU, what is left" (6).
 
 ## Summary
 

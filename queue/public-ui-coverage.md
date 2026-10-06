@@ -1,0 +1,1 @@
+Public UI coverage (LLP 1035.006): select the first settings slice (labels, buttons, switches, checkboxes, radio groups, and text entry), choose each platform's disposition, then implement and hand-check the concrete examples. The ordered catalog distinguishes accepted support from reviewed deferrals; drafting it does not admit every excluded capability.

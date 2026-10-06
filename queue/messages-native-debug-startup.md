@@ -1,0 +1,3 @@
+Messages native debug startup (2026-09-14, LLP 1027.001): three conversation tests exceed the 100 ms executor guard during synchronous native Snapback/SQLite initialization. Serial A/B on the same integrated runtime measured 132–151 ms with either the standard TextEncoder or the previous private UTF-8 counter; the helper replacement is not causal. All 13 optimized Messages tests pass. Profile native initialization and its scheduling separately; do not raise the guard or describe the full debug workspace suite as green. Evidence: `/tmp/exact2-language-parity/logs/de55b63-messages-current-serial.log` and the adjacent old-helper log.
+
+*Filed under “Later”.*

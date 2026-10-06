@@ -1,0 +1,1 @@
+**tvOS has no test target** (2026-10-04, fix/impl1088, LLP 1088 D7.3). `canBecomeFocused` is false for an explicit negative `tabindex` (`RemoteTVOS.swift`), and it compiles (`bun host/apple/build.mjs --tvos`), but nothing runs it: `KeyboardFocusIOSTests` is `#if os(iOS)` and `build.mjs --test` has no `--tvos`. The D7.3 test list's tvOS line waits on one.

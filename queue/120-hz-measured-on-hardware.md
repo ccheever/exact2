@@ -1,0 +1,1 @@
+**120 Hz measured on hardware** (2026-09-26, LLP 1061 D4). Motion that moves things asks a ProMotion iPhone for its full rate and paint-only motion for 60 Hz, set but unmeasured on hardware (`perf frames` gives the sampler's target period and its late frames, and Save Trace keeps them, LLP 1079); the Mac's display link never asks for a frame-rate range.

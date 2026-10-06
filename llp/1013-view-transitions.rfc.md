@@ -88,7 +88,7 @@ before or only after fades out or in. The page stylesheet sets
 `:root { view-transition-name: none }`: a stylesheet choice, as a reset is, so
 only named nodes animate and the whole-page crossfade is opt-in by naming the
 root (its native cost is a whole-document capture, ~5 ms on macOS by the canvas
-probe in `QUEUE.md`; measure before turning it on).
+probe in `queue/`; measure before turning it on).
 
 Every other host does what the browser does, with what it already has — kernel
 frames and `exact-motion`: on a flagged commit, before apply, record every

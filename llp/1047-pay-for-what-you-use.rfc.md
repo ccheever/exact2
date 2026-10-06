@@ -737,7 +737,7 @@ engine's code stayed linked all the same, because every commit named it.
   and that growth rewrote the index. On a native churn bench (500 commits,
   each creating 20 rows, moving 220 and destroying 20) it cost 55–70% more
   cycles for 1% more instructions. hashbrown stays; presizing those sets is
-  in `QUEUE.md`.
+  in `queue/`.
 - **Bytes at `e9a38626`, raw and brotli-11:**
   - RealWorld: 898,973 → 890,987 raw; 275,704 → 273,574 brotli.
   - Video player: 685,217 → 682,458 raw; 216,724 → 215,435 brotli.

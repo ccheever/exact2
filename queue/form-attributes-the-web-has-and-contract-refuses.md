@@ -1,0 +1,1 @@
+**Form attributes the web has and Contract refuses** (2026-10-04, authoring bench, rounds 1–2): `autocomplete` on `input`, and `label`/`for` (builders used `aria-label` plus a visible `text`). (`aria-invalid` and CSS-wide `inherit`, also met there, landed the same day.)

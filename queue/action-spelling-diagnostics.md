@@ -1,0 +1,1 @@
+**Action spelling diagnostics** (LLP 1006 §3): handlers, action props and timers now use authored scopes; forwarded prop/provider errors link their supplied argument. Action-valued derived expressions and other untraceable substitution origins conservatively get no hint. Extend only with original binding provenance, never expanded-root name guesses.

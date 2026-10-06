@@ -1,0 +1,1 @@
+**Linux authored glyph fallback cascades** (kanban F8, 2026-10-04): font lists select the first available family; cosmic-text still owns glyph fallback through its single Attrs.family. Preserve the rest of the authored list per shaping run before claiming full CSS per-glyph fallback parity.

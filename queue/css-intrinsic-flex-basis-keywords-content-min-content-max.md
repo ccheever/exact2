@@ -1,0 +1,1 @@
+**CSS intrinsic flex-basis keywords (content/min-content/max-content/fit-content)** (2026-10-04, CSS lane): dimension rows need an intrinsic sizing representation; compiler now diagnoses the declared mode limit precisely.

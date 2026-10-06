@@ -1,0 +1,1 @@
+**What RealWorld found in Contract** (2026-09-23, `apps/realworld`): (1) ~~Nothing runs when a mutation answers~~: `mutation … then action` (LLP 1016.001, 2026-09-26). Mutations, resources and tasks live only in the root, so a page's form state that touches data moves up.

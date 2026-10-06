@@ -1,0 +1,1 @@
+**The JS target's bundle warns of exact's own glue** (2026-10-04, fix/tooling3): `ts-data.js` imports `kept` from `app.ts`, which most apps don't export, so every TypeScript app's web build logs `IMPORT_IS_UNDEFINED` twice. `host/web/build.mjs` now prints only the compiler's `warning:` lines; read the export optionally (a namespace import) so the bundler has nothing to say.

@@ -1,0 +1,1 @@
+**CSS native interaction/painter gaps (diaries kanban F11, minesweeper F4, ledger F1, pomodoro F2)** (2026-10-04, CSS lane): resize handles; iOS/Linux user-select text/all/contain; dotted/dashed and other border styles; decoration color/style/thickness and Linux underline skip-ink:auto. Current compiler/driver diagnoses each declared limit.

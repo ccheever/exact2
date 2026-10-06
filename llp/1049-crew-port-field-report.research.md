@@ -35,7 +35,7 @@ agent that has to see a simulator.
 | F5 | `clock settle` hung for minutes | fixed: one twenty-second deadline per call on Apple and Linux, not per round; the reply says it gave up on requests (`7a7b6ab8`) |
 | F7 | refused placeholder asks stayed pending forever | fixed: a resource refused ordered admission is asked again once the last refusal settles; a refused mutation ends unsent (`c318ed04`) |
 | F8 | `role="tablist"` silently became a segmented control | fixed: projected only when every tab is one image or its label alone; otherwise kept as authored with the tab-bar trait, and journaled either way (`a3956ef2`; LLP 1035.001 D10 amended) |
-| F9 | a promise shared between two answers aborted the driver | message and docs: the refusal names the cause and the remedy (`b68ed51e`); module-wide liveness stays LLP 1027.003.000 §13's open decision (QUEUE) |
+| F9 | a promise shared between two answers aborted the driver | message and docs: the refusal names the cause and the remedy (`b68ed51e`); module-wide liveness stays LLP 1027.003.000 §13's open decision (`queue/`) |
 | D1 | the Bun pin was a hard stop | fixed: the scripts put the Bun that passed first on PATH for Cargo's build steps, and the refusal names a side-by-side install (`f1fe9aac`); the floor itself is LLP 1036.001 Q2 |
 | D2 | a private git dependency blocked offline builds | issue `root-lock-pins-private-snapback`; LLP 1036.001 D4 |
 | D3 | Hermes provisioning was manual and slow | issue `ios-hermes-provisioned-by-hand` (also: the pin disagrees between `js/build.rs` and LLP 1027); LLP 1036.001 D5 |

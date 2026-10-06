@@ -1,0 +1,1 @@
+macOS: after `resize`, an app whose root overflows (content-box `width="100%"` plus padding) reads `exactViewport` 17 pt narrower and shorter (783x583 for 800x600: the scroll view's legacy scrollbars), where at launch it read the window's size (1000x700), as the web's does.

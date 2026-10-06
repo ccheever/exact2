@@ -550,7 +550,7 @@ a branch from origin/main. Each commit passes the five checks.
    - **If the `Lower*` `call` case slips,** stage 2 lands the semantics,
      the other proofs and difftest. The lowering theorem is then stated for
      call-free bodies, the restriction is named in `semantics/README.md`,
-     and it gets a `QUEUE.md` line. No `sorry` lands.
+     and it gets a `queue/` entry. No `sorry` lands.
 
 ## 6. Considered and not taken
 
@@ -584,7 +584,7 @@ a branch from origin/main. Each commit passes the five checks.
    assigned earlier on that path, then loading each slot as the last
    assignment on the path (or the starting value when there is none)
    equals the snapshot load. Derives, resources, `pending` and sends lie
-   outside the statement. It gets a `QUEUE.md` line when stage 1 lands.
+   outside the statement. It gets a `queue/` entry when stage 1 lands.
    No implementer yet.
 
 ## 8. Revisions
@@ -671,7 +671,7 @@ Files' `arrive(path)`, the rest of spreadsheet's copies and the macOS drive
 are the apps' own changes, outside this repo.
 
 **Stage 2, 2026-10-04.** D9 as decided, with the lowering theorem for calls
-too, so nothing is restricted to call-free bodies and no `QUEUE.md` line is
+too, so nothing is restricted to call-free bodies and no `queue/` entry is
 owed for it.
 
 - **Semantics.** `Stmt.call (action) (args)`. `exec` evaluates the

@@ -1,0 +1,1 @@
+**A generated vocabulary page** (LLP 1054 L1): tags, built-ins, symbols and style rows from their tables, one page an app writer can read. Tables live in `contract/lower/src/tags.rs`, `plan/tables/format.json` and `kernel/tables/schema.json`.

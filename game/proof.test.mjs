@@ -1067,7 +1067,7 @@ test('R15 macOS receipt includes modulemaps and extensionless compile inputs',as
     for(const name of ['Header']) { const before=inputs();writeFileSync(resolve(dirname(file),name),'tracked compile input');expect(inputs()).not.toBe(before); }
     // Outside `game/` every tracked file counts; under the add-on, tests, examples, proofs and pins describe proofs.
     for(const path of ['host/apple/Sources/CExact/AnotherHeader']) { const before=inputs();const file=resolve(dir,path);mkdirSync(dirname(file),{recursive:true});writeFileSync(file,'tracked compile input');expect(inputs()).not.toBe(before); }
-    for(const path of ['QUEUE.md','host/web/glue.test.mjs','host/apple/Sources/CExact/pins.json','game/games/test/tests/data','game/games/test/proof.mjs','game/engine/tests/a.rs']) { const before=inputs();const file=resolve(dir,path);mkdirSync(dirname(file),{recursive:true});writeFileSync(file,'not a bake input');expect(inputs()).toBe(before); }
+    for(const path of ['queue/new-task.md','host/web/glue.test.mjs','host/apple/Sources/CExact/pins.json','game/games/test/tests/data','game/games/test/proof.mjs','game/engine/tests/a.rs']) { const before=inputs();const file=resolve(dir,path);mkdirSync(dirname(file),{recursive:true});writeFileSync(file,'not a bake input');expect(inputs()).toBe(before); }
     await ensureBuildReceipt({receipt,inputs:before,artifact:()=> 'binary',build:async()=>{builds++;}});
     await ensureBuildReceipt({receipt,inputs:inputs(),artifact:()=> 'binary',build:async()=>{builds++;}});
     expect(builds).toBe(2);
@@ -1209,7 +1209,7 @@ test('E11 clean Git blobs and stat-cached dirty inputs have stable identities', 
     const b=read();expect(b.gpu).not.toBe(a.gpu);expect(b.host).toBe(a.host);expect(b.reads).toBe(1);
     expect(read()).toMatchObject({gpu:b.gpu,host:b.host,reads:0});
     git('add','.');expect(read().all).toBe(b.all);
-    write('QUEUE.md','new task');write('host/web/glue.test.mjs','test');expect(read().all).toBe(b.all);
+    write('queue/new-task.md','new task');write('host/web/glue.test.mjs','test');expect(read().all).toBe(b.all);
     write('host/apple/Sources/CExact/module.modulemap','module CExact {}');expect(read().host).not.toBe(b.host);
     const beforeEngine=read();write('game/engine/src/lib.rs','engine change');
     const engine=read();expect(engine.gpu).not.toBe(beforeEngine.gpu);expect(engine.host).toBe(beforeEngine.host);

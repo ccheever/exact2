@@ -41,7 +41,7 @@ Astra (`gpt-6-astra`, reasoning max) and Grok (served as `grok-4.6-build`, xhigh
 | Content box and borders | Found while building, not by the reviews: CSS's initial `border-width` is `medium` (3 px) and counts only when a style draws a border. The Apple scene now does the same; the bug had shrunk every chart by 3 pt a side. |
 | Unit rules for geometry (Astra) | A `px` suffix is accepted only on CSS lengths (keyframe `r`, `translate`, `stroke-dashoffset`) and dash lists. `points`, `d` and `viewBox` take numbers only. |
 | Default `preserveAspectRatio`, negative and zero `viewBox` sizes, `pathLength` 0 and negative (both) | `xMidYMid meet`; a negative size invalidates the view box and a zero size renders nothing; `pathLength` ≤ 0 is ignored (scale 1). Unit tests pin the view-box equations. |
-| iOS pooling (both) | Rows holding an `svg` stay ineligible for `NodePoolIOS` in v1 (its kind list omits `svg`); `SvgHost.forget` clears scenes and box animations on destroy. Pooling SVG rows is owed (QUEUE). |
+| iOS pooling (both) | Rows holding an `svg` stay ineligible for `NodePoolIOS` in v1 (its kind list omits `svg`); `SvgHost.forget` clears scenes and box animations on destroy. Pooling SVG rows is owed (`queue/`). |
 
 **Accepted as declared deviations or limits (not built):**
 - **Geometry properties.** `x`, `y`, `rx`, `ry` and `d` are CSS geometry properties in SVG 2 (both reviewers). They stay attributes here, so they are not animatable in v1. Only `cx`, `cy` and `r` are rows.

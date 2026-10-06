@@ -1,0 +1,1 @@
+**`includes` is text-only; a list has no membership test** (2026-10-05, authoring bench, LLP 1087: a Codex builder on t6-todo-more wrote `includes(t.tags, tag)` and got "argument 1 expects string, given list<string>", then counted a filter). The web's `Array.prototype.includes` takes a list; and there is still no text→number parse (`toLowerCase` and `formatNumber` have landed).

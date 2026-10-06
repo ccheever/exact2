@@ -1,0 +1,1 @@
+**LLP 1069.005 D1b after its build** (2026-09-27): a Rust source on the web can generate and sign but not keep a key (`keep_key` refuses in the page's wasm, since a JWK in `localStorage` breaks Q3); keeping it means signing through the page's WebCrypto by import. The iOS link's size with `p256` is unmeasured. The host-held (Secure Enclave) key waits for its security review.

@@ -1,0 +1,1 @@
+The active head (`runner/src/head.rs` `head_of`, web-js `document.js`) skips covered routes but not an unselected tab's screens (LLP 1075.003 §3.7): a head on another tab's top screen can win. `unselected` (head.rs) is the rule `inactive` now uses.

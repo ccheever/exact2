@@ -699,7 +699,7 @@ viewport segments (`horizontal-viewport-segments: 2`,
 between segments). When a consumer wants a layout that respects the fold, that
 is the surface: fed from the division region and `UIHingeInteraction` on
 Apple, from `navigator.devicePosture` and the viewport segments on the web.
-Nothing today needs it; no kernel row exists for it yet (QUEUE).
+Nothing today needs it; no kernel row exists for it yet (`queue/`).
 
 **Router projection (LLP 1038 D6/D7/D11, 2026-09-14).** The Rust host
 emits the coalesced `router{top,url,removed}` op at boot and beside commands
@@ -1373,7 +1373,7 @@ into the tvOS binary alone.
 The tier 2 async lane (`scripts/async.mjs --tier 2`, hourly) builds it, and
 files a break against the range since the last commit it checked. Not yet:
 the agent driver and the smoke on a TV, and scripted remote presses
-(QUEUE.md "tvOS, what is owed").
+(`queue/` "tvOS, what is owed").
 
 ## 10. The store (LLP 1018, as built 2026-08-30)
 

@@ -84,7 +84,7 @@ Captures coalesce per run-loop turn; a canvas whose overlay has no subviews
 never captures. Everything not on this list is a declared gap, and the list
 grows with every native piece a canvas may hold. A host that paints has the
 exact answer because it *is* the display list — one more argument for the wgpu
-painter in the Linux decision (`QUEUE.md`). The lesson from Mozilla's objection
+painter in the Linux decision (`queue/`). The lesson from Mozilla's objection
 to the browser's version — content through a canvas is timed by the JS loop,
 losing compositor-thread scrolling and animation — holds here in this form:
 scrolling and motion inside a canvas are recaptured, not composited, and a

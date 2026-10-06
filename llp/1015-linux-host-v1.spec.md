@@ -7,7 +7,7 @@
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
 **Implementer:** Claude (Fable 5), landed 2026-08-29 (this document transcribes the landing)
-**Related:** LLP 1008 (the Apple host whose orchestration this repeats without its batch), LLP 1007 (the web host; the parity oracle), LLP 1001 §5–6 (layout is a host call; text measurement is injected), LLP 1002 D2/§4 (every host but the web runs `exact-motion`), LLP 1010 (scrolling — §3's chaining rule, implemented here in Rust), LLP 1011 §4 (the image policy, repeated), LLP 1012 (the agent API — this host implements its contract, not `Agent.swift`), LLP 1014 D2/D4 (children over a canvas; a painter host as the display list), LLP 1009 (the GPU module this host does not load yet), `QUEUE.md` §Open decisions ("Linux painter: wgpu or CPU raster" — the take v1 makes, §7), `rules/RULES.md` §Time budgets, `rules/DEFERRED.md` §Surfaces. Research, never authority: exact1's 0418/0430 (one text engine measures and paints), 0323 (the measurement cache).
+**Related:** LLP 1008 (the Apple host whose orchestration this repeats without its batch), LLP 1007 (the web host; the parity oracle), LLP 1001 §5–6 (layout is a host call; text measurement is injected), LLP 1002 D2/§4 (every host but the web runs `exact-motion`), LLP 1010 (scrolling — §3's chaining rule, implemented here in Rust), LLP 1011 §4 (the image policy, repeated), LLP 1012 (the agent API — this host implements its contract, not `Agent.swift`), LLP 1014 D2/D4 (children over a canvas; a painter host as the display list), LLP 1009 (the GPU module this host does not load yet), `queue/` §Open decisions ("Linux painter: wgpu or CPU raster" — the take v1 makes, §7), `rules/RULES.md` §Time budgets, `rules/DEFERRED.md` §Surfaces. Research, never authority: exact1's 0418/0430 (one text engine measures and paints), 0323 (the measurement cache).
 
 ## Summary
 
@@ -263,7 +263,7 @@ edge proximity, alpha, irregular damage and opacity layers. It passes in debug
 and release. The clip-lifetime oracle now exercises eligible rounded fills too;
 a separate test verifies the coverage proof rejects nonfinite/invalid radii.
 The oracle also exposed a pre-existing tiny-skia panic for an internal NaN radius,
-reproduced on the published baseline and recorded in `QUEUE.md`; it is not a
+reproduced on the published baseline and recorded in `queue/`; it is not a
 passing pixel case. Twenty-four app screenshots and layouts remain byte-identical.
 Four alternating release pairs measured six-scene process CPU at 1.727 → 1.140
 seconds (34.0% less) relative to the rectangular-damage renderer above. A second
@@ -371,7 +371,7 @@ several times per node), 498 from cache, 13.5 ms shaping — ~35 µs per
 miss, twice CoreText's; the tail is the fixed-point layouts, not the
 shaper. Chrome on Linux with the same DejaVu Sans wraps the same lines:
 the app's root is 3244 pt tall here against 3246 on macOS, and the
-departure rows wrap at 420 wide on both, as `QUEUE.md` §3 noted for macOS.
+departure rows wrap at 420 wide on both, as `queue/` §3 noted for macOS.
 
 **The pinned font (r3).** A pixel fixture that must match across machines
 needs the same font bytes on each, so `scripts/fixtures/fonts/` holds
@@ -490,7 +490,7 @@ reports both. **Images** (`image.rs`): after every commit the presenter
 syncs every image node's `imageSource` — a relative path resolves under
 `EXACT_ASSETS` (the current directory otherwise) and must stay inside it;
 `http(s)` and any other scheme do not load (the out-of-process resource is
-ibex2's, `QUEUE.md` §Later) — and decodes PNG on a thread; a completion
+ibex2's, `queue/` §Later) — and decodes PNG on a thread; a completion
 for an older generation or a gone node is dropped; the size reaches the
 kernel through `set_intrinsic` and the tree relays out (LLP 1011). In the
 headless modes the presenter waits for loads in flight (bounded, 500 ms)
@@ -609,7 +609,7 @@ Linux support (LLP 1035.001 D3).
 
 **The painter is vello on the GPU (r2), with tiny-skia on the CPU as the
 fallback and the pixel oracle.** r1 took CPU raster for the reasons
-`QUEUE.md` §Open decisions named — boots with nothing compiled, runs on
+`queue/` §Open decisions named — boots with nothing compiled, runs on
 the GPU-less fleet, deterministic pixels — and Charlie reversed it the
 same day: the GPU is the main painter going forward, because it is what
 makes `canvas` and LLP 1014's children-through-the-shader one pass rather

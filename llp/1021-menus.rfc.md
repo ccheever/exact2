@@ -616,7 +616,7 @@ agent flow and the seeded-book CDP recipe keep working unchanged.
   it. First consumer brings the nesting rules.
 - **The menu keyboard contract** (arrow traversal, typeahead, `role=menu`
   focus management) — Escape works (D2, the spec's dismissal); the rest
-  arrives with the events lane (QUEUE §2), which owns keys generally.
+  arrives with the events lane (`queue/` §2), which owns keys generally.
 - **The long-press context menu** (`UIContextMenuInteraction`) — content
   actions, not navigation; per the HIG never the sole path. **Earned back
   2026-10-05** (§5.1) by the Signal clone's chat list, whose long press
@@ -834,7 +834,7 @@ edit menu stays the browser's. The popover is resolved in a timeout after
 the node's action. A bound `contextPopover` that the action itself changes
 therefore opens the popover it named before when that page defers its
 commit: a view transition on the JS target (`shared.commit`), or the
-presence module still loading on the wasm host. QUEUE has this.
+presence module still loading on the wasm host. `queue/` has this.
 
 **Linux** has no popover presentation (`POPOVER_UNSUPPORTED`, §4), so
 `contextPopover` shows nothing there and the node's `contextmenu` still
@@ -878,11 +878,11 @@ route). `MenuHost.context` and the right-mouse path on macOS were not
 driven: `popUp` tracks the menu modally, and no test reaches it.
 
 **Still deferred.** The preview's own interactivity: UIKit takes every touch
-on a preview as the commit, as QUEUE's reaction-picker note found, so
+on a preview as the commit, as `queue/`'s reaction-picker note found, so
 the Signal message menu's reaction bar is not a preview, and stays
 authored (a reaction bar beside the menu is its own work). Submenus (as §5). A preview for a node that does not name a
 popover. macOS's preview (none exists). Linux's popover presentation. The
-keyboard route to a context menu (Shift+F10, the context-menu key; QUEUE's
+keyboard route to a context menu (Shift+F10, the context-menu key; `queue/`'s
 "Keyboard access to a message's context menu"). Compile-time checks: a
 literal `contextPopover` naming no popover, or two `contextPreview` rows,
 is not refused by the compiler. iOS logs both at the press, macOS logs a

@@ -15,7 +15,7 @@
 **Related:**
 - Charlie's ruling, 2026-09-28: "move the mount off the main thread … leaving only the UIKit/CA apply on main. Resumable rows are not chosen."
 - The reviews: `llp/reviews/1072-building-rows-off-the-main-thread.astra.md` (r1) and `…astra-r2.md` (r2's retirement handshake).
-- `QUEUE.md` "A heavy list row still mounts as one lump" and its diagnosis (commit `ee0f8b70`): the evidence in §1.
+- `queue/` "A heavy list row still mounts as one lump" and its diagnosis (commit `ee0f8b70`): the evidence in §1.
 - LLP 1022, the serial runtime owner, parked 2026-08-30. This RFC revives it in narrower form. Its findings are acceptance tests here (§10, §11).
 - LLP 1044: F4, F5 and §3 put all list work on main, synchronously.
 - LLP 1044.000: §5 item 8's bar is met (§1) and its §8 "no runtime-owner thread" is replaced. §5 item 2: CoreText objects stay with the thread that made them.
@@ -903,7 +903,7 @@ today.
 came first in a frame (`Host::canvas_turn`, after layout). On a frame with a
 due timer that is `exact_advance`, which main waits on (§2.3), so main was
 awake for the whole draw: 150–170 ms/s of the feature bench's F2 on an iPhone,
-a draw of 1.75–2.9 ms a frame (QUEUE, the canvas lane's trace), with main
+a draw of 1.75–2.9 ms a frame (`queue/`, the canvas lane's trace), with main
 doing almost nothing else meanwhile.
 
 **The change.** Where fills are asynchronous (iOS, off the agent), the session

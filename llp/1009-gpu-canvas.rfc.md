@@ -273,7 +273,7 @@ a canvas frame; `gpu/tests/it/frame.rs` holds it there. Only `exact-gpu`
 links this version; surfaces still write plain wgpu (D1), and an app in a
 workspace of its own carries the `[patch.crates-io]` line — `gpu/build.rs`
 refuses a build without it and prints the line. Patch 1 changes nothing a
-caller can observe and is to be proposed upstream (QUEUE).
+caller can observe and is to be proposed upstream (`queue/`).
 
 **Not taken: small uniforms as immediates** (measured 2026-09-29, branch
 `perf/gpu-immediates-on-d7`). Redeclaring a surface's small `var<uniform>`

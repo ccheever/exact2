@@ -614,7 +614,7 @@ no arm, because a `sound` declaration is not a node.
   one stops calling `setCategory(.ambient)` and asks the owner instead.
 - The default is `.ambient`; `audio_session: "playback"` is `.playback`. This
   holds for an app with no `sound` too, since the owner is ExactKit's. That
-  settles QUEUE's "iOS sound is silenced by the ring/silent switch" for a
+  settles `queue/`'s "iOS sound is silenced by the ring/silent switch" for a
   video-only or `audio`-only app that sets it.
 - **Interruptions.** An interruption stops the engine, and it restarts when
   the interruption ends. Voices due in between are not played; each is
@@ -920,7 +920,7 @@ Each commit passes the five checks.
      check; drums on macOS and the iOS simulator, heard; drums' tests under
      `test macos`.
    - If the iOS session's interruption handling slips, macOS lands and the
-     slipped piece gets a `QUEUE.md` line.
+     slipped piece gets a `queue/` entry.
 4. **2026-10-09, docs** (D13), after stage 2's adoptions run.
 
 ## 7. Deferred, with preconditions

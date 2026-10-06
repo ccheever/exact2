@@ -1,0 +1,1 @@
+**Virtualize the Messages transcript** (LLP 1010 §6 consumer sweep; LLP 1027.004 D5): its horizontal timestamp-reveal wrapper is outside the collection's supported shape. Once virtualized, `reachstart`/`reachend` replace the explicit earlier/later rows with no source change.

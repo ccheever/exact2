@@ -146,7 +146,7 @@ Admitted: `perspective` (on the parent) with `perspective-origin`; the individua
 
 ### D9. `mix-blend-mode` on boxes
 
-*Corrected 2026-10-02.* r1 and r2 deferred `filter` on boxes too, but it already exists: LLP 1055.000 §0 (2026-09-29) draws it natively on the web and as a picture on Apple (`BoxFilter`: the box drawn unfiltered, the chain run on the GPU, redrawn after each batch). Linux still draws the box unfiltered; QUEUE carries that. Nothing in this RFC changes it.
+*Corrected 2026-10-02.* r1 and r2 deferred `filter` on boxes too, but it already exists: LLP 1055.000 §0 (2026-09-29) draws it natively on the web and as a picture on Apple (`BoxFilter`: the box drawn unfiltered, the chain run on the GPU, redrawn after each batch). Linux still draws the box unfiltered; `queue/` carries that. Nothing in this RFC changes it.
 
 `mix-blend-mode` on a box stays deferred. iOS documents `compositingFilter` as unsupported, and SwiftUI's `.blendMode()` uses private `CAFilter`, which risks App Store rejection and can break silently in an OS update. The public route would be `BoxFilter`'s: picture the box and what is under it, then blend. But a blend reads the backdrop, so the picture would have to be redrawn whenever anything under the box changes, not only after a batch.
 

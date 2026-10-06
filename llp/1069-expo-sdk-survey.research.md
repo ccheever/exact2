@@ -532,7 +532,7 @@ slice. 1069.003 needs 1069.000's `exactPage()`. 1069.010's import needs
 
 Each wave needs only what the waves before it land.
 
-**Wave 0 — bugs already queued (QUEUE.md), each on its own:**
+**Wave 0 — bugs already queued (`queue/`), each on its own:**
 
 - **Mac release entitlements.** `exact release` signs hardened with none,
   so a notarised grnl can't hear. Shipped apps are broken today (1069.008).

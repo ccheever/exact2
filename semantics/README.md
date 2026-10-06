@@ -691,7 +691,7 @@ What it does not carry, as restrictions:
   `host/web-js/conformance/queue.contract`).
 - The one-slot invariants (`Reachable.slotIn`, `Event.step_slotIn`,
   `Reachable.advance_untouched`) are proved of slots that are not a queue
-  mutation's, whose answers an advance lands (`QUEUE.md`).
+  mutation's, whose answers an advance lands (`queue/`).
 - The component-level semantics (`Contract.CompSem`) refuses both, so
   `difftest expansion` writes and reads programs without them.
 

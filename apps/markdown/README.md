@@ -610,7 +610,7 @@ three assertions still treat the newly assigned event tag 18 as unknown. Strict
 workspace Clippy, formatting, caps and boot pass. The final workspace build
 failed when a Messages bake helper exited without replying; an earlier build
 passed. After three validation rounds, these broader repairs are stopped and
-recorded in `QUEUE.md`, not reported as green. The scalar change separately
+recorded in `queue/`, not reported as green. The scalar change separately
 passes all 149 Swift host tests and the standard Mac Release bundle build.
 `origin-integration/workspace-validation-round{2,3}.json`,
 `workspace-round3-test-corrected.json` and `cache-diagnostic/scalar-tests-round1.json`
@@ -995,7 +995,7 @@ checks the actual reading column at 420, 1,000 and 1,400 pixels (bounded by
 the framework's full-width row wrapper; inspecting the DOM identified the
 authored column inside it, and the corrected drive passes. Native screenshots
 at 420 and 1,400 points confirm wrapping and centering; the narrow window's
-existing cramped folder/header layout is recorded in `QUEUE.md`.
+existing cramped folder/header layout is recorded in `queue/`.
 `flat-rows-browser-selection.json` and `flat-rows-mac-{narrow,wide}.png` retain
 the drive. The assembled `Flat-reader-layers.app` has SHA-256 `6e85cc90…`;
 `flat-reader-identity.json` records sources and build. The `flat-active-scroll-*`

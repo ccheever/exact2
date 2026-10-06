@@ -150,7 +150,7 @@ guide's rules don't make obvious.
   on a box that never scrolls (`lower-route-scroll`). **Candidate diagnostics:** the
   compiler could refuse a named scroller that is not right after the `header` (an
   iOS-only rule today, so not refused); the hosts could journal a route whose
-  content overflows with nothing to scroll it (QUEUE.md).
+  content overflows with nothing to scroll it (`queue/`).
 - **A sheet won't swipe down to dismiss.** It springs back (the log says "modal
   dismissal refused: no enabled navigationBack control in the active route").
   Cause: as for edge-swipe back, the swipe presses the control named by the root's

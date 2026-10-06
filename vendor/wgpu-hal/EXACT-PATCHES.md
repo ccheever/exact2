@@ -47,7 +47,7 @@ the residency-set code walks the same subset. `raw_command_buffer()` is
 `None` until an encoder has been opened.
 
 Nothing a caller can observe changes except the count of command buffers.
-**Upstreamable as it stands** (QUEUE.md has the line).
+**Upstreamable as it stands** (`queue/` has the line).
 
 ## 2. A frame's presentations can ride its submit
 

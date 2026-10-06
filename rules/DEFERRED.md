@@ -418,7 +418,7 @@ reading. Nothing that isn't HTML is added by it.
   headset's buttons and the browser's media hub. Take (offered in LLP 1098
   §9 Q1, accepted): LLP 1042 §5's "Complete-player extension design
   (unimplemented)", a spec with no implementer or date, is deleted, and
-  `QUEUE.md`'s "Video (LLP 1042)" lines lose "complete the designed
+  `queue/`'s "Video (LLP 1042)" lines lose "complete the designed
   track/controller and app audio-session ownership APIs"; to the extent that
   is not doing-list work, the admission stands on the orchestrator's waiver
   under the same delegation. Still out, each until a consumer asks: the

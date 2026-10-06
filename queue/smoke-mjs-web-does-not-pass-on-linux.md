@@ -1,0 +1,1 @@
+**`smoke.mjs web` does not pass on Linux** (2026-10-02, expo-build-1000, Chrome 154 for Testing): scroll limits come from Mac fonts (expected 652, Linux 612), the canvas reference is Mac's, and Chrome there has no working WebGPU adapter even on SwiftShader. Judge the web smoke on a Mac; a Linux variant would need its own references.

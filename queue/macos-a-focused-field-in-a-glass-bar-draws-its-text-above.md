@@ -1,0 +1,1 @@
+**macOS: a focused field in a glass bar draws its text above its placeholder** (2026-10-02, found driving Messages' inbox search with `scripts/agent.mjs macos … "type search Al" "screenshot … window"`). The typed "Al" sits about 12 pt above where "Search" was, with the placeholder's tail still showing behind it, with or without a glass group. Not seen on iOS or the web.

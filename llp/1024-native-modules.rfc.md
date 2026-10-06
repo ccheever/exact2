@@ -647,7 +647,7 @@ leaves its key out, JSON escaping of `"`, `\` and C0 only.
   Rotate 90° and Reset controls are state the module must see. A leftover
   may be any string, number or bool expression, or an option of one; the
   aggregate is still one object, replaced whole. Two guardrails come with it
-  (Charlie, 2026-09-27; not yet enforced, see QUEUE):
+  (Charlie, 2026-09-27; not yet enforced, see `queue/`):
   - **Props are not an animation channel.** A prop that changes every frame
     is a defect. Continuous motion lives inside the module; props carry
     state that changes at interaction boundaries (the photo editor's turn

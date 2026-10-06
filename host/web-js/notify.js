@@ -1,6 +1,7 @@
 // Local notifications on the JS target (rules/DEFERRED.md, 2026-10-04),
 // bundled only for a plan that runs `showNotification` or
-// `closeNotification` (linked by use, QUEUE.md's standing rule): the
+// `closeNotification` (linked by use, the standing rule in
+// queue/standing-rule-a-new-optional-web-capability-links-by-use.md): the
 // runner's rule (runner/src/notify.rs) — the data and `device.notifications`
 // checked, listed under the agent (a tag replacing its older one; agent.js
 // reads `exact.notices` for `state.notifications`), else posted by the web

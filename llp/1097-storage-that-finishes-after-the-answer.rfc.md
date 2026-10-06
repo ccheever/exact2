@@ -22,7 +22,7 @@
 - `docs/reference.md:374–384`.
 
 **Depends on:** fix/data6 (`5c8fd1521`, `6c290ee89`, `e3add44c7`, `194ec5dfc`, in `~/projects/exact2-wt-data2`). It is not on main as of r2. Stage 1 starts from main once it lands.
-**Related:** LLP 1016 D1–D5; LLP 1027.001 (language parity); LLP 1027.002 (worker placement); LLP 1041 D2 (overload is refusal); LLP 1012 §2 (`clock settle`). Diaries: `~/projects/x2apps/drums/DIARY.md` (R10, R11, Top 5 #3, `repros/R10-deferred-write`); kanban F22, ledger F12, hn-reader F7, minesweeper F10 (as cited in `prelude.js` and `turns.rs`). `QUEUE.md`: "A native data module's `console` never reaches the agent's `logs`" (trivia F7).
+**Related:** LLP 1016 D1–D5; LLP 1027.001 (language parity); LLP 1027.002 (worker placement); LLP 1041 D2 (overload is refusal); LLP 1012 §2 (`clock settle`). Diaries: `~/projects/x2apps/drums/DIARY.md` (R10, R11, Top 5 #3, `repros/R10-deferred-write`); kanban F22, ledger F12, hn-reader F7, minesweeper F10 (as cited in `prelude.js` and `turns.rs`). `queue/`: "A native data module's `console` never reaches the agent's `logs`" (trivia F7).
 
 ## Summary
 
@@ -574,7 +574,7 @@ The same lines appear on every host, journaled by the runtime and read by
   - The wasm realm and the JS target use `unhandledrejection`.
 - **A module's `console`** reaches the journal on Apple, Linux and the wasm
   target's realm, as the page's console already does on the JS target. This
-  is QUEUE's `take_logs` line.
+  is `queue/`'s `take_logs` line.
   - `DataSource::take_logs` (D5) calls the JavaScript child's
     `Module::take_logs` (`js/src/lib.rs:709–714`).
   - `Mixed`'s existing inherent `take_logs` (`data/src/mixed.rs:512`, filled by
@@ -794,7 +794,7 @@ Each commit passes the five checks. Stage 1 starts once fix/data6 is on main.
    - **Exit:** the iOS XCTest; the macOS quit test; drums adopted on web and
      macOS.
    - If the macOS terminate wait slips, the rest lands and the slipped piece
-     gets a `QUEUE.md` line.
+     gets a `queue/` entry.
 
 ## 7. Deferred, with preconditions
 

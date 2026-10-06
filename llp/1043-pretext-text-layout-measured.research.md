@@ -5,7 +5,7 @@
 **Systems:** Text (the `TextMeasurer` seam of LLP 1001 §6 — what it asks a host and how often), Apple host (`TextEngine`: the typesetter cache, the break loop, the paragraph snapshot), Linux host (cosmic-text, one `Buffer` per paragraph-width), Web host (the browser lays out; the measured-height List reads row heights from the DOM), Kernel (whether a line breaker belongs below the seam), Scrolling (LLP 1010 §6 — heights of rows that are not mounted)
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-09-18
-**Related:** LLP 1001 §6 (text measurement is a per-kernel injected trait object; one structural run IR), LLP 1008 §3 (CoreText, one engine for measuring and painting — "measuring with one engine while painting with another is a correctness tax"), LLP 1015 §3 (the same lesson on Linux, in cosmic-text), LLP 1010 §6 (bounded list memory; measured-height windows), LLP 1019 (declared fonts — the identity a width cache is keyed by), LLP 1033 (the Markdown viewer — the app with the most paragraphs), LLP 1035.000.000 (CSS `line-height`), `CLAUDE.md` (the web is the standard; verify by running), `rules/DEFERRED.md`, `QUEUE.md` ("Markdown performance comparison": exact-offer measurement reuse "halves callback traffic but has only a modest CPU benefit"). External, each read 2026-09-18: `github.com/chenglou/pretext` `README.md` at `main`; npm `@chenglou/pretext` 0.0.9 (MIT).
+**Related:** LLP 1001 §6 (text measurement is a per-kernel injected trait object; one structural run IR), LLP 1008 §3 (CoreText, one engine for measuring and painting — "measuring with one engine while painting with another is a correctness tax"), LLP 1015 §3 (the same lesson on Linux, in cosmic-text), LLP 1010 §6 (bounded list memory; measured-height windows), LLP 1019 (declared fonts — the identity a width cache is keyed by), LLP 1033 (the Markdown viewer — the app with the most paragraphs), LLP 1035.000.000 (CSS `line-height`), `CLAUDE.md` (the web is the standard; verify by running), `rules/DEFERRED.md`, `queue/` ("Markdown performance comparison": exact-offer measurement reuse "halves callback traffic but has only a modest CPU benefit"). External, each read 2026-09-18: `github.com/chenglou/pretext` `README.md` at `main`; npm `@chenglou/pretext` 0.0.9 (MIT).
 
 ## Summary
 
@@ -178,7 +178,7 @@ magnitude are the finding and the second digit is not.
 
 Within each run re-break is 335–440× the arithmetic. The typesetter
 cache saves a little over half of a resize's text cost, not nearly all
-of it. That agrees with `QUEUE.md`'s note that exact-offer reuse "has
+of it. That agrees with `queue/`'s note that exact-offer reuse "has
 only a modest CPU benefit": the expensive part was never the repeated
 offer, it is each new one.
 

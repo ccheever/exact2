@@ -296,7 +296,7 @@ are under target/textflow-scratch/m8/. Outside the sandbox, rerun the full
 workspace suite including the three JS packages, the Swift suite, and drive
 all six scenes in macOS and Chrome at both font sizes. Confirm reader.html's
 horizontal overflow interpretation in Chrome. B/C remain pending; no seventh
-scene or fixed-height-slack removal has been claimed. QUEUE.md also records
+scene or fixed-height-slack removal has been claimed. `queue/` also records
 LLP 1001's now-obsolete block-image deviation for a governing-doc follow-up.
 
 ### Layout timings
@@ -774,7 +774,7 @@ minimum for height-derived widths (block, flex, grid, absolute boxes and roots).
 
 ## Patch 21: table-marked containers shrink to fit in block flow — to upstream
 
-**Implementer:** Codex, 2026-10-02, for the form-control block-sizing QUEUE item.
+**Implementer:** Codex, 2026-10-02, for the form-control block-sizing `queue/` entry.
 
 Upstream avoids assigning a stretched known width to a table item, which is
 enough for a measured leaf but not for a container: a flex container still

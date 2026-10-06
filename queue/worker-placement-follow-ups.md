@@ -1,0 +1,3 @@
+Worker placement follow-ups (LLP 1027.002, landed 2026-09-14): drive the placed Fieldnotes on an iOS simulator through the shared Apple host; a macOS frame-gap instrument (a display link's callback cadence in `state`) so §5 step 5 is judged on the device, not only in Chrome; a forgotten ticket's held call still takes its turn (D5 says it may be removed before it starts) — tell the composer when the runner forgets; Rust on a web Worker waits behind a consumer (the DEFERRED take); the development producer refreshes a Rust-owned resource's first-frame value only at a Cargo bake, and refuses a Rust source shared by several resources until then.
+
+*Filed under “Later”.*

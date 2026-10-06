@@ -132,8 +132,8 @@ never to block. Its design documents are imported under `llp/research/`.
 | `host/web/` (`exact-web`) | The web host: runner + kernel in wasm over the real DOM, CSS computed once from the kernel's rows, springs lowered to frames the browser plays, a no-`unsafe` ABI, ~150 lines of glue, a headless-Chrome smoke, the motion parity harness, and the dev loop (`bun host/web/dev.mjs`, edit → present ~20 ms). | LLP 1007 |
 | `vendor/taffy/` | Taffy 0.9.2 plus two Exact patches. | `vendor/taffy/EXACT-PATCHES.md` |
 
-All four surfaces run the app; `QUEUE.md` is the ordered list of what would
-make sense to do next.
+All four surfaces run the app; `queue/` holds what would make sense to do
+next, one file per entry.
 
 ## Serve RealWorld
 
@@ -454,7 +454,7 @@ a value given at once. Hermes drains that checkpoint before replying, including
 when the answer is a synchronous value, and finishes storage the turn started;
 the answer waits only for steps already begun. A save still only queued behind
 an unsettled promise when the answer is given has been seen lost on iOS (two
-authoring-bench trials, 2026-10-05; QUEUE): await it before answering, or carry
+authoring-bench trials, 2026-10-05; `queue/`): await it before answering, or carry
 it in a request of its own. Await a save that depends on future external work so
 its lifetime and failure belong to the answer. So a native answer that saves is
 a reply on real time, as a `fetch`'s is: under the driver it lands at the next

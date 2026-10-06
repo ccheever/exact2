@@ -18,7 +18,7 @@ even in a partial window near the tail. The eager transcript retains up to 200 m
 without preserving position across shifts; its scrollbar spans that window.
 Short fixture threads keep their existing presentation. The scroll policy passes
 on web; the headless Linux drive still ignores the authored end request
-(pre-existing at `ccc5367`, tracked in `QUEUE.md`), so Linux latest/send
+(pre-existing at `ccc5367`, tracked in `queue/`), so Linux latest/send
 positioning is not verified.
 
 Per-thread indexes bound transcript reads to a binary search, the window and
@@ -61,7 +61,7 @@ awaiting Read; insertion, recovery and restore rebuild it, while marking a recei
 clears it. The persistence footprint captures those rows before the handler runs. Thread removal still rebuilds
 its indexes. Startup, changed sync and exceptional rollback still restore the whole
 model. The 512-record edit cap still refuses oversized edits atomically
-(LLP 1027.004 D5; tracked in `QUEUE.md`).
+(LLP 1027.004 D5; tracked in `queue/`).
 
 The 300 ms reply timer skips snapshot/diff work when no receipt or generated reply
 changes the model revision. It still updates the local clock; real changes keep the

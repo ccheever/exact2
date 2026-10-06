@@ -1,0 +1,1 @@
+**Native bars, what Signal Clone still needs a module for** (2026-10-02, LLP 1075.003 in an outside app; its DIARY.md "build 5"; title views, `hidesBottomBarWhenPushed`, the barless route and content under the bar landed as §9.10). The tab bar's tint from the selected tab's authored `tint-color`; a symbol beside the heading in a drawn title (Signal's verified seal).

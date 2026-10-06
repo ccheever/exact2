@@ -1,7 +1,7 @@
 // The parity comparator, generalised from scripts/svgparity.mjs (LLP 1055.000
 // §5, LLP 1056 §4): a gallery app's `fx-*` boxes cropped from each host's
 // screenshots by that host's own layout and compared with Chrome's. The
-// SVG smoke keeps its own copy until the SVG stages 8–10 lane lands (QUEUE);
+// SVG smoke keeps its own copy until the SVG stages 8–10 lane lands (queue/);
 // the canvas smoke (scripts/canvasparity.mjs) uses this one.
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';

@@ -1,0 +1,1 @@
+**Rewrite the diaries' copies as calls** (2026-10-04, LLP 1089 §4). Files' four opens as `arrive(path)` (F27, which also fixes `openFocused`'s missing `anchorPath = ""`), and spreadsheet's close-the-editor, `followSelection` and `clipKey` → `move` (F21), each driven on web and macOS. A scratch copy of spreadsheet with `commitEdit()` passes its web tests.

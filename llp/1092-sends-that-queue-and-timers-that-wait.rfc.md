@@ -608,7 +608,7 @@ Each commit passes the five checks.
    tests and conformance; ledger2 makes no commit at rest over
    `perf during "clock +60000"`.
 3. **Stage 3, 2026-10-06: D12.** A slipped proof lands as a restriction
-   named in `semantics/README.md` with a `QUEUE.md` line; no `sorry`.
+   named in `semantics/README.md` with a `queue/` entry; no `sorry`.
 
 ### As built (stages 1–3, 2026-10-04)
 
@@ -646,7 +646,7 @@ Each commit passes the five checks.
     commit fires only if it was armed at the frame's start.
   - Lean's checker types gates and keys too (`taskGate`, `WellTyped.taskGates`).
 - **Stage 3** (`908ce0f23`). As D12, with the restrictions in
-  `semantics/README.md` ("Queued sends and gated tasks") and a `QUEUE.md`
+  `semantics/README.md` ("Queued sends and gated tasks") and a `queue/`
   line: the one-slot invariants are stated for slots that are not a queue
   mutation's; Lean's `pending` of a waiting queue is false; the
   component-level semantics refuses both, so `difftest expansion` leaves them
@@ -683,7 +683,7 @@ Each commit passes the five checks.
     and do not compile on this branch's base; see the final report.
 - **Found, not fixed.** The JS target's agent jump waits for the reply of a
   request a timer sent at the jump's last instant and runs its `then`; the
-  wasm, Linux and Apple hosts' jumps do not (`QUEUE.md`).
+  wasm, Linux and Apple hosts' jumps do not (`queue/`).
 
 ## 7. Considered, not taken, and deferred
 
@@ -703,7 +703,7 @@ Each commit passes the five checks.
   timer.
 - **`animationend=expire`.** It ties app state to presentation, and reduced
   motion changes when it fires.
-- **Free empty commits** (chat F7): QUEUE's "Presenter.apply runs its
+- **Free empty commits** (chat F7): `queue/`'s "Presenter.apply runs its
   post-pass for a batch that changed nothing", independent of this RFC.
 
 **Deferred, with preconditions:**
@@ -711,7 +711,7 @@ Each commit passes the five checks.
   every 200 ms while a reply is due. Precondition: a measured cost of that
   poll after stage 2, and a rule for an interval that changes while armed.
 - **`then` in Lean,** and with it per-reply order in difftest.
-  Precondition: QUEUE's "What the Lean semantics still leaves out" closes
+  Precondition: `queue/`'s "What the Lean semantics still leaves out" closes
   `then`.
 
 ## 8. Questions decided (the orchestrator, for Charlie, 2026-10-05)

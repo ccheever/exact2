@@ -1,0 +1,1 @@
+**Authored tests cannot press the browser's back button** (2026-10-04, authoring bench, t3-recipes on web+iOS). `tap <id> history -1` is a CLI drive op only, so "the browser back returns to the list" is checked by hand; a test-file step (web only, refused elsewhere) would let the test say it.

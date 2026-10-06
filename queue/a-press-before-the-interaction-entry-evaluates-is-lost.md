@@ -1,0 +1,1 @@
+**A press before the interaction entry evaluates is lost** (2026-09-23, render lane): on the mobile profile RealWorld's content is visible at ~300 ms and `document-glue.js` evaluates at ~500–630 ms; a button pressed between is a plain click, never replayed (LLP 1048.000 D6 promises replay from the entry's evaluation). Links work throughout.

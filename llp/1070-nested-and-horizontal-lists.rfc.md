@@ -8,11 +8,11 @@
 **Date:** 2026-09-27 (r1 and r2)
 **Related:**
 - LLP 1010 §6 (the collection: row state dies on retirement, `:334–340`; nested virtual rows rejected, `:760–763`).
-- LLP 1050.000 D1–D6 (never blank by default; a costly row is never built mid-fling; the owed set, `limit`, retirement). Its stage 1 is partly built; the D3 cost memo (stage 3) and the rest offset (stage 4) are not (`QUEUE.md` "The rest of LLP 1050.000 stage 1").
+- LLP 1050.000 D1–D6 (never blank by default; a costly row is never built mid-fling; the owed set, `limit`, retirement). Its stage 1 is partly built; the D3 cost memo (stage 3) and the rest offset (stage 4) are not (`queue/` "The rest of LLP 1050.000 stage 1").
 - LLP 1068 (heavy-view recycling; stage 1 is on `feat/heavy-pool-stage1`, not on main; §2's oracle; §4.2 pools a nested scroll view at rest with its offset reset; §5.3 rejects a keyed keep-alive).
 - LLP 1008 "Orthogonal carousels" (`:678–697`) and "Short vertical scroll containers" (`:664–675`); LLP 1033 D4 (`overscroll-behavior` as a kernel row); LLP 1057 and 1057.001 (`touch-action` is the arbitration model).
 - `~/bench/xheavy/SPEC.md`, `EXACT2-GAPS.md` gap 8, `gen.py:483–523` (the two new kinds).
-- `QUEUE.md` "One list engine", the crypto-memory entry item (5) (the index's bytes per item), the Apple entry "a pan chaining out of a nested scroll view at its edge".
+- `queue/` "One list engine", the crypto-memory entry item (5) (the index's bytes per item), the Apple entry "a pan chaining out of a nested scroll view at its edge".
 - `rules/DEFERRED.md` §Components (no virtualList v2; the windowed list admitted 2026-09-14).
 - Reviews: `llp/reviews/1070-nested-and-horizontal-lists.{astra,grok}.md`.
 
@@ -74,8 +74,8 @@ Both reviews: "build with named changes". Dispositions are in the review files. 
   - *Why.* The oracle for a virtualized list is the same page unvirtualized. There the outer row's element is never destroyed, so the inner box keeps its offset when the page scrolls it away and back (§2, "the eager oracle"). Virtualization must not change what the user sees. Removal is how exact2 implements a list, not what the author wrote.
   - He first said: "leave it up to the app to save position. maybe worth creating an option to do it automatically since that seems more intuitively correct". The revision makes the automatic option the default, since the eager page is the oracle.
 - **Q2, accepted:** "yes delete the old windowed list thing, collection list is now better." Horizontal lists and one level of nesting are admitted to `rules/DEFERRED.md`; the take is deleting the legacy windowed list, stage 1.
-- **Q3, (a) accepted:** "(a) is ok for now, but we might want to allow an option for (b) at some point." A horizontal list anchors only when an estimate is replaced by a first measurement. (b), anchoring every size change, is recorded as a future option (`QUEUE.md`).
-- **Q4, accepted provisionally:** "i don't really know, lt's try your rec and see how it feels." Under `overscroll-behavior: auto` on iOS, a new drag starting at an inner edge outward goes to the outer list; `contain` keeps the inner rubber band. Provisional until a real-finger feel test on a device (`QUEUE.md`), which may reverse it.
+- **Q3, (a) accepted:** "(a) is ok for now, but we might want to allow an option for (b) at some point." A horizontal list anchors only when an estimate is replaced by a first measurement. (b), anchoring every size change, is recorded as a future option (`queue/`).
+- **Q4, accepted provisionally:** "i don't really know, lt's try your rec and see how it feels." Under `overscroll-behavior: auto` on iOS, a new drag starting at an inner edge outward goes to the outer list; `contain` keeps the inner rubber band. Provisional until a real-finger feel test on a device (`queue/`), which may reverse it.
 
 ## 0.2 As built: stages 1–3 (2026-09-27, `feat/horizontal-lists`)
 
@@ -84,17 +84,17 @@ Both reviews: "build with named changes". Dispositions are in the review files. 
 - **Stage 3.** A virtualized list is horizontal when its `display` is `flex` (CSS's default `row`; `flex-direction`, if written, must be `row`). The snapshot says `"axis":"x"`; wrappers and spacers are §3.1's; `estimated-item-width` is a new prop; the compiler adds `min-width: 0`. §8's refusals are built with their ids, `lower-collection-cross`, `-estimate` and `-reorder` included; RTL is refused as authored only (the runner does not yet re-check an inherited `rtl`). Q3 (a) is in the runner. `state` carries every snapshot (`collections`, G3). Hosts: geometry, corrections, coverage, velocity and knob drags by axis on the web, iOS, macOS and Linux; an authored `scrollLeft` builds before it moves on the web and Linux, and on Apple an agent's `tap far` lands with its cards built, through the scroll callback's rescue (not a build before the move); G2 for phase-less wheels on macOS, Linux and the iOS agent, with `contain`/`none` keeping the tick; Q4's begin rule on iOS (`ScrollView.handsOff`), provisional. H4's motion guard on the web applies to horizontal lists only: vertical lists keep today's behaviour.
 - **Parity.** `apps/carousel` (25,000 cards of five widths, estimate 128): stepping the strip from 0 in 300-px wheel ticks to 4,500, every card box in the port equals the unvirtualized page's, in closed form and on the same host's eager strip, on the web (Chrome), macOS, iOS (simulator) and Linux (61–62 boxes at 16 offsets each, 0 mismatches). After twenty traversals 9–16 cards are mounted. A `(60, 100)` tick over the strip moves its x by 60 on all four; `(0, 120)` leaves it. `host/web/collection.test.mjs` pins §2's Chrome rows the hosts rely on (wheel chaining over a strip, no inline-axis anchoring, re-creation at 0).
 - **Stage 4 (nesting), as built.** One level, a constant `virtualized=true` only: the compiler refuses a second level (`lower-collection-depth`), an inner vertical list without a literal `height`/`max-height` (`lower-collection-unbounded`) and an inner `reorderdrop` (`lower-collection-reorder`); the runner re-checks the template, inactive arms included. An inner list is its outer row's (N1): created with it, destroyed with it in the same batch; its snapshot names its `parent`. **Q1:** when an outer row retires, each inner list not `scroll-restoration="manual"` is kept in the outer list as its first-shown item's key and the offset into it (4,096 per outer list, least recently kept first out; nothing kept for a list at its start; a row key that leaves the data takes its entries); when the row is built again the inner list's window is built there and a correction moves the port before it paints, the kept item held as the anchor until it is measured or the reader moves, so an item whose estimate is shorter than the offset into it still lands. `state` lists `kept` and marks a restored list `"restored":true`. **N5:** hosts report a pin to its nearest owner; the runner derives the chain (an outer list keeps a row whose inner list holds a pin, and a pin's transfer never releases its ancestors). **F2:** hosts set `ancestor_moving` from the outer list's velocity (web, Apple; Linux has no fling); the runner then builds only what the inner list owes, first report included, and its pending reply continues the fill at rest. The bootstrap of an inner list covers the outer port on the same axis, or the outer rows' cross size across it. **G1:** macOS latches a phased trackpad gesture (`ChainingScrollView.latched`). Logical copy finds an inner list. The agent's `clock settle` now drains every collection report on Apple and Linux, as on the web. **Parity:** `apps/carousel`'s feed page (200 rows; every fifth a 200-card strip, every seventh a 120-message inbox of varied heights), virtualized against the same page unvirtualized on the same host, over 30 steps (strip and inbox wheels, 24 feed ticks, a round trip that retires row 0 and row 7 and restores them): 0 mismatched boxes of 659–696 on Chrome, macOS, iOS and Linux; restored strip and inbox land with their items exactly where the unvirtualized page has them. Not compared: the far end of an authored 6,000-px jump, which lands by estimates (§4.2). **Owed:** the hand gates (real fingers on an iPhone and iPad for Q4; a real trackpad for the latch), F4's budget order and F5's settle-before-commit for a newly created inner port (the bootstrap covers it instead), and xheavy's `innerfling`.
-- **Next on this lane, after stage 4** (Charlie, 2026-09-27): scroll-to-row, `Element.scrollIntoView()`'s options aimed at a row by key, its own short LLP first (`QUEUE.md`).
+- **Next on this lane, after stage 4** (Charlie, 2026-09-27): scroll-to-row, `Element.scrollIntoView()`'s options aimed at a row by key, its own short LLP first (`queue/`).
 - **Owed from stage 3.** The runner's re-check of an inherited `rtl` (§3.2); a true build-then-move for an authored offset on Apple; the iOS real-finger feel test (Q4); the macOS phased-gesture latch (G1) and nesting are stage 4; `overflow-x="auto"` is not a Contract value (the kernel has no `auto`), so a strip is written `overflow-x="scroll"`; the fixture's plan bakes its 27,000 cards (a 1.5 MB plan), acceptable for a fixture.
 
 ## 1. What exists
 
-**Two engines, one kept.** `list virtualized=true` is the collection (`runner/src/instance/collection/`). `item-height`/`estimated-item-height` without `virtualized` is the legacy windowed list (`window.rs`), which `QUEUE.md` "One list engine" deletes after parity. This RFC extends only the collection, and deletes the legacy list first (§10, §12).
+**Two engines, one kept.** `list virtualized=true` is the collection (`runner/src/instance/collection/`). `item-height`/`estimated-item-height` without `virtualized` is the legacy windowed list (`window.rs`), which `queue/` "One list engine" deletes after parity. This RFC extends only the collection, and deletes the legacy list first (§10, §12).
 
 **The collection's shape** (`collection/mod.rs:63–101`, `views.rs`):
 - Rows are flow children of the `list` node, interleaved with spacers (`views.rs:108–145`). A spacer is `height: gap; width: 100%; flex-shrink: 0` (`:86–107`).
 - A row wrapper is `display: flex; flex-direction: column; width: 100%; flex-shrink: 0` (`:35–45`). Its border-box height is what the host measures. It publishes `listitem`, `aria-posinset` and `aria-setsize` per collection (`:46–84`).
-- The index is `HeightIndex` (`index.rs:86–97`): order, `positions: BTreeMap<Rc<str>, usize>`, per-row heights and generations, and a prefix-sum tree. `QUEUE.md` measures it at about 1.1 MB for 5,000 items: ~220 bytes an item.
+- The index is `HeightIndex` (`index.rs:86–97`): order, `positions: BTreeMap<Rc<str>, usize>`, per-row heights and generations, and a prefix-sum tree. `queue/` measures it at about 1.1 MB for 5,000 items: ~220 bytes an item.
 - Bootstrap is `ceil(16 × 32 / estimate)` rows, capped at 16 (`mod.rs:216–220`), before any geometry report (`:546–548`).
 - The window is one viewport of overscan each side plus a quarter-second lead, capped at two viewports (`mod.rs:36–54`). Owed rows are the visible band plus pins; `limit` bounds only the rest (`:560–592`), and first geometry, port or width changes and pin changes make a report unlimited (`:835–851`).
 - Rows farther than two viewports always retire. Rows kept past the window never outnumber the window's own (LLP 1050.000 §6).
@@ -230,7 +230,7 @@ The runner keeps a list's first visible key and its offset through measurement, 
 Chrome does not anchor on the inline axis (§2). For a horizontal list this is a **declared deviation**, entered in LLP 1001's list if Charlie accepts it (Q3):
 - **Where it differs.** A real size change of a mounted card left of the viewport shifts the strip in Chrome; the runner holds it still.
 - **Why.** Most off-screen size changes a virtualized list sees are its own artefacts: a first measurement replacing an estimate, or a remount re-measuring. The eager oracle shows neither. Without main-axis anchoring, a strip jumps each time a card left of view is first measured.
-- **As ruled (Q3 (a)).** Anchor only first measurements (an estimate replaced), and let a re-measured card shift the strip as Chrome does. Anchoring every size change ((b)) may return as an option (`QUEUE.md`). The runner can tell those apart: a row's measured epoch says whether it had a measurement.
+- **As ruled (Q3 (a)).** Anchor only first measurements (an estimate replaced), and let a re-measured card shift the strip as Chrome does. Anchoring every size change ((b)) may return as an option (`queue/`). The runner can tell those apart: a row's measured epoch says whether it had a measurement.
 - **During motion.** No correction applies while the list itself is tracked or decelerating (as iOS already drops it, `CollectionIOS.swift:69`); the web glue gains the same guard (`collection-glue.js:373`). An ancestor's motion does not block an inner correction: moving an inner strip's `scrollLeft` does not disturb the feed's deceleration.
 
 ## 4. Nesting
@@ -279,7 +279,7 @@ An outer data change that removes a key drops its entries.
 
 ### 4.4 N4: memory bounds
 
-**Live state**, the larger number. Each live inner list holds O(its window) rows, the O(N_inner) item values its row body evaluated, and its index at ~220 bytes an item (`QUEUE.md`'s crypto-memory entry, item 5; ~30 bytes after an `Rc<str>` sharing change that is not built).
+**Live state**, the larger number. Each live inner list holds O(its window) rows, the O(N_inner) item values its row body evaluated, and its index at ~220 bytes an item (`queue/`'s crypto-memory entry, item 5; ~30 bytes after an `Rc<str>` sharing change that is not built).
 - A 2,000-item filmstrip's index is ~440 KB; a 1,000-message inbox's ~220 KB.
 - At SPEC's 1366 × 1024 landscape, rows of about 400 pt and an outer window of three to five viewports hold about 8–13 feed rows: 2–4 filmstrips and 1–2 inboxes live, ~1.1–2.2 MB of inner index before the item values.
 - This is bounded by the outer window, not by the feed. It is the argument for the `Rc<str>` change, which this RFC does not make.
@@ -381,7 +381,7 @@ The collection makes one runner call per report and commits (`host.rs:705`); the
 - `contain` begins the inner pan and keeps UIKit's bounce, the platform's overscroll affordance, which CSS leaves to the user agent (LLP 1008 `:671`). `none` begins it with bouncing off; UIKit's `bounces` is per view, and a single-axis list does not care.
 - There is no mid-gesture hand-off on either platform: Chrome drops the rest of the gesture (§2), and UIKit keeps it in the inner view.
 - Under `auto`, a drag that begins at an inner edge outward no longer shows the inner rubber band: it chains, as Chrome and iOS Safari with `overscroll-behavior` do. An author who wants the band says `contain`, as both Markdown readers do (LLP 1033 D4).
-- A device run with real fingers is a landing gate (§9): neither this session nor the agent can synthesize a UIKit pan (`QUEUE.md`, the Apple entry).
+- A device run with real fingers is a landing gate (§9): neither this session nor the agent can synthesize a UIKit pan (`queue/`, the Apple entry).
 - The iOS agent wheel (`AgentIOS.swift:560–588`) reads `overscroll-behavior` and follows G2.
 
 **The macOS latch.** Chrome's wheel scroll latching for trackpads, stated fully:
@@ -498,7 +498,7 @@ Nothing new is added as apparatus: no script, check or harness. Tests go in the 
 | Stage | Ships | Done when |
 |---|---|---|
 | 0 | Nothing. The xheavy port ships the strip as a plain horizontal `scroll` and the inbox as an eager inner list (GAPS gap 8's fallback), and is measured | The baseline |
-| 1 | The legacy windowed list is deleted (`QUEUE.md` "One list engine"): the take (§12) | The Markdown reader on the collection; LLP 1050.000 stage 1's parity gates |
+| 1 | The legacy windowed list is deleted (`queue/` "One list engine"): the take (§12) | The Markdown reader on the collection; LLP 1050.000 stage 1's parity gates |
 | 2 | The axis refactor (H1): rename, wire v3, all hosts. No behaviour change | Every existing collection test and smoke passes with renamed assertions |
 | 3 | Horizontal lists at top level (H2–H4), build-then-move `scrollLeft`, G2, the Chrome pins, the fixture's strip | A 25,000-item top-level strip windowed on four hosts with O(window) rows after twenty traversals; Chrome parity; `tap strip wheel` |
 | 4 | Nesting: N1, N3 (keys only), N5, N6, §4.7, F1–F5, G1, G3; the kept position and `scroll-restoration` (§4.2, Q1) | The fixture on four hosts; the runner tests; the hand gates; xheavy `innerfling` and `fling` against stage 0 |
@@ -521,7 +521,7 @@ Nothing new is added as apparatus: no script, check or harness. Tests go in the 
 
 > **Expanded (Charlie, 2026-09-27, LLP 1070):** horizontal windowed lists (`display: flex; flex-direction: row`) and one level of nesting, a windowed list in a windowed list's row, with the inner list's lifetime its outer row's. Unblocks the Extra Heavy feed's filmstrip and inbox, and any feed of carousels. Take: the legacy windowed list (`item-height`/`estimated-item-height` without `virtualized`, `runner/src/instance/window.rs`) is deleted in the first change of this work, before either capability lands. Still out: grids, masonry, wrapping and inverted lists; nesting deeper than one level; host keep-alive of an inner list or its views.
 
-`rules/DEFERRED.md` requires the take in the admitting change (`:438`), which is why stage 1 is the deletion. The take is a path removed that `QUEUE.md` already owes; this makes it a precondition rather than an intention, the precedent LLP 1026 D12 set ("fewer paths after than before"). It is a cheap take, and Q2 says so.
+`rules/DEFERRED.md` requires the take in the admitting change (`:438`), which is why stage 1 is the deletion. The take is a path removed that `queue/` already owes; this makes it a precondition rather than an intention, the precedent LLP 1026 D12 set ("fewer paths after than before"). It is a cheap take, and Q2 says so.
 
 ## 13. Questions for Charlie (all ruled 2026-09-27)
 
@@ -535,11 +535,11 @@ Recommendation: yes. Confidence: medium (0.6). The deletion is owed already, so 
 
 **Q3. Horizontal lists anchor on their main axis, which Chrome does not do on the inline axis (§2, H4): anchor every size change, or only first measurements (an estimate replaced), letting a re-measured card shift the strip as in Chrome?**
 Recommendation: anchor only first measurements. It removes the jumps virtualization causes and keeps Chrome's behaviour for real changes, with no declared deviation for mounted cards; a remount's re-measurement of a card whose data did not change measures the same. Confidence: medium (0.6). Anchoring everything is simpler and never jumps, at the cost of a declared deviation.
-**Ruled (Charlie, 2026-09-27): (a).** "(a) is ok for now, but we might want to allow an option for (b) at some point." (b) is a `QUEUE.md` line.
+**Ruled (Charlie, 2026-09-27): (a).** "(a) is ok for now, but we might want to allow an option for (b) at some point." (b) is a `queue/` entry.
 
 **Q4. On iOS, `overscroll-behavior: auto` at an inner list's edge chains a new outward drag to the outer list, as Chrome does, giving up UIKit's rubber band on the inner list at that edge; `contain` keeps it. Agree?**
 Recommendation: yes. It is CSS's meaning of `auto` and how the web behaves. Confidence: medium (0.65), until a device run with real fingers shows it feels right on a phone; that run is a landing gate either way.
-**Ruled (Charlie, 2026-09-27): provisionally yes.** "i don't really know, lt's try your rec and see how it feels." Provisional until the real-finger feel test on a device (`QUEUE.md`).
+**Ruled (Charlie, 2026-09-27): provisionally yes.** "i don't really know, lt's try your rec and see how it feels." Provisional until the real-finger feel test on a device (`queue/`).
 
 ## Appendix: the Chrome probe
 

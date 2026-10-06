@@ -4,7 +4,7 @@
 //! length and SHA-256, and hand back the bytes to boot. One shot, at
 //! process start: a headless run is per-invocation (the fleet's shape —
 //! run, read, run again), and the display loop's live SSE half waits for a
-//! Linux display to verify it on (QUEUE).
+//! Linux display to verify it on (queue/).
 //!
 //! The transport is ibex2's default — rustls off Apple, the platform's on a
 //! Mac — used directly: grants govern *app* authority (ibex LLP 0067); this

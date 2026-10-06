@@ -1,0 +1,1 @@
+**An action cannot start a timer** (2026-10-04, authoring bench, t6-todo-more: all three builders). A 5-second undo offer needed a root `every(50, tick)` comparing `now()` with a stored deadline, so expiry is quantized to the tick; builders asked for a task an action starts (or `after` as an action command). A language question for Charlie.

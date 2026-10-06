@@ -12,7 +12,7 @@
 - LLP 1050.000 D1 and D3 (never blank by default; a costly row is never built mid-fling) and §7 (view reuse landed on iOS, `:294–302`).
 - LLP 1009 D2 (a surface instance is per canvas node, `:72–74`) and D4 (the target is registered on create and unregistered on destroy, `:99–101`).
 - LLP 1056 D10 (2D canvas pooling), LLP 1024 D4 (the native table), LLP 1042 (video lifecycle, `:58–63`), LLP 1020 (iframe), LLP 1008 §9 (the iOS host).
-- `QUEUE.md` "Pooling a list row that holds a canvas needs a ruling" (2026-09-26).
+- `queue/` "Pooling a list row that holds a canvas needs a ruling" (2026-09-26).
 - Reviews: `llp/reviews/1068-recycling-heavy-views-in-list-rows.{astra,grok}.md`.
 
 ## Summary
@@ -679,7 +679,7 @@ at −8 pt. That miss is older than this change: the series-19 r2 run
 measured 8/12, with misses of ±8 pt. It comes from anchoring, not reuse: the
 probe sets 5432 and reads back 5448, because anchoring moves the offset
 when the rows above are measured. The kept anchor then comes back 24 pt
-higher in offset, because those rows are estimates again. It is `QUEUE.md`'s
+higher in offset, because those rows are estimates again. It is `queue/`'s
 item.
 
 ### 4.3 Text fields and text areas (stage 2)
@@ -771,7 +771,7 @@ If the iPad shows a saving worth a frame, the pool is the `AVPlayer` and its
   is eligible — and a feed's inline muted video pays for a view controller
   per row, which the web's `<video>` has no equivalent of. Whether the
   layer should be the default without `controls` is LLP 1042's question;
-  it goes to `QUEUE.md`.
+  it goes to `queue/`.
 - **Park:** pause; remove the item; remove item-level KVO, notifications and
   the periodic time observer (re-added at take); keep player-level KVO;
   bump the generation and poster generation; clear the arm's `props`,
@@ -939,7 +939,7 @@ Trial values, to be replaced by the iPad's numbers.
 
 - **Trees:** 32, at most 8 per shape, least-recently-parked eviction across
   shapes (§4.0). The cost of a parked tree is its views' retained graphs
-  and layers, not the ~720-byte `NodeView` allocation `QUEUE.md` counted;
+  and layers, not the ~720-byte `NodeView` allocation `queue/` counted;
   `recycle` already drops their bitmaps.
 - **Heavy views parked inside trees, per kind:**
 
@@ -1345,7 +1345,7 @@ that a fresh `<iframe>` does not. Confidence: medium-high (0.7).
 **Q4. GPU canvases: profile `gpu_create` first, and pool the layer (with a
 new presentation signal in the GPU ABI) only if that profile shows the
 UIKit layer and surface setup are a large share of a row's canvas cost?**
-Recommendation: yes; LLP 1009 D2 and D4 stand. This answers the `QUEUE.md`
+Recommendation: yes; LLP 1009 D2 and D4 stand. This answers the `queue/`
 item. Confidence: medium (0.65).
 
 **Q5. Video players and native-module views: pool neither until the iPad

@@ -1,0 +1,1 @@
+**Web and native sources disagree on `crypto`** (2026-09-27, LLP 1069.005 §1, from reading the code, not yet run). The browser's source realms leave `crypto` in place; the Hermes executor has none (ibex2's `bindings/crypto.js` isn't in `js/build.rs`'s prelude). So `crypto.randomUUID()` in a source works on the web and throws on macOS, iOS and at bake.

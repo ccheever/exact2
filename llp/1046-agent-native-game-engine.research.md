@@ -197,7 +197,7 @@ doing-list of comparable size.
 deferred.** Tapback and Reply artwork, glass and material matching,
 animation-timing and motion matching against native iMessage, Translate,
 the emoji and sticker picker, contact-details fidelity, date-heading and
-balloon raster matching — most of `QUEUE.md` from "Messages iPhone parity"
+balloon raster matching — most of `queue/` from "Messages iPhone parity"
 down. Why this one:
 
 - It is the largest open-ended sink on the list and has no finish line; its

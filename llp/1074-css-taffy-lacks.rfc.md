@@ -5,7 +5,7 @@
 **Systems:** Vendored Taffy (`vendor/taffy`, upstream 0.14.0 plus Exact's patches 18–20), Kernel layout (`kernel/src/layout.rs`, `kernel/tables/schema.json`), Contract compiler (`contract/lower`), Web hosts (`host/web/src/layers.rs`, `host/web-js`), Apple presenters (`usedZIndex`), Runner collections (row validation), Text flow and content regions (their containing-block gates), Messages
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-09-30 (r1, r2 and r3)
-**Related:** LLP 1001 §5/§6 (declared deviations; the web is the standard), LLP 1010 §1 (the root's width), LLP 1053 (the `aspect-ratio` and `direction` tranche; "it's ok to modify exact2 and even taffy"), LLP 1043.000 (text around shapes), LLP 1054.000 and 1054.000.001 (Taffy patch 14; button content alignment), LLP 1011 (images), `vendor/taffy/EXACT-PATCHES.md` (patches 12, 18, 19, 20), `QUEUE.md`, reviews `llp/reviews/1074-css-taffy-lacks.{astra,grok}.md`
+**Related:** LLP 1001 §5/§6 (declared deviations; the web is the standard), LLP 1010 §1 (the root's width), LLP 1053 (the `aspect-ratio` and `direction` tranche; "it's ok to modify exact2 and even taffy"), LLP 1043.000 (text around shapes), LLP 1054.000 and 1054.000.001 (Taffy patch 14; button content alignment), LLP 1011 (images), `vendor/taffy/EXACT-PATCHES.md` (patches 12, 18, 19, 20), `queue/`, reviews `llp/reviews/1074-css-taffy-lacks.{astra,grok}.md`
 
 ## Summary
 
@@ -241,7 +241,7 @@ Found by Astra's review; no app has asked.
 | Check | Result |
 |---|---|
 | The five checks | build, test, clippy, fmt, caps and boot pass |
-| `cargo test --workspace` (Expose's three crates excluded: their TypeScript does not type-check without `EXPOSE_OPENROUTER_KEY`) | one failure, `exact-js`'s 503-deadline test, which fails at `origin/main` on this Mac too (`QUEUE.md`) |
+| `cargo test --workspace` (Expose's three crates excluded: their TypeScript does not type-check without `EXPOSE_OPENROUTER_KEY`) | one failure, `exact-js`'s 503-deadline test, which fails at `origin/main` on this Mac too (`queue/`) |
 | `layout_equality.rs`, both differentials, 1,500 seeds × 40 rounds | 0 failures |
 | Before and after, the Linux host: every app's settled boot layout, and seven Messages screens, base `9fdf7e564` against the lane, frames by node | 0 of 3,600 frames differ |
 | Before and after, the web (JS target): 33 app boots and 10 Messages screens, frames and screenshots | frames identical; screenshots byte-identical but two: 40 anti-aliased edge pixels of a rounded avatar in the emoji picker (Δ ≤ 8/255, deterministic) and 3 pixels in sparkline |
@@ -253,7 +253,7 @@ Not verified: the UIKit XCTests; apps outside the repo.
 
 ## 9. The code review (r4, 2026-09-30)
 
-After the landing, Astra (`gpt-6-astra`, xhigh) and Grok (`grok-4.7`, xhigh) reviewed `d8a4a0ebf` blind, from one brief, as source audits (`llp/reviews/code-2026-09-30-taffy-css.{astra,grok}.md`, each with a disposition at its end). Both found the same two defects: a hoisted absolute box under a static ancestor that becomes `display: none` was laid out again from the record its parent kept while visible (the kernel's differential now proves the fix against a fresh tree, and fails at `d8a4a0ebf`), and Apple read a static flex or grid item's `z-index` before the view had a parent. Fixed with them: a region's owner must be positioned; a bound `position` on a box that contains is refused unless every value it can take is positioned, and a literal `visible` or `none` makes no containing block; a static root is lowered `relative`; one auto margin on an over-constrained root is zero; a flex or grid root shorter than its ratio's height is laid out again at that floor (the fixtures now assert root frames); `contextTarget` contains; the stale LLP 1010 sentence and QUEUE gap line. The rest is filed under `issues/20260930-*` (nine tickets from the review, plus what §4 and §8 already owed and a pre-existing hidden-subtree bug the extended differential found).
+After the landing, Astra (`gpt-6-astra`, xhigh) and Grok (`grok-4.7`, xhigh) reviewed `d8a4a0ebf` blind, from one brief, as source audits (`llp/reviews/code-2026-09-30-taffy-css.{astra,grok}.md`, each with a disposition at its end). Both found the same two defects: a hoisted absolute box under a static ancestor that becomes `display: none` was laid out again from the record its parent kept while visible (the kernel's differential now proves the fix against a fresh tree, and fails at `d8a4a0ebf`), and Apple read a static flex or grid item's `z-index` before the view had a parent. Fixed with them: a region's owner must be positioned; a bound `position` on a box that contains is refused unless every value it can take is positioned, and a literal `visible` or `none` makes no containing block; a static root is lowered `relative`; one auto margin on an over-constrained root is zero; a flex or grid root shorter than its ratio's height is laid out again at that floor (the fixtures now assert root frames); `contextTarget` contains; the stale LLP 1010 sentence and `queue/` gap line. The rest is filed under `issues/20260930-*` (nine tickets from the review, plus what §4 and §8 already owed and a pre-existing hidden-subtree bug the extended differential found).
 
 ## 10. After the tickets (2026-09-30)
 

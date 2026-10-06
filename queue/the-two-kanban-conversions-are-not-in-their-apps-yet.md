@@ -1,0 +1,1 @@
+**The two kanban conversions are not in their apps yet** (2026-10-04, LLP 1094 stage 3): converted copies and patches are the lane's (`kanban-1094.patch`, `kanban2-1094.patch`); kanban's also adds the module imports LLP 1091 asks for.

@@ -1,4 +1,4 @@
-// The SVG parity smoke (LLP 1055.000 §5; QUEUE: LLP 1055's hand comparison
+// The SVG parity smoke (LLP 1055.000 §5; queue/: LLP 1055's hand comparison
 // made a smoke): `apps/svg-gallery` drawn by Chrome (the web host) is the
 // reference; each native host draws the same pages, and every `fx-*` box is
 // cropped from both screenshots by its own host's layout, brought to one
@@ -18,7 +18,7 @@ const MEAN = 4, OFF = 0.06, BAND = 32, SLOP = 3;
 const TEXT = /^fx-(axis|baselines|runs|boxcolor)$/;
 // A fixture a host declares unsupported is not compared there: iOS has no
 // public blend on a layer (LLP 1055.000 §8 ruling 6).
-// Linux draws a box's CSS `filter` unfiltered for now (QUEUE).
+// Linux draws a box's CSS `filter` unfiltered for now (queue/).
 const UNSUPPORTED = { ios: /^fx-mix$/, linux: /^fx-box-filter$/ };
 // Core Animation blends in the display's colour space, CSS in sRGB (LLP
 // 1055.000 §0, stage 10): macOS's blend fixture is held to a looser share.

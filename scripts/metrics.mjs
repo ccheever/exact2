@@ -781,7 +781,7 @@ if (long) {
 // Raised 2026-09-28 (Charlie, option (c): raise to reality and cut): a day of
 // platform features (LLP 1069's auth, pickers, documents, share, streams,
 // controls, the agent's production gate; rem/em; formatters) grew every core
-// ~15 KiB past its line, and d4ef1636 linked the optional ones by use (QUEUE:
+// ~15 KiB past its line, and d4ef1636 linked the optional ones by use (queue/:
 // new optional web capabilities link by use). Each is now that size plus ~2 KiB;
 // a size lane is cutting the core, and lowers these when its cuts land.
 // Lowered 2026-09-28 (perf/web-core-size): std's float reader had come back
