@@ -7,6 +7,7 @@ if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these test
 // The fixtures name their apps; a caller's EXACT_APP_DIR would redirect every one.
 delete process.env.EXACT_APP_DIR;
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { classifyArtifacts } from './app.mjs';
 import { chromium } from './agent-launch.mjs';
 
@@ -86,6 +87,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { basename, delimiter, dirname, resolve, sep } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { resolveApp, buildBake, bakeTarget, hermesBundle, hermesLeanSysRoots, pendingBuildInputs } from './app.mjs';
+import { validateHermesBundle } from './exact.mjs';
 import { useXcode } from '../host/apple/devices.mjs';
 import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, macReleaseEntitlements, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
@@ -1068,7 +1070,52 @@ test('iOS Hermes preflight selects the pinned digest and exact installer command
     writeFileSync(simulator.lean, '');
     writeFileSync(resolve(simulator.root, 'hermes-input-receipt.json'), '{}');
     assert.equal(hermesBundle('aarch64-apple-ios-sim', env).installed, true);
+    assert.equal(validateHermesBundle(hermesBundle('aarch64-apple-ios-sim', env), {executeCompiler:false}).installed, false);
   } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('setup check authenticates every canonical Hermes member', () => {
+  const home = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-hermes-check-'))), env = {HOME:home};
+  try {
+    const bundle = hermesBundle('aarch64-unknown-linux-gnu', env), root = bundle.root;
+    const members = ['bin/hermesc', 'include/hermes.h', 'lib/libhermesvm_a.a', 'lib/libhermesvmlean_a.a', 'lib/libjsi.a',
+      'lib/libicui18n.a', 'lib/libicuuc.a', 'lib/libicudata.a', 'lib/libicudata-en.a', 'lib/libicudata-full.a',
+      'share/icu/filters-root-en.json', 'share/icu/filters-en-intl.json'];
+    for (const relative of members) {
+      const path = resolve(root, relative); mkdirSync(dirname(path), {recursive:true});
+      const filter = relative.startsWith('share/') ? resolve(import.meta.dir, '../vendor/ibex/scripts', basename(relative).replace('filters-', 'icu74-filter-')) : null;
+      writeFileSync(path, filter ? readFileSync(filter) : relative);
+    }
+    const sum = relative => `sha256-${createHash('sha256').update(readFileSync(resolve(root, relative))).digest('hex')}`;
+    const manifest = paths => paths.sort().map(path => ({path, digest:sum(path)}));
+    const archives = members.filter(path => path.startsWith('lib/'));
+    const receipt = {
+      schema:'ibex/hermes-upstream-pinned-receipt/2', upstream:{sourceCommit:'d412d3bd851278712c20cca25d094e32641a0465'},
+      patchSet:{digest:'sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',applied:[]},
+      target:'aarch64-unknown-linux-gnu', bytecode:{version:99}, compiler:{binary:'bin/hermesc',digest:sum('bin/hermesc')},
+      engine:{binary:'lib/libhermesvm_a.a',binaryDigest:sum('lib/libhermesvm_a.a')}, archives:manifest(archives),
+      headers:manifest(['include/hermes.h']), linkDirectives:['rustc-link-search=native=lib'],
+      icu:{upstream:{sourceCommit:'2d029329c82c7792b985024b2bdab5fc7278fbc8'},codeArchives:['lib/libicui18n.a','lib/libicuuc.a'],data:{
+        trimmed:{archive:'lib/libicudata.a',filter:{path:'share/icu/filters-root-en.json',digest:sum('share/icu/filters-root-en.json')}},
+        en:{archive:'lib/libicudata-en.a',filter:{path:'share/icu/filters-en-intl.json',digest:sum('share/icu/filters-en-intl.json')}},
+        full:{archive:'lib/libicudata-full.a'}}},
+    };
+    const receiptPath = resolve(root, 'hermes-input-receipt.json'), receiptText = JSON.stringify(receipt);
+    writeFileSync(receiptPath, receiptText);
+    assert.equal(validateHermesBundle(bundle, {executeCompiler:false}).installed, true);
+    if (process.platform !== 'win32') {
+      writeFileSync(resolve(root, 'bin/hermesc'), "#!/bin/sh\necho 'HBC bytecode version: 98'\n"); chmodSync(resolve(root, 'bin/hermesc'), 0o755);
+      receipt.compiler.digest = sum('bin/hermesc'); writeFileSync(receiptPath, JSON.stringify(receipt));
+      assert.equal(validateHermesBundle(bundle, {executeCompiler:true}).installed, false, 'compiler HBC mismatch');
+      writeFileSync(resolve(root, 'bin/hermesc'), 'bin/hermesc'); receipt.compiler.digest = sum('bin/hermesc'); writeFileSync(receiptPath, receiptText);
+    }
+    for (const relative of ['hermes-input-receipt.json', ...members]) {
+      const path = resolve(root, relative), original = readFileSync(path);
+      rmSync(path); assert.equal(validateHermesBundle(bundle, {executeCompiler:false}).installed, false, `missing ${relative}`); writeFileSync(path, original);
+      writeFileSync(path, relative === 'hermes-input-receipt.json' ? '{}' : Buffer.concat([original, Buffer.from('!')]));
+      assert.equal(validateHermesBundle(bundle, {executeCompiler:false}).installed, false, `corrupt ${relative}`); writeFileSync(path, original);
+    }
+  } finally { rmSync(home, {recursive:true, force:true}); }
 });
 
 test('bake receipts recognize the install-once Hermes cache and explicit installs', () => {
