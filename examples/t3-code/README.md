@@ -262,27 +262,25 @@ its command identifiers and draft and is never retried automatically.
   iOS and Linux delivery.
 - Known in-app differences (round 11): during a row-action sweep the hover card or tooltip
   that was open at the press stays until release, and Escape does not cancel the sweep (the
-  reference closes the card and cancels); rows have no keyboard context menu (ContextMenu key,
-  Shift-F10); a switched-off loopback environment stays listed under Environments (it stands
+  reference closes the card and cancels); a switched-off loopback environment stays listed under Environments (it stands
   in for the reference's unlisted primary); rendered HTML loads only its asset token's
   directory, not external hosts; the reference opens a thread's live device session as a
   floating player on load and this client does not; No project drafts cannot switch machine.
 - Framework limits worked around in-app: host text truncates at word boundaries and
-  draws no placeholder colour; negative-spread shadows draw faint; popovers anchor below
-  their invoker; SVG paths cannot morph (morph icons cross-fade); backdrop blur sees only
+  draws no placeholder colour; negative-spread shadows draw faint; popovers open below, above or centred on
+  their invoker (`position-area`) but never flip near a window edge (#112); SVG paths cannot morph (morph icons cross-fade); backdrop blur sees only
   its parent (the composer is opaque, where the reference's glass shows the transcript
   through it); a textarea sizes to its plain value (a prompt whose chip links are long
-  can be a line taller than its chips draw at narrow widths); a forgotten Exact answer drops its native replies (the snapshot read gate
-  in `T3ReadGate.swift` limits the effect); an answer that awaits a promise another answer
-  started is refused as "pending on nothing", so caches share resolved values only
-  (`readDetail` in `r6-pr-actions.ts`); data sources have no clock; the
+  can be a line taller than its chips draw at narrow widths); a forgotten Exact answer drops its native replies (#109; the snapshot read gate
+  in `T3ReadGate.swift` limits the effect), so a cache that another answer could await
+  shares resolved values only (`readDetail` in `r6-pr-actions.ts`); data sources have no clock; the
   macOS textarea maps `autocorrect="off"` to spelling correction only, so the Files
   editor's text view takes the app's `t3-plain-text` hook, which turns AppKit's smart
   quotes, dashes and text replacement off (`T3PanelsNative.swift`); the composer's text
-  view gets the same switch-off when it attaches (`T3ComposerEditor.swift`). A child
-  drawn outside its parent's frame takes no press natively, so a negative margin (the
-  model picker's `-ms-2.5`) is held inside a parent that reaches out by the same amount;
-  `pointer-events="none"` holds only on SVG, so overlay layers carry `inert=true`.
+  view gets the same switch-off when it attaches (`T3ComposerEditor.swift`). Workarounds
+  for limits main has since fixed (hit testing, `pointer-events`, cursors, `position-area`,
+  key modifiers, `title`) are gone; `EXACT2-GAPS.md` lists what was removed and each open
+  item's state on the pin.
 - Needs a person: physical modifier chords, right-click menus, real pointer drags and
   hovers, macOS notification and screen-capture grants, provider installs and logins,
   GitHub writes.
