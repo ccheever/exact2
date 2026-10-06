@@ -8,6 +8,7 @@ import { forgetDraftThreadId, launchThreadId } from './r7-handoff-thread';
 import { composerNow, stagesChanges, stage, rememberModel, rememberOptions, stagedFor, clearStaged, nextTurnCommands, resolveDispatchMode, followUpBehavior, withDispatchMode, planFollowUp, resolvePlanSubmission } from './composer-controls';
 import { additiveGesture, fanoutSelections, sendFanout, setFanout, toggleFanout } from './r3-composer-controls-fanout';
 import { acknowledgeWoke, lockedProviderReason, applyOptionChoice, backgroundStarted } from './composer-controls-commands';
+import { dispatchSelection, promptForSend, ultrathinkChoice } from './composer-ultrathink'; // composer-fidelity G9
 import { queuedEdit, saveQueuedEdit } from './composer-controls-queue';
 import { fanoutBase, workspaceStrategy } from './composer-controls-branch';
 import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from './composer-controls-usage';
@@ -87,7 +88,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   if (isUsageLimitsCommand(value || this.draft) && !this.snapshotDrafts.length && usageLimitsOffered(this)) { if (openUsageLimits(this, composerNow(this))) this.local.drafts[this.draftKey] = ''; return; }
   const plan = planFollowUp(this);
   const submission = plan ? resolvePlanSubmission(value || this.draft, plan.markdown) : null;
-  const text = submission ? submission.text : value || this.draft;
+  const text = promptForSend(this, selection.providerId, selection.modelId, JSON.parse(selection.options), submission ? submission.text : value || this.draft);
   if (!text.trim() && !this.snapshotDrafts.length) throw new ClientError('Write a message or attach an image first.');
   if (promptLengthMessage(text)) throw new ClientError(promptLengthMessage(text));
   if (!this.projectId) throw new ClientError('Choose or add a project first.');
@@ -114,7 +115,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
     }
     const mode = submission ? 'auto' : resolveDispatchMode(running, followUpBehavior(this), intent === 'alternate');
     const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, text, attachments), text), mode,
-      modelSelection(selection.providerId, selection.modelId, JSON.parse(selection.options)));
+      dispatchSelection(this, selection.providerId, selection.modelId, JSON.parse(selection.options)));
     if (submission?.interactionMode === 'default' && plan) payload.sourcePlanRef = { threadId: selection.threadId, planId: plan.planId };
     await this.dispatch(native, storage, payload, 'Send', assertOwner);
     clearStaged(this, key);
@@ -127,7 +128,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
     await sendFanout(this, native, storage, { text, attachments, ...fanoutBase(this), runtimeMode: selection.runtimeMode, interactionMode: selection.interactionMode });
   } else {
     const payload = launchPayload(commandId, threadId, messageId, selection.projectId, text,
-      modelSelection(selection.providerId, selection.modelId, JSON.parse(selection.options)), selection.runtimeMode, selection.interactionMode, attachments);
+      dispatchSelection(this, selection.providerId, selection.modelId, JSON.parse(selection.options)), selection.runtimeMode, selection.interactionMode, attachments);
     payload.workspaceStrategy = workspaceStrategy(this);
     payload.title = launchTitle(text, str(this.snapshotDrafts[0]?.name), str(attachments.find(attachment => attachment.type === 'file')?.name)); // composer-editor-title.ts
     const result = await this.write(native, storage, { method: 'orchestration.launchThread', payload: withMessageContext(this, payload, text),
@@ -166,6 +167,7 @@ async function changeModel(this: T3Client, native: Native, storage: Files, op: s
   this.modelOptions = remembered;
 }
 async function changeModelOption(this: T3Client, native: Native, storage: Files, id: string, value: string): Promise<void> {
+  if (ultrathinkChoice(this, id, value)) return; // composer-fidelity G9: an injected effort rewrites the prompt
   const provider = arr(this.config.providers).find(provider => provider.instanceId === this.providerId);
   const model = arr(provider?.models).find(model => model.slug === this.modelId);
   const options = applyOptionChoice(arr(obj(model?.capabilities).optionDescriptors), this.modelOptions, id, value);
