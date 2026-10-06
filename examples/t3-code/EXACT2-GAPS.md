@@ -208,7 +208,7 @@ Source: a map of every clone hook and native component to the exact2 gap behind 
 Task `20261005-settings-scoped-controls-and-theme-editor` (D15, D16).
 - **Mixed switch, accessibility (X43, [#120](https://github.com/ccheever/exact2/issues/120)).** `ScopedSwitch` (`settings-scoped-switch.contract`) draws the reference's mixed state (thumb centred at 70 % on the unchecked track). `aria-checked` takes only a boolean, so VoiceOver hears "off" where the reference says "mixed".
 - **Header drag from a button (X13).** A Contract `pan` takes a drag that starts on a nested button once it passes the slop; the reference ignores pointer-downs on the header's buttons, inputs and links. A tap on Minimize or Close still presses.
-- **Window resize clamp (X22, [#127](https://github.com/ccheever/exact2/issues/127)).** No resize event reaches the panel; its place is clamped from the `viewport` facts on every layout, and the fit-to-window pull applies once the window size differs from the size at the last drag or resize. The panel's height for that pull is the one measured at the last drag (`frame()` works only in actions).
+- **Window resize clamp (X22, [#127](https://github.com/ccheever/exact2/issues/127)).** No window resize event reaches a component; a window-sized, inert, clipped tracker inside the panel hears `resize=` instead, and its action shrinks the size, then clamps and stores the place as the reference's listener does.
 - **Inspect app colors (X30, [#116](https://github.com/ccheever/exact2/issues/116)).** Not built (plan decision U18 pending).
 
 ## Not exact2 asks (stay in the app module)

@@ -128,9 +128,13 @@ attended rows not run).
   the editor without opening Settings, opening Settings keeps the session; the panel drags by its header, resizes from
   its corner grip (280x220 minimum, toward right and bottom), clamps to margin 8 with the header reachable, and is
   pulled back into view after a window resize.
-- Not done: Inspect (X30 / U18); same-session reseed when Create is pressed while a create session is open (the
-  window state names the session by kind and subject only); the Integrations scope axis; a create still saves both
-  palettes (the clone's earlier behavior), where the reference saves the active appearance only.
+- Follow-up for the user's review (#153 matches the original T3 Code app): a new theme saves only the palette of
+  the appearance being edited, and an edit keeps the theme's own palettes; every Create, Edit or Duplicate request is a
+  new session (the window numbers it in the dialog subject), so Create while a create is open restarts the draft;
+  after the window shrinks and grows the panel keeps its clamped place (a window-sized tracker's `resize=` runs the
+  reference's clamp); the Integrations Device hub and Agent device access switches resolve the settings scope's
+  targets, draw mixed and write every selected environment (`settings-integrations-scope.ts`).
+- Not done: Inspect (X30 / U18).
 
 ## Attempts and evidence
 
@@ -158,6 +162,12 @@ server B in Settings › Connections). BEFORE = `t3-code-evidence-base` at `da40
 - Not run: real-pointer drag and corner grip (attended), VoiceOver on a mixed switch (X43), oracle and trace-diff
   pairs (desktop-oracle-and-trace not built), two-checkout mixed state live (the lane server shows "No projects yet";
   covered by `settings-scope-sources.test.ts`), partial failure live (covered by tests).
+
+Follow-up drive (2026-10-06, one BEFORE on `t3-code-evidence-base` `ea18e1f`, one AFTER on `0c71af3`; servers on
+127.0.0.1:16100-16101, B seeded with `enableDeviceSupport: true`): Create theme, name "Half done", Create theme again:
+before the name stays, after the draft restarts (empty name). After: drag to `left = 428`, 840x620 `left = 416`,
+1280x840 again `left = 416` (before this change it returned to 428). The Integrations Devices section was below the
+fold in both shots, so the mixed device switch is proven by `settings-integrations-scope.test.ts` only.
 
 ## Next action
 
