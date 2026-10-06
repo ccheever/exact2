@@ -122,6 +122,8 @@ component R6RailButton
   props
     icon: string
     label: string
+    // DeviceControlsRail: the menu triggers (text size, more actions) carry HTML's title; "" for none.
+    title: string
     disabled: bool
     pressed: bool
     press: action
@@ -130,7 +132,7 @@ component R6RailButton
   action hover(value: bool)
     over = value
   view
-    button press=press hover=hover disabled=disabled aria-label=label aria-checked=pressed testId=testId width=28 height=28 padding=0 border-radius=8 border-width=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(pressed ? "light-dark(#f4f4f5, #ffffff0f)" : over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+    button press=press hover=hover disabled=disabled aria-label=label title=title aria-checked=pressed testId=testId width=28 height=28 padding=0 border-radius=8 border-width=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(pressed ? "light-dark(#f4f4f5, #ffffff0f)" : over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
       R6DeviceGlyph(name=icon, size=16, color=r6devInk())
 
 component R6RailDivider
@@ -196,22 +198,22 @@ component R6DeviceWorkspaceView
           // DeviceControlsRail: a 56pt strip at the right edge, its pill centred.
           column position="absolute" top=0 bottom=0 right=0 width=56 padding-top=12 padding-bottom=12 padding-right=8 box-sizing="border-box" align-items="center" justify-content="center" gap=8 z-index=10 role="complementary" aria-label="Device controls"
             column flex-shrink=0 align-items="center" gap=4 padding=8 border-radius=999 border-width=1 border-style="solid" border-color="light-dark(#e4e4e780, #ffffff0a)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" box-shadow="0 1px 2px #0000000d"
-              R6RailButton(icon="home", label="Home", disabled=(not ws.rail.inputConnected), pressed=false, press=local("surface-r6dev-home", "", ws.key), testId="device-home")
+              R6RailButton(icon="home", label="Home", title="", disabled=(not ws.rail.inputConnected), pressed=false, press=local("surface-r6dev-home", "", ws.key), testId="device-home")
               when ws.platform == "android"
                 R7DevRailButton(icon="back", label="Back", disabled=(not ws.rail.inputConnected), pressed=false, press=local("surface-r6dev-back", "", ws.key), testId="device-back")
                 R7DevRailButton(icon="square", label="Recents", disabled=(not ws.rail.inputConnected), pressed=false, press=local("surface-r6dev-recents", "", ws.key), testId="device-recents")
                 box hook="t3-frame" data-frame="r6-device-rotate"
-                  R6RailButton(icon="rotate", label="Rotate device", disabled=ws.r7.rail.rotateDisabled, pressed=(ws.rail.menu == "rotate"), press=local("surface-r6dev-menu", "", "rotate"), testId="device-rotate")
+                  R6RailButton(icon="rotate", label="Rotate device", title="", disabled=ws.r7.rail.rotateDisabled, pressed=(ws.rail.menu == "rotate"), press=local("surface-r6dev-menu", "", "rotate"), testId="device-rotate")
               else
-                R6RailButton(icon="rotate", label="Rotate device", disabled=ws.r7.rail.rotateDisabled, pressed=false, press=local("surface-r6dev-rotate", "", ws.key), testId="device-rotate")
+                R6RailButton(icon="rotate", label="Rotate device", title="", disabled=ws.r7.rail.rotateDisabled, pressed=false, press=local("surface-r6dev-rotate", "", ws.key), testId="device-rotate")
               R6RailDivider()
-              R6RailButton(icon=ws.rail.appearanceIcon, label=ws.rail.appearanceLabel, disabled=ws.rail.appearanceDisabled, pressed=false, press=command("shell:surface-r6dev-appearance", "", "", 0), testId="device-appearance")
+              R6RailButton(icon=ws.rail.appearanceIcon, label=ws.rail.appearanceLabel, title="", disabled=ws.rail.appearanceDisabled, pressed=false, press=command("shell:surface-r6dev-appearance", "", "", 0), testId="device-appearance")
               box hook="t3-frame" data-frame="r6-device-text"
-                R6RailButton(icon="type", label="Device text size", disabled=ws.rail.textSizeDisabled, pressed=(ws.rail.menu == "text"), press=local("surface-r6dev-menu", "", "text"), testId="device-text-size")
+                R6RailButton(icon="type", label="Device text size", title="Device text size", disabled=ws.rail.textSizeDisabled, pressed=(ws.rail.menu == "text"), press=local("surface-r6dev-menu", "", "text"), testId="device-text-size")
               R7DevRailButton(icon="sliders", label="Device tools", disabled=false, pressed=ws.r7.rail.toolsOpen, press=local("surface-r6dev-tools-toggle", "", ""), testId="device-tools-toggle")
-              R6RailButton(icon="camera", label=ws.rail.screenshotLabel, disabled=ws.rail.screenshotDisabled, pressed=false, press=command("shell:surface-r6dev-screenshot", "", "", 0), testId="device-screenshot")
+              R6RailButton(icon="camera", label=ws.rail.screenshotLabel, title="", disabled=ws.rail.screenshotDisabled, pressed=false, press=command("shell:surface-r6dev-screenshot", "", "", 0), testId="device-screenshot")
               box hook="t3-frame" data-frame="r6-device-more"
-                R6RailButton(icon="more", label="More device actions", disabled=false, pressed=(ws.rail.menu == "more"), press=local("surface-r6dev-menu", "", "more"), testId="device-more")
+                R6RailButton(icon="more", label="More device actions", title="More device actions", disabled=false, pressed=(ws.rail.menu == "more"), press=local("surface-r6dev-menu", "", "more"), testId="device-more")
               R6RailDivider()
               R7DevRailButton(icon="box", label="3D view", disabled=ws.r7.rail.phoneDisabled, pressed=ws.r7.rail.phone, press=local("surface-r6dev-tools-view", "", "phone"), testId="device-view-3d")
               R7DevRailButton(icon="smartphone", label="Flat view", disabled=(not ws.r7.rail.streaming), pressed=(not ws.r7.rail.phone), press=local("surface-r6dev-tools-view", "", "flat"), testId="device-view-flat")

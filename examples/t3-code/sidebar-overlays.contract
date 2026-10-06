@@ -115,7 +115,7 @@ component SidebarScopeMenu
                 SidebarProjectGlyph(g=scope.glyph, size=16, dim=false)
               text scope.label flex=1 min-width=0 line-clamp=1 white-space="nowrap" font-size=14 line-height="20px" color="light-dark(#27272a, #f3f3f3)" text-align="left"
               when not scope.all
-                button press=run("project-settings-group", "", scope.key) aria-label=`Project settings for ${scope.label}` testId=`scope-settings-${scope.label}` width=24 height=24 padding=0 flex-shrink=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                button press=run("project-settings-group", "", scope.key) aria-label=`Project settings for ${scope.label}` title=`Project settings for ${scope.label}` testId=`scope-settings-${scope.label}` width=24 height=24 padding=0 flex-shrink=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
                   SidebarIcon(name="settings", size=14, color="light-dark(#71717b, #818181)")
 
 // CustomSnoozeDialog: Date and time / Duration, then Snooze. The window's
