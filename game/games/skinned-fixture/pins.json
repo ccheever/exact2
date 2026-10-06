@@ -1,18 +1,18 @@
 {
   "ticks": {
-    "60": "0xc5f6f80142dd3aed",
-    "120": "0x70cd2e99afb05e77"
+    "60": "0xd2936f237e34cfae",
+    "120": "0x8094448a206f089a"
   },
   "saves": {
-    "continuation": "bffd53f9e33e9d26091c4c6fdd5a841b4a6773457614e38d41d32a120875b4b9"
+    "continuation": "6de5d5699cdf008cddb173827d8bcf0d174a16e6683ee9224925e4997b817acf"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "5d67014898cebccefbc4cf4bfea45eb615b08a35b621fc49adeb029d4e013dec",
+  "inputs": "6ef313de15e42a1a352a9798464e869849a2c7ae3c7698585d05795159799a10",
   "game": "skinned-fixture",
   "generated": "bun game/prove.mjs skinned-fixture --repin --hosts 'linux,web'",
-  "at": "cda3ff1d02f6dde5a9a41e60a79c3e179d217cad",
-  "reason": "Engine lanes of 2026-10-05: resources hash and save only non-default fields, saves omit default arguments and empty tables (lane 6); garden's looks are presentation (lane 2); wind-fixture's reed is a masked, LOD'd model (lane 3)"
+  "at": "56de84d5fc44cef1ce8d3ced728556425d370191",
+  "reason": "Engine rounds of 2026-10-05 and main through 3f4d34707: component rows and resources save and hash over their defaults, EXPHYS v4 physics pages, main's color/HDR"
 }

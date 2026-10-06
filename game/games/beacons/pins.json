@@ -1,18 +1,18 @@
 {
   "ticks": {
-    "0": "0xc21490398591946d",
-    "90": "0xd98ae1c42a46fb31"
+    "0": "0x4c39fb867a87258f",
+    "90": "0xc32c5b4856f06b60"
   },
   "saves": {
-    "continuation": "eff05fde368833d40f224c471b4ee73f55d73ee191b87d9eb823a387e9467b9b"
+    "continuation": "ade27a0bb9e6085c743345d6f1b50acd8c1c17f8778b229592bc7f602dff7f0b"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "b000a0e81d82671752a356e1ae02c2c95840d9fa009837c8b9f5a9ed14ddc359",
+  "inputs": "49517e6ef87c0c2dab35ee77891781b93807fd024055bc1c52e978dddca2f07a",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "cda3ff1d02f6dde5a9a41e60a79c3e179d217cad",
-  "reason": "Engine lanes of 2026-10-05: resources hash and save only non-default fields, saves omit default arguments and empty tables (lane 6); garden's looks are presentation (lane 2); wind-fixture's reed is a masked, LOD'd model (lane 3)"
+  "at": "96d3eaf6b39a33a2dbb5e6e32caeec795fd4de3d",
+  "reason": "Engine rounds of 2026-10-05 and main through 3f4d34707: component rows and resources save and hash over their defaults, EXPHYS v4 physics pages, main's color/HDR"
 }

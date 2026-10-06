@@ -1,27 +1,27 @@
 {
   "ticks": {
-    "0": "0xca3662f232465a7c",
-    "4500": "0x92804843365b30ea",
-    "7378": "0x5093d780d6eaf592"
+    "0": "0xbdada1a987bb0852",
+    "4500": "0xaec192eb644b900e",
+    "7378": "0x046e1ff8a58635c1"
   },
   "saves": {
-    "chopping": "01c0a115d80ea3edcbf49fd145850c3384ccd877e71e20a43bbcbb8ace3fb4a1",
-    "night": "6969ddc4f69d652605b8bc50bdfc82c22c18480b2b466b840ac93350e6fdf041",
-    "rescue": "0e9f8d6d10daefd17c5ef06981dad1d46e10326f24b6b9a78f7a7ef3eae15c94",
-    "supplies": "ddda5c29ddeffc7d1e04900ddfeaf5bf984c365c78789bdefda1fc4d8b47e237",
-    "dawn": "88b285c1de675fc5c1728bd7faf1ca7c7a3081168398f1edb81d042be5ef7df2",
-    "windbreak": "6280db03d9dc66ec5af39731bdc7a547b61396597a0b5675c4be66a06695426b",
-    "windbreak-dawn": "41ed62d694aa39cdd88f0d81286d43b19c306993f64502fc16d1455f8a6d7685",
-    "cached-supply": "dcba52dd17b1c854ad6bed4aebaa4258d62b5654fc9ab6e5227c3ef72bb5b607",
-    "deer-warning": "d8e8188cdbe87643e402cdba88c77ff14b0c4b7c57fcd2c3d59e53acb98f800b"
+    "chopping": "0a33a7ba974e9097f2395f2981e6b93304f8a17c499b6c111e68a5d30dbee76e",
+    "night": "697db6cbb1731e55cae2b4e6f3cb53469ceb543a7e21325ce3b394b968d08f2c",
+    "rescue": "da9f6cd89c312179b001ebe96e5e37ea24e16b965f3f2a2d002f5592eca6e17a",
+    "supplies": "3364bab02c39acde299288ec3f09d02d41a67356a717add46f9e5d4408a86d43",
+    "dawn": "477b3867a24cce90d242646f4b9261f283d15f2535b4418bf2d4b145632db10c",
+    "windbreak": "e5e5a244ee12ef97b13730ed9606cd8456dd30d971422dcd61aea72a60728f56",
+    "windbreak-dawn": "a88d81fbd5d45e83c7620ab4e32f9648156422cfb849a1d6d932b52bebe51d86",
+    "cached-supply": "c09ddf987ebdb62e4d3b2d528ba5426da0ba1c6448c56c887370f68019f52c43",
+    "deer-warning": "56d13756987aaed717c227bc4acea10b6700b9833a254e8f5f65ea55f3781480"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "c36e436cc99fa297fc430a70e26404a8f5b3036d5846913163e7c037ebc6d628",
+  "inputs": "ef22d7afd2d6f9b03a5917f67ad379f151d4f1dc5a21b37997999bab9052f7bd",
   "game": "forest",
   "generated": "bun game/prove.mjs forest --repin --hosts 'linux,web'",
-  "at": "cda3ff1d02f6dde5a9a41e60a79c3e179d217cad",
-  "reason": "Engine lanes of 2026-10-05: resources hash and save only non-default fields, saves omit default arguments and empty tables (lane 6); garden's looks are presentation (lane 2); wind-fixture's reed is a masked, LOD'd model (lane 3)"
+  "at": "56de84d5fc44cef1ce8d3ced728556425d370191",
+  "reason": "Engine rounds of 2026-10-05 and main through 3f4d34707: component rows and resources save and hash over their defaults, EXPHYS v4 physics pages, main's color/HDR"
 }

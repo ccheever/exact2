@@ -1,17 +1,17 @@
 {
   "ticks": {
-    "300": "0x89a8dcb82c11c05e"
+    "300": "0x33b3a34101904b90"
   },
   "saves": {
-    "continuation": "668d57f429b2fda26d62f5d819c9a332905cd0e400fb94ae232c0b25274570be"
+    "continuation": "e40e3937359976d06ccecaee4b8e6a48ba8763f9401396b9fc2664877984ae15"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "b59b5a24d79225fb957ea6c8b6d1e85a64f2655b4b87ed197cdbbaa1d82ef8ff",
+  "inputs": "76fe6a0c0aa1931108b89347a1a747161827021856cf3686b48b6247cb0049aa",
   "game": "wind-fixture",
   "generated": "bun game/prove.mjs wind-fixture --repin --hosts 'linux,web'",
-  "at": "cda3ff1d02f6dde5a9a41e60a79c3e179d217cad",
-  "reason": "Engine lanes of 2026-10-05: resources hash and save only non-default fields, saves omit default arguments and empty tables (lane 6); garden's looks are presentation (lane 2); wind-fixture's reed is a masked, LOD'd model (lane 3)"
+  "at": "96d3eaf6b39a33a2dbb5e6e32caeec795fd4de3d",
+  "reason": "Engine rounds of 2026-10-05 and main through 3f4d34707: component rows and resources save and hash over their defaults, EXPHYS v4 physics pages, main's color/HDR"
 }
