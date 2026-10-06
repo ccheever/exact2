@@ -82,31 +82,9 @@ export async function threadDevices(client: T3Client, native: Native | null | un
   autoShowDevices(client, deviceStateOf(client), sheet);
 }
 
-/** shouldRenderPreviewMiniPlayer: the player hides while the rendered panel surface is the same device. */
-export function visibleMini(mini: R6DeviceMini, shown: DeviceTarget | undefined, frames: Obj = {}): R6DeviceMini {
+/** shouldRenderPreviewMiniPlayer: the player hides while the rendered panel surface is the same device. Its frame
+ *  is the chat canvas's (chat-canvas-view.ts), which applies the same rule. */
+export function visibleMini(mini: R6DeviceMini, shown: DeviceTarget | undefined): R6DeviceMini {
   if (!mini.show) return mini;
-  if (shown && shown.hostId === mini.hostId && shown.deviceId === mini.deviceId) return emptyMini();
-  return { ...mini, ...placeMini(mini.width / Math.max(1, mini.height), frames) };
-}
-
-/** The chat header above the canvas the player floats in (ChatCanvas starts below it). */
-const HEADER = 52, GAP = 12;
-const DEFAULT_BOX = 320, MIN_WIDTH = 240, MIN_HEIGHT = 150;
-/** The canvas ends this far above the composer card (measured on the f870c41 oracle at 1280: 668 vs 676 pt). */
-const COMPOSER_LIP = 8;
-const rect = (value: unknown): number[] | null => (Array.isArray(value) && value.length >= 4 && value.every(Number.isFinite) ? value.map(Number) : null);
-/**
- * resolvePreviewMiniPlayerFrame for a new player, then chatCanvasLayout's "new players start beside
- * the composer": the largest box at the source aspect inside 320 × 320, at least 240 wide (and 150
- * tall), fitted to the canvas between the header and the composer, its bottom 12 above the
- * composer and at most 12 below the header. `top` is from the chat column's top.
- */
-export function placeMini(aspect: number, frames: Obj): { width: number; height: number; top: number } {
-  const ratio = Number.isFinite(aspect) && aspect > 0 ? aspect : 9 / 19.5;
-  const chat = rect(frames.chat), overlay = rect(frames.overlay);
-  const bottom = chat && overlay ? overlay[1]! - chat[1]! - COMPOSER_LIP : 0, canvasWidth = chat ? chat[2]! : 0;
-  const preferred = Math.max(Math.min(DEFAULT_BOX, DEFAULT_BOX * ratio), MIN_WIDTH, MIN_HEIGHT * ratio);
-  const fitted = bottom > HEADER ? Math.min(preferred, Math.max(1, canvasWidth - GAP * 2), Math.max(1, (bottom - HEADER - GAP * 2) * ratio)) : preferred;
-  const width = Math.round(fitted), height = Math.round(fitted / ratio);
-  return { width, height, top: bottom > HEADER ? Math.max(HEADER + GAP, bottom - GAP - height) : HEADER + GAP };
+  return shown && shown.hostId === mini.hostId && shown.deviceId === mini.deviceId ? emptyMini() : mini;
 }
