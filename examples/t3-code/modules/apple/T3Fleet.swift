@@ -95,7 +95,8 @@ final class T3Fleet: @unchecked Sendable {
 //   fleetOutdatedAck     (key origin\\nid)  forget a finished job
 // The same job runs a connected server that is only older than this client
 // (`mode: "connected"`; reference client-runtime state/server.ts
-// updateServer): the request carries the config's capabilities and extra
+// updateServer): its socket names protocol 2 (a current server refuses one
+// that does not), the request carries the config's capabilities and extra
 // payload (continueRunningThreads), the restart is proven by the descriptor
 // reporting the target version, and the saved switch is left alone.
 final class T3OutdatedHosts: @unchecked Sendable {
@@ -309,6 +310,8 @@ final class T3OutdatedHosts: @unchecked Sendable {
                     url.scheme = url.scheme == "https" ? "wss" : "ws"; url.path = "/ws"
                     url.queryItems = [URLQueryItem(name: "wsTicket", value: ticket), URLQueryItem(name: "clientSurface", value: "desktop"),
                                       URLQueryItem(name: "clientOs", value: "macos"), URLQueryItem(name: "clientDeviceType", value: "desktop")]
+                    // A connected server speaks protocol 2 and refuses a socket that does not name it.
+                    if run.connected { url.queryItems?.append(URLQueryItem(name: "orchestrationProtocol", value: "\(Self.protocolVersion)")) }
                     var request = URLRequest(url: url.url!)
                     request.timeoutInterval = Self.socketOpenTimeout
                     let socket = session.webSocketTask(with: request)
@@ -324,10 +327,11 @@ final class T3OutdatedHosts: @unchecked Sendable {
     /// One RPC over the bare socket: progress chunks call `progress`; the result arrives as `.success(exit value)`,
     /// a server failure as `.failure(message)`, and a dropped socket as `.dropped`.
     enum Outcome { case success(Any), failure(String), dropped(String) }
-    private func call(_ socket: URLSessionWebSocketTask, id: String, method: String, payload: [String: Any], key: String,
+    private func call(_ socket: URLSessionWebSocketTask, id: String, method: String, payload: [String: Any], key: String, gated: Bool = false,
                       progress: @escaping ([String: Any]) -> Void, done: @escaping (Outcome) -> Void) {
         var opened = false
-        let request: [String: Any] = ["_tag": "Request", "id": id, "tag": method, "payload": payload, "headers": [] as [Any]]
+        let request: [String: Any] = gated ? T3Wire.request(id: id, method: method, payload: payload)
+            : ["_tag": "Request", "id": id, "tag": method, "payload": payload, "headers": [] as [Any]]
         guard let text = try? T3Wire.encode(request) else { return done(.failure("The update request could not be encoded.")) }
         queue.asyncAfter(deadline: .now() + Self.socketOpenTimeout + 1) { [weak self] in
             guard let self, !opened, self.sockets[key] === socket else { return }
@@ -390,14 +394,14 @@ final class T3OutdatedHosts: @unchecked Sendable {
             let commitToken = result["desktopUpdateToken"] as? String ?? ""
             guard result["method"] as? String == "desktop-app", !commitToken.isEmpty else { return resume(key, origin: origin, label: label, run: run) }
             // The commit relaunches the desktop app, so a dropped socket is success.
-            call(socket, id: "2", method: "server.commitDesktopUpdate", payload: ["requestId": commitToken], key: key, progress: { _ in }) { [self] outcome in
+            call(socket, id: "2", method: "server.commitDesktopUpdate", payload: ["requestId": commitToken], key: key, gated: run.connected, progress: { _ in }) { [self] outcome in
                 if case .failure(let message) = outcome { return fail(key, message) }
                 resume(key, origin: origin, label: label, run: run)
             }
         }
         if capabilities["serverSelfUpdateProgress"] as? Bool == true {
             var terminal: [String: Any]?
-            call(socket, id: "1", method: "server.updateServerWithProgress", payload: input, key: key, progress: { [self] event in
+            call(socket, id: "1", method: "server.updateServerWithProgress", payload: input, key: key, gated: run.connected, progress: { [self] event in
                 if event["type"] as? String == "complete", let result = event["result"] as? [String: Any] { terminal = result }
                 else if event["type"] as? String == "progress", let stage = event["stage"] as? String, ["downloading", "installing"].contains(stage) { setJob(key, ["stage": stage]) }
             }) { [self] outcome in
@@ -411,7 +415,7 @@ final class T3OutdatedHosts: @unchecked Sendable {
                 }
             }
         } else {
-            call(socket, id: "1", method: "server.updateServer", payload: input, key: key, progress: { _ in }) { [self] outcome in
+            call(socket, id: "1", method: "server.updateServer", payload: input, key: key, gated: run.connected, progress: { _ in }) { [self] outcome in
                 switch outcome {
                 case .success(let value): finish(value as? [String: Any] ?? ["targetVersion": target, "method": selfUpdate])
                 // Older servers can drop the socket before acknowledging the restart.
