@@ -62,6 +62,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "shellView",
             "shellDetails",
             "chatCanvas",
+            "terminalDrawer", // terminal-drawer: the thread terminal drawer (terminal-drawer-view.ts)
             "sidebarLaunchWidth",
             "prList",
             "prDetail",

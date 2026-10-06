@@ -4,6 +4,7 @@
 // the toast stack with its timers, the header's panel-control labels, the
 // right panel's surface chooser and the thread title's action menu.
 import type { T3Client } from './client';
+import { terminalAvailable, terminalOpen } from './terminal-drawer-view'; // terminal-drawer
 import { highlightPending } from './r12-render-highlight';
 import { toasts, dismissToast, type Toast, type ToastKind } from './toast';
 import { arr, obj, str, type Obj } from './domain';
@@ -260,6 +261,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     openRequest: state.status.opened, openThreadId: state.status.openedThread,
     keyRightPanel: commandShortcut(client.config, 'rightPanel.toggle'), keyThreadPanel: commandShortcut(client.config, 'threadPanel.toggle'),
     keyTerminal: commandShortcut(client.config, 'terminal.toggle'), keyNewThread: commandShortcut(client.config, 'chat.new'),
+    terminalAvailable: terminalAvailable(client), terminalOpen: terminalOpen(client), // terminal-drawer: the layout controls' toggle
     keyNewThreadLocal: commandShortcut(client.config, 'chat.newLocal'), keySidebar: commandShortcut(client.config, 'sidebar.toggle'),
     serverThread: !!thread, projectPath: str(thread?.worktreePath) || str(project?.workspaceRoot),
     surfaces: surfaces(client), titleMenu: menu.filter(entry => entry.submenu === ''), titleSubmenu: menu.filter(entry => entry.submenu !== ''),
