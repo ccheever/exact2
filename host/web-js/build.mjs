@@ -193,15 +193,13 @@ async function typecheck() {
   configure(real);
   // The clock, randomness and timers, refused at build in the modules
   // app.ts reaches, as the native bake's bundler refuses them
-  // (js/bake/src/typescript.mjs `ambientRefusals`). A bundle that fails to
-  // resolve is the check's to report.
+  // (js/bake/src/typescript.mjs `ambientRefusals`). A graph that does not
+  // bundle from the capture is refused, as the native bake refuses it.
   const why = [];
   const { rolldown } = await import('rolldown');
-  try {
-    const bundle = await rolldown({ cwd: real, input: resolve(real, '__exact_entry.ts'), platform: 'neutral', tsconfig: resolve(real, '__exact_tsconfig.json'),
-      logLevel: 'silent', plugins: [{ name: 'ambient', transform(code, id) { why.push(...ambientRefusals(real, id, code, (c, o) => this.parse(c, o))); return null; } }] });
-    try { await bundle.generate({ format: 'esm' }); } finally { await bundle.close(); }
-  } catch { /* the check below names it */ }
+  const bundle = await rolldown({ cwd: real, input: resolve(real, '__exact_entry.ts'), platform: 'neutral', tsconfig: resolve(real, '__exact_tsconfig.json'),
+    logLevel: 'silent', plugins: [{ name: 'ambient', transform(code, id) { why.push(...ambientRefusals(real, id, code, (c, o) => this.parse(c, o))); return null; } }] });
+  try { await bundle.generate({ format: 'esm' }); } finally { await bundle.close(); }
   if (why.length) throw new Error(why.join('\n'));
   await check(real, resolve(libraries, 'tsc'), libraries);
 }

@@ -26,36 +26,82 @@ export function assertCapturedModule(stage, id) {
 // the module under Bun, which has no such guard, cannot hide it.
 const ambient=(api)=>api+' is unavailable in data sources; pass time or a random seed as an argument';
 const timers=(api)=>api+' is unavailable in data sources: there are no timers; pass time as an argument';
-const member=(node,object,property)=>node?.type==='MemberExpression' && !node.computed
-  && node.object?.type==='Identifier' && node.object.name===object && node.property?.name===property;
-function refusal(node) {
+const TIMERS=['setTimeout','setInterval','requestAnimationFrame','requestIdleCallback'];
+const GLOBALS=['globalThis','self','window','global'];
+// `x!`, `(x)` and `x?.y` as written, down to the expression they wrap.
+const bare=(node)=>{ while (node && ['TSNonNullExpression','ParenthesizedExpression','ChainExpression','TSAsExpression','TSSatisfiesExpression'].includes(node.type)) node=node.expression; return node; };
+// The global `name`: the bare identifier, or a global object's property.
+const ambientGlobal=(node,name,local)=>{
+  node=bare(node);
+  if (node?.type==='Identifier') return node.name===name && !local.has(name);
+  return node?.type==='MemberExpression' && !node.computed && node.property?.name===name
+    && bare(node.object)?.type==='Identifier' && GLOBALS.includes(bare(node.object).name) && !local.has(bare(node.object).name);
+};
+const member=(node,object,property,local)=>{ node=bare(node); return node?.type==='MemberExpression' && !node.computed && node.property?.name===property && ambientGlobal(node.object,object,local); };
+function refusal(node,local) {
   if (node.type==='CallExpression') {
     const callee=node.callee;
-    if (member(callee,'Date','now')) return ambient('Date.now()');
-    if (member(callee,'performance','now')) return ambient('performance.now()');
-    if (member(callee,'Math','random')) return 'Math.random() is unavailable in data sources; pass time or a random seed as an argument, or use crypto.getRandomValues';
-    if (callee?.type==='Identifier' && callee.name==='Date') return ambient('Date()');
-    if (callee?.type==='Identifier' && ['setTimeout','setInterval','requestAnimationFrame','requestIdleCallback'].includes(callee.name)) return timers(callee.name+'()');
+    if (member(callee,'Date','now',local)) return ambient('Date.now()');
+    if (member(callee,'performance','now',local)) return ambient('performance.now()');
+    if (member(callee,'Math','random',local)) return 'Math.random() is unavailable in data sources; pass time or a random seed as an argument, or use crypto.getRandomValues';
+    if (ambientGlobal(callee,'Date',local)) return ambient('Date()');
+    const timer=TIMERS.find(name=>ambientGlobal(callee,name,local));
+    if (timer) return timers(timer+'()');
   }
-  if (node.type==='NewExpression' && node.callee?.type==='Identifier' && node.callee.name==='Date' && !node.arguments.length) return ambient('new Date()');
+  if (node.type==='NewExpression' && ambientGlobal(node.callee,'Date',local) && !node.arguments.length) return ambient('new Date()');
   return null;
+}
+// The names the module binds itself, anywhere (a parameter, a variable, a
+// function, class or import): such a `Date` is not the guarded global, so
+// it is left alone; the runtime's refusal still guards the global behind it.
+function bound(ast) {
+  const names=new Set();
+  const pattern=(p)=>{
+    p=bare(p);
+    if (!p) return;
+    if (p.type==='Identifier') names.add(p.name);
+    else if (p.type==='ObjectPattern') p.properties.forEach(q=>pattern(q.type==='RestElement' ? q.argument : q.value));
+    else if (p.type==='ArrayPattern') p.elements.forEach(pattern);
+    else if (p.type==='AssignmentPattern') pattern(p.left);
+    else if (p.type==='RestElement') pattern(p.argument);
+    else if (p.type==='TSParameterProperty') pattern(p.parameter);
+  };
+  const walk=(node)=>{
+    if (!node || typeof node!=='object') return;
+    if (Array.isArray(node)) { node.forEach(walk); return; }
+    if (node.type==='VariableDeclarator') pattern(node.id);
+    if (['FunctionDeclaration','FunctionExpression','ClassDeclaration','ClassExpression'].includes(node.type) && node.id) names.add(node.id.name);
+    if (['FunctionDeclaration','FunctionExpression','ArrowFunctionExpression'].includes(node.type)) node.params?.forEach(pattern);
+    if (node.type==='CatchClause') pattern(node.param);
+    if (['ImportSpecifier','ImportDefaultSpecifier','ImportNamespaceSpecifier'].includes(node.type)) names.add(node.local.name);
+    for (const key in node) if (key!=='parent') walk(node[key]);
+  };
+  walk(ast);
+  return names;
 }
 /** The direct uses of the clock, randomness and timers in the captured
  * module `file`, as `path:line:col: why` with its path in the app: `parse`
- * is Rolldown's (a plugin's `this.parse`, or `parseAst`), given TypeScript. */
+ * is Rolldown's (a plugin's `this.parse`, or `parseAst`), given TypeScript.
+ * An early warning a Bun test cannot give, not the guard: an alias still
+ * reaches the runtime's refusal. */
 export function ambientRefusals(stage, file, code, parse) {
   if (!isAbsolute(file) || /\.d\.[cm]?ts$/.test(file) || !/\.[cm]?[jt]sx?$/.test(file)) return [];
   const lang=/\.[cm]?tsx?$/.test(file) ? (file.endsWith('x') ? 'tsx' : 'ts') : 'js';
   const label=relative(stage,file).split(sep).join('/'), found=[], starts=[0];
-  for (let i=0;i<code.length;i++) if (code.charCodeAt(i)===10) starts.push(i+1);
+  // ECMAScript's line terminators: LF, CR (CRLF is one), U+2028, U+2029.
+  for (let i=0;i<code.length;i++) {
+    const c=code.charCodeAt(i);
+    if (c===10 || c===0x2028 || c===0x2029 || (c===13 && code.charCodeAt(i+1)!==10)) starts.push(i+1);
+  }
   const at=(offset)=>{ let lo=0, hi=starts.length; while (lo+1<hi) { const mid=(lo+hi)>>1; if (starts[mid]<=offset) lo=mid; else hi=mid; } return (lo+1)+':'+(offset-starts[lo]+1); };
+  const ast=parse(code,{lang}), local=bound(ast);
   const walk=(node)=>{
     if (!node || typeof node!=='object') return;
     if (Array.isArray(node)) { node.forEach(walk); return; }
-    if (typeof node.type==='string') { const why=refusal(node); if (why) found.push(label+':'+at(node.start)+': '+why); }
+    if (typeof node.type==='string') { const why=refusal(node,local); if (why) found.push(label+':'+at(node.start)+': '+why); }
     for (const key in node) if (key!=='parent') walk(node[key]);
   };
-  walk(parse(code,{lang}));
+  walk(ast);
   return found;
 }
 
