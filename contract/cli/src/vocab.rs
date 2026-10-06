@@ -1,11 +1,13 @@
 //! `contract vocab [--json] [<name>]` — what the compiler admits: every tag,
 //! every attribute by kind (a style's rows with codec, values and default; a
 //! prop's type; a handler), the renamed spellings, and the rules no lookup
-//! lists. @ref LLP 1086 D3. The list is `contract_lower::vocab`'s, which
-//! keeps only what the live lookups admit.
+//! lists, and the host commands an action states. @ref LLP 1086 D3. The
+//! list is `contract_lower::vocab`'s, which keeps only what the live lookups
+//! admit; the commands are `contract_syntax::HOST_COMMANDS`.
 
 use contract_lower::tags::{self, AttrTarget, Tag};
 use contract_lower::vocab;
+use contract_syntax::HOST_COMMANDS;
 use exact_kernel::{PropId, StyleId};
 use serde_json::{json, Value};
 use std::process::ExitCode;
@@ -48,7 +50,8 @@ fn one(name: &str, json: bool) -> ExitCode {
     let tag = tags::tag(name).map(|t| tag_json(name, &t));
     let attr = tags::attr(name).map(|a| attr_json(name, &a));
     let open = vocab::open_set(name).filter(|_| tag.is_none() && attr.is_none());
-    if tag.is_none() && attr.is_none() && open.is_none() {
+    let command = HOST_COMMANDS.contains(&name).then(|| command_text(name));
+    if tag.is_none() && attr.is_none() && open.is_none() && command.is_none() {
         let refusal = vocab::refusal(name);
         if json {
             println!("{:#}", json!({ "name": name, "refused": refusal }));
@@ -67,6 +70,9 @@ fn one(name: &str, json: bool) -> ExitCode {
         }
         if let Some(open) = open {
             doc["note"] = open.into();
+        }
+        if let Some(command) = command {
+            doc["command"] = command.into();
         }
         println!("{doc:#}");
     } else {
@@ -100,8 +106,20 @@ fn one(name: &str, json: bool) -> ExitCode {
                 println!("{name}: {open}");
             }
         }
+        if let Some(command) = command {
+            println!("{name}: {command}");
+        }
     }
     ExitCode::SUCCESS
+}
+
+/// A host command: an action statement, never a value.
+fn command_text(name: &str) -> String {
+    let what = match name {
+        "setRootFontSize" => "; `setRootFontSize(px)` sets CSS's `:root { font-size }`, the size every `rem` follows (px above 0), over the host's own; `setRootFontSize(\"medium\")` hands it back (LLP 1069.000 D3)",
+        _ => "",
+    };
+    format!("host command, an action statement (docs/contract-grammar.md#host-commands){what}")
 }
 
 fn family(t: &Tag) -> &'static str {
@@ -207,6 +225,7 @@ fn everything() -> Value {
         "html": vocab::html_tags().iter().map(|(n, h)| json!({"name": n, "hint": h})).collect::<Vec<_>>(),
         "head": tags::HEAD_FIELDS,
         "contextual": vocab::CONTEXTUAL.iter().map(|(n, on)| json!({"name": n, "only": on})).collect::<Vec<_>>(),
+        "commands": HOST_COMMANDS,
         "notes": { "modules": vocab::MODULE_NOTE, "data": vocab::DATA_NOTE },
     })
 }
@@ -382,6 +401,11 @@ fn listing() -> String {
     for (name, on) in vocab::CONTEXTUAL {
         out += &format!("  {name:<16} {on}\n");
     }
+    out += &format!(
+        "\nhost commands ({}), action statements:\n",
+        HOST_COMMANDS.len()
+    );
+    wrapped(&mut out, HOST_COMMANDS.iter().map(|c| c.to_string()));
     out += &format!(
         "\nopen sets:\n  {}\n  {}\n",
         vocab::MODULE_NOTE,

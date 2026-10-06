@@ -5,11 +5,17 @@
 // the bound font size above it, `rem` the root's (`prefer root-font-size`),
 // on a static row and on a bound one alike; an `em` under no sized
 // ancestor follows the root size too (the page's `body` is `1rem`).
+// The app's `setRootFontSize` (#102) stands over the drive's root size on
+// both pages, a size of 0 is refused, and "medium" hands the root back.
 component Rem
   state size = 16
   state wide = false
   action pick(v: number)
     size = v
+  action root(v: number)
+    setRootFontSize(v)
+  action medium
+    setRootFontSize("medium")
   action flip
     wide = not wide
   view
@@ -25,3 +31,10 @@ component Rem
         button press=flip testId="flip"
           text "flip"
         view testId="bound" width=(wide ? "12em" : "6rem") height="1em" background-color="#aaaaaa"
+        row gap=8
+          button press=root(18) testId="root18"
+            text "18"
+          button press=root(0) testId="root0"
+            text "0"
+          button press=medium testId="medium"
+            text "medium"

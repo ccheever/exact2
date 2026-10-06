@@ -1132,6 +1132,18 @@ trip, as `press-scale` does. `haptic("selection" | "impact-…" | "success" |
 drag crosses a threshold. iOS uses the feedback generators; the web vibrates
 where it can; Linux does nothing.
 
+An interface size setting is `rem` plus `setRootFontSize(px)`, CSS's `:root {
+font-size }` (LLP 1069.000 D3). Size what should scale in `rem` (text, control
+heights, paddings) and what should not in `px`; an action calling
+`setRootFontSize(size)` re-lays every `rem` out in its own commit, on every host.
+The app's size stands over the host's (the browser's setting, iOS Dynamic Type,
+16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a
+browser's font-size setting; `setRootFontSize("medium")` hands it back, so a
+"Default" choice that follows Dynamic Type calls that. A size of 0 or less is
+refused (a literal at compile time, a computed one in `logs`). It is not kept
+across a launch: a root `task restore mount` with `after(1, applySize)` sets the
+stored size again. Do not multiply a scale factor into every size instead.
+
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
 `exactSurface`, `exactTime`); the bake refuses a declared field the source does
 not have. Use dimensions, media preferences, page facts,

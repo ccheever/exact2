@@ -474,6 +474,8 @@ pub struct Runner<D: DataSource> {
     notifications: Vec<crate::notify::Notice>,
     /// The voice table (LLP 1096 D5): what the app's sounds scheduled.
     sounds: crate::sound::Sounds,
+    /// The app's `setRootFontSize` over the host's size (LLP 1069.000 D3).
+    root_font: root_font::RootFont,
     /// Auth sessions (LLP 1069.006): live ones, and answers to deliver.
     auth: crate::auth::Sessions,
     /// The device capabilities linked (LLP 1047 D3): [`DeviceLinks`].
@@ -843,6 +845,7 @@ impl<D: DataSource> Runner<D> {
             batch: 0,
             commands: Vec::new(),
             sounds: Default::default(),
+            root_font: Default::default(),
             into_view: Vec::new(),
             scrolled: Default::default(),
             resized: Vec::new(),

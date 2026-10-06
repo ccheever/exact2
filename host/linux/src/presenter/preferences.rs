@@ -26,7 +26,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = host.set_page(page) {
             return Err(HostError::Layout(error));
         }
-        if let Some(error) = host.set_root_font_size(runner.root_font_size()) {
+        if let Some(error) = host.set_root_font_size(runner.host_root_font_size()) {
             return Err(HostError::Layout(error));
         }
         let time = self.host.runner().wall_time();

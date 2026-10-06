@@ -30,6 +30,7 @@ pub(super) struct Checkpoint {
     timers: Vec<super::Timer>,
     published: Option<Box<Published>>,
     commands: usize,
+    root_font: (super::root_font::RootFont, f32),
 }
 
 /// What a settlement publishes that a refusal after it — the gate step
@@ -81,6 +82,7 @@ impl<D: DataSource> Runner<D> {
                     })
                 }),
             commands: self.commands.len(),
+            root_font: (self.root_font, self.kernel.root_font_size()),
         }
     }
 
@@ -129,6 +131,8 @@ impl<D: DataSource> Runner<D> {
                 }
                 self.sync_pending_flags();
                 self.commands.truncate(c.commands);
+                self.root_font = c.root_font.0;
+                let _ = self.kernel.set_root_font_size(c.root_font.1);
             }
         }
         // After any restore: the source hears what is really in flight.
@@ -820,6 +824,20 @@ impl<D: DataSource> Runner<D> {
             self.log(super::lines::unsent(
                 self.plan.str(self.plan.mutations[*m].name),
             ));
+        }
+        // `setRootFontSize` is the runner's too: the size lands in this
+        // commit's layout, and the command stays for a host that mirrors it;
+        // a refused one is journaled as refused, never as a command.
+        let mut i = first_command;
+        while i < self.commands.len() {
+            if self.commands[i].name == "setRootFontSize" {
+                let args = self.commands[i].args.clone();
+                if !self.app_root_font_size(&args) {
+                    self.commands.remove(i);
+                    continue;
+                }
+            }
+            i += 1;
         }
         let commands: Vec<String> = self.commands[first_command..]
             .iter()
