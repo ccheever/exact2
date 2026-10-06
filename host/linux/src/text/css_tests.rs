@@ -190,6 +190,20 @@ fn content_ending_within_a_64th_of_a_pixel_past_the_width_fits() {
 }
 
 #[test]
+fn pre_wrap_min_content_hangs_a_tab_that_ends_a_segment() {
+    // Chrome hangs a preserved tab at a line's end under `pre-wrap`, as it
+    // hangs a space: "\tend\t" is as narrow as "end" (28.77 px in Chrome's
+    // Noto Sans at 16 px; LLP 1085.000 host parity).
+    let mut e = engine(INTER, "Inter");
+    let end = e.measure(&spec("end", WhiteSpace::PreWrap), AxisOffer::MaxContent);
+    let tabs = spec("\tend\t", WhiteSpace::PreWrap);
+    assert_eq!(e.measure(&tabs, AxisOffer::MinContent).width, end.width);
+    // Max-content still takes the leading tab to its stop.
+    let max = e.measure(&tabs, AxisOffer::MaxContent).width;
+    assert!(max > end.width + 20.0, "{max}");
+}
+
+#[test]
 fn ellipsis_ends_an_over_wide_nowrap_line_in_paint_only() {
     let mut e = engine(INTER, "Inter");
     let s = spec(

@@ -90,6 +90,15 @@ named here pass.
     the 2 left are the first-strong base itself), `bidi-arabic-digits`@120
     1 -> 0. Tests: `sharing_tests.rs`
     (`ltr_text_that_starts_rtl_hangs_its_trailing_spaces_at_the_right`).
+14. **Tabs in content widths.** `calculate_content_widths` takes a tab to
+    its next stop from where it stands in the min- and the max-content
+    layout (patch 9's rule), not the advance the last `break_lines` left
+    it, and hangs a tab that ends a segment as it hangs a space, as Chrome
+    does under `pre-wrap`. Min-content of `"\tend\t"` was the tab's stop
+    (33.28 px) where Chrome's is `end` (28.77 px). Host parity, nine tab
+    cases against Chrome: min-content 8 -> 9 of 9, max-content 9 of 9.
+    Tests: `css_tests.rs`
+    (`pre_wrap_min_content_hangs_a_tab_that_ends_a_segment`).
 
 All other archive files are byte-for-byte upstream. The upstream test suite
 (not in the archive) passed with patches 1–4 applied; with 4–7, five tests
