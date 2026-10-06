@@ -26,6 +26,12 @@
 // synchronous call, so a portable source falls back to `native.later`. `views` is the roster, read
 // once per process. Each view instance subclasses `ExactNativeInstance`.
 //
+// A factory with `creation: .beforeFirstPaint` is made in the initial render,
+// like built-in controls, so it is in the first frame. Other factories are
+// made after the first frame. The build lists these tags in the bundle's
+// `exact-before-first-paint.json`, which tells the host to load this artifact
+// before the first render.
+//
 // A factory that sets `reuse` opts its tag into reuse in a list (LLP 1068
 // §4.8): the instance's `prepareForReuse` makes it as if created with no
 // props, the next `setProps` is a first mount, and `events.load()` follows
@@ -577,27 +583,42 @@ open class ExactNativeScreen: ExactNativeInstance {
 }
 #endif
 
+/// When a view's instance is made at launch.
+public enum ExactNativeCreation {
+    /// After the first frame, so the module artifact loads off the launch path.
+    case afterFirstPaint
+    /// In the initial render, with built-in controls, so the view is in the
+    /// first frame. Time to first render then includes loading the artifact
+    /// and making the view. For cheap views only.
+    case beforeFirstPaint
+}
+
 /// A roster entry: how to make an instance from the session's module,
-/// whether it answers snapshots, and whether a list may reuse it (LLP 1068
-/// §4.8).
+/// whether it answers snapshots, whether a list may reuse it (LLP 1068
+/// §4.8), and when it is made at launch.
 public struct ExactNativeFactory {
     public let snapshot: Bool
     public let reuse: Bool
+    public let creation: ExactNativeCreation
     public let make: (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance
-    public init(snapshot: Bool = false, reuse: Bool = false, make: @escaping (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
+    public init(snapshot: Bool = false, reuse: Bool = false, creation: ExactNativeCreation = .afterFirstPaint,
+                make: @escaping (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
         self.snapshot = snapshot
         self.reuse = reuse
+        self.creation = creation
         self.make = make
     }
     /// A view that needs nothing from the module.
-    public init(snapshot: Bool = false, reuse: Bool = false, make: @escaping ([String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
-        self.init(snapshot: snapshot, reuse: reuse) { _, props, events in try make(props, events) }
+    public init(snapshot: Bool = false, reuse: Bool = false, creation: ExactNativeCreation = .afterFirstPaint,
+                make: @escaping ([String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
+        self.init(snapshot: snapshot, reuse: reuse, creation: creation) { _, props, events in try make(props, events) }
     }
     /// A view of the app's module, typed: `ExactNativeFactory(for: Recorder.self)
     /// { recorder, props, events in … }`. The session's module is always the
     /// app's `exactModule`; another type is refused by name.
-    public init<M: ExactModule>(for module: M.Type, snapshot: Bool = false, reuse: Bool = false, make: @escaping (M, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
-        self.init(snapshot: snapshot, reuse: reuse) { owner, props, events in
+    public init<M: ExactModule>(for module: M.Type, snapshot: Bool = false, reuse: Bool = false, creation: ExactNativeCreation = .afterFirstPaint,
+                                make: @escaping (M, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
+        self.init(snapshot: snapshot, reuse: reuse, creation: creation) { owner, props, events in
             guard let typed = owner as? M else { throw ExactNativeRefusal("the session's module is \(type(of: owner)), not \(M.self)") }
             return try make(typed, props, events)
         }
@@ -923,7 +944,8 @@ private let major: UInt32 = 3
 
 private let table: UnsafeMutableRawPointer = {
     let text = "{" + roster.keys.sorted().map { tag in
-        "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse)}"
+        "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse)"
+            + (roster[tag]!.creation == .beforeFirstPaint ? ",\"creation\":\"beforeFirstPaint\"}" : "}")
     }.joined(separator: ",") + "}"
     let size = 184
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)

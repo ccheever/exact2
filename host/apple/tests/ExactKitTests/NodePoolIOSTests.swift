@@ -612,6 +612,76 @@ final class NodePoolIOSTests: XCTestCase {
         window.isHidden = true
     }
 
+    /// A tag whose factory says `creation: .beforeFirstPaint` is made in the
+    /// commit that mounts it, or when a heavy-leaf hold releases it, before
+    /// activation opens the paint gate. Any other tag waits for activation,
+    /// even when a batch is applied after the first draw.
+    func testABeforeFirstPaintTagIsMadeBeforeActivation() throws {
+        FakeModule.reset()
+        FakeModule.table.withUnsafeBytes { NativeViews.install(table: $0.baseAddress!) }
+        defer { NativeViews.uninstallTable() }
+        let p = Presenter()
+        let natives = NativeViews()
+        func node(_ id: UInt32, _ tag: String) -> NodeView {
+            let v = NodeView(id: id, kind: "native", presenter: p)
+            v.frame = CGRect(x: 0, y: 0, width: 200, height: 100)
+            p.viewport.addSubview(v); p.views[id] = v
+            natives.create(owner: v)
+            v.props = ["nativeViewModuleName": tag, "nativeViewProps": "{}"]
+            natives.update(v)
+            return v
+        }
+        _ = node(9, "fake-early")
+        XCTAssertEqual(FakeModule.made.count, 0, "without the build's list and no module yet, an early tag waits too")
+        natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!, gateOpen: false)
+        let early = node(1, "fake-early"), late = node(2, "fake-plain")
+        XCTAssertEqual(FakeModule.made.count, 1, "only the before-first-paint tag is made")
+        XCTAssertTrue(FakeModule.made.first?.view.superview === early)
+        natives.holds = { _ in true }
+        let held = node(3, "fake-early"), heldLate = node(4, "fake-plain")
+        XCTAssertEqual(FakeModule.made.count, 1, "a held view waits for its release")
+        natives.release(held)
+        natives.release(heldLate)
+        XCTAssertEqual(FakeModule.made.count, 2, "a released before-first-paint view is made; the other still waits")
+        XCTAssertTrue(FakeModule.made.last?.view.superview === held)
+        natives.loadIfNeeded()
+        XCTAssertEqual(FakeModule.made.count, 2, "a batch before activation does not open the gate")
+        natives.activated()
+        XCTAssertEqual(FakeModule.made.count, 5, "activation makes the rest")
+        XCTAssertTrue(FakeModule.made.contains { $0.view.superview === late })
+        XCTAssertTrue(FakeModule.made.contains { $0.view.superview === heldLate })
+    }
+
+    /// Activation hands default views to the turn after its transaction
+    /// commits: nothing is made before the run loop gets there, and nothing
+    /// when the session is no longer live by then.
+    func testActivationMakesDefaultViewsAfterTheCommit() throws {
+        FakeModule.reset()
+        FakeModule.table.withUnsafeBytes { NativeViews.install(table: $0.baseAddress!) }
+        defer { NativeViews.uninstallTable() }
+        let p = Presenter()
+        func mount(_ natives: NativeViews, _ id: UInt32) {
+            natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!, gateOpen: false)
+            let v = NodeView(id: id, kind: "native", presenter: p)
+            v.frame = CGRect(x: 0, y: 0, width: 200, height: 100)
+            p.viewport.addSubview(v); p.views[id] = v
+            natives.create(owner: v)
+            v.props = ["nativeViewModuleName": "fake-plain", "nativeViewProps": "{}"]
+            natives.update(v)
+        }
+        let live = NativeViews(), stale = NativeViews()
+        mount(live, 1); mount(stale, 2)
+        live.activateAfterCommit { true }
+        stale.activateAfterCommit { false }
+        XCTAssertTrue(live.activationQueued)
+        XCTAssertEqual(FakeModule.made.count, 0, "nothing is made inside activation's turn")
+        let deadline = Date(timeIntervalSinceNow: 2)
+        while live.activationQueued || stale.activationQueued, Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        XCTAssertFalse(live.activationQueued)
+        XCTAssertFalse(stale.activationQueued)
+        XCTAssertEqual(FakeModule.made.count, 1, "the live session's view is made; the stale one's is not")
+    }
+
     func testHeavyLeafCostsLeaveOutEachKindsFirstCreation() {
         let kind = "test-kind-\(UUID().uuidString)"
         HeavyLeaves.record(kind, 0.5)
@@ -621,9 +691,9 @@ final class NodePoolIOSTests: XCTestCase {
     }
 }
 
-/// A module table in memory for the reuse test: two tags, `fake-map`
-/// (reuse) and `fake-plain`, each instance a plain view that records what
-/// the host asked of it.
+/// A module table in memory for the reuse and creation tests: `fake-map`
+/// (reuse), `fake-plain` and `fake-early` (before first paint), each
+/// instance a plain view that records what the host asked of it.
 private enum FakeModule {
     final class Instance {
         let view = UIView()
@@ -643,7 +713,7 @@ private enum FakeModule {
     nonisolated(unsafe) static var made: [Instance] = []
     static func reset() { made = [] }
     static func instance(_ raw: UnsafeMutableRawPointer?) -> Instance { Unmanaged<Instance>.fromOpaque(raw!).takeUnretainedValue() }
-    static let roster = strdup(#"{"fake-map":{"snapshot":false,"reuse":true},"fake-plain":{"snapshot":false}}"#)!
+    static let roster = strdup(#"{"fake-map":{"snapshot":false,"reuse":true},"fake-plain":{"snapshot":false},"fake-early":{"snapshot":false,"creation":"beforeFirstPaint"}}"#)!
     static let table: [UInt8] = {
         var t = [UInt8](repeating: 0, count: 112)
         func put<T>(_ value: T, _ offset: Int) { withUnsafeBytes(of: value) { for (i, b) in $0.enumerated() { t[offset + i] = b } } }

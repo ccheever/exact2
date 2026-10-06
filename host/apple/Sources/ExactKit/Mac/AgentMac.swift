@@ -64,7 +64,7 @@ extension Agent {
     /// AppKit animates nothing here that a seek does not move, but for a
     /// list's smooth correction under platform timing, the clip view's
     /// animator (LLP 1070.000 §11): the fixed point is where it lands.
-    func nativeInFlight() -> Bool { !presenter.collections.animating.isEmpty }
+    func nativeInFlight() -> Bool { !presenter.collections.animating.isEmpty || session.natives.activationQueued }
 
     /// `tap {close:true}`: the window's close button, pressed as ⌘W, File ▸
     /// Close Window and the red button press it (`performClose`), so its
