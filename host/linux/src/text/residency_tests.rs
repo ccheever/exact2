@@ -439,7 +439,9 @@ fn oversized_cold_result_reports_overage_after_last_caller_drop_and_hits() {
     let text = "An oversized measurement must survive until its painter takes ownership.";
     let s = spec(text);
     let p = engine.borrow_mut().paragraph(&s, Some(140.));
-    let capacities = p.resident_capacity_bytes;
+    // A painted width: its lines are kept (a measured one keeps scalars).
+    p.lines();
+    let capacities = p.resident_capacity_bytes + p.lines_capacity_bytes();
     let private = p.private_text_bytes_estimate;
     let weak = Rc::downgrade(&p);
     let pinned = engine.borrow().residency();
@@ -538,7 +540,7 @@ fn catalog_swap_failed_frame_reports_deduplicated_retiring_accepted_storage() {
         let p = engine.borrow_mut().paragraph(&spec(text), Some(140.));
         (
             Rc::downgrade(&p),
-            p.resident_capacity_bytes,
+            p.resident_capacity_bytes + p.lines_capacity_bytes(),
             p.private_text_bytes_estimate,
         )
     };
@@ -1033,7 +1035,8 @@ fn lazy_ink_growth_is_counted_in_overlapping_handoff_catalog_and_retiring_owners
 fn lazy_ink_growth_enters_cold_policy_and_is_reclaimed_by_budget_maintenance() {
     let mut engine = TextEngine::new();
     let paragraph = engine.paragraph(&spec(&"budgeted words\n".repeat(40)), Some(140.));
-    let base = paragraph.resident_capacity_bytes;
+    paragraph.lines();
+    let base = paragraph.resident_capacity_bytes + paragraph.lines_capacity_bytes();
     let source = Rc::downgrade(&paragraph.source);
     let source_bytes = paragraph.source.accessible_capacity_bytes;
     let private = paragraph.private_text_bytes_estimate;
@@ -1070,6 +1073,7 @@ fn lazy_ink_growth_enters_cold_policy_and_is_reclaimed_by_budget_maintenance() {
 fn lazy_ink_capacity_tracks_current_arrays_after_scale_reset_and_refusal() {
     let mut engine = TextEngine::new();
     let paragraph = engine.paragraph(&spec(&"current index arrays\n".repeat(30)), Some(140.));
+    paragraph.lines();
     let base = engine.residency().owned_capacity_bytes;
     for scale in [1., 1.25, 2.] {
         let ink = paint_lazy_ink(&mut engine, &paragraph, scale);

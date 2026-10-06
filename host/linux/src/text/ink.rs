@@ -261,13 +261,14 @@ impl Index {
             return None;
         }
         result.spans.resize(nodes, Bounds::EMPTY);
-        let slots = slots(engine, &p.layouts);
-        for line in &p.layouts.lines {
+        let lines = p.layouts();
+        let slots = slots(engine, lines);
+        for line in &lines.lines {
             let n = result.lines;
             let baseline = *p.baselines.get(n)?;
             result.lines += 1;
             let mut span = Bounds::EMPTY;
-            for glyph in p.layouts.glyphs_of(line) {
+            for glyph in lines.glyphs_of(line) {
                 #[cfg(test)]
                 count(|n| n.glyphs += 1);
                 let (x, y) = (glyph.x, glyph.y);
@@ -320,7 +321,7 @@ impl Index {
 
     pub fn glyphs<'a>(&self, p: &'a Paragraph, line: usize) -> (&'a [LayoutGlyph], f32) {
         (
-            p.layouts.glyphs_of(&p.layouts.lines[line]),
+            p.layouts().glyphs_of(&p.layouts().lines[line]),
             p.baselines[line],
         )
     }

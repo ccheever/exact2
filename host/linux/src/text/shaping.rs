@@ -336,9 +336,14 @@ impl ShapedSource {
             .fold(0.0, f32::max)
     }
     fn layout_widths(&self, width: Option<f32>) -> f32 {
-        let mut catalog = self.catalog.borrow_mut();
-        let (lines, _) = self.break_lines(width, false, &mut catalog);
+        let (lines, _) = self.break_lines(width, false, None);
         lines.lines.iter().map(|l| l.w).fold(0.0, f32::max)
+    }
+    /// A measured width's lines, made again for its first paint: the same
+    /// breaking as when it was measured (an unclamped paragraph's lines need
+    /// no catalog), so what was measured is what is painted.
+    pub(super) fn remake(&self, width: Option<f32>) -> Lines {
+        self.break_lines(width, false, None).0
     }
     /// Break every hard line at `width` and copy its lines out, clamped and
     /// ellipsized as the paragraph asks. Returns the lines and whether a
@@ -347,7 +352,7 @@ impl ShapedSource {
         &self,
         width: Option<f32>,
         ellipsis: bool,
-        catalog: &mut catalog::Catalog,
+        mut catalog: Option<&mut catalog::Catalog>,
     ) -> (Lines, bool) {
         let spec = &self.spec;
         let preserves = spec.white_space.model().preserves();
@@ -393,9 +398,10 @@ impl ShapedSource {
                     ..LayoutLine::default()
                 });
                 if ellipsis {
-                    if let Some(w) =
-                        width.filter(|w| out.lines.last().is_some_and(|l| l.w > w + 0.01))
-                    {
+                    if let (Some(w), Some(catalog)) = (
+                        width.filter(|w| out.lines.last().is_some_and(|l| l.w > w + 0.01)),
+                        catalog.as_deref_mut(),
+                    ) {
                         self.ellipsize(&mut out, w, catalog);
                     }
                 }
@@ -403,7 +409,7 @@ impl ShapedSource {
                     *k -= 1;
                     if *k == 0 {
                         cut = i + 1 < n || h + 1 < count;
-                        if cut {
+                        if let Some(catalog) = catalog.as_deref_mut().filter(|_| cut) {
                             self.ellipsize(&mut out, width.unwrap_or(f32::INFINITY), catalog);
                         }
                         break 'hard;
@@ -553,7 +559,7 @@ impl ShapedSource {
     fn layout_as(self: &Rc<Self>, width: Option<f32>, ellipsis: bool) -> Paragraph {
         let spec = &self.spec;
         let mut catalog = self.catalog.borrow_mut();
-        let (lines, _) = self.break_lines(width, ellipsis, &mut catalog);
+        let (lines, _) = self.break_lines(width, ellipsis, Some(&mut catalog));
         let strut = self.data.strut;
         let run_metrics = &self.data.run_metrics;
         let mut w = 0.0f32;
@@ -577,9 +583,17 @@ impl ShapedSource {
             bottoms.push(h);
         }
         drop(catalog);
+        // A clamped or ellipsized width keeps its lines (its ellipsis was
+        // shaped for it); any other keeps only its scalars until painted.
+        let keep = ellipsis || spec.line_clamp > 0;
         let mut paragraph = Paragraph {
             source: self.clone(),
-            layouts: Arc::new(lines),
+            record: if keep {
+                std::cell::OnceCell::from(Arc::new(lines))
+            } else {
+                std::cell::OnceCell::new()
+            },
+            remake: (!keep).then_some(width),
             flow: None,
             #[cfg(test)]
             layout_lifetime: Arc::new(()),
@@ -731,7 +745,8 @@ impl<'a> Iterator for Runs<'a> {
     type Item = LayoutRun<'a>;
     fn next(&mut self) -> Option<Self::Item> {
         let p = self.paragraph;
-        let line = p.layouts.lines.get(self.index)?;
+        let record = p.layouts();
+        let line = record.lines.get(self.index)?;
         let i = self.index;
         self.index += 1;
         let hard = &p.source.data.lines[line.hard as usize];
@@ -746,7 +761,7 @@ impl<'a> Iterator for Runs<'a> {
             line_i: line.hard as usize,
             text: &hard.text,
             rtl: hard.rtl,
-            glyphs: p.layouts.glyphs_of(line),
+            glyphs: record.glyphs_of(line),
             line_y,
             line_top,
             line_height,

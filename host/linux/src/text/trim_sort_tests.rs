@@ -22,6 +22,8 @@ fn fixture(count: usize, widths: bool) -> Fixture {
         if widths {
             engine.measure(&s, AxisOffer::MaxContent);
             let p = engine.paragraph(&s, Some(143.25));
+            // Painted widths: their lines are kept.
+            p.lines();
             weak.push(Rc::downgrade(&p));
         }
     }

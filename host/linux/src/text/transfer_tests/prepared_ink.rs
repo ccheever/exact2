@@ -485,7 +485,7 @@ fn real_two_axis_offers_share_one_definite_layout_and_index() {
     );
     for a in definite.iter().skip(1) {
         let p = a.paragraph().unwrap();
-        assert_eq!(Arc::as_ptr(&first.layouts), Arc::as_ptr(&p.layouts));
+        assert_eq!(Arc::as_ptr(first.layouts()), Arc::as_ptr(p.layouts()));
         assert_eq!(first.baselines.as_ptr(), p.baselines.as_ptr());
     }
 }
@@ -558,14 +558,14 @@ fn definite_reuse_single_slot_misses_width_scale_and_returns_to_old_width() {
         held.push(adopt(result, &input, &raster).unwrap());
     }
     assert_ne!(
-        Arc::as_ptr(&held[0].paragraph().unwrap().layouts),
-        Arc::as_ptr(&held[2].paragraph().unwrap().layouts),
+        Arc::as_ptr(held[0].paragraph().unwrap().layouts()),
+        Arc::as_ptr(held[2].paragraph().unwrap().layouts()),
         "one-slot policy must not keep a history of widths"
     );
     for pair in held.windows(2) {
         assert_ne!(
-            Arc::as_ptr(&pair[0].paragraph().unwrap().layouts),
-            Arc::as_ptr(&pair[1].paragraph().unwrap().layouts)
+            Arc::as_ptr(pair[0].paragraph().unwrap().layouts()),
+            Arc::as_ptr(pair[1].paragraph().unwrap().layouts())
         );
     }
 }
@@ -671,7 +671,7 @@ fn compacted_adopted_a_keeps_fresh_job_reuse_pixels_and_last_owner_retirement() 
     assert!(std::sync::Weak::ptr_eq(&life.1, &result.ink_probe));
     let pb = adopt(result, &b, &raster).unwrap();
     let reused = pb.paragraph().unwrap();
-    assert!(Arc::ptr_eq(&old.layouts, &reused.layouts));
+    assert!(Arc::ptr_eq(old.layouts(), reused.layouts()));
     assert!(Arc::ptr_eq(&old.baselines, &reused.baselines));
     assert_eq!(reused.owned_capacity_bytes(), old_capacity);
     let retiring = cache::Cache::default().retiring([old, reused].into_iter());
@@ -699,7 +699,10 @@ fn compacted_adopted_a_keeps_fresh_job_reuse_pixels_and_last_owner_retirement() 
     let novel_life = (result.probe.clone(), result.ink_probe.clone());
     let pc = adopt(result, &c, &raster).unwrap();
     super::super::sharing_tests::assert_tight_glyph_storage(pc.paragraph().unwrap());
-    assert!(!Arc::ptr_eq(&old.layouts, &pc.paragraph().unwrap().layouts));
+    assert!(!Arc::ptr_eq(
+        old.layouts(),
+        pc.paragraph().unwrap().layouts()
+    ));
     for (y, expected) in [0., -old.height / 2., -old.height + 100.]
         .into_iter()
         .zip(&pictures)

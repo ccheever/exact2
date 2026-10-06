@@ -89,7 +89,7 @@ impl FlowSource {
         // It also supplies exactly the ordinary CSS strut/fallback-font baseline.
         let plain = source.layout(None);
         let mut faces = Lines {
-            faces: plain.layouts.faces.clone(),
+            faces: plain.layouts().faces.clone(),
             ..Lines::default()
         };
         let text: String = source.spec.runs.iter().map(|r| r.text.as_str()).collect();
@@ -97,7 +97,7 @@ impl FlowSource {
         let mut offset = 0;
         let (baseline, height) = source.flow_box(
             plain.layout_runs().flat_map(|r| r.glyphs),
-            &plain.layouts.faces,
+            &plain.layouts().faces,
         );
         for run in plain.layout_runs() {
             let start = offset + text[offset..].find(run.text).unwrap_or(0);
@@ -493,7 +493,8 @@ impl TextEngine {
             .ceil();
         let mut p = Paragraph {
             source,
-            layouts: Arc::new(layouts),
+            record: std::cell::OnceCell::from(Arc::new(layouts)),
+            remake: None,
             flow: Some(FlowLayout {
                 fragments,
                 line_height: data.height,
