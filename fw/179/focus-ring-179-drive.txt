@@ -1,0 +1,34 @@
+# #179 evidence: AppKit focus ring capture (temporary XCTest, NSPanel .nonactivatingPanel as the key window, CGWindowListCreateImage)
+## before (origin/main 2ce193976)
+FOCUS179 1-tab-first key=true responder=1 mask1=(0.0, 0.0, 0.0, 0.0) mask2=(0.0, 0.0, 0.0, 0.0)
+FOCUS179 2-tab-second key=true responder=2 mask1=(0.0, 0.0, 0.0, 0.0) mask2=(0.0, 0.0, 0.0, 0.0)
+FOCUS179 3-resized key=true responder=2 mask1=(0.0, 0.0, 0.0, 0.0) mask2=(0.0, 0.0, 0.0, 0.0)
+FOCUS179 4-click-first key=true responder=1 mask1=(0.0, 0.0, 0.0, 0.0) mask2=(0.0, 0.0, 0.0, 0.0)
+## after (this branch)
+FOCUS179 1-tab-first key=true responder=1 mask1=(0.0, 0.0, 134.0, 38.0) mask2=(0.0, 0.0, 0.0, 0.0)
+FOCUS179 2-tab-second key=true responder=2 mask1=(0.0, 0.0, 0.0, 0.0) mask2=(0.0, 0.0, 170.0, 38.0)
+FOCUS179 3-resized key=true responder=2 mask1=(0.0, 0.0, 0.0, 0.0) mask2=(0.0, 0.0, 260.0, 38.0)
+FOCUS179 4-click-first key=true responder=1 mask1=(0.0, 0.0, 0.0, 0.0) mask2=(0.0, 0.0, 0.0, 0.0)
+
+## new XCTests on origin/main sources (bun host/apple/build.mjs --test)
+	 Executed 823 tests, with 2 tests skipped and 6 failures (0 unexpected) in 53.754 (53.857) seconds
+	 Executed 823 tests, with 2 tests skipped and 6 failures (0 unexpected) in 53.754 (53.859) seconds
+NativeButtonsMacTests.swift:111: error: -[ExactKitTests.NativeButtonsMacTests testAClickFocusesWithoutTheRingAndTheKeyboardShowsIt] : XCTAssertEqual failed: ("(0.0, 0.0, 0.0, 0.0)") is not equal to ("(0.0, 0.0, 300.0, 40.0)") - a key used at the focus shows its ring
+NativeButtonsMacTests.swift:116: error: -[ExactKitTests.NativeButtonsMacTests testAClickFocusesWithoutTheRingAndTheKeyboardShowsIt] : XCTAssertEqual failed: ("(0.0, 0.0, 0.0, 0.0)") is not equal to ("(0.0, 0.0, 300.0, 40.0)") - a Tab's focus is visible
+NativeButtonsMacTests.swift:87: error: -[ExactKitTests.NativeButtonsMacTests testCustomButtonExposesItsFocusMaskToAppKit] : XCTAssertEqual failed: ("NSFocusRingType(rawValue: 0)") is not equal to ("NSFocusRingType(rawValue: 2)")
+NativeButtonsMacTests.swift:88: error: -[ExactKitTests.NativeButtonsMacTests testCustomButtonExposesItsFocusMaskToAppKit] : XCTAssertFalse failed - AppKit skips a mask with empty bounds
+NativeButtonsMacTests.swift:89: error: -[ExactKitTests.NativeButtonsMacTests testCustomButtonExposesItsFocusMaskToAppKit] : XCTAssertEqual failed: ("(0.0, 0.0, 0.0, 0.0)") is not equal to ("(0.0, 0.0, 300.0, 40.0)")
+NativeButtonsMacTests.swift:91: error: -[ExactKitTests.NativeButtonsMacTests testCustomButtonExposesItsFocusMaskToAppKit] : XCTAssertEqual failed: ("(0.0, 0.0, 0.0, 0.0)") is not equal to ("(0.0, 0.0, 24.0, 24.0)") - mask coordinates stay local after resize
+## new XCTests on this branch
+	 Executed 823 tests, with 2 tests skipped and 0 failures (0 unexpected) in 52.514 (52.616) seconds
+	 Executed 823 tests, with 2 tests skipped and 0 failures (0 unexpected) in 52.514 (52.617) seconds
+Test Case '-[ExactKitTests.NativeButtonsMacTests testAClickFocusesWithoutTheRingAndTheKeyboardShowsIt]' passed (0.027 seconds).
+Test Case '-[ExactKitTests.NativeButtonsMacTests testCustomButtonExposesItsFocusMaskToAppKit]' passed (0.011 seconds).
+
+## the repro app (focusring.contract) on macOS via bun exact.mjs agent macos --size 420x300 (this branch): the focus moves; the agent's accessory window is never key, so its screenshots show no ring on either branch
+{"key":"Tab","value":"","typed":2,"target":"save","delivery":"platform","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0
+    "logical": 4,
+{"typed":4,"key":"Tab","value":"","target":"row","delivery":"platform","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+    "logical": 2,
+{"at":[109.61,97],"tapped":4,"delivery":"platform","target":"row","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+    "logical": 4,
