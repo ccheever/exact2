@@ -469,6 +469,8 @@ public final class Agent {
             let runner = session.agent("{\"op\":\"tags\"}").data(using: .utf8)
                 .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["clock"] as? Double
             session.clock = max(session.now(), runner ?? 0)
+            // The display's cadence means nothing under the agent's clock.
+            session.sampler?.stop()
         }
         if req["take"] as? Bool == true { return ["clock": session.clock ?? 0] }
         let from = session.clock ?? 0

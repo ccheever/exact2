@@ -16,10 +16,47 @@ final class FrameSamplerIOSTests: XCTestCase {
         sampler.activity()
         XCTAssertEqual(sampler.turnObservers.count, 2)
         for o in sampler.turnObservers { XCTAssertTrue(CFRunLoopContainsObserver(CFRunLoopGetMain(), o, .commonModes)) }
+        // Woken first, asleep last: the whole turn, Core Animation's commit in it.
+        let watch = sampler.turnObservers.map { (CFRunLoopObserverGetActivities($0), CFRunLoopObserverGetOrder($0)) }
+        XCTAssertTrue(watch.contains { $0 == (CFRunLoopActivity.afterWaiting.rawValue, 0) })
+        XCTAssertTrue(watch.contains { $0 == (CFRunLoopActivity.beforeWaiting.rawValue, CFIndex.max) })
         let watched = sampler.turnObservers
         sampler.stop()
         XCTAssertTrue(sampler.turnObservers.isEmpty)
         for o in watched { XCTAssertFalse(CFRunLoopContainsObserver(CFRunLoopGetMain(), o, .commonModes)) }
+    }
+
+    /// A turn the run loop really times: one that runs past the frame's
+    /// target before it sleeps is an overrun, read by the observers alone.
+    func testATurnThatRunsPastItsTargetIsSeen() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        let sampler = try XCTUnwrap(session.sampler)
+        sampler.activity()
+        let before = (sampler.reply()["lifetime"] as? [String: Int])?["overruns"] ?? 0
+        // Turns of the run loop with the link running; then one turn held
+        // 60 ms, past any frame's target.
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+        DispatchQueue.main.async { let end = CACurrentMediaTime() + 0.06; while CACurrentMediaTime() < end {} }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+        let after = try XCTUnwrap(sampler.reply()["lifetime"] as? [String: Int])
+        XCTAssertGreaterThan(after["overruns"] ?? 0, before)
+        sampler.stop()
+    }
+
+    /// The agent's clock taking over stops the segment: nothing done under
+    /// it is timed against the display.
+    func testTheAgentsClockStopsTheWatch() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        let sampler = try XCTUnwrap(session.sampler)
+        sampler.activity()
+        XCTAssertFalse(sampler.turnObservers.isEmpty)
+        _ = Agent(session: session).clock(["take": true])
+        XCTAssertNotNil(session.clock)
+        XCTAssertTrue(sampler.turnObservers.isEmpty)
     }
 }
 #endif
