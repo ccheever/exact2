@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import UniformTypeIdentifiers
 
 /// The reference desktop menu (apps/desktop/src/window/DesktopApplicationMenu.ts) laid over
 /// the host's: Edit gains Paste as Text (⇧⌘V) and Speech, View gains Actual Size, Zoom In
@@ -239,6 +240,37 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         if !expanded.isEmpty, FileManager.default.fileExists(atPath: expanded, isDirectory: &isDirectory) {
             panel.directoryURL = URL(fileURLWithPath: isDirectory.boolValue ? expanded : (expanded as NSString).deletingLastPathComponent)
         }
+        let finish: (NSApplication.ModalResponse) -> Void = { response in completion(response == .OK ? panel.url?.path : nil) }
+        if let window { panel.beginSheetModal(for: window, completionHandler: finish) } else { finish(panel.runModal()) }
+    }
+
+    /// WORKSPACE_IMAGE_PREVIEW_EXTENSIONS (packages/shared/src/filePreview.ts), without the dot.
+    static let faviconExtensions = ["avif", "gif", "ico", "jpeg", "jpg", "png", "svg", "webp"]
+
+    /// pickProjectFavicon (apps/desktop/src/ipc/methods/window.ts): one image file, starting in the
+    /// project's workspace root, as a sheet on the main window. The panel is built by `faviconPanel`
+    /// so the tests can read its configuration.
+    static func faviconPanel(startingAt path: String) -> NSOpenPanel {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = faviconExtensions.compactMap { UTType(filenameExtension: $0) }
+        var isDirectory: ObjCBool = false
+        let expanded = (path as NSString).expandingTildeInPath
+        if !expanded.isEmpty, FileManager.default.fileExists(atPath: expanded, isDirectory: &isDirectory) {
+            panel.directoryURL = URL(fileURLWithPath: isDirectory.boolValue ? expanded : (expanded as NSString).deletingLastPathComponent, isDirectory: true)
+        }
+        return panel
+    }
+    /// The picked file's absolute path, or nil on cancel. Under the agent no panel opens: the
+    /// isolated data root's imports/ gives its first image file, so a drive can pick without one.
+    func pickProjectFavicon(startingAt path: String, importsRoot: URL?, completion: @escaping (String?) -> Void) {
+        if let importsRoot {
+            let files = (try? FileManager.default.contentsOfDirectory(at: importsRoot, includingPropertiesForKeys: nil)) ?? []
+            return completion(files.filter { Self.faviconExtensions.contains($0.pathExtension.lowercased()) }.map(\.path).sorted().first)
+        }
+        let panel = Self.faviconPanel(startingAt: path)
         let finish: (NSApplication.ModalResponse) -> Void = { response in completion(response == .OK ? panel.url?.path : nil) }
         if let window { panel.beginSheetModal(for: window, completionHandler: finish) } else { finish(panel.runModal()) }
     }
