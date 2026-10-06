@@ -75,6 +75,12 @@ component T3Code
     after(20000, disconnectDelayElapsed)
   action disconnectDelayElapsed
     disconnectDelayKey = data.serverUpdate.unavailable
+  // auto-balance (auto-balance.ts; X19, X21): an unresolved Auto draft asks its machines' host resources, at the window's time.
+  mutation balanceLoaded as shape Change refreshes data
+  task balanceLoad when branches.balanceFetch != "" key=branches.balanceFetch
+    after(1, balanceLoadNow)
+  action balanceLoadNow
+    send balanceLoaded = command("cclocal:balance-load", branches.balanceFetch, `${wallTime.epochAtZero + now()}`, 0)
   state noticeExit = ""
   state noticeExitOp = ""
   state noticeExitTarget = ""

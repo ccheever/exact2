@@ -12,7 +12,7 @@
 // 2 s and 20 s on them with `after`, handing the elapsed episode back as the
 // snapshot's arguments. "Primary" is the loopback stand-in (isLoopback) until
 // local-primary-environment replaces it: canDisconnectEnvironment is the one helper.
-// Auto balance (the `automaticEnvironment` gate) belongs to the auto-balance task.
+// Auto balance (the `automaticEnvironment` gate): composer-controls-view.ts passes it; auto-balance-banner.ts replaces the notice.
 import { obj, str } from './domain';
 import type { T3Client } from './client';
 import { fleet, environmentKey, isLoopback } from './settings-b-fleet';
@@ -21,6 +21,7 @@ import { buildVersionMismatchDismissalKey, isServerUpdateFailureDismissed, isVer
   resolveServerConfigVersionMismatch, serverUpdateGuidance, type DismissalStore } from './version-skew';
 import { confirmDialogCopy, desktopUpdateConfirmMessage, manualDesktopOnly, serverUpdateActionLabel, serverUpdateStageLabel, serverUpdateStateFor,
   updateTargetFromConfig, type ServerUpdateState, type ServerUpdateTarget } from './server-update';
+import { heldBatchCopy } from './auto-balance-banner'; // auto-balance
 
 export const ENVIRONMENT_RECONNECT_WARNING_GRACE_MS = 2_000;
 export const ENVIRONMENT_DISCONNECT_DELAY_MS = 20_000;
@@ -141,7 +142,8 @@ export function versionCard(client: T3Client): { versionClient: string; versionS
 export const confirms = new WeakMap<object, ServerUpdateTarget>();
 /** The snapshot's `serverUpdate` row: the episodes for the root tasks, the dot, the confirm dialog. */
 export function serverUpdateView(client: T3Client) {
-  const clock = serverClock(client), confirm = confirms.get(client), copy = confirm ? confirmDialogCopy(desktopUpdateConfirmMessage(confirm.serverLabel)) : null;
+  // auto-balance: a held desktop-app batch asks with the same dialog (auto-balance-banner.ts).
+  const clock = serverClock(client), confirm = confirms.get(client), copy = confirm ? confirmDialogCopy(desktopUpdateConfirmMessage(confirm.serverLabel)) : heldBatchCopy(client);
   return { reconnecting: clock.reconnecting, unavailable: clock.unavailable, attention: isUnavailable(client) || versionNotice(client).shown,
     confirmTitle: copy?.title ?? '', confirmBody: copy?.description ?? '' };
 }

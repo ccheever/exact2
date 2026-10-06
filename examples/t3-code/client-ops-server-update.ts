@@ -17,19 +17,22 @@ import { runConnectionOp } from './connections';
 import { dismissServerUpdateFailure, dismissVersionMismatch } from './version-skew';
 import { nativeUpdateDeps, updateEnvironment, updateTargetFromConfig } from './server-update';
 import { canDisconnectEnvironment, confirms, dismissals, focusedKey, serverUpdateLabel, updateState, versionNotice } from './server-update-notices';
+import { settleHeldBatch } from './auto-balance-banner'; // auto-balance
 
 /** The banner's and card's ops (client-ops.ts READ_OPS: they run offline and need no write scope). */
 export async function serverUpdateOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
   void n;
   if (!op.startsWith('su:')) return false;
   if (op === 'su:update' || op === 'su:confirm') {
+    // auto-balance: Confirm runs a held desktop-app batch (auto-balance-banner.ts) when there is one.
+    if (op === 'su:confirm' && await settleHeldBatch(this, true, nativeUpdateDeps(native, this))) return true;
     const target = op === 'su:confirm' ? confirms.get(this) : updateTargetFromConfig(this.config, focusedKey(this), this.environmentId, serverUpdateLabel(this));
     confirms.delete(this);
     if (!target || !this.environmentId) return true;
     // ServerUpdateAction: the only confirmation in the flow; the remote machine installs without asking.
     if (op === 'su:update' && target.selfUpdate === 'desktop-managed' && target.desktopAppUpdate) { confirms.set(this, target); return true; }
     await updateEnvironment(target, nativeUpdateDeps(native, this));
-  } else if (op === 'su:cancel') confirms.delete(this);
+  } else if (op === 'su:cancel') { confirms.delete(this); await settleHeldBatch(this, false, nativeUpdateDeps(native, this)); }
   else if (op === 'su:dismiss') {
     // Dismissal shares the version key (persisted); a failed attempt is dismissed for that attempt only.
     const state = updateState(this);
