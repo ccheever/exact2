@@ -1,0 +1,22 @@
+# #139 drive (EXACT_APP_DIR=.. bun drive.mjs <host>); before = exact2 4dd316bc8 (origin/main), after = that plus this branch's change; macOS 26.6, Chrome via agent web
+
+## macOS before (origin/main)
+tap row-b (arms the 3 s timer) {"at":[170,144]}
+hover row-b; pointer at [170,144]
+clock 0 {"status":"hovered=b rows=a,b,c,d","rows":["row-a y=46 h=60","row-b y=114 h=60","row-c y=182 h=60","row-d y=250 h=60"]}
+clock 3100 (row a removed by the timer, pointer unmoved) {"status":"hovered=b rows=b,c,d","rows":["row-b y=46 h=60","row-c y=114 h=60","row-d y=182 h=60"]}
+clock 4100 after 1 s real time {"status":"hovered=b rows=b,c,d","rows":["row-b y=46 h=60","row-c y=114 h=60","row-d y=182 h=60"]}
+
+## macOS after
+tap row-b (arms the 3 s timer) {"at":[170,144]}
+hover row-b; pointer at [170,144]
+clock 0 {"status":"hovered=b rows=a,b,c,d","rows":["row-a y=46 h=60","row-b y=114 h=60","row-c y=182 h=60","row-d y=250 h=60"]}
+clock 3100 (row a removed by the timer, pointer unmoved) {"status":"hovered=b rows=b,c,d","rows":["row-b y=46 h=60","row-c y=114 h=60","row-d y=182 h=60"]}
+clock 4100 after 1 s real time {"status":"hovered=c rows=b,c,d","rows":["row-b y=46 h=60","row-c y=114 h=60","row-d y=182 h=60"]}
+
+## Chrome (agent web, reference)
+tap row-b (arms the 3 s timer) {"at":[170,144]}
+hover row-b; pointer at [170,144]
+clock 0 {"status":"hovered=b rows=a,b,c,d","rows":["row-a y=46 h=60","row-b y=114 h=60","row-c y=182 h=60","row-d y=250 h=60"]}
+clock 3100 (row a removed by the timer, pointer unmoved) {"status":"hovered=b rows=b,c,d","rows":["row-b y=46 h=60","row-c y=114 h=60","row-d y=182 h=60"]}
+clock 4100 after 1 s real time {"status":"hovered=c rows=b,c,d","rows":["row-b y=46 h=60","row-c y=114 h=60","row-d y=182 h=60"]}
