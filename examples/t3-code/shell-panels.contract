@@ -15,6 +15,7 @@ use R5PrSurfaceBody from "./r5-panels.contract"
 use R5AttachmentBody from "./r5-panels.contract"
 use PrDetailView from "./pages-pr-detail.contract"
 use ChatDocument from "./markdown.contract"
+use Look from "./settings-appearance-look.contract"
 
 // RightPanelEmptyState in a 540pt panel (1px left border): its own top bar
 // (maximize, terminal drawer, right panel pressed) and the centred launcher,
@@ -40,6 +41,9 @@ component SurfacePanel
     prReload: action
     prAct: action
     prCopy: action
+    look: Look
+    confirm: action
+    closePending: bool
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
@@ -48,7 +52,7 @@ component SurfacePanel
       // r4-surfaces: an open surface draws the tab bar and its body (r4-surfaces.contract); otherwise the launcher.
       when shell.panel.open
         R4PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=still, ui=ui, details=details, local=local, scheme=scheme)
-        R4SurfaceBody(panel=shell.panel, scheme=scheme, sheet=sheet, local=local, command=command, paletteShow=paletteShow)
+        R4SurfaceBody(panel=shell.panel, scheme=scheme, sheet=sheet, local=local, command=command, paletteShow=paletteShow, look=look, confirm=confirm, closePending=closePending)
         // lane r5-panels: the pull request beside the thread and a sent attachment (r5-panels.contract).
         when shell.panel.kind == "pull-request"
           R5PrSurfaceBody(pr=shell.panel.pr, detail=prDetail, documents=prDocuments, scheme=scheme, tab=prTab, setTab=prSetTab, reload=prReload, act=prAct, copy=prCopy, local=local)

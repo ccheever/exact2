@@ -16,12 +16,13 @@ import { sidebarOps, sidebarWrites } from './client-ops-sidebar';
 import { diffOps } from './client-ops-diff';
 import { laneOps, laneWrites } from './client-ops-lanes';
 import { serverUpdateOps } from './client-ops-server-update';
+import { terminalPanelOps } from './terminal-panel';
 import { terminalOps } from './terminal-drawer-view'; // terminal-drawer
 
 export type OpOut = { message: string; id: string; value: string };
 export type OpGroup = (this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut) => Promise<boolean>;
 
-export const READ_OPS: OpGroup[] = [connectionOps, snapshotOps, settingsOps, composerOps, threadOps, sidebarOps, diffOps, laneOps, serverUpdateOps, terminalOps];
+export const READ_OPS: OpGroup[] = [connectionOps, snapshotOps, settingsOps, composerOps, threadOps, sidebarOps, diffOps, laneOps, serverUpdateOps, terminalOps, terminalPanelOps];
 export const WRITE_OPS: OpGroup[] = [settingsWrites, composerWrites, threadWrites, sidebarWrites, laneWrites];
 
 /** Runs `op` in the first group that owns it; false when none does. */

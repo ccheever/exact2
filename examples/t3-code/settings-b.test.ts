@@ -138,9 +138,10 @@ test('Providers is single-environment: the machine defaults to the connected env
 });
 
 // ── Background environments (settings-b-fleet.ts) ─────────────────────────
-import { EnvironmentFleet, fleetThreads, focusFleetThread, parseFleetThreadId, environmentKey } from './settings-b-fleet';
+import { EnvironmentFleet, fleetThreads, focusFleetThread, parseFleetThreadId, environmentKey, fleetTerminalProcessCount } from './settings-b-fleet';
 
 class FleetNative implements Native {
+  scopes = ['orchestration:read', 'orchestration:operate'];
   available = true; calls: Obj[] = []; saved: Obj[] = []; states: Record<string, string> = {}; events: Record<string, Obj[]> = {}; generation = 3;
   watch() {}
   async later(input: unknown): Promise<unknown> {
@@ -154,7 +155,7 @@ class FleetNative implements Native {
     if (request.op === 'fleetStop') { delete this.states[key]; return ok({ stopped: true }, 0); }
     if (request.op === 'connect') { this.states[key] = 'connected'; return ok({ state: 'connected' }); }
     if (request.op === 'status') return ok({ state: this.states[key] ?? 'disconnected', message: '', failureKind: '', traceId: '' });
-    if (request.op === 'http' && request.path === '/api/auth/session') return ok({ authenticated: true, scopes: ['orchestration:read', 'orchestration:operate'] });
+    if (request.op === 'http' && request.path === '/api/auth/session') return ok({ authenticated: true, scopes: this.scopes });
     if (request.op === 'http' && request.path === '/api/orchestration/shell') return ok({ snapshotSequence: 4, projects: [{ id: 'p1', title: 'Remote project', workspaceRoot: '/r' }],
       threads: [{ id: 't1', projectId: 'p1', title: 'Remote thread', createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' }] });
     if (request.op === 'request' && request.method === 'server.getConfig') return ok({ environment: { environmentId: 'env-b', label: 'Box', platform: { machine: 'desktop' } }, providers: [], settings: {} });
@@ -194,4 +195,51 @@ test('the fleet keeps every switched-on environment but the focused one connecte
   await fleetUnderTest.sync(native, focus);
   expect(fleetUnderTest.entries.has(keyB)).toBe(false);
   await expect(focusFleetThread(client, native, 'fleet:env-z:t1', fleetUnderTest)).rejects.toThrow('no longer connected');
+});
+
+
+test('background terminal metadata follows its generation, activity and transport retry without rebootstrap', async () => {
+  const native = new FleetNative(), source = new EnvironmentFleet();
+  native.scopes.push('terminal:operate');
+  native.saved = [{ origin: 'https://box.example.com', environmentId: 'env-b', enabled: true }];
+  const focus = { origin: 'http://localhost:3773', environmentId: 'env-a', connection: 'connected' };
+  const key = environmentKey('https://box.example.com', 'env-b');
+  await source.sync(native, focus); await source.sync(native, focus);
+  const countSubscriptions = () => native.calls.filter(call => call.method === 'subscribeTerminalMetadata').length;
+  expect(countSubscriptions()).toBe(1);
+  const entry = source.entries.get(key)!;
+  const summary = (threadId: string, terminalId: string, busy: boolean) => ({ threadId, terminalId, cwd: '/r', worktreePath: null,
+    status: 'running', pid: 1, exitCode: null, exitSignal: null, hasRunningSubprocess: busy, label: 'sh', updatedAt: '2026-10-06T00:00:00Z' });
+  let seq = 0;
+  const emit = async (value: Obj, generation = native.generation, subscriptionId = 'terminal-metadata-sub') => {
+    native.events[key] = [{ seq: ++seq, key: 'terminal-metadata', subscriptionId, generation, value }];
+    await source.sync(native, focus);
+  };
+  await emit({ type: 'snapshot', terminals: [summary('t1', 'term-1', true), summary('t1', 'term-2', false), summary('t2', 'term-1', true)] });
+  expect(fleetTerminalProcessCount('env-b', 't1', source)).toBe(1);
+  expect(fleetTerminalProcessCount('env-a', 't1', source)).toBe(0);
+  expect(fleetTerminalProcessCount('env-b', 't2', source)).toBe(1);
+  await emit({ type: 'upsert', terminal: summary('t1', 'term-2', true) });
+  expect(fleetTerminalProcessCount('env-b', 't1', source)).toBe(2);
+  await emit({ type: 'remove', threadId: 't1', terminalId: 'term-1' });
+  expect(fleetTerminalProcessCount('env-b', 't1', source)).toBe(1);
+  await emit({ type: 'snapshot', terminals: [] }, native.generation - 1);
+  await emit({ type: 'snapshot', terminals: [] }, native.generation, 'old-subscription');
+  await emit({ type: 'upsert', terminal: { threadId: 't1', hasRunningSubprocess: true } });
+  expect(fleetTerminalProcessCount('env-b', 't1', source)).toBe(1);
+  const configReads = native.calls.filter(call => call.method === 'server.getConfig').length;
+  await emit({ _transportError: { kind: 'EnvironmentAuthorizationError', message: 'missing terminal:operate' } });
+  await source.sync(native, focus); await source.sync(native, focus);
+  expect(countSubscriptions()).toBe(1);
+  expect(native.calls.filter(call => call.method === 'server.getConfig').length).toBe(configReads);
+  await emit({ _retryDue: true });
+  expect(countSubscriptions()).toBe(2);
+  native.generation++;
+  await source.sync(native, focus);
+  expect(countSubscriptions()).toBe(3);
+  expect(fleetTerminalProcessCount('env-b', 't1', source)).toBe(0);
+  native.scopes = ['orchestration:read', 'orchestration:operate']; native.generation++;
+  await source.sync(native, focus);
+  expect(countSubscriptions()).toBe(3);
+  expect(entry.terminalMetadata).toBeNull();
 });

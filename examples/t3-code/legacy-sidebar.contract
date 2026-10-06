@@ -21,6 +21,7 @@ use SidebarProjectGlyph from "./sidebar-icons.contract"
 use CnMachineIcon from "./settings-b-kit.contract"
 use Tip from "./shell-tip.contract"
 use SidebarTip from "./sidebar-row.contract"
+use TerminalProcessIndicator from "./sidebar-row.contract"
 use ProviderPill from "./r4-polish-tip.contract"
 use SettingsConfirm from "./settings-rest-dialogs.contract"
 
@@ -47,6 +48,7 @@ component LegacyIcon
 
 component LegacySidebar
   props
+    reduced: bool
     data: Snapshot
     shell: ShellView
     now: number
@@ -105,7 +107,7 @@ component LegacySidebar
               LegacyIcon(name="folder-plus", size=14, color="light-dark(#71717b, #818181)")
       list id="legacy-projects" reorderdrop=dropped virtualized=true estimated-item-height=120 flex=1 min-height=0 width="100%" padding-left=8 padding-right=8 box-sizing="border-box" overflow-x="hidden" aria-label="Projects" testId="legacy-project-list" hook="t3-rehover" data-frame=`${data.revision}`
         each p in legacy.projects key=p.key
-          LegacyProject(p=p, legacy=legacy, now=now, page=page, busy=busy, open=open, local=local, run=run)
+          LegacyProject(reduced=reduced, p=p, legacy=legacy, now=now, page=page, busy=busy, open=open, local=local, run=run)
       when legacy.noProjects
         text "No projects yet" padding-left=8 padding-right=8 padding-top=16 font-size=12 line-height="16px" text-align="center" color="light-dark(#71717b, #818181)" testId="legacy-no-projects" flex-shrink=0
       // SidebarChromeFooter: the undo notice, the provider pill and the utility menu.
@@ -207,6 +209,7 @@ component LegacyCount
 // SidebarProjectItem: the header button (a sortable handle in Manual) over SidebarProjectThreadList.
 component LegacyProject
   props
+    reduced: bool
     p: LegacyProjectRow
     legacy: LegacySidebarView
     now: number
@@ -254,7 +257,7 @@ component LegacyProject
             row height=32 padding-left=8 padding-right=8 align-items="center" testId=`legacy-empty-${p.key}`
               text "No threads yet" font-size=12 line-height="16px" color="light-dark(#71717bbf, #818181bf)"
           each t in p.threads key=t.id
-            LegacyThread(t=t, legacy=legacy, page=page, busy=busy, open=open, local=local, run=run)
+            LegacyThread(reduced=reduced, t=t, legacy=legacy, page=page, busy=busy, open=open, local=local, run=run)
           when p.showMore
             button cursor="pointer" press=local("legacy-more", p.key, "") testId=`legacy-show-more-${p.key}` height=28 padding-left=8 padding-right=8 box-sizing="border-box" gap=8 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
               when p.hiddenLabel != ""
@@ -270,6 +273,7 @@ component LegacyProject
 // covers; with Archive confirmation on, the first press shows Confirm.
 component LegacyThread
   props
+    reduced: bool
     t: LegacyThreadRow
     legacy: LegacySidebarView
     page: string
@@ -320,6 +324,8 @@ component LegacyThread
             when t.worktree
               box flex-shrink=0 display="flex" role="img" aria-label=t.worktreeLabel testId=`thread-worktree-${t.id}`
                 SidebarIcon(name="folder-git-2", size=12, color="light-dark(#71717b66, #81818166)")
+            when t.terminalCount > 0
+              TerminalProcessIndicator(label="Terminal process running", tooltip="Terminal process running", size=12, reduced=reduced, id=`sidebar-terminal-status-${t.id}`)
             row min-width=48 justify-content="flex-end" align-items="center" gap=4 opacity=((over and not t.running) or confirming ? 0 : 1)
               when t.remoteMachine != ""
                 box flex-shrink=0 display="flex" role="img" aria-label=t.remoteLabel testId=`thread-remote-${t.id}`

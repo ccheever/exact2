@@ -1,6 +1,7 @@
 // Settings → Providers: T3's ProviderSettingsPanel projected for Contract, and
 // the provider-instance writes it offers. Every write reads fresh server
 // settings first and changes only the selected instance (atomic mutation).
+import { providerAuthOp, providerAuthView } from './provider-auth-terminal';
 import { obj, str, arr, num, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { pushToast } from './toast';
@@ -103,7 +104,7 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
   const hiddenCount = display.filter(entry => !entry.model.isCustom && hiddenSet.has(entry.model.slug)).length;
   const builtIn = display.filter(entry => !entry.model.isCustom);
   return {
-    id: row.id, key: row.id, driver: row.driver, title: displayName,
+    id: row.id, key: row.id, driver: row.driver, title: displayName, auth: providerAuthView(host, row.id, provider),
     nameRows: [{ key: `${row.id}:${str(row.instance.displayName)}` }], // the accent picker keeps its popover open across commits
     modelBlocks: [{ key: `${row.id}:${hash(JSON.stringify(config.customModels ?? null))}` }],
     displayName: str(row.instance.displayName), placeholder: meta?.label || 'Instance label', accent: str(row.instance.accentColor), ...accentHsv(str(row.instance.accentColor)),
@@ -256,6 +257,7 @@ const toastOf = (host: ProviderHost) => host as unknown as T3Client;
 
 /** One provider-settings write. `value` is the JSON the Contract action built through app.ts. */
 export async function runProviderOp(host: ProviderHost, native: Native, op: string, id: string, value: string): Promise<string> {
+  if (op.startsWith('provider-auth-')) { await providerAuthOp(host, native, op, id, value); return ''; }
   try { return await providerOp(host, native, op, id, value); }
   catch (error) {
     if (!TOASTED.includes(op) || !(error instanceof ClientError) || ['client', 'stale', 'superseded'].includes(error.kind)) throw error;
@@ -470,7 +472,7 @@ async function createInstance(host: ProviderHost, native: Native, op: string, id
   return '';
 }
 
-export const PROVIDER_OPS = ['provider-create', 'provider-add', 'provider-name', 'provider-display', 'provider-enabled', 'provider-remove', 'provider-reset',
+export const PROVIDER_OPS = ['provider-auth-start', 'provider-auth-cancel', 'provider-auth-event', 'provider-create', 'provider-add', 'provider-name', 'provider-display', 'provider-enabled', 'provider-remove', 'provider-reset',
   'provider-accent', 'provider-field', 'provider-env-field', 'provider-env-add', 'provider-env-name', 'provider-env-value', 'provider-env-sensitive', 'provider-env-remove', 'provider-model-add',
   'provider-model-remove', 'provider-model-rename', 'provider-hub-add', 'provider-hub-remove', 'provider-chatgpt', 'provider-refresh', 'provider-health', 'provider-cursor-usage', 'acp-prepare', 'provider-update', 'provider-copy-command', ...MODEL_PREF_OPS];
 export type { Driver };

@@ -279,8 +279,13 @@ final class T3ComposerStyler {
         default: return contextPath(chip).flatMap { contexts[$0] }.map { $0.split(separator: "\t", maxSplits: 1).first.map(String.init) ?? $0 } ?? chip.detail
         }
     }
+    func terminalText(_ chip: T3ComposerChip) -> String? {
+        guard chipKind(chip) == "terminal", let value = contextPath(chip).flatMap({ contexts[$0] }) else { return nil }
+        return value.components(separatedBy: "\t").dropFirst(2).joined(separator: "\t")
+    }
     func chipResolved(_ chip: T3ComposerChip) -> Bool {
         guard chip.kind == "context" else { return true }
+        if let text = terminalText(chip) { return !text.isEmpty }
         return contextPath(chip).map { contexts[$0] != nil } ?? false
     }
 

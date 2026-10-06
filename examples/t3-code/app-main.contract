@@ -236,13 +236,15 @@ component RightPanels
     prReload: action
     prAct: action
     prCopy: action
+    confirm: action
+    closePending: bool
   view
     when data.diffOpen and not narrowDiff
       box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0
         DiffPanel(data=data, shell=shell, command=command, close=panelUi("close", ""), ui=panelUi, maximized=rightMaximized, resize=resizeDiff, finishResize=finishDiffResize, scheme=viewport.prefersColorScheme, sheet=false, detailsOpen=detailsOpen, details=detailsAct, local=chatLocal)
     when rightPanel and not data.diffOpen and not narrowDiff
       box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0
-        SurfacePanel(shell=shell, sheet=false, maximized=rightMaximized, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=viewport.prefersColorScheme, prDetail=prDetail, prDocuments=prDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy)
+        SurfacePanel(shell=shell, sheet=false, maximized=rightMaximized, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=viewport.prefersColorScheme, prDetail=prDetail, prDocuments=prDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, look=data.look, confirm=confirm, closePending=closePending)
 
 // The utility pages (Usage, Pull Requests) and the no-environment/no-projects landing over the main view.
 component PagesCover
@@ -348,6 +350,8 @@ component RightSheets
     prReload: action
     prAct: action
     prCopy: action
+    confirm: action
+    closePending: bool
   view
     when data.diffOpen and narrowDiff and not modal
       box position="absolute" top=0 bottom=0 left=0 right=0 background-color="#00000000" z-index=10 press=panelUi("close", "") aria-label="Close changes"
@@ -356,4 +360,4 @@ component RightSheets
     when rightPanel and not data.diffOpen and narrowDiff and not modal
       box position="absolute" top=0 bottom=0 left=0 right=0 background-color="#00000000" z-index=10 press=panelUi("toggle", "") aria-label="Close right panel"
       box position="absolute" top=0 bottom=0 right=0 width=min(viewport.width, diffWidth) z-index=11
-        SurfacePanel(shell=shell, sheet=true, maximized=false, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=viewport.prefersColorScheme, prDetail=prDetail, prDocuments=prDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy)
+        SurfacePanel(shell=shell, sheet=true, maximized=false, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=viewport.prefersColorScheme, prDetail=prDetail, prDocuments=prDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, look=data.look, confirm=confirm, closePending=closePending)

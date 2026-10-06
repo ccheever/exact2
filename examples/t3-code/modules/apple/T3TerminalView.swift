@@ -8,18 +8,20 @@ import WebKit
 ///
 /// Props (strings; unknown Contract attributes pass through): `terminal` (identity, for status),
 /// `terminal-theme` (JSON background/foreground/cursor/selection), `scheme` ("light" | "dark"), `terminal-font` and `terminal-font-size`, `active` ("false" stops
-/// paint; bytes still parse, surface.ts setVisible), `chords` (space-separated web-named chords the
-/// page leaves to the app, ThreadTerminalDrawer.tsx beforeKey), `fixture` (development harness bytes:
+/// paint; bytes still parse, surface.ts setVisible), `keybindings` (JSON winning chord/command pairs),
+/// `close-pending` (suppress a second close), `terminal-surface` (drawer or panel identity),
+/// `chords` (the development harness's passthrough chords), `fixture` (development harness bytes:
 /// "render", "loopback", "flood").
 /// Session props (task terminal-drawer; T3TerminalSessions.swift): `environment`, `thread` and `terminal`
 /// name a server terminal session, `cwd`, `worktree` and `env` (JSON object) launch it; the view then
 /// shows the session's output, sends what is typed and its grid size to the server, writes the
 /// reference's `[terminal] …` lines (ThreadTerminalDrawer.tsx writeSystemMessage) and, on the tick after
-/// it prints `Process exited`, reports `{"type":"exited","terminalId":…}` as its only `message`.
+/// it prints `Process exited`, reports `{"type":"exited","terminalId":…}`.
 /// `focus-request` (a number) focuses the terminal whenever it changes.
-/// Events: focus / blur as the page's input gains and loses focus; `message` with the bridge's
-/// JSON for ready, resize, selection, link, contextmenu, chord, error (data stays native: a session
-/// owner reads it through `onData`).
+/// `auth-flow`, `auth-output` and `auth-offset` instead show a provider-auth transcript; data and
+/// resize use the native serial auth queue when `auth-instance` names the provider. `read-only` suppresses writes in either mode.
+/// Events: native responder focus / blur and identity-tagged command, selectionAction, link,
+/// selection, contextmenu and error messages. Thread PTY bytes and grid changes stay native.
 /// The web view loads only `t3-terminal:` files (T3TerminalAssets), cancels every other navigation,
 /// opens no window and keeps no website data.
 final class T3TerminalView: ExactNativeInstance {
@@ -31,14 +33,25 @@ final class T3TerminalView: ExactNativeInstance {
     final class WebView: WKWebView {
         var focused: (() -> Void)?
         var mounted: (() -> Void)?
+        var routeKey: ((NSEvent) -> Bool)?
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if window != nil { mounted?() }
+            mounted?()
         }
         override func becomeFirstResponder() -> Bool {
             let became = super.becomeFirstResponder()
             if became { focused?() }
             return became
+        }
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            if routeKey?(event) == true { return true }
+            return super.performKeyEquivalent(with: event)
+        }
+        override func keyDown(with event: NSEvent) {
+            if routeKey?(event) != true { super.keyDown(with: event) }
+        }
+        override func keyUp(with event: NSEvent) {
+            if routeKey?(event) != true { super.keyUp(with: event) }
         }
     }
 
@@ -83,6 +96,19 @@ final class T3TerminalView: ExactNativeInstance {
     /// Typed bytes, for a session owner (the drawer); the loopback fixture echoes them.
     var onData: ((String) -> Void)?
     private var disposed = false
+    private var responderObservation: NSKeyValueObservation?
+    private var keyboardMonitor: Any?
+    private var mountedOnce = false
+    private var focusPublication: UInt64 = 0
+    private var bindings: [T3TerminalKeys.Binding] = []
+    private var suppressedKeys: Set<UInt16> = []
+    private var authWritten = 0
+    private var authFlow = ""
+    private lazy var authInput = T3TerminalAuth(send: { [weak self] payload, done in
+        guard let self, let sessions = self.sessions else { return done(T3Failure(kind: "Closed", message: "The server is not connected.")) }
+        sessions.providerAuthCall(payload, done: done)
+    }, failure: { [weak self] failed in self?.emit(["type": failed ? "auth-error" : "auth-recovered"]) })
+    lazy var actions = T3TerminalActions(view: self)
     /// The server session this view shows (terminal-drawer), and the renderer's place in its output.
     private let sessions: T3TerminalSessions?
     private(set) var session: T3TerminalSession?
@@ -92,6 +118,7 @@ final class T3TerminalView: ExactNativeInstance {
     init(props: [String: String], events: ExactNativeEvents, agent: Bool = false, sessions: T3TerminalSessions? = nil) {
         self.sessions = sessions
         self.props = props
+        self.bindings = T3TerminalKeys.bindings(props["keybindings"])
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
@@ -111,12 +138,12 @@ final class T3TerminalView: ExactNativeInstance {
         web.allowsBackForwardNavigationGestures = false
         // EXACT2-GAPS X2 option 3: a development run's terminal is inspectable from Safari.
         if #available(macOS 13.3, *), Self.inspectable { web.isInspectable = true }
-        web.focused = { [weak self] in self?.send(["type": "focus"]) }
-        web.mounted = { [weak self] in
-            guard let self else { return }
-            self.web.mounted = nil
-            if (Int(self.props["focus-request"] ?? "") ?? 0) > 0 { self.focusTerminal() }
+        web.focused = { [weak self] in
+            guard let self, self.ready else { return }
+            self.send(["type": "focus"])
         }
+        web.mounted = { [weak self] in self?.windowChanged() }
+        web.routeKey = { [weak self] event in self?.routeTerminalKey(event) ?? false }
         web.setAccessibilityLabel("Terminal")
         // Under the agent the window is often behind others or on another Space; WebKit then
         // treats the page as hidden and stops requestAnimationFrame, so output parses but never
@@ -127,17 +154,169 @@ final class T3TerminalView: ExactNativeInstance {
         T3Terminals.shared.add(self)
         web.load(URLRequest(url: T3TerminalAssets.pageURL))
         bindSession()
+        synchronizeAuthOutput()
+        configureAuthInput()
     }
 
     // MARK: Session (terminal-drawer)
 
-    var sessionMode: Bool { !(props["thread"] ?? "").isEmpty }
+    var authMode: Bool { !(props["auth-flow"] ?? "").isEmpty }
+    var sessionMode: Bool { !authMode && !(props["thread"] ?? "").isEmpty }
+
+    /// Native first-responder ownership is synchronous: keyboard command contexts cannot wait
+    /// for WebKit's asynchronous focus message after a pane click or a command opens a dialog.
+    var ownsNativeFocus: Bool {
+        guard props["active"] != "false", let responder = web.window?.firstResponder as? NSView else { return false }
+        return responder === web || responder.isDescendant(of: web)
+    }
+
+    private func windowChanged() {
+        responderObservation = nil
+        if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor); self.keyboardMonitor = nil }
+        guard let window = web.window else { focusChanged(false); return }
+        responderObservation = window.observe(\.firstResponder, options: [.initial, .new]) { [weak self] _, _ in
+            guard let self else { return }
+            self.focusChanged(self.ownsNativeFocus)
+        }
+        keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+            self?.routeTerminalKey(event) == true ? nil : event
+        }
+        if !mountedOnce {
+            mountedOnce = true
+            if (Int(props["focus-request"] ?? "") ?? 0) > 0 { focusTerminal() }
+        }
+    }
+
+    private func focusChanged(_ value: Bool, republish: Bool = false) {
+        guard !disposed, focused != value || republish else { return }
+        focused = value
+        // Mount can give this view the responder before Contract installs its message handler.
+        // Publish after the mount batch, without delaying or replaying the actual focus request.
+        focusPublication &+= 1
+        let publication = focusPublication
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.disposed, self.focusPublication == publication,
+                  self.focused == value, self.ownsNativeFocus == value else { return }
+            // Dedicated Contract focus/blur handlers use a separate mutation from terminal
+            // commands, so mounting a pane cannot cancel the operation that created it.
+            value ? self.events.focus() : self.events.blur()
+        }
+    }
+
+    /// One event owner before AppKit's menu equivalents. The page has the same policy as a
+    /// fallback for DOM input; consumed native events never reach it a second time.
+    func routeTerminalKey(_ event: NSEvent) -> Bool {
+        guard !disposed, event.window === web.window, event.type == .keyDown || event.type == .keyUp else { return false }
+        if event.type == .keyUp { return suppressedKeys.remove(event.keyCode) != nil }
+        guard ownsNativeFocus else { return false }
+        let binding = bindings.first { $0.matches(event) }
+        if let binding, binding.command == "terminal.close", event.isARepeat || props["close-pending"] == "true" {
+            suppressedKeys.insert(event.keyCode)
+            return true
+        }
+        // The embedded WebKit clipboard API can synchronously wait for DOM paste access,
+        // freezing its renderer. The same-app native pasteboard path needs no web permission.
+        // A configured app command still wins over a terminal editing shortcut.
+        if (authMode || binding == nil), T3TerminalKeys.isPaste(event) {
+            suppressedKeys.insert(event.keyCode)
+            if props["read-only"] != "true", let text = NSPasteboard.general.string(forType: .string) {
+                send(["type": "paste", "text": text])
+            }
+            return true
+        }
+        if authMode {
+            // Authentication owns plain Escape as PTY input. AppKit otherwise handles it as
+            // cancelOperation before WebKit can encode it, dismissing the surrounding form.
+            if event.keyCode == 53, event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty {
+                suppressedKeys.insert(event.keyCode)
+                receiveData("\u{1b}")
+                return true
+            }
+            if event.keyCode == 48, event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+                // Let the host's key monitor refresh its lazy key-view loop first.
+                // WebKit may traverse on its own; only finish traversal if focus stayed here.
+                let backwards = event.modifierFlags.contains(.shift)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, !self.disposed, self.authMode, self.ownsNativeFocus else { return }
+                    if backwards { self.web.window?.selectKeyView(preceding: self.web) }
+                    else { self.web.window?.selectKeyView(following: self.web) }
+                }
+                return false
+            }
+            return false
+        }
+        if let binding {
+            suppressedKeys.insert(event.keyCode)
+            if binding.command.hasPrefix("terminal.") || !T3TerminalCommandKey.click(command: binding.command, window: web.window) {
+                emit(["type": "command", "command": binding.command, "chord": binding.chord, "repeat": event.isARepeat])
+            }
+            return true
+        }
+        // Explicit harness passthrough keeps the S1 test's unhandled-key path intact.
+        if Self.chords(props["chords"]).contains(where: { text in
+            guard let key = T3TerminalKeys.chord(text) else { return false }
+            return T3TerminalKeys.Binding(chord: text, command: "", key: key).matches(event)
+        }) { return false }
+        if let data = T3TerminalKeys.input(event) {
+            suppressedKeys.insert(event.keyCode)
+            receiveData(data)
+            return true
+        }
+        return false
+    }
+
+    /// Stable identities on all messages let the drawer and panel share one bridge handler.
+    func emit(_ body: [String: Any]) { events.message(Self.json(identified(body))) }
+
+    private func identified(_ body: [String: Any]) -> [String: Any] {
+        var value = body
+        value["environmentId"] = props["environment"] ?? ""
+        value["threadId"] = props["thread"] ?? ""
+        value["terminalId"] = identity
+        value["surface"] = props["terminal-surface"] ?? "drawer"
+        if authMode { value["authFlow"] = props["auth-flow"] ?? "" }
+        return value
+    }
+
+    private func synchronizeAuthOutput() {
+        guard authMode else { return }
+        let output = props["auth-output"] ?? ""
+        let offset = Int(props["auth-offset"] ?? "") ?? output.utf16.count
+        let flow = props["auth-flow"] ?? ""
+        if flow != authFlow { authFlow = flow; authWritten = offset; resetAndWrite(output); return }
+        let delta = offset - authWritten
+        if delta > 0, delta <= output.utf16.count {
+            write(String(decoding: Array(output.utf16.suffix(delta)), as: UTF16.self))
+        } else if delta != 0 { resetAndWrite(output) }
+        authWritten = offset
+    }
+
+    private func configureAuthInput() {
+        authInput.configure(instance: props["auth-instance"] ?? "", identity: props["auth-flow"] ?? "", readOnly: props["read-only"] == "true")
+    }
+
+    private func sendAuthInput(_ data: String, size: (cols: Int, rows: Int)? = nil) {
+        guard props["read-only"] != "true" else { return }
+        if sessions != nil, !(props["auth-instance"] ?? "").isEmpty { authInput.input(data, size: size) }
+        else if let size { emit(["type": "auth-resize", "cols": size.cols, "rows": size.rows]) }
+        else { emit(["type": "auth-input", "data": data]) } // Standalone native-view fixture, without a transport owner.
+    }
+
+    private func receiveData(_ data: String) {
+        guard props["read-only"] != "true" else { return }
+        dataEvents += 1; dataBytes += data.utf8.count
+        log("data \(Self.json(data))")
+        if authMode { sendAuthInput(data); return }
+        if let session, let sessions { sessions.write(data, to: session, from: self) }
+        onData?(data)
+    }
 
     private func bindSession() {
         guard sessionMode, let sessions else { return }
         let env = props["env"].flatMap { $0.data(using: .utf8) }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] } ?? [:]
         let bound = sessions.bind(self, environment: props["environment"] ?? "", thread: props["thread"] ?? "", terminal: identity,
-                                  cwd: props["cwd"] ?? "", worktreePath: props["worktree"] ?? "", env: env)
+                                  cwd: props["cwd"] ?? "", worktreePath: props["worktree"] ?? "", env: env,
+                                  providerInstance: props["provider-instance"] ?? "")
         session = bound
         // TerminalViewport setup: the retained output as one reset, the error, then exit handling from "closed".
         let initial = bound.output.read(from: .initial)
@@ -176,7 +355,7 @@ final class T3TerminalView: ExactNativeInstance {
             systemMessage(status == "closed" ? "Terminal closed" : "Process exited")
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.handledExit, !self.disposed else { return }
-                self.events.message(Self.json(["type": "exited", "terminalId": self.identity, "thread": self.props["thread"] ?? ""]))
+                self.emit(["type": "exited", "thread": self.props["thread"] ?? ""])
             }
         }
         synchronizedStatus = status
@@ -200,8 +379,11 @@ final class T3TerminalView: ExactNativeInstance {
         var font: [String: Any] = [:]
         if let family = props["terminal-font"], !family.isEmpty { font["family"] = family }
         if let size = props["terminal-font-size"].flatMap(Double.init) { font["size"] = size }
+        let auth = !(props["auth-flow"] ?? "").isEmpty
+        if auth { font["size"] = 13 }
         return ["theme": theme(props), "font": font, "visible": props["active"] != "false",
-                "chords": chords(props["chords"])]
+                "chords": chords(props["chords"]), "keybindings": T3TerminalKeys.bindings(props["keybindings"]).map { ["chord": $0.chord, "command": $0.command] },
+                "auth": auth, "readOnly": props["read-only"] == "true", "closePending": props["close-pending"] == "true"]
     }
 
     static func theme(_ props: [String: String]) -> [String: Any] {
@@ -216,6 +398,13 @@ final class T3TerminalView: ExactNativeInstance {
     override func setProps(_ next: [String: String]) throws {
         let previous = props
         props = next
+        bindings = T3TerminalKeys.bindings(next["keybindings"])
+        if previous["keybindings"] != next["keybindings"] || previous["read-only"] != next["read-only"] || previous["close-pending"] != next["close-pending"] {
+            send(["type": "keyPolicy", "keybindings": Self.initial(next)["keybindings"] ?? [],
+                  "readOnly": next["read-only"] == "true", "closePending": next["close-pending"] == "true"])
+        }
+        synchronizeAuthOutput()
+        configureAuthInput()
         if previous["scheme"] != next["scheme"] || previous["terminal-theme"] != next["terminal-theme"] { send(["type": "theme", "theme": Self.theme(next)]) }
         if previous["terminal-font"] != next["terminal-font"] || previous["terminal-font-size"] != next["terminal-font-size"] {
             send(["type": "font", "font": Self.initial(next)["font"] ?? [:]])
@@ -268,7 +457,9 @@ final class T3TerminalView: ExactNativeInstance {
     /// A focus request (the drawer opened, a terminal was activated): the web view and then the page's input.
     func focusTerminal() {
         if let window = web.window, window.firstResponder !== web { window.makeFirstResponder(web) }
-        send(["type": "focus"])
+        // Do not enqueue a DOM focus while WASM loads: it could outlive the user's native
+        // focus. The ready callback completes it only if this pane still owns the responder.
+        if ready { send(["type": "focus"]) }
     }
 
     func readSelection(_ done: @escaping (String) -> Void) { send(["type": "readSelection"]) { done($0 as? String ?? "") } }
@@ -294,17 +485,16 @@ final class T3TerminalView: ExactNativeInstance {
         guard !disposed, let type = body["type"] as? String else { return }
         switch type {
         case "data":
-            let data = body["data"] as? String ?? ""
-            dataEvents += 1; dataBytes += data.utf8.count
-            log("data \(Self.json(data))")
-            if let session, let sessions { sessions.write(data, to: session, from: self) }
-            onData?(data)
+            receiveData(body["data"] as? String ?? "")
             return
         case "ready":
             ready = true
+            // Recover a mount-time focus fact if the host had not installed the handler yet.
+            if ownsNativeFocus { focusChanged(true, republish: true) }
             cols = body["cols"] as? Int ?? 0; rows = body["rows"] as? Int ?? 0
             T3TerminalFixtures.start(props["fixture"] ?? "", on: self)
             if let session, let sessions { sessions.resize(session, cols: cols, rows: rows) }
+            if authMode { sendAuthInput("", size: (cols, rows)) }
             // Finish a pending focus only while it still belongs to this terminal. The user may
             // have moved to the composer while WebKit/WASM loaded (TerminalViewport's mount check).
             if props["active"] != "false", let responder = web.window?.firstResponder as? NSView,
@@ -312,10 +502,20 @@ final class T3TerminalView: ExactNativeInstance {
         case "resize":
             cols = body["cols"] as? Int ?? cols; rows = body["rows"] as? Int ?? rows
             if let session, let sessions { sessions.resize(session, cols: cols, rows: rows) }
+            if authMode { sendAuthInput("", size: (cols, rows)) }
         case "selection": selection = body["text"] as? String ?? ""
+        case "link" where authMode:
+            guard let text = body["text"] as? String, let url = URL(string: text),
+                  ["https", "http"].contains(url.scheme?.lowercased() ?? "") else { return }
+            if !NSWorkspace.shared.open(url) { emit(["type": "link-error"]) }
+            return
         case "focus":
-            focused = body["focused"] as? Bool ?? false
-            focused ? events.focus() : events.blur()
+            focusChanged(ownsNativeFocus)
+            return
+        case "command":
+            guard ownsNativeFocus, let command = body["command"] as? String else { return }
+            if command == "terminal.close", body["repeat"] as? Bool == true || props["close-pending"] == "true" { return }
+            if !command.hasPrefix("terminal."), T3TerminalCommandKey.click(command: command, window: web.window) { return }
         case "chord":
             let names = [body["metaKey"] as? Bool == true ? "Meta" : nil, body["ctrlKey"] as? Bool == true ? "Control" : nil,
                          body["altKey"] as? Bool == true ? "Alt" : nil, body["shiftKey"] as? Bool == true ? "Shift" : nil].compactMap { $0 }
@@ -325,8 +525,11 @@ final class T3TerminalView: ExactNativeInstance {
         default: break
         }
         log("\(type) \(Self.json(body))")
-        // A session view reports only its exit (synchronize); the harness hears every bridge message.
-        if !sessionMode { events.message(Self.json(body)) }
+        if !authMode { actions.receive(body) }
+        // Only semantic actions enter the app's command mutation. In particular, selection
+        // changes caused by Add to chat's clearSelection must not supersede its insertion.
+        // Selection/menu/error facts already belong to this native view and its diagnostics.
+        if !(sessionMode || authMode) || ["link", "command"].contains(type) { emit(body) }
     }
 
     private func log(_ line: String) {
@@ -344,6 +547,8 @@ final class T3TerminalView: ExactNativeInstance {
         send(["type": "font", "font": current["font"] ?? [:]])
         send(["type": "visible", "visible": current["visible"] ?? true])
         send(["type": "chords", "chords": current["chords"] ?? []])
+        send(["type": "keyPolicy", "keybindings": current["keybindings"] ?? [], "readOnly": current["readOnly"] ?? false,
+              "closePending": current["closePending"] ?? false])
         if !pending.isEmpty || pendingReset { flush() }
     }
 
@@ -399,7 +604,12 @@ final class T3TerminalView: ExactNativeInstance {
     }
 
     override func destroy() {
+        authInput.clear()
         guard !disposed else { return }
+        actions.dismiss(supersede: true)
+        focusChanged(false)
+        responderObservation = nil
+        if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor); self.keyboardMonitor = nil }
         send(["type": "dispose"])
         disposed = true
         T3TerminalFixtures.stop(self)
@@ -432,6 +642,7 @@ final class T3Terminals {
             let page = pages[key] ?? [:]
             return ["terminal": view.identity, "thread": view.props["thread"] ?? "", "session": view.session?.status ?? "", "ready": view.ready, "cols": view.cols, "rows": view.rows, "focused": view.focused,
                     "selection": view.selection, "error": view.lastError, "declined": view.declined, "delivery": view.agentDelivery,
+                    "selectionMenu": view.actions.status,
                     "typed": view.dataBytes, "sent": view.sentBytes, "received": page["received"] ?? 0,
                     "text": page["text"] ?? [], "served": view.assets.served.count, "refused": view.assets.refusedURLs, "bridge": Array(view.bridgeLog.suffix(6))] // an Array: an ArraySlice is not JSON, and the status reply would fail
         }

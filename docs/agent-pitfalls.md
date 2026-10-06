@@ -10,6 +10,22 @@ guide's rules don't make obvious.
 
 ## Layout
 
+- **A numeric `height` transition jumps on macOS.** Apple's automatic height
+  ownership requires a border-box node with `interpolate-size="allow-keywords"`,
+  including numeric endpoints. Use both on the clipping parent, for example
+  `box-sizing="border-box" interpolate-size="allow-keywords" height=(open ? 280 : 0)
+  transition="height 400ms ease-out"`. A fixed-height child then retains its grid
+  while the parent animates. A standalone macOS probe measured 105.88 pt at 100 ms
+  and continuous reversal. (Terminal parity, framework height code identical to
+  `origin/main` `a72661fd4`, 2026-10-07; `host/apple/src/height.rs`.)
+
+- **A one-edge border draws a 3 px frame, or a closed panel stays 3 px tall.**
+  `border-style="solid"` enables every edge; unspecified widths retain CSS's
+  `medium` default. Set `border-width=0` before the intended edge, for example
+  `border-width=0 border-top-width=1 border-style="solid"`. The terminal drawer
+  measured 3 px when its declared height was zero, and its panes lost 6 px to
+  unintended side borders. (T3 Code macOS terminal parity, 2026-10-06.)
+
 - **A root with `min-height="100%"` and `overflow-y="auto"` does not scroll itself.**
   `min-height` lets the box grow with its in-flow content (CSS), so it has nothing to
   scroll and the document scrolls instead: on the web a screenshot shows only the first
@@ -428,6 +444,16 @@ guide's rules don't make obvious.
   (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
 
 ## Driving and testing
+
+- **Physical IME input differs in a macOS agent window.** `EXACT_AGENT=1`
+  launches a non-activating accessory app. Its window can be key and its textarea
+  AX-focused while another process remains the foreground application. In that
+  state, a terminal probe received the first Korean syllable as separate Jamo;
+  a fresh terminal in a normally launched, active app composed it correctly.
+  For physical keyboard acceptance, use the normal app and verify both
+  `NSApp.isActive` and the foreground PID before asking someone to type. A key
+  window or successful synthetic input alone is insufficient. Keep other test
+  windows hidden and name the visible app. (T3 terminal parity, 2026-10-07.)
 
 - **A test passes on the web and fails on iOS right after an input that saves.** An
   `expect` straight after `type` or `tap` reads what the input's mutation answered,

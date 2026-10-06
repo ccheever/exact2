@@ -52,9 +52,27 @@ shape ProviderModelRow
   pickerTip: string
 shape ProviderBlockKey
   key: string
+shape ProviderAuthMethod
+  id: string
+  name: string
+shape ProviderAuth
+  disabled: bool
+  multiple: bool
+  methodId: string
+  available: bool
+  active: bool
+  terminal: bool
+  flow: string
+  output: string
+  offset: number
+  message: string
+  error: string
+  label: string
+  methods: list<ProviderAuthMethod>
 shape ProviderEditorData
   id: string
   key: string
+  auth: ProviderAuth
   nameRows: list<ProviderBlockKey>
   modelBlocks: list<ProviderBlockKey>
   driver: string
@@ -129,6 +147,7 @@ shape ProviderPage
 // content width; T3 switches to the two-pane card at a 48rem container.
 component ProvidersPanel
   props
+    scheme: string
     page: ProviderPage
     width: number
     height: number
@@ -198,7 +217,7 @@ component ProvidersPanel
               scroll flex-grow=1 flex-shrink=1 flex-basis=(wide ? "0%" : "auto") min-width=0 width=(wide ? "auto" : "100%") height=(wide ? "100%" : "auto") testId="provider-editor-scroll"
                 column width="100%" padding=16 gap=24 box-sizing="border-box"
                   each editor in page.editors key=editor.key
-                    ProviderEditor(editor=editor, rowWide=((wide ? width - 275 : width - 2) - 66 >= 512), busy=busy, writable=page.writable, error=error, op=op, accent=accent, ui=ui)
+                    ProviderEditor(editor=editor, scheme=scheme, rowWide=((wide ? width - 275 : width - 2) - 66 >= 512), busy=busy, writable=page.writable, error=error, op=op, accent=accent, ui=ui)
                   when length(page.editors) == 0
                     text page.emptyEditor font-size=14 line-height="20px" padding=8 color="light-dark(#71717b, #818181)"
         column width="100%" gap=10
@@ -241,6 +260,7 @@ component ProvidersPanel
 // drafts are row state: they reset whenever the instance's saved value changes.
 component ProviderEditor
   props
+    scheme: string
     editor: ProviderEditorData
     rowWide: bool
     busy: bool
@@ -250,6 +270,8 @@ component ProviderEditor
     accent: action
     ui: action
   state advisoryOpen = false
+  action authEvent(message: string)
+    op("provider-auth-event", editor.id, "", message, true)
   action toggleAdvisory
     advisoryOpen = not advisoryOpen
   view
@@ -296,6 +318,29 @@ component ProviderEditor
             ProviderNameRow(editor=editor, rowWide=rowWide, busy=busy, writable=writable, op=op, accent=accent)
         when error != ""
           text error font-size=12 line-height="16px" role="alert" padding-left=16 color="light-dark(#e7000b, #ff6467)" testId="provider-editor-error"
+      when editor.auth.available
+        column width="100%" gap=10
+          PvSectionTitle(title="Account")
+          PvGroup()
+            column width="100%" padding=16 box-sizing="border-box" gap=10
+              row width="100%" align-items="center" gap=8
+                text editor.auth.message flex=1 font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+                when editor.auth.active
+                  button press=op("provider-auth-cancel", editor.id, "", "", true) class=PvGhost disabled=(busy or not writable) testId="provider-auth-cancel"
+                    text "Cancel" font-size=12
+                else
+                  when editor.auth.multiple
+                    each method in editor.auth.methods key=method.id
+                      button press=op("provider-auth-start", editor.id, "", method.id, true) class=PvGhost disabled=(busy or not writable or editor.auth.disabled) testId=`provider-auth-${method.id}`
+                        text method.name font-size=12
+                  else
+                    button press=op("provider-auth-start", editor.id, "", editor.auth.methodId, true) class=PvGhost disabled=(busy or not writable or editor.auth.disabled) testId="provider-auth-start"
+                      text editor.auth.label font-size=12
+              when editor.auth.terminal
+                each key in [editor.auth.flow] key=key
+                  t3-terminal scheme=scheme auth-instance=editor.id auth-flow=editor.auth.flow auth-output=editor.auth.output auth-offset=editor.auth.offset read-only=(not writable) terminal-font-size=13 focus-request=1 message=authEvent aria-label="Provider sign-in terminal" testId="provider-auth-terminal" height=256 width="100%" border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" overflow="hidden"
+              when editor.auth.error != ""
+                text editor.auth.error font-size=12 line-height="16px" role="alert" color="light-dark(#e7000b, #ff6467)" testId="provider-auth-error"
       when editor.showSetup
         column width="100%" gap=10
           PvSectionTitle(title="Setup")

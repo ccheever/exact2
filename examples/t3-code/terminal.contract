@@ -3,9 +3,8 @@ use ShellIcon from "./shell-icons.contract"
 use TipBubble from "./shell-tip.contract"
 // The thread terminal drawer (task terminal-drawer): T3 Code 1e2ecbd975's ThreadTerminalDrawer in its
 // drawer mode (MIT reference, see LICENSE-T3: apps/web/src/components/ThreadTerminalDrawer.tsx), below
-// the chat column so the composer stays above it. One terminal until 20261005-terminal-layout: the
-// toolbar carries Close only (Split, Split vertically and New come with that ticket); the empty state
-// offers New Terminal. The `t3-terminal` view (T3TerminalView.swift) shows the server session named by
+// the chat column so the composer stays above it. The toolbar opens, splits and closes sessions;
+// the empty state offers New Terminal. The `t3-terminal` view (T3TerminalView.swift) shows the server session named by
 // its props; the session itself is native (T3TerminalSessions.swift), the drawer's state is the client's
 // (terminal-drawer-view.ts, saved per thread).
 
@@ -32,6 +31,32 @@ shape TerminalDrawerView
   mounted: number // mounted threads (reconcileMountedTerminalThreadIds)
   metadata: string
   failure: string
+  commandPrefix: string
+  surface: string
+  keybindings: string
+  panes: list<TerminalPaneView>
+  tabs: list<TerminalTabView>
+  direction: string
+  showTabs: bool
+  splitDisabled: bool
+  splitLabel: string
+  splitVerticalLabel: string
+shape TerminalPaneView
+  terminalId: string
+  label: string
+  sessionKey: string
+  active: bool
+  focusRequest: number
+  target: string
+shape TerminalTabView
+  id: string
+  label: string
+  heading: string
+  count: number
+  active: bool
+  target: string
+  closeTitle: string
+  closeBody: string
 
 // The drawer: `border-t border-border/80 bg-background`, a 6 pt `cursor-row-resize` separator on its top
 // edge (a `pan` gives deltas; the height commits at release and refits the grid), the toolbar 8 pt from the
@@ -45,6 +70,7 @@ component TerminalDrawer
     dark: bool
     viewportHeight: number
     reduced: bool
+    closePending: bool
     command: action // the root command(op, id, value, n)
     confirm: action // titleMenuPick(op, target, value, askTitle, askBody, destructive): the app's confirm dialog
   state dragKey = ""
@@ -72,20 +98,99 @@ component TerminalDrawer
     command("terminallocal:exited", view.threadKey, message, 0)
   view
     each key in (view.available ? [view.threadKey] : []) key=key
-      column flex-shrink=0 height=(view.open ? height : 0) min-width=0 position="relative" overflow="hidden" box-sizing="border-box" border-top-width=(view.open ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffffcc)" background-color="light-dark(#fcfcfc, #0a0a0a)" transition=(motion ? `height ${look.panelMs}ms ease-out` : "none") testId="terminal-drawer" aria-label="Terminal drawer"
-        when view.open
+      column flex-shrink=0 box-sizing="border-box" interpolate-size="allow-keywords" height=(view.open ? height : 0) min-height=0 min-width=0 overflow="hidden" transition=(motion ? `height ${look.panelMs}ms ease-out` : "none") testId="terminal-drawer" aria-label="Terminal drawer"
+        // The clipping parent animates; the terminal keeps its full grid through opening and closing.
+        column height=height flex-shrink=0 min-width=0 position="relative" box-sizing="border-box" border-width=0 border-top-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffffcc)" background-color="light-dark(#fcfcfc, #0a0a0a)" inert=(not view.open) testId="terminal-drawer-inner"
           box position="absolute" left=0 right=0 top=0 height=6 z-index=20 cursor="row-resize" touch-action="none" pan=resize panrelease=release role="separator" aria-orientation="horizontal" aria-label="Resize terminal drawer" testId="terminal-drawer-resize"
-          when view.terminalId == ""
-            column flex=1 min-height=0 align-items="center" justify-content="center" gap=12 padding-left=16 padding-right=16 padding-top=24 padding-bottom=24 testId="terminal-drawer-empty"
-              text "No terminal sessions for this thread yet." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" text-align="center"
-              button press=command("terminallocal:new", view.threadKey, "", 0) hover=hover("new") aria-label=view.newLabel testId="terminal-drawer-new" height=24 padding-left=8 padding-right=8 border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff1a)" background-color=(hovered == "new" ? "light-dark(#f4f4f5, #ffffff0a)" : "light-dark(#ffffff, #ffffff05)") box-shadow="0 1px 2px #0000000d"
-                text view.newLabel font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
-          else
-            box flex=1 min-height=0 display="flex" flex-direction="column" testId="terminal-drawer-surface"
-              each session in [view.sessionKey] key=session
-                t3-terminal terminal=view.terminalId environment=view.environmentId thread=view.threadId cwd=view.cwd worktree=view.worktree env=view.env focus-request=view.focusRequest scheme=(dark ? "dark" : "light") terminal-theme=(dark ? look.terminalDark : look.terminalLight) terminal-font=look.terminalFont terminal-font-size=look.terminalSize chords="Meta+J" message=exited aria-label=(view.label == "" ? "Terminal" : view.label) testId="terminal-view" flex=1 min-height=0
-            row position="absolute" right=8 top=8 z-index=20 align-items="center" border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffffcc)" background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 1px 2px #0000000d" testId="terminal-drawer-toolbar"
-              box position="relative"
-                button press=confirm("ui:confirm", `${view.threadKey}|${view.terminalId}`, "terminallocal:close", view.closeTitle, view.closeBody, true) hover=hover("close") focus=hover("close", true) blur=hover("close", false) aria-label=view.closeLabel testId="terminal-close" padding=4 border-width=0 border-radius=5 display="flex" align-items="center" justify-content="center" background-color=(hovered == "close" ? "light-dark(#f4f4f5, #ffffff14)" : "#00000000")
-                  ShellIcon(name="trash", size=13, color="light-dark(#27272ae6, #f5f5f5e6)")
-                TipBubble(label=view.closeLabel, side="bottom", align="end", offset=27, inset=0, shown=(hovered == "close"))
+          TerminalContent(view=view, look=look, dark=dark, closePending=closePending, command=command, confirm=confirm)
+
+// ThreadTerminalDrawer's shared content, used by the bottom drawer and right-panel surfaces.
+component TerminalContent
+  props
+    view: TerminalDrawerView
+    look: Look
+    dark: bool
+    closePending: bool
+    command: action
+    confirm: action
+  state hovered = ""
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  action message(target: string, value: string)
+    command(`${view.commandPrefix}:message`, target, value, 0)
+  action focused(target: string, active: bool)
+    command(`${view.commandPrefix}:${active ? "focus-in" : "focus-out"}`, target, view.surface, 0)
+  view
+    row flex=1 min-width=0 min-height=0 overflow="hidden" position="relative" testId=(view.surface == "drawer" ? "terminal-drawer-content" : "terminal-panel-content")
+      when length(view.panes) == 0
+        column flex=1 min-height=0 align-items="center" justify-content="center" gap=12 padding-left=16 padding-right=16 padding-top=24 padding-bottom=24 testId="terminal-drawer-empty"
+          text "No terminal sessions for this thread yet." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" text-align="center"
+          button press=command(`${view.commandPrefix}:new`, view.threadKey, "", 0) aria-label=view.newLabel testId="terminal-drawer-new" height=24 padding-left=8 padding-right=8 border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff1a)" background-color="light-dark(#ffffff, #ffffff05)"
+            text view.newLabel font-size=12 line-height="16px"
+      else
+        box flex=1 min-height=0 min-width=0 display="flex" flex-direction=view.direction testId="terminal-drawer-surface"
+          each pane in view.panes key=pane.sessionKey
+            column flex=1 min-width=0 min-height=0 border-width=0 border-right-width=(view.direction == "row" and length(view.panes) > 1 ? 1 : 0) border-bottom-width=(view.direction == "column" and length(view.panes) > 1 ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e7, #ffffff1a)" testId=`terminal-pane-${pane.terminalId}`
+              when length(view.panes) > 1
+                button press=command(`${view.commandPrefix}:activate`, pane.target, "", 0) aria-label=`Focus ${pane.label}` height=24 flex-shrink=0 padding-left=8 padding-right=8 border-width=0 background-color=(pane.active ? "light-dark(#e4e4e780, #ffffff0d)" : "light-dark(#f4f4f580, #ffffff05)")
+                  text pane.label font-size=11 line-height="16px" color="light-dark(#52525b, #a1a1aa)" text-overflow="ellipsis" white-space="nowrap"
+              t3-terminal terminal=pane.terminalId environment=view.environmentId thread=view.threadId cwd=view.cwd worktree=view.worktree env=view.env active=view.open terminal-surface=view.surface focus-request=pane.focusRequest keybindings=view.keybindings close-pending=closePending can-add-to-chat=true terminal-label=pane.label scheme=(dark ? "dark" : "light") terminal-theme=(dark ? look.terminalDark : look.terminalLight) terminal-font=look.terminalFont terminal-font-size=look.terminalSize message=message(pane.target) focus=focused(pane.target, true) blur=focused(pane.target, false) aria-label=pane.label testId=(pane.active and view.surface == "drawer" ? "terminal-view" : `terminal-view-${pane.terminalId}`) flex=1 min-width=0 min-height=0
+        when not view.showTabs
+          box position="absolute" right=8 top=8 z-index=20
+            TerminalToolbar(view=view, command=command, confirm=confirm)
+        else
+          column width=144 flex-shrink=0 min-height=0 box-sizing="border-box" border-width=0 border-left-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff1a)" background-color="light-dark(#fafafa, #0a0a0a)" testId="terminal-tabs"
+            row height=30 flex-shrink=0 align-items="center" justify-content="end" padding-left=4 padding-right=4 border-width=0 border-bottom-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff1a)"
+              TerminalToolbar(view=view, command=command, confirm=confirm)
+            column flex=1 min-height=0 overflow-y="auto" padding=4 gap=2
+              each tab in view.tabs key=tab.id
+                when tab.heading != ""
+                  button press=command(`${view.commandPrefix}:activate`, tab.target, "", 0) display="flex" flex-direction="row" align-items="center" gap=4 padding-left=4 padding-right=4 padding-top=6 padding-bottom=4 border-width=0 background-color="#00000000" aria-label=`${tab.heading}, ${tab.count} terminals`
+                    text tab.heading flex=1 min-width=0 font-size=10 font-weight=500 color="light-dark(#71717b, #818181)"
+                    text `${tab.count}` font-size=10 color="light-dark(#71717b, #818181)"
+                row align-items="center" gap=4 height=26 border-radius=4 background-color=(tab.active ? "light-dark(#e4e4e7, #ffffff14)" : "#00000000") hover=hover(tab.id) testId=`terminal-tab-${tab.id}`
+                  button press=confirm("ui:confirm", tab.target, `${view.commandPrefix}:close`, tab.closeTitle, tab.closeBody, true) aria-label=`Close ${tab.label}` testId=`terminal-tab-close-${tab.id}` width=24 height=24 padding=5 border-width=0 background-color="#00000000"
+                    ShellIcon(name=(hovered == tab.id ? "x" : "square-terminal"), size=12, color="light-dark(#52525b, #a1a1aa)")
+                  button press=command(`${view.commandPrefix}:activate`, tab.target, "", 0) aria-label=tab.label aria-pressed=tab.active testId=`terminal-tab-select-${tab.id}` flex=1 min-width=0 height=24 padding=0 border-width=0 background-color="#00000000"
+                    text tab.label font-size=12 line-height="16px" color="light-dark(#27272a, #f5f5f5)" text-overflow="ellipsis" white-space="nowrap"
+
+component TerminalToolbar
+  props
+    view: TerminalDrawerView
+    command: action
+    confirm: action
+  view
+    row align-items="center" border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffffcc)" background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 1px 2px #0000000d" testId="terminal-drawer-toolbar"
+      TerminalAction(icon="split-horizontal", label=view.splitLabel, disabled=view.splitDisabled, id="terminal-split", press=command(`${view.commandPrefix}:split`, `${view.threadKey}|${view.terminalId}`, "", 0))
+      TerminalAction(icon="split-vertical", label=view.splitVerticalLabel, disabled=view.splitDisabled, id="terminal-split-vertical", press=command(`${view.commandPrefix}:split-vertical`, `${view.threadKey}|${view.terminalId}`, "", 0))
+      box width=1 height=16 background-color="light-dark(#e4e4e7, #ffffff1a)"
+      TerminalAction(icon="plus", label=view.newLabel, disabled=false, id="terminal-new", press=command(`${view.commandPrefix}:new`, view.threadKey, "", 0))
+      box width=1 height=16 background-color="light-dark(#e4e4e7, #ffffff1a)"
+      TerminalAction(icon="trash", label=view.closeLabel, disabled=false, id="terminal-close", press=confirm("ui:confirm", `${view.threadKey}|${view.terminalId}`, `${view.commandPrefix}:close`, view.closeTitle, view.closeBody, true))
+
+component TerminalAction
+  props
+    icon: string
+    label: string
+    disabled: bool
+    id: string
+    press: action
+  state hovered = false
+  state clicked = false
+  action hover(over: bool)
+    hovered = over
+  action activate
+    clicked = not clicked
+    press()
+  action blurred
+    hovered = false
+    clicked = false
+  view
+    box position="relative"
+      button press=activate hover=hover focus=hover(true) blur=blurred aria-label=label testId=id padding=4 border-width=0 border-radius=5 display="flex" align-items="center" justify-content="center" opacity=(disabled ? 0.64 : 1) background-color=(hovered and not disabled ? "light-dark(#f4f4f5, #ffffff14)" : "#00000000")
+        when icon == "split-horizontal" or icon == "split-vertical"
+          svg width=13 height=13 viewBox="0 0 24 24" fill="none" stroke="light-dark(#27272ae6, #f5f5f5e6)" stroke-width=2 stroke-linecap="round" stroke-linejoin="round"
+            path d=(icon == "split-horizontal" ? "M3 3h18v18H3zM12 3v18" : "M3 3h18v18H3zM3 12h18")
+        else
+          ShellIcon(name=icon, size=13, color="light-dark(#27272ae6, #f5f5f5e6)")
+      TipBubble(label=label, side="bottom", align="end", offset=27, inset=0, shown=(hovered or clicked))

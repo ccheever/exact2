@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
-import { adoptWorktreeSetup, agentStarted, setupView, threadWorktreeSetup, visibleWorktreeSetup, worktreeSetupEvent, wantsWorktreeSetup } from './timeline-worktree';
+import { adoptWorktreeSetup, agentStarted, setupView, threadWorktreeSetup, visibleWorktreeSetup, worktreeSetupEvent, wantsWorktreeSetup, syncWorktreeSetup } from './timeline-worktree';
 
 const at = (seconds: number) => new Date(Date.parse('2026-10-03T00:00:00.000Z') + seconds * 1000).toISOString();
 const stage = (id: string, status: string, extra: Obj = {}) => ({ id, status, startedAt: status === 'pending' ? null : at(0), endedAt: ['done', 'failed', 'skipped', 'warning'].includes(status) ? at(3) : null, percent: null, detail: null, tail: [], ...extra });
@@ -96,5 +96,83 @@ describe('the setup card in the timeline', () => {
     const rows = transcriptRows(timelineClient({ id: 'r1', status: 'running', requestedAt: at(0), startedAt: at(10), completedAt: null }, failed));
     expect(rows.map(row => row.kind)).toEqual(['user', 'worktree-setup', 'working', 'thinking']);
     expect(rows[1]!.setup![0]).toMatchObject({ collapsed: true, summary: 'failed', header: 'Worktree ready, setup script failed' });
+  });
+});
+
+test('setup terminal is offered after setup starts and reveals the existing session without spawning', async () => {
+  const { T3Client } = await import('./client');
+  const { adoptWorktreeSetup, worktreeSetupAction } = await import('./timeline-worktree');
+  const { terminalDrawerView } = await import('./terminal-drawer-view');
+  const client = new T3Client(); client.environmentId = 'env'; client.threadId = 'thread-1'; client.projectId = 'p';
+  client.shell.projects = [{ id: 'p', workspaceRoot: '/repo' }];
+  const setup = snapshot('running', [stage('setup-script', 'running')], { threadId: 'thread-1', setupScript: { name: 'Install', terminalId: 'setup-1' } });
+  expect(setupView(setup, false, false).terminal).toBe(true);
+  expect(setupView({ ...setup, stages: [stage('setup-script', 'pending')] }, false, false).terminal).toBe(false);
+  adoptWorktreeSetup(client, setup);
+  await worktreeSetupAction(client, {} as Native, 'setup-terminal');
+  expect((await terminalDrawerView(client, null, 840, 0)).terminalId).toBe('setup-1');
+});
+
+describe('worktree setup subscription lifetime', () => {
+  function subscribed() {
+    const value = client();
+    const pending: { request: Obj; resolve: (value: Obj) => void }[] = [];
+    Object.assign(value, { generation: 3, environmentId: 'env-a', restAccess: () => ({ call: (request: Obj) =>
+      new Promise<Obj>(resolve => { pending.push({ request, resolve }); }) }) });
+    const native = { available: true } as import('./protocol').Native;
+    const event = (id: string, sequence: number, threadId = 't1', generation = value.generation) =>
+      worktreeSetupEvent(value, { generation, subscriptionId: id, value: snapshot('running', [], { threadId, sequence }) });
+    return { value, pending, native, event };
+  }
+  test('early snapshots register before the subscribe reply and older replies cannot replace them', async () => {
+    const { value, pending, native, event } = subscribed();
+    const first = syncWorktreeSetup(value, native), second = syncWorktreeSetup(value, native);
+    event('3-2', 2);
+    expect(threadWorktreeSetup(value).snapshot?.sequence).toBe(2);
+    pending[1]!.resolve({ id: '3-2' }); await second;
+    pending[0]!.resolve({ id: '3-1' }); await first;
+    event('3-1', 99); event('3-2', 3);
+    expect(threadWorktreeSetup(value).snapshot?.sequence).toBe(3);
+    await syncWorktreeSetup(value, native);
+    expect(pending).toHaveLength(2);
+  });
+  test('thread changes reject old events and replies even when returning to the same thread', async () => {
+    const { value, pending, native, event } = subscribed();
+    const old = syncWorktreeSetup(value, native);
+    value.threadId = 't2'; value.projection.thread = { id: 't2', worktreePath: '/other' };
+    const other = syncWorktreeSetup(value, native);
+    event('3-1', 9);
+    expect(threadWorktreeSetup(value).snapshot).toBeNull();
+    value.threadId = 't1'; value.projection.thread = { id: 't1', worktreePath: '/worktree' };
+    const current = syncWorktreeSetup(value, native);
+    pending[0]!.resolve({ id: '3-1' }); await old;
+    pending[1]!.resolve({ id: '3-2' }); await other;
+    event('3-3', 3); pending[2]!.resolve({ id: '3-3' }); await current;
+    expect(threadWorktreeSetup(value).snapshot?.sequence).toBe(3);
+  });
+  test('connection generation and environment fence old replies and events', async () => {
+    const { value, pending, native, event } = subscribed();
+    const old = syncWorktreeSetup(value, native);
+    value.generation = 4; value.environmentId = 'env-b';
+    const current = syncWorktreeSetup(value, native);
+    event('3-99', 99, 't1', 3);
+    pending[0]!.resolve({ id: '3-99' }); await old;
+    expect(threadWorktreeSetup(value).snapshot).toBeNull();
+    event('4-1', 1); pending[1]!.resolve({ id: '4-1' }); await current;
+    expect(threadWorktreeSetup(value).snapshot?.sequence).toBe(1);
+  });
+  test('retry notification retires the failed stream and a late reply cannot revive it', async () => {
+    const { value, pending, native, event } = subscribed();
+    const old = syncWorktreeSetup(value, native);
+    event('3-1', 1);
+    worktreeSetupEvent(value, { generation: 3, subscriptionId: '3-1', value: { _transportError: { kind: 'Disconnected' } } });
+    await syncWorktreeSetup(value, native);
+    expect(pending).toHaveLength(1);
+    worktreeSetupEvent(value, { generation: 3, subscriptionId: '3-1', value: { _retryDue: true } });
+    pending[0]!.resolve({ id: '3-1' }); await old;
+    const retry = syncWorktreeSetup(value, native);
+    expect(pending).toHaveLength(2);
+    event('3-2', 2); pending[1]!.resolve({ id: '3-2' }); await retry;
+    expect(threadWorktreeSetup(value).snapshot?.sequence).toBe(2);
   });
 });

@@ -17,6 +17,7 @@ import {
   GhosttyTerminalSurface,
   type GhosttyTerminalFont,
 } from "../vendor/ghostty/surface";
+import { observeSelectionActions, resolveSelectionActionPosition } from "../vendor/lib/selectionActions";
 
 type Message = { readonly type: string; readonly [key: string]: unknown };
 type Outbound = Record<string, unknown> & { readonly type: string };
@@ -32,6 +33,34 @@ interface Chord {
   readonly ctrl: boolean;
   readonly alt: boolean;
   readonly shift: boolean;
+}
+
+type CommandBinding = { readonly chord: string; readonly command: string; readonly keys: readonly Chord[] };
+
+export function parseCommandBindings(value: unknown): CommandBinding[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry: unknown) => {
+    if (typeof entry !== "object" || entry === null || !("chord" in entry) || !("command" in entry) ||
+        typeof entry.chord !== "string" || typeof entry.command !== "string" || entry.command.length === 0) return [];
+    const keys = parseChords([entry.chord]);
+    return keys.length ? [{ chord: entry.chord, command: entry.command, keys }] : [];
+  });
+}
+
+/** ThreadTerminalDrawer.handleBeforeKey: readline navigation/delete/clear owned by the terminal.
+ * Physical names also preserve these shortcuts under a non-Latin keyboard layout on macOS. */
+export function terminalInputShortcutData(
+  event: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">,
+): string | null {
+  if (event.shiftKey) return null;
+  const names = eventKeyNames(event);
+  const onlyMeta = event.metaKey && !event.ctrlKey && !event.altKey;
+  const onlyAlt = event.altKey && !event.metaKey && !event.ctrlKey;
+  if (names.includes("arrowleft")) return onlyMeta ? "\u0001" : onlyAlt ? "\u001bb" : null;
+  if (names.includes("arrowright")) return onlyMeta ? "\u0005" : onlyAlt ? "\u001bf" : null;
+  if (onlyMeta && names.includes("backspace")) return "\u0015";
+  if ((onlyMeta && names.includes("k")) || (event.ctrlKey && !event.metaKey && !event.altKey && names.includes("l"))) return "\u000c";
+  return null;
 }
 
 const LIGHT: GhosttyTheme = {
@@ -92,20 +121,23 @@ export function parseChords(list: unknown): Chord[] {
   return list.flatMap((entry) => {
     if (typeof entry !== "string" || entry.length === 0) return [];
     const parts = entry.split("+");
-    const key = parts.pop() ?? "";
+    let key = parts.pop() ?? "";
+    if (key === "" && parts[parts.length - 1] === "") { parts.pop(); key = "Plus"; }
     if (key === "") return [];
     const has = (name: string) => parts.includes(name);
     return [{ key: key.toLowerCase(), meta: has("Meta"), ctrl: has("Control"), alt: has("Alt"), shift: has("Shift") }];
   });
 }
 
-/** The key a chord names, by the physical key first: under Korean 2-Set ⌘K's `key` is "ㅏ". */
+/** keybindings.resolveEventKeys: preserve Latin remaps; under Korean 2-Set ⌘K's key is "ㅏ". */
 export function eventKeyNames(event: Pick<KeyboardEvent, "key" | "code">): string[] {
   const names = [event.key.toLowerCase()];
   const code = event.code;
-  if (/^Key[A-Z]$/.test(code)) names.unshift(code.slice(3).toLowerCase());
+  if (/^Key[A-Z]$/.test(code)) { if (!/^[a-z]$/.test(event.key.toLowerCase())) names.unshift(code.slice(3).toLowerCase()); }
   else if (/^Digit\d$/.test(code)) names.unshift(code.slice(5));
   else if (code !== "") names.push(code.toLowerCase());
+  if (event.key === "+") names.push("plus");
+  if (event.key === " ") names.push("space");
   return names;
 }
 
@@ -140,6 +172,11 @@ class TerminalPage {
   private surface: GhosttyTerminalSurface | null = null;
   private readonly pending: Message[] = [];
   private chords: Chord[] = [];
+  private bindings: CommandBinding[] = [];
+  private auth = false;
+  private readOnly = false;
+  private closePending = false;
+  private selectionActions: ReturnType<typeof observeSelectionActions> | null = null;
   private visible = true;
   private lastError = "";
   private disposed = false;
@@ -150,6 +187,10 @@ class TerminalPage {
 
   async start(init: Record<string, unknown>): Promise<void> {
     this.chords = parseChords(init.chords);
+    this.bindings = parseCommandBindings(init.keybindings);
+    this.auth = init.auth === true;
+    this.readOnly = init.readOnly === true;
+    this.closePending = init.closePending === true;
     this.visible = init.visible !== false;
     const { theme, dark } = themeFrom(init.theme);
     document.documentElement.classList.toggle("dark", dark);
@@ -159,7 +200,7 @@ class TerminalPage {
         theme,
         font: fontFrom(init.font),
         visible: this.visible,
-        onData: (data) => post({ type: "data", data }),
+        onData: (data) => { if (!this.readOnly) post({ type: "data", data }); },
         onResize: (cols, rows) => post({ type: "resize", cols, rows }),
         onSelectionChange: () => this.postSelection(),
         beforeKey: (event) => this.beforeKey(event),
@@ -167,7 +208,9 @@ class TerminalPage {
           post({ type: "link", text, metaKey: event.metaKey, ctrlKey: event.ctrlKey, shiftKey: event.shiftKey, altKey: event.altKey }),
         onContextMenu: (event) => {
           event.preventDefault();
-          post({ type: "contextmenu", x: event.clientX, y: event.clientY, selection: this.surface?.getSelection() ?? "" });
+          if (this.auth) return;
+          this.selectionActions?.cancel();
+          post({ type: "contextmenu", x: event.clientX, y: event.clientY, ...this.selection() });
         },
       });
       if (this.disposed) {
@@ -175,6 +218,17 @@ class TerminalPage {
         return;
       }
       this.surface = surface;
+      if (!this.auth) this.selectionActions = observeSelectionActions({
+        element: this.mount,
+        onSelection: (pointer) => {
+          const selection = this.selection();
+          if (!selection.text || !selection.position) return;
+          const point = resolveSelectionActionPosition({ bounds: this.mount.getBoundingClientRect(),
+            selectionRect: selection.end, pointer, viewport: { width: innerWidth, height: innerHeight } });
+          post({ type: "selection-ready", x: point.x, y: point.y, ...selection });
+        },
+        onDismiss: (reason) => post({ type: "selection-dismiss", reason }),
+      });
       surface.input.addEventListener("focus", () => post({ type: "focus", focused: true }));
       surface.input.addEventListener("blur", () => post({ type: "focus", focused: false }));
       for (const message of this.pending.splice(0)) this.receive(message);
@@ -193,20 +247,44 @@ class TerminalPage {
   }
 
   private beforeKey(event: KeyboardEvent): boolean {
-    if (!matchesChord(event, this.chords)) return true;
-    post({ type: "chord", key: event.key, code: event.code, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey, shiftKey: event.shiftKey });
-    return false;
+    if (this.auth) return event.key !== "Tab";
+    const binding = this.bindings.find(({ keys }) => matchesChord(event, keys));
+    if (binding) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (binding.command !== "terminal.close" || (!event.repeat && !this.closePending)) {
+        post({ type: "command", command: binding.command, chord: binding.chord, repeat: event.repeat });
+      }
+      return false;
+    }
+    // The old `chords` prop is the surface harness's passthrough seam, not a command dispatch.
+    if (matchesChord(event, this.chords)) {
+      post({ type: "chord", key: event.key, code: event.code, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey, shiftKey: event.shiftKey });
+      return false;
+    }
+    const data = terminalInputShortcutData(event);
+    if (data !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!this.readOnly) post({ type: "data", data });
+      return false;
+    }
+    return true;
+  }
+
+  private selection() {
+    return { text: this.surface?.getSelection() ?? "", position: this.surface?.getSelectionPosition() ?? null,
+      end: this.surface?.getSelectionEndClientRect() ?? null };
   }
 
   private postSelection(): void {
     const surface = this.surface;
-    if (!surface) return;
-    post({
-      type: "selection",
-      text: surface.getSelection(),
-      position: surface.getSelectionPosition(),
-      end: surface.getSelectionEndClientRect(),
-    });
+    if (!surface || this.auth) return;
+    post({ type: "selection", ...this.selection() });
+    if (!surface.hasSelection() && this.selectionActions?.pending) {
+      this.selectionActions.cancel();
+      post({ type: "selection-dismiss", reason: "interaction" });
+    }
   }
 
   /** Native → page. Returns a value for the requests that read (readSelection, debug). */
@@ -217,8 +295,15 @@ class TerminalPage {
       this.chords = parseChords(message.chords);
       return null;
     }
+    if (message.type === "keyPolicy") {
+      this.bindings = parseCommandBindings(message.keybindings);
+      this.readOnly = message.readOnly === true;
+      this.closePending = message.closePending === true;
+      return null;
+    }
     if (message.type === "dispose") {
       this.disposed = true;
+      this.selectionActions?.dispose();
       surface?.dispose();
       this.surface = null;
       return null;

@@ -7,6 +7,7 @@
 // what ⌘1-9 and previous/next follow. Pure over the client and `now`.
 import { obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
+import { terminalFocused } from './terminal-focus';
 import { fleet, fleetThreads, type EnvironmentFleet } from './settings-b-fleet';
 import { groupLabel, logicalKey } from './r6-polish-groups';
 import { projectGlyph } from './r3-sidebar-glyph';
@@ -14,7 +15,7 @@ import type { ProjectGlyph } from './r3-sidebar-glyph';
 import { canArchive } from './sidebar-menu';
 import { lastVisited } from './sidebar-model';
 import { sidebarPrefs, sidebarSession } from './sidebar-state';
-import { shortcutLabel, type SidebarHelpers } from './sidebar-view';
+import { terminalProcessCount, shortcutLabel, type SidebarHelpers } from './sidebar-view';
 import { currentPullRequestLink } from './shell-pr';
 import { lifecycle, lifecycleIcon, shortName, providerOfUrl } from './r5-panels-pr';
 import { DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT, orderItemsByPreferredIds, relativeTimeLabel, resolveProjectExpanded, resolveProjectStatusIndicator,
@@ -22,6 +23,7 @@ import { DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT, orderItemsByPreferredIds, relativ
 
 export interface LegacyThreadRow {
   id: string; title: string; label: string; active: boolean; selected: boolean; renaming: boolean; running: boolean;
+  terminalCount: number;
   statusLabel: string; statusColor: string; statusDot: string; statusPulse: boolean;
   prIcon: string; prState: string; prTooltip: string; prPending: boolean;
   worktree: boolean; worktreeLabel: string; remoteMachine: string; remoteLabel: string; age: string; jump: string;
@@ -146,6 +148,7 @@ function threadRow(client: T3Client, thread: Obj, now: number, jump: string): Le
   const remote = str(thread.fleetMachine);
   return {
     id, title, label: [title, status.label].filter(Boolean).join(', '), active: id === client.threadId, selected: session.selection.includes(id),
+    terminalCount: terminalProcessCount(client, id),
     renaming: session.renameId === id, running: !canArchive(thread),
     statusLabel: status.label, statusColor: status.color, statusDot: status.dot, statusPulse: status.pulse,
     prIcon: link ? (snapshot ? lifecycleIcon(state) : 'git-pull-request-arrow') : '', prState: state,
@@ -191,7 +194,7 @@ export function legacySidebarSnapshot(client: T3Client, now: number, helpers: Pi
   const base = { enabled, manual: projectSortOrder(client) === 'manual', projectSort: projectSortOrder(client), threadSort: threadSortOrder(client), previewCount: previewCount(client),
     newThreadTip: newThread ? `New thread (${newThread})` : 'New thread', searchShortcut: shortcutLabel(client, 'commandPalette.toggle'),
     confirmArchive: client.local.clientSettings?.confirmThreadArchive === true, noProjects: client.shell.projects.length === 0,
-    jumpHints: client.presentation.sidebarJumpHints === true, ...dialogView(client) };
+    jumpHints: !terminalFocused(client) && client.presentation.sidebarJumpHints === true, ...dialogView(client) };
   if (!enabled) return { ...base, projects: [] };
   const entries = sortedGroups(client);
   const jumps = base.jumpHints ? Array.from({ length: 9 }, (_, index) => shortcutLabel(client, `thread.jump.${index + 1}`)) : [];

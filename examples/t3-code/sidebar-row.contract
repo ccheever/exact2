@@ -13,9 +13,33 @@ use SidebarProjectGlyph from "./sidebar-icons.contract"
 use CnMachineIcon from "./settings-b-kit.contract"
 use SidebarPrBadge from "./r4-integrate.contract"
 
+use Tip from "./shell-tip.contract"
+
+// ThreadStatusIndicators.tsx: Lucide Terminal, teal, with the shared two-second status pulse.
+keyframes terminalStatusPulse
+  from opacity=1
+  40% opacity=1
+  50% opacity=0.5
+  90% opacity=0.5
+  to opacity=1
+
+component TerminalProcessIndicator
+  props
+    label: string
+    tooltip: string
+    size: number
+    reduced: bool
+    id: string
+  view
+    Tip(label=tooltip, side="top", align="center", offset=4)
+      box display="flex" flex-shrink=0 role="img" aria-label=label testId=id
+        svg width=size height=size viewBox="0 0 24 24" fill="none" stroke="light-dark(#009689, #96f7e4e6)" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true animation=(reduced ? "none" : "terminalStatusPulse 2s steps(6) infinite")
+          path d="m4 17 6-5-6-5M12 19h8"
+
 component ThreadRow
   props
     t: Thread
+    reduced: bool
     now: number
     presets: list<SnoozePreset>
     busy: bool
@@ -106,6 +130,8 @@ component ThreadRow
                   box flex=1
                 when t.badge != ""
                   SidebarPrBadge(t=t)
+                when t.terminalCount > 0
+                  TerminalProcessIndicator(label=t.terminalLabel, tooltip="", size=14, reduced=reduced, id=`sidebar-terminal-status-${t.id}`)
                 // r6-polish: a thread on another environment carries its machine glyph (size-3.5, muted/70) before the provider stack.
                 when t.remoteMachine != ""
                   box flex-shrink=0 margin-right=-2 display="flex" aria-hidden=true testId=`remote-${t.id}`
@@ -142,6 +168,8 @@ component ThreadRow
                 SidebarPinButton(t=t, busy=busy, run=run, hoverCard=hoverCard, hoverId=hoverId)
               when t.badge != ""
                 SidebarPrBadge(t=t)
+              when t.terminalCount > 0
+                TerminalProcessIndicator(label=t.terminalLabel, tooltip="", size=14, reduced=reduced, id=`sidebar-terminal-status-${t.id}`)
               when lifted and dragVerb != ""
                 SidebarDropVerb(verb=dragVerb, ink="light-dark(#1b4ed8, #346bf1)")
               else

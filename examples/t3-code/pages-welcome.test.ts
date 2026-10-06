@@ -28,6 +28,7 @@ const fixtureConfig = {
 
 test('agents read as the reference cards: Codex setup until pointed at a CLI, readiness, Claude disabled', () => {
   const rows = agentRows(fixtureConfig);
+  expect(rows.map(row => [row.terminalOpen, row.terminalAvailable])).toEqual([[false, false], [false, false], [false, false]]);
   expect(rows.map(row => [row.kind, row.name, row.summary, row.badge])).toEqual([
     ['codex-setup', 'Codex', 'Code with your ChatGPT subscription.', ''],
     ['card', 'Exact verification fixture', 'Ready to code.', 'Ready'],
@@ -61,7 +62,7 @@ function fakeNative(saved: Obj[]): Native {
 test('the wizard lists the paired computer, sets it up, scans, and finishing lands in the imported project', async () => {
   const calls: { method: string; payload: Obj }[] = [];
   const client = {
-    local: {} as Record<string, unknown>, origin: 'http://127.0.0.1:14807', environmentId: 'env-1', connection: 'connected', statusMessage: '', scopes: [],
+    local: { deviceSettings: { appearanceMode: 'system' } } as Record<string, unknown>, origin: 'http://127.0.0.1:14807', environmentId: 'env-1', connection: 'connected', statusMessage: '', scopes: [],
     config: { ...fixtureConfig, environment: { label: 'Daehyeon’s MacBook Pro' } }, shell: { projects: [] as Obj[], threads: [], sequence: 0 }, threadId: '', projectId: '',
     rpc: async (_native: Native, method: string, payload: Obj) => {
       calls.push({ method, payload });
@@ -98,4 +99,28 @@ test('a client that already has an environment never sees the wizard and records
   const view = await welcomeView(client, fakeNative([{ origin: 'http://127.0.0.1:1', environmentId: 'e' }]), { step: 'connect', now: Date.parse('2026-10-04T00:00:00.000Z') });
   expect(view.show).toBe(false);
   expect(pagesPrefs(client).onboardingCompletedAt).toBe('2026-10-04T00:00:00.000Z');
+});
+
+test('agent setup buttons open a terminal without Enter and leaving the agents step cleans it up', async () => {
+  const calls: { method: string; payload: Obj }[] = [];
+  const client = {
+    local: { deviceSettings: { appearanceMode: 'system' } }, origin: 'http://127.0.0.1:14807', environmentId: 'setup-env', connection: 'connected', statusMessage: '', scopes: ['terminal:operate'],
+    config: { cwd: '/tmp', environment: { platform: { os: 'darwin' } }, settings: { providerInstances: { codex: { config: { setupMode: 'existing' } } } }, providers: [{ driver: 'codex', instanceId: 'codex', installed: false, status: 'error', auth: { status: 'unauthenticated' } }] },
+    shell: { projects: [], threads: [], sequence: 0 }, ids: async () => ['fixture-id'],
+    rpc: async (_native: Native, method: string, payload: Obj) => { calls.push({ method, payload }); return {}; },
+  } as unknown as T3Client;
+  const native = fakeNative([]);
+  const connect = await welcomeView(client, native, { step: 'connect', now: Date.now() });
+  await welcomeLocal(client, native, 'setup', '', '');
+  const agents = await welcomeView(client, native, { step: 'agents', now: 0 });
+  const card = agents.machines[0]!.agents[0]!;
+  expect(card.kind).toBe('card'); expect(card.terminalAvailable).toBe(true);
+  await welcomeLocal(client, native, 'terminal-open', connect.computers[0]!.key, card.key);
+  const opened = await welcomeView(client, native, { step: 'agents', now: 0 });
+  expect(opened.machines[0]!.terminal).toMatchObject({ ready: true, terminalId: 'onboarding-codex-fixture-id' });
+  expect(calls[1]!.payload.data).toBe('curl -fsSL https://chatgpt.com/codex/install.sh | sh');
+  await welcomeLocal(client, native, 'terminal-exited', 'setup-env', JSON.stringify({ type: 'exited', terminalId: 'old-session' }));
+  expect(calls).toHaveLength(2);
+  await welcomeView(client, native, { step: 'connect', now: 0 });
+  expect(calls[2]).toEqual({ method: 'terminal.close', payload: { threadId: 'onboarding-agent-setup', terminalId: 'onboarding-codex-fixture-id', deleteHistory: true } });
 });

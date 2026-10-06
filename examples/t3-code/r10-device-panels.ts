@@ -83,6 +83,7 @@ export function restoreRightPanel(owner: Holder & { preferencesLoaded: boolean; 
   if (!saved || state.surfaces.length || state.userRevision) return false;
   state.surfaces = saved.surfaces.map((entry): Surface => ({
     id: entry.id, kind: entry.kind, path: entry.path, line: entry.line, reveal: 0,
+    ...('terminal' in entry ? { terminal: entry.terminal } : {}),
     ...('title' in entry ? { title: entry.title } : {}), ...('pr' in entry ? { pr: entry.pr } : {}), ...('attachment' in entry ? { attachment: entry.attachment } : {}), ...('device' in entry && entry.device ? { device: entry.device } : {}),
   }));
   state.active = saved.active;

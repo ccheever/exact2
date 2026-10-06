@@ -1,3 +1,5 @@
+use TerminalContent from "./terminal.contract"
+use Look from "./settings-appearance-look.contract"
 // The right panel's tab bar and its non-diff surfaces (lane r4-surfaces,
 // r4-surfaces-panel.ts), measured on the served reference (MIT, see LICENSE-T3:
 // RightPanelTabs.tsx, ui/panel-tab-close-button.tsx, PanelLayoutControls.tsx,
@@ -215,6 +217,9 @@ component R4AddItem
 // The active non-diff surface under the tab bar.
 component R4SurfaceBody
   props
+    look: Look
+    confirm: action
+    closePending: bool
     panel: R4Panel
     scheme: string
     sheet: bool
@@ -222,6 +227,8 @@ component R4SurfaceBody
     command: action
     paletteShow: action
   view
+    when panel.kind == "terminal"
+      TerminalContent(view=panel.terminal, look=look, dark=(scheme == "dark"), closePending=closePending, command=command, confirm=confirm)
     when panel.kind == "files" or panel.kind == "file"
       R4FilesBody(files=panel.files, scheme=scheme, sheet=sheet, local=local)
     when panel.kind == "pull-requests"
