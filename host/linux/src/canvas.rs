@@ -932,6 +932,9 @@ pub struct CanvasHost<D: DataSource> {
     /// The feed's travel, and the frame (a count of `moved`) by which a
     /// paint must show rows a pass mounted out of view ([`crate::travel`]).
     travel: crate::travel::Travel,
+    /// Scratch for a pass's row count ([`CanvasHost::refine_slice`]).
+    rows_before: Vec<(ViewId, u64)>,
+    rows_after: Vec<(ViewId, u64)>,
     paint_by: Option<u32>,
     /// A GPU canvas wants another frame (Android: they present each frame).
     surfaces: bool,
@@ -1036,6 +1039,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
             prefetching: false,
             quiet: None,
             travel: crate::travel::Travel::default(),
+            rows_before: Vec::new(),
+            rows_after: Vec::new(),
             paint_by: None,
             moves: std::env::var("EXACT_MOVES")
                 .ok()

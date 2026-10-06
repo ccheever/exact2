@@ -62,8 +62,13 @@ impl Travel {
     /// fast, those its measured cost fits in [`PASS_MS`] (at least one);
     /// otherwise the whole window (`None`).
     pub(crate) fn limit(&self) -> Option<u32> {
-        (self.step >= FAST_STEP && self.row_ms > 0.0)
-            .then(|| ((PASS_MS / self.row_ms) as u32).max(1))
+        (self.fast() && self.row_ms > 0.0).then(|| ((PASS_MS / self.row_ms) as u32).max(1))
+    }
+
+    /// Whether the feed travels fast: a pass's rows are limited, and their
+    /// cost is worth measuring.
+    pub(crate) fn fast(&self) -> bool {
+        self.step >= FAST_STEP
     }
 
     /// A pass built `rows` in `ms`.
