@@ -585,3 +585,25 @@ fn a_markdown_list_items_lines_start_at_its_indent() {
     assert_eq!((measured.height, measured.width), (p.height, p.width));
     assert!(p.width <= 200.0, "{}", p.width);
 }
+
+#[test]
+fn a_common_character_after_a_cjk_bracket_is_shaped_in_the_brackets_run() {
+    // Chrome itemizes a Common character by its Script_Extensions: `「`
+    // (Han, Kana, …) after Latin starts a run that `“` joins, so `“` is not
+    // kerned with the Latin letter after it (LLP 1085.000 host parity: the
+    // mixed paragraph's max-content was 0.97 px narrow). Inter kerns `“A`.
+    let mut e = engine(INTER, "Inter");
+    let quote = |e: &mut TextEngine, t: &str| {
+        let p = e.paragraph(&spec(t, WhiteSpace::Normal), None);
+        let run = p.layout_runs().next().unwrap();
+        let at = t.find('\u{201c}').unwrap() as u32;
+        run.glyphs.iter().find(|g| g.start == at).unwrap().w
+    };
+    let alone = quote(&mut e, "\u{201c}");
+    let kerned = quote(&mut e, "x \u{201c}A");
+    assert!(
+        kerned < alone - 1.0,
+        "Latin keeps its kerning: {kerned} {alone}"
+    );
+    assert_eq!(quote(&mut e, "x \u{300c}\u{201c}A"), alone);
+}

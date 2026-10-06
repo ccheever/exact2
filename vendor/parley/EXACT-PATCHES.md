@@ -99,6 +99,17 @@ named here pass.
     cases against Chrome: min-content 8 -> 9 of 9, max-content 9 of 9.
     Tests: `css_tests.rs`
     (`pre_wrap_min_content_hangs_a_tab_that_ends_a_segment`).
+15. **Script_Extensions itemization.** `shape_text` gave every Common
+    character the current run's script. A Common character whose
+    Script_Extensions exclude that script (`「` after Latin: Bopomofo,
+    Hangul, Han, Hiragana, Katakana, Yi) now starts a run of the first of
+    them, which the Common characters after it join and a real script
+    among them settles without a new run, as Chrome's ScriptRunIterator
+    itemizes. In `was 「“quote` the `“` was shaped with `q` and kerned
+    (0.97 px), where Chrome shapes it in the bracket's run. Host parity:
+    `mixed` max-content 4 -> 5 of 5; two line widths moved closer to
+    Chrome, none further. Tests: `css_tests.rs`
+    (`a_common_character_after_a_cjk_bracket_is_shaped_in_the_brackets_run`).
 
 All other archive files are byte-for-byte upstream. The upstream test suite
 (not in the archive) passed with patches 1–4 applied; with 4–7, five tests
