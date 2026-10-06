@@ -23,14 +23,14 @@ final class T3Module: ExactModule {
     let turns: T3TimelineTurns // The minimap's turns in view and jumps (T3TimelineTurns.swift).
     let mermaid: T3TimelineMermaid // Mermaid fences laid out with the server's own Mermaid (T3TimelineMermaid.swift).
     let snapShot: T3SnapShot
-    private let chrome = T3WindowChrome()
+    let chrome = T3WindowChrome()
     let exportsRoot: URL? // Agent runs export into the isolated data root (T3ContextMenu.saveText).
-    private let menus = T3Menus() // Menu bar items, zoom and the ⌘Q hold (T3Menus.swift).
+    let menus = T3Menus() // Menu bar items, zoom and the ⌘Q hold (T3Menus.swift).
     let notifications: T3Notifications // Thread notifications, sound, Dock badge (T3Notifications.swift).
     let sidebar: T3Sidebar // Thread menu, modifier reads and jump hints (T3Sidebar.swift).
     let gate: T3ReadGate // Holds the snapshot read's topics until its last reply (T3ReadGate.swift).
     private let launcher = R8KeysLauncher() // lane r8-keys: the surface launcher's focus and letters (R8KeysLauncher.swift).
-    private let measure = R8KeysMeasure() // lane r8-keys: drawn frames for window-level popups (R8KeysMeasure.swift).
+    let measure = R8KeysMeasure() // lane r8-keys: drawn frames for window-level popups (R8KeysMeasure.swift).
     private let r9: R9Input // lane r9-input: composer focus and composing text, the transcript's remembered position (R9Input.swift).
     private let r10: R10Connect // lane r10-connect: wake, select on open, chords by physical key, hover under a still pointer (R10Connect.swift).
     // Settings → Keybindings capture field (T3KeyRecorder.swift).
@@ -70,40 +70,12 @@ final class T3Module: ExactModule {
     override func later(_ request: [String: Any], reply: ExactReply) {
         if gate.began(request, answer: { reply.send($0) }) { return }
         if let key = request["fleet"] as? String { gate.sent(request); return fleet.perform(key, request) { [gate] in gate.answered(request); reply.send($0) } }
-        if request["op"] as? String == "r8MeasureFrame" { DispatchQueue.main.async { [weak self] in reply.send(self?.measure.perform(request) ?? ["ok": false, "generation": 0]) }; return } // lane r8-keys
-        if request["op"] as? String == "devicePresentation" {
-            DispatchQueue.main.async { [weak self] in
-                self?.chrome.setAppearance(request["appearanceMode"] as? String ?? "system")
-                self?.composer.sendShortcut = request["sendShortcut"] as? String ?? "enter"
-                self?.menus.quitMode = request["confirmQuit"] as? String ?? "hold"
-                reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": [:]])
-            }
-            return
-        }
-        if request["op"] as? String == "pickFolder" { // The palette's Open in Finder (T3Menus.swift).
-            DispatchQueue.main.async { [weak self] in
-                self?.menus.pickFolder(startingAt: request["path"] as? String ?? "") { path in
-                    reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["path": path ?? ""]])
-                }
-            }
-            return
-        }
-        if request["op"] as? String == "copyText", let text = request["text"] as? String {
-            DispatchQueue.main.async {
-                NSPasteboard.general.clearContents()
-                let copied = NSPasteboard.general.setString(text, forType: .string)
-                reply.send(["ok": copied, "generation": request["generation"] as? Int ?? 0,
-                            "value": ["copied": copied],
-                            "error": ["kind": "Clipboard", "message": "Could not copy the message.", "uncertain": false]])
-            }
-            return
-        }
         route(request, reply: reply, from: 0)
     }
     /// Each area's ops (T3Module+<Area>.swift), in turn: an area answers the ops it owns and
     /// calls `next` for the rest; what no area owns goes to the transport. No two areas share
     /// an op. A feature adds its area's method in its own file and one entry here.
-    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.timelineOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps, T3Module.composerOps]
+    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.timelineOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps, T3Module.composerOps, T3Module.windowOps]
     private func route(_ request: [String: Any], reply: ExactReply, from index: Int) {
         guard index < Self.areas.count else { return forward(request, reply: reply) }
         Self.areas[index](self)(request, reply) { self.route(request, reply: reply, from: index + 1) }
