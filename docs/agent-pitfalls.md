@@ -257,15 +257,14 @@ guide's rules don't make obvious.
 
 ## Actions
 
-- **State a data module keeps across an `await` in a mutation goes stale for
-  good.** A newer `send x = command(…)` supersedes the pending one, and the
-  superseded call's continuation is dropped: its fetch may finish on the
-  wire, but the code after the `await` never runs, so a busy flag or lock it
-  set is never cleared. The Signal clone's keystroke (`draft`) commands sent
-  typing indicators this way, and one dropped continuation held every later
-  send forever. Fix: do network work from a call that is never superseded (a
-  heartbeat sent only when `not pending(…)`), and give any in-flight marker a
-  deadline from the caller's clock. (Signal clone build 35, 2026-10-05.)
+- **A superseded send's fetch rejects natively and completes on the web.** A
+  newer `send x = command(…)` replaces the pending one; natively its `await
+  fetch(…)` then rejects with a `FetchError` of kind `Aborted` though the
+  request may have been sent, while on the web the reply arrives and is
+  dropped. Clear a busy flag or lock in a `finally`, and don't retry on
+  `Aborted` (it would send twice); declare the mutation `queue` when every
+  send's reply matters (LLP 1092). Until 2026-10-05 the continuation vanished
+  natively, which held the Signal clone's sends forever (build 35).
 
 - **`Date.now()` throws in an iOS data module, and Bun tests pass.** Take the
   time from the call's arguments (the Contract's `wallTime.epochAtZero + now()`),

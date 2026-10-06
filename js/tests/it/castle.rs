@@ -1009,3 +1009,30 @@ fn a_worker_placed_answer_takes_a_large_reply_as_it_takes_a_small_one() {
         assert_eq!(text.len(), size, "{size}");
     }
 }
+
+/// A superseded send's continuation runs, never vanishes (the Signal
+/// clone's stuck `flushing` flag): the runner lets its request go, its fetch
+/// rejects as `Aborted`, and its `finally` clears what it set.
+#[test]
+fn a_let_go_call_waiting_on_a_fetch_runs_its_continuation() {
+    use exact_runner::{DataSource, Target};
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  mutation sent as shape string\n  resource busy = flushing() as shape string\n  action go(v: string)\n    send sent = flush(v)\n  view\n    text busy\n").unwrap());
+    let mut s = store();
+    let request = later(
+        m.answer_for(Target::Mutation(0), &mut s, "flush", &[Value::str("hi")])
+            .unwrap(),
+    );
+    assert_eq!(request.method, "POST");
+    assert_eq!(
+        now(m.answer(&mut s, "flushing", &[]).unwrap()),
+        Value::str("true ")
+    );
+    // A newer send replaced it: nothing of the first is in flight.
+    m.forgotten(&s, &[]);
+    assert_eq!(
+        now(m.answer(&mut s, "flushing", &[]).unwrap()),
+        Value::str("false Aborted: the answer was let go before this reply; the request may already have been sent")
+    );
+    assert_eq!(m.in_flight(), 0);
+}

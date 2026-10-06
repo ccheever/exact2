@@ -1249,8 +1249,11 @@
     var call = calls.get(Number(id));
     return call ? settle(call, final === "final") : fail(new Error("no such call"));
   };
-  // The runner let this call's request go (LLP 1016 D5): drop the call and
-  // the fetches it waits on, so nothing keeps them alive.
+  // The runner let this call's request go (LLP 1016 D5): drop the call, and
+  // reject the fetches it waits on, so its continuation runs (a `finally`
+  // clears what the call set) rather than vanishing: the runner drops the
+  // reply when it comes. The request may already be on the wire. A send
+  // that needs every reply is a `queue` mutation (LLP 1092).
   // One let go between storage steps answers "storage": its steps are
   // running and the chain behind them goes on, so the executor delivers them
   // until `__exact_let_go` says none is left, and its answer is never given
@@ -1259,10 +1262,15 @@
     var call = calls.get(Number(id));
     if (!call) return "";
     // Not a fetch another answer has since claimed: that one waits on it.
+    var dropped = [];
     for (var i = 0; i < call.tickets.length; i++) {
       var p = pending.get(call.tickets[i]);
-      if (p && p.call === call) settled(call.tickets[i]);
+      if (p && p.call === call) { settled(call.tickets[i]); dropped.push(p); }
     }
+    // Rejected now, run at the next drain with no answer current.
+    dropped.forEach(function (p) {
+      p.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this reply; the request may already have been sent" }));
+    });
     if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage"; }
     call.replied = true;
     calls.delete(call.id);

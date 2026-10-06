@@ -22,6 +22,7 @@ const API = "https://api.castle.xyz/graphql";
 const LOGIN = "mutation Login($who: String!, $password: String!) { loginV2(who: $who, password: $password) { token username } }";
 
 const idle: Session = { ok: false, username: "", error: "" };
+let flushing = false, lastError = "";
 
 function text(args: unknown[], i: number): string {
   const v = args[i];
@@ -172,6 +173,13 @@ function answer(source: string, args: unknown[], store: Store): unknown {
       method: "POST",
       ...(args[2] ? { exactIndependentHttp: { maxResponseBytes: args[1] } } : {}),
     }).then(r => r.text());
+    // A send that marks the module busy across its fetch, and the mark.
+    case "flush":
+      flushing = true;
+      return fetch("https://api.castle.xyz/send", { method: "POST", body: text(args, 0) })
+        .then(r => r.text(), (e: { kind: string; message: string }) => { lastError = `${e.kind}: ${e.message}`; return "failed"; })
+        .finally(() => { flushing = false; });
+    case "flushing": return `${flushing} ${lastError}`;
     // A deadline for the whole exchange: a timeout rejects with its kind.
     case "timed": return fetch("https://api.castle.xyz/slow", { exactTimeout: args[0] } as RequestInit)
       .then(r => r.text(), (e: { kind: string; message: string }) => `failed: ${e.kind}: ${e.message}`);

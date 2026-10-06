@@ -55,10 +55,16 @@ impl Module {
             return;
         };
         let mut owed = false;
+        let forgot = !calls.is_empty();
         for call in calls {
             owed |= engine
                 .call("__exact_forget", [&call.to_string(), "", ""])
                 .is_ok_and(|r| r == "storage");
+        }
+        // The rejected fetches' continuations run now, their answers
+        // discarded: what they set (a busy flag) is cleared, never stranded.
+        if forgot {
+            let _ = engine.drain();
         }
         if owed {
             self.finish_let_go();

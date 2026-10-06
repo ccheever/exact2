@@ -493,8 +493,11 @@ input.
 A newer send may replace a mutation's reply. An operation already issued still
 runs, in the order it was issued; the replaced reply is dropped, and that
 answer's Store writes are not the live answer's. A send dropped before it has
-issued storage does not run. Forgotten work that reaches a fetch retains the
-usual cancellation policy. Unloading finishes storage the module already
+issued storage does not run. A replaced answer waiting on a `fetch` is not
+stranded: on the web its fetch completes and the code after the `await` runs;
+natively the fetch rejects with a `FetchError` of kind `Aborted` (the request
+may already have been sent), so a `catch` or `finally` runs. Its reply is
+dropped either way; a mutation that needs every reply is declared `queue`. Unloading finishes storage the module already
 started, within a second, and drops what has not begun. Reads remain
 replaceable. An answer the runner lets go between storage steps (a refresh it
 discards before a mutation lands, a read whose arguments changed or that a

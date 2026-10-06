@@ -250,6 +250,14 @@ forwarder, and the executor uses a disposable snapshot. `discard` still cancels
 uncommitted deferred calls. This does not extend the lifetime of forgotten fetches
 or work across unload (2026-10-05, authoring-bench lost-write repair).
 
+A forgotten call waiting on a fetch is not stranded either (2026-10-05, the
+Signal clone's stuck `flushing` flag): the native JavaScript executor rejects
+that fetch with a `FetchError` of kind `Aborted` and runs the continuation
+with no answer current, so its `catch` and `finally` run; the reply is still
+dropped on arrival. The web build's fetch is the browser's, whose promise
+settles with the reply. A mutation that needs every reply is a `queue`
+mutation (LLP 1092).
+
 A reload (`boot_carrying`, LLP 1005 §6) drops every ticket; the carried
 arguments re-request what has no compiled value. The agent's `clock settle`
 (LLP 1012 §2) waits for in-flight requests as it waits for motion and timers,
