@@ -18,6 +18,7 @@ use synSlant from "./markdown.contract"
 use DiffCommentCard, DiffDraftCard from "./diff-comments.contract"
 use DiffGlyph from "./diff-glyphs.contract"
 use MarkdownBlocks from "./markdown.contract"
+use FilesMedia from "./media-actions.contract"
 use R4Icon from "./r4-surfaces-icons.contract"
 
 // The surface body under the panel's tab bar. Rebuilt per scheme so SVG glyphs
@@ -212,6 +213,9 @@ component R4FilePreview
             row min-width="100%" background-color=(row.header ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000")
               each cell in row.cells key=cell.id
                 text cell.text flex=1 max-width=320 min-width=64 padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color=(row.header ? "light-dark(#e4e4e7, #ffffff0f)" : "light-dark(#e4e4e799, #ffffff0a)") white-space="pre-wrap" font-size=12 line-height="16px" font-weight=(row.header ? 500 : 400) font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
+    // media-actions: an image or video file with its menu, tooltip and failure states (FilesMedia).
+    when files.preview == "media"
+      FilesMedia(media=files.media, local=local)
     // lane r10-device: a rendered HTML page in the app module's sandboxed, network-less web view (BrowserDocumentFrame).
     when files.preview == "html"
       box hook="t3-media" data-media-url=files.url data-media-kind="html" data-media-name=files.path flex=1 min-height=0 width="100%" background-color="#ffffff" aria-label=files.path testId="file-html"

@@ -8,6 +8,7 @@ use R5Attachment from "./r5-panels-shapes.contract"
 use R6DeviceView from "./r6-device-shapes.contract"
 use R6DeviceMini from "./r6-device-shapes.contract"
 use R12TabStrip from "./r12-threads.contract"
+use MediaView from "./media-actions.contract"
 
 shape R4Tab
   id: string
@@ -110,6 +111,8 @@ shape R4Files
   crumbsMask: string
   crumbsOffset: number
   url: string
+  // media-actions: an image or video file (media-views.ts filesMediaView).
+  media: MediaView
 shape R4CrumbEntry
   id: string
   path: string

@@ -11,6 +11,7 @@ import { fileIconToken } from './timeline-files';
 import { assetUrl } from './settings-b-icons';
 import { imageChipInks } from './r4-timeline-chips';
 import { videoMimeType } from './r4-composer-video'; // lane r6-media: sent videos (UserVideoAttachment)
+import { markdownMediaUrls } from './media-views'; // media-actions: the transcript's host-path media
 
 export interface MessageImage { id: string; name: string; snapshot: boolean; appName: string; appInitial: string; windowTitle: string; accessible: boolean; video: boolean }
 export interface MessageFile { id: string; name: string; icon: string }
@@ -51,7 +52,7 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
   // composer-fidelity G12a: queued messages' images (the queued rows' thumbnails and the edit's kept attachments).
   const queuedMessages = new Set(arr(client.projection.runs).filter(run => run.status === 'queued').map(run => str(run.userMessageId)));
   for (const message of arr(client.projection.messages)) if (queuedMessages.has(str(message.id))) for (const attachment of arr(message.attachments)) if (attachment.type === 'image' && str(attachment.id)) wanted.push(attachment);
-  const items: { id: string; url: string }[] = [], videoIds = new Set(wanted.filter(entry => entry.type === 'file').map(entry => str(entry.id)));
+  const items: { id: string; url: string }[] = [], failed: { id: string; url: string }[] = [], videoIds = new Set(wanted.filter(entry => entry.type === 'file').map(entry => str(entry.id)));
   for (const attachment of wanted.slice(-64)) {
     const id = str(attachment.id), key = JSON.stringify([client.generation, client.environmentId, id]);
     const cached = urls.get(key);
@@ -64,10 +65,21 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
       urls.set(key, { url, expiresAt: Number(result.expiresAt) || 0 });
       if (urls.size > 256) urls.delete(urls.keys().next().value!);
       items.push({ id, url });
-    } catch { /* An unavailable preview shows the image's name instead. */ }
+    } catch { failed.push({ id: `failed:${id}`, url: '' }); /* An unavailable preview shows the image's name instead; the dialog says it is unavailable. */ }
   }
-  return { items: await withAccents(client, native, items, videoIds) };
+  // media-actions: the visible messages' Markdown media on host paths (`media:<path>`, `media-failed:<path>`).
+  const thread = obj(client.projection.thread), project = (client.shell?.projects ?? []).find(entry => entry.id === (thread.projectId ?? client.projectId));
+  const root = str(thread.worktreePath) || str(project?.workspaceRoot);
+  const media = (await markdownMediaUrls(client, native, root, now)).map(item => ({ ...item, ...NO_INKS }));
+  return { items: [...await withAccents(client, native, items, videoIds), ...failed.map(item => ({ ...item, ...NO_INKS })), ...media] };
 }
+
+/** media-actions: the URL a sent attachment shows now (its Save and Copy image source), or null. */
+export function cachedAttachmentUrl(client: T3Client, id: string): string | null {
+  return urls.get(JSON.stringify([client.generation, client.environmentId, id]))?.url ?? null;
+}
+/** media-actions: Retry video signs the attachment again (useAssetUrlRefresh). */
+export function forgetAttachmentUrl(client: T3Client, id: string): void { urls.delete(JSON.stringify([client.generation, client.environmentId, id])); }
 
 interface Preview { threadId: string; messageId: string; imageId: string }
 const previews = new WeakMap<T3Client, Preview | null>();

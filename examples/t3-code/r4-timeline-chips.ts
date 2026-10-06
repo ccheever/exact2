@@ -11,6 +11,7 @@ import type { T3Client } from './client';
 import { decodeClientPrefs, type ClientPrefs } from './settings-core';
 import { fontStack } from './settings-appearance';
 import { collectAssistantCitations, parseAssistantCitationHref } from './diff-citations';
+import { markdownMediaChips } from './media-views'; // media-actions: a message's image lines and their actions
 
 export interface ChipView {
   id: string; href: string; kind: string; label: string; size: string; tip: string;
@@ -71,6 +72,8 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
     if (match[1] || !href || isWebHref(href) || /^(data|javascript|mailto|tel):/i.test(href)) continue;
     add({ href: `t3-file:${href}`, kind: 'link', label: match[2]!, size: '', tip: fileLinkTarget(href, root), detail: '', icon: fileIconToken(href), target: '' });
   }
+  // media-actions: an image line's chip (kind "media") is matched by href and kind, so a link to the same file keeps its own.
+  for (const media of markdownMediaChips(text, root)) chips.push({ id: `chip-${chips.length}`, ...media, owner });
   return chips;
 }
 
