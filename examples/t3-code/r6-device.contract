@@ -188,7 +188,7 @@ component R6DeviceWorkspaceView
         box flex=1 min-height=0 width="100%" position="relative" background-color=r6devBackground()
           box hook="t3-media" data-media-kind=`device-${ws.platform}` data-device-id=ws.deviceId data-device-host=ws.hostId data-media-name=ws.name data-device-view=ws.r7.rail.view data-device-ax=ws.r7.rail.ax position="absolute" left=0 top=0 bottom=0 right=(ws.r7.rail.phone ? 0 : 56) role="application" aria-label=ws.screenLabel testId="device-screen"
           when ws.stream.inputNotice != "" or ws.r7.rail.waiting != ""
-            row position="absolute" left=0 right=(ws.r7.rail.phone ? 0 : 56) bottom=0 padding=8 box-sizing="border-box" justify-content="center" inert=true
+            row position="absolute" left=0 right=(ws.r7.rail.phone ? 0 : 56) bottom=0 padding=8 box-sizing="border-box" justify-content="center" pointer-events="none"
               text (ws.stream.inputNotice != "" ? ws.stream.inputNotice : ws.r7.rail.waiting) padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 background-color="light-dark(#fcfcfcd9, #0a0a0ad9)" font-size=12 line-height="16px" color=r6devMuted()
           when ws.stream.status != "streaming"
             box position="absolute" left=0 top=0 right=0 bottom=0
@@ -302,8 +302,8 @@ component R6DeviceMiniPlayer
         when mini.stream.status != "streaming"
           box position="absolute" left=0 top=0 right=0 bottom=0
             R6DeviceLoading(name=mini.name, description=mini.description, message=mini.stream.message, stage="stream", error=mini.stream.error, reconnect=local("surface-r6dev-reconnect", "", mini.key))
-        box position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" inert=true
-      box position="absolute" top=(frame.pillInset - 1) right=(frame.pillInset - 1) width=10 height=10 border-radius=5 border-width=1 border-style="solid" border-color="light-dark(#ffffffb3, #0a0a0ab3)" background-color="light-dark(#0a0a0a40, #fafafa40)" box-sizing="border-box" box-shadow="0 1px 2px 0 #0000000d" opacity=(pill ? 0 : 1) transition=(still ? "opacity 0ms" : "opacity 150ms cubic-bezier(0.4, 0, 0.2, 1)") inert=true
+        box position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" pointer-events="none"
+      box position="absolute" top=(frame.pillInset - 1) right=(frame.pillInset - 1) width=10 height=10 border-radius=5 border-width=1 border-style="solid" border-color="light-dark(#ffffffb3, #0a0a0ab3)" background-color="light-dark(#0a0a0a40, #fafafa40)" box-sizing="border-box" box-shadow="0 1px 2px 0 #0000000d" opacity=(pill ? 0 : 1) transition=(still ? "opacity 0ms" : "opacity 150ms cubic-bezier(0.4, 0, 0.2, 1)") pointer-events="none"
       box position="absolute" top=frame.pillInset right=frame.pillInset width=12 height=12 hover=overDot pan=pan("move") panrelease=release touch-action="none" cursor=(dragging == "move" ? "grabbing" : "grab") testId="device-mini-handle"
       row position="absolute" top=frame.pillInset right=frame.pillInset height=32 padding=2 gap=2 box-sizing="border-box" align-items="center" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="light-dark(#fefefeeb, #171717eb)" box-shadow="0 10px 15px -3px #00000033" opacity=(pill ? 1 : 0) transition=(still ? "opacity 0ms" : "opacity 150ms cubic-bezier(0.4, 0, 0.2, 1)") pointer-events=(pill ? "auto" : "none") hover=overPill pan=pan("move") panrelease=release touch-action="none" cursor=(dragging == "move" ? "grabbing" : "grab") testId="device-mini-pill"
         R6MiniPillButton(icon="panel-right", label="Open preview in right panel", shown=pill, press=local("surface-r6dev-mini-restore", "", ""), focusChange=focusPill("restore"), testId="device-mini-restore")
