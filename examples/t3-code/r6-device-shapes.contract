@@ -53,6 +53,4 @@ shape R6DeviceMini
   deviceId: string
   hostId: string
   stream: R6DeviceStream
-  width: number
-  height: number
-  top: number // lane r12-threads: chatCanvasLayout's frame, from the chat column's top
+  sourceKey: string // previewMiniPlayerSourceKey: a gesture names the source it began on (the frame is the chat canvas's)
