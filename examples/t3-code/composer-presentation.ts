@@ -163,7 +163,7 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   // getTriggerDisplayModelName; the tooltip adds the picker's shortcut (ProviderModelPicker triggerTooltipContent).
   const modelTitle = model ? triggerModelName(model) : client.modelId || 'Choose model', modelShortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M').split(' ')[0] ?? '');
   const { steps, ...layout } = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: !!display.speed,
-    runtime: runtime.label, plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: Math.max(0, anchors.controls.width - 10), // r5-integrate: minus the row's 10pt hit padding (composer-controls.contract)
+    runtime: runtime.label, plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: anchors.controls.width,
     measure: measuredLabels(client.presentation), previous: footerSteps.get(client) });
   footerSteps.set(client, steps);
   // composer-fidelity G11: the "More composer controls" rows for the expanded and the resting footer.

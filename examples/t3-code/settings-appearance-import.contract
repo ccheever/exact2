@@ -133,7 +133,7 @@ component ThemeResult
       text (ext.description == "" ? "A community color theme for your editor." : ext.description) font-size=12 line-height="16px" min-height=32 color=pal.muted line-clamp=2
       row align-items="center" justify-content="space-between" gap=8
         when ext.sourceUrl != ""
-          link href=ext.sourceUrl aria-label=`View source for ${ext.displayName}` width=20 height=20 display="flex" align-items="center" justify-content="center" border-radius=4
+          link cursor="pointer" href=ext.sourceUrl aria-label=`View source for ${ext.displayName}` width=20 height=20 display="flex" align-items="center" justify-content="center" border-radius=4
             when ext.source == "github"
               BrandGitHub(size=14)
             when ext.source == "gitlab"
