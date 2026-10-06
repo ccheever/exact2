@@ -175,9 +175,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       }
       const notes = waiting ? [`reload: waited for ${waiting} storage operation${waiting === 1 ? '' : 's'}`] : [];
       // The fault table as it is now, not as it was at launch (LLP 1103 D3): a cleared or spent fault stays so.
-      const failFetch = faultSpecOf((await s.state().catch(() => ({}))).faults);
+      // A page whose table no fetch or fault request made yet still has its launch's; an unreadable state is an error.
+      const now = await s.state().catch((e) => { throw new Error(`reload: could not read the fault table to carry: ${e.message}`); });
+      const failFetch = now.faults ? faultSpecOf(now.faults) : undefined;
       if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch }); s.now = 0; s.logCursor = 0; s.notes = notes; return; }
-      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars }); s.notes = notes;
+      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars }); s.notes = notes;
     };
     // The clock stands still between steps: what an input started (a reply,
     // a mutation's `then`, a timer, a transition) lands at a clock step. A
@@ -209,11 +211,20 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         const f = (state.faults ?? []).find((e) => e.prefix === prefix);
         if (!f || f.hits === 0) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} times ${f?.times ?? '?'} matched no fetch`);
       };
+      // Before an input while counted faults are outstanding: those that fired leave the check, so a press the app
+      // answers with `close()` cannot take an unfired one's evidence with it (LLP 1103 D3).
+      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'clipboard', 'resize']);
+      const settleFired = async () => {
+        if (!armed.size) return;
+        const faults = (await s.state()).faults ?? [];
+        for (const f of faults) if (f.hits > 0) armed.delete(f.prefix);
+      };
       for (const [n, st] of (failures.length ? [] : t.steps).entries()) {
         const at = `${t.name}: line ${st.line}`;
         if (closedAt != null) { failures.push(`${at}: the window closed at line ${closedAt}, so nothing after it runs`); break; }
         current = st.line;
         try {
+          if (INPUTS.has(st.op)) await settleFired();
           switch (st.op) {
             case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': break; // the session opened with it
             // A driver fault (LLP 1103): a leading one was a launch line; a later one arms (or re-arms) now, a `pass` stops it.
@@ -329,6 +340,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         }
       }
       if (closedAt == null) for (const prefix of [...armed.keys()]) await unfired(prefix);
+      else for (const [prefix, line] of armed) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} matched no fetch before the window closed at line ${closedAt}`);
     } finally {
       // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
       await s.close().catch((e) => { if (closedAt == null) throw e; });

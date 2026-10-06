@@ -159,12 +159,21 @@ About three and a half lane-days.
   - the drive request is a form of `prefer`, so the operation count is unchanged;
   - the production claims are corrected.
 
+  A second pass by both (LAND WITH FIXES) found four more, folded as the third and last round:
+  - `reload` keeps a launch table the page has not made yet;
+  - a window the app closes cannot hide an unfired counted fault;
+  - the render host does not consult faults;
+  - Linux routes `faults` by its top-level key.
+
+  Grok's forced-GET note is not a defect: an uncached forced GET is a new request, which a fault may fail, and the early GET it does not claim is aborted.
+
 ## 7. As built
 
 **The table.** It is one per session, in two places, because the two kinds of executor are two programs.
-- **Native** (Apple, Linux, the render host): the runner holds the table (`runner/src/runner/faults.rs`). Each host's plain-request arm, where it would hand a request to the executor, asks `Runner::fault_dispatch` first. A match is counted there and becomes work that returns `Outcome::Failed { kind: Network }`. The shared native executor (`host/apple/src/executor_core.rs`) now runs a plain request's work instead of the transport, so the request never goes out.
+- **Native** (Apple, Linux): the runner holds the table (`runner/src/runner/faults.rs`). Each host's plain-request arm, where it would hand a request to the executor, asks `Runner::fault_dispatch` first. A match is counted there and becomes work that returns `Outcome::Failed { kind: Network }`. The shared native executor (`host/apple/src/executor_core.rs`) now runs a plain request's work instead of the transport, so the request never goes out.
   - A Hermes source's `fetch` rejects with the prelude's `FetchError('Network')`, as for a refused connection.
   - A module worker's requests take the same arm.
+  - The render host has no driver and never consults it.
 - **The web** (both targets): the page holds the table (`host/web/faults.js`, on `globalThis`, because the builds copy these modules). It is consulted at two points, after the grant check:
   - the wasm host's `request` (`http-body.js`) returns the browser-failure kind;
   - the JS target's `fetchWith` throws `FetchError('Network')`.
@@ -187,7 +196,8 @@ About three and a half lane-days.
 **Tests.**
 - `fail fetch` lines that lead a test (or sit at a file's top level) are launch facts; later ones are steps. Inheritance goes by prefix.
 - `scripts/agent-test.mjs` fails a counted fault that matched no fetch (or whose table no fetch ever made), at the line that armed it: at the test's end, before it is armed again, or before a `close`.
-- `reload` relaunches with `state.faults` as the launch table. On the web, the page reloads with the new `failFetch`.
+- Before each input while counted faults are outstanding, the runner reads `state.faults` and drops those that have fired. A press the app answers with `close()` therefore cannot take an unfired fault's evidence with it: one still outstanding when the window closes fails the test.
+- `reload` relaunches with `state.faults` as the launch table. A page whose table no fetch or fault request has made yet keeps its launch's, and an unreadable state is an error. On the web, the page reloads with the new `failFetch`.
 
 **Verified.**
 - A scratch app's four tests pass on the web JS target, the wasm web host, macOS and an iOS simulator:

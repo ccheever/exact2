@@ -394,7 +394,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         },
         Some("clock") => clock(p, line),
         // A fetch fault (LLP 1103) is the runner's; the device facts are this presenter's.
-        Some("prefer") if line.contains("\"faults\"") => p.host().agent(line),
+        Some("prefer") if top_level(line, "faults") => p.host().agent(line),
         Some("prefer") => prefer(p, line),
         Some("screenshot") => match field_str(line, "path") {
             Some(path) => p.screenshot(&path).unwrap_or_else(|e| error(&e)),
@@ -402,6 +402,12 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         },
         _ => p.host().agent(line),
     }
+}
+
+/// Whether a request names `key` at its top level (not a value or a
+/// nested field that happens to spell it).
+fn top_level(line: &str, key: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(line).is_ok_and(|v| v.get(key).is_some())
 }
 
 /// `prefer` (LLP 1061 D5; LLP 1069.000 D6): the device facts by their web
