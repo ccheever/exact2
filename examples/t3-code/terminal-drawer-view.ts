@@ -21,7 +21,7 @@ import type { OpOut } from './client-ops';
 import type { DispatchAdd } from './keyboard-dispatch';
 import { arr, obj, str, type Obj } from './domain';
 import { activeRun, ClientError, type Files, type Native } from './protocol';
-import { terminalLayout, terminalSplitLabel, type TerminalPaneView, type TerminalTabView } from './terminal-layout';
+import { terminalLayout, terminalSplitLabel, terminalTabs, type TerminalPaneView, type TerminalTabView } from './terminal-layout';
 import { focusedTerminal, recordTerminalFocus, clearTerminalFocus, terminalFocused } from './terminal-focus';
 import { chordWinners } from './keyboard-dispatch';
 import { terminalPanelIds, terminalPanelRetained } from './terminal-panel';
@@ -263,11 +263,7 @@ export async function terminalDrawerView(client: T3Client, native: Native | null
   const labelFor = (id: string) => resolveTerminalSessionLabel(id, ref ? knownSessions(client, ref).find(session => session.target.terminalId === id)?.state.summary : null);
   const panes = layout.visible.map(id => ({ terminalId: id, label: labelFor(id), sessionKey: ref ? sessionKey(ref, id) : '', active: id === terminalId,
     focusRequest: ui.terminalOpen && id === terminalId ? drawer.focusRequest : 0, target: `${threadKey}|${id}` }));
-  const tabs = ui.terminalGroups.flatMap(group => group.terminalIds.map((id, index) => {
-    const label = labelFor(id), [closeTitle, closeBody] = terminalCloseConfirmMessage([label]);
-    return { id, label, heading: layout.showHeaders && index === 0 ? group.terminalIds.length === 1 ? 'Single' : group.splitDirection === 'vertical' ? 'Stacked' : 'Side by side' : '',
-      count: group.terminalIds.length, active: id === terminalId, target: `${threadKey}|${id}`, closeTitle, closeBody };
-  }));
+  const tabs = terminalTabs(ui.terminalGroups, terminalId, layout.showHeaders, threadKey, labelFor, ui.terminalOpen ? keyClose : '');
   return {
     available: terminalAvailable(client), open: !!launch && ui.terminalOpen, threadKey: ref ? scopedThreadKey(ref) : '', environmentId: ref?.environmentId ?? '', threadId: ref?.threadId ?? '',
     terminalId, label, cwd: launch?.cwd ?? '', worktree: launch?.worktreePath ?? '', env: JSON.stringify(launch?.env ?? {}),

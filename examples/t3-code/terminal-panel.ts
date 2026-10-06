@@ -1,4 +1,4 @@
-import { terminalSplitLabel } from './terminal-layout';
+import { terminalLayout, terminalSplitLabel, terminalTabs } from './terminal-layout';
 import { commandShortcut } from './shell';
 import { recordTerminalFocus, clearTerminalFocus } from './terminal-focus';
 // T3 Code 1e2ecbd975 rightPanelStore and ChatView terminal surface actions.
@@ -42,11 +42,36 @@ export function terminalSurfaceCloseCopy(client: T3Client, surface: Surface): { 
 export async function addTerminalSurface(client: T3Client, native: Native): Promise<void> {
   const ref = await ensureTerminalRef(client, native);
   if (!ref || !launchFor(client, ref.threadId)) return;
-  const terminalId = nextTerminalId(allocatableIds(client, ref)), state = panelState(client);
-  state.surfaces.push({ id: `terminal:${terminalId}`, kind: 'terminal', path: '', line: 0, reveal: 0,
-    terminal: { terminalIds: [terminalId], activeTerminalId: terminalId, splitDirection: 'horizontal' } });
-  state.active = `terminal:${terminalId}`; state.visible = true; client.diffOpen = false; focusPanelTerminal(client);
+  const terminalId = nextTerminalId(allocatableIds(client, ref));
+  openTerminalSurface(panelState(client), terminalId); client.diffOpen = false; focusPanelTerminal(client);
   await openTerminal(client, native, ref, terminalId);
+}
+// rightPanelStore.ts:715-790 openTerminal / splitTerminal / activateTerminal / closeTerminal over the clone's
+// PanelState (`active`, `visible`); closeTerminal is removePanelTerminal.
+/** openTerminal: one surface per terminal session, upserted and made active in an open panel. */
+export function openTerminalSurface(state: PanelState, terminalId: string): Surface {
+  const id = `terminal:${terminalId}`;
+  let surface = state.surfaces.find(entry => entry.id === id);
+  if (!surface) {
+    surface = { id, kind: 'terminal', path: '', line: 0, reveal: 0, terminal: { terminalIds: [terminalId], activeTerminalId: terminalId, splitDirection: 'horizontal' } };
+    state.surfaces.push(surface);
+  }
+  state.active = id; state.visible = true;
+  return surface;
+}
+/** splitTerminal: the new pane goes last and becomes active; the split's direction becomes the surface's. */
+export function splitTerminalSurface(state: PanelState, surfaceId: string, terminalId: string, direction: 'horizontal' | 'vertical' = 'horizontal'): void {
+  const terminal = state.surfaces.find(entry => entry.id === surfaceId && entry.kind === 'terminal')?.terminal;
+  state.visible = true; state.active = surfaceId;
+  if (!terminal) return;
+  if (!terminal.terminalIds.includes(terminalId)) terminal.terminalIds.push(terminalId);
+  terminal.activeTerminalId = terminalId; terminal.splitDirection = direction;
+}
+/** activateTerminal: selects the surface and, when it holds the pane, the pane. */
+export function activateTerminalPane(state: PanelState, surfaceId: string, terminalId: string): void {
+  state.active = surfaceId;
+  const terminal = state.surfaces.find(entry => entry.id === surfaceId && entry.kind === 'terminal')?.terminal;
+  if (terminal?.terminalIds.includes(terminalId)) terminal.activeTerminalId = terminalId;
 }
 export function removePanelTerminal(state: PanelState, surface: Surface, terminalId: string): void {
   const terminal = surface.terminal;
@@ -103,11 +128,10 @@ export async function terminalPanelLocal(client: T3Client, native: Native, op: s
   if (op === 'split' || op === 'split-vertical') {
     if (terminal.terminalIds.length >= 4 || !launchFor(client, ref.threadId)) return '';
     const next = nextTerminalId(allocatableIds(client, ref));
-    terminal.terminalIds.push(next); terminal.activeTerminalId = next;
-    terminal.splitDirection = op === 'split-vertical' ? 'vertical' : 'horizontal'; focusPanelTerminal(client);
+    splitTerminalSurface(state, surface.id, next, op === 'split-vertical' ? 'vertical' : 'horizontal'); focusPanelTerminal(client);
     await openTerminal(client, native, ref, next);
   } else if (op === 'activate' || op === 'focus') {
-    if (terminal.terminalIds.includes(terminalId)) { terminal.activeTerminalId = terminalId; focusPanelTerminal(client); }
+    if (terminal.terminalIds.includes(terminalId)) { activateTerminalPane(state, surface.id, terminalId); focusPanelTerminal(client); }
   } else if (op === 'close' || op === 'exited') {
     let target = terminalId;
     if (op === 'exited') { try { target = str(obj(JSON.parse(value)).terminalId); } catch { return ''; } }
@@ -125,13 +149,19 @@ export function terminalPanelView(client: T3Client, base: TerminalDrawerView, su
   const [closeTitle, closeBody] = terminalCloseConfirmMessage([label]);
   const panes = terminal.terminalIds.map(id => ({ terminalId: id, label: panelTerminalLabel(client, id), sessionKey: JSON.stringify([ref.environmentId, ref.threadId, id]),
     active: id === terminalId, focusRequest: id === terminalId ? focus.get(client) ?? 0 : 0, target: `${threadKey}|${id}` }));
+  // RightPanelTerminalSurface: the surface is the drawer component's one group, so 2+ panes show the tab list.
+  const groups = [{ id: surface.id, terminalIds: terminal.terminalIds, splitDirection: terminal.splitDirection }];
+  const layout = terminalLayout(terminal.terminalIds, groups, terminalId, surface.id);
+  const keyClose = commandShortcut(client.config, 'terminal.close'), keyNew = commandShortcut(client.config, 'terminal.new');
+  const tabs = layout.showTabs ? terminalTabs(groups, terminalId, layout.showHeaders, threadKey, id => panelTerminalLabel(client, id), keyClose) : [];
   return { ...base, open: !!launch, available: !!launch, threadKey, environmentId: ref.environmentId, threadId: ref.threadId,
     terminalId, label, cwd: launch?.cwd ?? '', worktree: launch?.worktreePath ?? '', env: JSON.stringify(launch?.env ?? {}),
     closeTitle, closeBody, sessionKey: JSON.stringify([ref.environmentId, ref.threadId, terminalId]), focusRequest: focus.get(client) ?? 0,
-    keybindings: terminalKeybindings(client), commandPrefix: 'terminalpanellocal', surface: surface.id, panes, tabs: [], direction: terminal.splitDirection === 'vertical' ? 'column' : 'row',
-    showTabs: false, splitDisabled: terminal.terminalIds.length >= 4,
-    splitLabel: terminalSplitLabel(false, terminal.terminalIds.length >= 4, commandShortcut(client.config, 'terminal.split')),
-    splitVerticalLabel: terminalSplitLabel(true, terminal.terminalIds.length >= 4, commandShortcut(client.config, 'terminal.splitVertical')) };
+    closeLabel: keyClose ? `Close Terminal (${keyClose})` : 'Close Terminal', newLabel: keyNew ? `New Terminal (${keyNew})` : 'New Terminal',
+    keybindings: terminalKeybindings(client), commandPrefix: 'terminalpanellocal', surface: surface.id, panes, tabs, direction: layout.direction,
+    showTabs: layout.showTabs, splitDisabled: layout.splitDisabled,
+    splitLabel: terminalSplitLabel(false, layout.splitDisabled, commandShortcut(client.config, 'terminal.split')),
+    splitVerticalLabel: terminalSplitLabel(true, layout.splitDisabled, commandShortcut(client.config, 'terminal.splitVertical')) };
 }
 
 export async function terminalPanelOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
