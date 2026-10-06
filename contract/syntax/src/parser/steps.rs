@@ -636,7 +636,7 @@ impl Parser {
                     other => {
                         // r32 t1 tried `expect value` for a field.
                         let hint = if other == "value" || other == "checked" {
-                            "; `expect text` reads a control's value too (a checkbox's is `true` or `false`)"
+                            "; `expect text` reads a control's value too (a checkbox with a `checked` binding reads `true` or `false`)"
                         } else {
                             ""
                         };

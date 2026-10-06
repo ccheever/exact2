@@ -59,7 +59,7 @@ fn expect_value_says_text_reads_a_controls_value() {
     assert_eq!(e.id, "syntax-expected-step", "{e}");
     assert!(
         e.message.ends_with(
-            "not `value`; `expect text` reads a control's value too (a checkbox's is `true` or `false`)"
+            "not `value`; `expect text` reads a control's value too (a checkbox with a `checked` binding reads `true` or `false`)"
         ),
         "{e}"
     );
