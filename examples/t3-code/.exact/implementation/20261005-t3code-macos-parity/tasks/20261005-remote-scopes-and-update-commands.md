@@ -2,7 +2,7 @@
 name: 20261005-remote-scopes-and-update-commands
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: unverified
+verification: failed
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
@@ -169,6 +169,27 @@ pasteboard: npx t3@0.0.46-nightly.20261004.1   (the previous text pasteboard was
 
 ## Next action
 
-Review the PR. Confirm U12 (default taken: leave three-scope sessions as they are). After
-`20261005-desktop-oracle-and-trace` merges, run trace-diff T0 and redeem a Read only link on the
-oracle to confirm the refusal text; then `verify`.
+Verification failed on source `60a28292df26bda45397934b6598e2f55d5a3053`: the manual-update
+control receives keyboard focus and responds to Space/Return, but no visible focus ring
+appears. Independent review confirmed this acceptance failure. Repair and reverify the
+focus indicator before closing the task; its underlying cause has not been established.
+
+The [complete verification report](../evidence/20261005-remote-scopes-and-update-commands/20261006-complete-verification/README.md)
+contains normal macOS and actual Electron runtime evidence: matching ordered five-scope
+exchanges; read-only rejection with matching text and consumed links; 28 installation,
+size and theme cases per app; desktop-managed wording; keyboard activation; and the
+same message/approval flow with provider `accept` receipts. Root and app checks pass
+with pinned Bun. Full normalized T0 payload/result trace equivalence remains unproven;
+the report distinguishes semantic behavior and scope comparison from full trace parity.
+
+Previous evidence is retained: [initial runtime review](../evidence/20261005-remote-scopes-and-update-commands/20261006-macos-runtime-review/README.md),
+[install kinds and pasteboard failure/retry](../evidence/20261005-remote-scopes-and-update-commands/20261006-install-kinds-and-lock-diagnosis/README.md),
+and [unlocked legacy-session chat/restart](../evidence/20261005-remote-scopes-and-update-commands/20261006-unlocked-legacy-session/README.md).
+The normal legacy-format fixture retains its same session and three scopes; no automatic
+permission migration occurs. U12 is still an included, unanswered decision. Recorded
+merge prerequisites remain unresolved. Earlier oracle/focus availability blockers were
+superseded by this attempt; the observed focus rendering defect remains.
+
+Product source was not changed during verification. Fixture processes, Keychain entries
+and preferences were cleaned up. Evidence and this task update are local and staged;
+no commit, PR publication or merge was performed.

@@ -1,0 +1,33 @@
+{
+  "tabSequence": [
+    "67 button Appearance.",
+    "68 button Keybindings.",
+    "69 button SnapShots.",
+    "70 button Providers.",
+    "71 button Integrations.",
+    "72 button Scheduled Tasks.",
+    "73 button Source Control.",
+    "74 button Storage.",
+    "75 button (selected) Connections.",
+    "76 button Archive.",
+    "77 button Back.",
+    "78 button Focus settings search.",
+    "86 button Add environment.",
+    "89 button Copy relaunch command for Daehyeon\u2019s MacBook Pro server."
+  ],
+  "activations": [
+    {
+      "key": "Space",
+      "clipboard": "npx t3@0.0.46-nightly.20261004.1",
+      "expectedCommand": true,
+      "toast": true
+    },
+    {
+      "key": "Return",
+      "clipboard": "npx t3@0.0.46-nightly.20261004.1",
+      "expectedCommand": true,
+      "toast": true
+    }
+  ],
+  "clipboardRestored": true
+}

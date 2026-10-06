@@ -1,0 +1,4 @@
+PASS npm-global native control + clipboard + toast
+PASS pnpm-dlx native control + clipboard + toast
+PASS bunx native control + clipboard + toast
+PASS npx native control + clipboard + toast

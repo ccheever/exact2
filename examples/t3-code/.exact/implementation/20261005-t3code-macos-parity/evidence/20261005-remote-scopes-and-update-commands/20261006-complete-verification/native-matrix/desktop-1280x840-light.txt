@@ -1,0 +1,117 @@
+App=com.exact.t3code.scope-review (pid 88845)
+Window: "T3 Code (Exact)", App: T3 Code (Exact).
+
+0 standard window T3 Code (Exact)
+	1 scroll area, Secondary Actions: scroll up, scroll down
+		2 button Toggle sidebar
+		3 button Go to threads
+		4 text Search
+		5 text field (disabled) Search threads
+		6 button Filter threads by project
+		7 button Add project
+		8 button New thread
+		9 scroll area, Secondary Actions: scroll up, scroll down
+			10 button Legacy scope verification. Reply with LEGACY_SCOPE..., 16140
+			11 button Legacy scope verification. Reply with LEGACY_SCOPE..., 16140
+			12 button New thread, 16140
+			13 button New thread, 16140
+			14 button Toggle Settled
+		15 button Settings
+		16 button Pull Requests
+		17 button Usage
+		18 button New thread in 16140
+		19 text /
+		20 button Thread actions for Legacy scope verification. Reply with LEGACY_SCOPE...
+		21 button (expanded) Toggle thread details panel
+		22 button (disabled) Toggle terminal drawer
+		23 button Toggle right panel
+		24 scroll area, Secondary Actions: scroll up, scroll down
+			25 text Legacy scope verification. Reply with LEGACY_SCOPE_OK.
+			26 text 4:42 PM
+			27 button Copy message
+			28 text LEGACY_SCOPE_OK
+			29 button Fork from this response
+			30 button Copy message
+			31 text 4:42 PM
+		32 scroll area, Secondary Actions: scroll up, scroll down
+			33 text entry area Message
+			34 scroll bar (disabled) 0
+		35 button Choose provider and model
+		36 button Medium
+		37 button Runtime mode
+		38 button Attach files
+		39 button (disabled) Submit message
+		40 scroll area, Secondary Actions: scroll up, scroll down
+			41 text 16140
+			42 button Open in Cursor
+			43 button Choose editor
+			44 button Add project script
+			45 button Branch: Select ref
+			46 container Git actions
+				47 button Git action options
+				48 button Commit & push
+			49 button Changes +24731 -54
+			50 scroll bar 0
+				51 value indicator 0
+				52 increment arrow button
+				53 decrement arrow button
+				54 increment page button
+				55 decrement page button
+			56 scroll bar 0
+				57 value indicator 0
+				58 increment arrow button
+				59 decrement arrow button
+				60 increment page button
+				61 decrement page button
+		62 button Toggle sidebar
+		63 button Go to threads
+		64 text Search
+		65 text field (settable) Search settings
+		66 text /
+		67 scroll area, Secondary Actions: scroll up, scroll down
+			68 button General
+			69 button Appearance
+			70 button Keybindings
+			71 button SnapShots
+			72 button Providers
+			73 button Integrations
+			74 button Scheduled Tasks
+			75 button Source Control
+			76 button Storage
+			77 button (selected) Connections
+			78 button Archive
+		79 button Back
+		80 button Focus settings search
+		81 text Settings
+		82 text Connections
+		83 scroll area, Secondary Actions: scroll up, scroll down
+			84 heading This machine
+			85 heading Administrative access
+			86 text Pairing links and client-session management require the access:write scope for this backend.
+			87 heading Environments
+			88 button Add environment
+			89 text Daehyeon’s MacBook Pro
+			90 text http://127.0.0.1:16140/ · Connected · 0.0.45
+			91 button Copy relaunch command for Daehyeon’s MacBook Pro server
+			92 switch Switch off Daehyeon’s MacBook Pro, Value: 1
+			93 button More actions for Daehyeon’s MacBook Pro
+			94 text Scope fixture
+			95 text http://127.0.0.1:16158/ · Connected · 0.0.44
+			96 text Update the desktop app on that machine to update this server.
+			97 switch Switch off Scope fixture, Value: 1
+			98 button More actions for Scope fixture
+			99 button Load balancing Off
+			100 switch Automatically balance load, Value: 0
+			101 button GitHub sharing Off
+		102 button Settings
+		103 button Back
+		104 button Toggle Theme Editor
+		105 heading Relaunch command copied
+		106 text Stop t3 on Scope fixture server, then relaunch with `npx t3@0.0.46-nightly.20261004.1` using the same subcommand and options. This does not update an installed t3 command.
+		107 button Dismiss notification
+	108 toolbar
+	109 close button
+	110 full screen button, Secondary Actions: zoom the window
+	111 minimize button
+
+The focused UI element is 0 standard window T3 Code (Exact).

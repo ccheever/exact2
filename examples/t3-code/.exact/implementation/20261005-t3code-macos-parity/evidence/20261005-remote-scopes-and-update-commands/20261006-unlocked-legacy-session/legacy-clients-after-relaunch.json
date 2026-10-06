@@ -1,0 +1,23 @@
+[
+  {
+    "sessionId": "6a8f4620-4f2c-477e-84d0-d445d53c7c12",
+    "subject": "one-time-token",
+    "scopes": [
+      "orchestration:read",
+      "orchestration:operate",
+      "review:write"
+    ],
+    "method": "bearer-access-token",
+    "client": {
+      "label": "unlocked-legacy-three-scopes",
+      "ipAddress": "127.0.0.1",
+      "userAgent": "Python-urllib/3.9",
+      "deviceType": "desktop"
+    },
+    "issuedAt": "2026-10-06T07:39:00.882Z",
+    "expiresAt": "2026-11-05T07:39:00.882Z",
+    "lastConnectedAt": "2026-10-06T07:43:26.312Z",
+    "connected": true,
+    "current": false
+  }
+]

@@ -1,0 +1,59 @@
+[
+  {
+    "kind": "npm-global",
+    "port": 16142,
+    "descriptor": {
+      "environmentId": "39468849-05c1-4ac2-94cc-a44fbf5568cc",
+      "label": "Daehyeon’s MacBook Pro",
+      "platform": {
+        "os": "darwin",
+        "arch": "arm64",
+        "machine": "laptop"
+      },
+      "serverVersion": "0.0.45",
+      "orchestrationProtocolVersion": 2,
+      "capabilities": {
+        "repositoryIdentity": true,
+        "connectionProbe": true,
+        "attachmentUploads": true,
+        "questionAttachments": true,
+        "fileAttachments": {
+          "maxUploadBytes": 52428800
+        },
+        "pullRequests": true,
+        "pullRequestChecks": true,
+        "inlineMessageContext": true,
+        "requiredWorktreeBootstrap": true,
+        "threadSettlement": true,
+        "threadAutoSettlement": true,
+        "storageCleanup": true,
+        "projectWorktreeCleanup": true,
+        "threadRestartContinuation": true,
+        "projectSettingsOverrides": true,
+        "threadSnooze": true,
+        "environmentThemes": true,
+        "usageLimitSources": true,
+        "usagePriceOverrides": true,
+        "usageModelAliases": true,
+        "threadPinning": true,
+        "threadPinReorder": true,
+        "threadActiveReorder": true,
+        "threadAutoSettleOptOut": true,
+        "threadTitleRegeneration": true,
+        "threadVisitedTracking": true,
+        "threadPullRequestLinking": true,
+        "serverResolvedCommandContext": true,
+        "threadPullRequests": true,
+        "threadPullRequestWatch": true,
+        "pullRequestStackActions": true,
+        "serverInstallation": {
+          "kind": "npm-global",
+          "prefix": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/rsu-followup/npm prefix's"
+        },
+        "agentActivityPublishing": false,
+        "projectCloneTracking": true,
+        "environmentIcon": true
+      }
+    }
+  }
+]
