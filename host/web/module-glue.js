@@ -191,7 +191,7 @@ export async function prepare(payload, admitted, id = nextId++) {
       },
     };
     const release = (owner, callId) => {
-      if (win.__exact_forget(String(callId)) !== 'storage') { storage.retire(owner); return; }
+      if (!String(win.__exact_forget(String(callId))).startsWith('storage')) { storage.retire(owner); return; } // 'storage', or 'storage rejected' (its fetches rejected too)
       owed.set(callId, owner);
       const run = tail.then(() => finishLetGo(storage, owed, letGoHooks));
       tail = run.catch(() => {});

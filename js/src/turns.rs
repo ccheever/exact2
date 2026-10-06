@@ -68,11 +68,12 @@ impl Module {
         // they start is the background's, not refused as at bake.
         if rejected {
             self.host.between_answers = true;
-            // An interrupt ends the job it stopped; the jobs queued behind it
-            // still run here, not in the next answer's drain (a bounded
-            // number of tries: each one pops at least the job it stopped).
+            // An interrupt (or a job that throws) ends the job it stopped;
+            // the jobs queued behind it still run here, not in the next
+            // answer's drain. Each try pops at least the job it stopped; the
+            // bound only ends an endless chain of failing jobs.
             let mut drained = engine.drain();
-            for _ in 0..8 {
+            for _ in 0..1024 {
                 if drained.is_ok() {
                     break;
                 }
