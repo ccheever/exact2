@@ -515,8 +515,9 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact install <app>          put it in ~/Applications and its name on PATH
   exact release <app>          sign with a Developer ID, notarise, staple, package
   exact uninstall <app>        take both away
-  exact setup [--check]        install pinned Rust, wasm-bindgen and Binaryen,
-                               and fetch the crates every bake reads offline
+  exact setup [--check]        install pinned Rust, wasm-bindgen, Binaryen and
+                               the host Hermes bundle; print optional iOS targets;
+                               fetch the crates every bake reads offline
   exact list                   the apps in this repo
   exact new <path> [--update]  a new app outside this repo, using this checkout;
                                --update follows a moved checkout or a new patch

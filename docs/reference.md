@@ -28,9 +28,10 @@ The verified install lives under `~/.cargo/hermes-lean-sys/`. Exact sets
 `HERMES_LEAN_SYS_OFFLINE=1` in `.cargo/config.toml`, so an ordinary build
 neither downloads a bundle nor compiles Hermes; a missing install fails with
 the one-time command. `HERMES_LEAN_SYS_DIR` remains a development override.
-E1 supports macOS and Linux and deliberately leaves Linux Intl off; E2 adds
-the v4 tvOS, Windows, and Linux English-Intl tiers. A Rust-only app needs no
-engine at run time.
+E1 supports macOS, Linux, iOS devices, and the universal iOS Simulator bundle,
+and deliberately leaves Linux Intl off; E2 adds the v4 tvOS, Windows, and Linux
+English-Intl tiers. A Rust-only app needs no engine at run time. `exact setup`
+installs the host bundle; on macOS its report prints the iOS target commands.
 
 ### Windows TypeScript
 
@@ -38,9 +39,9 @@ The former private `260318099.0.0` build is superseded. Native Windows
 TypeScript is intentionally deferred in E1: E2 will re-vendor Ibex's v4 pins,
 use its debugger-off lean Windows bundle with OS-backed Intl, and requalify the
 ordinary app path described by
-[LLP 1027.006](../llp/1027.006-windows-native-typescript.plan.md). Do not use
-`js/build-windows.ps1` or its old `%LOCALAPPDATA%/Exact/hermes` cache as the
-engine for this snapshot. `EXACT_JS_ENGINE=stub` remains the Hermes-free,
+[LLP 1027.006](../llp/1027.006-windows-native-typescript.plan.md). Do not
+resurrect Exact's deleted private source builder or use its old
+`%LOCALAPPDATA%/Exact/hermes` cache for this snapshot. `EXACT_JS_ENGINE=stub` remains the Hermes-free,
 refusing build for CI; it cannot bake a working TypeScript app.
 
 Windows application storage uses the current user's LocalAppData known folder,

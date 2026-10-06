@@ -373,7 +373,7 @@ Contract libraries: \`use Card from "@scope/ui"\` reads an installed package's
 built-in. Each file sees only the names its \`use\` lines list.
 
 Generated, so don't edit: the \`[patch.crates-io]\` table in \`Cargo.toml\`,
-\`rust-toolchain.toml\`, \`exact.mjs\`, and this block.
+\`rust-toolchain.toml\`, \`.cargo/config.toml\`, \`exact.mjs\`, and this block.
 
 ${readFileSync(resolve(ROOT, 'docs/diary.md'), 'utf8').replace(/^#/gm, '##').trimEnd()}
 ${END}

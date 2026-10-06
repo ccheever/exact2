@@ -922,20 +922,22 @@ provisioning. The install-once installer performs acquisition explicitly;
 offline builds set `HERMES_LEAN_SYS_OFFLINE` and never download or compile an
 engine in `build.rs`. Waiting would only make the migration gnarlier.
 
-**iOS execution (Codex, 2026-09-07; provisioning superseded 2026-10-06).** `js/build.rs` selects lean CMake archives
-for the actual Rust target: `ios-simulator` for `*-ios-sim`/x86 iOS, `ios` for
-devices. The host bake still uses the macOS VM/compiler; its shim explicitly
-selects the macOS SDK even when the parent build targets iOS. All three engine
-archives are copied into `OUT_DIR`, so normal bake receipts inventory the
-actual linked engine inputs. Missing target archives produce a named refusing
-stub, not an apparent working executor. Rust-only clients still link no VM.
+**iOS execution (Codex, 2026-09-07; acquisition replaced 2026-10-06).**
+`hermes-lean-sys` selects the digest-pinned Ibex v3 bundle for the actual Rust
+target: `aarch64-apple-ios` for a device and the universal iOS Simulator asset
+for `aarch64-apple-ios-sim` or `x86_64-apple-ios`. The paired host bundle
+supplies `hermesc`; the target bundle supplies the lean archive. Cargo builds
+are forced offline. Before invoking Cargo, `host/apple/build.mjs` checks that
+the selected target bundle is installed and, when it is absent, refuses with
+the exact `hermes-lean-sys-installer --target <triple>` command. v3 has no tvOS
+bundle, so a tvOS app with `app.ts` refuses explicitly until E2 re-vendors v4.
+Rust-only clients still link no VM.
 
-The historical provisioning below used pristine Hermes at the commit `js/build.rs` pinned
-(`HERMES_PIN`, the one place it is written), matching the sibling ibex vanilla
-headers and compiler. Do not substitute the full iOS framework (it embeds
-a compiler). `host/apple/build.mjs --ios` runs this recipe itself when a
-platform's archives are missing (LLP 1036.001 D5). For each platform it
-configures the source with CMake:
+**Dated history — retired 2026-10-06.** The 2026-09-07 implementation built
+three lean archives from pristine Hermes source at Exact's private pin. It did
+not substitute the full iOS framework (which embeds a compiler). For each
+platform it configured the source with CMake as follows; this is measurement
+history, not a supported provisioning recipe:
 
 ```sh
 cmake -S <matching-hermes-source> -B <build-dir> -G Ninja \
@@ -949,15 +951,14 @@ cmake -S <matching-hermes-source> -B <build-dir> -G Ninja \
 cmake --build <build-dir> --target hermesvmlean_a jsi boost_context -j 8
 ```
 
-For device use `iphoneos`. The import file defines an `IMPORTED` executable
+For device it used `iphoneos`. The import file defined an `IMPORTED` executable
 `imported-hermesc` with `IMPORTED_LOCATION` pointing to the matching macOS
-compiler. These output paths are kept under each of
+compiler. Its output paths were kept under each of
 `~/.cache/exact/hermes/<pin>-lean-ios/{ios,ios-simulator}/`:
 `lib/libhermesvmlean_a.a`, `jsi/libjsi.a`, and
 `external/boost/boost_1_86_0/libs/context/libboost_context.a`.
-`EXACT_HERMES_IOS_DIR` overrides that root. The build receipt names these
-archives relative to the root. `EXACT_HERMES_DIR` continues to supply
-`hermes-headers` and `macos-static`.
+That private cache, its overrides, and the CMake provisioner were deleted when
+the attested Ibex bundles became the one acquisition path.
 
 An external L=0 module client built with ordinary `host/apple/build.mjs --ios`
 ran on iPhone 17 Pro / iOS 26.5 simulator: async after `Promise.resolve()`, two
@@ -1441,6 +1442,7 @@ p50 where repeated.
 | `hermesc` alone (2026-09-03, Charlie's question): the 6 KB module, process start included | **7 ms** (10 runs, 70 ms) |
 | `hermesc` on synthetic bundles, `-O0` / `-O` | 100 KB: 20 / 20 ms · 1 MB: 0.21 / 0.27 s · 5 MB: 1.0 / 1.7 s — about 3–5 MB/s of source; `-O` dead-code-eliminates, so those bytecode sizes are not comparable; the real module is 1.85× its script |
 | Runtime create · bytecode load (n=20) | **0.322 ms · 0.008 ms** |
+| Ibex bindings-door adoption, incremental (2026-10-06) | **+259 KB stripped (+4.8%) · +2.2 ms per module load** — universal hardening, deferred intrinsic capture, and group install; Ibex tracks reducing it |
 | Cases byte-identical (values) or equal (errors) | **20 / 20** — six sources, three argument sets of `board` (a full day, a terminus, mid-day), three of `search` (one hit, three, all), six error paths with the crate's exact messages |
 | `login`: `answer` → request; `parse(200)` → a `Session` record; `parse(Refused)` → the crate's exact refusal text | as designed (D1) |
 
@@ -1481,12 +1483,16 @@ reads only).
 
 ## 6. Costs and budgets
 
-- **Binary:** +1.8 MB per native binary that links `exact-js` —
-  TypeScript apps only; a Rust-only app pays nothing (D3). Against
+- **Binary:** the original lean-engine probe measured +1.8 MB per native binary
+  that links `exact-js`. The 2026-10-06 Ibex bindings-door adoption adds
+  **259 KB stripped (+4.8%)** to the shipping comparison; Ibex tracks reducing
+  it. TypeScript apps only; a Rust-only app pays nothing (D3). Against
   `rules/RULES.md`'s budgets it is not on any; against the phone it
   is the one number §10 asks about first, as LLP 1026 did for its 1.0.
-- **Boot:** +0.33 ms, after first pixel (D4); the first-frame budget is
-  untouched by construction. The one frame of `pending` for a
+- **Boot:** the original probe measured +0.33 ms. The 2026-10-06 bindings door
+  adds **2.2 ms per module load** for universal hardening, deferred intrinsic
+  capture, and group install. Both remain after first pixel (D4); the
+  first-frame budget is untouched by construction. The one frame of `pending` for a
   store-reading resource is the observable cost.
 - **Per call:** microseconds to tens of microseconds, per resource
   change, never per frame (§5). The 100 ms per-call budget is a runtime

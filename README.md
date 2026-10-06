@@ -9,17 +9,20 @@ agent can build it, run it, see it, and test it on every one of them.**
 >
 > ```text
 > Clone https://github.com/ccheever/exact2 and follow its README to make a new Exact
-> app with `exact new`: a todo list where I can add items, check them off, delete them,
+> app with `exact new`. Run `bun scripts/exact.mjs setup` once first, and install the
+> pinned iOS Simulator Hermes bundle with the target command setup prints. Make a todo
+> list where I can add items, check them off, delete them,
 > and see how many are left. Put the view in Contract and keep the list in `app.ts`.
 > Write an `app.test.contract`, pass it on web, macOS, and the iOS Simulator with
 > `scripts/agent.mjs`, then open the app for me on all three.
 > ```
 >
-> A fresh agent given this prompt on a clean clone (2026-10-04, Hermes already in the
+> A fresh agent given the earlier version of this prompt on a clean clone (2026-10-04, Hermes already in the
 > machine cache, Cargo's cache warm) finished in about 57 minutes, and its tests passed
 > on all three platforms. About 25 of those minutes were the first macOS and iOS builds,
 > roughly 13 minutes each; later builds take a minute or two. On a machine that has
-> never built Hermes, that build comes first and adds time.
+> lacked Hermes, its source build came first and added time. Current setup downloads and
+> verifies the pinned host/iOS bundles once instead; ordinary builds stay offline.
 
 <table>
   <tr>
@@ -212,8 +215,9 @@ Linux host.
   ```
 
   The installer verifies the bundle and publishes it under
-  `~/.cargo/hermes-lean-sys/`. E1 supports macOS and Linux; tvOS and Windows
-  bundles follow in E2. `HERMES_LEAN_SYS_DIR` is only an explicit development
+  `~/.cargo/hermes-lean-sys/`. E1 supports macOS, Linux, iOS devices, and the
+  universal iOS Simulator bundle; tvOS and Windows bundles follow in E2.
+  `HERMES_LEAN_SYS_DIR` is only an explicit development
   override, not normal setup.
 
 To install the pinned Bun beside any existing installation:
@@ -221,11 +225,13 @@ To install the pinned Bun beside any existing installation:
 Use `~/.bun-1.4.2/bin/bun` for the commands below if it is not on your PATH.
 `bun scripts/exact.mjs setup` installs the declared stable and web nightly Rust
 toolchains, their components/targets (the nightly's clippy lints a game's web bake),
-matching wasm-bindgen, pinned Binaryen and Bun dependencies, and fetches the crates
+matching wasm-bindgen, pinned Binaryen and Bun dependencies, installs the pinned
+Hermes host bundle, and fetches the crates
 of exact2's lock and the game SDK's (`game/app/shells.lock`), since every bake
 resolves offline. It keeps Binaryen in `~/.cache/exact/binaryen`; builds find it
-automatically. `setup --check` checks the installed tools and the Cargo cache without
-installing anything; a row only some apps need names them.
+automatically. On macOS the report also prints the one-time iOS Simulator and device
+installer commands. `setup --check` checks the installed tools, Hermes bundle, and Cargo
+cache without installing anything; a missing pinned host bundle makes it fail.
 
 ### 2. Run Caltrain in the browser
 
@@ -290,7 +296,8 @@ bun exact.mjs ios --run                     # an iOS Simulator
 `apple/` host crates. Its `AGENTS.md` (and `CLAUDE.md`) tells a coding agent where the
 guides are and lists the app's commands, including `bun exact.mjs contract …` for the
 compiler and `contract vocab` for every tag and property Contract accepts. Before any of
-it, `bun scripts/exact.mjs setup --check` names everything this machine is missing. It has its own Cargo workspace, which uses your exact2 checkout
+it, run `bun scripts/exact.mjs setup` once; `setup --check` names everything this machine
+is missing without changing it. It has its own Cargo workspace, which uses your exact2 checkout
 by path. To drive it from exact2, point `EXACT_APP_DIR` at it:
 
 ```sh
