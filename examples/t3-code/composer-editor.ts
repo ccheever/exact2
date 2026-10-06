@@ -201,12 +201,12 @@ function holds(client: T3Client): StackHold {
 }
 /** Root readiness resource; independent from the editor/menu resource. */
 export function composerWorkspaceView(client: T3Client) {
-  return cache(client).discovery.state(client.ready ? client.environmentId : '', client.generation, provider(client), workspaceCwd(client));
+  return cache(client).discovery.state(client.ready ? client.environmentId : '', client.generation, provider(client), workspaceCwd(client), { prompt: client.draft, config: client.config });
 }
 /** Root mutation: await the RPC, then Contract starts its retry clock on completion. */
 export async function refreshComposerWorkspace(client: T3Client, native: Native | null | undefined, key: string) {
-  composerWorkspaceView(client); // Recheck the current environment/provider before dispatch.
-  if (!native?.available || !client.ready) return { key, retry: false };
+  const { wake } = composerWorkspaceView(client); // Recheck the current environment/provider before dispatch.
+  if (!native?.available || !client.ready) return { key, retry: false, wake };
   return cache(client).discovery.refresh(key, (method, payload) => client.restAccess(native).request(method, payload, true));
 }
 async function editorView(client: T3Client, native: Native | null | undefined, now: number): Promise<Omit<ComposerEditorView, 'drawer'>> {

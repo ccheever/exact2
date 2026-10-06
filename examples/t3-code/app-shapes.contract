@@ -2,9 +2,12 @@
 shape WorkspaceDiscovery
   key: string
   needed: bool
+  timer: bool
+  wake: number
 shape WorkspaceRefresh
   key: string
   retry: bool
+  wake: number
 shape TimelineReadsResult
   complete: bool
 shape Time
