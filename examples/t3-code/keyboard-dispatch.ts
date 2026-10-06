@@ -88,7 +88,6 @@ export function favoriteEditor(config: Obj): string {
 export type Dispatch = { id: string; command: string; chord: string; kind: string; target: string; extra: string; label: string };
 /** The hidden dispatch buttons: one per command with a native counterpart and a winning chord. */
 export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): Dispatch[] {
-  const appearanceMode = str(client.local.deviceSettings.appearanceMode, 'system');
   const winners = chordWinners(arr(client.config.keybindings), context);
   const chords = (command: string) => [...winners].filter(([, winner]) => winner === command).map(([chord]) => chord).join(' ');
   const out: Dispatch[] = [];
@@ -115,14 +114,36 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
     return out;
   }
   overlays();
+  for (const row of MAIN_ROWS) row(add, client, threads, browseProvider, modelQuery, context);
+  return out;
+}
+
+/** `add` files one button per winning chord of a command (keyboardDispatch). */
+export type DispatchAdd = (command: string, kind: string, target: string, label: string, extra?: string) => void;
+/** One main-window row: the buttons it adds, from the dispatch's own arguments. */
+export type DispatchRow = (add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext) => void;
+// The main window's commands after the search overlay's three, in button
+// order (the host files a button's first ⌘ chord as its menu key equivalent,
+// so order is kept). A feature adds a row function, here or in its own file,
+// and one entry below; no row reads another's locals.
+const MAIN_ROWS: DispatchRow[] = [paletteRows, appearanceRow, threadOrderRows, navigationRows, scratchRow, threadRows, panelRows, turnRows, modelPickerRows];
+/** The palette, usage, theme editor and new-thread commands. */
+function paletteRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   // theme.select opens the palette on Change theme; usage.open and themeEditor.toggle run the palette's rows.
   add('theme.select', 'palette', 'command', 'Change Theme', 'theme');
   add('usage.open', 'palette-run', 'usage', 'Open Usage');
   add('themeEditor.toggle', 'palette-run', 'theme-editor', 'Toggle Theme Editor');
   add('chat.new', 'chat-new', '', 'New Thread'); // lane r8-keys: with or without the sidebar's button (routes/_chat.tsx)
   add('chat.newLocal', 'new-thread', '', 'New Local Thread');
+}
+/** appearance.cycle: System → Light → Dark. */
+function appearanceRow(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
+  const appearanceMode = str(client.local.deviceSettings.appearanceMode, 'system');
   const next = appearanceMode === 'system' ? 'light' : appearanceMode === 'light' ? 'dark' : 'system';
   add('appearance.cycle', 'appearance', next, `Appearance: ${next === 'system' ? 'System' : next === 'light' ? 'Light' : 'Dark'}`);
+}
+/** Previous, next and the first nine threads, in sidebar order. */
+function threadOrderRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   // Thread order as the sidebar paints it: pinned, active, working, snoozed, settled.
   const order = ['pinned', 'active', 'working', 'snoozed', 'settled'];
   const ordered = order.flatMap(section => threads.filter(thread => str(thread.section) === section));
@@ -133,6 +154,9 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
     add('thread.next', 'thread', str(following.id), 'Next Thread');
   }
   ordered.slice(0, 9).forEach((thread, index) => add(`thread.jump.${index + 1}`, 'thread', str(thread.id), `Thread ${index + 1}`));
+}
+/** Back and Forward. */
+function navigationRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   // Back and Forward between the visited threads and drafts.
   const history = visit(client);
   const back = history.entries[history.cursor - 1], forward = history.entries[history.cursor + 1];
@@ -141,7 +165,13 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
   const settingsRoute = settingsForward(client, false); // r8-pointer: Settings left by Back is Forward's target
   if (settingsRoute) add('navigation.forward', 'palette-run', 'settings', 'Forward', settingsRoute);
   else if (forward && liveEntry(client, forward)) add('navigation.forward', route(forward).kind, route(forward).target, 'Forward');
+}
+/** chat.newWithoutProject, when the server has a scratch workspace. */
+function scratchRow(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   if (str(obj(client.config).scratchWorkspaceRoot)) add('chat.newWithoutProject', 'flow', 'scratch', 'New Thread Without a Project');
+}
+/** The open thread: settle, pin, the PR number, Undo and Open in Editor. */
+function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   const thread = client.threadId ? (client.shell?.threads ?? []).find(candidate => candidate.id === client.threadId) : undefined;
   if (thread) {
     const settled = thread.settledOverride === 'settled' || (!!thread.settledAt && thread.settledOverride !== 'active');
@@ -158,6 +188,9 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
   if (context.undoShown ?? undoLive(client)) add('thread.undo', 'command', 'sidebar:undo', 'Undo');
   const project = (client.shell?.projects ?? []).find(candidate => candidate.id === client.projectId);
   if (project && favoriteEditor(client.config)) add('editor.openFavorite', 'flow', 'open-favorite', 'Open in Editor', str(thread?.worktreePath, str(project.workspaceRoot)));
+}
+/** The right panel: close, toggle, Diff, and Copy Thread ID. */
+function panelRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   // rightPanel.close: an open panel closes before ⌘W reaches the window, a draft's panel too (lane r8-keys).
   const closing = closeChordTarget(client, context.diffOpen, context.prNumber ?? ''); // lane r9-input: the active surface tab first
   if (closing) add('rightPanel.close', closing[0], closing[1], 'Close Right Panel');
@@ -166,8 +199,14 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
     add('diff.toggle', diffShown(client) ? 'diff' : 'diff-open', '', 'Toggle Diff');
     add('thread.copyReference', 'copy-thread', '', 'Copy Thread ID');
   }
+}
+/** Stop, and the composer's context strip. */
+function turnRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   if (context.turnRunning) add('thread.stop', 'stop', '', 'Stop');
   addStripShortcuts(client, add); // ⇧⌘X, ⇧⌘G, ⇧⌘L: the composer's context strip (composer-controls-branch.ts).
+}
+/** The open model picker: provider rail and the first nine models. */
+function modelPickerRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   if (context.modelPickerOpen) {
     const catalog = modelCatalog(client, browseProvider, modelQuery);
     const rail = ['favorites', ...catalog.providers.map(provider => provider.id)];
@@ -176,7 +215,6 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
     add('modelPicker.nextProvider', 'provider', rail[at >= rail.length - 1 ? 0 : at + 1], 'Next Provider');
     catalog.models.filter(row => row.kind === 'model').slice(0, 9).forEach((row, index) => add(`modelPicker.jump.${index + 1}`, 'model', row.id, `Model ${index + 1}`, row.providerId));
   }
-  return out;
 }
 
 /** The `keyboardDispatch` resource's positional arguments (app.contract). */

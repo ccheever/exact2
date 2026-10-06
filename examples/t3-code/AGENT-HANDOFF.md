@@ -42,6 +42,28 @@ The user explicitly stopped pixel-perfect UI testing/fix loops; use bounded func
 
 The remaining sections are historical round-11 evidence, not current task status.
 
+## Where a feature adds its code
+
+The hot-file split (task `20261005-hot-file-split`) left one registration point per area.
+Add to your area's file, or add a file and one entry; do not grow the shared files.
+
+| What | Where it goes | The one shared entry |
+|---|---|---|
+| A `client.command()` op | Its area's group in `client-ops-<area>.ts` (`connection`, `snapshot`, `settings`, `composer`, `threads`, `sidebar`, `diff`, `lanes`): a read group runs before the write check, a write group after `requireWrite()` | A new area: one import and one entry in `READ_OPS`/`WRITE_OPS` (`client-ops.ts`) |
+| An op owned by a lane module | A prefix the lane already routes (`restlocal:`, `rest:`, `cc:`, `sb:`, …; `client-ops-lanes.ts`), then only that module changes | none |
+| A keyboard command | A row function (`DispatchRow`) in `keyboard-dispatch.ts` or your own file | One entry in `MAIN_ROWS` (button order) |
+| A native module op | `func <area>Ops(_:reply:next:)` in `modules/apple/T3Module+<Area>.swift`: answer your ops, call `next()` for the rest | One entry in `T3Module.areas` |
+| A transport op (needs the connection's queue) | `func <area>Ops(_:completion:) throws -> Bool` in `modules/apple/T3Transport+<Area>.swift` | One entry in `T3Transport.areas` |
+| A shape the root uses | `app-shapes.contract` or the feature's own shapes file | A `use` line (keep `app-shapes.contract`'s first: the plan orders shapes by first use) |
+| A resource, root state or root action | `app.contract` (exact2 keeps them in the root component; X9) | The declaration itself |
+
+Not split: `app.contract` is 1,357 lines and holds only the root's state, resources,
+mutations, tasks and actions (its view and shapes are already in other files), so its
+budget is about 140 lines until X9 lands. Two lists in `client.ts` `command()` still name
+ops one by one: `local` (device-only ops) and `formCommand` (errors that go to their form);
+a new op in an existing prefix needs neither. The `composer`, `menus` and `r5-panels`
+XCTests define their own `exactModule` and leave out `T3Module*.swift` (README recipe).
+
 ## Checks on the integrated tree (round 11)
 
 Round 11 merged three lanes. r11-upstream ported the client half of `f90b77d809..f870c419fc`:

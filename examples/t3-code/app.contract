@@ -1,3 +1,4 @@
+use WorkspaceDiscovery, WorkspaceRefresh, TimelineReadsResult, Time from "./app-shapes.contract" // first: the plan orders shapes by first use
 use Snapshot from "./shapes.contract"
 use R10PairFields from "./r10-connect-shapes.contract" // lane r10-connect
 use TranscriptMarkdown from "./markdown.contract"
@@ -54,16 +55,6 @@ use SidebarOverlays from "./sidebar-overlays.contract"
 use SettingsModals from "./app-settings.contract"
 use WindowOverlays from "./app-overlays.contract"
 
-shape WorkspaceDiscovery
-  key: string
-  needed: bool
-shape WorkspaceRefresh
-  key: string
-  retry: bool
-shape TimelineReadsResult
-  complete: bool
-shape Time
-  epochAtZero: number
 component T3Code
   state elapsed = 0
   resource wallTime = exactTime() as shape Time
