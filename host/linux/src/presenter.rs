@@ -149,6 +149,9 @@ pub struct Presenter<D: DataSource> {
     pointer: Option<(f32, f32)>,
     /// The nodes with a `hover` handler under the pointer, innermost first.
     hovered: Vec<ViewId>,
+    /// Where the pointer last moved for hover (`hover_at`): a frame that
+    /// moves content under it hovers again there (`follow_pointer`).
+    hover_point: Option<(f32, f32)>,
     /// The node holding the pointer's `pointerdown` until it lifts.
     pointer_held: Option<exact_kernel::NodeKey>,
     /// The held pointer's buttons as DOM counts them: 1 primary, 2
@@ -383,6 +386,7 @@ impl<D: DataSource> Presenter<D> {
             autofocus_processed: Default::default(),
             pointer: None,
             hovered: Vec::new(),
+            hover_point: None,
             pointer_held: None,
             pointer_buttons: 0,
             control_contact: None,

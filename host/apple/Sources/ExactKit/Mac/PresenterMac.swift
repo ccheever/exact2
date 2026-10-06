@@ -152,6 +152,7 @@ final class Presenter {
         if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
         pumpLink?.invalidate()
         hoverLink?.invalidate()
+        followLink?.invalidate()
     }
 
     /// How far past its visible part a paragraph's text is painted, and how
@@ -408,6 +409,7 @@ final class Presenter {
     /// its scroll synchronizer, and the scrolling thread is waiting on it.
     func scrolled() {
         AnimatedRasters.shared.poke()
+        followPointer()
         guard !applying, !inScrollCallback else { return }
         menus.layout()
         inScrollCallback = true
@@ -702,6 +704,13 @@ final class Presenter {
     var hoverMoves: [(UInt32, PointerSample)] = []
     var hoverLink: CADisplayLink?
     let hoverTarget = PumpTarget()
+    /// The next display frame's hit-test of a resting pointer the layout or
+    /// a scroll moved content under (`followPointer`); one a frame.
+    var followLink: CADisplayLink?
+    let followTarget = PumpTarget()
+    /// Where the agent's pointer rests, in window points (its last `tap …
+    /// hover`); under the agent it stands for the system cursor.
+    var agentPointer: NSPoint?
     var onSwiperight: ((UInt32) -> Void)?
     /// Pull-to-refresh is UIKit's; AppKit has no such control, so this never fires.
     var onRefresh: ((UInt32) -> Void)?
@@ -827,15 +836,19 @@ final class Presenter {
         guard !resetting, textHost(id) != nil else { return }
         if applying { waiting.append((id, f)) } else { f() }
     }
+    /// One enter and one leave per hover, as the web's `mouseenter` and
+    /// `mouseleave`: a tracking area's every move, and its exit after the
+    /// resting pointer's hit-test already moved the hover (`followPointer`),
+    /// send nothing more.
     func hover(_ view: NodeView, _ over: Bool) {
         if over { hoverInline(nil) }
-        guard views[view.id] === view else { return }
+        guard views[view.id] === view, (hovered === view) != over else { return }
         if over {
-            if let h = hovered, h !== view { send(h.id) { [self] in onHover?(h.id, false) } }
+            if let h = hovered { send(h.id) { [self] in onHover?(h.id, false) } }
             hovered = view
             send(view.id) { [self] in onHover?(view.id, true) }
         } else {
-            if hovered === view { hovered = nil }
+            hovered = nil
             send(view.id) { [self] in onHover?(view.id, false) }
         }
     }
@@ -893,6 +906,8 @@ final class Presenter {
         elements.begin(batch)
         // Create, frame or content ops: rows may have come or moved (`HeavyLeaves.batchApplied`).
         let moved = batch.ops.contains { [.create, .frame, .content].contains($0.op) }
+        // What may now lie under a resting pointer: boxes made, moved, gone or transformed.
+        let relaid = batch.ops.contains { [.create, .frame, .children, .roots, .destroy, .present, .style, .props, .rank, .sticky, .fragments, .exit].contains($0.op) }
         defer {
             collections.endBatch()
             collections.observeKnobDrags()
@@ -914,6 +929,8 @@ final class Presenter {
                 if !boxFilters.isEmpty { boxFilters.render() }
                 leaves.batchApplied(moved: moved)
             }
+            // Only scheduled: the hit-test is the next display frame's.
+            if relaid { followPointer() }
         }
         if !batch.ops.isEmpty { textViewportIndex = nil }
         var reparented = Set<UInt32>()
