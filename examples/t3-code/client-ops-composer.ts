@@ -83,7 +83,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const assertOwner = () => {
     if (selection.generation !== this.generation || selection.environmentId !== this.environmentId || selection.origin !== this.origin || selection.projectId !== this.projectId || selection.threadId !== this.threadId || selection.providerId !== this.providerId || selection.modelId !== this.modelId || selection.options !== JSON.stringify(this.modelOptions) || selection.runtimeMode !== this.runtimeMode || selection.interactionMode !== this.interactionMode) throw new ClientError('The draft or model changed before sending. Your original draft is preserved.');
   };
-  if (queuedEdit(this)) return saveQueuedEdit(this, native, storage, value);
+  if (queuedEdit(this)) return saveQueuedEdit(this, native, storage, value, () => this.uploadSnapshots(native, storage)); // composer-fidelity G12a: new SnapShot images upload
   // "/usage-limits" is answered locally from the provider snapshots; the agent never sees it.
   if (isUsageLimitsCommand(value || this.draft) && !this.snapshotDrafts.length && usageLimitsOffered(this)) { if (openUsageLimits(this, composerNow(this))) this.local.drafts[this.draftKey] = ''; return; }
   const plan = planFollowUp(this);
