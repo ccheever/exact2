@@ -1077,10 +1077,12 @@ fn the_clock_in_a_data_module_is_refused_at_build_by_file_and_line() {
         ),
         "{error}"
     );
-    // An angle-bracket assertion, and a `declare`d class, are erased: the global runs.
-    f.write("logic.ts", "export const prefix = 'old: ';\ndeclare class Date { static now(): number }\nexport const a = () => (<any>Date).now();\n");
+    // An angle-bracket assertion, a `declare`d class and a type-only
+    // namespace are erased: the global runs.
+    f.write("logic.ts", "export const prefix = 'old: ';\ndeclare class Date { static now(): number }\nnamespace Math { export type R = number }\nexport const a = () => (<any>Date).now() + Math.random();\n");
     let error = producer.bake(&f.0, None).err().unwrap();
-    assert!(error.contains("logic.ts:3:24: Date.now()"), "{error}");
+    assert!(error.contains("logic.ts:4:24: Date.now()"), "{error}");
+    assert!(error.contains("logic.ts:4:44: Math.random()"), "{error}");
     // An explicit date, a member named `now` elsewhere, a comment, and a
     // `Date` or `performance` the module binds itself are fine.
     f.write("logic.ts", "export const prefix = 'old: ';\n// Date.now() is refused\nexport const epoch = new Date(0).getTime() + ({ now: () => 1 }).now();\nexport const stamp = (performance: { now(): number }) => performance.now();\n");

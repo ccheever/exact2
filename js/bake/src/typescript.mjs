@@ -51,6 +51,17 @@ function refusal(node,local) {
   if (node.type==='NewExpression' && ambientGlobal(node.callee,'Date',local) && !node.arguments.length) return ambient('new Date()');
   return null;
 }
+const VALUES=['FunctionDeclaration','VariableDeclaration','ClassDeclaration','ExpressionStatement','TSEnumDeclaration','TSImportEqualsDeclaration'];
+function instantiated(ns) {
+  const body=ns.body;
+  if (!body) return false;
+  if (body.type==='TSModuleDeclaration') return instantiated(body);
+  return (body.body ?? []).some(statement=>{
+    const s=['ExportNamedDeclaration','ExportDefaultDeclaration'].includes(statement.type) ? statement.declaration : statement;
+    if (!s || s.declare || (s.type==='TSEnumDeclaration' && s.const)) return false;
+    return VALUES.includes(s.type) || (s.type==='TSModuleDeclaration' && instantiated(s));
+  });
+}
 // The names the module binds itself, anywhere (a parameter, a variable, a
 // function, class or import): such a `Date` is not the guarded global, so
 // it is left alone; the runtime's refusal still guards the global behind it.
@@ -76,8 +87,9 @@ function bound(ast) {
     if (['FunctionDeclaration','FunctionExpression','ClassDeclaration','ClassExpression'].includes(node.type) && node.id) names.add(node.id.name);
     if (['FunctionDeclaration','FunctionExpression','ArrowFunctionExpression'].includes(node.type)) node.params?.forEach(pattern);
     if (node.type==='CatchClause') pattern(node.param);
-    // A namespace with a body emits a value (a type-only one is rare in a data module).
-    if (node.type==='TSModuleDeclaration' && node.id?.type==='Identifier' && node.body) names.add(node.id.name);
+    // A namespace emits a value only when it holds one (an empty or
+    // type-only one is erased, and the global runs).
+    if (node.type==='TSModuleDeclaration' && node.id?.type==='Identifier' && instantiated(node)) names.add(node.id.name);
     if (node.type==='TSImportEqualsDeclaration' && node.importKind!=='type') names.add(node.id.name);
     if (node.type==='ImportDeclaration') typeOnly=node.importKind==='type';
     if (['ImportSpecifier','ImportDefaultSpecifier','ImportNamespaceSpecifier'].includes(node.type) && !typeOnly && node.importKind!=='type') names.add(node.local.name);
