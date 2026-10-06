@@ -1,0 +1,19 @@
+# Code review: James's display-link scrolling, round 2 (d9f97e21a..576613352), 2026-10-05 (grok)
+
+- **Family:** xAI. `grok-4.7` via `~/.grok/bin/grok`, reasoning effort xhigh, `--no-subagents`, `--cwd` a detached worktree at `576613352`, plain output.
+- **Method:** one brief (sha256 `c488ed29f58d0d61b1dfdd5af88bb84f9aed08d2efebb7de91281767d498340a`), shared with astra. Round 2, blind to the other review. The authors are not reviewers.
+- **Transcription:** the review's findings and verdict, unedited.
+- **Verdict:** LAND WITH CHANGES.
+- **Disposition (r3):** 1 taken: `addPressEase` adds nothing to a flying view, and `applyTransform` strips the ease under any flight look, an image's included; `testAFlyingViewTakesNoPressEase`. The CSS transform an image flight's `applyTransform` writes is as before this change and left alone. 2 taken: a box that stands in space gets a keyframe ease, the matrix that takes the target model to the shown one sampled at 13 points along the press curve, so the scale stays inside the rotation; `testAPressInSpaceEasesInsideItsRotation`. 3 taken in part: tests for 1, 2 and the correction's rate; none for the pump's idle paths.
+
+---
+
+LAND WITH CHANGES
+
+Round-1 fixes hold for the SVG filter teardown, the clock's `deinit`, full-rate votes, the press-origin rebuild, rebind, and the held-release generation check. The idle-tick skips are not reopened: a scroll callback still runs collection changes, geometry, video visibility, stickies, canvas repaint, and visible text. The flight fix does not hold.
+
+1. **MATERIAL** — A held release puts the press ease back on a view that is already flying. `releaseWhenSeen` (`PressFeedback.swift:188-197`) aims to 1 and calls `easePress`. That calls `applyTransform` and then `addPressEase` (`:146-165`). `liftFlight` only strips the ease once (`FlightsIOS.swift:249`), and `applyTransform` strips it only when `flightLook?.scale` is set (`PressFeedback.swift:226-229`). An image flight leaves `scale` nil (`FlightsIOS.swift:257`), so this `applyTransform` also replaces the flight frame with the CSS transform. `showFlight` (`:291-312`) writes the flight geometry again but never removes the `"press"` animation, and `setDisableActions` does not drop an explicit one. A quick tap in a scroll view (down and up in one turn, the held-release case) on a row or photo that then flies is scaled by the press curve for the remaining ~120 ms. Guard `addPressEase` with `flightLook == nil`, and treat any `flightLook` in `applyTransform` as flight-only (stop the ease, and return before the CSS transform when `scale` is nil).
+
+2. **MATERIAL** — The additive ease is a 2D scale, so a press on a 3D transform is wrong until it settles. `spaceTransform` builds translate, then rotate, then scale, with the press target already inside that scale (`SpaceTransform.swift:22-25`, `PressFeedback.swift:236-244`). `addPressEase` (`:155-165`) multiplies an extra affine scale about the origin onto the whole matrix. For a node with `rotate_axis` of `[1, 0, 0]` and `press-scale: 0.5`, the 120 ms ease scales the post-rotation box instead of the scale inside the rotation. The model is right only after the animation is removed. Build the additive `fromValue` as the matrix that takes the target model to the shown model, or keep sampling `pressFactor` into `spaceTransform` for nodes that stand in space.
+
+3. **MINOR** — The new tests miss both defects and the pump paths that stay correct only by inspection. Nothing flies a pressed view or presses a node with a non-Z rotation. `ScrollPumpIOSTests` never owes a row after the link has stopped, and never calls `requestText` once the clock is idle. `testASmoothCorrectionRunsOnTheAppsClock` does not read the correction's rate, so dropping `FrameClock.full(on:)` at a call site still passes. Add those four cases.

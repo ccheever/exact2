@@ -184,6 +184,48 @@ final class PressFeedbackIOSTests: XCTestCase {
         XCTAssertTrue(v.press.releaseHeld)
     }
 
+    /// A box turned out of the screen's plane scales inside its rotation:
+    /// the ease takes the target matrix to what shows, at every sample.
+    func testAPressInSpaceEasesInsideItsRotation() throws {
+        let (p, v) = try fixture(style: ["press_scale": 0.5, "rotate_axis": [1.0, 0.0, 0.0]])
+        p.apply(wireBatch([["op": "present", "id": 1, "property": "rotate", "x": 60.0]]))
+        let unpressed = v.layer.transform
+        v.pressed = true
+        let ease = try XCTUnwrap(v.layer.animation(forKey: "press") as? CAKeyframeAnimation)
+        XCTAssertTrue(ease.isAdditive)
+        let values = try XCTUnwrap(ease.values as? [NSValue]).map(\.caTransform3DValue)
+        let first = CATransform3DConcat(try XCTUnwrap(values.first), v.layer.transform)
+        let last = try XCTUnwrap(values.last)
+        for (a, b) in [(first.m11, unpressed.m11), (first.m22, unpressed.m22), (first.m23, unpressed.m23), (first.m32, unpressed.m32),
+                       (first.m33, unpressed.m33), (first.m41, unpressed.m41), (first.m42, unpressed.m42), (first.m43, unpressed.m43)] {
+            XCTAssertEqual(a, b, accuracy: 1e-9, "touch-down shows the unpressed box")
+        }
+        XCTAssertTrue(CATransform3DIsIdentity(last) || abs(last.m11 - 1) < 1e-9 && abs(last.m22 - 1) < 1e-9 && abs(last.m42) < 1e-9, "it ends on the model")
+    }
+
+    /// A view that flies shows the flight alone: a press, or a held
+    /// release, puts no ease on it.
+    func testAFlyingViewTakesNoPressEase() throws {
+        let (_, v) = try fixture(style: ["press_scale": 0.5])
+        v.flightLook = FlightLook(image: v.bounds)
+        v.pressed = true
+        XCTAssertNil(v.layer.animation(forKey: "press"))
+        v.flightLook = nil
+    }
+
+    /// A flight begun from a box still easing back from its press starts
+    /// where the box shows, not where its model already is.
+    func testAFlightStartsFromThePressedBoxAsShown() throws {
+        let (_, v) = try fixture(style: ["press_scale": 0.5])
+        v.pressed = true
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: PressFeedback.duration + 0.05))
+        v.pressed = false
+        XCTAssertEqual(v.convert(v.bounds, to: nil).width, 200, accuracy: 1e-6, "the model is unpressed at once")
+        CATransaction.flush()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        XCTAssertLessThan(Presenter.shownRect(v).width, 190, "the flight's source is the box as it shows")
+    }
+
     /// D6: every transform turns about `transform-origin`.
     func testTheTransformTurnsAboutTheTransformOrigin() throws {
         let (p, v) = try fixture(style: ["transform_origin": [["pct": 0], ["pct": 0]]])

@@ -94,6 +94,7 @@ final class FrameClockIOSTests: XCTestCase {
         XCTAssertTrue(FrameClock.shared.wants(driver))
         XCTAssertLessThanOrEqual(FrameClock.shared.linksMade, max(made, 1))
         let link = try XCTUnwrap(FrameClock.shared.link)
+        XCTAssertEqual(link.preferredFrameRateRange.maximum, FrameClock.full(on: window.screen).maximum, "a correction moves at the display's rate")
         FrameClock.shared.fire(link)
         XCTAssertNil(ended)
         driver.cancel()

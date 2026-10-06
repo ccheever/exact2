@@ -70,6 +70,16 @@ final class FlightClip: UIView {
 }
 
 extension Presenter {
+    /// Where the leaver shows, in the window: its model's place, except
+    /// under a press still easing on the render server, where the model is
+    /// already the press's target and the presentation is what shows.
+    static func shownRect(_ view: UIView) -> CGRect {
+        let model = view.convert(view.bounds, to: nil)
+        guard sequence(first: view, next: \.superview).contains(where: { $0.layer.animation(forKey: "press") != nil }),
+              let shown = view.layer.presentation(), let window = view.window?.layer.presentation() else { return model }
+        return shown.convert(shown.bounds, to: window)
+    }
+
     /// The `flight` op: capture the leaver, before any destroy.
     func beginFlight(_ op: BatchOp) {
         let id = op.id
@@ -78,7 +88,7 @@ extension Presenter {
             flights[id] = Flight(id: id, source: FlightSource(rect: .null, radius: 0))
             return
         }
-        var source = FlightSource(rect: leaver.convert(leaver.bounds, to: nil), radius: leaver.cornerRadii(in: leaver.bounds).max() ?? 0)
+        var source = FlightSource(rect: Self.shownRect(leaver), radius: leaver.cornerRadii(in: leaver.bounds).max() ?? 0)
         if let flying = flights.values.first(where: { $0.view === leaver }), let look = leaver.flightLook {
             // A flight interrupted: from where it is now.
             source.fit = CGRect(x: look.image.minX / max(leaver.bounds.width, 1), y: look.image.minY / max(leaver.bounds.height, 1),
