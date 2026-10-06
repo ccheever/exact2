@@ -20,6 +20,7 @@ import { ageLabel, capabilities, canSnooze, isWoke, lastVisited, recedes, sectio
   wokeAt, workingDuration, workingStartedAt, type SidebarSection } from './sidebar-model';
 import { sidebarPrBadge } from './r5-panels-pr'; // r5-panels: the sidebar PR badge
 import { notePlaces, rowHoverKey } from './r9-input-hover'; // lane r9-input
+import { orderItemsByPreferredIds } from './legacy-sidebar-model'; // legacy-sidebar: the persisted project order
 
 type Identity = (name: string) => { projectMark: string; projectInk: string; projectSurface: string };
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };
@@ -73,7 +74,9 @@ export function projectScopes(client: T3Client): { key: string; name: string; id
       : Math.max(...group.members.map(member => order === 'created_at' ? timestamp(member.createdAt) : timestamp(member.updatedAt ?? member.createdAt)));
     return { key: group.key, name: str(group.name), ids, time, members: group.members };
   });
-  if (order === 'manual') return groups;
+  // legacy-sidebar: Manual follows the persisted project order (orderItemsByPreferredIds over physical keys), as the legacy sidebar arranges it.
+  if (order === 'manual') return orderItemsByPreferredIds({ items: groups, preferredIds: sidebarPrefs(client).projectOrder, getId: group => group.key,
+    getPreferenceIds: group => group.members.map(member => `${client.environmentId}:${str(member.workspaceRoot).trim().replace(/\\/g, '/').replace(/\/+$/, '')}`) });
   return groups.sort((left, right) => (right.time === left.time ? 0 : right.time > left.time ? 1 : -1) || left.name.localeCompare(right.name) || left.key.localeCompare(right.key));
 }
 /** clientSettings.sidebarProjectSortOrder: updated_at (default), created_at or manual. */
