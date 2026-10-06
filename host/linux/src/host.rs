@@ -483,6 +483,11 @@ impl<D: DataSource> Host<D> {
         self.runner.collection(view)
     }
 
+    /// A list's mounted rows as (view, epoch), into `out`.
+    pub fn collection_mounted(&self, view: ViewId, out: &mut Vec<(ViewId, u64)>) {
+        self.runner.collection_mounted(view, out);
+    }
+
     /// [`Host::collections`] with only each list's first mounted row: views,
     /// sequences and port geometry, not every row's record.
     pub fn collections_shallow(&self) -> Vec<exact_runner::CollectionSnapshot> {

@@ -27,23 +27,40 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let _s = Section::begin(c"exact refine");
         let started = std::time::Instant::now();
         let limit = limit.or_else(|| self.travel.limit());
-        let before = self.feed_rows();
+        // A row's cost is measured only where it is used: while the feed
+        // travels fast (two walks to the list each pass otherwise, 2% of
+        // crypto's scrolling).
+        let measure = self.travel.fast();
+        let mut before = std::mem::take(&mut self.rows_before);
+        if measure {
+            self.feed_rows(&mut before);
+            before.sort_unstable();
+        }
         self.p.slice_collections(limit, velocity);
         let wanted = self.refine_inner();
         self.p.slice_collections(None, 0.0);
-        let built = self.feed_rows().difference(&before).count();
-        self.travel
-            .built(built, started.elapsed().as_secs_f32() * 1000.0);
+        if measure {
+            let mut after = std::mem::take(&mut self.rows_after);
+            self.feed_rows(&mut after);
+            let built = after
+                .iter()
+                .filter(|r| before.binary_search(r).is_err())
+                .count();
+            self.rows_after = after;
+            self.travel
+                .built(built, started.elapsed().as_secs_f32() * 1000.0);
+        }
+        self.rows_before = before;
         wanted
     }
 
     /// The feed's mounted rows, as (view, epoch): a new pair is a row this
     /// pass built (or bound to another item).
-    fn feed_rows(&self) -> std::collections::BTreeSet<(ViewId, u64)> {
-        self.feed
-            .and_then(|id| self.p.host().collection(id))
-            .map(|c| c.rows.iter().map(|r| (r.view, r.epoch)).collect())
-            .unwrap_or_default()
+    fn feed_rows(&self, out: &mut Vec<(ViewId, u64)>) {
+        out.clear();
+        if let Some(id) = self.feed {
+            self.p.host().collection_mounted(id, out);
+        }
     }
 
     /// The scroller [`CanvasHost::scroll`] moves, once a scroll found it.

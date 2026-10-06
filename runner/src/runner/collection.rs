@@ -15,6 +15,13 @@ impl<D: DataSource> Runner<D> {
     pub fn collection(&self, view: ViewId) -> Option<CollectionSnapshot> {
         self.tree.as_ref().and_then(|tree| tree.collection(view))
     }
+    /// [`Tree::collection_mounted`].
+    pub fn collection_mounted(&self, view: ViewId, out: &mut Vec<(ViewId, u64)>) {
+        out.clear();
+        if let Some(tree) = &self.tree {
+            tree.collection_mounted(view, out);
+        }
+    }
     /// [`Runner::collections`] with only each list's first mounted row
     /// ([`Tree::collections_shallow`]).
     pub fn collections_shallow(&self) -> Vec<CollectionSnapshot> {
