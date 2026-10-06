@@ -257,6 +257,9 @@ pub(crate) struct LayoutData<B: Brush> {
     pub(crate) quantize: bool,
     /// The `BiDi` base level
     pub(crate) base_level: u8,
+    /// The line box's level: the base level unless the builder set a line
+    /// direction (trailing whitespace and alignment follow it).
+    pub(crate) line_level: u8,
     /// The length of the text in the layout
     pub(crate) text_len: usize,
 
@@ -318,6 +321,7 @@ impl<B: Brush> Default for LayoutData<B> {
             scale: 1.,
             quantize: true,
             base_level: 0,
+            line_level: 0,
             text_len: 0,
             width: 0.,
             full_width: 0.,
@@ -351,6 +355,7 @@ impl<B: Brush> LayoutData<B> {
         self.scale = 1.;
         self.quantize = true;
         self.base_level = 0;
+        self.line_level = 0;
         self.text_len = 0;
         self.width = 0.;
         self.full_width = 0.;
@@ -677,7 +682,13 @@ impl<B: Brush> LayoutData<B> {
 
         let mut running_min_width = indent_for(true);
         let mut running_max_width = indent_for(true);
+        // Where each line of the two layouts starts (its indent): tab stops
+        // count from there, as `BreakLines` counts them from `line.x`.
+        let mut min_line_start = running_min_width;
+        let mut max_line_start = running_max_width;
         let mut trailing_whitespace = 0.0_f32;
+        // The same for the max-content line, whose tabs can stand elsewhere.
+        let mut trailing_max = 0.0_f32;
         let mut text_wrap_mode = TextWrapMode::Wrap;
         for item in &self.items {
             match item.kind {
@@ -704,12 +715,14 @@ impl<B: Brush> LayoutData<B> {
                             min_width = min_width
                                 .max(running_min_width - trailing_whitespace + hyphen);
                             if boundary == Boundary::Mandatory {
-                                max_width = max_width.max(running_max_width - trailing_whitespace);
+                                max_width = max_width.max(running_max_width - trailing_max);
                                 running_max_width = indent_for(opts.each_line);
                                 running_min_width = indent_for(opts.each_line);
+                                max_line_start = running_max_width;
                             } else {
                                 running_min_width = indent_for(false);
                             }
+                            min_line_start = running_min_width;
                         }
                         // A soft hyphen is invisible unless a line ends at
                         // it (and then shows the advance set above).
@@ -718,12 +731,31 @@ impl<B: Brush> LayoutData<B> {
                         } else {
                             cluster.advance
                         };
-                        running_min_width += advance;
-                        running_max_width += advance;
-                        if cluster.info.whitespace().is_space_or_nbsp() {
-                            trailing_whitespace += advance;
+                        // A tab reaches the next stop from where it stands
+                        // in each layout (patch 9), not the advance the last
+                        // `break_lines` left it, and hangs at a line's end
+                        // as a preserved space does (`pre-wrap`).
+                        let whitespace = cluster.info.whitespace();
+                        let (min_advance, max_advance) = match self.tab(index) {
+                            Some((_, interval))
+                                if whitespace == Whitespace::Tab && interval > 0.0 =>
+                            {
+                                let stop = |x: f32| ((x / interval).floor() + 1.0) * interval - x;
+                                (
+                                    stop(running_min_width - min_line_start),
+                                    stop(running_max_width - max_line_start),
+                                )
+                            }
+                            _ => (advance, advance),
+                        };
+                        running_min_width += min_advance;
+                        running_max_width += max_advance;
+                        if whitespace.is_space_or_nbsp() || whitespace == Whitespace::Tab {
+                            trailing_whitespace += min_advance;
+                            trailing_max += max_advance;
                         } else {
                             trailing_whitespace = 0.0;
+                            trailing_max = 0.0;
                         }
                     }
                     min_width = min_width.max(running_min_width - trailing_whitespace);
@@ -741,9 +773,10 @@ impl<B: Brush> LayoutData<B> {
                         }
                     }
                     trailing_whitespace = 0.0;
+                    trailing_max = 0.0;
                 }
             }
-            max_width = max_width.max(running_max_width - trailing_whitespace);
+            max_width = max_width.max(running_max_width - trailing_max);
         }
 
         min_width = min_width.max(running_min_width - trailing_whitespace);

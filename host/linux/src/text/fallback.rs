@@ -42,8 +42,18 @@ pub(super) fn configure(collection: &mut Collection, locale: &str) {
             keys.push(script);
         }
     }
+    // A script with no families of its own in any locale has `ordered` as
+    // its list: set once as the last resort rather than copied for each of
+    // ~170 scripts (0.3-0.4 ms of a phone's boot).
+    collection.set_last_resort_fallbacks(ordered.iter().copied());
     for script in keys {
-        let own: Vec<FamilyId> = families(script.as_str(), locale)
+        let named = families(script.as_str(), locale);
+        if named.is_empty()
+            && !matches!(script.as_str(), "Hani" | "Bopo" | "Hang" | "Hira" | "Kana")
+        {
+            continue;
+        }
+        let own: Vec<FamilyId> = named
             .iter()
             .filter_map(|n| collection.family_id(n))
             .collect();
@@ -370,5 +380,32 @@ mod tests {
             ["Noto Sans CJK JP", "Noto Sans Symbols"]
         );
         assert!(!list.iter().any(|n| n.contains("Mono")));
+    }
+
+    #[test]
+    fn a_script_without_families_of_its_own_takes_the_last_resort() {
+        // Each script's list is what it was when every script was set its
+        // own copy: its families, then the rest of the last resort (Latin
+        // has none of its own here, so its list is the last resort).
+        let mut c = crate::text::fonts::installed().collection.clone();
+        configure(&mut c, "en");
+        let latin = FallbackKey::new(Script::from_str_unchecked("Latn"), None);
+        let last: Vec<FamilyId> = c.fallback_families(latin).collect();
+        assert!(!last.is_empty(), "this machine has installed fonts");
+        for (script, _) in <Script as ScriptExt>::all_samples() {
+            let own: Vec<FamilyId> = families(script.as_str(), "en")
+                .iter()
+                .filter_map(|n| c.family_id(n))
+                .collect();
+            let want: Vec<FamilyId> = own
+                .iter()
+                .copied()
+                .chain(last.iter().copied().filter(|id| !own.contains(id)))
+                .collect();
+            let got: Vec<FamilyId> = c
+                .fallback_families(FallbackKey::new(*script, None))
+                .collect();
+            assert_eq!(got, want, "{}", script.as_str());
+        }
     }
 }

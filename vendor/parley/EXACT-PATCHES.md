@@ -64,6 +64,52 @@ named here pass.
 11. **Host accessors.** `Run::bidi_level` (the text-flow walker reorders
     clusters by level) and `Layout::capacity_bytes` (the host's residency
     accounting). The unused `LineItemData::is_rtl` is removed.
+12. **Blink's fit rule.** `break_next` decides whether content fits as
+    Blink's line breaker does: the available width and the indent rounded
+    to LayoutUnits (1/64 px), content allowed to end one unit past it
+    (`AvailableWidthToFit`, `LayoutUnit::AddEpsilon`). Parley compared
+    float advances with the float width, so a line Chrome lays out at
+    exactly 200.00 px broke before its last word when its advances summed
+    a few thousandths over. Host parity: messages line starts @200
+    830 -> 832 of 835, Markdown @200 and @500 +1 each, one message line
+    lost to an emoji advance 0.05 px narrower than Chrome's. Tests:
+    `css_tests.rs`
+    (`content_ending_within_a_64th_of_a_pixel_past_the_width_fits`).
+13. **Line box direction.** `set_line_direction` on the three builders
+    (`LayoutData::line_level`): a host that resolves bidi levels by the
+    first strong character (`BaseDirection::Auto`) inside a box whose CSS
+    `direction` it knows gives the box's direction here. Patch 7's L1 level
+    for a line's trailing whitespace, which edge that whitespace is
+    measured and hangs at, and alignment's start, end and overflow edges
+    follow it; the bidi levels of the text itself do not. Without it, an
+    `ltr` paragraph whose first strong character is Hebrew hung each
+    wrapped line's trailing space at the left, before the visible text in
+    visual order (cosmic-text drew no glyph for that space; Chrome, whose
+    base is `ltr` there, hangs it at the right). Host parity:
+    `bidi-ltr-starts-hebrew`@120 5 -> 2 visual-order inversions (main 2;
+    the 2 left are the first-strong base itself), `bidi-arabic-digits`@120
+    1 -> 0. Tests: `sharing_tests.rs`
+    (`ltr_text_that_starts_rtl_hangs_its_trailing_spaces_at_the_right`).
+14. **Tabs in content widths.** `calculate_content_widths` takes a tab to
+    its next stop from where it stands in the min- and the max-content
+    layout (patch 9's rule), not the advance the last `break_lines` left
+    it, and hangs a tab that ends a segment as it hangs a space, as Chrome
+    does under `pre-wrap`. Min-content of `"\tend\t"` was the tab's stop
+    (33.28 px) where Chrome's is `end` (28.77 px). Host parity, nine tab
+    cases against Chrome: min-content 8 -> 9 of 9, max-content 9 of 9.
+    Tests: `css_tests.rs`
+    (`pre_wrap_min_content_hangs_a_tab_that_ends_a_segment`).
+15. **Script_Extensions itemization.** `shape_text` gave every Common
+    character the current run's script. A Common character whose
+    Script_Extensions exclude that script (`「` after Latin: Bopomofo,
+    Hangul, Han, Hiragana, Katakana, Yi) now starts a run of the first of
+    them, which the Common characters after it join and a real script
+    among them settles without a new run, as Chrome's ScriptRunIterator
+    itemizes. In `was 「“quote` the `“` was shaped with `q` and kerned
+    (0.97 px), where Chrome shapes it in the bracket's run. Host parity:
+    `mixed` max-content 4 -> 5 of 5; two line widths moved closer to
+    Chrome, none further. Tests: `css_tests.rs`
+    (`a_common_character_after_a_cjk_bracket_is_shaped_in_the_brackets_run`).
 
 All other archive files are byte-for-byte upstream. The upstream test suite
 (not in the archive) passed with patches 1–4 applied; with 4–7, five tests

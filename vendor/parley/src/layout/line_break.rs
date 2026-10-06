@@ -9,8 +9,8 @@ use alloc::vec::Vec;
 #[allow(unused_imports)]
 use core_maths::CoreFloat;
 
-use crate::analysis::Boundary;
 use crate::analysis::cluster::Whitespace;
+use crate::analysis::Boundary;
 use crate::data::ClusterData;
 use crate::layout::{
     BreakReason, Layout, LayoutData, LayoutItem, LayoutItemKind, LineData, LineItemData,
@@ -495,6 +495,12 @@ impl<'a, B: Brush> BreakLines<'a, B> {
         let line_indent = self.resolve_indent();
 
         let max_advance = max_advance - line_indent;
+        // What fits is decided as Blink decides it: the available width and
+        // the indent are LayoutUnits (1/64 px), and content fits when it ends
+        // within one unit past the available width (`AvailableWidthToFit`,
+        // `LayoutUnit::AddEpsilon`). A line Chrome measures at exactly the
+        // width, its float advances a few thousandths over, stays one line.
+        let fit = fit_limit(max_advance, line_indent);
 
         // dbg!(&self.layout.items);
 
@@ -535,15 +541,14 @@ impl<'a, B: Brush> BreakLines<'a, B> {
 
                     // println!("BOX next_x: {}", next_x);
 
-                    let box_will_be_appended = next_x <= max_advance || self.state.line.x == 0.0;
+                    let box_will_be_appended = next_x <= fit || self.state.line.x == 0.0;
                     if height_contribution > self.state.line_max_height && box_will_be_appended {
                         return self.max_height_break_data(height_contribution);
                     }
 
                     // If the box fits on the current line (or we are at the start of the current line)
                     // then simply move on to the next item
-                    if next_x <= max_advance || self.state.line.text_wrap_mode != TextWrapMode::Wrap
-                    {
+                    if next_x <= fit || self.state.line.text_wrap_mode != TextWrapMode::Wrap {
                         // println!("BOX FITS");
 
                         self.state
@@ -608,7 +613,7 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                                 .map_or(0.0, |h| h.1);
                             if !is_ligature_continuation
                                 && self.state.line.x != 0.0
-                                && (hyphen == 0.0 || self.state.line.x + hyphen <= max_advance)
+                                && (hyphen == 0.0 || self.state.line.x + hyphen <= fit)
                             {
                                 self.state.mark_line_break_opportunity();
                                 // break_opportunity = true;
@@ -670,7 +675,7 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                         // If the content fits (the x position does NOT exceed max_advance)
                         //
                         // We simply append the cluster(s) to the current line
-                        if next_x <= max_advance {
+                        if next_x <= fit {
                             if max_height_exceeded {
                                 return self.max_height_break_data(line_height);
                             }
@@ -688,7 +693,9 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                             // Case: cluster is a space character (and wrapping is enabled)
                             //
                             // We hang any overflowing whitespace and then line-break.
-                            if whitespace == Whitespace::Space && text_wrap_mode == TextWrapMode::Wrap {
+                            if whitespace == Whitespace::Space
+                                && text_wrap_mode == TextWrapMode::Wrap
+                            {
                                 if max_height_exceeded {
                                     return self.max_height_break_data(line_height);
                                 }
@@ -975,14 +982,16 @@ impl<'a, B: Brush> BreakLines<'a, B> {
     /// its width and was not counted as trailing). Whitespace-only items at
     /// the end take the level; the last item that ends in whitespace is split.
     /// Runs before reordering, while the line's items are in logical order and
-    /// are the last ones in `line_items`.
+    /// are the last ones in `line_items`. The level is the line box's (CSS
+    /// `direction`) where the builder set one apart from the bidi base.
     fn reset_trailing_whitespace_level(&mut self, line_idx: usize) {
-        let base = self.layout.data.base_level;
+        let base = self.layout.data.line_level;
         let range = self.lines.lines[line_idx].item_range.clone();
         if range.is_empty() || range.end != self.lines.line_items.len() {
             return;
         }
-        let is_ws = |c: &ClusterData| matches!(c.info.whitespace(), Whitespace::Space | Whitespace::Tab);
+        let is_ws =
+            |c: &ClusterData| matches!(c.info.whitespace(), Whitespace::Space | Whitespace::Tab);
         let mut idx = range.end;
         while idx > range.start {
             idx -= 1;
@@ -1004,7 +1013,8 @@ impl<'a, B: Brush> BreakLines<'a, B> {
             }
             let split = item.cluster_range.end - n;
             let run = &self.layout.data.runs[item.index];
-            let split_text = run.text_range.start + self.layout.data.clusters[split].text_offset as usize;
+            let split_text =
+                run.text_range.start + self.layout.data.clusters[split].text_offset as usize;
             let mut ws = item.clone();
             ws.bidi_level = base;
             ws.cluster_range = split..item.cluster_range.end;
@@ -1104,8 +1114,8 @@ impl<'a, B: Brush> BreakLines<'a, B> {
         }
 
         // Compute size of line's trailing whitespace. "Trailing" is considered the right edge
-        // for LTR text and the left edge for RTL text.
-        let run = if self.layout.is_rtl() {
+        // for LTR text and the left edge for RTL text (the line box's direction).
+        let run = if self.layout.data.line_level & 1 != 0 {
             self.lines.line_items[line.item_range.clone()].first()
         } else {
             self.lines.line_items[line.item_range.clone()].last()
@@ -1271,6 +1281,18 @@ impl<B: Brush> Drop for BreakLines<'_, B> {
         // Save the computed lines to the layout
         self.lines.swap(&mut self.layout.data);
     }
+}
+
+/// The advance content may reach on a line of `max_advance` (the indent
+/// already taken off) under Blink's fit rule: both lengths rounded to 1/64
+/// px, plus one 1/64 px unit. An unbounded line stays unbounded.
+fn fit_limit(max_advance: f32, line_indent: f32) -> f32 {
+    const UNIT: f32 = 1.0 / 64.0;
+    if !max_advance.is_finite() || max_advance >= f32::MAX / 2.0 {
+        return max_advance;
+    }
+    let layout_unit = |v: f32| (v * 64.0).round() * UNIT;
+    layout_unit(max_advance + line_indent) - layout_unit(line_indent) + UNIT
 }
 
 fn commit_line<B: Brush>(

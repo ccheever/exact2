@@ -171,6 +171,39 @@ fn pre_keeps_spaces_and_tabs_and_breaks_only_at_line_feeds() {
 }
 
 #[test]
+fn content_ending_within_a_64th_of_a_pixel_past_the_width_fits() {
+    // Blink decides fit in LayoutUnits (1/64 px), and content may end one
+    // unit past the available width: Chrome keeps a message line it measures
+    // at exactly 200.00 px on one line where the float advances sum a few
+    // thousandths over (LLP 1085.000 host parity).
+    let mut e = engine(INTER, "Inter");
+    let s = spec("fits within a unit", WhiteSpace::Normal);
+    let full = e
+        .paragraph(&s, None)
+        .layout_runs()
+        .map(|r| r.line_w)
+        .fold(0.0, f32::max);
+    let mut lines = |w: f32| e.paragraph(&s, Some(w)).layout_runs().count();
+    assert_eq!(lines(full), 1);
+    assert_eq!(lines(full - 0.005), 1, "within one unit of {full}");
+    assert_eq!(lines(full - 0.03), 2, "past one unit of {full}");
+}
+
+#[test]
+fn pre_wrap_min_content_hangs_a_tab_that_ends_a_segment() {
+    // Chrome hangs a preserved tab at a line's end under `pre-wrap`, as it
+    // hangs a space: "\tend\t" is as narrow as "end" (28.77 px in Chrome's
+    // Noto Sans at 16 px; LLP 1085.000 host parity).
+    let mut e = engine(INTER, "Inter");
+    let end = e.measure(&spec("end", WhiteSpace::PreWrap), AxisOffer::MaxContent);
+    let tabs = spec("\tend\t", WhiteSpace::PreWrap);
+    assert_eq!(e.measure(&tabs, AxisOffer::MinContent).width, end.width);
+    // Max-content still takes the leading tab to its stop.
+    let max = e.measure(&tabs, AxisOffer::MaxContent).width;
+    assert!(max > end.width + 20.0, "{max}");
+}
+
+#[test]
 fn ellipsis_ends_an_over_wide_nowrap_line_in_paint_only() {
     let mut e = engine(INTER, "Inter");
     let s = spec(
@@ -202,6 +235,99 @@ fn ellipsis_ends_an_over_wide_nowrap_line_in_paint_only() {
         .map(|g| g.to_string())
         .collect();
     assert_ne!(visible, plain);
+}
+
+/// The ellipsized line's text glyphs' extent and its "…" glyph.
+fn cut_line(p: &Paragraph, line: usize) -> ((f32, f32), LayoutGlyph) {
+    let run = p.layout_runs().nth(line).expect("line");
+    let ellipsis = *run.glyphs.iter().find(|g| g.start == g.end).expect("…");
+    let text = run
+        .glyphs
+        .iter()
+        .filter(|g| g.start < g.end)
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |a, g| {
+            (a.0.min(g.x), a.1.max(g.x + g.w))
+        });
+    (text, ellipsis)
+}
+
+#[test]
+fn a_clamped_line_keeps_its_alignment_and_its_ellipsis_follows_it() {
+    // Blink's line truncator, which Chrome's screenshots show: the line keeps
+    // its alignment, text stays while it and "…" fit the width measured from
+    // where the aligned line starts, and "…" follows what stays, past the
+    // box's end edge if alignment put it there (Chrome clips it there).
+    let mut e = engine(INTER, "Inter");
+    let mut s = spec("first line here\nshort\nthird line", WhiteSpace::PreWrap);
+    s.line_clamp = 2;
+    s.align = TextAlign::Center;
+    let ((left, right), ellipsis) = cut_line(&e.paragraph(&s, Some(200.0)), 1);
+    assert!(
+        ((left + right) / 2.0 - 100.0).abs() < 0.5,
+        "centred: {left}..{right}"
+    );
+    assert!((ellipsis.x - right).abs() < 0.01, "follows: {}", ellipsis.x);
+    s.align = TextAlign::Right;
+    let ((_, right), ellipsis) = cut_line(&e.paragraph(&s, Some(200.0)), 1);
+    assert!((right - 200.0).abs() < 0.5, "right-aligned: {right}");
+    assert!(
+        (ellipsis.x - right).abs() < 0.01,
+        "past the edge: {}",
+        ellipsis.x
+    );
+    // A soft-wrapped clamped line keeps the space it ends in before "…".
+    let mut s = spec(
+        "The quick brown fox jumps over the lazy dog",
+        WhiteSpace::Normal,
+    );
+    s.line_clamp = 1;
+    let p = e.paragraph(&s, Some(120.0));
+    let run = p.layout_runs().next().unwrap();
+    let ellipsis = run.glyphs.iter().find(|g| g.start == g.end).unwrap();
+    let space = run
+        .glyphs
+        .iter()
+        .filter(|g| &run.text[g.start as usize..g.end as usize] == " ")
+        .map(|g| g.x + g.w)
+        .fold(0.0f32, f32::max);
+    assert!(
+        (ellipsis.x - space).abs() < 0.01,
+        "after the space: {}",
+        ellipsis.x
+    );
+}
+
+#[test]
+fn an_ltr_line_of_rtl_text_is_cut_at_its_right_end() {
+    // Under `ltr` the first strong character sets the bidi base (LLP 1001
+    // §1), but "…" takes the line box's CSS end edge, as in Chrome: Hebrew
+    // in an `ltr` box starts at the left with its logical end, and its
+    // logical start is cut at the right.
+    let mut e = engine(DEJAVU, "DejaVu Sans");
+    let text = "\u{5d6}\u{5d4}\u{5d5} \u{5de}\u{5e9}\u{5e4}\u{5d8} \u{5d0}\u{5e8}\u{5d5}\u{5da} \u{5de}\u{5d0}\u{5d5}\u{5d3} \u{5d1}\u{5e2}\u{5d1}\u{5e8}\u{5d9}\u{5ea}";
+    let s = spec(text, WhiteSpace::Nowrap);
+    let shown = e
+        .paragraph(&s, Some(100.0))
+        .ellipsized(100.0)
+        .expect("over-wide");
+    let ((left, right), ellipsis) = cut_line(&shown, 0);
+    assert!(left.abs() < 0.5, "the line starts at the left: {left}");
+    assert!(
+        (ellipsis.x - right).abs() < 0.01,
+        "… at the right end: {}",
+        ellipsis.x
+    );
+    assert!(ellipsis.x + ellipsis.w <= 100.0 + 0.01);
+    let run = shown.layout_runs().next().unwrap();
+    let last = (text.len() - "\u{5ea}".len()) as u32;
+    assert!(
+        run.glyphs.iter().any(|g| g.start == last),
+        "the logical end stays"
+    );
+    assert!(
+        !run.glyphs.iter().any(|g| g.start == 0 && g.end > 0),
+        "the logical start is cut"
+    );
 }
 
 fn digits(e: &mut TextEngine, text: &str, numeric: u8) -> f32 {
@@ -458,4 +584,26 @@ fn a_markdown_list_items_lines_start_at_its_indent() {
     let measured = e.measure(&s, AxisOffer::Definite(200.0));
     assert_eq!((measured.height, measured.width), (p.height, p.width));
     assert!(p.width <= 200.0, "{}", p.width);
+}
+
+#[test]
+fn a_common_character_after_a_cjk_bracket_is_shaped_in_the_brackets_run() {
+    // Chrome itemizes a Common character by its Script_Extensions: `「`
+    // (Han, Kana, …) after Latin starts a run that `“` joins, so `“` is not
+    // kerned with the Latin letter after it (LLP 1085.000 host parity: the
+    // mixed paragraph's max-content was 0.97 px narrow). Inter kerns `“A`.
+    let mut e = engine(INTER, "Inter");
+    let quote = |e: &mut TextEngine, t: &str| {
+        let p = e.paragraph(&spec(t, WhiteSpace::Normal), None);
+        let run = p.layout_runs().next().unwrap();
+        let at = t.find('\u{201c}').unwrap() as u32;
+        run.glyphs.iter().find(|g| g.start == at).unwrap().w
+    };
+    let alone = quote(&mut e, "\u{201c}");
+    let kerned = quote(&mut e, "x \u{201c}A");
+    assert!(
+        kerned < alone - 1.0,
+        "Latin keeps its kerning: {kerned} {alone}"
+    );
+    assert_eq!(quote(&mut e, "x \u{300c}\u{201c}A"), alone);
 }

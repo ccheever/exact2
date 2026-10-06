@@ -246,6 +246,14 @@ impl ShapedSource {
                 );
             }
             builder.set_base_direction(base);
+            // The line box keeps the CSS direction even where the first
+            // strong character set the bidi base: trailing whitespace hangs
+            // at its end edge, and an overflowing line starts at its start.
+            builder.set_line_direction(if base == BaseDirection::Rtl {
+                BaseDirection::Rtl
+            } else {
+                BaseDirection::Ltr
+            });
             builder.set_line_break_override(Some(CHROME));
             let mut layout = builder.build(&text);
             let inset = line_inset(&spec, &runs, &mut layout);
@@ -357,14 +365,7 @@ impl ShapedSource {
         let spec = &self.spec;
         let preserves = spec.white_space.model().preserves();
         let rtl = spec.direction == exact_kernel::Direction::Rtl;
-        let align = match spec.align.physical(spec.direction) {
-            // Physical: Parley's `Start` would align by each line's own bidi
-            // direction, not the paragraph's CSS `direction` (LLP 1053).
-            TextAlign::Left | TextAlign::Start => Alignment::Left,
-            TextAlign::Center => Alignment::Center,
-            TextAlign::Right | TextAlign::End => Alignment::Right,
-            TextAlign::Justify => Alignment::Justify,
-        };
+        let align = self.alignment();
         let mut out = Lines::default();
         let mut left = (spec.line_clamp > 0).then_some(spec.line_clamp as usize);
         let mut cut = false;
@@ -399,7 +400,8 @@ impl ShapedSource {
                 });
                 if ellipsis {
                     if let (Some(w), Some(catalog)) = (
-                        width.filter(|w| out.lines.last().is_some_and(|l| l.w > w + 0.01)),
+                        // Overflow as Blink decides fit: past one 1/64 px unit.
+                        width.filter(|w| out.lines.last().is_some_and(|l| l.w > w + 1.0 / 64.0)),
                         catalog.as_deref_mut(),
                     ) {
                         self.ellipsize(&mut out, w, catalog);
@@ -421,15 +423,42 @@ impl ShapedSource {
         (out, cut)
     }
 
-    /// End the last line in "…" in the run's own face: whole clusters come
-    /// off its logical end until the ellipsis fits `width`, and any space
-    /// left before it.
+    /// The paragraph's alignment as Parley takes it.
+    fn alignment(&self) -> Alignment {
+        match self.spec.align.physical(self.spec.direction) {
+            // Physical: Parley's `Start` would align by each line's own bidi
+            // direction, not the paragraph's CSS `direction` (LLP 1053).
+            TextAlign::Left | TextAlign::Start => Alignment::Left,
+            TextAlign::Center => Alignment::Center,
+            TextAlign::Right | TextAlign::End => Alignment::Right,
+            TextAlign::Justify => Alignment::Justify,
+        }
+    }
+
+    /// End the last line in "…" in the run's own face, as Blink's line
+    /// truncator does: the line keeps its alignment, whole visual clusters
+    /// stay from its start edge (the CSS direction's) while they and the
+    /// ellipsis fit `width` measured from where the aligned line starts,
+    /// spaces included, and the ellipsis follows the last one kept. A
+    /// centred or end-aligned line's ellipsis can so pass the box's end
+    /// edge, where Chrome clips it too.
     fn ellipsize(&self, out: &mut Lines, width: f32, catalog: &mut catalog::Catalog) {
         let Some(line) = out.lines.last().copied() else {
             return;
         };
-        let rtl = self.data.lines[line.hard as usize].rtl;
-        let text = &self.data.lines[line.hard as usize].text;
+        let rtl = self.spec.direction == exact_kernel::Direction::Rtl;
+        // How far alignment moved the line from its start edge: Parley
+        // aligns a line that fits by its free space.
+        let free = if width.is_finite() {
+            (width - line.w).max(0.0)
+        } else {
+            0.0
+        };
+        let shift = match (self.alignment(), rtl) {
+            (Alignment::Center, _) => free / 2.0,
+            (Alignment::Right, false) | (Alignment::Left, true) => free,
+            _ => 0.0,
+        };
         let (a, b) = (line.glyphs.0 as usize, line.glyphs.1 as usize);
         let glyphs: Vec<LayoutGlyph> = out.glyphs[a..b].to_vec();
         let end = if rtl { glyphs.first() } else { glyphs.last() };
@@ -463,9 +492,9 @@ impl ShapedSource {
             let fits = cluster.iter().all(|&k| {
                 let (lo, hi) = extent(&glyphs[k]);
                 if rtl {
-                    lo >= advance - 0.01
+                    lo + shift >= advance - 0.01
                 } else {
-                    hi <= width - advance + 0.01
+                    hi - shift <= width - advance + 0.01
                 }
             });
             if !fits {
@@ -473,18 +502,6 @@ impl ShapedSource {
             }
             kept.extend_from_slice(cluster);
             i = j;
-        }
-        // No space before the ellipsis.
-        while let Some(&k) = kept.last() {
-            let g = &glyphs[k];
-            if text
-                .get(g.range())
-                .is_some_and(|t| !t.is_empty() && t.chars().all(char::is_whitespace))
-            {
-                kept.pop();
-            } else {
-                break;
-            }
         }
         let original = glyphs
             .iter()
