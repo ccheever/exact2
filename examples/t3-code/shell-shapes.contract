@@ -2,6 +2,7 @@ use R4GitCard from "./r4-git-shapes.contract"
 // The window shell's projection (shell.ts): the toast stack, the header's
 // panel controls and labels, the right panel's surface chooser, the thread
 // details panel and the thread title's action menu.
+use AutomationsView from "./thread-automations.contract"
 use R4Panel from "./r4-surfaces-shapes.contract"
 use R5PrRows from "./r5-panels-shapes.contract"
 use R9Checkout from "./r9-connect-shapes.contract" // lane r9-connect
@@ -149,5 +150,7 @@ shape ShellDetails
   mergeHint: string
   // lane r5-panels: the pull request rows under the branch (r5-panels-pr.ts).
   prRows: R5PrRows
+  // ThreadAutomationsPanel (thread-automations.ts): the thread's bound scheduled tasks.
+  automations: AutomationsView
   // lane r4-git: the branch picker, Git actions and their dialogs (r4-git-card.ts).
   git: R4GitCard

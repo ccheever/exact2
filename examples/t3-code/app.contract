@@ -415,7 +415,7 @@ component T3Code
   state keybindingSearch = false
   state keybindingRecording = false
   resource bindings = keybindingSettings(settingsEnvironmentId, keybindingQuery, settingsOpen and settingsRoute == "keybindings", keybindingPrevious, keybindingKey, keybindingWhen, keybindingCommand, settingsRefresh, data.revision) as shape KeybindingPage
-  resource scheduled = scheduledSettings(settingsEnvironmentId, settingsProjectId, restEditor, restSubject, settingsOpen and settingsRoute == "scheduled-tasks", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision) as shape ScheduledPage
+  resource scheduled = scheduledSettings(settingsEnvironmentId, settingsProjectId, restEditor, restSubject, settingsOpen and settingsRoute == "scheduled-tasks", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape ScheduledPage
   state licenseQuery = ""
   state licenseExpanded = ""
   state licenseSearchOpen = false
@@ -1262,7 +1262,7 @@ component T3Code
     if op != "copy" and op != "dismiss" and op != "ui:settings" and not commandPending
       commandPending = true
       send changed = command(op, target, value, 0)
-      if op == "select-thread"
+      if op == "select-thread" or op == "new-thread"
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
   action panelUi(what: string, id: string) // r4-surfaces: tabs and surfaces live in the client (r4-surfaces-panel.ts, shell.panel)
@@ -1281,7 +1281,7 @@ component T3Code
   action detailsAct(op: string, target: string, value: string)
     detailsEditors = op == "editors" and not detailsEditors
     titleMenuOpen = false
-    detailsOpen = op == "toggle" ? (not detailsOpen and conversationWidth < 984) : (detailsOpen and op != "ui:project-settings" and op != "select-thread" and op != "ui:changes") // inline (>= 984): toggle remembers the thread's docked card
+    detailsOpen = op == "toggle" ? (not detailsOpen and conversationWidth < 984) : (detailsOpen and op != "ui:project-settings" and op != "ui:scheduled-tasks" and op != "select-thread" and op != "ui:changes") // inline (>= 984): toggle remembers the thread's docked card
     if op == "ui:project-settings"
       settingsEnvironmentId = settings.environmentId
       settingsProjectId = target == "" ? data.projectId : target
@@ -1290,7 +1290,18 @@ component T3Code
       settingsRoute = "projects"
       settingsOpen = true
       modalError = ""
-    if (op != "toggle" or conversationWidth >= 984) and op != "editors" and op != "ui:project-settings" and not commandPending
+    if op == "ui:scheduled-tasks" // ThreadAutomationsPanel: Manage scheduled tasks, or Edit as the page's taskId deep link (scheduled-view.ts)
+      settingsEnvironmentId = settings.environmentId
+      settingsMachine = ""
+      settingsProjectKey = ""
+      settingsCheckout = ""
+      settingsProjectId = ""
+      settingsRoute = "scheduled-tasks"
+      settingsOpen = true
+      restEditor = target == "" ? "" : "task"
+      restSubject = target == "" ? "" : `link|${value}|${target}`
+      modalError = ""
+    if (op != "toggle" or conversationWidth >= 984) and op != "editors" and op != "ui:project-settings" and op != "ui:scheduled-tasks" and not commandPending
       commandPending = true
       send changed = command(op == "toggle" ? "shelllocal:details-inline" : op == "ui:changes" ? "diff" : op == "ui:editor" ? "shell:open-editor" : op, target, value, 0)
       if op == "select-thread" or op == "shell:merge-back"
