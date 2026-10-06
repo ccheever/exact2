@@ -86,9 +86,7 @@ pub struct Command {
     pub name: String,
     /// Its arguments.
     pub args: Vec<Value>,
-    /// The node whose input ran the action, when a host event did: where a
-    /// command that shows system UI anchors it (LLP 1069.003 D3). `None` for
-    /// a timer, an answer, or anything else no input dispatched.
+    /// The node whose input ran the action, when a host event did: where a command that shows system UI anchors it (LLP 1069.003 D3). `None` for a timer, an answer, or anything else no input dispatched.
     pub source: Option<ViewId>,
 }
 
@@ -124,8 +122,7 @@ pub enum RunnerError {
         plan: u64,
         kernel: u64,
     },
-    /// The plan belongs to another app (LLP 1023 D5): its header names one
-    /// identity, this binary's data crate another.
+    /// The plan belongs to another app (LLP 1023 D5): its header names one identity, this binary's data crate another.
     AppMismatch {
         plan: String,
         host: String,
@@ -149,8 +146,7 @@ pub enum RunnerError {
     InvalidEvent {
         event: &'static str,
     },
-    /// A control's `input` or `change` carries a value it could never
-    /// report (LLP 1069.001 D4): a select's value no enabled option has.
+    /// A control's `input` or `change` carries a value it could never report (LLP 1069.001 D4): a select's value no enabled option has.
     InvalidValue {
         event: &'static str,
         reason: String,
@@ -166,8 +162,7 @@ pub enum RunnerError {
     },
     /// Derives and resources depend on each other in a cycle; nothing settles.
     Cycle,
-    /// An earlier update failed after the instance tree had begun to change;
-    /// the runner no longer matches its kernel and must be restarted (D5).
+    /// An earlier update failed after the instance tree had begun to change; the runner no longer matches its kernel and must be restarted (D5).
     Poisoned,
     /// `advance` was given a non-finite time.
     NonFiniteClock,
@@ -212,8 +207,7 @@ pub enum RunnerError {
         action: String,
         param: String,
     },
-    /// An action argument or a slot write is a string longer than
-    /// [`crate::vm::MAX_STRING`] bytes.
+    /// An action argument or a slot write is a string longer than [`crate::vm::MAX_STRING`] bytes.
     StringTooLong {
         name: String,
     },

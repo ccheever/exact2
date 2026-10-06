@@ -1460,8 +1460,6 @@ test('innermost non-interactive text; none is null', () => {
   expect(nodeNamed(nodes, 'Hi').id).toBe(3);
   expect(nodeNamed(nodes, 'Nope')).toBe(null);
 });
-
-
 test('iOS drives serialize the same device and bundle and release on launch or close failure', async () => {
   const { exclusiveIOS } = await import('../../scripts/agent-launch.mjs');
   const directory = mkdtempSync(join(tmpdir(), 'exact-drive-lock-')), events = [];
