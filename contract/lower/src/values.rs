@@ -623,6 +623,13 @@ pub(crate) fn check_style_value(
                     span,
                 );
             }
+            // @ref LLP 1034 §8: `light` or `dark`. CSS's `normal` means the
+            // page's schemes, not the parent's, and `light dark` and `only`
+            // ask a browser to choose: none is implemented; leaving the
+            // attribute off follows the surrounding scheme.
+            if rows.contains(&StyleId::ColorScheme) && !matches!(v.trim(), "light" | "dark") {
+                return err("lower-attr-value", format!("`color-scheme=\"{v}\"`: exact2 implements `light` and `dark` on a subtree (LLP 1034 §8); leave it off to follow the surrounding scheme. CSS's `normal`, `light dark` and `only` are not implemented"), span);
+            }
             if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
                 return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);
             }

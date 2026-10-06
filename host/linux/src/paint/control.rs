@@ -187,7 +187,14 @@ impl super::Painter {
     /// A select's open menu, over everything (LLP 1069.001 D7).
     pub(super) fn menu(&mut self, menu: &MenuPaint) {
         let ts = Transform::identity();
-        let dark = self.dark;
+        // Painted after the walk: the select's own scheme (LLP 1034 §8), as
+        // its inherited style computes it, else the app's.
+        let dark = match menu.style.color_scheme {
+            exact_kernel::ColorScheme::Dark => true,
+            exact_kernel::ColorScheme::Light => false,
+            exact_kernel::ColorScheme::Normal => self.dark,
+        };
+        let previous = std::mem::replace(&mut self.dark, dark);
         let panel = Shape::new(menu.rect, [6.0; 4]);
         self.backend.fill(&panel, [0, 0, 0, 0x40], ts);
         let bg = if dark {
@@ -224,6 +231,7 @@ impl super::Painter {
             self.backend
                 .text(&mut engine, &paragraph, &palette, (x + 12.0, oy), ts);
         }
+        self.dark = previous;
     }
 }
 

@@ -62,6 +62,8 @@ struct FlatPaint: Equatable {
         "border_style_top", "border_style_right", "border_style_bottom", "border_style_left", "text_transform",
         "text_color", "text_shadow", "text_stroke_width", "text_stroke_color", "text_align", "text_overflow", "text_decoration_line", "interpolate_size", "touch_action",
         "border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left",
+        // A fixed fill paints alike in either scheme (LLP 1034 §8).
+        "color_scheme",
     ]
 
     init?(_ style: NodeStyle) {

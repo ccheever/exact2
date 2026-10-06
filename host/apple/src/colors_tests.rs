@@ -269,6 +269,43 @@ fn the_dynamic_range_limit_reaches_a_box_below_the_node_that_sets_it() {
     );
 }
 
+/// LLP 1034 §8: `color-scheme` reaches every native view below the node
+/// that sets it (UIKit and AppKit inherit it too, but a popover or dialog the
+/// host lifts out of its ancestor would not), a change restyles them, and a
+/// box outside it carries nothing.
+#[test]
+fn the_color_scheme_reaches_every_view_below_the_node_that_sets_it() {
+    let (mut host, boot) = boot(
+        "component A\n  state dark = true\n  action flip\n    dark = not dark\n  view\n    column\n      column testId=\"sheet\" color-scheme=(dark ? \"dark\" : \"light\") background-color=\"light-dark(#ffffff, #000000)\"\n        button \"Flip\" press=flip testId=\"flip\"\n        box testId=\"leaf\" width=10 height=10 background-color=\"light-dark(#ffffff, #000000)\"\n      box testId=\"outside\" width=10 height=10 background-color=\"light-dark(#ffffff, #000000)\"\n",
+    );
+    let style = |batch: &str, id| {
+        ops(batch)
+            .into_iter()
+            .find(|op| op["id"] == serde_json::json!(id) && op.get("style").is_some())
+            .map(|op| op["style"].clone())
+    };
+    let (sheet, leaf, outside) = (
+        view(&host, "sheet"),
+        view(&host, "leaf"),
+        view(&host, "outside"),
+    );
+    assert_eq!(style(&boot, sheet).unwrap()["color_scheme"], "dark");
+    assert_eq!(style(&boot, leaf).unwrap()["color_scheme"], "dark");
+    let plain = style(&boot, outside).unwrap();
+    assert!(plain.get("color_scheme").is_none(), "{plain}");
+    let batch = host.dispatch(view(&host, "flip"), exact_runner::Event::Press);
+    assert_eq!(
+        style(&batch, sheet).expect("the sheet restyled")["color_scheme"],
+        "light",
+        "{batch}"
+    );
+    assert_eq!(
+        style(&batch, leaf).expect("the leaf restyled")["color_scheme"],
+        "light",
+        "{batch}"
+    );
+}
+
 #[test]
 fn every_session_re_presents_a_changed_report_not_only_the_first() {
     let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());

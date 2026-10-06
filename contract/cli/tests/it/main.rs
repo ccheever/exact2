@@ -23,6 +23,7 @@ mod collection_into_view;
 mod collection_nest;
 mod collection_reuse;
 mod collection_start;
+mod color_scheme;
 mod color_spaces;
 mod compose;
 mod controls;

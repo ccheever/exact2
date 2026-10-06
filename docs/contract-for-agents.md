@@ -614,7 +614,11 @@ a property's admitted value space; this does not add general union types.
 For scrolling, provide a bound and inspect measured layout. For virtualized
 lists, use `list virtualized=true` (no other tag takes it), one direct keyed
 `each`, and one flow root per row. A vertical list needs `height`, `max-height`
-or a growing `flex`, and takes `estimated-item-height`. A horizontal one needs a
+or a growing `flex`, which may be computed (`max-height=(narrow ? "320px" : "640px")`).
+A percentage bounds it only against a definite containing-block height (a plain
+`column` is content-sized), and the bake refuses (`bake-scroll-unbounded`) only a
+list with no bound at all, in its first 390×844 frame, so look at the list in each
+layout it takes. It takes `estimated-item-height`. A horizontal one needs a
 literal `display="flex"` and a literal positive `height`, takes
 `estimated-item-width`, and refuses wrapping, reversed or right-to-left flow, a
 nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
@@ -1418,6 +1422,9 @@ or choices of literals, so unsupported runtime values cannot bypass the check.
 A colour is any CSS colour the browser paints: hex, `rgb()`, `hsl()`, `hwb()`,
 a named colour, `transparent`, `lab()`/`oklch()`/`color()` (clipped to sRGB
 natively), or `light-dark(a, b)`; the kernel parses it once for every host.
+`color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve
+`light-dark()`, platform colours and glass in that scheme, as a sheet that is
+always dark does; leave it off to follow the surrounding scheme (LLP 1034 §8).
 `currentcolor` takes the node's `color` on borders, `background-color`,
 `tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
 an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not

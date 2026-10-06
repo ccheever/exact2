@@ -54,6 +54,18 @@ fn a_step_that_is_not_an_operation_is_refused() {
 }
 
 #[test]
+fn expect_value_says_text_reads_a_controls_value() {
+    let e = contract::tests("test \"t\"\n  expect value \"people\" == \"2\"\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-step", "{e}");
+    assert!(
+        e.message.ends_with(
+            "not `value`; `expect text` reads a control's value too (a checkbox with a `checked` binding reads `true` or `false`)"
+        ),
+        "{e}"
+    );
+}
+
+#[test]
 fn the_apps_tests_parse() {
     let src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),

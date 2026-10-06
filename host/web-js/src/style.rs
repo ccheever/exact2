@@ -549,6 +549,13 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         // @ref LLP 1077 D1 — Apple's curve as the web's stand-in. A bound
         // radius is not rescaled here, as css.rs scales a static one: a
         // dynamic `-apple-continuous` reaches less far on the web.
+        // @ref LLP 1034 §8 — `light` and `dark`; a bound `normal` follows
+        // the surrounding scheme (the property removed), as the kernel unsets
+        // it; anything else is no value it takes.
+        StyleId::ColorScheme => vec![with(
+            "color-scheme",
+            "v=>v===\"light\"||v===\"dark\"?v:null",
+        )],
         StyleId::CornerShape => vec![with(
             "corner-shape",
             "v=>v==null?v:v.replace(/-apple-continuous/gi,\"superellipse(1.6)\")",
@@ -737,6 +744,23 @@ pub(crate) mod tests {
             String::from_utf8_lossy(&out.stderr)
         );
         serde_json::from_slice(&out.stdout).unwrap()
+    }
+
+    /// LLP 1034 §8: a bound `color-scheme` writes `light` or `dark`, and a
+    /// bound `normal` (or anything else) removes the property, so the node
+    /// follows its parent's scheme as the kernel's unset row does.
+    #[test]
+    fn a_bound_color_scheme_is_light_dark_or_removed() {
+        let writes = style_writes(StyleId::ColorScheme as u16, false).unwrap();
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0].name, "color-scheme");
+        assert_eq!(
+            run(
+                writes[0].map.unwrap(),
+                &["light", "dark", "normal", "light dark"]
+            ),
+            serde_json::json!(["light", "dark", null, null])
+        );
     }
 
     #[test]

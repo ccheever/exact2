@@ -996,6 +996,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "hover-effect" => styles(&[StyleId::HoverEffect]),
         "smart-invert" => styles(&[StyleId::SmartInvert]),
         "dynamic-range-limit" => styles(&[StyleId::DynamicRangeLimit]),
+        // @ref LLP 1034 §8 — a subtree's colour scheme.
+        "color-scheme" => styles(&[StyleId::ColorScheme]),
         // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
         "press-scale" => styles(&[StyleId::PressScale]),
         _ => return None,

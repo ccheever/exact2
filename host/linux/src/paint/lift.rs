@@ -136,7 +136,12 @@ impl Painter {
         let boxes = walk.boxes.len();
         let (reveal, page) = (walk.reveal, (node.frame.x - rect.0, node.frame.y - rect.1));
         walk.reveal = Some(node.id);
+        // Painted after the walk, out of its ancestors: the row's own scheme
+        // (LLP 1034 §8), else the app's.
+        let previous = self.dark;
+        self.dark = node.color_scheme_dark().unwrap_or(previous);
         self.node(walk, node.id, ts, page, None);
+        self.dark = previous;
         walk.reveal = reveal;
         walk.boxes.truncate(boxes);
         if opacity < 1. {

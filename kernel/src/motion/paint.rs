@@ -20,6 +20,18 @@ pub struct PaintMotion {
     views: BTreeMap<u64, bool>,
 }
 
+/// The appearance a node's colours resolve by: its subtree's `color-scheme`
+/// (LLP 1034 §8), which is what a host's view of it is set to, else a host's
+/// report for its view (a sheet's own override, LLP 1062 D4), else the
+/// session's.
+fn appearance(kernel: &Kernel, views: &BTreeMap<u64, bool>, key: NodeKey, session: bool) -> bool {
+    kernel
+        .node_by_key(key)
+        .and_then(|n| n.color_scheme_dark())
+        .or_else(|| views.get(&motion_node(key)).copied())
+        .unwrap_or(session)
+}
+
 impl PaintMotion {
     /// Whether the node owns this paint property.
     pub fn owns(&self, node: u64, property: Property) -> bool {
@@ -36,6 +48,12 @@ impl PaintMotion {
             .get(&motion_node(key))
             .copied()
             .unwrap_or(self.dark.unwrap_or(false))
+    }
+
+    /// A host's own report for a view whose appearance differs from the
+    /// session's (LLP 1062 D4), if any.
+    pub fn view_dark(&self, key: NodeKey) -> Option<bool> {
+        self.views.get(&motion_node(key)).copied()
     }
 
     /// Adopt a commit after its ordinary motion rows. Returned properties
@@ -55,7 +73,7 @@ impl PaintMotion {
         let (views, session) = (&self.views, self.dark.unwrap_or(false));
         let sync = kernel.paint_sync(
             receipt,
-            |key| views.get(&motion_node(key)).copied().unwrap_or(session),
+            |key| appearance(kernel, views, key, session),
             &mut self.owners,
         );
         self.apply(kernel, sync, engine, false)
@@ -71,7 +89,7 @@ impl PaintMotion {
         let (views, session) = (&self.views, self.dark.unwrap_or(false));
         let sync = kernel.paint_adopt(
             keys,
-            |key| views.get(&motion_node(key)).copied().unwrap_or(session),
+            |key| appearance(kernel, views, key, session),
             &mut self.owners,
         );
         self.apply(kernel, sync, engine, false);
@@ -195,10 +213,8 @@ impl PaintMotion {
         let seek = engine.advance(now);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
         let views = &self.views;
-        let sync = kernel.paint_resync(
-            |key| views.get(&motion_node(key)).copied().unwrap_or(dark),
-            &mut self.owners,
-        );
+        let sync =
+            kernel.paint_resync(|key| appearance(kernel, views, key, dark), &mut self.owners);
         Some(self.apply(kernel, sync, engine, first))
     }
 
@@ -219,10 +235,8 @@ impl PaintMotion {
         let seek = engine.advance(now);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
         let views = &self.views;
-        let sync = kernel.paint_resync(
-            |key| views.get(&motion_node(key)).copied().unwrap_or(dark),
-            &mut self.owners,
-        );
+        let sync =
+            kernel.paint_resync(|key| appearance(kernel, views, key, dark), &mut self.owners);
         Some(self.apply(kernel, sync, engine, first))
     }
 
@@ -236,7 +250,7 @@ impl PaintMotion {
         dark: bool,
         now: f64,
     ) -> Option<Vec<(u64, Property)>> {
-        kernel.node_by_key(key)?;
+        let authored = kernel.node_by_key(key)?.color_scheme_dark().is_some();
         let node = motion_node(key);
         let own = (Some(dark) != self.dark).then_some(dark);
         let before = self.views.get(&node).copied();
@@ -248,8 +262,18 @@ impl PaintMotion {
             Some(dark) => self.views.insert(node, dark),
             None => self.views.remove(&node),
         };
-        let sync = kernel.paint_adopt([key], dark, &mut self.owners);
-        let retired = self.apply(kernel, sync, engine, first);
+        // A view whose node sets or inherits a `color-scheme` reports what
+        // the commit already resolved by (`appearance`, LLP 1034 §8): its
+        // transitions started there, and are not snapped as a first report's
+        // correction would.
+        let session = self.dark.unwrap_or(false);
+        let views = &self.views;
+        let sync = kernel.paint_adopt(
+            [key],
+            |k| appearance(kernel, views, k, session),
+            &mut self.owners,
+        );
+        let retired = self.apply(kernel, sync, engine, first && !authored);
         // Dropping a slot drops its dirt; playing keyframes must be marked
         // after the rows so the host presents their corrected colours.
         engine.set_node_dark(node, own, first);

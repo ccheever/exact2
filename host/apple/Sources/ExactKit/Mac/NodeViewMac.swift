@@ -774,8 +774,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         if let regions = presenter?.session?.regions, regions.owns(self) { regions.geometryChanged() }
-        // An `svg`'s paints are resolved into its scene's layers.
-        presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock)
+        // An `svg`'s paints are resolved again; paint motion hears the appearance (LLP 1062 D4).
+        presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock); presenter?.session?.noteAppearance(self)
         guard hasSchemeColor || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
         reapplyColors()
     }
@@ -1027,6 +1027,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         style = s
         if old["display"] != s["display"] { isHidden = hostHidden }
         if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
+        if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
         syncDynamicRange(from: old)

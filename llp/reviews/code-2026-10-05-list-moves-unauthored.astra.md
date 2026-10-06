@@ -1,0 +1,21 @@
+# Code review: a list's rows moved by the list play no layout-transition (66f3b8b51..6a78cfaab), 2026-10-05 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via `codex exec`, reasoning effort xhigh, sandbox read-only, `-C` a detached worktree at `6a78cfaab`.
+- **Method:** one brief (sha256 `d6d31cae2dd7cb23813eb210aa2e12033ea64a2c76b0a90a5dede2a4b7f5910f`), shared with grok. Round 1, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** DO NOT LAND.
+- **Disposition (r2):** 1 taken: the count is gone. Each list carries a data generation the runner moves only when its keys change (an item put in, taken out or moved, `update_data`'s `shared`/`rekeyed`), and a list is settled for a layout only when its generation is unchanged and none of its row boxes changed size in that layout (a row that grew moves the rows after it as data does). A generation over any data change was tried first: the Signal transcript's row bodies read the clock, so every commit counted and the fix vanished on the device app (324 animating batches). 2 taken: the report's commit is no longer special; every commit, a report's with its edge actions included, judges each list by that rule, and nothing outside a settled list's rows is ever settled, so a resize handler or a sibling keeps its transition. 3 taken: a test with two lists inserts a row, swaps two rows (count unchanged) and grows one row, and checks the edited list's row box is moving and the other list's is not; it fails if every list is taken as settled, and the report test fails if none is. 4 taken in part: the judgment walks the lists for `(view, generation)` only (`collection_data`, no snapshots) and is skipped when no node declares a layout transition; no measurement of it.
+
+---
+
+DO NOT LAND
+
+1. **MATERIAL — Equal-count authored changes lose animation.** [presence.rs:200](host/apple/src/presence.rs:200) treats unchanged counts as proof of unauthored movement. Reordering `[a,b,c]` to `[c,b,a]`, or expanding a row from 40px to 80px, now snaps idle row boxes instead of playing their declared transition. Track actual window/measurement provenance per collection; preserve authored key, order and size changes. Add both regression cases.
+
+2. **MATERIAL — Feedback can contain authored actions.** [host.rs:809](host/apple/src/host.rs:809) suppresses the entire commit, but [collection.rs:171](runner/src/runner/collection.rs:171) dispatches `reachstart`/`reachend` actions and appends their receipts. A synchronous edge handler that prepends rows therefore loses animations even though the count changes; unrelated boxes moved by that handler also snap. The flag also spans authored [resize callbacks](host/apple/src/resize.rs:26). Separate geometric movement from action-generated movement instead of marking the whole call unauthored. Test synchronous edge insertion and an affected non-list sibling.
+
+3. **MINOR — The ordinary-commit classifier is untested.** The added [Apple tests](host/apple/src/collection_tests.rs:429) exercise feedback (`All`) and a count-changing action (`None`). Removing the `ListRows` assignment would leave both behavioral tests passing. Add an ordinary-commit correction test, including nested-list mounting/unmounting and an unrelated list changing count. Assert the affected row’s target and presentation, not just engine-wide quiescence.
+
+4. **MINOR — Every layout adds a redundant snapshot traversal.** [presence.rs:194](host/apple/src/presence.rs:194) obtains full shallow snapshots only to discard everything except identity/count. [collections_with](runner/src/instance/collection/traversal.rs:88) traverses live instances, includes mounted nested lists, allocates row snapshots and sorts. Reuse existing collection publication metadata or collect only the needed provenance; skip this work when no list layout transitions exist. Measure the added cost before claiming a performance improvement.
+
+No prior review files matched. `caps` and `boot` pass; changed files meet the line limit. Linux/web paths remain unchanged. No additional thread/lifetime defect found. Rust tests and app drives were not run: this read-only checkout has no build artifacts.

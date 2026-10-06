@@ -844,6 +844,10 @@ pub fn style_json_presented(
             .union(StyleMask::of(StyleId::PointerEvents))
             .union(StyleMask::of(StyleId::Visibility))
             .union(StyleMask::of(StyleId::DynamicRangeLimit))
+            // A subtree's scheme reaches every view below the node that
+            // sets it, so one lifted out of it (a popover, a dialog) keeps
+            // it (LLP 1034 §8).
+            .union(StyleMask::of(StyleId::ColorScheme))
     };
     let mut computed = node.computed_style(rows);
     computed.mask.set(StyleId::TextColor);

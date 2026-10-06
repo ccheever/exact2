@@ -237,6 +237,17 @@ fn position_fixed_says_how_to_pin_a_box() {
 }
 
 #[test]
+fn a_mutation_clause_out_of_order_names_the_order() {
+    let src = "shape Ack\n  ok: bool\nshape Card\n  id: string\n\ncomponent App\n  resource cards = board() as shape list<Card>\n  mutation changed as shape Ack refreshes cards queue\n  view\n    text \"a\"\n";
+    let error = contract::compile(src).unwrap_err();
+    assert_eq!(error.id, "syntax-expected-newline", "{error}");
+    assert!(
+        error.message.starts_with("`queue` is out of place: a mutation's clauses go `as shape T`, then `queue`, then `refreshes a, b`, then `then action`"),
+        "{error}"
+    );
+}
+
+#[test]
 fn a_maximum_of_none_says_no_limit_is_the_default() {
     for src in [
         "component App\n  view\n    column max-height=\"none\"\n      text \"a\"\n",

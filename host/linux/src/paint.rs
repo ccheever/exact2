@@ -931,6 +931,10 @@ impl Painter {
         if drawn.is_none() && opacity < 1.0 {
             self.backend.push_opacity(opacity);
         }
+        // The node's own appearance (a `color-scheme` above it, LLP 1034 §8)
+        // for its mask and everything it paints below.
+        let previous = self.dark;
+        self.dark = p.dark.unwrap_or(previous);
         // @ref LLP 1077 D2 — the mask is the border box's gradient's alpha.
         let mask = gradient::Captured::mask(node.style, self.dark).map(|m| m.place((x, y, w, h)));
         if mask.is_some() {
@@ -941,8 +945,6 @@ impl Painter {
             && self
                 .backend
                 .push_css_clip(&node.style.clip_path, ts.pre_translate(x, y));
-        let previous = self.dark;
-        self.dark = p.dark.unwrap_or(previous);
         self.content(walk, &node, (x, y, w, h), ts, offset, clip_rect);
         self.dark = previous;
         if path_clip {

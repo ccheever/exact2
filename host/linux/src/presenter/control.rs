@@ -277,7 +277,8 @@ impl<D: DataSource> Presenter<D> {
                     None => choices.iter().position(|c| Some(c.view) == chosen),
                 },
                 rows: choices.into_iter().map(|c| (c.label, c.disabled)).collect(),
-                accent: accent(&node, self.brush.dark),
+                // In the select's scheme (LLP 1034 §8), else the app's.
+                accent: accent(&node, node.color_scheme_dark().unwrap_or(self.brush.dark)),
                 style,
             },
         ))
