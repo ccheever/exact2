@@ -31,6 +31,23 @@ enum KeyCodes {
         kVK_Home: "Home", kVK_End: "End", kVK_PageUp: "PageUp", kVK_PageDown: "PageDown", kVK_ForwardDelete: "Delete",
         kVK_CapsLock: "CapsLock", kVK_ANSI_KeypadEnter: "NumpadEnter",
     ]
+
+    /// What the current ASCII-capable keyboard layout types on a key, with
+    /// Shift and Option as given: the Latin character of a key whose input
+    /// source types none (Korean 2-Set, Russian), as an app's shortcut hears it.
+    static func asciiCharacters(_ keyCode: UInt16, shift: Bool, option: Bool) -> String? {
+        guard let source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue(),
+              let property = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData),
+              let bytes = CFDataGetBytePtr(Unmanaged<CFData>.fromOpaque(property).takeUnretainedValue()) else { return nil }
+        let state = ((shift ? shiftKey : 0) | (option ? optionKey : 0)) >> 8
+        var dead: UInt32 = 0, length = 0
+        var characters = [UniChar](repeating: 0, count: 4)
+        let status = bytes.withMemoryRebound(to: UCKeyboardLayout.self, capacity: 1) {
+            UCKeyTranslate($0, keyCode, UInt16(kUCKeyActionDown), UInt32(state & 0xff), UInt32(LMGetKbdType()),
+                           OptionBits(kUCKeyTranslateNoDeadKeysMask), &dead, characters.count, &length, &characters)
+        }
+        return status == noErr && length > 0 ? String(utf16CodeUnits: characters, count: length) : nil
+    }
     #endif
 
     /// UIKeyboardHIDUsage's USB keyboard page. Letters, digits, F1–F12 and
