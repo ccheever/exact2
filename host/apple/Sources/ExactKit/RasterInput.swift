@@ -48,7 +48,7 @@ final class RasterInput: @unchecked Sendable {
         // spooled like a download's, so metadata and decode read a file.
         if name.hasPrefix("data:") {
             guard name.utf8.count <= dataLimit, let bytes = dataURL(name), !bytes.isEmpty else { throw RasterFailure.decode }
-            let file = RasterSpool.file()
+            let file = try RasterSpool.file()
             try bytes.write(to: file, options: .atomic)
             return RasterInput(url: file, encodedBytes: bytes.count, temporary: true)
         }
@@ -124,7 +124,7 @@ private final class RasterDownload: NSObject, URLSessionDataDelegate, @unchecked
     private var failure: Error?
     init(url: URL) throws {
         self.url = url
-        destination = RasterSpool.file()
+        destination = try RasterSpool.file()
         guard FileManager.default.createFile(atPath: destination.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw RasterFailure.decode }
         file = try FileHandle(forWritingTo: destination)
         super.init()
