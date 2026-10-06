@@ -22,6 +22,7 @@ const keyedLabel = (label: string) => ({ id: `label:${label}`, label, mark: '', 
 
 // Pages whose every row is saved on this client; they have no scope sentence (SETTINGS_DEVICE_ONLY_PATHS).
 const DEVICE_ONLY = new Set(['appearance', 'snap-shot', 'connections']);
+const EDITOR_KINDS = new Set(['create', 'edit', 'duplicate']);
 
 export async function settingsCore(client: T3Client, native: Native | null | undefined, machine: string, projectKeyInput: string, checkoutInput: string, legacyProjectId: string, route: string, target: string, active: boolean, dialogKind = '', dialogSubject = '', deliveryStream = 'embedded', deliveryStaged = false) {
   rememberDelivery(client, deliveryStream, deliveryStaged); // settings-a-about.ts
@@ -36,8 +37,9 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   const context = serverContext(client, scope, files);
   const device = client.local.deviceSettings;
   const custom = (client.local as unknown as { customThemes?: CustomTheme[] }).customThemes || [];
-  // The theme editor's draft (settings-appearance-editor.ts) paints the settings while it is open.
-  const draft = syncDraft(client, active ? dialogKind : '', dialogSubject, prefs.themeLight, prefs.themeDark, device.appearanceMode === 'dark' ? 'dark' : 'light');
+  // The theme editor's session (D16): the window's create/edit/duplicate dialog names it whether
+  // or not Settings is open, and its draft paints the whole app (settings-appearance-editor.ts).
+  const draft = syncDraft(client, EDITOR_KINDS.has(dialogKind) || active ? dialogKind : '', dialogSubject, prefs, device.appearanceMode === 'dark' ? 'dark' : 'light');
   const preview = previewTheme(client);
   if (dialogKind !== 'import') resetImport(client);
   const paintCustom = preview ? [...custom, preview] : custom;

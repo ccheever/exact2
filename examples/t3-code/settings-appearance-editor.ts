@@ -8,6 +8,9 @@ import type { T3Client } from './client';
 import { ClientError } from './protocol';
 import { themeIdFromName, toHex, type CustomTheme } from './settings-themes';
 import { themeRoles } from './settings-appearance';
+import { sessionInputFor, sessionThemes, themeEditorStore } from './theme-editor-session';
+import { themeSavedNotice, type ThemeSaveContext } from './theme-editor-notices';
+import { pushToast } from './toast';
 
 type Mode = 'light' | 'dark';
 const LIGHT: Record<string, string> = { canvas: '#fcfcfc', chrome: '#fcfcfc', toolbar: '#fcfcfc', toolbarForeground: '#27272a', toolbarBorder: '#e4e4e7', toolbarControl: '#ffffff',
@@ -84,7 +87,9 @@ export function updateFamily(colors: Record<string, string>, role: string, input
 }
 
 // ── The draft ────────────────────────────────────────────────────────────────
-export type Draft = { kind: string; subject: string; editingId: string; name: string; appearance: Mode; advanced: boolean; filter: string; colors: Record<Mode, Record<string, string>> };
+// The draft belongs to the client's theme editor session (theme-editor-session.ts), which
+// the window's root state opens and closes; it outlives Settings (D16).
+export type Draft = { kind: string; subject: string; sessionId: number; editingId: string; name: string; appearance: Mode; advanced: boolean; filter: string; colors: Record<Mode, Record<string, string>> };
 const drafts = new WeakMap<T3Client, Draft>();
 const customOf = (client: T3Client): CustomTheme[] => (client.local as unknown as { customThemes?: CustomTheme[] }).customThemes || [];
 /** A theme's full role set for one appearance: its own roles over the standard ones. */
@@ -95,23 +100,27 @@ function rolesOf(id: string, mode: Mode, custom: CustomTheme[]): Record<string, 
   return { ...STANDARD[mode], ...(themeRoles(id, mode, custom) as Record<string, string>) };
 }
 
-/** The draft for the dialog the app has open (kind, subject); opened fresh whenever either changes, dropped when closed. */
-export function syncDraft(client: T3Client, kind: string, subject: string, activeLight: string, activeDark: string, appearance: Mode): Draft | null {
-  if (!['create', 'edit', 'duplicate'].includes(kind)) { drafts.delete(client); return null; }
-  const current = drafts.get(client);
-  if (current && current.kind === kind && current.subject === subject) return current;
+/**
+ * The draft for the editor session the window names (kind, subject): a new session, seeded
+ * from the library as it is now, whenever either changes; closed and dropped for any other kind.
+ */
+export function syncDraft(client: T3Client, kind: string, subject: string, prefs: { theme: string; themeLight: string; themeDark: string }, appearance: Mode): Draft | null {
+  const store = themeEditorStore(client);
   const custom = customOf(client);
-  const own = custom.find(theme => theme.id === subject);
-  const seedLight = kind === 'create' ? activeLight : subject, seedDark = kind === 'create' ? activeDark : subject;
-  const label = own?.label ?? subject;
-  const draft: Draft = { kind, subject, editingId: kind === 'edit' && own ? own.id : '', appearance: kind === 'edit' && own ? own.appearance : appearance,
-    name: kind === 'edit' ? label : kind === 'duplicate' ? `${titleOf(subject, custom)} copy` : '', advanced: false, filter: '',
-    colors: { light: rolesOf(seedLight, 'light', custom), dark: rolesOf(seedDark, 'dark', custom) } };
+  const input = sessionInputFor(kind, subject, prefs, appearance, custom);
+  if (!input) { store.closeThemeEditor(); drafts.delete(client); return null; }
+  const current = drafts.get(client);
+  if (current && store.session && current.sessionId === store.session.id && current.kind === kind && current.subject === subject) return current;
+  store.openThemeEditor(input);
+  const session = store.session!;
+  const { editingTheme, seedTheme } = sessionThemes(session, custom);
+  const source = editingTheme?.id ?? seedTheme?.id ?? '';
+  const draft: Draft = { kind, subject, sessionId: session.id, editingId: editingTheme?.custom ? editingTheme.id : '', appearance: session.initialAppearance,
+    name: editingTheme ? editingTheme.label : session.seedName ?? '', advanced: false, filter: '',
+    colors: { light: rolesOf(source, 'light', custom), dark: rolesOf(source, 'dark', custom) } };
   drafts.set(client, draft);
   return draft;
 }
-const BUILT_IN: Record<string, string> = { 't3-code': 'T3 Code', 't3-chat': 'T3 Chat', grove: 'Grove', ocean: 'Ocean', ember: 'Ember', iris: 'Iris' };
-const titleOf = (id: string, custom: CustomTheme[]) => custom.find(theme => theme.id === id)?.label ?? BUILT_IN[id] ?? id;
 export const currentDraft = (client: T3Client) => drafts.get(client) ?? null;
 
 /** The draft as a temporary custom theme the palette can paint (applyThemeColorPreview). */
@@ -135,7 +144,7 @@ export function editorView(draft: Draft | null): EditorView {
     .filter(group => group.rows.length > 0);
   const name = draft.name.trim();
   return { open: true, title: draft.editingId ? 'Edit theme' : 'Create theme', saveLabel: draft.editingId ? 'Save theme' : 'Create theme', name: draft.name, appearance: draft.appearance,
-    advanced: draft.advanced, filter: draft.filter, rows: SIMPLE.map(row), groups, canSave: name.length <= 48, session: `${draft.kind}:${draft.subject}`, presets: PRESETS };
+    advanced: draft.advanced, filter: draft.filter, rows: SIMPLE.map(row), groups, canSave: name.length <= 48, session: `session-${draft.sessionId}`, presets: PRESETS };
 }
 
 /** theme-draft commands: `name`, `appearance`, `advanced`, `filter`, or `color:<role>` with the value. */
@@ -155,25 +164,41 @@ export function editDraft(client: T3Client, part: string, value: string): void {
   throw new ClientError('Unsupported theme editor change.');
 }
 
-/** Save: a new custom theme (create, duplicate) or the edited one replaced in place. */
-export function saveDraft(client: T3Client): CustomTheme {
+/**
+ * Save: the edited theme replaced in place, or a new custom theme (create, duplicate). The
+ * edited theme is read fresh: one removed while its editor was open saves as a create. A
+ * create named like an installed theme that lacks this appearance adds the palette to it.
+ */
+export function saveDraft(client: T3Client): { theme: CustomTheme; context: ThemeSaveContext } {
   const draft = drafts.get(client);
   if (!draft) throw new ClientError('Open the theme editor first.');
   const name = draft.name.trim();
   if (!name || name.length > 48) throw new ClientError('Name the theme (48 characters or fewer).');
   const custom = customOf(client);
-  const taken = ['t3-code', 't3-chat', 'grove', 'ocean', 'ember', 'iris', ...custom.filter(theme => theme.id !== draft.editingId).map(theme => theme.id)];
-  let id = draft.editingId;
-  if (!id) { const base = themeIdFromName(name); id = base; for (let n = 2; taken.includes(id); n++) id = `${base}-${n}`; }
-  const theme: CustomTheme = { id, label: name, appearance: draft.appearance, light: { ...draft.colors.light }, dark: { ...draft.colors.dark } };
   const local = client.local as unknown as { customThemes?: CustomTheme[] };
-  if (draft.editingId) local.customThemes = custom.map(entry => entry.id === draft.editingId ? theme : entry);
-  else {
-    if (custom.length >= 100) throw new ClientError('Remove a theme before adding another.');
-    local.customThemes = [...custom, theme];
+  const editing = draft.editingId ? custom.find(theme => theme.id === draft.editingId) ?? null : null;
+  const mergeTarget = editing ? null : custom.find(theme => theme.label.trim().toLowerCase() === name.toLowerCase()) ?? null;
+  let theme: CustomTheme, context: ThemeSaveContext;
+  if (mergeTarget) {
+    if (mergeTarget[draft.appearance]) throw new ClientError(`“${mergeTarget.label}” already has light and dark palettes. Pick another name.`);
+    theme = { ...mergeTarget, [draft.appearance]: { ...draft.colors[draft.appearance] } };
+    local.customThemes = custom.map(entry => entry.id === mergeTarget.id ? theme : entry);
+    context = { created: false, mergedAppearance: draft.appearance };
+  } else {
+    const taken = ['t3-code', 't3-chat', 'grove', 'ocean', 'ember', 'iris', ...custom.filter(entry => entry.id !== editing?.id).map(entry => entry.id)];
+    let id = editing?.id ?? '';
+    if (!id) { const base = themeIdFromName(name); id = base; for (let n = 2; taken.includes(id); n++) id = `${base}-${n}`; }
+    theme = { id, label: name, appearance: editing?.appearance ?? draft.appearance, light: { ...draft.colors.light }, dark: { ...draft.colors.dark } };
+    if (editing) local.customThemes = custom.map(entry => entry.id === editing.id ? theme : entry);
+    else {
+      if (custom.length >= 100) throw new ClientError('Remove a theme before adding another.');
+      local.customThemes = [...custom, theme];
+    }
+    context = { created: !editing };
   }
   drafts.delete(client);
-  return theme;
+  themeEditorStore(client).closeThemeEditor();
+  return { theme, context };
 }
 
 /** serializeThemeFile: version 1, the base appearance's colours and the other as a variant. */
@@ -190,11 +215,16 @@ export async function themeEditorCommand(client: T3Client, native: { available: 
   if (row === 'theme-editor-save') {
     const draft = drafts.get(client);
     if (draft && value.trim()) draft.name = value;
-    const editing = draft?.editingId ?? '';
-    const theme = saveDraft(client);
+    const { theme, context } = saveDraft(client);
     const local = client.local as unknown as { clientSettings?: Prefs };
-    // A created theme becomes the active pair ("It's now active."); an edit keeps the selection.
-    if (!editing && local.clientSettings) local.clientSettings = { ...local.clientSettings, theme: theme.id, themeLight: theme.id, themeDark: theme.id };
+    const prefs = local.clientSettings ?? { theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code' };
+    // handleSaved: a create or a merge becomes the active pair; an edit keeps the selection.
+    const notice = themeSavedNotice(theme, context, prefs, () => {
+      if (!local.clientSettings) return false;
+      local.clientSettings = { ...local.clientSettings, theme: theme.id, themeLight: theme.id, themeDark: theme.id };
+      return true;
+    });
+    pushToast(client, { ...notice, stacked: true });
     return '';
   }
   if (row === 'theme-export') {
