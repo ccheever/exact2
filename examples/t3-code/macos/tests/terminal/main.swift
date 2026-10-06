@@ -231,6 +231,27 @@ final class TerminalSurfaceTests: XCTestCase {
         XCTAssertEqual(typed(view), "한")
     }
 
+    /// Evidence pictures: the render fixture in dark, and the loopback after typed input.
+    func testEvidencePictures() throws {
+        let dark = mount(["terminal": "dark", "fixture": "render", "scheme": "dark"])
+        waitReady(dark)
+        spin(until: { (self.debug(dark)["text"] as? [String])?.contains { $0.hasPrefix("wide:") } == true })
+        save(try dark.snapshot(), "terminal-render-dark.png")
+        dark.destroy()
+        let loop = mount(["terminal": "loop", "fixture": "loopback"])
+        waitReady(loop)
+        window.makeFirstResponder(loop.web)
+        spin(until: { loop.focused }, timeout: 5)
+        try loop.agentInput(.text("echo hello"))
+        try loop.agentInput(.key("Enter", phase: nil))
+        spin(until: { (self.debug(loop)["text"] as? [String])?.contains("$ echo hello") == true }, timeout: 5)
+        let text = debug(loop)["text"] as? [String] ?? []
+        print("terminal loopback rows \(text.filter { !$0.isEmpty })")
+        XCTAssertTrue(text.contains("$ echo hello"), "\(text)")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        save(try loop.snapshot(), "terminal-loopback.png")
+    }
+
     /// Hidden: paint stops, output still parses; shown again it repaints what arrived.
     func testHiddenKeepsParsing() {
         let view = mount(["terminal": "hidden"])

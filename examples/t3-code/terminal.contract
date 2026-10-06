@@ -1,7 +1,8 @@
 // The terminal surface spike's development harness (task 20261005-terminal-surface): a
 // `t3-terminal` view (T3TerminalView.swift: T3 Code's Ghostty surface in a web view) fed by the
 // native fixtures, so the agent and a person can check rendering, keys and the bridge without a
-// server session. ⌃⌥⇧T opens and closes it. The drawer task replaces it with ThreadTerminalDrawer.
+// server session. ⌃⌥⇧T (or the 1-point button near the window's bottom edge, away from the
+// rounded corners, which take no click) opens and closes it. The drawer task replaces it with ThreadTerminalDrawer.
 component TerminalHarness
   props
     dark: bool
@@ -22,9 +23,9 @@ component TerminalHarness
   action focusOut
     focused = false
   view
-    button press=toggle aria-label="Terminal harness" aria-keyshortcuts="Control+Alt+Shift+T" testId="terminal-harness-toggle" position="absolute" left=0 top=0 width=1 height=1 padding=0 border-width=0 background-color="#00000000" opacity=0
+    button press=toggle aria-label="Terminal harness" aria-keyshortcuts="Control+Alt+Shift+T" testId="terminal-harness-toggle" position="absolute" left=240 bottom=6 z-index=70 width=1 height=1 padding=0 border-width=0 background-color="#00000000" opacity=0
     when open
-      column position="absolute" left=0 right=0 bottom=0 height=340 z-index=60 background-color="light-dark(#ffffff, #0e1218)" border-top-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #252525)" testId="terminal-harness"
+      column position="absolute" left=0 right=0 bottom=0 height=340 z-index=70 background-color="light-dark(#ffffff, #0e1218)" border-top-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #252525)" testId="terminal-harness"
         row align-items="center" gap=8 height=32 padding-left=12 padding-right=8 flex-shrink=0
           text "Terminal harness (development)" font-size=12 font-weight=600 color="light-dark(#1c2129, #edf1f7)" flex=1 min-width=0
           each name in ["render", "loopback", "flood"] key=name
