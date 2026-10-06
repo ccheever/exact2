@@ -1,7 +1,7 @@
 // Integrations › Devices across the settings scope (IntegrationsSettings.tsx DeviceIntegrationControls,
 // ScopedSwitch): the two device switches read every selected environment, draw mixed when they
 // disagree, and write each environment (device.configure, all awaited).
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import { applyShell, initialShell, type Obj } from './domain';
 import type { Native } from './protocol';
@@ -58,6 +58,7 @@ function nativeFor(calls: Obj[] = [], fail = new Set<string>()): Native {
 }
 const B = 'http://127.0.0.1:16101\nenv-b';
 beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
+afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
 
 describe('Integrations device switches across environments', () => {
   test('disagreeing environments draw the device hub mixed; agreeing ones do not', () => {

@@ -1,5 +1,5 @@
 // Lane settings-core: settings shell, General and Appearance logic.
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
 import type { Native } from './protocol';
@@ -10,6 +10,7 @@ import { fleet } from './settings-b-fleet';
 
 // The app's one fleet is shared across test files; these cases are single-environment unless they add entries.
 beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
+afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
 import { appearanceSections, mix, modeTiles, palette, themeCards, themeRoles } from './settings-appearance';
 import { breadcrumbLabel, commandLabel, scopeAvailable, searchSettings, settingsNavigation } from './settings-search';
 import { settingsCore } from './settings-core-view';
