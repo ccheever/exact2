@@ -421,7 +421,7 @@ final class T3Terminals {
             return ["terminal": view.identity, "thread": view.props["thread"] ?? "", "session": view.session?.status ?? "", "ready": view.ready, "cols": view.cols, "rows": view.rows, "focused": view.focused,
                     "selection": view.selection, "error": view.lastError, "declined": view.declined, "delivery": view.agentDelivery,
                     "typed": view.dataBytes, "sent": view.sentBytes, "received": page["received"] ?? 0,
-                    "text": page["text"] ?? [], "served": view.assets.served.count, "refused": view.assets.refusedURLs, "bridge": view.bridgeLog.suffix(6)]
+                    "text": page["text"] ?? [], "served": view.assets.served.count, "refused": view.assets.refusedURLs, "bridge": Array(view.bridgeLog.suffix(6))] // an Array: an ArraySlice is not JSON, and the status reply would fail
         }
         return ["terminals": entries.sorted { ($0["terminal"] as? String ?? "") < ($1["terminal"] as? String ?? "") },
                 "terminalSessions": T3TerminalSessions.all.flatMap(\.status)] // terminal-drawer: streams, buffers, acknowledgements
