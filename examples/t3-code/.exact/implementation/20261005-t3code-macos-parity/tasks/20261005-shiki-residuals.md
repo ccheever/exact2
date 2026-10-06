@@ -1,13 +1,13 @@
 ---
 name: 20261005-shiki-residuals
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+branch: feat(example)/t3-code-shiki-residuals
+pr_url: https://github.com/ccheever/exact2/pull/154
 verified_commit: null
 ---
 
@@ -113,14 +113,29 @@ Required environment: network access for the pinned package install (once); the 
 
 ## Progress
 
-Planned.
+Implemented 2026-10-06 on `feat(example)/t3-code-shiki-residuals` (rebased on `origin/feat(example)/t3-code` `da40e6590`). Verification: unverified (no independent review; oracle and trace rows not run).
+
+- **Generator** (`tools/grammar/gen-grammar.mjs`, `package.json`, `bun.lock`): installs the six pinned packages from the registry (integrity values match the table; `gen-grammar.test.ts` checks them); reads no reference checkout. The original generator was lost with the lane scratchpad, so this one was rebuilt from vscode-textmate's rules and the committed data: run with the old data format (no fontStyle rows, no `\z` rewrite) its output body equals the committed `r12-render-grammar.ts` byte for byte (847,923 bytes). Two deliberate differences in the regenerated file: vscode-textmate's `\z` → `$(?!\n)(?<!\n)` rewrite (4 swift operator regexes; Shiki does it, the old data did not) and the themes' fontStyle rows; a grammar's include of its own scope name now resolves (html's one `text.html.basic` include). `--check` and `gen-grammar.test.ts` (skips without `node_modules`) are the only runs; the app build never runs it.
+- **Languages** (U15, proposed list): c, java, kotlin, csharp, xml, diff, docker, make, ruby in `r12-render-grammar-more.ts` (277 KB, 240 lines; its own rule ids; parsed when first used). Chosen because this Mac has a real-file corpus for each; sql, ini, scss, php, lua, dart, scala had fewer than three open-source files here. cpp alone adds 735 KB; haskell and julia need ES2024 class intersection (Hermes target ES2018) and cannot convert. Licences: `@shikijs/langs` declares MIT for the package and carries no per-grammar licence; kotlin's upstream grammar is Apache-2.0 (not stated in the package).
+- **Italics**: theme rows carry fontStyle; a token's class gets `+i` where the light theme resolves italic (markup.italic, todo.emphasis); `synSlant` sets `font-style` at the chat fence, diff, Files, attachment preview and content-search sites.
+- **Long texts**: `SHIKI_MAX_CHARS` 40,000 → 1,000,000 (U15 proposal). A data source has no clock (`Date.now()` is refused), so the budget is characters: each answer tokenizes at most 2,500 (`startHighlightTurn` in `app.ts`; pinned Hermes, TypeScript slices median 38 ms, p90 48 ms, max 61 ms, 2 of 83 over 50 ms). An unfinished text paints the heuristic colours up to 20,000 characters and plain text above (the TypeScript heuristic is superlinear: 16 ms for 20,000, 1.2 s for 200,000), and continues in `highlightSlice` turns, run by the root's `highlightPump` task (every 16 ms) while `data.highlightPending` or `shell.highlightPending`; a finished text refreshes data and shell. Texts are keyed by content, so an older text's slice never replaces a newer one; a text not asked for in 300 answers is dropped. The diff side cap (200,000) follows the highlighter's limit.
+- Not done: language-load-order nuance (the reference colours a markdown file's ` ```ts ` fence only after the shared highlighter has loaded ts; the clone always does); chat-fence and diff long-text rows were not driven live (unit tests only); pixel pairs against the desktop oracle (not built).
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (implementation) | `e7a9af895` on `da40e6590`; generator sha256 `84cf2192d9366da6` | `bun test examples/t3-code` 1341 pass / 0 fail (base 1321); strict tsc clean; contract build 2185 slots, 43 resources; `cargo test -p t3-code-macos --lib` 10 pass; no AppKit binary touched (no Swift change); caps pass; macOS bundle builds (2 min 13 s) | see below | U2, U15 user decisions |
+| Generator reproduces | same | legacy-format body byte-identical to the committed file (847,923 bytes); `gen-grammar.mjs --check` and `gen-grammar.test.ts` pass on the regenerated files | session log | — |
+| Pins | `tools/grammar/bun.lock` | all six integrity values equal the table (test) | `gen-grammar.test.ts` | — |
+| Closed gap stays closed | 40 `apps/server/src` files (211,024 chars, first 40 by path of 1–12 KB non-test `.ts`) | `shiki-compare.mjs` vs Shiki 4.2 Oniguruma engine: 169,771 non-blank characters, 0 differing (JavaScript engine also 0) | harness log (file list with sha256) | — |
+| Each added language | 5 files each (docker 12), 10.9–40.3 k non-blank characters per language, from Homebrew, Cargo registry and the reference's `node_modules` / `.repos`, copied to `target/` | c 40,326 · java 21,987 · kotlin 25,763 · csharp 16,795 · xml 21,232 · ruby 35,050 · diff 24,620 · docker 10,935 · make 33,920 non-blank characters, 0 differing each, light, dark and italic | harness log | — |
+| Base-16 regression | markdown 7 files (one with emphasis), html, swift (this repo's modules), css, shellscript, rust, yaml | 0 differing except one ` ```ts ` fence inside a markdown file (9 characters): the harness loads markdown alone, so Shiki leaves the fence plain; the clone colours it as the reference does once ts is loaded | harness log | — |
+| Hermes | pinned vanilla Hermes `-O` | all 3,208 regex variants compile (2,208 + 1,000); JSON.parse 2 ms per group; TS 69,720 chars/s, c 229 k, java 221 k, kotlin 688 k, csharp 140 k, xml 2.3 M, ruby 185 k, diff 3.9 M, docker 4.3 M, make 1.0 M | probe log | — |
+| Long text, before / after | same 211 KB TS text; base `da40e6590` vs this branch, Hermes `-O` | before: 10,000 chars Shiki in one 255 ms answer, 40,000 chars in one 664 ms answer, 211,042 chars never Shiki (and plain in Files/diff above 200,000); after (2,500-character turns): first answer 42–50 ms (plain), 83 slices (median 38, p90 48, max 61 ms), Shiki tokens after 2.9–3.1 s, then 3 ms per answer from the cache; html slices median 43 ms, csharp 17, swift 19, c 13 | probe log | — |
+
+| Live drive (macOS, 1280×840, fixture server on 16190 with `--auto-bootstrap-project-from-cwd`, project with notes.md, Greeter.java, long.ts 211 KB) | BEFORE `da40e6590` (evidence-base worktree); AFTER drive 1 on `fecb47de7`, drive 2 on `28e18f44b` | Drive 1 failed: every shell answer was refused, "Date.now() is unavailable in data sources" → character budget (`28e18f44b`). Drive 2: notes.md runs `kw+i:"*much*"`, italic runs `*much*`, `_old_`, `*strict*`, `*measure*` (before: `kw:"*much*"`, none italic); Greeter.java runs from the java grammar (before: the heuristic, e.g. `fn:"@"`, `var:"void"`); long.ts line 7 `punct:"}" kw:"from" str:"\"@t3tools/contracts\""` after Shiki (before: plain, over the 200,000 cap), but the first long.ts answers were refused: "`shellView` took 1757.6 ms, over the 100 ms budget" (the heuristic on 211 KB) → plain paint above 20,000 characters (`e7a9af895`, unit-tested; not driven again: one retry allowed) | `target/shiki-drive/{before,after}/records.txt`, pairs 01–03 | long-text first paint unverified live after the fix |
 
 ## Next action
 
-`prepare` after the three dependencies merge: confirm U2 and U15 with the user, then `implement`.
+Live drive and PR (below); then `verify`. The user confirms U2 (the generator and harness under `tools/`) and U15 (the nine languages, the 1,000,000 limit).

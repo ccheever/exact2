@@ -5,9 +5,12 @@
 // this file runs them with vscode-textmate's rules (MIT; see LICENSE-T3): one line at a time with
 // the line's "\n", the earliest match wins (ties to the first pattern), begin/end and begin/while
 // rules stack, \A / \G variants, end back-references, nested captures, the loop guards that stop
-// a line when a rule does not advance, and the theme trie's specificity for colours.
+// a line when a rule does not advance, and the theme trie's specificity for colours and font styles.
+// shiki-residuals: the grammars come in groups (one generated file each, tools/grammar/gen-grammar.mjs),
+// each with its own rule ids; a group's data is parsed the first time one of its languages is used.
 
-import { GRAMMAR_DATA } from './r12-render-grammar';
+import { GRAMMAR_DATA, GRAMMAR_LANGUAGES } from './r12-render-grammar';
+import { GRAMMAR_DATA as MORE_DATA, GRAMMAR_LANGUAGES as MORE_LANGUAGES } from './r12-render-grammar-more';
 
 /** A converted regex: source, flags, hidden captures, capture transfers, clip-search strategy
  *  (oniguruma-to-es's EmulatedRegExp options), a back-reference marker, or four \A/\G variants. */
@@ -15,19 +18,27 @@ interface Rx { s: string; f: string; h?: number[]; t?: [number, number[]][]; c?:
 interface Capture { n?: number; c?: number; r?: number }
 type Captures = Record<string, Capture>;
 interface Rule { i?: number; n?: number; c?: number; m?: number; mc?: Captures; b?: number; bc?: Captures; e?: number; ec?: Captures; w?: number; wc?: Captures; l?: 1; p?: number[] }
-interface ThemeData { fg: string; rules: [string, string][] }
+/** A theme rule: selector, foreground ('' for none) and, when the rule sets one, its fontStyle. */
+interface ThemeData { fg: string; rules: ([string, string] | [string, string, string])[] }
 interface Data {
   roots: Record<string, number>; aliases: Record<string, string>; injections: Record<string, [string, number][]>;
-  names: string[]; rules: Rule[]; regexes: Rx[]; themes: { light: ThemeData; dark: ThemeData };
+  names: string[]; rules: Rule[]; regexes: Rx[]; themes?: { light: ThemeData; dark: ThemeData };
 }
+interface Group { source: string; languages: Set<string>; parsed: Data | null; patterns: Map<number, number[]>; injections: Map<string, Injection[]> }
+const GROUPS: Group[] = [[GRAMMAR_DATA, GRAMMAR_LANGUAGES], [MORE_DATA, MORE_LANGUAGES]].map(([source, languages]) =>
+  ({ source: source!, languages: new Set(languages!.split(' ')), parsed: null, patterns: new Map(), injections: new Map() }));
+const parse = (group: Group): Data => group.parsed ??= JSON.parse(group.source) as Data;
+/** The group the line being tokenized belongs to (set by tokenizeLine). */
+let current: Group = GROUPS[0]!;
+const data = (): Data => parse(current);
+const groupOf = (lang: string): Group | undefined => GROUPS.find(group => group.languages.has(lang));
 
-let loaded: Data | null = null;
-const data = (): Data => loaded ??= JSON.parse(GRAMMAR_DATA) as Data;
-
-/** The Shiki language id this table holds for a language name or alias, or ''. */
+/** The Shiki language id a grammar here has for a language name or alias, or ''. */
 export function grammarId(lang: string): string {
-  const id = data().aliases[lang] ?? lang;
-  return data().roots[id] !== undefined ? id : '';
+  const group = groupOf(lang);
+  if (!group) return '';
+  const table = parse(group), id = table.aliases[lang] ?? lang;
+  return table.roots[id] !== undefined ? id : '';
 }
 
 // ── Regexes ─────────────────────────────────────────────────────────────────────────────────
@@ -73,9 +84,9 @@ function resolveBackrefs(rx: Rx, line: string, begin: Match): Rx {
 }
 
 // ── Rules and scanners ──────────────────────────────────────────────────────────────────────
-const patternCache = new Map<number, number[]>();
 /** The match / begin rules a rule's patterns reach, includes and pattern-only rules expanded. */
 function patterns(id: number): number[] {
+  const patternCache = current.patterns;
   const known = patternCache.get(id);
   if (known) return known;
   const out: number[] = [], seen = new Set<number>();
@@ -173,8 +184,8 @@ function createMatchers(selector: string): { matcher: Matcher; priority: number 
   }
   return results;
 }
-const injectionCache = new Map<string, Injection[]>();
 function injectionsOf(lang: string): Injection[] {
+  const injectionCache = current.injections;
   let known = injectionCache.get(lang);
   if (!known) {
     known = [];
@@ -325,22 +336,23 @@ function tokenizeString(line: string, first: boolean, pos: number, frame: Frame,
 }
 
 // ── Theme ───────────────────────────────────────────────────────────────────────────────────
-interface TrieRule { depth: number; parents: string[] | null; fg: string }
+// fontStyle as vscode-textmate keeps it: -1 not set, else bits (1 italic, 2 bold, 4 underline, 8 strikethrough).
+interface TrieRule { depth: number; parents: string[] | null; fg: string; fs: number }
 class TrieNode {
   children = new Map<string, TrieNode>();
   constructor(public main: TrieRule, public withParents: TrieRule[]) {}
-  insert(depth: number, scope: string, parents: string[] | null, fg: string) {
+  insert(depth: number, scope: string, parents: string[] | null, fg: string, fs: number) {
     if (scope === '') {
-      if (parents === null) { this.main.depth = Math.max(this.main.depth, depth); if (fg) this.main.fg = fg; return; }
+      if (parents === null) { this.main.depth = Math.max(this.main.depth, depth); if (fg) this.main.fg = fg; if (fs !== -1) this.main.fs = fs; return; }
       const same = this.withParents.find(rule => strArrCmp(rule.parents, parents) === 0);
-      if (same) { same.depth = Math.max(same.depth, depth); if (fg) same.fg = fg; return; }
-      this.withParents.push({ depth, parents, fg: fg || this.main.fg });
+      if (same) { same.depth = Math.max(same.depth, depth); if (fg) same.fg = fg; if (fs !== -1) same.fs = fs; return; }
+      this.withParents.push({ depth, parents, fg: fg || this.main.fg, fs: fs !== -1 ? fs : this.main.fs });
       return;
     }
     const dot = scope.indexOf('.'), head = dot < 0 ? scope : scope.slice(0, dot), tail = dot < 0 ? '' : scope.slice(dot + 1);
     let child = this.children.get(head);
     if (!child) { child = new TrieNode({ ...this.main }, this.withParents.map(rule => ({ ...rule }))); this.children.set(head, child); }
-    child.insert(depth + 1, tail, parents, fg);
+    child.insert(depth + 1, tail, parents, fg, fs);
   }
   match(scope: string): TrieRule[] {
     if (scope !== '') {
@@ -387,38 +399,50 @@ function parentsMatch(path: string[], parents: string[] | null): boolean {
   }
   return true;
 }
-interface Theme { root: TrieNode; fg: string; cache: Map<string, string> }
+/** vscode-textmate's parseTheme: a fontStyle string as bits ('' and 'normal' are 0). */
+function fontStyleBits(style: string | undefined): number {
+  if (style === undefined) return -1;
+  let bits = 0;
+  for (const word of style.split(' ')) bits |= word === 'italic' ? 1 : word === 'bold' ? 2 : word === 'underline' ? 4 : word === 'strikethrough' ? 8 : 0;
+  return bits;
+}
+export interface Style { fg: string; italic: boolean }
+interface Theme { root: TrieNode; fg: string; cache: Map<string, Style> }
 const themes = new Map<string, Theme>();
 function theme(name: 'light' | 'dark'): Theme {
   let built = themes.get(name);
   if (built) return built;
-  const source = data().themes[name];
-  const parsed = source.rules.map(([selector, fg], index) => {
+  const source = parse(GROUPS[0]!).themes![name];
+  const parsed = source.rules.map(([selector, fg, style], index) => {
     const segments = selector.split(' ').filter(Boolean);
     const scope = segments[segments.length - 1] ?? '';
     const parents = segments.length > 1 ? segments.slice(0, -1).reverse() : null;
-    return { scope, parents, fg, index };
+    return { scope, parents, fg, fs: fontStyleBits(style), index };
   }).sort((a, b) => strcmp(a.scope, b.scope) || strArrCmp(a.parents, b.parents) || a.index - b.index);
-  const root = new TrieNode({ depth: 0, parents: null, fg: '' }, []);
-  for (const rule of parsed) root.insert(0, rule.scope, rule.parents, rule.fg);
+  const root = new TrieNode({ depth: 0, parents: null, fg: '', fs: -1 }, []);
+  for (const rule of parsed) root.insert(0, rule.scope, rule.parents, rule.fg, rule.fs);
   built = { root, fg: source.fg, cache: new Map() };
   themes.set(name, built);
   return built;
 }
-/** The foreground a scope path takes: each pushed scope's best rule with a colour overrides its parent's. */
-export function colorOf(scopes: string[], name: 'light' | 'dark'): string {
+/** The foreground and font style a scope path takes: each pushed scope's best rule overrides what it sets. */
+export function styleOf(scopes: string[], name: 'light' | 'dark'): Style {
   const t = theme(name), key = scopes.join(' ');
   const known = t.cache.get(key);
   if (known) return known;
-  let fg = t.fg;
+  let fg = t.fg, fs = 0;
   for (let depth = 0; depth < scopes.length; depth++) {
     const path = scopes.slice(0, depth + 1);
     const rule = t.root.match(scopes[depth]!).find(candidate => parentsMatch(path, candidate.parents));
     if (rule && rule.fg) fg = rule.fg;
+    if (rule && rule.fs !== -1) fs = rule.fs;
   }
-  t.cache.set(key, fg);
-  return fg;
+  const style = { fg, italic: (fs & 1) === 1 };
+  t.cache.set(key, style);
+  return style;
 }
+/** The foreground a scope path takes. */
+export const colorOf = (scopes: string[], name: 'light' | 'dark'): string => styleOf(scopes, name).fg;
 
 /** The tokenizer's state between lines (opaque); null before the first line. */
 export type LineState = Frame | null;
@@ -426,6 +450,7 @@ export type LineState = Frame | null;
 export function tokenizeLine(text: string, lang: string, state: LineState): { pieces: Piece[]; state: Frame } {
   const first = state === null;
   rootLang = lang;
+  current = groupOf(lang) ?? GROUPS[0]!;
   let frame: Frame;
   if (state === null) {
     const root = data().roots[lang]!, top = data().rules[root]!;

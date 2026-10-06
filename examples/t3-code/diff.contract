@@ -8,6 +8,7 @@ use DiffFile from "./shapes.contract"
 use ReqIcon from "./requests.contract"
 use diffInk from "./settings-appearance-look.contract"
 use synColor from "./markdown.contract"
+use synSlant from "./markdown.contract"
 use ShellView from "./shell-shapes.contract"
 use ShellSurface from "./shell-shapes.contract"
 use ShellIcon from "./shell-icons.contract"
@@ -338,7 +339,7 @@ component DiffCell
         text number width="100%" font-family="ui-monospace" font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" text-align="right" font-variant-numeric="tabular-nums" color=(tone == "deletion" ? diffInk(scheme, "del") : tone == "addition" ? diffInk(scheme, "add") : "light-dark(#565656, #9d9d9d)")
       text flex=1 min-width=0 padding-left=(7.83 * size / 13) padding-right=(7.83 * size / 13) box-sizing="border-box" font-family="ui-monospace" font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "anywhere" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         each segment in segments key=segment.id
-          text segment.text color=synColor(segment.syntax) background-color=(segment.mark ? (tone == "deletion" ? diffInk(scheme, "del-mark") : diffInk(scheme, "add-mark")) : "#00000000")
+          text segment.text color=synColor(segment.syntax) font-style=synSlant(segment.syntax) background-color=(segment.mark ? (tone == "deletion" ? diffInk(scheme, "del-mark") : diffInk(scheme, "add-mark")) : "#00000000")
 
 component DiffTreeRow
   props

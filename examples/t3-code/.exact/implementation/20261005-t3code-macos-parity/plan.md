@@ -7,6 +7,14 @@ Goal: re-implement the T3 Code desktop app (Electron) with exact2 as the example
 `examples/t3-code`, using T3 Code's own data/client logic and its own server, with
 every feature except the spec exclusions, and a downloadable build that runs on another Mac.
 
+## Open task follow-up, 2026-10-06
+
+[SSH password and remote Open](tasks/20261005-ssh-password-and-remote-open.md#follow-up-handoff-incomplete-acceptance-2026-10-06),
+PR #157: **in progress / unverified**, not complete. The next agent working this area
+must resume the ticket's unchecked implementation and acceptance items. Keep it in the
+active backlog after any integration; close it only with the required runtime evidence
+or an explicit user scope decision. No background agent or schedule is created by this record.
+
 ## Knowledge snapshot
 
 Library revision: `20261005-platforms-v3` (platforms, performance, testing-and-debugging
