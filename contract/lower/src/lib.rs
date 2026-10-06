@@ -1237,6 +1237,7 @@ impl<'a> Lowerer<'a> {
         if (tag != "iframe"
             && matches!(a.name.as_str(), "sandbox" | "load" | "message")
             && !(tag == "canvas" && a.name == "message")
+            && !(tag == "image" && a.name == "load")
             && !module)
             || (!matches!(tag, "iframe" | "video" | "audio") && a.name == "src")
         {
@@ -1245,10 +1246,10 @@ impl<'a> Lowerer<'a> {
                 format!(
                     "`{}` belongs to {}, not `{tag}`",
                     a.name,
-                    if a.name == "message" {
-                        "`iframe` or `canvas`"
-                    } else {
-                        "`iframe`"
+                    match a.name.as_str() {
+                        "message" => "`iframe` or `canvas`",
+                        "load" => "`iframe`, `image` or a native module",
+                        _ => "`iframe`",
                     }
                 ),
                 a.span,

@@ -3,7 +3,28 @@ import CoreGraphics
 import ImageIO
 import ObjectiveC
 
-enum RasterFailure: Error { case encodedLimit, headerLimit, dimensions, sourcePixels, overflow, tooLarge, decode, reservation }
+enum RasterFailure: Error, CustomStringConvertible {
+    case encodedLimit, headerLimit, dimensions, sourcePixels, overflow, tooLarge, decode, reservation
+    /// Bytes no decoder here reads (an SVG, text served as `image/png`).
+    case format
+    /// A source that names nothing: another scheme, an asset that is not there.
+    case unresolved
+    /// What the image's `error` says (LLP 1011 §4) and the agent's `state` shows.
+    var description: String {
+        switch self {
+        case .encodedLimit: return "over \(RasterMetadata.encodedLimit) encoded bytes"
+        case .headerLimit: return "no image size in its first \(RasterMetadata.headerLimit) bytes"
+        case .dimensions: return "invalid dimensions"
+        case .sourcePixels: return "over \(RasterMetadata.pixelLimit) source pixels"
+        case .overflow: return "overflow"
+        case .tooLarge: return "too large"
+        case .decode: return "decode failed"
+        case .reservation: return "actual exceeds reservation"
+        case .format: return "not an image format this host decodes"
+        case .unresolved: return "the source names no file this host loads"
+        }
+    }
+}
 
 /// How a decode keeps its pixels (LLP 1100 D7): `exact_raster::variant`'s
 /// numbers, which the budget prices.
@@ -87,7 +108,10 @@ struct RasterMetadata: Equatable, Sendable {
         }
         guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
-              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber else { throw RasterFailure.headerLimit }
+              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber else {
+            // The whole file and still no size: no decoder here reads it.
+            throw prefix.count == encodedBytes ? RasterFailure.format : RasterFailure.headerLimit
+        }
         let depth = (properties[kCGImagePropertyDepth] as? NSNumber)?.intValue ?? 8
         let float = (properties[kCGImagePropertyIsFloat] as? NSNumber)?.boolValue ?? false
         let hdr = CGImageSourceCreateImageAtIndex(source, 0, nil)?.colorSpace.map(isHDRSpace) ?? false
