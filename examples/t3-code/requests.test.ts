@@ -168,17 +168,7 @@ describe('request history rows', () => {
 });
 
 describe('connection and thread errors', () => {
-  test('the composer stack names the environment while reconnecting or offline', () => {
-    const { client } = harness({});
-    client.config = { environment: { label: 'Studio Mac', capabilities: { serverResolvedCommandContext: true } } };
-    expect(requestPresentation(client)).toMatchObject({ connectionTitle: '', connectionAction: '' });
-    client.connection = 'reconnecting';
-    expect(requestPresentation(client)).toMatchObject({ connectionTitle: 'Studio Mac is reconnecting', connectionVariant: 'warning', connectionAction: '' });
-    client.connection = 'error';
-    expect(requestPresentation(client)).toMatchObject({ connectionTitle: 'Studio Mac is offline', connectionVariant: 'error', connectionAction: 'Reconnect' });
-    client.connection = 'disconnected'; client.environmentId = '';
-    expect(requestPresentation(client).connectionTitle).toBe('');
-  });
+  // The offline banner moved to the composer's notice stack: server-update-notices.test.ts.
   test('a failed root run or provider session error shows until dismissed for that message', async () => {
     const { client, command } = harness({ thread: { id: 't1', providerInstanceId: 'codex' },
       runs: [{ id: 'run1', ordinal: 1, status: 'failed', rootNodeId: 'n1' }],

@@ -106,6 +106,10 @@ shape CardScript
   icon: string
 shape ShellDetails
   ready: bool
+  // server-update-banner: the version-differ card (ThreadDetailsPanel versionMismatch), "" when hidden.
+  versionClient: string
+  versionServer: string
+  versionLabel: string
   // r6-polish: the project script row (r6-polish-scripts.ts): the primary script and every script for its menu.
   scriptName: string
   scriptIcon: string

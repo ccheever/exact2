@@ -74,27 +74,12 @@ component RequestStack
     compact: bool
     maximumHeight: number
   view
-    when data.connectionTitle != ""
-      ConnectionBanner(data=data, command=command, busy=busy)
+    // The offline banner joined the composer's notice stack (server-update-notices.ts); a docked
+    // notice or activity strip tucks under the request as it did (ComposerDock).
     each a in data.approvals key=a.id
-      ApprovalBanner(approval=a, command=command, busy=busy, compact=compact, stacked=(data.connectionTitle != ""))
+      ApprovalBanner(approval=a, command=command, busy=busy, compact=compact, stacked=(data.composer.activity != "" or length(data.composer.notices) > 0))
     each q in data.questions key=q.id
-      QuestionBanner(q=q, command=command, maximumHeight=maximumHeight, stacked=(data.connectionTitle != ""))
-
-// Environment state rides the same attached surface (density "comfortable").
-component ConnectionBanner
-  props
-    data: Snapshot
-    command: action
-    busy: bool
-  view
-    row margin-left=22 margin-right=22 margin-bottom=-17 padding-left=3 padding-right=3 padding-top=4 padding-bottom=22 gap=4 box-sizing="border-box" align-items="center" border-top-left-radius=18 border-top-right-radius=18 border-style="solid" border-top-width=1 border-left-width=1 border-right-width=1 border-bottom-width=0 border-color=(data.connectionVariant == "error" ? "light-dark(#fbb9bd, #571c1f)" : "light-dark(#ffdda9, #603e0a)") background-color=(data.connectionVariant == "error" ? "light-dark(#feeded, #231415)" : "light-dark(#fef6ea, #231b0f)") box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)" role="alert" aria-label=data.connectionTitle testId="connection-banner"
-      box width=24 height=24 flex-shrink=0 display="flex" align-items="center" justify-content="center"
-        ReqIcon(name="wifi-off", size=12, color="light-dark(#71717a, #818181)")
-      text data.connectionTitle font-size=12 font-weight=500 line-height="24px" color="light-dark(#262626, #f5f5f5)" flex=1 min-width=0 line-clamp=1
-      when data.connectionAction != ""
-        button press=command("reconnect", "", "", 0) disabled=busy opacity=(busy ? 0.64 : 1) testId="connection-reconnect" aria-label=data.connectionAction height=24 padding-left=7 padding-right=7 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0
-          text data.connectionAction font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+      QuestionBanner(q=q, command=command, maximumHeight=maximumHeight, stacked=(data.composer.activity != "" or length(data.composer.notices) > 0))
 
 component ApprovalBanner
   props
