@@ -1350,10 +1350,13 @@ restart, backup, deletion, and transactional restore. Snapback2 remains deferred
   `performance.now` (the clock is the runner's), WebSocket and streams
   (a trigger), `crypto` (deliberately later). Marginal size over the
   lean engine: unmeasured; ibex2's binding bytecode is 28 KB.
-  **2026-09-14 implementation:** LLP 1027.001 installs URL/URLSearchParams,
-  TextEncoder, UTF-8 TextDecoder and atob/btoa through Ibex's algorithms.
-  Browser realms retain browser implementations. This does not claim the
-  entire proposed tier, other text encodings, or a new Headers implementation.
+  **2026-09-14 implementation, updated 2026-10-06:** LLP 1027.001 installs
+  URL/URLSearchParams, TextEncoder and atob/btoa through Ibex's algorithms.
+  With Hermes 0.4, native keeps Hermes's built-in WHATWG TextDecoder (including
+  UTF-16LE/BE, `fatal`, streaming and `ignoreBOM`) rather than carrying Exact's
+  removed UTF-8-only polyfill. Browser realms retain browser implementations;
+  Chrome remains the parity oracle. This does not claim the entire proposed
+  tier or a new Headers implementation.
 - **`console`**, admitted as the one host binding (Charlie, 2026-09-03;
   the alternatives — `fetch`, timers, a clock, secrets, files — are each
   refused by D1's rule, and the pure helpers are §10 Q6): `console.log` into the runner's `logs` (the agent API's,

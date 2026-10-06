@@ -453,6 +453,10 @@ impl Module {
     }
 
     fn load_engine(&mut self) -> Result<Watched, String> {
+        self.load_engine_with_prelude(PRELUDE)
+    }
+
+    fn load_engine_with_prelude(&mut self, prelude: &[u8]) -> Result<Watched, String> {
         let io = exact_runner::io_grants(&self.grants);
         self.host.documents = storage::reaches_documents(&io);
         // The bindings Context must precede the engine and outlive its
@@ -474,7 +478,7 @@ impl Module {
         // application code too.
         let mut engine = Watched::new(engine, self.watch.clone());
         engine
-            .load(PRELUDE)
+            .load(prelude)
             .map_err(|e| format!("exact-js: the prelude did not load: {e}"))?;
         if self.main_thread {
             engine
@@ -1033,5 +1037,29 @@ impl Module {
 impl Drop for Module {
     fn drop(&mut self) {
         self.unload();
+    }
+}
+
+#[cfg(all(test, exact_js_engine))]
+mod bootstrap_tests {
+    use super::Module;
+
+    #[test]
+    fn hardening_refuses_a_reachable_abort_hook_handoff() {
+        let mut module = Module::new(
+            include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+            "test.pure",
+            "",
+        );
+        let error = match module.load_engine_with_prelude(include_bytes!(concat!(
+            env!("OUT_DIR"),
+            "/prelude-with-abort-hook.hbc"
+        ))) {
+            Ok(_) => panic!("a reachable abort hook handoff must refuse hardening"),
+            Err(error) => error,
+        };
+        assert!(error.contains("refusing to harden"), "{error}");
+        assert!(error.contains("abort hooks global"), "{error}");
+        assert!(error.contains("__exact_ibex2_abort_hooks"), "{error}");
     }
 }

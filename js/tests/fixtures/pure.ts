@@ -39,7 +39,12 @@ export function exercise(source: string): string {
       }
     }
     const view = new DataView(new Uint8Array([88,0,65,89]).buffer,1,2);
-    return JSON.stringify({labels,splitCases,encoded:Array.from(encoder.encode('a\0é😀\ud800z\udfff')),into,bytes:Array.from(bytes),chunks,rejected,reset:fatal.decode(new Uint8Array([65])),bom:new TextDecoder('utf8',{ignoreBOM:true}).decode(new Uint8Array([239,187,191])),view:decoder.decode(view),invalid:decoder.decode(new Uint8Array([0xed,0xa0,0x80,0xe2,0x28,0xa1]))});
+    const utf16 = new Uint8Array([255,254,65,0,61,216,0,222]);
+    const utf16le = new TextDecoder('utf-16le').decode(utf16);
+    let utf16Fatal=false;
+    try{new TextDecoder('utf-16le',{fatal:true}).decode(new Uint8Array([65]));}catch(e){utf16Fatal=e instanceof TypeError;}
+    const utf16Bom=[new TextDecoder('utf-16le').decode(new Uint8Array([255,254,65,0])),new TextDecoder('utf-16le',{ignoreBOM:true}).decode(new Uint8Array([255,254,65,0]))];
+    return JSON.stringify({labels,splitCases,encoded:Array.from(encoder.encode('a\0é😀\ud800z\udfff')),into,bytes:Array.from(bytes),chunks,rejected,reset:fatal.decode(new Uint8Array([65])),bom:new TextDecoder('utf8',{ignoreBOM:true}).decode(new Uint8Array([239,187,191])),utf16le,utf16Fatal,utf16Bom,view:decoder.decode(view),invalid:decoder.decode(new Uint8Array([0xed,0xa0,0x80,0xe2,0x28,0xa1]))});
   }
   if(source==='url') {
     const url = new URL('../c?q=a%20b&x=1&x=2#old','https://例え.テスト/a/b/');
@@ -105,6 +110,10 @@ export function exercise(source: string): string {
     quiet.abort();
     const bad=fetch('https://example.invalid/bad',{signal:{aborted:false} as unknown as AbortSignal}).then(()=>'fetched',e=>(e as Error).name);
     return Promise.all([early,late,late.then(()=>controller.signal.reason.message),suppressed,bad]).then(JSON.stringify) as unknown as string;
+  }
+  if(source==='hooks') {
+    const hook=(globalThis as any).__exact_ibex2_abort_hooks;
+    return JSON.stringify({present:'__exact_ibex2_abort_hooks' in globalThis,own:typeof hook?.own,subscribe:typeof hook?.subscribe});
   }
   // Intl.NumberFormat as the browser formats it (x2apps stocks #3: Hermes
   // on macOS printed `9,274,743` for compact): compact in its displays,

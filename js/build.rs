@@ -94,9 +94,18 @@ fn main() {
     } else {
         prelude
     };
+    let leaked_abort_hooks =
+        prelude.replacen("  delete global.__exact_ibex2_abort_hooks;\n", "", 1);
+    assert_ne!(
+        leaked_abort_hooks, prelude,
+        "the abort-hook reachability fixture must omit the handoff delete"
+    );
     let prelude_path = out.join("prelude.js");
-    std::fs::write(&prelude_path, prelude).expect("write combined prelude");
+    std::fs::write(&prelude_path, &prelude).expect("write combined prelude");
     compile(&prelude_path, &out.join("prelude.hbc"));
+    let leaked_path = out.join("prelude-with-abort-hook.js");
+    std::fs::write(&leaked_path, leaked_abort_hooks).expect("write abort-hook fixture prelude");
+    compile(&leaked_path, &out.join("prelude-with-abort-hook.hbc"));
 
     let rolldown = env::var("EXACT_ROLLDOWN")
         .map(PathBuf::from)

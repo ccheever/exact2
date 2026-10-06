@@ -4,9 +4,6 @@
 
 #![deny(missing_docs)]
 
-#[path = "../../hermes.rs"]
-#[allow(dead_code)]
-mod hermes;
 mod resident;
 #[cfg(test)]
 mod sources_tests;
@@ -19,6 +16,20 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Package JavaScript entries on Windows, where Bun writes .exe/.bunx shims.
+/// The producer runs the upstream script through Bun, preserving overrides.
+fn package_tool(root: &Path, name: &str) -> PathBuf {
+    if cfg!(windows) {
+        root.join(match name {
+            "tsc" => "node_modules/typescript/bin/tsc",
+            "rolldown" => "node_modules/rolldown/bin/cli.mjs",
+            _ => unreachable!("the producer has only tsc and rolldown package tools"),
+        })
+    } else {
+        root.join("node_modules/.bin").join(name)
+    }
+}
 
 /// An app's Cargo build-script entrypoint. Write the paired artifacts and
 /// actual target/grants receipt to OUT_DIR; source files stay untouched.
@@ -378,8 +389,8 @@ impl Default for Tools {
             std::env::var_os(key).map(PathBuf::from).unwrap_or(fallback)
         };
         Self {
-            tsc: tool("EXACT_TSC", hermes::package_tool(&root, "tsc")),
-            rolldown: tool("EXACT_ROLLDOWN", hermes::package_tool(&root, "rolldown")),
+            tsc: tool("EXACT_TSC", package_tool(&root, "tsc")),
+            rolldown: tool("EXACT_ROLLDOWN", package_tool(&root, "rolldown")),
             hermesc: PathBuf::from(hermes_lean_sys::HERMESC_PATH),
         }
     }

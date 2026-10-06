@@ -10,6 +10,11 @@ fn pure_utilities_match_the_web_executor() {
     let chrome = std::env::var("CHROME")
         .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
     if !std::path::Path::new(&chrome).exists() {
+        assert_ne!(
+            std::env::var("EXACT_PURE_CHROME_REQUIRED").as_deref(),
+            Ok("1"),
+            "Chrome utility oracle unavailable: set CHROME to its executable"
+        );
         eprintln!("pure utility browser sweep unavailable: set CHROME");
         return;
     }
@@ -27,7 +32,7 @@ fn pure_utilities_match_the_web_executor() {
         String::from_utf8_lossy(&reference.stderr)
     );
     let expected: Vec<String> = serde_json::from_slice(&reference.stdout).unwrap();
-    let plan = contract::compile("component App\n  resource text = text() as shape string\n  resource url = url() as shape string\n  resource base64 = base64() as shape string\n  resource standard = standard() as shape string\n  resource microtask = microtask() as shape string\n  resource abort = abort() as shape string\n  resource intl = intl() as shape string\n  view\n    text text\n").unwrap();
+    let plan = contract::compile("component App\n  resource text = text() as shape string\n  resource url = url() as shape string\n  resource base64 = base64() as shape string\n  resource standard = standard() as shape string\n  resource microtask = microtask() as shape string\n  resource abort = abort() as shape string\n  resource hooks = hooks() as shape string\n  resource intl = intl() as shape string\n  view\n    text text\n").unwrap();
     let mut module = Module::loaded(
         include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
         "test.pure",
@@ -44,16 +49,22 @@ fn pure_utilities_match_the_web_executor() {
         "standard",
         "microtask",
         "abort",
+        "hooks",
         "intl",
     ]
     .into_iter()
     .zip(expected)
     {
-        assert_eq!(
-            module.query(source, &[]).unwrap().as_str().unwrap(),
-            expected,
-            "{source}"
-        );
+        let actual = module.query(source, &[]).unwrap();
+        let actual = actual.as_str().unwrap();
+        if source == "hooks" {
+            assert_eq!(
+                actual,
+                r#"{"present":false,"own":"undefined","subscribe":"undefined"}"#,
+                "the abort hook handoff and its own/subscribe functions must be unreachable after load"
+            );
+        }
+        assert_eq!(actual, expected, "{source}");
     }
 }
 
@@ -81,7 +92,7 @@ try {
   });
   const fixture = readFileSync(process.env.EXACT_PURE_SCRIPT, 'utf8');
   const result = await cdp.send('Runtime.evaluate', {
-    expression:fixture + '\n;Promise.all(["text","url","base64","standard","microtask","abort","intl"].map(source=>globalThis.exact.answer(source))).then(JSON.stringify)',
+    expression:fixture + '\n;Promise.all(["text","url","base64","standard","microtask","abort","hooks","intl"].map(source=>globalThis.exact.answer(source))).then(JSON.stringify)',
     returnByValue:true, awaitPromise:true,
   }, sessionId);
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
