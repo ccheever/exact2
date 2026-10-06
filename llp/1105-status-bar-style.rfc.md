@@ -59,7 +59,9 @@ presenter paints above (its `z-index` rank, then its order among siblings,
 as `PaintOrder` already orders them) wins. **Shows** means in the window,
 not `display: none`, not `visibility: hidden`, and not a node UIKit is
 showing a projection of instead (a popover or menu hidden for UIKit's own
-menu, a row lifted into a context-menu preview); a route's header that the
+menu, a row lifted into a context-menu preview, which is outside the
+session's view and every presentation's); a declaration on viewless inline
+text does not count; a route's header that the
 navigation bar projects counts, at its route's place. No declaration in
 scope is `auto` for the scope.
 

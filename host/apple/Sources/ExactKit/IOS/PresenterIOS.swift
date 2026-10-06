@@ -1275,6 +1275,7 @@ final class Presenter {
     /// The status bar's resolved style (LLP 1105), and who is told of a change.
     var statusBar = StatusBarChoice()
     var onStatusBar: ((StatusBarChoice) -> Void)?
+    var statusBarNoted = Set<String>()
     #endif
     func headTitle(_ title: String?) {
         guard title != self.title else { return }

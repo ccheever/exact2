@@ -38,6 +38,19 @@ final class StatusBarIOSTests: XCTestCase {
         ]))
     }
 
+    private final class Root: UIViewController {
+        let p: Presenter
+        var reread = 0
+        init(_ p: Presenter) { self.p = p; super.init(nibName: nil, bundle: nil) }
+        required init?(coder: NSCoder) { nil }
+        override var preferredStatusBarStyle: UIStatusBarStyle { p.statusBar.style }
+    }
+
+    /// A sheet dragged between detents re-resolves: UIKit's selector.
+    func testTheSheetDelegateHearsADetentDrag() {
+        XCTAssertTrue(ModalHost.instancesRespond(to: #selector(UISheetPresentationControllerDelegate.sheetPresentationControllerDidChangeSelectedDetentIdentifier(_:))))
+    }
+
     func testNoDeclarationIsTheDefault() {
         let p = presenter()
         screen(p, route: nil, header: nil)
@@ -96,6 +109,18 @@ final class StatusBarIOSTests: XCTestCase {
         // A batch that changes nothing else does not tell again.
         p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 310.0]]))
         XCTAssertEqual(told.count, 1)
+        // The controller UIKit asks re-reads inside that apply: a root that
+        // returns the resolved style, invalidated from the hook, as the
+        // standalone adapter's `Controller` is.
+        let root = Root(p)
+        window.rootViewController = root
+        p.onStatusBar = { told.append($0); root.setNeedsStatusBarAppearanceUpdate(); root.reread += 1 }
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["statusBarStyle": "light-content"]]]))
+        XCTAssertEqual(root.reread, 1)
+        XCTAssertEqual(root.preferredStatusBarStyle, .lightContent)
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["statusBarStyle": "dark-content"]]]))
+        XCTAssertEqual(root.preferredStatusBarStyle, .darkContent)
+        told.removeAll(); told.append(StatusBarChoice(style: .darkContent))
         // Scrolled back: the route's own style returns in that batch.
         p.apply(wireBatch([["op": "props", "id": 3, "set": [:], "clear": ["statusBarStyle", "statusBarAnimation"]]]))
         XCTAssertEqual(told.map(\.style), [.darkContent, .lightContent])

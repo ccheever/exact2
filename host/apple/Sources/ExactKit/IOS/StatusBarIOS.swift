@@ -17,9 +17,10 @@ extension Presenter {
     /// UIKit may ask answer it in this turn (D5, D6). While a navigation or
     /// a presentation is moving, the last committed style stays; its end
     /// resolves again.
-    /// `settled`: a navigation's own end, whose coordinator is still winding down.
+    /// `settled`: a navigation's own end, whose coordinator is still winding
+    /// down; a push it starts next still holds the style.
     func resolveStatusBar(settled: Bool = false) {
-        guard settled || !navigation.transitioning, !modals.inTransition else { return }
+        guard !(settled ? navigation.started : navigation.transitioning), !modals.inTransition else { return }
         let choice = statusBarChoice()
         guard choice != statusBar else { return }
         statusBar = choice
@@ -27,22 +28,26 @@ extension Presenter {
             onStatusBar?(choice)
             modals.statusBarChanged()
         }
-        if choice.fade, !ExactEnv.agentFreezes { UIView.animate(withDuration: 0.3, animations: apply) } else { apply() }
+        // `none` is no animation, even inside one already running (a keyboard's).
+        if choice.fade, !ExactEnv.agentFreezes { UIView.animate(withDuration: 0.3, animations: apply) } else { UIView.performWithoutAnimation(apply) }
     }
 
     /// The declarations in scope that show; the one painted on top (D2, D3).
     func statusBarChoice() -> StatusBarChoice {
         let declared = carrying("statusBarStyle")
         guard !declared.isEmpty else { return StatusBarChoice() }
-        let covering = modals.statusBarRoute
-        let presented = modals.routes.map(\.node)
+        let scope = modals.statusBarScope
+        // A node shown in a context menu's preview is UIKit's, not the screen's:
+        // the scope is the session's view and the presentations.
+        let roots = [session?.view].compactMap { $0 } + scope.presented
         let lifted = Set(navigation.controllers.values.compactMap { $0.lifted.map(ObjectIdentifier.init) })
         func shows(_ node: NodeView) -> Bool {
-            guard node.window != nil else { return false }
+            // `visibility` is inherited and a child may show again: the node's own.
+            guard node.window != nil, !node.cssVisibilityHidden else { return false }
+            if session?.view != nil, !roots.contains(where: { node.isDescendant(of: $0) }) { return false }
             var up: UIView? = node
             while let u = up {
                 if let n = u as? NodeView {
-                    if n.cssVisibilityHidden { return false }
                     // A header the navigation bar shows in its place counts there.
                     if n.isHidden, !lifted.contains(ObjectIdentifier(n)) { return false }
                 } else if u.isHidden { return false }
@@ -51,10 +56,18 @@ extension Presenter {
             return true
         }
         let inScope: (NodeView) -> Bool = { node in
-            if let covering { return node.isDescendant(of: covering) }
-            return !presented.contains { node.isDescendant(of: $0) }
+            if let covering = scope.covering { return node.isDescendant(of: covering) }
+            return !scope.presented.contains { node.isDescendant(of: $0) }
         }
-        let candidates = declared.filter { ["light-content", "dark-content", "auto"].contains($0.props["statusBarStyle"] ?? "") && inScope($0) && shows($0) }
+        let candidates = declared.filter { node in
+            let value = node.props["statusBarStyle"] ?? ""
+            guard ["light-content", "dark-content", "auto"].contains(value) else {
+                noteStatusBarValue(node, "status-bar-style", value)
+                return false
+            }
+            if let a = node.props["statusBarAnimation"], a != "none", a != "fade" { noteStatusBarValue(node, "status-bar-animation", a) }
+            return inScope(node) && shows(node)
+        }
         guard var winner = candidates.first else { return StatusBarChoice() }
         for next in candidates.dropFirst() where Self.paintedAbove(next, winner) { winner = next }
         let style: UIStatusBarStyle = switch winner.props["statusBarStyle"] {
@@ -63,6 +76,12 @@ extension Presenter {
         default: Self.schemeStatusBar(winner)
         }
         return StatusBarChoice(style: style, fade: winner.props["statusBarAnimation"] == "fade", source: winner.id)
+    }
+
+    /// A bound value outside the set counts as unset (D1), said once per node and value.
+    private func noteStatusBarValue(_ node: NodeView, _ attribute: String, _ value: String) {
+        guard statusBarNoted.insert("\(node.id)|\(attribute)|\(value)").inserted else { return }
+        session?.log("\(attribute)=\"\(value)\" on #\(node.id) is not one of its values; unset (LLP 1105 D1)")
     }
 
     /// Whether `a` paints over `b`: a descendant over its ancestor; between

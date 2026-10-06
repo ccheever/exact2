@@ -548,10 +548,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// programmatic change, or nothing yet) — for `state.navigation`.
     private var lastTransition = "idle"
     private var interactiveTransition = false
-    /// A stack moving: Exact's own push or pop, or the person's swipe.
+    /// A stack moving: Exact's own push or pop, or the person's swipe; and
+    /// (`started`) one begun by Exact or the finger, without the coordinator
+    /// a finished transition is still winding down in `didShow`.
     var transitioning: Bool {
-        changing || interactiveTransition || ([primaryNavigation].compactMap { $0 } + presentedNavigations).contains { $0.transitionCoordinator != nil }
+        started || ([primaryNavigation].compactMap { $0 } + presentedNavigations).contains { $0.transitionCoordinator != nil }
     }
+    var started: Bool { changing || interactiveTransition }
 
     /// For `state.navigation` (LLP 1035.002 D2): the route the root names,
     /// UIKit's stack by key, and the transition's phase — observations.
