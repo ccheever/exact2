@@ -143,7 +143,8 @@ final class T3TerminalView: ExactNativeInstance {
     func sessionChanged(_ session: T3TerminalSession) {
         guard !disposed, session === self.session else { return }
         synchronize(session.status)
-        guard session.version != shownVersion else { return }
+        // A reinstalled stream starts its versions again under a new output generation.
+        guard session.version != shownVersion || session.output.generation != cursor.generation else { return }
         let next = session.output.read(from: cursor)
         switch next.update {
         case .reset(let data): resetAndWrite(data)
