@@ -23,7 +23,7 @@ pub fn method_fix(name: &str) -> String {
         "split" => "write `split(s, sep)`: the web's `split` with a string separator; Contract has no regular expressions".into(),
         "replace" | "replaceAll" => "write `replaceAll(s, find, with)`: the web's `replaceAll` with a string `find`; Contract has no regular expressions".into(),
         "at" => "write `at(xs, i)`: Contract spells the web's `xs.at(i)` as a roster function, `some` of the item or `none`".into(),
-        "toFixed" => "write `toFixed(x, digits)`, `digits` a whole-number literal from 0 to 100: the web's `x.toFixed(digits)` as a roster function; for money, `formatDecimal(cents, 2)` prints a count of cents exactly (`round(price * 100)` of a price of at most two decimals) (LLP 1102 §3.2)".into(),
+        "toFixed" => "write `toFixed(x, digits)`, `digits` a whole-number literal from 0 to 100: the web's `x.toFixed(digits)` as a roster function; for money, `formatDecimal(cents, 2)` prints a count of cents exactly (`round(price * 100)` of a price of at most two decimals under a trillion) (LLP 1102 §3.2)".into(),
         _ => match refusal(name) {
             Some(why) => why,
             None => format!(

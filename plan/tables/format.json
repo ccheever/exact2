@@ -1314,7 +1314,7 @@
       "name": "formatDecimal",
       "params": ["number", "0..=20"],
       "returns": "string",
-      "_comment": "@ref LLP 1102 §0, §3.2 (decided (c)): an integer count of a smallest unit as a decimal with `digits` places, exactly (`formatDecimal(1234, 2)` is `\"12.34\"`, `formatDecimal(-5, 2)` is `\"-0.05\"`, `formatDecimal(7, 0)` is `\"7\"`); `-0` prints as `0`. A count that is not an integer, or not finite, prints `\"\"`: money is a count of cents, or `formatDecimal(round(price * 100), 2)` for a price of at most two decimals. `digits` is a whole-number literal from 0 to 20. A linked `format` entry."
+      "_comment": "@ref LLP 1102 §0, §3.2 (decided (c)): an integer count of a smallest unit as a decimal with `digits` places, exactly (`formatDecimal(1234, 2)` is `\"12.34\"`, `formatDecimal(-5, 2)` is `\"-0.05\"`, `formatDecimal(7, 0)` is `\"7\"`); `-0` prints as `0`. A count that is not an integer, or not finite, prints `\"\"`: money is a count of cents, or `formatDecimal(round(price * 100), 2)` for a price of at most two decimals under a trillion. `digits` is a whole-number literal from 0 to 20. A linked `format` entry."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

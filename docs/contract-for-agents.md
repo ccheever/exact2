@@ -294,10 +294,11 @@ at CSS.
   none => … }`: a decimal numeral, trimmed, or `none` (`"12px"`, `""`).
 - Money is a count of cents printed with `formatDecimal(cents, 2)`, which is
   exact (`1234` is `"12.34"`, `-5` is `"-0.05"`). A price held as dollars
-  becomes cents with `round(price * 100)`, which is right for any price of at
-  most two decimals (`19.99` is `1999`, though `19.99 * 100` is
-  `1998.9999999999998`); a half cent such as `1.005` has no exact binary value
-  and becomes `100`, so keep money in cents from the source when amounts can
+  becomes cents with `round(price * 100)`, which is right for a price of at
+  most two decimals under a trillion (`19.99` is `1999`, though `19.99 * 100`
+  is `1998.9999999999998`); past about `3.5e13` the double cannot hold the
+  cents, and a half cent such as `1.005` has no exact binary value and
+  becomes `100`, so keep money in cents from the source when amounts can
   have more places (tax, a split bill). `formatDecimal` of a number that is
   not an integer prints `""`, so round first. `toFixed(x, 2)` is the web's
   `x.toFixed(2)`, for a measured number (`toFixed(km, 1)`): it rounds the
