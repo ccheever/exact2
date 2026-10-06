@@ -4,6 +4,8 @@
 
 #![deny(missing_docs)]
 
+#[path = "../../package_tool.rs"]
+mod package_tool;
 mod resident;
 #[cfg(test)]
 mod sources_tests;
@@ -11,25 +13,12 @@ pub use resident::Producer;
 
 use contract::DataSource;
 use exact_js::Module;
+use package_tool::package_tool;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
-
-/// Package JavaScript entries on Windows, where Bun writes .exe/.bunx shims.
-/// The producer runs the upstream script through Bun, preserving overrides.
-fn package_tool(root: &Path, name: &str) -> PathBuf {
-    if cfg!(windows) {
-        root.join(match name {
-            "tsc" => "node_modules/typescript/bin/tsc",
-            "rolldown" => "node_modules/rolldown/bin/cli.mjs",
-            _ => unreachable!("the producer has only tsc and rolldown package tools"),
-        })
-    } else {
-        root.join("node_modules/.bin").join(name)
-    }
-}
 
 /// An app's Cargo build-script entrypoint. Write the paired artifacts and
 /// actual target/grants receipt to OUT_DIR; source files stay untouched.

@@ -4,6 +4,9 @@
 //! owns the matching headers, compiler, archive selection, and native link
 //! lines; this build script consumes only the metadata those crates export.
 
+mod package_tool;
+
+use package_tool::package_tool;
 use std::env;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -15,6 +18,7 @@ fn main() {
         println!("cargo:rerun-if-env-changed={name}");
     }
     for source in [
+        "package_tool.rs",
         "src/shim.cc",
         "src/pure.js",
         "src/standard.js",
@@ -166,11 +170,4 @@ fn required_path(name: &str) -> PathBuf {
     PathBuf::from(
         env::var(name).unwrap_or_else(|_| panic!("{name} was not exported by hermes-lean-sys")),
     )
-}
-
-fn package_tool(root: &Path, name: &str) -> PathBuf {
-    let bin = root.join("node_modules/.bin").join(name);
-    #[cfg(windows)]
-    let bin = bin.with_extension("cmd");
-    bin
 }
