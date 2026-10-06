@@ -975,10 +975,11 @@ one (+64 pt), inside the frame the motion starts on. So:
   250 ms poll), an opening list never settled (`settle_start` needs no
   correction owed), and with its opening unsettled no follow was smooth:
   in such a session every sent message snapped. The runner now takes a port
-  within half a point of a followed end as at it (`at_offset`,
-  `collection/mod.rs`, and the web JS target's `list.js`, which mirrors it).
-  A row anchor keeps 0.01: a row above it measured 0.4 pt taller is a real
-  move, and such moves add up report on report. Half a point is half a pixel
+  within half a point of a followed end it has already sent as at it
+  (`at_target`, `collection/start.rs`, and the web JS target's `list.js`,
+  which mirrors it). An end that moved, by any amount, is sent once. A row
+  anchor keeps 0.01: a row above it measured 0.4 pt taller is a real move,
+  and such moves add up report on report. Half a point is half a pixel
   at 1x and more at any finer scale; a per-host half pixel would need each
   host's scale in its reports. The web hosts take the runner's corrections,
   so the same loop under a browser's device-pixel `scrollTop` ends with it.
@@ -993,5 +994,6 @@ Tests: `SmoothCollectionIOSTests`
 `testASmoothCorrectionUnderHalfAPointIsSet`), the runner's
 `a_port_rounded_to_a_device_pixel_is_at_its_followed_end`,
 `a_half_pixel_extent_is_reached_by_a_rounded_port`,
-`an_opening_at_a_half_pixel_end_settles_and_then_follows_smoothly` and
+`an_opening_at_a_half_pixel_end_settles_and_then_follows_smoothly`,
+`an_end_moved_by_less_than_half_a_point_is_still_followed` and
 `a_row_anchors_small_moves_still_correct`.

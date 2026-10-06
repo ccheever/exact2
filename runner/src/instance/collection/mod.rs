@@ -201,6 +201,8 @@ pub(crate) struct Collection {
     at_end: bool,
     /// Consecutive reports that said the port was travelling, while it opens.
     end_travel: u8,
+    /// The followed end last sent as a correction (`start::at_target`).
+    end_sent: f64,
     /// What a retiring row may be rebound to another item under (LLP 1078):
     /// `None` when no row of this list can be.
     reuse: Option<Rc<reuse::Reuse>>,
@@ -467,6 +469,7 @@ impl Collection {
             start_offset: 0.0,
             at_end,
             end_travel: 0,
+            end_sent: f64::NAN,
             reuse,
         });
         this.update_data(u, frames, true)?;
@@ -729,7 +732,10 @@ impl Collection {
                 .index
                 .restore_anchor(&anchor, g.port_main)
                 .map_err(index_error)?;
-            if (corrected - g.offset).abs() > start::at_offset(&anchor) {
+            if !start::at_target(&anchor, corrected, g.offset, self.end_sent) {
+                if index::SizeIndex::follows_end(&anchor) {
+                    self.end_sent = corrected;
+                }
                 // Relative only where the anchor's row stayed put (an end
                 // followed or clamped is absolute: the host's own clamp has
                 // moved it). One not yet acknowledged by a report is still
@@ -1428,7 +1434,7 @@ impl Collection {
             .index
             .restore_anchor(&anchor, g.port_main)
             .map_err(index_error)?;
-        if (corrected - feedback.offset).abs() > start::at_offset(&anchor) {
+        if !start::at_target(&anchor, corrected, feedback.offset, self.end_sent) {
             return Ok(None);
         }
         let pins = self.pins();
