@@ -1,7 +1,7 @@
 ---
 name: 20261005-x19-data-source-timers
 plan: 20261005-t3code-macos-parity
-status: draft
+status: fix-built
 kind: framework-policy
 blocks: [20261005-auto-balance, 20261005-client-activity-reporting, 20261005-embedded-server-runtime, 20261005-environment-routes, 20261005-live-automations-and-clones, 20261005-pr-code-tab, 20261005-pr-conversation-and-refresh, 20261005-pr-links-previews-and-routing, 20261005-reference-logic-test-ports, 20261005-reference-logic-tests-done-areas, 20261005-server-update-banner, 20261005-telemetry, 20261005-this-machine-network-access, 20261005-usage-pooled-view, 20261005-usage-reset-and-feedback]
 upstream_url: null
@@ -84,3 +84,12 @@ Remove `timelineSleep` and `r10Wake` waits (`r10-connect-timing.ts`), the `every
 
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+
+## Fix built (2026-10-06)
+
+Built on exact2 `origin/main`, branch `daehyeon/fw-x19-source-waits` (worktree `~/orca/workspaces/exact2/t3-fw-x19`), commits `822e2502d` and `5969c4819` (review fixes). Not pushed.
+- `setTimeout`/`clearTimeout` inside an answer: a wait the runner holds (`exact-wait:<ms>`) and lands from its own clock, so the agent's `clock +N` moves it and a device wakes for it through `timer_due_ms`. Not I/O: `clock settle`/`clock data` do not wait on it. A newer request forgets it (a debounce restarts). Hosts note their input time so a wait after an idle spell is due from then. `setInterval`, and `setTimeout` outside an answer, stay refused.
+- Known limits: two waits in one answer run in sequence on native hosts, and a wait raced against a fetch cannot fire first; on the JS target a let-go answer runs past its next wait.
+- Not built here: LLP 1092 stage 2 (gated tasks: `task … when … key=`), which covers most debounce/window/periodic needs at the Contract level; it is accepted upstream and assigned to Charlie's lanes.
+- Evidence: the five checks; `source_waits.rs` (5), `js/tests/it/waits.rs` through the real Hermes VM, `request-refusal.test.mjs`; a scratch app (450 ms debounce, backoff retry) passes its `clock +N` test on the web JS target, the wasm web host and macOS; one independent review, its findings fixed or documented.
+- Before main: LLP 1027.000 "Amendment to D1" (proposed) needs Charlie's ruling and a DEFERRED take or waiver.

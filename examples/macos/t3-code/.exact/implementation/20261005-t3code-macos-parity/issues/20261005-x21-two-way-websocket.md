@@ -1,7 +1,7 @@
 ---
 name: 20261005-x21-two-way-websocket
 plan: 20261005-t3code-macos-parity
-status: draft
+status: fix-built
 kind: framework-gap
 blocks: [20261005-auto-balance, 20261005-browser-surface, 20261005-client-activity-reporting, 20261005-embedded-server-runtime, 20261005-environment-routes, 20261005-live-automations-and-clones, 20261005-local-primary-environment, 20261005-managed-codex-chatgpt, 20261005-pr-code-tab, 20261005-pr-conversation-and-refresh, 20261005-pr-handoffs-and-quick-actions, 20261005-pr-header-actions-and-stacks, 20261005-pr-links-previews-and-routing, 20261005-pr-writing-and-metadata, 20261005-provider-settings-upkeep, 20261005-provider-sign-in-and-install, 20261005-remote-scopes-and-update-commands, 20261005-server-update-banner, 20261005-settings-scoped-controls-and-theme-editor, 20261005-sign-in-terminals, 20261005-t3-connect-sign-in, 20261005-terminal-drawer, 20261005-this-machine-network-access, 20261005-thread-commands-and-keys, 20261005-usage-pooled-view, 20261005-usage-reset-and-feedback]
 upstream_url: null
@@ -96,3 +96,12 @@ socket remains in the Swift modules except where a native reason is written down
 
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+
+## Fix built (2026-10-06)
+
+Built on exact2 `origin/main`, branch `daehyeon/fw-x21-websocket-send` (worktree `~/orca/workspaces/exact2/t3-fw-x21`), commits `f3663ceac`, `bf90fb4c5`, `1a3e668cd` (three review rounds). Not pushed.
+- `fetch("wss://…", {exactStream})` stays the open; a mapper written `(event, socket) => …` gets a socket with the web's `send(text)`, `close(code, reason)`, `readyState`, `bufferedAmount`; a module may keep it and send from a mutation. Frames go from the module to a per-socket writer at the host; the runner sees none. A listen-only mapper behaves as before (coalescing); a talking socket coalesces until its first send, then delivers every message, bounded (4,096 messages / 8 MiB waiting). Closes are handshakes on every transport, with a 5 s deadline. On Apple the socket is now Network.framework and follows the app's App Transport Security.
+- Not built: binary frames, handshake headers, subprotocols. Pings and reconnects are the app's (an `every` task's mutation, `refresh`).
+- Evidence: the five checks; ibex2 socket tests (19, both transports), executor tests (Apple 41, Linux 42), runner/js/web tests; an echo drive passes on the web JS target, the wasm web host and macOS. Not run: a real Linux machine, iOS.
+- Before main: LLP 1016.000 "Design line: client frames" (proposed) needs Charlie's ruling (D3/D4).
+- Clone adoption also needs `net.websocket <origin>` grants for user-chosen hosts (a grant names one exact origin: a separate gap), and the `x-t3-orchestration-protocol` header moved to the query (no handshake headers).

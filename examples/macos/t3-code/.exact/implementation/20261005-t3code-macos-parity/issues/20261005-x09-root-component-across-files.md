@@ -1,7 +1,7 @@
 ---
 name: 20261005-x09-root-component-across-files
 plan: 20261005-t3code-macos-parity
-status: draft
+status: fix-built
 kind: framework-gap
 blocks: [20261005-auto-balance, 20261005-client-activity-reporting, 20261005-composer-fidelity, 20261005-diff-review-engine, 20261005-hot-file-split, 20261005-interface-font-size, 20261005-legacy-sidebar, 20261005-live-automations-and-clones, 20261005-local-primary-environment, 20261005-managed-codex-chatgpt, 20261005-media-actions, 20261005-pr-code-tab, 20261005-pr-conversation-and-refresh, 20261005-pr-handoffs-and-quick-actions, 20261005-pr-header-actions-and-stacks, 20261005-pr-links-previews-and-routing, 20261005-pr-writing-and-metadata, 20261005-provider-settings-upkeep, 20261005-provider-sign-in-and-install, 20261005-right-panel-tab-menu, 20261005-server-update-banner, 20261005-settings-scoped-controls-and-theme-editor, 20261005-terminal-drawer, 20261005-terminal-integrations, 20261005-terminal-layout, 20261005-thread-commands-and-keys, 20261005-upstream-timeline-and-markdown, 20261005-upstream-ui-sync, 20261005-usage-pooled-view, 20261005-usage-reset-and-feedback]
 upstream_url: null
@@ -110,3 +110,12 @@ To confirm on the pinned `main` at `issue-open`.
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval;
 publication only after approval).
+
+## Fix built (2026-10-06)
+
+Built option A1 on exact2 `origin/main`, branch `daehyeon/fw-x9-child-resources` (worktree `~/orca/workspaces/exact2/t3-fw`), commits `19e731892` and `c4a2318c3` (review fixes). Not pushed.
+- A child used outside every `when`, `each` and `match` may declare `resource` and `mutation`; the inliner lifts them into the root (`hits#1`). A use inside a region is still `type-child-resource`; a child `task` is still refused. A child state that a lifted resource reads moves to boot when it can (`type-child-resource-state` otherwise). Apps without child requests keep their plan bytes.
+- Not built: a request that lives only while its arm is shown (the "fetch while mounted" half). Gate flags stay, but they can move into the feature's own file.
+- Evidence: the five checks; contract tests (`child_resource.rs`, 11); a two-file scratch app (`use Search from "./search.contract"`) passes on the web JS target, the wasm web host and macOS; one independent review, its four findings fixed.
+- Before main: LLP 1017.000 "P4c amendment" (proposed) needs Charlie's ruling and a `rules/DEFERRED.md` take or waiver. `Expand.lean` does not lift child requests; `contract-difftest` was not run (no Lean here).
+- Clone adoption: needs the clone on exact2 main (`clone-on-exact2-main`) first.

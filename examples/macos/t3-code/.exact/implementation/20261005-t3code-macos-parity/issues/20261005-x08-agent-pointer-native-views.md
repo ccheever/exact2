@@ -1,7 +1,7 @@
 ---
 name: 20261005-x08-agent-pointer-native-views
 plan: 20261005-t3code-macos-parity
-status: draft
+status: fix-built
 kind: framework-gap
 blocks: [20261005-browser-surface, 20261005-diff-review-engine, 20261005-floating-device-player, 20261005-right-panel-tab-menu, 20261005-settings-scoped-controls-and-theme-editor, 20261005-sign-in-terminals, 20261005-terminal-drawer, 20261005-terminal-integrations, 20261005-terminal-layout, 20261005-terminal-surface]
 upstream_url: null
@@ -91,3 +91,11 @@ once built, the tab strip if it has a native part). `issue-close` checks that at
 
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+
+## Fix built (2026-10-06)
+
+Correction: the draft's premise was wrong. On exact2 main the agent already sends real window mouse events (down, move, up, drag, wheel, pinch, hover, context menu, double click) to a native module's NSView. What was missing, and is now built on branch `daehyeon/fw-x8-agent-pointer` (worktree `~/orca/workspaces/exact2/t3-fw-x8`), commits `e3c67cff2` and `a160ae671` (review fixes), not pushed:
+- Agent mouse-button events go through `NSApplication.sendEvent`, so an app's NSEvent local monitors (the clone's tab-strip monitor) see them as they see a hand's.
+- New `tap` forms: `auxclick [at x y]` (middle button), `clicks <1-3> [at x y]`, `at x y` for `contextmenu` and `wheel`, `modifiers` held through `down`/`drag`; wheel and pinch carry the window and point. The parser refuses words it would drop. iOS, Linux and Windows answer `delivery: "unsupported"`.
+- Known: a mouse-up an AppKit tracking loop takes does not reach the monitors, as with a real mouse, so an open popover may stay open (QUEUE.md names MenusMac and CollectionMac).
+- Evidence: the five checks; macOS XCTests (689); `smoke.mjs macos --app native-fixture` 103/103; `smoke.mjs web --app native-fixture` 57/57 with the router; two independent reviews, their findings fixed. No DEFERRED change needed (forms of `tap`).

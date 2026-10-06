@@ -1,7 +1,7 @@
 ---
 name: 20261005-x20-rich-text-editing
 plan: 20261005-t3code-macos-parity
-status: draft
+status: fix-built
 kind: framework-policy
 blocks: [20261005-composer-fidelity, 20261005-diff-review-engine, 20261005-terminal-integrations, 20261005-thread-commands-and-keys]
 upstream_url: null
@@ -134,3 +134,12 @@ To confirm on the pinned `main` at `issue-open`.
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval, and ask for
 Charlie's reading of `rules/DEFERRED.md:160`; publication only after approval).
+
+## Fix built (2026-10-06)
+
+Phase 1 built on exact2 `origin/main`, branch `daehyeon/fw-x20-textarea-editing` (worktree `~/orca/workspaces/exact2/t3-fw-x20`), commits `5467c273a`, `7fe3de309`, `6c9829b11` (two review rounds). Not pushed.
+- On `textarea` and `input`, with the DOM's names: `selectionchange=action` (`Selection {start, end, text}`, UTF-16, reported after the edit, coalesced); commands `setSelectionRange(id, start, end)` and `setRangeText(id, text, start, end)` (fires `input`, one undo step on native, caret after the text, the DOM's offset rules, `maxlength` ignored); a cancelable `beforeinput=action` (`InputEvent {inputType, data}`; `preventDefault()` cancels, e.g. `insertFromPaste`; `historyUndo`/`historyRedo` on macOS). Also fixed: ⌘Z in a macOS textarea now reports the undone value to the app. Each macOS `input` has its own field editor while it is being edited.
+- Not built (phase 2, needs Charlie's ruling under DEFERRED's "rich value type"): atomic inline chips.
+- Known: iOS has no history events (UIKit's undo calls no delegate); a password field's paste arrives as `insertText`; on the web a `setRangeText` past `maxlength` has no undo step; AppKit groups a typed edit and a command in one run-loop pass into one undo step.
+- Evidence: the five checks; macOS XCTests (694); the editing conformance pair against Chrome (21/21 steps equal); a scratch app (caret, mention at the caret, refused paste, one undo, maxlength) passes on the web JS target, the wasm web host and macOS; full macOS smoke as main (Caltrain 3/3); two independent reviews, their findings fixed. iOS compiles; not run on a simulator.
+- Merge note: its event ABI kind 39 collides with X22's `Resize` (also 39); renumber one at merge.
