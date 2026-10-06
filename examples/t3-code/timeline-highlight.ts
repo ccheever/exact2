@@ -8,7 +8,7 @@
 import { languageIconToken } from './timeline-files';
 import { htmlTokens } from './r7-polish-html-syntax';
 import { TsStatements, importWord } from './r11-misc-ts-decl';
-import { highlightDeferrals, shikiLanguage, shikiTokens } from './r12-render-highlight';
+import { HEURISTIC_MAX_CHARS, highlightDeferrals, shikiDeferred, shikiLanguage, shikiTokens } from './r12-render-highlight';
 
 type BaseCls = '' | 'kw' | 'decl' | 'type' | 'fn' | 'var' | 'const' | 'param' | 'pyparam' | 'str' | 'esc' | 'num' | 'nul'
   | 'op' | 'punct' | 'com' | 'key' | 'flag' | 'builtin' | 'interp' | 'heading' | 'bold' | 'tag' | 'attr'
@@ -388,6 +388,8 @@ export function highlight(text: string, language: string): Token[] {
   // lane r12-render: the reference's own grammars and themes where they are here (r12-render-highlight.ts).
   const shiki = shikiTokens(text, language);
   if (shiki) return shiki;
+  // shiki-residuals: a long text waiting for its Shiki tokens paints plain, not the slow heuristic.
+  if (text.length > HEURISTIC_MAX_CHARS && shikiDeferred(text, language)) return [{ text, cls: '' }];
   switch (grammar) {
     case 'ts': return tsLike(text, 'ts');
     case 'c': return tsLike(text, 'c');

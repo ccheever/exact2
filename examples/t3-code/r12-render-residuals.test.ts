@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { highlight, messageCodeBlocks } from './timeline-highlight';
-import { CLASS_OF_PAIR, highlightPending, highlightSlice, resetHighlightSlicing, shikiTokens, startHighlightTurn } from './r12-render-highlight';
+import { CLASS_OF_PAIR, HEURISTIC_MAX_CHARS, highlightPending, highlightSlice, resetHighlightSlicing, shikiTokens, startHighlightTurn } from './r12-render-highlight';
 import { lineTokens } from './timeline-diff-syntax';
 import { codeLines } from './r4-surfaces-files';
 
@@ -47,19 +47,32 @@ describe('the added grammars and italics against Shiki 4.2 (shiki-residuals)', (
 
 describe('long texts are tokenized in slices (shiki-residuals)', () => {
   const long = Array.from({ length: 600 }, (_, at) => `export const v${at}: Map<string, number> = new Map([["k${at}", ${at}]]); // ${at}`).join('\n');
-  test('an answer over its budget paints heuristic colours, slices finish it, and the result equals an unsliced run', () => {
+  test('an answer over its budget paints heuristic or plain colours, slices finish it, and the result equals an unsliced run', () => {
     const whole = shikiTokens(long, 'ts')!;
     resetHighlightSlicing();
     startHighlightTurn(5);
     expect(shikiTokens(long, 'ts')).toBeNull();
     expect(highlightPending()).toBe(true);
-    expect(highlight(long, 'ts').map(token => token.text).join('')).toBe(long); // heuristic tokens meanwhile
+    // Meanwhile: heuristic colours up to HEURISTIC_MAX_CHARS, plain text above (this one is longer).
+    expect(highlight(long, 'ts')).toEqual([{ text: long, cls: '' }]);
+    const short = long.slice(0, 6_000);
+    expect(shikiTokens(short, 'ts')).toBeNull();
+    expect(highlight(short, 'ts').length).toBeGreaterThan(1);
     let turns = 0, finished = false;
     while (highlightPending()) { const step = highlightSlice(5); finished ||= step.finished; turns++; }
     expect(finished).toBe(true);
     expect(turns).toBeGreaterThan(1);
     startHighlightTurn(5);
     expect(shikiTokens(long, 'ts')).toEqual(whole);
+  });
+  test('a deferred text over HEURISTIC_MAX_CHARS paints plain until its Shiki tokens are in', () => {
+    const huge = Array.from({ length: Math.ceil(HEURISTIC_MAX_CHARS / 60) + 10 }, (_, at) => `const v${at} = ${at}; // ${'x'.repeat(40)}`).join('\n');
+    expect(huge.length).toBeGreaterThan(HEURISTIC_MAX_CHARS);
+    startHighlightTurn(5);
+    expect(highlight(huge, 'a.ts')).toEqual([{ text: huge, cls: '' }]);
+    while (highlightPending()) highlightSlice(2_500);
+    startHighlightTurn(5);
+    expect(highlight(huge, 'a.ts').length).toBeGreaterThan(1);
   });
   test('a slice for an older text never replaces a newer one', () => {
     startHighlightTurn(0);
