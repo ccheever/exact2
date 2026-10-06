@@ -8,7 +8,7 @@ import { proof, axNames, decide } from "../../proof.mjs";
 
 // The numbers the game is tuned by are its tables' (rivals.level.json); the
 // proof reads them rather than restating them.
-const tables = JSON.parse(readFileSync(new URL('./rivals.level.json', import.meta.url), 'utf8'));
+const tables = JSON.parse(readFileSync(new URL('./assets/rivals.level.json', import.meta.url), 'utf8'));
 const HP = tables.fighter.max_hp, FULL = `${tables.rifle.mag} / ${tables.rifle.mag}`, FIRED = `${tables.rifle.mag - 1} / ${tables.rifle.mag}`;
 const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
 const text = (tree, id) => node(tree, id)?.props?.text;

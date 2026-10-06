@@ -9,44 +9,35 @@ struct Island {
 struct LevelGame;
 impl Game for LevelGame {
     const ID: &'static str = "typed-level-bake";
-    const LEVEL: Option<Level> = Some(Level::of::<Island>("island.level.json"));
+    const LEVELS: &'static [Level] = &[Level::of::<Island>("island.level.json")];
     type Args = ();
     fn setup(_: &mut World, _: &()) {}
     fn tick(_: &mut World, _: &Input, _: &()) {}
 }
 #[test]
-fn level_bake_validates_the_authors_derive_before_delivery() {
+fn level_bake_validates_the_authored_file_before_delivery() {
     let dir = std::env::temp_dir().join(format!("exact-level-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let level = Level::of::<Island>("island.level.json");
-    let source = dir.join(level.name);
+    std::fs::create_dir_all(dir.join("assets")).unwrap();
+    let source = dir.join("assets").join(level.name);
     std::fs::write(
         &source,
         r#"{"seed":7,"lanterns":[[1,"bad",3]],"sign":"hello"}"#,
     )
     .unwrap();
-    let error = exact_game_bake::bake_game_level::<LevelGame>(&dir).unwrap_err();
+    let error = exact_game_bake::bake_game_levels::<LevelGame>(&dir).unwrap_err();
     assert!(error.contains("lanterns.0"), "{error}");
-    assert!(!dir.join("assets").exists());
     std::fs::write(&source, r#"{"heights":[1,"bad"]}"#).unwrap();
-    let error = exact_game_bake::bake_game_level::<LevelGame>(&dir).unwrap_err();
+    let error = exact_game_bake::bake_game_levels::<LevelGame>(&dir).unwrap_err();
     assert!(error.contains("heights.1"), "{error}");
-    assert!(!dir.join("assets").exists());
     std::fs::write(
         &source,
         r#"{"seed":7,"lanterns":[[1,2,3]],"heights":[0.25,0.5],"sign":"hello"}"#,
     )
     .unwrap();
-    exact_game_bake::bake_game_level::<LevelGame>(&dir).unwrap();
-    let delivered = dir.join("assets").join(level.name);
-    let before = std::fs::read(&delivered).unwrap();
-    assert_eq!(before, std::fs::read(&source).unwrap());
-    std::fs::write(
-        &source,
-        r#"{"seed":8,"lanterns":[[1,2,3]],"heights":[0.25,0.75],"sign":"hello"}"#,
-    )
-    .unwrap();
-    exact_game_bake::bake_game_level::<LevelGame>(&dir).unwrap();
-    assert_ne!(before, std::fs::read(&delivered).unwrap());
+    exact_game_bake::bake_game_levels::<LevelGame>(&dir).unwrap();
+    // The authored file is what is delivered: the bake checks it, writes nothing.
+    assert_eq!(std::fs::read_dir(dir.join("assets")).unwrap().count(), 1);
     std::fs::remove_dir_all(dir).unwrap();
 }

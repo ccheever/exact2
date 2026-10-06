@@ -110,7 +110,7 @@ flash of light. The HUD's crosshair, hit marker, score plates, damage vignette a
 round screens are restyled.
 
 `art-src/gen.mjs` (Bun, about 3 s) writes every model, texture and sky under `art/`
-from code; nothing is downloaded. Rerun it after editing `art-src/` or the arena in `rivals.level.json`.
+from code; nothing is downloaded. Rerun it after editing `art-src/` or the arena in `assets/rivals.level.json`.
 Textures under `art/textures/` and `art/data/` are shared by name, so each bakes
 once however many models sample it. How it is built on the engine:
 
@@ -144,7 +144,7 @@ once however many models sample it. How it is built on the engine:
 | `logic/src/arena.rs` | the arena's colliders (greybox-drawn in the classic look), spawns and cover points |
 | `logic/src/art.rs` | the art pass: sky, lights, models, soldiers, weapons and effect pools |
 | `logic/src/art_present.rs` | the art pass's derived motion, flashes and colours (`Game::present`) |
-| `rivals.level.json` | the tables: the arena and every number the fight is tuned by ([below](#tables)) |
+| `assets/rivals.level.json` | the tables: the arena and every number the fight is tuned by ([below](#tables)) |
 | `logic/src/tables.rs` | the tables' types and the check the bake and every delivery run |
 | `art-src/`, `art/` | the art generator and its output |
 | `logic/tests/tables.rs` | what the check refuses; a reload replacing the tables mid-match |
@@ -158,10 +158,10 @@ fixed rates for the tick-rate experiments.
 
 ## Tables
 
-`rivals.level.json` is the one place the arena (blocks, spawns, pylons) and the
+`assets/rivals.level.json` is the one place the arena (blocks, spawns, pylons) and the
 fight's numbers (movement, health, bandage, each weapon's damage, rate, range and
 reload, the quick-reload window, kills to win, respawn and round waits) are
-written. `logic/src/tables.rs` declares its types; `Game::LEVEL` delivers it
+written. `logic/src/tables.rs` declares its types; `Game::LEVELS` delivers it
 before setup and the bake refuses one that fails `Tables::check` (a missing
 number, an inverted window, a spawn inside a block, too few spawns). The tick and
 `Game::present` read it where they use a value, never copying one at spawn; the

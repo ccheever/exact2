@@ -9,15 +9,15 @@ struct Island {
 struct LevelGame;
 impl Game for LevelGame {
     const ID: &'static str = "typed-level";
-    const LEVEL: Option<asset::Level> = Some(asset::Level::of::<Island>("island.level.json"));
+    const LEVELS: &'static [asset::Level] = &[asset::Level::of::<Island>("island.level.json")];
     type Args = ();
     fn setup(w: &mut World, _: &()) {
         let level = w.level::<Island>("island.level.json").unwrap();
         w.reseed(level.seed);
-        for p in level.lanterns {
+        for p in &level.lanterns {
             w.spawn((Transform::at(p.x, p.y, p.z),));
         }
-        w.publish("sign", level.sign);
+        w.publish("sign", level.sign.clone());
     }
     fn tick(_: &mut World, _: &Input, _: &()) {}
 }
@@ -76,6 +76,77 @@ fn typed_level_arrives_before_setup_and_refuses_changed_restore_by_name() {
         .to_string()
         .contains("island.level.json"));
 }
+/// A look's palette: presentation data only `present` reads.
+#[derive(Default, Data)]
+struct Palette {
+    sky: [f32; 3],
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Presentation)]
+struct Sky([f32; 3]);
+struct ShownGame;
+impl Game for ShownGame {
+    const ID: &'static str = "shown-level";
+    const LEVELS: &'static [asset::Level] = &[
+        asset::Level::of::<Island>("island.level.json"),
+        asset::Level::shown::<Palette>("palette.level.json"),
+    ];
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        assert!(w.level::<Palette>("palette.level.json").is_err());
+        assert!(w.shared_level::<Palette>("palette.level.json").is_err());
+        w.spawn_named("sky", Transform::default());
+    }
+    fn present(p: &mut Present, _: &()) {
+        let sky = p.shared_level::<Palette>("palette.level.json").unwrap().sky;
+        let e = p.named("sky").unwrap();
+        p.insert(e, Sky(sky));
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+#[test]
+fn shown_data_is_awaited_read_by_present_and_outside_saves() {
+    let load = |palette: &[u8]| {
+        let mut sim = Sim::<ShownGame>::new(()).unwrap();
+        let mut names = sim.take_assets();
+        names.sort();
+        assert_eq!(names, ["island.level.json", "palette.level.json"]);
+        sim.asset("island.level.json", Some(FIRST)).unwrap();
+        assert!(sim.is_loading(), "setup waits for presentation data too");
+        sim.asset("palette.level.json", Some(palette)).unwrap();
+        assert!(!sim.is_loading());
+        sim
+    };
+    let mut sim = load(br#"{"sky":[0.1,0.2,0.3]}"#);
+    sim.run(100.);
+    let sky = |sim: &Sim<ShownGame>| *sim.world().get::<Sky>("sky").unwrap();
+    assert_eq!(sky(&sim), Sky([0.1, 0.2, 0.3]));
+    let save = sim.save().unwrap();
+    let mut other = load(br#"{"sky":[0.9,0.8,0.7]}"#);
+    other.restore(&save).unwrap();
+    assert_eq!(other.world().hash(), sim.world().hash());
+    assert_eq!(
+        sky(&other),
+        Sky([0.9, 0.8, 0.7]),
+        "a new palette draws the same world"
+    );
+    // A development reload replaces presentation data in place: the next
+    // present draws it, the world and its hash untouched.
+    let (tick, hash) = (sim.world().tick(), sim.world().hash());
+    assert_eq!(
+        sim.assets_changed(["palette.level.json"]),
+        ["palette.level.json"]
+    );
+    assert_eq!(sim.take_assets(), ["palette.level.json"]);
+    sim.asset("palette.level.json", Some(br#"{"sky":[0.5,0.5,0.5]}"#))
+        .unwrap();
+    assert_eq!(sky(&sim), Sky([0.5, 0.5, 0.5]));
+    assert_eq!((sim.world().tick(), sim.world().hash()), (tick, hash));
+    // Unannounced too: it is in no save, so nothing refuses new bytes.
+    sim.asset("palette.level.json", Some(br#"{"sky":[0.4,0.4,0.4]}"#))
+        .unwrap();
+    assert_eq!(sim.save().unwrap(), save, "presentation data is in no save");
+}
+
 #[test]
 fn malformed_runtime_level_names_the_authored_field() {
     let mut sim = Sim::<LevelGame>::new(()).unwrap();
@@ -95,8 +166,8 @@ fn level_declaration_validates_names_and_counts_against_the_surface_limit() {
     struct BadName;
     impl Game for BadName {
         const ID: &'static str = "bad-level-name";
-        const LEVEL: Option<asset::Level> =
-            Some(asset::Level::of::<Island>("../island.level.json"));
+        const LEVELS: &'static [asset::Level] =
+            &[asset::Level::of::<Island>("../island.level.json")];
         type Args = ();
         fn setup(_: &mut World, _: &()) {
             panic!("invalid level must refuse before setup")
@@ -110,7 +181,7 @@ fn level_declaration_validates_names_and_counts_against_the_surface_limit() {
     struct WrongKind;
     impl Game for WrongKind {
         const ID: &'static str = "wrong-level-kind";
-        const LEVEL: Option<asset::Level> = Some(asset::Level::of::<Island>("island.model"));
+        const LEVELS: &'static [asset::Level] = &[asset::Level::of::<Island>("island.model")];
         type Args = ();
         fn setup(_: &mut World, _: &()) {
             panic!("invalid level must refuse before setup")
@@ -160,7 +231,7 @@ fn level_declaration_validates_names_and_counts_against_the_surface_limit() {
     impl<const N: usize> Game for Bounded<N> {
         const ID: &'static str = "bounded-level";
         const ASSETS: &'static [&'static str] = MODELS.split_at(N).0;
-        const LEVEL: Option<asset::Level> = LevelGame::LEVEL;
+        const LEVELS: &'static [asset::Level] = LevelGame::LEVELS;
         type Args = ();
         fn setup(_: &mut World, _: &()) {}
         fn tick(_: &mut World, _: &Input, _: &()) {}

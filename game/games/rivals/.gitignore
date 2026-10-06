@@ -4,5 +4,8 @@
 /artifacts/
 /.shells/
 /app.contract.d.ts
-/assets/
+# What the bake writes into assets/; the tables beside them are authored.
+/assets/**/*.model
+/assets/**/*.tex
+/assets/**/*.sound
 /.baked-assets.json

@@ -2,69 +2,178 @@ shape ShopRow
   id: string
   name: string
   rarity: string
-  color: string
-  price: string
+  price: number
   stock: number
   owned: number
   affordable: bool
   held: bool
-  growth: string
+  grow_s: number
+  fruit_s: number
+
+// A fruit as the HUD names it: "Fed Gold Wet Carrot".
+shape Described
+  crop: string
+  muts: list<string>
+  fed: bool
 
 shape BagRow
   id: string
-  label: string
-  weight: string
-  value: string
-  mutated: bool
+  fruit: Described
+  weight: number
+  value: number
 
-// The world publishes three records (status, shop, backpack); Contract sees
-// their fields as one surface record.
+// A way across the garden: "north" … "west" (so a WASD key), and metres.
+shape Bearing
+  dir: string
+  metres: number
+
+// What E does here: plant, buy, growing, harvest, fruiting; or return.
+shape Prompt
+  what: string
+  crop: string
+  count: number
+  s: number
+  way: Bearing
+
+shape Plot
+  inside: bool
+  x: number
+  z: number
+  crop: string
+
+shape Planting
+  what: string
+  x: number
+  z: number
+  way: Bearing
+
+shape Order
+  n: number
+  total: number
+  done: bool
+  crop: string
+  count: number
+  bonus: number
+  carried: number
+
+shape Hint
+  what: string
+  crop: string
+  other: string
+  s: number
+  price: number
+
+shape Away
+  s: number
+  events: number
+  ripened: number
+  ripe: number
+
+shape Barrel
+  at: bool
+  way: Bearing
+
+// What the last action did, or why it did nothing (`noteText` words it).
+shape Note
+  what: string
+  crop: string
+  count: number
+  coins: number
+  bonus: number
+  fruit: Described
+  way: Bearing
+  word: string
+
+// The world publishes values, never sentences: three records (status, shop,
+// backpack) and the art pass's clock, seen here as one surface record.
 shape Hud
-  sheckles: string
-  sheckles_n: number
+  sheckles: number
   held: string
-  prompt: string
-  plot: string
-  planting: string
+  held_name: string
+  held_count: number
+  prompt: Prompt
+  plot: Plot
+  planting: Planting
   weather: string
-  weather_left: string
-  restock_in: string
+  weather_s: number
+  restock_s: number
   plants: number
   fruit: number
   ripe: number
   mutated: number
   size: number
-  expand_cost: string
-  last: string
-  away: string
-  garden_time: string
-  clock: string
+  expand_cost: number
+  last: Note
+  away: Away
+  garden_s: number
+  day: number
+  minutes: number
   night: bool
   events: number
   queued: number
-  order: string
-  order_detail: string
-  order_hint: string
+  order: Order
+  order_hint: Hint
   order_seed: string
   order_ready: bool
   orders: number
   water: number
+  water_max: number
   water_ready: bool
   care: string
-  refill: string
+  barrel: Barrel
   refill_ready: bool
   plant_food: number
+  food_max: number
   feed_ready: bool
   feeding: string
   shop: list<ShopRow>
   bag: list<BagRow>
   bag_count: number
-  bag_value: string
+  bag_value: number
   bag_page: number
   bag_pages: number
 
 shape Time
   epochAtZero: number
+
+shape Viewport
+  width: number
+  height: number
+
+// ------------------------------------------------------------------ words
+fn pad(n: number): string = n < 10 ? `0${n}` : toString(n)
+// "4:05", "1:02:03".
+fn clock(s: number): string = s >= 3600 ? `${floor(s / 3600)}:${pad(floor(s / 60) % 60)}:${pad(s % 60)}` : `${floor(s / 60)}:${pad(s % 60)}`
+// "Day 2 · 14:30".
+fn dayClock(day: number, minutes: number): string = `Day ${day} · ${pad(floor(minutes / 60))}:${pad(minutes % 60)}`
+// "1.2K", "3.4M": tenths, cut rather than rounded.
+fn unit(n: number, size: number, suffix: string): string = floor(n * 10 / size) >= 1000 or floor(n * 10 / size) % 10 == 0 ? `${floor(n / size)}${suffix}` : `${floor(n / size)}.${floor(n * 10 / size) % 10}${suffix}`
+fn compact(n: number): string = n >= 1000000000000 ? unit(n, 1000000000000, "T") : n >= 1000000000 ? unit(n, 1000000000, "B") : n >= 1000000 ? unit(n, 1000000, "M") : n >= 1000 ? unit(n, 1000, "K") : toString(n)
+fn cents(c: number): string = `${floor(c / 100)}.${pad(c % 100)}`
+fn kilograms(kg: number): string = `${cents(floor(kg * 100 + 0.5))} kg`
+fn key(dir: string): string = dir == "north" ? "W" : dir == "south" ? "S" : dir == "east" ? "D" : "A"
+fn way(b: Bearing): string = `${b.dir} (${key(b.dir)}) · about ${b.metres} m`
+fn fruitLabel(f: Described): string = `${f.fed ? "Fed " : ""}${isEmpty(f.muts) ? "" : `${join(f.muts, " ")} `}${f.crop}`
+fn rarityColor(r: string): string = r == "Uncommon" ? "#4ade80" : r == "Rare" ? "#60a5fa" : r == "Legendary" ? "#facc15" : r == "Mythical" ? "#c084fc" : r == "Divine" ? "#fb923c" : "#9ca3af"
+fn growth(s: ShopRow): string = s.fruit_s > 0 ? `${s.grow_s + s.fruit_s}s to first fruit · regrows every ${s.fruit_s}s` : `${s.grow_s}s to harvest · one harvest`
+fn weatherName(w: string): string = w == "rain" ? "Rain" : w == "snow" ? "Snow" : w == "storm" ? "Thunderstorm" : "Clear"
+fn promptText(p: Prompt): string = p.what == "plant" ? `E: plant ${p.crop} (${p.count} left)` : p.what == "buy" ? "Buy seeds in the shop" : p.what == "growing" ? `${p.crop} growing · ${clock(p.s)}` : p.what == "harvest" ? `E: harvest ${p.count} ${p.crop}` : p.what == "fruiting" ? `${p.crop} fruiting · ${clock(p.s)}` : p.what == "return" ? `Return to garden: ${way(p.way)}` : ""
+fn plotText(p: Plot): string = p.inside ? `Plot ${p.x + 1}, ${p.z + 1} · ${p.crop == "" ? "Empty" : p.crop}` : "Outside the garden"
+fn plantingText(p: Planting): string = p.what == "empty" ? `Empty plot ${p.x + 1}, ${p.z + 1}: ${way(p.way)}` : p.what == "full" ? "Garden full · expand to add empty plots" : p.what == "maxed" ? "Garden full · no empty plots" : ""
+fn orderText(o: Order): string = o.done ? `Market regular · all ${o.total} orders filled!` : `Market order ${o.n + 1} · ${o.count} ${o.crop}`
+fn orderDetail(o: Order): string = o.done ? "Keep growing, find mutations, expand your garden" : `${o.carried}/${o.count} in backpack · full value + ${o.bonus}¢ bonus`
+fn hintText(h: Hint): string = h.what == "deliver" ? "Deliver the fruit in your backpack to collect the bonus." : h.what == "harvest_here" ? `Press E to harvest the ${h.crop} here.` : h.what == "wait_here" ? `Wait here for ${h.crop} to ripen, then harvest with E.` : h.what == "hold_seed" ? `Hold your ${h.crop} seed, then find an empty tile.` : h.what == "walk_on" ? `Walk onto the garden to plant ${h.crop}.` : h.what == "move" ? `This tile has ${h.other}. Move to an empty tile to plant ${h.crop}.` : h.what == "plant_here" ? `Press E to plant ${h.crop} on this empty tile.` : h.what == "sold_out" ? `${h.crop} seeds are sold out. Restock in ${clock(h.s)}.` : h.what == "costs" ? `${h.crop} costs ${compact(h.price)}¢. Harvest and sell spare fruit to earn more.` : h.what == "buy" ? `Buy a ${h.crop} seed in the shop, or return to a ${h.crop} plant.` : "Try rare seeds, mutations and a bigger garden."
+fn careText(c: string): string = c == "empty" ? "Can empty · refill at the blue barrel" : c == "water" ? "Water this plot · remaining wait −25%" : c == "watered" ? "Watered · growing faster" : c == "ripe" ? "Harvest ripe fruit before watering" : "Stand on a growing plot to water"
+fn barrelText(b: Barrel): string = b.at ? "At the blue barrel · R refills the can" : `Blue barrel: ${way(b.way)}`
+fn feedingText(f: string): string = f == "fed" ? "Fed plot · next harvest has 25% more weight" : f == "empty" ? "Compost a backpack fruit to make plant food" : f == "feed" ? "Feed this plot · next fruit weighs 25% more" : "Stand on a growing or regrowing plot to feed"
+fn awayText(a: Away): string = `While you were away (${clock(a.s)}): ${a.events} events, ${a.ripened} fruit ripened (${a.ripe} ripe now)`
+// The last action: planting, harvesting, selling and the market…
+fn notePlay(n: Note): string = n.what == "planted" ? `Planted ${n.crop}` : n.what == "harvested" ? `Harvested ${fruitLabel(n.fruit)} (${n.coins}¢)` : n.what == "harvested_all" ? `Harvested ${n.count}` : n.what == "nothing_ripe" ? "Nothing ripe yet" : n.what == "no_seed_in_hand" ? "No seed in hand" : n.what == "occupied" ? "Something grows here" : n.what == "sold" ? `Sold for ${n.coins}¢` : n.what == "sell_needs_id" ? "Sell needs a fruit id or all" : n.what == "delivered" ? `Delivered ${n.count} ${n.crop} · ${n.coins}¢ including ${n.bonus}¢ bonus` : n.what == "orders_done" ? "All market orders filled" : n.what == "bring" ? `Bring ${n.count} ${n.crop} to the market` : ""
+// …the shop, the backpack and the garden's tools…
+fn noteShop(n: Note): string = n.what == "bought" ? `Bought ${n.crop} seed` : n.what == "out_of_stock" ? `${n.crop} is out of stock` : n.what == "costs" ? `${n.crop} costs ${n.coins}¢` : n.what == "no_seed_named" ? `No seed named ${n.word}` : n.what == "holding" ? `Holding ${n.crop}` : n.what == "no_seeds" ? `No ${n.crop == "" ? n.word : n.crop} seeds` : n.what == "page" ? `Backpack page ${n.count}` : n.what == "max_size" ? "The garden is as big as it gets" : n.what == "expand_costs" ? `Expanding costs ${n.coins}¢` : n.what == "expanded" ? `The garden is ${n.count}×${n.count}` : n.what == "overview" ? "Overview" : n.what == "close" ? "Close" : n.what == "closeup" ? "Close-up" : n.what == "garden_view" ? "Garden view" : n.what == "filled" ? `Planted ${n.count}` : n.what == "away" ? `${n.count} events while away` : n.what == "unknown" ? `Unknown command ${n.word}` : ""
+// …and care: watering, the barrel, compost and feeding.
+fn noteCare(n: Note): string = n.what == "watered" ? `Watered ${n.crop} · remaining wait cut by 25%` : n.what == "can_empty" ? "Can empty · refill at the blue barrel with R" : n.what == "stand_to_water" ? "Stand on a growing plot to water" : n.what == "already_watered" ? "Already watered or ripe · wait for the next growth" : n.what == "barrel" ? `Blue barrel: ${way(n.way)}` : n.what == "can_full" ? "The watering can is full" : n.what == "refilled" ? `Watering can refilled · ${n.count} doses` : n.what == "composted" ? `Composted ${fruitLabel(n.fruit)} · +1 plant food instead of ${n.coins}¢` : n.what == "pouch_full" ? "Plant-food pouch full · feed a growing plot first" : n.what == "fruit_gone" ? "Fruit is no longer in the backpack" : n.what == "choose_compost" ? "Choose a fruit to compost" : n.what == "fed" ? `Fed ${n.crop} · next fruit weighs 25% more` : n.what == "no_food" ? "Compost a backpack fruit for plant food" : n.what == "stand_to_feed" ? "Stand on a growing plot to feed" : n.what == "already_fed" ? "Already fed or ripe · wait for new growth" : ""
+fn noteText(n: Note): string = notePlay(n) != "" ? notePlay(n) : noteShop(n) != "" ? noteShop(n) : noteCare(n)
 
 // Lilita One and Sniglet: Google Fonts, SIL Open Font License (fonts/LICENSE-*).
 font "Lilita One" = "assets/fonts/LilitaOne-Regular.ttf"
@@ -82,6 +191,11 @@ component Garden
   state art = "pass"
   resource hud = exactSurface("world") as shape Hud
   resource time = exactTime() as shape Time
+  resource viewport = exactViewport() as shape Viewport
+  // A phone's width: panels span it, and the market steps aside for an open one.
+  derive narrow = viewport.width < 700
+  // A panel stops above the touch controls, however short the window.
+  derive panelHeight = narrow ? 300 : max(200, min(440, viewport.height - 240))
 
   action play
     playing = true
@@ -111,17 +225,17 @@ component Garden
         canvas surface=world(seed=7, paused=paused, restart=again, epoch=time.epochAtZero, smooth=smooth, art=art) testId="world" width="100%" height="100%" position="relative"
           when art == "pass"
             text "Sam's Seeds" testId="stall-sign" width=240 padding=10 border-radius=8 background-color="#f6e7b8" background-image="linear-gradient(180deg, #fff3cf 0%, #e9cf8f 100%)" color="#5d3a1a" font-size=30 font-family="Lilita One" text-align="center" border-width=3 border-color="#7a4b25"
-          column testId="hud" position="absolute" top=12 left=12 right=12 gap=8
-            row testId="topbar" gap=8 align-items="center" flex-wrap="wrap"
-              text `${hud.sheckles}¢` testId="sheckles" aria-label=`${hud.sheckles_n} sheckles` padding-top=6 padding-bottom=6 padding-left=14 padding-right=14 border-radius=14 background-image="linear-gradient(180deg, #4d7c0f 0%, #14532d 100%)" border-width=2 border-color="#a3e635" font-family="Lilita One" font-size=26 color="#ecfccb" text-shadow="0 1px 3px #000000b3"
-              row gap=12 align-items="center" padding-top=7 padding-bottom=7 padding-left=12 padding-right=12 border-radius=999 background-color="#0f172a8c" font-size=13
-                text (hud.weather_left == "" ? hud.weather : `${hud.weather} · ${hud.weather_left}`) testId="weather" aria-live="polite" color=(hud.weather == "Clear" ? "#f1f5f9" : "#93c5fd") font-family="Lilita One"
-                text `Restock ${hud.restock_in}` testId="restock" color="#cbd5e1"
+          column testId="hud" position="absolute" top=12 left=12 right=12 gap=8 pointer-events="none"
+            row testId="topbar" gap=8 align-items="center" flex-wrap="wrap" pointer-events="auto"
+              text `${compact(hud.sheckles)}¢` testId="sheckles" aria-label=`${hud.sheckles} sheckles` padding-top=6 padding-bottom=6 padding-left=14 padding-right=14 border-radius=14 background-image="linear-gradient(180deg, #4d7c0f 0%, #14532d 100%)" border-width=2 border-color="#a3e635" font-family="Lilita One" font-size=26 color="#ecfccb" text-shadow="0 1px 3px #000000b3"
+              row gap=12 align-items="center" flex-wrap="wrap" padding-top=7 padding-bottom=7 padding-left=12 padding-right=12 border-radius=999 background-color="#0f172a8c" font-size=13
+                text (hud.weather_s == 0 ? weatherName(hud.weather) : `${weatherName(hud.weather)} · ${clock(hud.weather_s)}`) testId="weather" aria-live="polite" color=(hud.weather == "clear" ? "#f1f5f9" : "#93c5fd") font-family="Lilita One"
+                text `Restock ${clock(hud.restock_s)}` testId="restock" color="#cbd5e1"
                 text `${hud.plants} plants · ${hud.ripe}/${hud.fruit} ripe · ${hud.mutated} mutated` testId="census" color="#cbd5e1"
-                when hud.clock == "" or art != "pass"
-                  text `Day ${hud.garden_time}` testId="garden-time" color="#cbd5e1"
+                when hud.day == 0 or art != "pass"
+                  text `Day ${clock(hud.garden_s)}` testId="garden-time" color="#cbd5e1"
                 else
-                  text (hud.night ? `☾ ${hud.clock}` : `☀ ${hud.clock}`) testId="garden-time" color=(hud.night ? "#c7d2fe" : "#fde68a") font-family="Lilita One"
+                  text (hud.night ? `☾ ${dayClock(hud.day, hud.minutes)}` : `☀ ${dayClock(hud.day, hud.minutes)}`) testId="garden-time" color=(hud.night ? "#c7d2fe" : "#fde68a") font-family="Lilita One"
               row flex=1 justify-content="flex-end" gap=8
                 button press=show("shop") testId="shop-tab" aria-label="Seed shop" padding-top=7 padding-bottom=7 padding-left=12 padding-right=12 border-radius=12 background-color=(panel == "shop" ? "#65a30d" : "#0f172acc")
                   text "Shop" font-family="Lilita One" font-size=17
@@ -131,109 +245,103 @@ component Garden
                   text "Garden" font-family="Lilita One" font-size=17
                 button press=togglePause testId="pause" aria-label=(paused ? "Resume" : "Pause") padding-top=7 padding-bottom=7 padding-left=12 padding-right=12 border-radius=12 background-color="#0f172acc"
                   text (paused ? "Resume" : "Pause") font-family="Lilita One" font-size=17
-            when panel == "shop"
-              column testId="shop" width=340 max-height=440 padding=10 gap=6 border-radius=12 background-color="#0f172ae6"
-                row justify-content="space-between" align-items="center"
-                  text "Seed shop" font-size=22 font-family="Lilita One"
-                  text `Restock in ${hud.restock_in}` font-size=13 color="#cbd5e1"
-                list testId="shop-list" max-height=380 overflow-x="hidden" overflow-y="scroll"
-                  each s in hud.shop key=s.id
-                    ShopItem(s=s, buy=run(`buy ${s.id}`), equip=run(`equip ${s.id}`))
-            when panel == "bag"
-              column testId="bag" width=340 max-height=440 padding=10 gap=6 border-radius=12 background-color="#0f172ae6"
-                row justify-content="space-between" align-items="center"
-                  text `Backpack · ${hud.bag_count}` font-size=22 font-family="Lilita One"
-                  button press=run("sell all") testId="sell-all" aria-label=`Sell all for ${hud.bag_value} sheckles` padding=8 border-radius=8 background-color="#ca8a04"
-                    text `Sell all ${hud.bag_value}¢` font-family="Lilita One"
-                when hud.bag_count == 0
-                  text "Harvest ripe fruit with E" color="#94a3b8" testId="bag-empty"
-                when hud.bag_pages > 1
-                  row align-items="center" justify-content="space-between" gap=8
-                    button press=run("page prev") testId="bag-newer" aria-label="Newer fruit" disabled=(hud.bag_page == 1) padding=6 border-radius=6 background-color="#334155"
-                      text "Newer"
-                    text `Page ${hud.bag_page} of ${hud.bag_pages}` testId="bag-page" font-size=13 color="#cbd5e1"
-                    button press=run("page next") testId="bag-older" aria-label="Older fruit" disabled=(hud.bag_page == hud.bag_pages) padding=6 border-radius=6 background-color="#334155"
-                      text "Older"
-                list virtualized=true testId="bag-list" height=340 overflow-x="hidden" estimated-item-height=44
-                  each b in hud.bag key=b.id
-                    BagItem(b=b, sell=run(`sell ${b.id}`), compost=run(`compost ${b.id}`), compostReady=(hud.plant_food < 3))
-            when panel == "tools"
-              column testId="tools" width=340 padding=12 gap=8 border-radius=12 background-color="#0f172ae6"
-                text `Garden ${hud.size}×${hud.size}` font-size=22 font-family="Lilita One"
-                row gap=8 flex-wrap="wrap"
-                  button press=run("harvest all") testId="harvest-all" padding=10 border-radius=8 background-color="#15803d"
-                    text `Harvest all ${hud.ripe}`
-                  button press=run("expand") testId="expand" padding=10 border-radius=8 background-color="#1d4ed8"
-                    text `Expand ${hud.expand_cost}¢`
-                  button press=run("zoom") testId="zoom" padding=10 border-radius=8 background-color="#334155"
-                    text "Zoom"
-                  when art == "pass"
-                    button press=run("closeup") testId="closeup" padding=10 border-radius=8 background-color="#334155"
-                      text "Close-up"
-                text "Stress" font-size=14 color="#cbd5e1" padding-top=6
-                row gap=8 flex-wrap="wrap"
-                  button press=run("fill 100") testId="fill-100" padding=8 border-radius=8 background-color="#334155"
-                    text "+100"
-                  button press=run("fill 1000") testId="fill-1000" padding=8 border-radius=8 background-color="#334155"
-                    text "+1,000"
-                  button press=run("fill 10000") testId="fill-10000" padding=8 border-radius=8 background-color="#334155"
-                    text "+10,000"
-                  button press=run("away 3600") testId="away-hour" padding=8 border-radius=8 background-color="#334155"
-                    text "Away 1 h"
-                  button press=toggleSmooth testId="smooth" aria-label=(smooth ? "Stepped growth" : "Smooth growth") padding=8 border-radius=8 background-color=(smooth ? "#7c3aed" : "#334155")
-                    text (smooth ? "Smooth" : "Stepped")
-                text `${hud.events} events run · ${hud.queued} queued` font-size=12 color="#94a3b8" testId="events"
-                text "Look (keeps your garden)" font-size=14 color="#cbd5e1" padding-top=6
-                row gap=8 flex-wrap="wrap"
-                  button press=look("") testId="look-classic" padding=8 border-radius=8 background-color=(art == "" ? "#65a30d" : "#334155")
-                    text "Classic"
-                  button press=look("golden") testId="look-golden" padding=8 border-radius=8 background-color=(art == "golden" ? "#65a30d" : "#334155")
-                    text "Golden hour"
-                  button press=look("storybook") testId="look-storybook" padding=8 border-radius=8 background-color=(art == "storybook" ? "#65a30d" : "#334155")
-                    text "Storybook"
-                  button press=look("pass") testId="look-pass" padding=8 border-radius=8 background-color=(art == "pass" ? "#65a30d" : "#334155")
-                    text "Art pass"
-          column testId="market" position="absolute" top=72 right=12 width=280 padding=12 gap=5 border-radius=14 background-color="#14532dd9" border-width=2 border-color="#4d7c0f"
-            text hud.order testId="objective" font-family="Lilita One" font-size=19 color="#d9f99d"
-            text hud.order_detail testId="order-detail" font-size=12 color="#d1fae5"
-            text hud.order_hint testId="order-hint" font-size=13
-            when hud.order_seed != ""
-              button press=run(`equip ${hud.order_seed}`) testId="equip-order" aria-label="Hold requested seed" padding=8 border-radius=8 background-color="#65a30d"
-                text "Hold requested seed" font-family="Lilita One"
-            when hud.orders < 5
-              button press=run("deliver") testId="deliver" aria-label="Deliver market order" disabled=(not hud.order_ready) padding=8 border-radius=8 background-color=(hud.order_ready ? "#ca8a04" : "#334155")
-                text (hud.order_ready ? "Deliver order" : "Harvest into your backpack") font-family="Lilita One"
-          when paused
-            column testId="paused" position="absolute" top=72 right=12 padding=12 gap=8 border-radius=12 background-color="#0f172ae6"
-              text "Paused" font-size=24 font-family="Lilita One"
-              button press=restart testId="restart" aria-label="Restart" padding=10 border-radius=8 background-color="#334155"
-                text "Restart"
-          column position="absolute" right=24 bottom=144 width=232 gap=5 padding=10 border-radius=14 background-color="#0f172acc"
-            text `Watering can · ${hud.water}/3` testId="water-count" font-family="Lilita One" font-size=17 color="#7dd3fc"
-            text hud.care testId="care" font-size=11 color="#cbd5e1"
-            row gap=8
-              button action="water" testId="water" aria-label="Water this plot (Q)" disabled=(not hud.water_ready) padding=8 border-radius=8 background-color=(hud.water_ready ? "#0369a1" : "#334155")
-                text "Q Water"
-              button action="refill" testId="refill" aria-label="Refill watering can (R)" disabled=(not hud.refill_ready) padding=8 border-radius=8 background-color=(hud.refill_ready ? "#0369a1" : "#334155")
-                text "R Refill"
-            text hud.refill testId="refill-hint" font-size=10 color="#94a3b8"
-            row gap=8 align-items="center" padding-top=4
-              text `Plant food · ${hud.plant_food}/3` testId="food-count" flex=1 font-family="Lilita One" font-size=17 color="#d8b4fe"
-              button action="feed" testId="feed" aria-label="Feed this plot (F)" disabled=(not hud.feed_ready) padding=8 border-radius=8 background-color=(hud.feed_ready ? "#7e22ce" : "#334155")
-                text "F Feed"
-            text hud.feeding testId="feeding" font-size=10 color="#94a3b8"
-          when hud.away != ""
-            text hud.away testId="away" position="absolute" top=240 right=12 max-width=320 padding=10 border-radius=10 background-color="#7c2d12e6" font-size=13
-          column position="absolute" left=150 right=150 bottom=24 align-items="center" gap=5 pointer-events="none"
-            when hud.planting != ""
-              text hud.planting testId="planting" font-size=13 font-family="Lilita One" color="#d9f99d" text-shadow="0 1px 3px #000000b3"
-            when hud.prompt != ""
-              text hud.prompt testId="prompt" aria-live="polite" padding-top=8 padding-bottom=8 padding-left=16 padding-right=16 border-radius=14 background-color="#0f172ae0" font-family="Lilita One" font-size=21
-            row gap=6 align-items="center" justify-content="center" flex-wrap="wrap"
-              text hud.plot testId="plot" padding-top=3 padding-bottom=3 padding-left=8 padding-right=8 border-radius=8 background-color="#0f172a99" font-size=12 color="#e2e8f0"
-              text (hud.held == "" ? "No seeds in hand" : `Holding ${hud.held}`) testId="held" padding-top=3 padding-bottom=3 padding-left=8 padding-right=8 border-radius=8 background-color="#14532dbf" font-size=12 color="#d9f99d"
-            when hud.last != ""
-              text hud.last testId="last" font-size=12 color="#f1f5f9" text-shadow="0 1px 3px #000000b3"
+            // Below the top bar however it wraps: the open panel on the left,
+            // the market (and the pause menu) on the right.
+            row testId="panels" gap=8 align-items="flex-start" flex-wrap="wrap"
+              when panel == "shop"
+                column testId="shop" pointer-events="auto" width=(narrow ? "100%" : "340px") max-height=`${panelHeight}px` box-sizing="border-box" padding=10 gap=6 border-radius=12 background-color="#0f172ae6"
+                  row justify-content="space-between" align-items="center"
+                    text "Seed shop" font-size=22 font-family="Lilita One"
+                    text `Restock in ${clock(hud.restock_s)}` font-size=13 color="#cbd5e1"
+                  list testId="shop-list" max-height=`${panelHeight - 60}px` overflow-x="hidden" overflow-y="scroll"
+                    each s in hud.shop key=s.id
+                      ShopItem(s=s, buy=run(`buy ${s.id}`), equip=run(`equip ${s.id}`))
+              when panel == "bag"
+                column testId="bag" pointer-events="auto" width=(narrow ? "100%" : "340px") max-height=`${panelHeight}px` box-sizing="border-box" padding=10 gap=6 border-radius=12 background-color="#0f172ae6"
+                  row justify-content="space-between" align-items="center"
+                    text `Backpack · ${hud.bag_count}` font-size=22 font-family="Lilita One"
+                    button press=run("sell all") testId="sell-all" aria-label=`Sell all for ${compact(hud.bag_value)} sheckles` padding=8 border-radius=8 background-color="#ca8a04"
+                      text `Sell all ${compact(hud.bag_value)}¢` font-family="Lilita One"
+                  when hud.bag_count == 0
+                    text "Harvest ripe fruit with E" color="#94a3b8" testId="bag-empty"
+                  when hud.bag_pages > 1
+                    row align-items="center" justify-content="space-between" gap=8
+                      button press=run("page prev") testId="bag-newer" aria-label="Newer fruit" disabled=(hud.bag_page == 1) padding=6 border-radius=6 background-color="#334155"
+                        text "Newer"
+                      text `Page ${hud.bag_page} of ${hud.bag_pages}` testId="bag-page" font-size=13 color="#cbd5e1"
+                      button press=run("page next") testId="bag-older" aria-label="Older fruit" disabled=(hud.bag_page == hud.bag_pages) padding=6 border-radius=6 background-color="#334155"
+                        text "Older"
+                  list virtualized=true testId="bag-list" height=`${panelHeight - 100}px` overflow-x="hidden" estimated-item-height=44
+                    each b in hud.bag key=b.id
+                      BagItem(b=b, sell=run(`sell ${b.id}`), compost=run(`compost ${b.id}`), compostReady=(hud.plant_food < hud.food_max))
+              when panel == "tools"
+                column testId="tools" pointer-events="auto" width=(narrow ? "100%" : "340px") box-sizing="border-box" padding=12 gap=8 border-radius=12 background-color="#0f172ae6"
+                  text `Garden ${hud.size}×${hud.size}` font-size=22 font-family="Lilita One"
+                  row gap=8 flex-wrap="wrap"
+                    button press=run("harvest all") testId="harvest-all" padding=10 border-radius=8 background-color="#15803d"
+                      text `Harvest all ${hud.ripe}`
+                    button press=run("expand") testId="expand" padding=10 border-radius=8 background-color="#1d4ed8"
+                      text `Expand ${compact(hud.expand_cost)}¢`
+                    button press=run("zoom") testId="zoom" padding=10 border-radius=8 background-color="#334155"
+                      text "Zoom"
+                    when art == "pass"
+                      button press=run("closeup") testId="closeup" padding=10 border-radius=8 background-color="#334155"
+                        text "Close-up"
+                  text "Stress" font-size=14 color="#cbd5e1" padding-top=6
+                  row gap=8 flex-wrap="wrap"
+                    button press=run("fill 100") testId="fill-100" padding=8 border-radius=8 background-color="#334155"
+                      text "+100"
+                    button press=run("fill 1000") testId="fill-1000" padding=8 border-radius=8 background-color="#334155"
+                      text "+1,000"
+                    button press=run("fill 10000") testId="fill-10000" padding=8 border-radius=8 background-color="#334155"
+                      text "+10,000"
+                    button press=run("away 3600") testId="away-hour" padding=8 border-radius=8 background-color="#334155"
+                      text "Away 1 h"
+                    button press=toggleSmooth testId="smooth" aria-label=(smooth ? "Stepped growth" : "Smooth growth") padding=8 border-radius=8 background-color=(smooth ? "#7c3aed" : "#334155")
+                      text (smooth ? "Smooth" : "Stepped")
+                  text `${hud.events} events run · ${hud.queued} queued` font-size=12 color="#94a3b8" testId="events"
+                  text "Look (keeps your garden)" font-size=14 color="#cbd5e1" padding-top=6
+                  row gap=8 flex-wrap="wrap"
+                    button press=look("") testId="look-classic" padding=8 border-radius=8 background-color=(art == "" ? "#65a30d" : "#334155")
+                      text "Classic"
+                    button press=look("golden") testId="look-golden" padding=8 border-radius=8 background-color=(art == "golden" ? "#65a30d" : "#334155")
+                      text "Golden hour"
+                    button press=look("storybook") testId="look-storybook" padding=8 border-radius=8 background-color=(art == "storybook" ? "#65a30d" : "#334155")
+                      text "Storybook"
+                    button press=look("pass") testId="look-pass" padding=8 border-radius=8 background-color=(art == "pass" ? "#65a30d" : "#334155")
+                      text "Art pass"
+              column margin-left="auto" gap=8 pointer-events="auto" width=(narrow ? "100%" : "280px")
+                when paused
+                  column testId="paused" padding=12 gap=8 border-radius=12 background-color="#0f172ae6"
+                    text "Paused" font-size=24 font-family="Lilita One"
+                    button press=restart testId="restart" aria-label="Restart" padding=10 border-radius=8 background-color="#334155"
+                      text "Restart"
+                when not narrow or panel == ""
+                  column testId="market" box-sizing="border-box" padding=12 gap=5 border-radius=14 background-color="#14532dd9" border-width=2 border-color="#4d7c0f"
+                    text orderText(hud.order) testId="objective" font-family="Lilita One" font-size=19 color="#d9f99d"
+                    text orderDetail(hud.order) testId="order-detail" font-size=12 color="#d1fae5"
+                    text hintText(hud.order_hint) testId="order-hint" font-size=13
+                    when hud.order_seed != ""
+                      button press=run(`equip ${hud.order_seed}`) testId="equip-order" aria-label="Hold requested seed" padding=8 border-radius=8 background-color="#65a30d"
+                        text "Hold requested seed" font-family="Lilita One"
+                    when not hud.order.done
+                      button press=run("deliver") testId="deliver" aria-label="Deliver market order" disabled=(not hud.order_ready) padding=8 border-radius=8 background-color=(hud.order_ready ? "#ca8a04" : "#334155")
+                        text (hud.order_ready ? "Deliver order" : "Harvest into your backpack") font-family="Lilita One"
+                when hud.away.s > 0
+                  text awayText(hud.away) testId="away" padding=10 border-radius=10 background-color="#7c2d12e6" font-size=13
+          // The care panel above the E button and what E does here between the
+          // touch controls; on a phone, one column above them, so neither covers
+          // the other, and the care panel steps aside for an open panel.
+          when narrow
+            column position="absolute" left=12 right=12 bottom=132 gap=8 pointer-events="none"
+              when panel == ""
+                Care(hud=hud)
+              Prompts(hud=hud)
+          else
+            column position="absolute" right=24 bottom=144 width=232 pointer-events="none"
+              Care(hud=hud)
+            column position="absolute" left=150 right=150 bottom=24 pointer-events="none"
+              Prompts(hud=hud)
           button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#ffffff33"
             text "Move"
           button action="act" testId="act" aria-label="Plant or harvest (E)" position="absolute" right=24 bottom=24 width=96 height=96 border-radius=48 background-color="#65a30d"
@@ -252,6 +360,41 @@ component Garden
           button press=play autofocus aria-label="Play" testId="play" padding=16 border-radius=12 background-color="#65a30d"
             text "Play" font-family="Lilita One" font-size=26
 
+component Care
+  props
+    hud: Hud
+  view
+    column box-sizing="border-box" gap=5 padding=10 border-radius=14 background-color="#0f172acc" pointer-events="auto"
+      text `Watering can · ${hud.water}/${hud.water_max}` testId="water-count" font-family="Lilita One" font-size=17 color="#7dd3fc"
+      text careText(hud.care) testId="care" font-size=11 color="#cbd5e1"
+      row gap=8
+        button action="water" testId="water" aria-label="Water this plot (Q)" disabled=(not hud.water_ready) padding=8 border-radius=8 background-color=(hud.water_ready ? "#0369a1" : "#334155")
+          text "Q Water"
+        button action="refill" testId="refill" aria-label="Refill watering can (R)" disabled=(not hud.refill_ready) padding=8 border-radius=8 background-color=(hud.refill_ready ? "#0369a1" : "#334155")
+          text "R Refill"
+      text barrelText(hud.barrel) testId="refill-hint" font-size=10 color="#94a3b8"
+      row gap=8 align-items="center" padding-top=4
+        text `Plant food · ${hud.plant_food}/${hud.food_max}` testId="food-count" flex=1 font-family="Lilita One" font-size=17 color="#d8b4fe"
+        button action="feed" testId="feed" aria-label="Feed this plot (F)" disabled=(not hud.feed_ready) padding=8 border-radius=8 background-color=(hud.feed_ready ? "#7e22ce" : "#334155")
+          text "F Feed"
+      text feedingText(hud.feeding) testId="feeding" font-size=10 color="#94a3b8"
+
+// What E does here, the plot and the seed in hand, and the last action.
+component Prompts
+  props
+    hud: Hud
+  view
+    column align-items="center" gap=5
+      when hud.planting.what != ""
+        text plantingText(hud.planting) testId="planting" font-size=13 font-family="Lilita One" color="#d9f99d" text-shadow="0 1px 3px #000000b3"
+      when hud.prompt.what != ""
+        text promptText(hud.prompt) testId="prompt" aria-live="polite" padding-top=8 padding-bottom=8 padding-left=16 padding-right=16 border-radius=14 background-color="#0f172ae0" font-family="Lilita One" font-size=21
+      row gap=6 align-items="center" justify-content="center" flex-wrap="wrap"
+        text plotText(hud.plot) testId="plot" padding-top=3 padding-bottom=3 padding-left=8 padding-right=8 border-radius=8 background-color="#0f172a99" font-size=12 color="#e2e8f0"
+        text (hud.held == "" ? "No seeds in hand" : `Holding ${hud.held_name} ×${hud.held_count}`) testId="held" padding-top=3 padding-bottom=3 padding-left=8 padding-right=8 border-radius=8 background-color="#14532dbf" font-size=12 color="#d9f99d"
+      when hud.last.what != ""
+        text noteText(hud.last) testId="last" font-size=12 color="#f1f5f9" text-shadow="0 1px 3px #000000b3"
+
 component ShopItem
   props
     s: ShopRow
@@ -261,12 +404,12 @@ component ShopItem
     row testId=`shop-${s.id}` align-items="center" gap=8 padding=8 border-radius=8 background-color=(s.held ? "#365314" : "#1e293b") margin-bottom=6
       column flex=1 gap=2
         text s.name font-family="Lilita One"
-        text `${s.rarity} · ${s.price}¢ · stock ${s.stock}` font-size=12 color=s.color
-        text s.growth font-size=11 color="#cbd5e1"
+        text `${s.rarity} · ${compact(s.price)}¢ · stock ${s.stock}` font-size=12 color=rarityColor(s.rarity)
+        text growth(s) font-size=11 color="#cbd5e1"
       when s.owned > 0
         button press=equip testId=`equip-${s.id}` aria-label=`Hold ${s.name}, ${s.owned} owned` padding=6 border-radius=6 background-color="#334155"
           text `×${s.owned}` font-size=13
-      button press=buy testId=`buy-${s.id}` aria-label=`Buy ${s.name} for ${s.price}` disabled=(s.stock == 0 or not s.affordable) padding=8 border-radius=6 background-color=(s.stock > 0 and s.affordable ? "#65a30d" : "#475569")
+      button press=buy testId=`buy-${s.id}` aria-label=`Buy ${s.name} for ${compact(s.price)}` disabled=(s.stock == 0 or not s.affordable) padding=8 border-radius=6 background-color=(s.stock > 0 and s.affordable ? "#65a30d" : "#475569")
         text (s.stock == 0 ? "Sold out" : "Buy") font-size=13
 
 component BagItem
@@ -278,9 +421,9 @@ component BagItem
   view
     row testId=`bag-${b.id}` height=44 box-sizing="border-box" align-items="center" gap=8 padding-left=8 padding-right=8 border-bottom-width=1 border-bottom-style="solid" border-color="#334155"
       column flex=1 min-width=0
-        text b.label color=(b.mutated ? "#facc15" : "#fdfbf3") white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-        text b.weight font-size=11 color="#94a3b8"
-      button press=sell testId=`sell-${b.id}` aria-label=`Sell ${b.label} for ${b.value}` padding=6 border-radius=6 background-color="#ca8a04"
-        text `${b.value}¢` font-size=12
-      button press=compost testId=`compost-${b.id}` aria-label=`Compost ${b.label} instead of ${b.value} coins for one plant food` disabled=(not compostReady) padding=6 border-radius=6 background-color=(compostReady ? "#7e22ce" : "#334155")
+        text fruitLabel(b.fruit) color=(isEmpty(b.fruit.muts) ? "#fdfbf3" : "#facc15") white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+        text kilograms(b.weight) font-size=11 color="#94a3b8"
+      button press=sell testId=`sell-${b.id}` aria-label=`Sell ${fruitLabel(b.fruit)} for ${compact(b.value)}` padding=6 border-radius=6 background-color="#ca8a04"
+        text `${compact(b.value)}¢` font-size=12
+      button press=compost testId=`compost-${b.id}` aria-label=`Compost ${fruitLabel(b.fruit)} instead of ${compact(b.value)} coins for one plant food` disabled=(not compostReady) padding=6 border-radius=6 background-color=(compostReady ? "#7e22ce" : "#334155")
         text "Compost" font-size=12

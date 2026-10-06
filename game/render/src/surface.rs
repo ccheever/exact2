@@ -150,7 +150,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             ))
         };
         if let Some(name) = G::ASSETS.iter().copied().find(|name| {
-            Some(*name) != G::LEVEL.map(|level| level.name) && !name.ends_with(".sound")
+            !G::LEVELS.iter().any(|level| level.name == *name) && !name.ends_with(".sound")
         }) {
             return Err(missing(name));
         }
@@ -854,7 +854,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
                 .render
                 .as_ref()
                 .map_or_else(Default::default, |(r, _)| r.residency_work());
-            let mut reasons: Vec<String> = if ASSETS || G::LEVEL.is_some() {
+            let mut reasons: Vec<String> = if ASSETS || !G::LEVELS.is_empty() {
                 sim.asset_failures().map(str::to_owned).collect()
             } else {
                 Vec::new()

@@ -133,7 +133,7 @@ impl Game for Rivals {
     const ID: &'static str = "rivals";
     const HZ: u32 = 120;
     const STREAMED: &'static [&'static str] = art::STREAMED;
-    const LEVEL: Option<asset::Level> = Some(tables::LEVEL);
+    const LEVELS: &'static [asset::Level] = &[tables::LEVEL];
     type Args = Options;
     fn actions() -> Actions {
         actions()
@@ -168,7 +168,7 @@ pub mod rates {
                 const ID: &'static str = "rivals";
                 const HZ: u32 = $hz;
                 const STREAMED: &'static [&'static str] = art::STREAMED;
-                const LEVEL: Option<asset::Level> = Some(tables::LEVEL);
+                const LEVELS: &'static [asset::Level] = &[tables::LEVEL];
                 type Args = Options;
                 fn actions() -> Actions {
                     actions()

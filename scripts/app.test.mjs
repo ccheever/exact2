@@ -276,7 +276,7 @@ async function fixture(body) {
     }`);
     write('game/Cargo.toml', '[workspace]\nmembers=["deps/*","ordinary/*"]\nexclude=["games"]\nresolver="2"\n[workspace.package]\nversion="0.1.0"\nedition="2021"\nlicense="MIT"\n[workspace.dependencies]\n' + deps.map(n=>`${n}={path="deps/${n}"}`).join('\n'));
     for (const dep of deps) pkg(`game/deps/${dep}`, dep);
-    write('game/bake/src/files.rs', 'pub fn bake_game_level<G>(_: impl AsRef<std::path::Path>) -> Result<(), String> { Ok(()) }\n');
+    write('game/bake/src/files.rs', 'pub fn bake_game_levels<G>(_: impl AsRef<std::path::Path>) -> Result<(), String> { Ok(()) }\n');
     write('game/games/.gitignore', '*/.shells/\n');
     // Cargo permits an empty glob when its containing directory exists.
     pkg('game/ordinary/stub','ordinary-stub');

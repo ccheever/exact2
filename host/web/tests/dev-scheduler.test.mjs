@@ -297,6 +297,7 @@ test('generated game arguments use the resident plan compiler without a host reb
       const builtReceipts=[{binary:{inputs:paths.map(path=>({path})),directories:[{path:resolve(app.dir,'.shells')}],missing:[resolve(app.dir,'missing/config.json')]}}];
       const contractGraph=()=>({files:new Set()});
       const rustInputFiles=new Set(),gpuInputs=new Set(),appInputs=new Set(),failedInputs=new Set(),assetTrees=[];
+      const gameData=()=>({owns:()=>false,changed(){}}),buildEnv={}; // a game with no art: it owns no edit
       const typescript=false,portableRust=false,rebuildOn={rust:'save'},changed=new Set();
       const console={log(){},error(error){throw new Error(error);}},gpuOnly=()=>false;
       const clearTimeout=()=>{},setTimeout=()=>0,rebuild=()=>{};let timer;
@@ -462,6 +463,7 @@ test('declared source files report in-place edits after inclusion and replacemen
       const builtReceipts=[{binary:{inputs:[{path:main}],directories:[],missing:[]}}];
       const contractGraph=()=>({files:new Set()});
       const rustInputFiles=new Set(),gpuInputs=new Set(),appInputs=new Set(),failedInputs=new Set(),assetTrees=[];
+      const gameData=()=>({owns:()=>false,changed(){}}),buildEnv={}; // a game with no art: it owns no edit
       const typescript=false,portableRust=false,rebuildOn={rust:'save'},changed=new Set();
       const console={log(){},error(message){throw Error(message);}},gpuOnly=()=>true;
       let built=()=>{};const builds=[],rebuild=()=>{builds.push([...changed]);changed.clear();built();};let timer;

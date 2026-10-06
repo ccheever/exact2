@@ -334,7 +334,9 @@ function captureGeneration(reuseCurrentAssets = false) {
   envelope.plan.url = prefix + 'app.plan';
   if (rust) envelope.rust = Object.fromEntries(Object.entries(rust).map(([kind, variant]) => [kind, { ...variant, receipt:{...variant.receipt,url:prefix+variant.receipt.url},module:{...variant.module,url:prefix+variant.module.url} }]));
   if (module) envelope.module = Object.fromEntries(Object.entries(module).map(([key, card]) => [key, { ...card, url: prefix + MODULE_FILES[key] }]));
-  for (const asset of envelope.assets) asset.url = prefix + asset.name.split('/').map(encodeURIComponent).join('/');
+  // Relative to this envelope (served at prefix + exact.json), as a delivered
+  // envelope's are: the 64 KiB envelope then lists hundreds of assets (a game's).
+  for (const asset of envelope.assets) asset.url = './' + asset.name.split('/').map(encodeURIComponent).join('/');
   const envelopeBytes = Buffer.from(JSON.stringify(envelope) + '\n');
   if (envelopeBytes.length > 64 * 1024) throw new Error('generation envelope exceeds 64 KiB');
   files.set('exact.json', envelopeBytes);
@@ -768,6 +770,8 @@ try {
   watchStaticTrees(app.dir, assetTrees, (change) => {
     if (change.targetRoot === 'shaders') change = {...change,tree:true,relative:'',name:'shaders'};
     if (skipped.test(change.relative) || /(^|\/)\./.test(change.relative)) return;
+    // A game's level goes out as it is; its art generator may also read it.
+    if (!change.tree && change.targetRoot === 'assets') gameAssets.assetChanged(resolve(app.dir, change.name));
     if (change.tree) {
       for (const name of assetChanges.keys()) if (name === change.targetRoot || name.startsWith(`${change.targetRoot}/`)) assetChanges.delete(name);
       assetChanges.set(change.targetRoot, change);
@@ -940,7 +944,9 @@ function watchCompilerInputs() {
     const file=files.has(target),dir=file?resolve(target,'..'):target;
     const changedPath=name=>{
       if(file)name=target.slice(target.lastIndexOf('/')+1);
-      if(!name||skipped.test(name)||/(^|\/)\./.test(name)||name.endsWith('dev.js')||assetTrees.some(([tree])=>resolve(dir,name).startsWith(tree+'/'))||resolve(dir,name)===source)return;
+      // A static tree is delivered, never built: its files, and its root (whose
+      // metadata changes whenever the bake renames a model into it).
+      if(!name||skipped.test(name)||/(^|\/)\./.test(name)||name.endsWith('dev.js')||assetTrees.some(([tree,to])=>resolve(dir,name).startsWith(tree+'/')||(to!=='shaders'&&resolve(dir,name)===tree))||resolve(dir,name)===source)return;
       // Parent-directory notifications include unrelated documents and output.
       // Only receipt inputs, declared trees/missing paths, and Swift's implicit
       // source discovery can invalidate the host. Rust additions are reached
@@ -1251,7 +1257,7 @@ server.listen(port, host, () => {
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
   if (allowHosts.length) console.log(`  also answering to ${allowHosts.join(', ')} (--allow-host)`);
   warmGpu();
-  gameAssets.warm();
+  gameAssets.start();
   console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${lan ? 'LAN bind — any peer on this network can read the app, its compile errors and dev generations; macOS may ask to allow bun' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
 });
 process.on('SIGINT', stop);

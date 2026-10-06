@@ -58,7 +58,10 @@ Open the dev server's printed URL. It serves on 8765, or on the next free port w
 another dev loop holds 8765 (it says so); `--port <n>` chooses one and fails at once,
 before building, if that port is in use. `--lan` serves a phone on this network. Edit `my-game/logic/src/lib.rs` for gameplay or
 `my-game/app.contract` for UI. Gameplay reloads carry the running world; shared
-app-runtime edits reload the page. Once serving, the loop builds the gameplay
+app-runtime edits reload the page. Data is not rebuilt: an `assets/*.level.json`
+edit, an `art/` edit (baked into `assets/`), or an edit to a TypeScript art
+generator (`art.mjs` or `art-src/gen.mjs`, its imports, or a level it reads; it
+writes `art/` again) reaches the running world in place (`host/web/game-data.mjs`). Once serving, the loop builds the gameplay
 module's `gpu-dev` build in the background, so the first gameplay edit is warm. The server also prints **Open in native**.
 Edits inside `Game::setup` take effect on a fresh game; in the starter, pause and
 choose **Restart** to apply them.
@@ -330,6 +333,9 @@ the limit, or one the shape refuses, leaves the last accepted one standing and i
 named, with its size and the limit, in the app's log and the agent's
 `state.surfaceRefusals`.
 Only the first live canvas owns a given surface's public record.
+Publish values, not sentences: counts, names, seconds, and a key for what
+happened (`"planted"`, `"can_empty"`); the Contract words them in `fn`s, so the
+HUD's wording changes without a Rust rebuild ([Grow a Garden](games/garden/app.contract)).
 
 Give a read-only HUD overlay `pointer-events="none"` on its Contract container.
 The transparent parts of a wide positioned column still participate in hit-testing;
@@ -757,7 +763,7 @@ from `Game::present` instead: `animation::ShownClips` names clips at times deriv
 saved causes, and draws once the model lands (below). Streamed names are
 models and textures (sounds are not streamed yet), and never also in `ASSETS`.
 A generated model (`w.generated`) cannot take a name `ASSETS`, `STREAMED` or the
-level declares: registration refuses it, so a hostless test sees the collision.
+levels declare: registration refuses it, so a hostless test sees the collision.
 
 Hostless tests see the asset states hosts do, real bytes included, with
 `Sim::<MyGame>::baked(args)`: what setup awaits lands before setup, and whatever
@@ -775,10 +781,20 @@ Models and sprites need the asset-capable module; sounds and untextured emitters
 not. See [the audio executor](audio/README.md) and
 [the audio fixture](games/audio-fixture/logic/src/lib.rs) for sampled sounds.
 
-For a data-authored level, derive `Data` for its record and declare `Game::LEVEL`.
-JSON levels work in the primitive module and need no `game.assets` setting or art importer.
-Setup reads it with `w.level::<T>(name)` after the
-asset barrier. `w.generated(name, mesh_data)` registers immutable generated geometry;
+Numbers that change often belong in data, not Rust. Derive `Data` for a record,
+author it as `assets/<name>.level.json` and declare it in `Game::LEVELS`:
+`asset::Level::of::<T>(name)` for simulation data (a level, a balance table;
+a save records its identity, so an edit moves the pins) or `asset::Level::shown::<T>(name)`
+for presentation data (a look's palette, lighting or camera; `present` reads it with
+`p.shared_level::<T>(name)`, and it is in no save or hash); `asset::Level::checked::<T>(name)`
+is simulation data whose type also checks what its shape cannot say. The dev loop
+sends an edit to the running page as it sends any asset, with no build, and the
+world takes it in place: presentation data redraws, simulation data is read on the
+next tick, and `w.take_replaced(name)` says so once to a game that derived something
+from it at setup. JSON levels work in the primitive module and need no `game.assets`
+setting or art importer. Setup reads one with `w.level::<T>(name)` after the asset
+barrier; a tick reads a table each time with `w.shared_level::<T>(name)`, decoded once.
+`w.generated(name, mesh_data)` registers immutable generated geometry;
 saves check its reconstructed identity rather than storing render vertices. See
 [the level example](games/asset-fixture/logic/src/lib.rs) and [engine reference](engine/README.md).
 

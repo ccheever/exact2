@@ -10,7 +10,7 @@ fn proof_endpoint_pin() {
             .unwrap();
     assets.insert(
         "island.level.json".into(),
-        include_bytes!("../../island.level.json").to_vec(),
+        include_bytes!("../../assets/island.level.json").to_vec(),
     );
     let mut sim = Sim::<AssetFixture>::with_assets((), move |name: &str| {
         assets.get(name).cloned().ok_or(name.to_owned())
