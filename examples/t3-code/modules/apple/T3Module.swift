@@ -10,7 +10,7 @@ final class T3Module: ExactModule {
     private let toolIcons = T3ToolActivityIcon()
     private let timelineTips = T3TimelineTooltip()
     private let fleet: T3Fleet // Background environments (T3Fleet.swift).
-    private let ssh: T3Ssh // Add Environment → SSH: discovery, ssh -G, tunnels (T3Ssh.swift).
+    let ssh: T3Ssh // Add Environment → SSH: discovery, ssh -G, tunnels (T3Ssh.swift).
     private let composer: T3Composer
     private let intent: T3ComposerIntent // Send gestures and ⌘ state (T3ComposerIntent.swift).
     private let frames: T3ComposerFrames // Popover anchors in window space (T3ComposerFrames.swift).
@@ -28,7 +28,7 @@ final class T3Module: ExactModule {
     private let menus = T3Menus() // Menu bar items, zoom and the ⌘Q hold (T3Menus.swift).
     private let notifications: T3Notifications // Thread notifications, sound, Dock badge (T3Notifications.swift).
     private let sidebar: T3Sidebar // Thread menu, modifier reads and jump hints (T3Sidebar.swift).
-    private let gate: T3ReadGate // Holds the snapshot read's topics until its last reply (T3ReadGate.swift).
+    let gate: T3ReadGate // Holds the snapshot read's topics until its last reply (T3ReadGate.swift).
     private let launcher = R8KeysLauncher() // lane r8-keys: the surface launcher's focus and letters (R8KeysLauncher.swift).
     private let measure = R8KeysMeasure() // lane r8-keys: drawn frames for window-level popups (R8KeysMeasure.swift).
     private let r9: R9Input // lane r9-input: composer focus and composing text, the transcript's remembered position (R9Input.swift).
@@ -70,10 +70,8 @@ final class T3Module: ExactModule {
     override func later(_ request: [String: Any], reply: ExactReply) {
         if gate.began(request, answer: { reply.send($0) }) { return }
         if let key = request["fleet"] as? String { gate.sent(request); return fleet.perform(key, request) { [gate] in gate.answered(request); reply.send($0) } }
-        if let op = request["op"] as? String, op.hasPrefix("ssh") { return ssh.perform(request) { reply.send($0) } }
         if request["op"] as? String == "contextMenu" { return T3ContextMenu.perform(request) { reply.send($0) } } // Settings context menus (T3ContextMenu.swift).
         if request["op"] as? String == "r8MeasureFrame" { DispatchQueue.main.async { [weak self] in reply.send(self?.measure.perform(request) ?? ["ok": false, "generation": 0]) }; return } // lane r8-keys
-        if request["op"] as? String == "r10Wake" { return R10Connect.wake(request, changed: { [gate] in gate.changed($0) }) { reply.send($0) } } // lane r10-connect
         if request["op"] as? String == "timelineSleep" { return T3TimelineTurns.sleep(request) { reply.send($0) } }
         if request["op"] as? String == "mermaidRender" { DispatchQueue.main.async { [weak self] in self?.mermaid.perform(request) { reply.send($0) } }; return }
         if request["op"] as? String == "timelineJump" { DispatchQueue.main.async { [weak self] in self?.turns.jump(request) { reply.send($0) } }; return }
@@ -132,6 +130,18 @@ final class T3Module: ExactModule {
             }
             return
         }
+        route(request, reply: reply, from: 0)
+    }
+    /// Each area's ops (T3Module+<Area>.swift), in turn: an area answers the ops it owns and
+    /// calls `next` for the rest; what no area owns goes to the transport. No two areas share
+    /// an op. A feature adds its area's method in its own file and one entry here.
+    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps]
+    private func route(_ request: [String: Any], reply: ExactReply, from index: Int) {
+        guard index < Self.areas.count else { return forward(request, reply: reply) }
+        Self.areas[index](self)(request, reply) { self.route(request, reply: reply, from: index + 1) }
+    }
+    /// The authenticated connection's ops (T3Transport.swift); a status read gains the presentation state.
+    private func forward(_ request: [String: Any], reply: ExactReply) {
         gate.sent(request)
         transport.perform(request) { [weak self, gate] response in
             gate.answered(request)
