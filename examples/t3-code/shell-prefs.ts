@@ -4,16 +4,18 @@
 // the threads whose inline workspace card was closed (rightPanelStore
 // threadPanelVisibilityByThreadKey, which persists only `inlineOpen: false`)
 // and the dismissed provider update prompts (ProviderUpdateLaunchNotification
-// `t3code:provider-update-dismissals:v1`), and the dismissed version-skew notices
-// (versionSkew.ts `t3code:version-mismatch-dismissals:v1`, keyed environment:client:server).
+// `t3code:provider-update-dismissals:v1`), the dismissed version-skew notices
+// (versionSkew.ts `t3code:version-mismatch-dismissals:v1`, keyed environment:client:server),
+// and the last editor an Open In menu used (editorPreferences.ts LAST_EDITOR_KEY
+// `t3code:last-editor`; thread-commands-and-keys).
 // The client writes the file after every command.
 import { obj, type Obj } from './domain';
 
-export type ShellPrefs = { nightlyNoticeDismissed: boolean; inlineClosed: string[]; providerUpdateDismissals: string[]; versionMismatchDismissals: string[] };
+export type ShellPrefs = { nightlyNoticeDismissed: boolean; inlineClosed: string[]; providerUpdateDismissals: string[]; versionMismatchDismissals: string[]; lastEditor: string };
 type Holder = { local: object };
 
 const MAX_CLOSED = 500;
-const emptyPrefs = (): ShellPrefs => ({ nightlyNoticeDismissed: false, inlineClosed: [], providerUpdateDismissals: [], versionMismatchDismissals: [] });
+const emptyPrefs = (): ShellPrefs => ({ nightlyNoticeDismissed: false, inlineClosed: [], providerUpdateDismissals: [], versionMismatchDismissals: [], lastEditor: '' });
 
 /** The live prefs object on the client's preference record (created on first use). */
 export function shellPrefs(owner: Holder): ShellPrefs {
@@ -30,6 +32,7 @@ export function adoptShellPrefs(next: object, saved: Obj): void {
   if (Array.isArray(value.inlineClosed)) prefs.inlineClosed = value.inlineClosed.filter((key): key is string => typeof key === 'string' && key.length > 0 && key.length <= 512).slice(-MAX_CLOSED);
   if (Array.isArray(value.providerUpdateDismissals)) prefs.providerUpdateDismissals = value.providerUpdateDismissals.filter((key): key is string => typeof key === 'string').slice(-100);
   if (Array.isArray(value.versionMismatchDismissals)) prefs.versionMismatchDismissals = value.versionMismatchDismissals.filter((key): key is string => typeof key === 'string' && key.length <= 512).slice(-200);
+  if (typeof value.lastEditor === 'string' && /^[a-z0-9-]{1,64}$/.test(value.lastEditor)) prefs.lastEditor = value.lastEditor;
   (next as { shell?: ShellPrefs }).shell = prefs;
 }
 

@@ -21,6 +21,7 @@ import { ageLabel, capabilities, canSnooze, isWoke, lastVisited, recedes, sectio
 import { sidebarPrBadge } from './r5-panels-pr'; // r5-panels: the sidebar PR badge
 import { notePlaces, rowHoverKey } from './r9-input-hover'; // lane r9-input
 import { orderItemsByPreferredIds } from './legacy-sidebar-model'; // legacy-sidebar: the persisted project order
+import { WORKTREE_DIALOG_TITLE, worktreeDialogDescription } from './worktree-cleanup'; // thread-commands-and-keys: G5
 
 type Identity = (name: string) => { projectMark: string; projectInk: string; projectSurface: string };
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };
@@ -262,9 +263,11 @@ function dialogTitle(dialog: { kind: string; threadIds: string[]; title: string 
   if (dialog.kind === 'delete-many') return `Delete ${dialog.threadIds.length} thread${dialog.threadIds.length === 1 ? '' : 's'}?`;
   if (dialog.kind === 'snooze') return 'Snooze until';
   if (dialog.kind === 'unpin') return `Unpin thread "${dialog.title}"?`;
+  if (dialog.kind === 'delete-worktree') return WORKTREE_DIALOG_TITLE;
   return '';
 }
-function dialogDescription(dialog: { kind: string; threadIds: string[] }): string {
+function dialogDescription(dialog: { kind: string; threadIds: string[]; title: string }): string {
+  if (dialog.kind === 'delete-worktree') return worktreeDialogDescription(dialog.title);
   if (dialog.kind === 'delete') return 'This permanently clears conversation history for this thread.';
   if (dialog.kind === 'delete-many') return 'This permanently clears conversation history for these threads.';
   if (dialog.kind === 'unpin') return 'This will move the thread out of your pinned section.';

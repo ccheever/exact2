@@ -190,7 +190,8 @@ describe('keyboard dispatch (resolveShortcutCommand)', () => {
     expect(target('rightPanel.close')).toBeUndefined();
     expect(keyboardDispatch(client, threads, '', '', { ...context, diffOpen: true }).some(item => item.command === 'rightPanel.close')).toBe(true);
     expect(keyboardDispatch(client, threads, '', '', { ...context, modalOpen: true })).toEqual([]);
-    expect(keyboardDispatch(client, threads, '', '', { ...context, modalOpen: true, settingsOpen: true }).map(item => item.command)).toEqual(['settings.open', 'navigation.back']);
+    // thread-commands-and-keys: the palette provider's chords (here appearance.cycle) stay live in Settings.
+    expect(keyboardDispatch(client, threads, '', '', { ...context, modalOpen: true, settingsOpen: true }).map(item => item.command)).toEqual(['settings.open', 'navigation.back', 'appearance.cycle']);
   });
 });
 

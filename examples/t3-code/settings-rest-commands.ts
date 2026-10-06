@@ -18,6 +18,7 @@ import { openLogsFolder } from './diagnostics-view';
 import { bitbucketCommand } from './settings-a-bitbucket';
 import { deviceHostsCommand } from './settings-a-hosts';
 import { deviceScopedCommand } from './settings-integrations-scope';
+import { copyThreadReference } from './thread-reference'; // thread-commands-and-keys: ⇧⌘C copies the PR link or the thread ID
 
 /** Contract sends `a=encodeURIComponent(x)&b=…`; Hermes has no URLSearchParams. */
 export function params(value: string): Record<string, string> {
@@ -218,12 +219,7 @@ export async function restLocal(client: T3Client, native: Native, storage: Files
   // The collection removal dialog's checkboxes: device-local, never gated on a pending write.
   if (op === 'theme-pick') { const bar = value.lastIndexOf('|'); toggleRemovalPick(client, value.slice(0, bar), value.slice(bar + 1)); return ''; }
   if (op === 'reveal-account') { viewState(client).reveal = !viewState(client).reveal; return ''; }
-  if (op === 'copy-thread') {
-    // thread.copyReference without a pull request copies the thread ID.
-    if (!client.threadId) throw new ClientError('Open a thread to copy its ID.');
-    const reply = await client.restAccess(native).call({ op: 'copyText', text: client.threadId });
-    if (reply.copied === false) throw new ClientError('Could not copy the thread ID.');
-    return 'Copied thread ID';
-  }
+  // thread.copyReference: the PR link, else the thread ID, with the reference's toasts (thread-reference.ts).
+  if (op === 'copy-thread') return copyThreadReference(client, native);
   throw new ClientError(`Unknown settings action: ${op}`);
 }
