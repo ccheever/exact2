@@ -1,10 +1,11 @@
 //! Per-script font fallback (LLP 1085.000 G7): the lists cosmic-text kept
 //! for each platform (its `unix.rs`, `windows.rs` and `macos.rs`), given to
 //! fontique for every script. After a script's own families come the
-//! platform's common ones, then every other script's, then every installed
-//! family: cosmic-text's last resort was every face, and a character Parley
-//! resolves to Common or Latin text (an Arabic `،` after Latin words) must
-//! be able to reach any of them (the parity spike's third surprise).
+//! platform's common ones ([`common`]), then every other script's, then
+//! every installed family: cosmic-text's last resort was every face, and a
+//! character Parley resolves to Common or Latin text (an Arabic `،` after
+//! Latin words) must be able to reach any of them (the parity spike's third
+//! surprise).
 use fontique::{Collection, FallbackKey, FamilyId, Script, ScriptExt};
 
 /// Set every script's fallback families on `collection` for `locale` (the
@@ -20,9 +21,8 @@ pub(super) fn configure(collection: &mut Collection, locale: &str) {
         .copied();
     let mut ordered: Vec<FamilyId> = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for name in COMMON
-        .iter()
-        .copied()
+    for name in common(locale)
+        .into_iter()
         .chain(every_script)
         .chain(names.iter().map(String::as_str))
     {
@@ -78,6 +78,11 @@ const COMMON: &[&str] = &[
 ];
 
 #[cfg(target_os = "windows")]
+fn common(_locale: &str) -> Vec<&'static str> {
+    COMMON.to_vec()
+}
+
+#[cfg(target_os = "windows")]
 fn han(locale: &str) -> &'static [&'static str] {
     match locale {
         "ja" => &["Yu Gothic"],
@@ -126,6 +131,11 @@ const COMMON: &[&str] = &[
     "Geneva",
     "Arial Unicode MS",
 ];
+
+#[cfg(target_os = "macos")]
+fn common(_locale: &str) -> Vec<&'static str> {
+    COMMON.to_vec()
+}
 
 #[cfg(target_os = "macos")]
 fn han(locale: &str) -> &'static [&'static str] {
@@ -184,17 +194,75 @@ const SCRIPTS: &[(&str, &[&str])] = &[
 // /system/fonts also uses (cosmic-text gave Android no list and fell to
 // every face; the last resort here keeps that).
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-const COMMON: &[&str] = &[
-    "Noto Sans",
-    "DejaVu Sans",
-    "FreeSans",
-    "Noto Sans Mono",
-    "DejaVu Sans Mono",
-    "FreeMono",
-    "Noto Sans Symbols",
-    "Noto Sans Symbols2",
-    "Noto Color Emoji",
-];
+fn common(locale: &str) -> Vec<&'static str> {
+    unix_common(cfg!(target_os = "android"), locale)
+}
+
+/// What a character none of a run's own families has (`→`, `≤` beside
+/// Latin) falls back to first, in the order the platform's browser reaches
+/// it, so a symbol takes the face and the advance it takes there:
+///
+/// - **Linux.** Chrome asks fontconfig for a pattern of the character and
+///   the content language alone (`gfx::GetFallbackFontForChar`); the config
+///   adds the generic `sans-serif` and expands it to the families its
+///   aliases prefer, and `FcFontSort` ranks every face that has the
+///   character by its family's place in that list. The list is the sans
+///   faces (`60-latin.conf`: DejaVu Sans; Noto Sans, FreeSans where their
+///   packages alias them) and then the CJK sans faces, which `fonts-noto-cjk`
+///   aliases into `sans-serif` per language. The symbol, emoji and
+///   monospace families are in no `sans-serif` alias and come after it; a
+///   monospace face is never reached before a CJK one.
+/// - **Android.** Chrome (Skia's `SkFontMgr_Android`) and the platform's
+///   Minikin both walk `fonts.xml`'s fallback chain, a family covering the
+///   content language first, then in the file's order: … Noto Sans Symbols
+///   (the subset listed with no language, ahead of CJK), the CJK faces
+///   (Simplified, Traditional, Japanese, Korean), Noto Color Emoji, Noto
+///   Sans Symbols2. Named families such as `monospace` are not in the
+///   chain at all.
+///
+/// The document language's Han face leads the CJK faces on both.
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn unix_common(android: bool, locale: &str) -> Vec<&'static str> {
+    let mut cjk: Vec<&'static str> = han(locale).to_vec();
+    for name in ["zh-Hans", "zh-TW", "ja", "ko"]
+        .iter()
+        .flat_map(|l| han(l).iter())
+    {
+        if !cjk.contains(name) {
+            cjk.push(name);
+        }
+    }
+    let mut list: Vec<&'static str> = Vec::new();
+    if android {
+        if han_language(locale) {
+            list.push(cjk[0]);
+        }
+        list.push("Noto Sans Symbols");
+        list.extend(&cjk);
+        list.extend(["Noto Color Emoji", "Noto Sans Symbols2"]);
+    } else {
+        list.extend(["Noto Sans", "DejaVu Sans", "FreeSans"]);
+        list.extend(&cjk);
+        list.extend([
+            "Noto Sans Symbols",
+            "Noto Sans Symbols2",
+            "Noto Color Emoji",
+            "Noto Sans Mono",
+            "DejaVu Sans Mono",
+            "FreeMono",
+        ]);
+    }
+    let mut seen = std::collections::HashSet::new();
+    list.retain(|name| seen.insert(*name));
+    list
+}
+
+/// Whether `locale` is a language a Han face is chosen for.
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn han_language(locale: &str) -> bool {
+    let language = locale.split(['-', '_']).next().unwrap_or("");
+    matches!(language, "ja" | "ko" | "zh")
+}
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn han(locale: &str) -> &'static [&'static str] {
@@ -253,3 +321,54 @@ const SCRIPTS: &[(&str, &[&str])] = &[
     ("Vaii", &["Noto Sans Vai"]),
     ("Yiii", &["Noto Sans Yi", "Noto Sans CJK SC"]),
 ];
+
+#[cfg(all(test, not(any(target_os = "windows", target_os = "macos"))))]
+mod tests {
+    use super::*;
+
+    fn at(list: &[&str], name: &str) -> usize {
+        list.iter().position(|n| *n == name).expect(name)
+    }
+
+    #[test]
+    fn a_symbol_falls_back_to_a_cjk_face_before_a_monospace_one_on_linux() {
+        // `→` is in Noto Sans Mono and Noto Sans CJK, not in Noto Sans:
+        // Chrome's fontconfig fallback takes the CJK face (sans-serif's
+        // alias), never the monospace one first.
+        let list = unix_common(false, "en");
+        assert_eq!(&list[..3], ["Noto Sans", "DejaVu Sans", "FreeSans"]);
+        for cjk in ["Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK KR"] {
+            assert!(at(&list, cjk) < at(&list, "Noto Sans Symbols"), "{cjk}");
+            assert!(at(&list, cjk) < at(&list, "Noto Sans Mono"), "{cjk}");
+        }
+        assert!(at(&list, "Noto Color Emoji") < at(&list, "Noto Sans Mono"));
+        // The document language's Han face leads.
+        assert_eq!(unix_common(false, "ja")[3], "Noto Sans CJK JP");
+    }
+
+    #[test]
+    fn android_follows_its_fonts_xml_chain() {
+        // fonts.xml lists Noto Sans Symbols (the subset, which has `→`)
+        // before the CJK faces and Symbols2 after the emoji; monospace is a
+        // named family and not in the chain.
+        let list = unix_common(true, "en");
+        assert_eq!(
+            list,
+            [
+                "Noto Sans Symbols",
+                "Noto Sans CJK SC",
+                "Noto Sans CJK TC",
+                "Noto Sans CJK JP",
+                "Noto Sans CJK KR",
+                "Noto Color Emoji",
+                "Noto Sans Symbols2",
+            ]
+        );
+        // A family covering the content language comes first.
+        assert_eq!(
+            unix_common(true, "ja")[..2],
+            ["Noto Sans CJK JP", "Noto Sans Symbols"]
+        );
+        assert!(!list.iter().any(|n| n.contains("Mono")));
+    }
+}
