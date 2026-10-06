@@ -366,6 +366,8 @@ final class OutdatedHostTests: XCTestCase {
         lock.lock(); let sent = payloads.last ?? [:]; lock.unlock()
         XCTAssertEqual(sent["continueRunningThreads"] as? Bool, true)
         XCTAssertNil(sent["ignored"], "Only the continuation flag travels with the update")
+        lock.lock(); let requests = server.requests; lock.unlock()
+        XCTAssertEqual((requests.last?["headers"] as? [[String]])?.first, ["x-t3-orchestration-protocol", "2"], "A connected server's socket names protocol 2")
         XCTAssertEqual(saved.all.first?["enabled"] as? Bool, true, "A connected server's switch is left alone")
     }
 }

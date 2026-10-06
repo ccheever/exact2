@@ -3,7 +3,7 @@
 // serverUpdateStateAtom and updateServer; apps/web/src/components/ServerUpdateAction.tsx
 // useServerUpdate, ServerUpdateAction and UPDATE_STAGE_LABELS).
 // Port changes: the update itself runs in T3Fleet.swift (T3OutdatedHosts, `mode:
-// "connected"`): a bare socket carries `server.updateServerWithProgress` (else
+// "connected"`): a socket of its own (naming protocol 2) carries `server.updateServerWithProgress` (else
 // `server.updateServer`, a dropped boot-service/respawn socket being the handoff),
 // a desktop-managed result is committed with `server.commitDesktopUpdate`, and the
 // restart ends when the server's descriptor reports the target version (4 minutes),
