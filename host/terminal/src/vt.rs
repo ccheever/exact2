@@ -10,8 +10,9 @@ use crate::image::Protocol;
 use crate::term::{record, Inline};
 use exact_runner::DataSource;
 
-/// Lines a headless screen keeps once they scroll off the top.
-const SCROLLBACK: usize = 100_000;
+/// The emulator keeps every row that scrolls off, so its count of them
+/// only grows and each new one is found by that count.
+const SCROLLBACK: usize = usize::MAX;
 
 /// A terminal the host writes into, as the interactive loop writes into a
 /// real one.
@@ -25,8 +26,6 @@ pub struct Vt {
     inline: Inline,
     /// Full screen: the grid last written.
     shown: Option<Grid>,
-    /// The `printed` id last published to the app.
-    published: String,
 }
 
 impl Vt {
@@ -34,7 +33,7 @@ impl Vt {
     pub fn new<D: DataSource>(host: &mut Host<D>) -> Vt {
         let (cols, rows) = host.size();
         let mode = host.mode;
-        host.publish(&record(mode, Protocol::Blocks, ""));
+        host.publish(&record(mode, Protocol::Blocks, 0, ""));
         Vt {
             parser: vt100::Parser::new(rows as u16, cols as u16, SCROLLBACK),
             scrolled: Vec::new(),
@@ -42,7 +41,6 @@ impl Vt {
             mode,
             inline: Inline::new(Protocol::Blocks),
             shown: None,
-            published: String::new(),
         }
     }
 
@@ -78,9 +76,10 @@ impl Vt {
         }
         host.frames += 1;
         // The app learns what is in scrollback once the bytes are out.
-        if self.mode == Mode::Inline && self.inline.through() != self.published {
-            self.published = self.inline.through().to_string();
-            host.publish(&record(self.mode, Protocol::Blocks, &self.published));
+        if self.mode == Mode::Inline {
+            if let Some(r) = self.inline.printed(self.mode) {
+                host.publish(&r);
+            }
         }
         out
     }
@@ -91,9 +90,13 @@ impl Vt {
         self.inline.unanswered()
     }
 
+    /// Feed the emulator a line at a time, collecting after each: a row can
+    /// be read back only while it is within a screen's height of the
+    /// bottom of the scrollback (vt100 shows scrollback by offset, and an
+    /// offset past the screen's height is out of its range).
     fn feed(&mut self, bytes: &str) {
-        for chunk in bytes.as_bytes().chunks(4096) {
-            self.parser.process(chunk);
+        for piece in bytes.as_bytes().split_inclusive(|b| *b == b'\n') {
+            self.parser.process(piece);
             self.collect();
         }
     }
@@ -103,35 +106,48 @@ impl Vt {
         self.parser.set_scrollback(usize::MAX);
         let len = self.parser.screen().scrollback();
         let (rows, cols) = self.parser.screen().size();
-        let mut at = self.seen.min(len);
-        while at < len {
-            // Scrolled back `len - at` rows, the top row is row `at`.
-            self.parser.set_scrollback(len - at);
-            let take = (len - at).min(rows as usize);
+        let new = len.saturating_sub(self.seen);
+        if new > 0 {
+            // One line scrolls at most a few rows; more than a screen at
+            // once (a scroll-up sequence) leaves rows no one can read back.
+            let readable = new.min(rows as usize);
+            if new > readable {
+                self.scrolled
+                    .push(format!("[{} rows scrolled past unread]", new - readable));
+            }
+            self.parser.set_scrollback(readable);
             self.scrolled
-                .extend(self.parser.screen().rows(0, cols).take(take));
-            at += take;
+                .extend(self.parser.screen().rows(0, cols).take(readable));
         }
         self.parser.set_scrollback(0);
         self.seen = len;
     }
 
-    /// The screen as text, one line per row; `all` puts the scrollback
-    /// above it.
-    pub fn text(&self, all: bool) -> String {
+    /// Rows that have scrolled off so far: `text_since` reads from here.
+    pub fn scrolled(&self) -> usize {
+        self.scrolled.len()
+    }
+
+    /// The rows that scrolled off since `from`, then the screen.
+    pub fn text_since(&self, from: usize) -> String {
         let (_, cols) = self.parser.screen().size();
-        let mut lines: Vec<String> = if all {
-            self.scrolled.clone()
-        } else {
-            Vec::new()
-        };
-        lines.extend(self.parser.screen().rows(0, cols));
         let mut out = String::new();
-        for l in &lines {
+        let screen = self.parser.screen().rows(0, cols);
+        for l in self.scrolled[from.min(self.scrolled.len())..]
+            .iter()
+            .cloned()
+            .chain(screen)
+        {
             out.push_str(l.trim_end());
             out.push('\n');
         }
         out
+    }
+
+    /// The screen as text, one line per row; `all` puts the scrollback
+    /// above it.
+    pub fn text(&self, all: bool) -> String {
+        self.text_since(if all { 0 } else { self.scrolled.len() })
     }
 
     /// The visible screen with its colours, as SGR. Full screen, that is

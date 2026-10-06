@@ -259,18 +259,28 @@ pub fn run<D: DataSource>(
             "paste" => host.paste(&arg()),
             "wheel" => {
                 let (id, n) = (arg(), arg());
+                let Ok(rows) = n.parse::<i32>() else {
+                    eprintln!("wheel: {n:?} is not a number of rows");
+                    return ExitCode::FAILURE;
+                };
+                // The named node is on the screen (a scroller, or a control
+                // a person could point at), and a scroller holds it.
                 let moved = host
                     .by_test_id(&id)
-                    .is_some_and(|v| host.wheel_on(v, n.parse().unwrap_or(1)));
+                    .filter(|v| host.on_screen(*v))
+                    .is_some_and(|v| host.wheel_on(v, rows));
                 if !moved {
-                    eprintln!("wheel: no scroller on the screen holds #{id}");
+                    eprintln!("wheel: #{id} is not on the screen in a scroller");
                     return ExitCode::FAILURE;
                 }
             }
             "resize" => {
-                if let Some((c, r)) = parse_size(&arg()) {
-                    host.resize(c, r);
-                }
+                let size = arg();
+                let Some((c, r)) = parse_size(&size) else {
+                    eprintln!("resize: {size:?} is not COLSxROWS");
+                    return ExitCode::FAILURE;
+                };
+                host.resize(c, r);
             }
             "wait" => {
                 let until = Instant::now() + Duration::from_millis(arg().parse().unwrap_or(100));
@@ -280,11 +290,14 @@ pub fn run<D: DataSource>(
                 }
             }
             "until" => {
+                // The screen, and what scrolls off it while this waits: a
+                // fast reply can pass through between two looks.
                 let want = arg();
+                let from = vt.scrolled();
                 let until = Instant::now() + Duration::from_secs(15);
                 loop {
                     pump(&mut host, &mut vt);
-                    if vt.text(true).contains(&want) {
+                    if vt.text_since(from).contains(&want) {
                         break;
                     }
                     if Instant::now() > until {
@@ -308,7 +321,8 @@ pub fn run<D: DataSource>(
                     vt.text(false)
                 };
                 if let Err(e) = std::fs::write(&file, body) {
-                    eprintln!("screenshot: {e}");
+                    eprintln!("screenshot: {file}: {e}");
+                    return ExitCode::FAILURE;
                 }
             }
             other => {

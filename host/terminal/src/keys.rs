@@ -39,7 +39,7 @@ impl<D: DataSource> Host<D> {
     /// must not fire a shortcut). A single-line field takes line breaks as
     /// spaces.
     pub fn paste(&mut self, text: &str) {
-        let Some(f) = self.focus.filter(|f| self.is_field(*f)) else {
+        let Some(f) = self.focus.filter(|f| self.is_field(*f) && self.armed(*f)) else {
             return;
         };
         let text: String = text
@@ -166,7 +166,10 @@ impl<D: DataSource> Host<D> {
     /// A key, routed as the module comment says.
     pub fn key(&mut self, key: Key) -> After {
         let chord = key.chord();
-        let focus = self.focus;
+        // A focused control the screen has not shown yet (a dialog this
+        // read opened) takes no typed-ahead key: not its handler, not its
+        // text, not its submit (LLP 1101.002 §0 P1).
+        let focus = self.focus.filter(|f| self.armed(*f));
         // The focused node's (or its nearest ancestor's) `key` handler first.
         self.prevented = false;
         if let Some(target) = focus.and_then(|f| self.handler(f, EventKind::Key)) {

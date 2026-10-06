@@ -560,3 +560,47 @@ fn paced_stress_releases_every_entry_in_batches() {
         .all(|n| *n <= 95 && (*n % commands::BATCH == 0 || *n == 95)));
     assert!(!send(&mut h, "submit", &["/stress 5 fast"]));
 }
+
+#[test]
+fn paced_stress_waits_for_each_batch_to_retire_and_stops_at_clear() {
+    let mut h = mock();
+    let before = h.shared.lock().entries.len();
+    assert!(send(&mut h, "submit", &["/stress 100 paced"]));
+    let count = |h: &Harness| h.shared.lock().entries.len() - before;
+    let wait_for = |h: &Harness, n: usize| {
+        let start = Instant::now();
+        while count(h) < n {
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "stuck at {}",
+                count(h)
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    };
+    wait_for(&h, commands::BATCH);
+    // Nothing retired: the next batch waits for the host.
+    std::thread::sleep(Duration::from_millis(150));
+    assert_eq!(count(&h), commands::BATCH);
+    // The host printed and retired the batch: the next one comes at once.
+    let last = h.shared.lock().entries.last().unwrap().id.clone();
+    assert!(send(&mut h, "retire", &[&last]));
+    let retired = h.shared.lock().entries.len();
+    let start = Instant::now();
+    while h.shared.lock().entries.len() < retired + commands::BATCH {
+        assert!(
+            start.elapsed() < Duration::from_millis(500),
+            "the next batch did not follow"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    // A new transcript ends the workload.
+    assert!(send(&mut h, "submit", &["/clear"]));
+    let cleared = h.shared.lock().entries.len();
+    std::thread::sleep(Duration::from_millis(1300));
+    assert_eq!(
+        h.shared.lock().entries.len(),
+        cleared,
+        "paced work ran on into the new transcript"
+    );
+}

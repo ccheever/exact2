@@ -295,24 +295,52 @@ pub fn set_key(shared: &Arc<Shared>, provider: &str, key: &str) -> Option<bool> 
 
 /// Entries released per paced batch: about a screenful.
 pub const BATCH: usize = 20;
-/// The pause between paced batches, for the host to print and retire.
+/// How long a paced batch waits for the host to print and retire it. A
+/// host that never retires (full screen) is found out by the first batch,
+/// and the rest follow it at [`PAUSE`].
+const SETTLE: std::time::Duration = std::time::Duration::from_millis(1000);
+/// The pause between batches once the host is known not to retire.
 const PAUSE: std::time::Duration = std::time::Duration::from_millis(30);
 
-/// Release `entries` from a thread in batches of [`BATCH`], announcing
-/// each and pausing between them.
+/// Release `entries` from a thread in batches of [`BATCH`], each once the
+/// host has printed and retired the one before (LLP 1101.002 §0 P14). A
+/// `/clear` meanwhile ends it: the old workload does not run on into the
+/// new transcript.
 fn pace(shared: &Arc<Shared>, entries: Vec<Entry>) {
     let shared = shared.clone();
     std::thread::spawn(move || {
+        let epoch = shared.lock().epoch;
+        let mut retires = true;
         let mut entries = entries.into_iter().peekable();
         while entries.peek().is_some() {
-            {
+            let last = {
                 let mut s = shared.lock();
+                if s.epoch != epoch {
+                    return;
+                }
+                let mut last = String::new();
                 for e in entries.by_ref().take(BATCH) {
-                    s.push(e);
+                    last = s.push(e);
+                }
+                last
+            };
+            shared.changed();
+            if !retires {
+                std::thread::sleep(PAUSE);
+                continue;
+            }
+            let until = std::time::Instant::now() + SETTLE;
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                let s = shared.lock();
+                if s.epoch != epoch || !s.entries.iter().any(|e| e.id == last) {
+                    break;
+                }
+                if std::time::Instant::now() > until {
+                    retires = false;
+                    break;
                 }
             }
-            shared.changed();
-            std::thread::sleep(PAUSE);
         }
     });
 }

@@ -21,12 +21,15 @@ shape Viewport
   height: number
 
 // The host's record (LLP 1101.001 P10): how it occupies the terminal, how
-// it draws images, its colour depth, and the `id` of the last transcript
-// entry it printed into scrollback.
+// it draws images, its colour depth, which log it is printing (one more
+// for each new one), and the `id` of that log's last entry it printed into
+// scrollback. Entry ids never repeat here, so retiring reads `printed`
+// alone.
 shape Terminal
   mode: string
   images: string
   colors: number
+  log: number
   printed: string
 
 fn fg(c: string): string = c == "" ? "inherit" : c

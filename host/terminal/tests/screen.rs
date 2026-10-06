@@ -5,19 +5,28 @@
 use exact_terminal::host::{Host, Key, Mode};
 use exact_terminal::vt::Vt;
 
-/// A log the app can retire once printed, a line under it, a button that opens a dialog of four choices in a
-/// list three rows tall, and an action that starts a new transcript.
+/// A log the app can retire once printed, a line under it, a button that
+/// opens a dialog of five choices in a list three rows tall, one that opens
+/// a dialog with a field, and an action that starts a new transcript.
 const APP: &str = r#"component App
   state picked = "none"
+  state picks = 0
   state epoch = 0
   state retired = false
+  state draft = ""
+  state saved = ""
   action pick(v: string)
     picked = v
+    picks = picks + 1
   action retire
     retired = true
   action clear
     epoch = epoch + 1
     retired = false
+  action write(value: string)
+    draft = value
+  action save
+    saved = draft
   view
     column
       each e in [epoch] key=e
@@ -26,9 +35,14 @@ const APP: &str = r#"component App
             text `banner ${e}` id=`banner-${e}`
             text "line one" id=`a-${e}`
             text "line two" id=`b-${e}`
-      text `picked ${picked}`
+      text `picked ${picked} ×${picks}`
       button commandfor="d" command="show-modal" testId="open"
         text "open"
+      button commandfor="k" command="show-modal" testId="openk"
+        text "key"
+      text `saved [${saved}]`
+      dialog id="k" closedby="any" testId="key-dialog"
+        input value=draft input=write submit=save autofocus=true appearance="none" placeholder="type" testId="field"
       dialog id="d" closedby="any" testId="dialog"
         scroll max-height="3lh" testId="list"
           each v in ["alpha", "beta", "gamma", "delta", "epsilon"] key=v
@@ -171,19 +185,6 @@ fn a_resize_reanchors_the_pointer() {
 }
 
 #[test]
-fn a_closed_dialog_adds_no_rows() {
-    let (mut host, mut vt) = boot(30, 12);
-    let rows = |vt: &Vt| vt.text(false).lines().filter(|l| !l.is_empty()).count();
-    let before = rows(&vt);
-    press(&mut host, &mut vt, "open");
-    host.key(Key::Named("Escape"));
-    vt.render(&mut host);
-    let screen = vt.text(false);
-    assert!(!screen.contains("alpha"), "{screen}");
-    assert_eq!(rows(&vt), before, "{screen}");
-}
-
-#[test]
 fn tap_refuses_what_is_not_on_the_screen() {
     let (mut host, mut vt) = boot(30, 12);
     press(&mut host, &mut vt, "open");
@@ -266,6 +267,141 @@ fn a_click_lands_on_the_item_under_it_below_history() {
     assert!(
         vt.text(false).contains("picked gamma"),
         "{}",
+        vt.text(false)
+    );
+}
+
+#[test]
+fn a_burst_taller_than_the_screen_reaches_the_scrollback_whole() {
+    // Twenty settled rows printed in one frame on a four-row screen.
+    let mut src = String::from("component App\n  view\n    column\n      column role=\"log\"\n");
+    for i in 0..20 {
+        src.push_str(&format!("        text \"row {i}\" id=\"r{i}\"\n"));
+    }
+    src.push_str("      text \"prompt\"\n");
+    let plan = contract::compile(&src).expect("compiles");
+    let mut host = Host::boot(plan, (), Mode::Inline, 30, 4).expect("boots");
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    let all = vt.text(true);
+    for i in 0..20 {
+        let row = format!("row {i}");
+        assert_eq!(
+            all.lines().filter(|l| l.trim() == row).count(),
+            1,
+            "{row}:\n{all}"
+        );
+    }
+}
+
+#[test]
+fn typed_ahead_text_does_not_reach_a_field_it_opened() {
+    let (mut host, mut vt) = boot(30, 12);
+    let open = host.by_test_id("openk").unwrap();
+    host.focus(Some(open));
+    vt.render(&mut host);
+    // One read: Enter opens the dialog and focuses its field; the rest was
+    // typed before the field was on the screen.
+    let keys = [Key::Named("Enter"), Key::Char('x'), Key::Named("Enter")];
+    read(&mut host, &mut vt, &keys);
+    let screen = vt.text(false);
+    assert!(screen.contains("saved []"), "{screen}");
+    assert!(!screen.contains('x'), "{screen}");
+    // Once it shows, typing reaches it.
+    read(&mut host, &mut vt, &[Key::Char('y'), Key::Named("Enter")]);
+    assert!(vt.text(false).contains("saved [y]"), "{}", vt.text(false));
+}
+
+#[test]
+fn a_dialog_reopened_in_one_read_is_unseen_again() {
+    let (mut host, mut vt) = boot(30, 12);
+    let open = host.by_test_id("open").unwrap();
+    host.focus(Some(open));
+    vt.render(&mut host);
+    read(&mut host, &mut vt, &[Key::Named("Enter")]);
+    // Escape closes it with no commit; the opener has focus back and is
+    // armed (it was on the screen all along).
+    read(&mut host, &mut vt, &[Key::Named("Escape")]);
+    assert!(!vt.text(false).contains("alpha"));
+    // Reopened and answered in one read: the answer was typed blind.
+    read(
+        &mut host,
+        &mut vt,
+        &[Key::Named("Enter"), Key::Named("Enter")],
+    );
+    let screen = vt.text(false);
+    assert!(screen.contains("alpha"), "it reopened:\n{screen}");
+    assert!(screen.contains("picked none ×0"), "{screen}");
+}
+
+#[test]
+fn a_second_click_in_one_read_does_not_reach_a_closed_dialog() {
+    let (mut host, mut vt) = boot(30, 12);
+    press(&mut host, &mut vt, "open");
+    let (x, y) = find(&vt, "gamma");
+    // Both clicks in one read: the first closes the dialog.
+    host.click(x, y);
+    host.click(x, y);
+    vt.render(&mut host);
+    assert!(
+        vt.text(false).contains("picked gamma ×1"),
+        "{}",
+        vt.text(false)
+    );
+}
+
+#[test]
+fn an_entry_that_settles_under_an_open_dialog_is_printed_without_it() {
+    // GROWING with an action that opens a dialog, and the dialog.
+    let (head, view) = GROWING.split_at(GROWING.find("  view\n").unwrap());
+    let src = format!(
+        "{head}  action open\n    showModal(\"d\")\n{view}      dialog id=\"d\"\n        text \"DIALOG\"\n"
+    );
+    let plan = contract::compile(&src).expect("compiles");
+    let mut host = Host::boot(plan, (), Mode::Inline, 30, 8).expect("boots");
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    host.act("open");
+    vt.render(&mut host);
+    for _ in 0..6 {
+        host.act("add");
+        vt.render(&mut host);
+    }
+    let all = vt.text(true);
+    assert_eq!(
+        all.matches("DIALOG").count(),
+        1,
+        "the dialog was printed:\n{all}"
+    );
+}
+
+#[test]
+fn closed_dialogs_take_no_rows() {
+    let (mut host, _) = boot(30, 12);
+    let bare = APP[..APP.find("      dialog ").unwrap()].to_string();
+    let plan = contract::compile(&bare).expect("compiles");
+    let without = Host::boot(plan, (), Mode::Inline, 30, 12).expect("boots");
+    assert_eq!(host.document_rows(), without.document_rows());
+    host.act("retire");
+    assert!(host.document_rows() > 0);
+}
+
+#[test]
+fn a_control_a_dialog_covered_is_armed_when_it_closes() {
+    let (mut host, mut vt) = boot(30, 12);
+    let open = host.by_test_id("openk").unwrap();
+    host.focus(Some(open));
+    vt.render(&mut host);
+    read(&mut host, &mut vt, &[Key::Named("Enter")]);
+    // Typing in the dialog commits while the opener is covered.
+    read(&mut host, &mut vt, &[Key::Char('y')]);
+    // Escape closes it without a commit; Enter on the opener opens it again.
+    read(&mut host, &mut vt, &[Key::Named("Escape")]);
+    assert!(!host.has_layer());
+    read(&mut host, &mut vt, &[Key::Named("Enter")]);
+    assert!(
+        host.has_layer(),
+        "the opener ignored Enter:\n{}",
         vt.text(false)
     );
 }

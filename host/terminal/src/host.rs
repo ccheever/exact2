@@ -244,8 +244,11 @@ impl<D: DataSource> Host<D> {
                 self.caret = self.value(f).graphemes(true).count();
             }
         }
+        // A control keeps its birth while it exists, so one a dialog covered
+        // is armed again when the dialog closes without a commit.
+        let kernel = self.runner.kernel();
+        self.born.retain(|id, _| kernel.node(*id).is_some());
         let live = self.focusables();
-        self.born.retain(|id, _| live.contains(id));
         for id in live {
             self.born.entry(id).or_insert(self.frames);
         }
@@ -327,6 +330,17 @@ impl<D: DataSource> Host<D> {
     pub fn render(&self, top: usize, count: usize) -> Painted {
         let roots = self.runner.roots();
         paint(&self.scene(), &roots, self.cols, count, top)
+    }
+
+    /// Rows for the scrollback: as `render`, without the open layers or
+    /// their faint backdrop. A dialog open while an entry settles is not
+    /// printed into the transcript over it (LLP 1101.002, Astra's code
+    /// review).
+    pub fn render_settled(&self, top: usize, count: usize) -> Painted {
+        let roots = self.runner.roots();
+        let mut scene = self.scene();
+        scene.layers.clear();
+        paint(&scene, &roots, self.cols, count, top)
     }
 
     /// The document's height in rows (inline mode lays out to content).
@@ -663,11 +677,14 @@ impl<D: DataSource> Host<D> {
     /// descendant focused, the focus it took remembered.
     pub fn open_layer(&mut self, layer: ViewId) {
         self.layers.push((layer, self.focus));
-        // Its controls are born now, unseen: a key read before a frame shows
-        // them cannot press them (LLP 1101.002 §0, typed-ahead).
+        // Its controls are born now, unseen, even when it was open before:
+        // a key read before a frame shows them cannot reach them (LLP
+        // 1101.002 §0, typed-ahead). A click aimed at what was on the
+        // screen goes nowhere until the next frame presents this.
         for id in self.focusables() {
-            self.born.entry(id).or_insert(self.frames);
+            self.born.insert(id, self.frames);
         }
+        self.presented.stale = true;
         let kernel = self.runner.kernel();
         let all = self.focusables();
         let first = all
@@ -701,6 +718,7 @@ impl<D: DataSource> Host<D> {
             return;
         };
         let (_, restore) = self.layers.remove(at);
+        self.presented.stale = true;
         self.focus = None;
         self.focus(restore.filter(|r| self.runner.kernel().node(*r).is_some()));
         self.changed();

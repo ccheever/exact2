@@ -277,6 +277,11 @@ pub(crate) struct Inline {
     /// and the `id` of the last one, which the app reads to retire them.
     printed: std::collections::HashSet<exact_kernel::NodeKey>,
     through: String,
+    /// Which log `through` belongs to: one more for each new log, so an
+    /// app can tell a new transcript's `"1"` from the old one's.
+    logs: u64,
+    /// The (log, through) last published to the app.
+    published: (u64, String),
     /// The log node the printed children belong to, and whether it has
     /// printed any.
     log: Option<exact_kernel::NodeKey>,
@@ -302,6 +307,8 @@ impl Inline {
         Inline {
             printed: std::collections::HashSet::new(),
             through: String::new(),
+            logs: 0,
+            published: (0, String::new()),
             log: None,
             printed_any: false,
             live: 0,
@@ -314,9 +321,15 @@ impl Inline {
         }
     }
 
-    /// The `id` of the last transcript child written to scrollback.
-    pub(crate) fn through(&self) -> &str {
-        &self.through
+    /// The record to publish once this frame's bytes are out, when what is
+    /// printed changed since the last one (LLP 1101.002 §0 P5).
+    pub(crate) fn printed(&mut self, mode: Mode) -> Option<String> {
+        let now = (self.logs, self.through.clone());
+        if now == self.published {
+            return None;
+        }
+        self.published = now;
+        Some(record(mode, self.protocol, self.logs, &self.through))
     }
 
     /// Position queries asked and not yet answered.
@@ -342,6 +355,8 @@ impl Inline {
         let cleared = self.log.is_some() && log != self.log && self.printed_any;
         if log != self.log {
             self.printed_any = false;
+            self.through.clear();
+            self.logs += 1;
         }
         self.log = log;
         if cleared {
@@ -370,7 +385,12 @@ impl Inline {
             .count();
         let bottom_of = |n: usize| if n == 0 { 0 } else { children[n - 1].bottom };
         out.push_str("\x1b[?2026h\x1b[?25l");
-        // Back to the live region's top-left.
+        // Back to the live region's top-left. After a resize this is still
+        // `cursor_row` rows up: every region row ends in a hard line break,
+        // which a reflowing terminal never rejoins, so a wider window keeps
+        // the rows; a narrower one may wrap them into more, and moving up
+        // too few leaves a stale fragment above rather than erasing printed
+        // rows (the safer error; LLP 1101.002 code review).
         if self.cursor_row > 0 {
             out.push_str(&format!("\x1b[{}A", self.cursor_row));
         }
@@ -382,7 +402,7 @@ impl Inline {
             out.push_str("\x1b[J");
             let (from, to) = (bottom_of(lead), bottom_of(settled));
             if to > from {
-                let painted = host.render(from, to - from);
+                let painted = host.render_settled(from, to - from);
                 self.print_rows(&painted, &host.images, out);
             }
             self.printed
@@ -449,9 +469,10 @@ impl Inline {
             });
             self.mouse = want;
         }
-        // Where the region is on the screen: asked while clicks matter and
-        // after a resize, when the terminal has reflowed what is above.
-        if self.mouse || resized {
+        // Where the region is on the screen: asked on every frame while
+        // clicks matter, so the answer after a resize re-anchors them, and
+        // never otherwise.
+        if self.mouse {
             out.push_str("\x1b[6n");
             self.queries.push_back(self.cursor_row);
         }
@@ -508,7 +529,6 @@ impl Inline {
     }
 }
 
-/// The terminal's record for the app, `exactSurface("terminal")`.
 /// A JSON string's contents: quotes, backslashes and controls escaped, so
 /// an id round-trips unchanged.
 fn json_string(s: &str) -> String {
@@ -524,7 +544,10 @@ fn json_string(s: &str) -> String {
     out
 }
 
-pub(crate) fn record(mode: Mode, images: Protocol, printed: &str) -> String {
+/// The terminal's record for the app, `exactSurface("terminal")`: `log`
+/// counts the logs seen (a new one is a new transcript), and `printed` is
+/// the `id` of that log's last child written to scrollback.
+pub(crate) fn record(mode: Mode, images: Protocol, log: u64, printed: &str) -> String {
     let mode = if mode == Mode::Inline {
         "inline"
     } else {
@@ -537,7 +560,7 @@ pub(crate) fn record(mode: Mode, images: Protocol, printed: &str) -> String {
     };
     let printed = json_string(printed);
     format!(
-        "{{\"mode\":\"{mode}\",\"images\":\"{images}\",\"colors\":24,\"printed\":\"{printed}\"}}"
+        "{{\"mode\":\"{mode}\",\"images\":\"{images}\",\"colors\":24,\"log\":{log},\"printed\":\"{printed}\"}}"
     )
 }
 
@@ -591,8 +614,7 @@ fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
     let mut shown: Option<crate::grid::Grid> = None;
     let mut inline = Inline::new(Protocol::detect());
     let mut buf = [0u8; 8192];
-    let mut published = String::new();
-    host.publish(&record(mode, inline.protocol, ""));
+    host.publish(&record(mode, inline.protocol, 0, ""));
     loop {
         if let Some((cols, rows)) = size() {
             host.resize(cols, rows);
@@ -624,9 +646,10 @@ fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
         }
         // Tell the app what is in scrollback now that the bytes are out,
         // so it can let go (LLP 1101.001 P1; 1101.002 §0 P5).
-        if mode == Mode::Inline && inline.through != published {
-            published = inline.through.clone();
-            host.publish(&record(mode, inline.protocol, &published));
+        if mode == Mode::Inline {
+            if let Some(r) = inline.printed(mode) {
+                host.publish(&r);
+            }
         }
         // Sleep until input, a wake, the next timer, or a size check.
         let wait = host

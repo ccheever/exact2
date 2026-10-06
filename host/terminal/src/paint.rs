@@ -369,8 +369,23 @@ fn base_style(scene: &Scene<'_>, n: &NodeRef<'_>, current: ColorValue) -> Style 
         fg: rgb(current.resolve(scene.dark)),
         underline,
         strike,
+        faint: faded(scene.kernel, n.id),
         ..Style::default()
     }
+}
+
+/// Whether the node or a box around it is see-through (`opacity` under 1,
+/// as a disabled field's sheet sets): a cell has no alpha, so its text is
+/// faint instead.
+fn faded(kernel: &Kernel, id: ViewId) -> bool {
+    let mut at = kernel.node(id);
+    while let Some(n) = at {
+        if n.style.opacity < 1.0 {
+            return true;
+        }
+        at = n.parent.and_then(|p| kernel.node(p));
+    }
+    false
 }
 
 /// The leaves a paragraph's runs come from, in run order: a node with its
@@ -407,7 +422,7 @@ fn run_styles(
         .map(|(i, run)| {
             let mut style = Style {
                 bold: run.style.font_weight >= 600,
-                faint: run.style.font_weight <= 300,
+                faint: base.faint || run.style.font_weight <= 300,
                 italic: run.style.font_style != exact_kernel::FontStyle::Normal,
                 ..base
             };

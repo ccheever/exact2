@@ -23,6 +23,9 @@ pub struct Presented {
     pub layer: Option<CellRect>,
     /// The screen row of the painting's first row.
     pub origin: Option<i32>,
+    /// A layer opened or closed since this was presented: what it shows is
+    /// not what a press would reach, so none lands until the next frame.
+    pub stale: bool,
 }
 
 impl<D: DataSource> Host<D> {
@@ -33,6 +36,7 @@ impl<D: DataSource> Host<D> {
             scrollers: painted.scrollers.clone(),
             layer: painted.layer,
             origin: origin.or(self.presented.origin),
+            stale: false,
         };
     }
 
@@ -43,6 +47,9 @@ impl<D: DataSource> Host<D> {
 
     /// A screen row in the presented painting's rows.
     fn local(&self, y: i32) -> Option<i32> {
+        if self.presented.stale {
+            return None;
+        }
         self.presented.origin.map(|o| y - o)
     }
 
@@ -102,10 +109,12 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// Page Up or Page Down: the first presented scroller by a screenful.
+    /// Page Up or Page Down: the first presented scroller (the outermost;
+    /// with a layer open, the layer's) by its own height less a row kept in
+    /// view.
     pub fn page(&mut self, down: bool) {
-        let rows = self.size().1 as i32 - 2;
-        if let Some((id, _, reach)) = self.presented.scrollers.first().copied() {
+        if let Some((id, r, reach)) = self.presented.scrollers.first().copied() {
+            let rows = (r.h - 1).max(1);
             self.scroll_by(id, reach, if down { rows } else { -rows });
         }
     }
@@ -142,6 +151,17 @@ impl<D: DataSource> Host<D> {
                 .hits
                 .iter()
                 .any(|(h, r)| *h == n && r.w > 0 && r.h > 0)
+            {
+                return true;
+            }
+            // A scroller is on the screen as itself, not by what it holds:
+            // an item clipped out of it is not.
+            if n == id
+                && self
+                    .presented
+                    .scrollers
+                    .iter()
+                    .any(|(s, r, _)| *s == n && r.w > 0 && r.h > 0)
             {
                 return true;
             }

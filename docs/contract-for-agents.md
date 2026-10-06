@@ -1123,8 +1123,8 @@ inform authored policy; the engine does not automatically remove all motion.
 `exactSurface(name)` is the host's channel for read-only facts about where
 the app is running, not only for a GPU surface's published record. The
 terminal host publishes `exactSurface("terminal")` (`mode`, `images`,
-`colors`, and `printed`, the `id` of the last log child it wrote to
-scrollback), and an inline app retires printed entries from it (LLP 1101.001
+`colors`, `log`, which counts the `role="log"` nodes it has seen, and
+`printed`, the `id` of that log's last child it wrote to scrollback), and an inline app retires printed entries from it (LLP 1101.001
 P1; `apps/harness/terminal.contract` shows the task). Declare its shape
 (`resource terminal = exactSurface("terminal") as shape Terminal`); on any
 other host it stays unloaded. A new host fact uses this channel before
