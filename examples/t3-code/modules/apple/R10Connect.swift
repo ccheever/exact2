@@ -9,8 +9,12 @@ import AppKit
 ///   selects its text in the frame after it opens (`focus(); select()`).
 /// - Letter chords under a non-Latin source (keybindings.ts resolveEventKeys): when a ⌘/⌃ chord's
 ///   key reports another script (Korean 2-Set's ㅠ for B), the physical key's Latin letter
-///   (KeyboardEvent.code) is the chord's key. The event is re-issued with that letter, so every
-///   declared chord (⌘B sidebar, ⌘K palette, …) and menu equivalent matches it anywhere in the
+///   (KeyboardEvent.code) is the chord's key. exact2 #168 matches the declared chords
+///   (`aria-keyshortcuts`) and the host's command menu items that way; it does not reach the
+///   menu's standard and app-added items (Copy, Paste, Undo, Quit, Close Window, Reload, Paste as Text),
+///   the terminal's web view, or this module's own key readers that read the event's characters
+///   (the composer's queued-edit chords, the SnapShot shortcut). So the event is still re-issued
+///   with that letter, and each of them matches it anywhere in the
 ///   window. Composition keeps its own keys (the composer ends it first, R9Input.swift).
 /// - Hover under a still pointer (hook `t3-rehover`): a browser re-hit-tests a still pointer after
 ///   layout, so a row that slides under it (Settle, ⌘Z) is hovered. AppKit's tracking areas only

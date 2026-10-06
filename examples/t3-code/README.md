@@ -220,7 +220,9 @@ counts as focus (the window's first responder is followed, `R9Input.swift`), and
 a composing syllable first and match by key code under a non-Latin source such as Korean 2-Set. Outside
 the composer a ⌘ or ⌃ letter chord under a non-Latin source is re-issued with its key's Latin
 character, as the reference's `resolveEventKeys` does (`R10Connect.swift`), so ⌘B, ⌘K and menu
-equivalents still match. After the thread list re-renders under a still pointer, the row that
+equivalents still match. exact2 #168 matches declared chords by physical key itself, but not
+the menu's standard items, the terminal's web view or the module's own key monitors, so the
+re-issue stays. After the thread list re-renders under a still pointer, the row that
 slid under it is hovered, as a browser's synthetic mouse move does (`t3-rehover`). The menu bar is the reference
 desktop app's (`R8KeysMenus.swift`): File shows only Close Window, View starts with Reload
 and Force Reload, and the host's Develop and Go menus are removed, so ⌘D (diff), ⌘O (open in
@@ -287,11 +289,9 @@ terminal. This is renderer evidence; the drawer and PTY session integrations bel
   through it); a textarea sizes to its plain value (a prompt whose chip links are long
   can be a line taller than its chips draw at narrow widths); a forgotten Exact answer drops its native replies (#109; the snapshot read gate
   in `T3ReadGate.swift` limits the effect), so a cache that another answer could await
-  shares resolved values only (`readDetail` in `r6-pr-actions.ts`); data sources have no clock; the
-  macOS textarea maps `autocorrect="off"` to spelling correction only, so the Files
-  editor's text view takes the app's `t3-plain-text` hook, which turns AppKit's smart
-  quotes, dashes and text replacement off (`T3PanelsNative.swift`); the composer's text
-  view gets the same switch-off when it attaches (`T3ComposerEditor.swift`). Workarounds
+  shares resolved values only (`readDetail` in `r6-pr-actions.ts`); data sources have no clock; every
+  editable textarea has `autocorrect="off"`, which keeps the typed bytes on macOS since
+  exact2 #111 (`text-entry.test.ts` checks it). Workarounds
   for limits main has since fixed (hit testing, `pointer-events`, cursors, `position-area`,
   key modifiers, `title`) are gone; `EXACT2-GAPS.md` lists what was removed and each open
   item's state on the pin.

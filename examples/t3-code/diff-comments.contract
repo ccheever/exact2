@@ -22,7 +22,7 @@ component DiffDraftCard
       save()
   view
     column width="100%" padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 box-sizing="border-box" background-color="light-dark(#fcfcfc, #0a0a0a)" testId="diff-comment-draft"
-      textarea id="diff-comment-draft-text" hook="t3-plain-text" value=text input=edit key=keys autofocus=true rows=2 placeholder="Add a comment…" aria-label=`Comment on lines ${rangeLabel}` testId="diff-comment-text" width="100%" min-height=56 padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
+      textarea id="diff-comment-draft-text" value=text input=edit key=keys autofocus=true rows=2 placeholder="Add a comment…" aria-label=`Comment on lines ${rangeLabel}` testId="diff-comment-text" width="100%" min-height=56 padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
       row margin-top=6 align-items="center" gap=4
         text "⌘/Ctrl Enter to send" flex=1 font-size=10 line-height="14px" color="light-dark(#71717ab3, #818181b3)"
         DiffCommentButton(label="Cancel", primary=false, enabled=true, choose=cancel, testId="diff-comment-cancel")

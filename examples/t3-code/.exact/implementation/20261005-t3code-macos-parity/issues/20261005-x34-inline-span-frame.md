@@ -1,10 +1,10 @@
 ---
 name: 20261005-x34-inline-span-frame
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap (unconfirmed)
 blocks: [20261005-pr-links-previews-and-routing]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/133
 reproduced_on: null
 ---
 
@@ -115,6 +115,5 @@ the card to the span. Add URL tooltips for ordinary web links. Unblock the held 
 verifies those rows.
 
 ## Status and next action
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's
-approval; publication only after approval).
+
+Filed as #133 and closed. Main #178 fixed the macOS agent's hover on inline runs (enter, leave, hit test at a point). task `20261007-adopt-main-fixes-input`: the clone has no inline-link hover card and no workaround to remove. Unblocked for `20261005-pr-links-previews-and-routing`: an inline link's hover can be built and driven by the agent on macOS. Still missing on main: `frame()` of an inline run and inline runs in agent `layout`, so the card has no rectangle to anchor to.

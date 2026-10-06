@@ -359,7 +359,7 @@ component ScheduledEditor
                 input value=path input=setText("path") placeholder="/path/to/checkout" aria-label="Checkout path" class=TkField disabled=busy testId="task-worktree-path"
             column gap=6
               text "Prompt" class=TkLabel
-              textarea value=prompt input=setText("prompt") placeholder="What should the agent do each time this runs?" aria-label="Prompt" class=TkField height=72 padding-top=6 disabled=busy testId="task-prompt"
+              textarea value=prompt input=setText("prompt") autocorrect="off" placeholder="What should the agent do each time this runs?" aria-label="Prompt" class=TkField height=72 padding-top=6 disabled=busy testId="task-prompt"
             column gap=6
               text "Model" class=TkLabel
               row

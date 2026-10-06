@@ -59,7 +59,7 @@ Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream sea
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
 | X21 | Server RPC and streams | Existing Swift transport; handoff stream is the first stream that must not resubscribe on `_retryDue` | nonblocking (workaround: existing transport + TypeScript decides) | Test: no replay of `provider.chatgpt.handoff.subscribe` after a stream error |
-| X35 | Secure (password) text entry in Contract | The paste-redirect field is `type="password"` in the reference (`CodexSetupSection.tsx:674-676`) | nonblocking (workaround: the existing `type="password"` input, `providers-wizard.contract:333`) | Check at `prepare` |
+| X35 | Secure (password) text entry in Contract | The paste-redirect field is `type="password"` in the reference (`CodexSetupSection.tsx:674-676`) | nonblocking (workaround: the existing `type="password"` input, `providers-wizard.contract:333`) | Check at `prepare` 2026-10-07: #134 closed by main #167: a Contract password field's value is masked in `tree`, `layout` and the `type` reply, and `autocomplete` sets its content type; the app's state and data module stay outside that (adopt-main-fixes-input). |
 | X14 | Parked native reply | A long `later` reply can be lost if its answer is let go | unknown until `clone-on-exact2-main` decides | Use start / take; do not rely on a parked reply |
 | X6 | Module hook at quit | Listener lives at most 300 s; process exit closes the socket | nonblocking | none |
 | X5 | URL scheme delivery | Not used | not applicable | none |

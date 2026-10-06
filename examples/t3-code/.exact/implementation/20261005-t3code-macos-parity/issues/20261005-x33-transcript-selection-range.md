@@ -1,10 +1,10 @@
 ---
 name: 20261005-x33-transcript-selection-range
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap (unconfirmed)
 blocks: [20261005-diff-review-engine]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/132
 reproduced_on: null
 ---
 
@@ -122,6 +122,5 @@ Implement G3 in `20261005-diff-review-engine`: port `createAssistantTextSelector
 `issue-close` verifies the Cite rows.
 
 ## Status and next action
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's
-approval; publication only after approval).
+
+Filed as #132 and closed. Main #171 fixed part 1 only (a press on a `button` keeps the selection). task `20261007-adopt-main-fixes-input`: nothing to remove; Cite's `retainFocus=true` is the reference's `onPointerDown` `preventDefault()`, not a workaround. Still missing on main: part 2 (the selection's end rectangle, so the Cite button sits under the block, not under the selection's end) and part 3 (`clearSelection()`: the reference clears the selection after citing; the clone leaves it).
