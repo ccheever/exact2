@@ -1,0 +1,29 @@
+reference <reference checkout>
+files 734; rows 736 (734 file rows + 2 group rows)
+classes done-equivalent 2, port 235, swift 90, n/a-ui 99, n/a-server 20, n/a-excluded 150, later-ticket 138
+proof apps/web/src/rpc/requestLatencyState.test.ts -> request-latency.test.ts: 9/9 reference titles present; 3 clone-only
+proof packages/client-runtime/src/state/projectCommands.test.ts -> r13-threads.test.ts: 2/2 reference titles present; 18 clone-only
+OK
+apps/web/src/rpc/requestLatencyState.test.ts: 9/9 reference titles present
+clone-only test ignores pull request workspace request %s
+clone-only test gives provider refreshes and server updates the same longer threshold
+clone-only test reports slow requests in the order their timers would fire
+packages/client-runtime/src/state/projectCommands.test.ts: 2/2 reference titles present
+clone-only describe shouldShowEnvironmentIndicator
+clone-only test shows the indicator whenever multiple environments are pickable
+clone-only test shows a sole remote environment so the user knows where the project runs
+clone-only test hides a sole primary (this-device) environment
+clone-only test hides the indicator when the active environment is unknown
+clone-only describe shouldShowComposerContextStrip
+clone-only test honors the active-thread preference with resting controls %s
+clone-only test keeps the environment indicator visible for a non-Git project
+clone-only test hides the strip when a non-Git project has nothing to show
+clone-only test keeps the strip for visible resting composer controls in a non-Git thread
+clone-only test shows Git controls without requiring an environment indicator
+clone-only describe the non-Git strip shows only where it runs (BranchToolbar.tsx, BranchToolbarEnvironmentSelector)
+clone-only test a draft on its only, remote machine shows the Select with that machine
+clone-only test a draft on this device alone has nothing to show; a non-Git project on two machines does
+clone-only test a started thread keeps the static machine row, and only when its strip persists
+clone-only test a No project draft with another connected machine: the strip carries only "Run on"
+clone-only test Send reads "Preparing machine" while the machine is prepared: the readers wake at the start and the end
+clone-only test fails with ScratchProjectNotLoadedError after 10 seconds without the project
