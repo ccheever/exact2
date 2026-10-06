@@ -99,7 +99,7 @@ export function turnItemDetailView(client: T3Client, item: Obj, now = composerNo
     return { item: loaded, text: text ?? 'No output.', state: text ? '' : 'empty' };
   }
   if (current?.error) return { item, text: `Couldn't load output: ${current.error}`, state: 'error' };
-  if (current?.item === null) return { item, text: 'Output is no longer available.', state: 'missing' };
+  if (current?.item === null) return { item, text: "Couldn't load output: Output is no longer available.", state: 'missing' };
   return { item, text: 'Loading output…', state: 'loading' };
 }
 

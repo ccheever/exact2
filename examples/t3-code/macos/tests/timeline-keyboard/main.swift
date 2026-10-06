@@ -41,7 +41,8 @@ for (characters, keyCode) in [("\u{F701}", UInt16(125)), ("\u{F700}", UInt16(126
                                 windowNumber: window.windowNumber, context: nil,
                                 characters: characters, charactersIgnoringModifiers: characters,
                                 isARepeat: false, keyCode: keyCode)!
-    output.keyDown(with: event)
+    // The session's local key monitor routes a keydown at the first responder.
+    _ = presenter.routeKey(event, focused: true, in: window)
 }
 precondition(keys == ["ArrowDown", "ArrowUp", " "], "scroll keys must reach the Contract action")
 window.selectNextKeyView(nil)
@@ -53,33 +54,70 @@ window.selectPreviousKeyView(nil)
 precondition(window.firstResponder === before, "Shift-Tab must return to disclosure")
 print("PASS: Tab and Shift-Tab traverse disclosure/output/next control; focus, blur and scroll keys delivered")
 
-// The timestamp itself is a focusable text wrapper inside the disclosure.
-let timestamp = NodeView(id: 4, kind: "view", presenter: presenter)
-timestamp.props = ["aria-label": "October 6, 2026, 10:30 AM"]
-timestamp.handlers = ["focus", "blur"]
-timestamp.frame = NSRect(x: 250, y: 0, width: 100, height: 20)
-before.container.addSubview(timestamp)
-presenter.views[timestamp.id] = timestamp
-let dismiss = NodeView(id: 5, kind: "view", presenter: presenter)
-dismiss.props = ["aria-hidden": "true"]
-dismiss.handlers = ["press"]
-dismiss.frame = .zero
-timestamp.container.addSubview(dismiss)
-presenter.views[dismiss.id] = dismiss
+// The mounted tool row (timeline-work.contract WorkRow): the disclosure button
+// holds the tool-icon hook (t3-tool-icon) and the timestamp, which holds the
+// tooltip-dismiss hook (t3-timeline-tip). Both hooks carry a `press` handler
+// for their native owner, so without `tabindex=-1` each is an invisible Tab
+// stop between the disclosure and the output: Tab appears to skip the output.
+// The reference timestamp is a plain span (TimelineRowTimestamp, Base UI's
+// trigger adds no tabIndex), so it is not a stop either.
+func mountedRow(base: UInt32, hookTabIndex: String?, timestampFocusable: Bool) -> (NodeView, NodeView, NodeView, [NodeView]) {
+    let row = NodeView(id: base, kind: "button", presenter: presenter)
+    row.handlers = ["press", "focus", "blur"]
+    let icon = NodeView(id: base + 1, kind: "view", presenter: presenter)
+    icon.props = ["aria-hidden": "true"].merging(hookTabIndex.map { ["tabIndex": $0] } ?? [:]) { a, _ in a }
+    icon.handlers = ["press"]
+    let stamp = NodeView(id: base + 2, kind: "view", presenter: presenter)
+    stamp.props = ["aria-label": "October 6, 2026, 10:30 AM"]
+    stamp.handlers = timestampFocusable ? ["hover", "focus", "blur"] : ["hover"]
+    let tip = NodeView(id: base + 3, kind: "view", presenter: presenter)
+    tip.props = ["aria-hidden": "true"].merging(hookTabIndex.map { ["tabIndex": $0] } ?? [:]) { a, _ in a }
+    tip.handlers = ["press"]
+    let out = NodeView(id: base + 4, kind: "view", presenter: presenter)
+    out.handlers = ["focus", "blur", "key", "scroll"]
+    out.applyStyle(["overflow_x": "hidden", "overflow_y": "scroll"])
+    let next = NodeView(id: base + 5, kind: "button", presenter: presenter)
+    next.handlers = ["press"]
+    for v in [row, icon, stamp, tip, out, next] { presenter.views[v.id] = v }
+    row.frame = NSRect(x: 0, y: 0, width: 400, height: 24)
+    icon.frame = NSRect(x: 4, y: 4, width: 16, height: 16)
+    stamp.frame = NSRect(x: 300, y: 4, width: 60, height: 16)
+    tip.frame = .zero
+    out.frame = NSRect(x: 0, y: 30, width: 400, height: 80)
+    next.frame = NSRect(x: 0, y: 120, width: 400, height: 24)
+    row.container.addSubview(icon)
+    row.container.addSubview(stamp)
+    stamp.container.addSubview(tip)
+    for v in [row, out, next] { presenter.root.addSubview(v) }
+    return (row, out, next, [icon, stamp, tip])
+}
+func tabWalk(from start: NodeView, steps: Int) -> [NSResponder?] {
+    precondition(window.makeFirstResponder(start))
+    var seen: [NSResponder?] = []
+    for _ in 0..<steps { window.selectNextKeyView(nil); seen.append(window.firstResponder) }
+    return seen
+}
+for v in presenter.root.subviews { v.removeFromSuperview() }
+presenter.views.removeAll()
+
+// Before: the hooks and the timestamp sit between the disclosure and the output.
+let (oldRow, oldOut, _, oldExtras) = mountedRow(base: 10, hookTabIndex: nil, timestampFocusable: true)
 presenter.syncKeyViewLoop()
-focused.removeAll()
-blurred.removeAll()
-precondition(window.makeFirstResponder(before))
-window.selectNextKeyView(nil)
-precondition(window.firstResponder === timestamp, "Tab reaches the timestamp trigger")
-precondition(focused == [timestamp.id], "timestamp focus must deliver its action")
-window.selectNextKeyView(nil)
-let visitsDismiss = window.firstResponder === dismiss
-print("Hidden dismissal hook is an extra Tab stop: \(visitsDismiss)")
-if visitsDismiss { window.selectNextKeyView(nil) }
-precondition(window.firstResponder === output, "Tab continues from timestamp to output")
-precondition(blurred == [timestamp.id], "timestamp blur must deliver its action")
+let oldWalk = tabWalk(from: oldRow, steps: 4)
+let oldExtraStops = oldWalk.prefix { $0 !== oldOut }.filter { r in oldExtras.contains { $0 === r } }.count
+print("Base row: \(oldExtraStops) invisible or non-reference Tab stop(s) before the output")
+for v in presenter.root.subviews { v.removeFromSuperview() }
+presenter.views.removeAll()
+
+// After: hooks are tabindex=-1 and the timestamp is not focusable.
+let (row, out, next, extras) = mountedRow(base: 20, hookTabIndex: "-1", timestampFocusable: false)
+presenter.syncKeyViewLoop()
+let walk = tabWalk(from: row, steps: 2)
+precondition(walk[0] === out, "one Tab from the disclosure must reach the output")
+precondition(walk[1] === next, "the next Tab must leave the output")
+for v in extras { precondition(!v.canBecomeKeyView, "hook or timestamp \(v.id) must not be a Tab stop") }
 window.selectPreviousKeyView(nil)
-if window.firstResponder === dismiss { window.selectPreviousKeyView(nil) }
-precondition(window.firstResponder === timestamp, "Shift-Tab restores timestamp focus")
-print("PASS: timestamp is reachable by Tab and Shift-Tab; focus/blur delivered")
+precondition(window.firstResponder === out, "Shift-Tab returns to the output")
+window.selectPreviousKeyView(nil)
+precondition(window.firstResponder === row, "Shift-Tab returns to the disclosure")
+print("PASS: mounted row: Tab goes disclosure -> output -> next control; hooks and timestamp are not Tab stops")
