@@ -12,6 +12,7 @@ import type { Files, Native } from './protocol';
 import { shortcutInput } from './keybinding-settings';
 import { shortcutLabel } from './keybinding-view';
 import { snoozePresets } from './sidebar-presentation';
+import { diffNotGit } from './diff';
 import { threadNotifications, providerUpdates, nativeNotifyStatus, type NotifyStatus } from './shell-notify';
 import { slowRequests, tracking } from './shell-slow';
 import { settleLiveTraces } from './r3-protocol-reader'; // r13-slow: answered requests whose answer was let go end on the next shell read
@@ -157,7 +158,7 @@ export function surfaces(client: T3Client): ShellSurface[] {
     row('browser', 'Browser', 'earth', 'B', false, 'Only available in the desktop app.'),
     row('terminal', 'Terminal', 'square-terminal', 'T', terminalAvailable(client), 'Available when a project is open.'),
     row('files', 'Files', 'files', 'F', can.files, 'Available when a project is open.'),
-    row('diff', 'Diff', 'file-diff', 'D', !!client.threadId && client.ready, 'Available for Git repositories.'),
+    row('diff', 'Diff', 'file-diff', 'D', !!client.threadId && client.ready && !diffNotGit(client), 'Available for Git repositories.'),
     // r5-panels: ChatView pullRequestSurfaceAvailable (supportsPullRequests and a panel target); the detail panel opens beside the thread.
     row('pull-request', 'Pull request', 'git-pull-request-arrow', 'P', can.pullRequest && !!target, 'No pull request on this branch yet.'),
     row('pull-requests', 'Linked pull requests', 'link-2', 'L', can.pullRequests, 'No linked pull requests available.'),
