@@ -20,23 +20,12 @@ impl<D: DataSource> Host<D> {
                 break;
             };
             depth = shallowest + 1;
-            // At the host's time: a motion tick or a height hold moves the
-            // host's clock and not the runner's, so the handlers' `now()`
-            // (and an `after` one arms) would be the runner's last advance.
-            // The timers due by then fire first, at their own times.
-            let (mut receipts, early) = self.advance_for_input(self.now_ms);
-            if let Some(e) = early {
-                error.get_or_insert(e);
-            }
+            let mut receipts = Vec::new();
             for (view, rect, _) in due {
-                // A timer just fired can have removed it.
-                if self.runner.kernel().node(view).is_none() {
-                    continue;
-                }
                 self.runner.resize_delivered(view, rect);
                 match self.runner.dispatch(view, Event::Resize(rect)) {
                     Ok(receipt) => receipts.push(Timed {
-                        at_ms: self.runner.now_ms(),
+                        at_ms: self.now_ms,
                         receipt,
                     }),
                     Err(e) => {

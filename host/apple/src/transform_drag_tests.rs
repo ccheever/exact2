@@ -1064,3 +1064,65 @@ fn a_timer_that_drops_the_transition_before_new_geometry_snaps_the_cancel() {
         "the cancel met the timer's `transition: none` and snapped"
     );
 }
+
+/// A timer due by the release that refuses (its action writes a number no
+/// row takes) is reported, and the release still runs and commits; and new
+/// geometry that changes nothing still commits the timers due by then.
+const REFUSING: &str = r#"component App
+  state n = 0
+  state released = 0
+  state armed = false
+  state ticked = 0
+  task bad when armed
+    after(100, explode)
+  task tick when armed
+    after(50, count)
+  action explode
+    n = 1 / 0
+  action count
+    ticked = ticked + 1
+  action arm
+    armed = true
+  action geometry(w: number, h: number, pw: number, ph: number)
+    n = n
+  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number)
+    released = released + 1
+  view
+    column
+      button testId="arm" press=arm width=80 height=24
+      column testId="clip" width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
+        column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 transition="translate spring(180, 12, 1)"
+          column testId="handle" transformDragFor="photo" transformgeometry=geometry transformrelease=finish
+"#;
+
+#[test]
+fn a_refusing_timer_is_reported_and_the_release_still_commits() {
+    let (mut host, mut p, _) = boot_source(REFUSING);
+    accepted(&p.send(&mut host));
+    press(&mut host, "arm", 1000.0);
+    // Unchanged geometry at 1060: the 50 ms timer is due and commits.
+    p.now = 1060.0;
+    p.identity[4] = 2;
+    let reply = p.send(&mut host);
+    assert!(reply.contains("\"accepted\":true"), "{reply}");
+    assert_eq!(count(&host, "ticked"), 1.0, "{reply}");
+    p.op = 11;
+    p.values = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 1070.0;
+    let reply = p.send(&mut host);
+    accepted(&reply);
+    p.tokens = [
+        quoted(&reply, "translateToken"),
+        quoted(&reply, "scaleToken"),
+    ];
+    p.op = 13;
+    p.values = [0.0, 30.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 1200.0;
+    let reply = p.send(&mut host);
+    assert!(reply.contains("\"committed\":true"), "{reply}");
+    assert!(
+        !reply.contains("\"error\":null"),
+        "the timer's refusal is reported: {reply}"
+    );
+    assert_eq!(count(&host, "released"), 1.0);
+}
