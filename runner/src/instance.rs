@@ -402,6 +402,8 @@ pub struct Update<'a> {
     /// a fresh mount to motion and to the host: the commit's receipt names
     /// them `renewed`.
     pub renewed: Vec<ViewId>,
+    /// List rows mounted out of their port, and those that showed (LLP 1055 D13).
+    pub shown: collection::shown::RowsShown,
     /// Rebind retiring list rows to new items (LLP 1078), as the runner was
     /// told ([`crate::Runner::set_row_reuse`]).
     pub reuse: bool,
@@ -428,6 +430,7 @@ impl<'a> Update<'a> {
             discard: false,
             text_styled: false,
             renewed: Vec::new(),
+            shown: Default::default(),
             reuse: false,
         }
     }

@@ -660,14 +660,109 @@ impl Kernel {
                     let row = if self.hidden(&d) {
                         Animations::default()
                     } else {
-                        d.style.animation.clone()
+                        self.animation_row(&d)
                     };
                     sync.animations.push((motion_node(d.key), row));
                 }
                 stack.extend(d.children());
             }
         }
+        // A list row that showed: the animations below it that waited start
+        // (LLP 1055 D13), as a resumed `animation-play-state` starts them.
+        for key in &receipt.revealed {
+            let Some(node) = self.node_by_key(*key) else {
+                continue;
+            };
+            let mut stack = vec![node.id];
+            while let Some(id) = stack.pop() {
+                let Some(d) = self.node(id) else {
+                    continue;
+                };
+                if !d.style.animation.0.is_empty()
+                    && d.style.rare.animation_trigger == crate::AnimationTrigger::View
+                    && !self.hidden(&d)
+                {
+                    sync.animations
+                        .push((motion_node(d.key), self.animation_row(&d)));
+                }
+                stack.extend(d.children());
+            }
+        }
         sync
+    }
+
+    /// A row a list mounted out of its port: whether an animation below it
+    /// waits for the row to show (`animation-trigger: view`, LLP 1055 D13).
+    /// Until [`Kernel::reveal`] those are held at their start.
+    pub fn await_view(&mut self, row: crate::ViewId) -> bool {
+        // Rows destroyed before they showed are forgotten here.
+        if self.awaiting.len() >= 256 {
+            let gone: Vec<crate::ViewId> = self
+                .awaiting
+                .iter()
+                .copied()
+                .filter(|v| self.node(*v).is_none())
+                .collect();
+            for v in gone {
+                self.awaiting.remove(&v);
+            }
+        }
+        let mut stack = vec![row];
+        while let Some(id) = stack.pop() {
+            let Some(d) = self.node(id) else {
+                continue;
+            };
+            if !d.style.animation.0.is_empty()
+                && d.style.rare.animation_trigger == crate::AnimationTrigger::View
+            {
+                self.awaiting.insert(row);
+                return true;
+            }
+            stack.extend(d.children());
+        }
+        self.awaiting.remove(&row);
+        false
+    }
+
+    /// Whether animations wait on `row` ([`Kernel::await_view`]).
+    pub fn is_awaiting(&self, row: crate::ViewId) -> bool {
+        self.awaiting.contains(&row)
+    }
+
+    /// The row shows (or is bound again where it shows): whether animations
+    /// waited on it. The commit that says so names it in
+    /// [`CommitReceipt::revealed`].
+    pub fn reveal(&mut self, row: crate::ViewId) -> bool {
+        self.awaiting.remove(&row)
+    }
+
+    /// Whether the node's animations wait for a list row above it to show.
+    pub fn awaits_view(&self, node: &crate::kernel::NodeRef<'_>) -> bool {
+        if self.awaiting.is_empty()
+            || node.style.rare.animation_trigger != crate::AnimationTrigger::View
+        {
+            return false;
+        }
+        let mut cur = Some(node.id);
+        while let Some(id) = cur {
+            if self.awaiting.contains(&id) {
+                return true;
+            }
+            cur = self.node(id).and_then(|n| n.parent);
+        }
+        false
+    }
+
+    /// The node's `animation` row as its executors hear it: every entry
+    /// paused while the node waits for its list row to show (LLP 1055 D13).
+    pub fn animation_row(&self, node: &crate::kernel::NodeRef<'_>) -> Animations {
+        let mut row = node.style.animation.clone();
+        if !row.0.is_empty() && self.awaits_view(node) {
+            for a in &mut row.0 {
+                a.paused = true;
+            }
+        }
+        row
     }
 
     /// Whether the node or an ancestor is `display: none`: CSS runs no
@@ -724,7 +819,7 @@ impl Kernel {
             let row = if !node.style.animation.0.is_empty() && self.hidden(&node) {
                 Animations::default()
             } else {
-                node.style.animation.clone()
+                self.animation_row(&node)
             };
             sync.clocks.push((
                 id,

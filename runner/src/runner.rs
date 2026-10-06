@@ -324,6 +324,9 @@ pub struct Runner<D: DataSource> {
     surfaces: Vec<SurfaceUpdate>,
     /// Views the next applied batch renews (LLP 1078): rebound list rows.
     renewed: Vec<ViewId>,
+    /// List rows the next applied batch mounts out of their port, and those
+    /// that showed (LLP 1055 D13).
+    shown: crate::instance::collection::shown::RowsShown,
     /// Retiring list rows are rebound to new items ([`Runner::set_row_reuse`]).
     reuse: bool,
     /// The 2D canvases (LLP 1056 D4), when Canvas 2D is linked.
@@ -785,6 +788,7 @@ impl<D: DataSource> Runner<D> {
             into_view_refused: Default::default(),
             surfaces: Vec::new(),
             renewed: Vec::new(),
+            shown: Default::default(),
             reuse: false,
             canvases: links.canvas.map(|engine| engine()),
             pending: Vec::new(),
@@ -954,13 +958,14 @@ impl<D: DataSource> Runner<D> {
             .collect();
         // First frame.
         let mut ids = std::mem::take(&mut runner.ids);
-        let (tree, ops, surfaces, notes) = {
+        let (tree, ops, surfaces, notes, shown) = {
             let mut u = Update::new(runner.env(&[], &[]), &runner.sites, &mut ids);
             u.discard = runner.kernel.is_detached();
             let tree = Tree::create(&mut u)?;
-            (tree, u.ops, u.surfaces, u.notes)
+            (tree, u.ops, u.surfaces, u.notes, u.shown)
         };
         runner.notes = notes;
+        runner.shown = shown;
         runner.ids = ids;
         runner.tree = Some(tree);
         let receipt = runner.apply(ops)?;
@@ -1332,6 +1337,7 @@ impl<D: DataSource> Runner<D> {
         } else {
             exact_kernel::Direction::Ltr
         };
+        let shown = std::mem::take(&mut self.shown);
         let mut receipt =
             match self
                 .kernel
@@ -1343,6 +1349,16 @@ impl<D: DataSource> Runner<D> {
                     return Err(e.into());
                 }
             };
+        // Rows that showed stop holding their animations, and rows mounted
+        // out of their port start to, before a host hears the commit.
+        for view in shown.revealed {
+            if self.kernel.reveal(view) {
+                receipt.revealed.extend(self.kernel.arena().key_of(view));
+            }
+        }
+        for view in shown.awaiting {
+            self.kernel.await_view(view);
+        }
         self.tally(&ops, &receipt.touched);
         for note in std::mem::take(&mut self.notes) {
             self.log(note);

@@ -110,15 +110,17 @@ impl<D: DataSource> Runner<D> {
                         update.surfaces,
                         update.notes,
                         update.renewed,
+                        update.shown,
                     )
                 })
         };
         self.tree = Some(tree);
         self.ids = ids;
         let ((changed, edge), ops, surfaces) = match result {
-            Ok((changed, ops, surfaces, notes, renewed)) => {
+            Ok((changed, ops, surfaces, notes, renewed, shown)) => {
                 self.notes = notes;
                 self.renewed = renewed;
+                self.shown.extend(shown);
                 (changed, ops, surfaces)
             }
             Err(error) => {
@@ -135,7 +137,14 @@ impl<D: DataSource> Runner<D> {
             now_ms: self.now_ms,
             error: None,
         };
-        if changed || !ops.is_empty() {
+        // A row that showed with animations waiting on it is a commit of its
+        // own when the report changed nothing else (LLP 1055 D13).
+        let revealed = self
+            .shown
+            .revealed
+            .iter()
+            .any(|v| self.kernel.is_awaiting(*v));
+        if changed || !ops.is_empty() || revealed {
             match self.apply(ops) {
                 Ok(receipt) => {
                     self.publish_surfaces(surfaces);

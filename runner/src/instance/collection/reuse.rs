@@ -292,6 +292,7 @@ impl Collection {
         u.renewed.push(mounted.wrapper);
         views(&mounted.row.roots, &mut u.renewed);
         self.adopt_nested(u, &mut mounted.row, text, frames)?;
+        self.mounted_shown(u, &mut mounted);
         u.work.rows_rebound += 1;
         Ok(mounted)
     }
