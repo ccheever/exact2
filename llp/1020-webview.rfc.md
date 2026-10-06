@@ -496,11 +496,20 @@ inner frame remain only where one document cannot keep that parity:
   for a remote `http:` source. An HTTPS wrapper would block that guest as
   mixed content even when `app.json` explicitly permits it through ATS.
   WebKit still enforces the bundle's ATS policy and the inner iframe's
-  `sandbox`; this does not enable HTTP by itself. Other sources keep the
-  HTTPS wrapper, including local documents and their subresources (#135).
+  `sandbox`; this does not enable HTTP by itself. Other remote sources keep
+  the HTTPS wrapper.
+- **Local documents (#135).** A local document is served at the synthetic
+  origin `http://exact.localhost` (a srcdoc frame's origin in the wrapper).
+  Under an `https:` origin WebKit refuses every `http:` sub-resource as mixed
+  content, loopback included, where Chrome loads `http://127.0.0.1`,
+  `localhost` and `[::1]` from a secure page. A loopback origin is a secure
+  context in WebKit, as the web dev loop's `http://127.0.0.1` page is, and is
+  not held to mixed-content blocking. A named `http:` host is then ATS's to
+  allow (`appTransportSecurity`), as for a remote guest. The page sees only
+  an `error` event when a sub-resource fails; the host logs it to stderr
+  (`exact: iframe <src>: <url> did not load (<likely reason>)`).
 - **Direct** is the web view's own document. A local one is served at the
-  synthetic origin `https://exact.invalid` (a srcdoc frame's origin in the
-  wrapper), with `sandbox` sent as a `Content-Security-Policy: sandbox …`
+  synthetic origin above, with `sandbox` sent as a `Content-Security-Policy: sandbox …`
   header, which WebKit enforces on a top-level document, opaque origin
   included. A remote one is loaded as itself.
 - **Messages.** A direct guest's `parent` is its own window, so a post to
