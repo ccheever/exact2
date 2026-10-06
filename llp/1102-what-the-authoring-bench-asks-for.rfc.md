@@ -1,7 +1,7 @@
 # LLP 1102: What the authoring bench asks for — the decisions left after the loop
 
 **Type:** RFC (a decision brief: each item proposes, Charlie decides)
-**Status:** Draft r1, 2026-10-06. Awaiting Charlie's decision on each item in §3. Not reviewed.
+**Status:** Draft r2, 2026-10-06. Awaiting Charlie's decision on each item in §3. r2 folds in one blind pass by Astra (`gpt-6-astra`, xhigh) and Grok 4.7 (xhigh); no further rounds, by Charlie's direction (§6).
 **Systems:** Contract (`contract/{syntax,types,analyze,lower}`), the roster (`plan/tables/format.json` `stdlib`), the runner, the JS target (`host/web-js`), the web host (`host/web/index.html`'s control reset), the Apple hosts, the kernel's length values, the agent driver (`scripts/agent*.mjs`) and the authored-test grammar, the data module's `storage`, the Lean semantics and difftest (for any roster change), and the authoring bench itself (`ccheever/authoring-bench`: graders, tasks)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-06
@@ -26,7 +26,7 @@ The short version of the recommendations:
 
 | Do now (cheap, clear value) | Do with its own RFC | Docs only | Leave as is |
 |---|---|---|---|
-| `parseNumber`, `ceil`/`round`, a fixed-decimal format (§3.1, §3.2); `px` strings and `none` where CSS takes them (§3.10, §3.11); number-input bounds as numbers (§3.12); `autocomplete` (§3.6); a fail/hold-a-source drive op and test step (§3.3); the JS target's autofocus at mount (§3.19); silence fixes in the driver (§3.17); the two grader fixes (§4.1) | the default look of a bare input (§3.15); a settled-field write-back for text inputs (§3.16); CSS `min()`/`max()`/`clamp()` (§3.13); `storage.kv` (§3.8); ISO dates in the roster (§3.4) | fetch timeouts as a Contract pattern (§3.5); state that starts from a resource (§3.9) | `position: fixed` (§3.14); the stale-read check's strictness (§3.7) |
+| `parseNumber` with a stated grammar (§3.1); `ceil` and a `round` that is `Math.round` (§3.2); the `"iso"` date style (§3.4); `px` strings, and `none` beside `auto` (§3.10, §3.11); number-input bounds as numbers (§3.12); `autocomplete`, a documented subset (§3.6); the JS target's autofocus at mount (§3.19); the driver's silences (§3.17); the two grader fixes (§4.1) | a source fault as a failed host request (§3.3); a fixed-decimal or money function (§3.2); `calendarDiff` (§3.4); the default look of a bare input (§3.15); an editing contract for fields (§3.16); `max(length, env())` (§3.13); `storage.kv` (§3.8) | a complete fetch-timeout recipe, demonstrated (§3.5); state that starts from a resource (§3.9) | `position: fixed` (§3.14); the stale-read check's strictness (§3.7); D8's hold (§3.18) |
 
 ## 2. How to read the numbers
 
@@ -55,7 +55,7 @@ Each item has the same parts:
 
 Costs are rough. The yardstick is LLP 1088 stage 3 (`slice`, `replaceAll`, `toLowerCase`). That stage touched the roster, types, runner, JS target, Lean semantics, difftest and docs, and was one lane-day plus two review rounds.
 
-### 3.1 Parsing text to a number — **do it**
+### 3.1 Parsing text to a number — **do it, with the grammar stated**
 
 **What builders hit.** A field's text has to become a number, to compute a tip, check that minutes are 1–60, or check that a team size is 2–50. Contract has no parse.
 
@@ -72,20 +72,31 @@ Builders worked around it two ways:
 
 **What it costs them, beyond minutes.** The source round trip changes the app's shape: a pure calculation becomes a resource, an async answer, and on native a later turn. ios23 t5's tests passed on the web and failed on iOS because a validation answer landed a turn later there (land48's pitfall). Validation that should be synchronous became asynchronous.
 
-**LLP 1088 deferred this** with a trigger: "a view that needs a number from text on each keystroke, with no domain meaning". The bench meets that trigger in nearly two thirds of the trials that can. 1088's concern was footguns: `Number("")` is 0, and `NaN` spreads. A parse that returns an option answers both.
+**LLP 1088 deferred this** with a trigger: "a view that needs a number from text on each keystroke, with no domain meaning". The bench meets that trigger in nearly two thirds of the trials that can. 1088's concern was footguns: `Number("")` is 0, and `NaN` spreads. A parse that returns an option answers both, provided the grammar closes the holes below.
 
-**Proposal.** `parseNumber(text): option<number>`:
-- a strict decimal grammar: optional sign, digits, an optional fraction, optional surrounding whitespace;
-- no exponent, no hex, no `Infinity`;
-- `none` for anything else, including `""`.
+**Proposal.** `parseNumber(text): option<number>`. Grammar:
 
-That is narrower than `Number()`, on purpose, and the same on every executor. `parseInt` and `Number` keep their `idioms.rs` refusals, which should then name `parseNumber`.
+- Leading and trailing whitespace are `trim`'s set (JavaScript's, `is_js_space`), not Rust's.
+- An optional sign.
+- Then either digits with an optional fraction, or a fraction alone (`".5"` is 0.5).
+- `"5."` is 5, as JavaScript's `Number` reads it.
+- An optional decimal exponent (`1e3`), so that `parseNumber(toString(n))` returns `n` for every finite `n`. `toString` prints exponents at large and small magnitudes.
+- Anything else is `none`: `""`, hex, `Infinity`, `NaN`, trailing junk (`"12px"`, so the `parseInt` idiom must not promise otherwise).
+- A finite result is required: a digit string that overflows is `none`, not `Infinity`.
+- A nonzero digit string that underflows to 0 is also `none`, or the footgun returns as a silent 0.
+- `"-0"` parses to −0, which Lean already distinguishes.
 
-**Cost.** One roster function: plan table, types, runner, JS target with its budget, Lean, difftest, docs. About one lane-day. The grammar is small enough to state exactly in Lean.
+The parse should be the existing correctly rounded one in `num/src/lib.rs`, so the runner, the JS target (where `Number()` is correctly rounded) and Lean agree.
+
+`parseInt` and `Number` keep their `idioms.rs` refusals, which then name `parseNumber` and say what it rejects.
+
+**Cost.** One roster function: plan table, types (`option<number>` is a new arm in `from_roster`), runner, JS target with its budget, Lean, difftest, docs. About one lane-day; both reviewers found that plausible.
 
 **Recommendation.** Do it.
 
-### 3.2 Fixed decimals, `ceil`, `round` — **do `ceil`/`round` now; a fixed-decimal format with care**
+**A footnote for §3.16.** A field that writes `parseNumber`'s result back to itself makes `"-"` and `"1."` impossible to type, because both parse as `none` (or lose the dot) while the user is mid-edit. Keep the raw text in state and parse it where the number is used.
+
+### 3.2 `ceil`, `round`, and money — **`ceil` and `round` now; a decimal function needs its own decision**
 
 **What builders hit.** Showing `$12.34` needs two decimals. Rounding up a per-person share needs `ceil`. The roster has `floor`, `min` and `max` only. Builders wrote `0 - floor(0 - x)` for `ceil`, or moved money math into a source.
 
@@ -95,25 +106,36 @@ That is narrower than `Number()`, on purpose, and the same on every executor. `p
 
 Median 2 minutes; the bigger cost is the same source round trip as §3.1.
 
-**Proposal.** Two parts:
+**`ceil` and `round`.** `ceil` is an hour across the stack.
 
-- **`ceil` and `round`.** Trivial, with one exact rule: `round` follows JavaScript's `Math.round` (ties toward +∞), so the web is the oracle.
-- **A fixed-decimal format.** `formatNumber(n, "fixed", digits)` with `digits` a literal 0–20.
+`round` is `Math.round`, and not Rust's `f64::round`:
+- `Math.round` breaks ties toward +∞, so `Math.round(-1.5)` is −1 where `f64::round` gives −2;
+- `Math.round(-0.5)` is −0, which Lean keeps.
 
-The fixed format needs one decision. JavaScript's `toFixed` rounds on the exact binary value and picks the larger candidate on a tie. Rust's `format!("{:.2}")` picks the even one. They differ only on exactly representable ties (`0.125` gives `"0.13"` in JavaScript and `"0.12"` in Rust). Follow the web: implement `toFixed`'s rule in the runner and test the ties.
+The runner and Lean are the work; the JS side is `Math.round`.
 
-A currency style (`formatNumber(n, "currency", "USD")`) belongs with the existing `format` capability (LLP 1054.000.003). It is locale-dependent, so it should wait for a consumer who needs more than `$` and two decimals.
+**A fixed-decimal format is not one obvious function.** r1 proposed `formatNumber(n, "fixed", digits)` following `toFixed`. The reviews found three problems:
 
-**Cost.**
-- `ceil`/`round`: an hour each across the stack.
-- `"fixed"`: about half a lane-day, mostly the tie rule and its tests.
+- **It breaks an accepted rule.** LLP 1054.000.003 D7 prints `""` for a non-finite value in every format entry, on purpose; `toFixed` prints `"NaN"` and `"Infinity"`.
+- **It breaks the roster's shape.** `formatNumber`'s styles are a closed literal set at one arity, and `formatNumber` follows Intl.
+- **`toFixed` has more edges than ties:** negative zero, non-finite values, exponential output at magnitudes of 10²¹ and more. On the tip path the binary value is the trap: `(1.005).toFixed(2)` is `"1.00"`, because 1.005 is stored just below the midpoint.
+
+Two designs are worth choosing between:
+
+1. **`toFixed(n, digits)` under its familiar name,** with the web's rounding, and D7's non-finite rule stated as a written exception or applied to it. Agents know the name. Its binary-value rounding surprises people exactly as it does on the web.
+2. **A money-shaped function that rounds to integer units and pads,** for example `formatDecimal(round(x * 100), 2)` over an integer count of cents. Arithmetic in cents avoids the 1.005 trap.
+
+`num/src/text.rs` has an exact fixed formatter either way. Both need tests in lockstep across `runner/src/format.rs`, `host/web-js/format.js` and `Contract/Format.lean`. That is about a lane-day, not half.
+
+A currency style (`formatNumber(n, "currency", "USD")`) belongs with the existing `format` capability, which is locale-dependent. It should wait for a consumer who needs more than `$` and two decimals.
+
+The `idioms.rs` hint for rounding should change too: it cannot preserve trailing zeros.
 
 **Recommendation.**
 - `ceil` and `round`: now.
-- `"fixed"`: now, with `toFixed`'s rounding.
-- Currency: later.
+- The decimal format: pick (1) or (2). I lean to (2) for money and (1) only if you want the web's name with its traps.
 
-### 3.3 Making a source fail (or hang) in a test or drive — **do it, in the runner, on every host**
+### 3.3 Making a source fail (or hang) in a test or drive — **do it, as a failed host request; an RFC**
 
 **What builders hit.** The recipe task asks for an error state and a retry. No authored test can make a fetch fail.
 
@@ -124,25 +146,35 @@ What builders did instead:
 
 **How often.** 44 of 69 t3 trials (64%), plus 7 Codex trials. Median 5 minutes; 207 minutes reported in 26 reports. ios24 t3 alone reported about 30 minutes.
 
-**Proposal.** A driver op and a test step, answered by the runner's data seam:
+**What to inject: the right failure.** r1 proposed answering the source "as a failure". Both reviews pointed out that this means two different things in the runner, and r1 picked the wrong one.
+
+- **A host request that fails** (a fetch's network error) is an `Outcome::Failed` that the source's own code sees. A source that catches it and returns an error record (what the recipe apps wrote) turns it into a value (`fulfill_inner` in `commit.rs`).
+- **`failed(resource)`** is set only when the source's parse throws (`release_failed` in `admission.rs`). The view keeps the previous value. `failed()` is a bool, with no message.
+
+Writing the flag directly would skip the error handling the apps actually have. What the builders staged with CDP is the first: the host request fails, and the source still runs.
+
+**Proposal.** A driver op and a test step that act on the next host request a source makes, not on the resource's flag:
 
 ```text
-fail "recipes" ["message"]     # the source's next ask answers as a failure
-hold "recipes"                 # the next ask stays in flight until released
-release "recipes"
+fail "recipes"        # the source's next host request (fetch, storage) fails; the source runs
+hold "recipes"        # that request stays in flight until released
+release <ticket>      # by the ticket hold reported, not by name
 ```
 
-The runner already distinguishes a failed answer from a domain answer (`failed(resource)`). The agent already holds device requests (auth, file pickers; `holds()` in `host/web-js/agent.js`). This generalizes that to a named source, on every host. CDP blocking is web-only and URL-shaped; the seam is host-independent and source-shaped.
+- Intercept at the host outcome, before any side effect.
+- Release by ticket, not by source name: a source can have several requests in flight.
+- A held request must be counted the way device holds are (`holds()` in `host/web-js/agent.js`). Otherwise `inflight` makes every later drive step wait out its 20-second budget. The device holds supply that settlement plumbing; the rest is new.
+- The first version covers resource requests only. Mutations (with `queue`) and streams need their own rules.
 
-`hold` also makes a timeout testable (§3.5). A held request against a `task … when pending(r)` with `after(ms, giveUp)` is exactly the case ios21 t3 could not stage.
+`hold` also makes a timeout testable (§3.5). It is exactly the case ios21 t3 could not stage.
 
-**Cost.** Runner (one injection point per answer path), JS target, the agent op on each carrier, the test grammar and runner, docs. Two to three lane-days. It is the largest of the "do now" items, but it would end the single largest time sink in the bench.
+**Cost.** The outcome hook in the runner and in `rt.js`, the op on each carrier, the test grammar and runner, docs. Two to three lane-days is a floor for resources alone; mutations and streams add more.
 
-**Recommendation.** Do it, as a small RFC (its interaction with queued mutations and streams needs stating).
+**Recommendation.** Do it, as a small RFC that states the injection point, the ticket model and what a queued mutation does. It would end the bench's single largest time sink.
 
-### 3.4 ISO dates and date arithmetic — **an `"iso"` style now; arithmetic stays in the data module**
+### 3.4 ISO dates and the age check — **`"iso"` now; `calendarDiff` is the real ask**
 
-**What builders hit.** "At least 13 years old" needs today's date as `YYYY-MM-DD` to compare with a date input's value.
+**What builders hit.** "At least 13 years old" needs today's date as `YYYY-MM-DD` to compare with a date input's value, and then "13 years before today".
 
 Builders did one of two things:
 - passed `exactTime().epochAtZero + now()` into a source that formats it;
@@ -150,36 +182,40 @@ Builders did one of two things:
 
 **How often.** 27 of 72 t7 trials (38%). Median 10 minutes, the highest per-occurrence cost in this list.
 
-**Proposal.** Add `formatDate(ms, offsetMinutes, "iso")`, giving `YYYY-MM-DD` in the given offset. It is deterministic and already fits `formatDate`'s shape.
+**Two parts.**
 
-"13 years before today" is calendar arithmetic (month lengths, leap days) and stays in the data module, as LLP 1088 argued for durations. Comparing `"2013-10-06" <= value` already works (1088 D1, string comparison).
+- **`formatDate(ms, offsetMinutes, "iso")`, giving `YYYY-MM-DD`.** `civil_from_days` already runs in `runner/src/format.rs` and in `x_formatDate`, so this is another return in two functions plus Lean. It is an hour or two, not half a day, and needs no RFC (r1's table misfiled it).
+- **The 10 minutes are the age check,** which an ISO string does not compute. LLP 1054 held `calendarDiff` (returning `option<number>`, never `NaN`) for "a view branches on a calendar day". t7 is that caller.
 
-**Cost.** Under half a lane-day.
+Comparing two ISO strings already works (1088 D1).
 
-**Recommendation.** Do the `"iso"` style; leave arithmetic in the data module.
+**Recommendation.**
+- `"iso"`: now.
+- `calendarDiff`: either specify it, or record that its trigger is met and leave it in the data module on purpose.
 
-### 3.5 A timeout on a fetch — **docs: the Contract pattern, plus §3.3 to test it**
+### 3.5 A timeout on a fetch — **docs, but a complete and demonstrated recipe**
 
 **What builders hit.** A server that hangs shows "Loading…" forever. A data source has no timers, so there is no `setTimeout` and no `AbortSignal.timeout`.
 
 **How often.** 32 of 69 t3 trials (46%). Median 3 minutes. Most builders noted it and moved on.
 
-**Proposal.** The timeout already exists in Contract:
+**r1's recipe was incomplete.** A gated task (`task waiter when pending(recipes)` with `after(10000, giveUp)`) is a loading deadline, not a fetch timeout:
 
-```text
-task waiter when pending(recipes)
-  after(10000, giveUp)
-```
+- `giveUp` does not cancel the request, clear `pending`, or stop a late answer from landing.
+- A retry while `pending` stays true leaves the timer spent: LLP 1092 re-arms a gated task only when its key changes.
 
-Write it up as the recipe for a timeout. With §3.3's `hold` it becomes testable.
+**Proposal.** Write the recipe whole:
+- an attempt counter as the task's key, so each retry re-arms the deadline;
+- what the view shows after the deadline;
+- what a late answer does (it lands, and is shown or ignored by the attempt it belongs to).
 
-A host-side `fetch(url, { exactTimeout })` would duplicate this in the data module, and would need an agent-clock story (a virtual timeout under the driver).
+Demonstrate it running, with §3.3's `hold`, before calling the case solved. A host-side `fetch(url, { exactTimeout })` would need an agent-clock story and duplicate the Contract form.
 
-**Cost.** Docs: an hour.
+**Cost.** Docs and a fixture: half a day once §3.3's `hold` exists.
 
-**Recommendation.** Docs now. No data-module timeout unless a source-internal retry policy needs one.
+**Recommendation.** The recipe, demonstrated. At 46% of t3 trials it is worth getting exactly right.
 
-### 3.6 `autocomplete` on inputs — **do it**
+### 3.6 `autocomplete` on inputs — **do it, as a documented subset**
 
 **What builders hit.** HTML's `autocomplete="email"` and friends are refused (`lower-unknown-attr`). A sign-up form loses autofill and password-manager hints.
 
@@ -190,15 +226,20 @@ A host-side `fetch(url, { exactTimeout })` would duplicate this in the data modu
 
 About 1 minute each (they drop it), but the cost to the app's users is real.
 
-**Proposal.** Admit `autocomplete` with HTML's token list:
+**Proposal.** Admit `autocomplete` as a string, with a documented subset and two rules the reviews found:
+
+- **HTML's value is an ordered token list** (`"section-a shipping street-address"`), not one word. Admit the string. The host maps its last field token, and ignores the section and contact tokens a platform lacks.
+- **It overrides the type-derived content type.** `NodeViewIOS` already sets `textContentType` from `type` (password becomes `.password`, email `.emailAddress`). A sign-up's `new-password` must win over that.
+- **`off` clears it.** Dropping `off` would leave the password type in place, so the web would suppress autofill while iOS would not.
+
+Mapping:
 - web: the attribute;
 - iOS: `textContentType` for the tokens UIKit has (`email`, `username`, `current-password`, `new-password`, `one-time-code`, `name`, `tel`, `postal-code`, …);
-- macOS: `contentType`;
-- tokens a platform lacks: nothing.
+- macOS: `contentType`.
 
 `aria-valuetext` came up a few times too and is a separate small ARIA admission.
 
-**Cost.** A schema prop plus a mapping on each host. About half a lane-day, plus a native build and drive.
+**Cost.** About half a lane-day for the string and that map, plus a native build and drive. Verifying real autofill on a device is more.
 
 **Recommendation.** Do it.
 
@@ -222,22 +263,21 @@ A cheaper improvement: name the derive in the message ("`keep` reads `name` thro
 
 **Recommendation.** Leave the check as it is. Name the derive when someone is next in `analyze/calls.rs`.
 
-### 3.8 `storage.kv` — **an RFC: generalize the secrets snapshot to app settings**
+### 3.8 `storage.kv` — **an RFC for a settings API; it does not fix the first frame by itself**
 
 **What builders hit.** One persisted setting (pomodoro minutes) means a JSON file through `storage.fs`: `mkdir`, `atomicWriteFile`, `TextEncoder`, a lazy first read. The `storage.kv` grant exists, but no data-module API does.
 
 **How often.** 16 trials, 11 of them in t5 (16% of t5). About 5 minutes each.
 
-**Proposal.** The runner's `Store` (`store.get`/`set` under `secret.keep`) already has the right shape for settings:
-- a snapshot read before boot;
-- synchronous reads;
-- persisted writes.
+**Proposal.** The runner's `Store` (`store.get`/`set` under `secret.keep`) is already a synchronous snapshot read before boot, with persisted writes. It is scoped to secrets. A non-secret scope (`app.keep <name>`, or `storage.kv`) would give settings a one-line API.
 
-It is scoped to secrets (Keychain, `localStorage`). Adding a non-secret scope (`app.keep <name>`, or `storage.kv`) would give settings a one-line API and a synchronous first frame. That second part also helps §3.9.
+r1 claimed that this would also make settings available in the first frame and remove §3.9's workaround. It would not by itself. Data-module activation and resource initialization are separate from the store. A store read does not make `state x = saved.value` legal, and it does not deliver a fresh setting before first paint. Those are separate promises, and only the API is cheap.
 
-**Cost.** One to two lane-days across hosts, plus an RFC (where non-secret values live on each platform, size limits, and what a drive without `--storage` sees).
+**Cost.**
+- The API: one to two lane-days across hosts, plus an RFC (where non-secret values live on each platform, size limits, what a drive without `--storage` sees).
+- The first-frame promise: a further design.
 
-**Recommendation.** Worth an RFC. It is a common app need beyond the bench.
+**Recommendation.** An RFC for the API. Keep the first-frame question out of it.
 
 ### 3.9 State that starts from a resource — **docs (the recipes exist); no language change**
 
@@ -257,25 +297,25 @@ It is scoped to secrets (Keychain, `localStorage`). Adding a non-secret scope (`
 
 **How often.** 13 Codex trials, about 6% of Codex runs. In practice it is nearly every Codex run that writes CSS from memory. 0 Claude trials. About 1 minute each.
 
-**Proposal.** Take a `px` string wherever a number already means pixels, as `padding` does.
+**Proposal.** `font-size="1.5rem"` already resolves (`style/relative.rs`). `"14px"` fails only because those `f32` rows never call `parse_pixel_length`. The fix is that kernel arm, keeping each row's sign rule: `font-size` refuses a negative, `letter-spacing` allows one.
 
-**Cost.** A lowering change and tests. Under half a lane-day.
+**Cost.** Well under half a lane-day.
 
 **Recommendation.** Do it. It is an inconsistency, and CSS takes both.
 
-### 3.11 `none` on `max-width`/`max-height` — **admit `none`; consider refusing `auto`**
+### 3.11 `none` on `max-width`/`max-height` — **admit `none` as an alias of `auto`**
 
-**What builders hit.** `max-height="none"` (CSS's initial value) is refused, while `auto` (not a CSS maximum) passes. land47 made the refusal say "leave it out, or `auto`".
+**What builders hit.** `max-height="none"` (CSS's initial value) is refused, while `auto` passes. land47 made the refusal say "leave it out, or `auto`".
 
 **How often.** 4 trials. The hint now costs under a minute.
 
-**Proposal.**
-- Admit `none` as the unbounded maximum.
-- Under "ideal end states", refuse `auto` on a maximum, as CSS does.
+**Proposal.** Admit `none` as the same value `auto` lowers to: Taffy's unbounded maximum (`Size::auto()`).
+
+r1 also suggested refusing `auto` on a maximum, as CSS does. Grok pointed out that this would break land47's hint and every app that followed it, for four trials. Keep `auto`.
 
 **Cost.** Small: lowering and a schema value.
 
-**Recommendation.** Do it, both halves.
+**Recommendation.** Admit `none`; keep `auto`.
 
 ### 3.12 Number-input `min`/`max`/`step` as strings — **take numbers too**
 
@@ -283,25 +323,29 @@ It is scoped to secrets (Keychain, `localStorage`). Adding a non-secret scope (`
 
 **How often.** 24 trials, mostly t7. About 1 minute each.
 
-**Recommendation.** Take a number or a string on both. Small.
+**Proposal.** `controls.rs`'s `range_attrs` already rewrites `min`, `max`, `step` and `value` for `type="range"`. Extend it to `type="number"`.
 
-### 3.13 CSS `min()`, `max()`, `clamp()` — **an RFC; meanwhile a pitfall**
+**Recommendation.** Do it. Small.
+
+### 3.13 CSS `min()`, `max()`, `clamp()` — **the safe-area case first; the general form is an RFC**
 
 **What builders hit.** `padding-top="max(24px, env(safe-area-inset-top))"` is refused. This is the standard safe-area idiom. Builders put `env()` on an outer box and plain padding inside.
 
 **How often.**
 - 28 trials, 25 of them on iOS: 20% of iOS trials.
-- Plus `clamp()` for `font-size` once.
+- Almost all are that one idiom; `clamp()` for `font-size` came up once.
 
 About 1 minute each.
 
-**Proposal.** Comparison functions over lengths need the kernel's length values to hold an expression. Today they hold `calc(<percent> ± <px>)` and `env()`. Resolution happens at layout, per host. That is a kernel and Taffy change with conformance work.
+**Proposal.** `env()` is already a `Dimension` the kernel resolves before Taffy. So `max(<length>, env(…))` (and `min()`) can be one more kernel kind, resolved the same way, without teaching Taffy a grammar for comparison functions. That covers the case the bench hit.
 
-**Cost.** Several lane-days.
+The general form (any mix of percentages, viewport units and `calc()` inside `min()`/`max()`/`clamp()`) needs the kernel's length values to hold an expression, with conformance work. It is several days.
 
-**Recommendation.**
-- Now: a pitfall naming the two-box pattern.
-- Later: an RFC for `min()`/`max()`/`clamp()` over the length types the kernel already has. It follows CSS and comes up often on iOS; it is just not cheap.
+**Cost.**
+- The `max(length, env())` kind: about a lane-day with conformance.
+- The general form: an RFC.
+
+**Recommendation.** A pitfall naming the two-box pattern now. The `max`/`min`-with-`env()` kind next, since it is what iOS authors write.
 
 ### 3.14 `position: fixed` — **leave it**
 
@@ -311,32 +355,32 @@ About 1 minute each.
 
 **Recommendation.** Leave it. The refusal's guidance works. Containing-block support (LLP 1074) could make it possible later, but nothing here needs it.
 
-### 3.15 The default look of a bare `input` — **an RFC: give fields a platform look the way buttons have one**
+### 3.15 The default look of a bare `input` — **an RFC: give fields a platform look**
 
-**What builders hit.** A bare `input` on the web has no border; it looks like plain text. Builders found it only from a screenshot and styled it by hand. A bare `button` likewise draws as text.
+**What builders hit.** A bare `input` on the web has no border; it looks like plain text. Builders found it only from a screenshot and styled it by hand.
 
-This is deliberate: `host/web/index.html` resets `button, input, textarea` with `all: unset`, so a bare node is a bare box (LLP 1064 D6). Native buttons opt into chrome with `appearance="auto"` (LLP 1069.011).
+This is deliberate. `host/web/index.html` resets `button, input, textarea` with `all: unset`, so a bare node is a bare box (LLP 1064 D6). The native hosts agree: iOS sets `borderStyle = .none`, and macOS sets `isBezeled = false`. Native buttons opt into chrome with `appearance="auto"` (LLP 1069.011).
 
-**How often.**
-- 11 trials;
-- also builders' remarks that native buttons are "very small" in headless Chrome.
+**How often.** 11 trials. 2–3 minutes each, found only by looking.
 
-2–3 minutes each, found only by looking.
+Builders also called native buttons "very small" in headless Chrome. That is a separate bug, and should not steer this decision.
 
-**The tension.** "The web is the standard" says an `<input>` has a visible field by default. Exact2's choice that a bare node is a bare box keeps every host's default identical and authored. Both are defensible.
+**The tension.** "The web is the standard" says an `<input>` has a visible field by default. Exact2's choice that a bare node is a bare box keeps every host's default identical and authored.
 
-**Proposal.** Mirror the button: `input appearance="auto"` draws the platform's field:
-- web: the UA's field;
-- iOS: a rounded-rect `UITextField`;
-- macOS: `NSTextField`'s bezel.
+The reviewers split:
+- Astra leans to visible fields by default: the repository has no compatibility obligation, so keeping existing apps unchanged is weak reason.
+- Grok notes that opt-in matches the button and the bare field is the current cross-host default.
 
-Then decide, as a separate question, whether `auto` becomes the default for inputs.
+**What it takes either way.**
+- **The web.** A field look on the web is the button's revert list (background, border, padding, font, colour, which `all: unset` removed), not just `appearance: auto`. Checkboxes, radios and date inputs already force `appearance: auto` in that sheet; one rule for text fields must not fight them.
+- **Measurement.** The field's chrome has to enter measurement on every host. `TextInput` measures by a different path from `Control` (`kernel/src/layout.rs`).
+- **Native.** iOS's rounded-rect field and macOS's bezel.
 
-**Cost.** One to two lane-days across hosts.
+**Cost.** One to two lane-days is a lower bound.
 
-**Recommendation.** Worth an RFC. My lean is `appearance="auto"` for fields with the bare default kept, so nothing that exists changes. Make it the default only if you want inputs to follow CSS's default rather than exact2's bare-box rule.
+**Recommendation.** An RFC. Decide first whether fields default to visible (CSS's default) or opt in with `appearance="auto"` (the button's rule). I now lean to visible by default for text fields: it is what every builder expected, and the bare look is rarely wanted on a field.
 
-### 3.16 A text field that does not snap back — **an RFC; the pitfall stands meanwhile**
+### 3.16 A text field that does not snap back — **an editing contract first, not automatic write-back**
 
 **What builders hit.** A field bound to a value the action normalizes back to what it already held shows what was typed. Typing `-2` normalizes to the `0` already in state, and the field keeps `-2`. React writes the bound value back after every input; exact2 re-sets a field only when its binding changes.
 
@@ -348,14 +392,22 @@ The same family covers a checkbox bound to a resource field. It snaps back until
 
 About 5 minutes each.
 
-**Proposal.** After an input's commit settles, write the bound value back to a text field whose content differs. The cost is in the corners:
-- composition (IME) must not be interrupted;
-- the caret must be kept;
-- native text fields need the same rule (`UITextField`, `NSTextField`).
+**Why not just write back.** Both reviews argued against React's rule as the default:
 
-**Cost.** Two or more lane-days, with conformance and device work.
+- **It breaks intermediate input.** Writing back after every settled input makes intermediate text impossible: with §3.1's `parseNumber`, `"-"` and `"1."` parse as `none` (or lose the dot) while state still holds the old number, so they are erased as they are typed.
+- **It erases drafts.** Fields whose draft is saved asynchronously, or on blur or Enter, would lose it. `apps/markdown` binds `value=… change=…`.
+- **The widget work already exists.** The write path already defers composition and carries the caret (`glue.js` `writeValue`, `FieldEditingIOS`). The missing part is the policy, not the code.
 
-**Recommendation.** Worth an RFC if you want React's model. The pitfall is enough for authors meanwhile.
+**Proposal.** State an editing contract and make the guide's form its recipe:
+- raw text in state while editing;
+- validation against the parsed value;
+- normalization on commit (`change`, Enter, blur), which changes the bound value and redraws the field.
+
+Then consider a narrow reconciliation only for a synchronous `input` handler that writes back the value it was given.
+
+**Cost.** The contract and recipe: docs. Any reconciliation: an RFC, smaller than r1 estimated once the policy is narrow.
+
+**Recommendation.** The contract and recipe now. Leave automatic write-back out.
 
 ### 3.17 Driver silences — **do them (cheap, driver only)**
 
@@ -371,21 +423,27 @@ Each of these cost a builder minutes because nothing said what happened:
 
 **Recommendation.** One driver lane: add a reply note or journal line for each. These are in `QUEUE.md` already.
 
-### 3.18 Reorder: a second drag during a drop's session — **a D8 question**
+### 3.18 Reorder: a second drag during a drop's session — **keep D8's hold; at most cut the landing short**
 
 **What builders hit.** LLP 1094 D8 refuses a new drag until the last drop's session ends: the hold until the move shows, then the landing (about 250 ms). A person who drags two cards quickly loses the second.
 
-**How often.** It is what fails the bench's t4 requirement 2 (§4.1): 40 of 82 graded t4 runs.
+**The 40 of 82 is the grader, not D8.** `host/web/group-glue.js` refuses a lift while a session is current, and the landing spring is 250 ms. The grader waits 250 ms after release. With `clock settle` between drags, both cards move. Fix the grader (§4.1).
 
-**Proposal.** Finish the landing at once when a new drag starts, instead of refusing it. The first session completes and the second begins.
+**Proposal.** D8 separates holding from settling:
 
-**Cost.** Host code in `reorder.js`, `group-glue.js`, the runner's `reorder_group.rs` and the native presenters. One to two lane-days.
+- **Holding** means the move is still outstanding. Ending it early when a second drag starts would drop the pin against a board that is about to refresh. The next drag could see stale positions.
+- **The landing** comes after the move has shown. Cutting the spring short when a new drag starts is a small product choice and safe.
 
-**Recommendation.** Your call on D8. My lean is to admit the second drag. A refusal the user cannot see is worse than an abbreviated landing.
+**Recommendation.**
+- Keep the hold.
+- Optionally cut the landing short when a new drag starts.
+- Keep a separate rapid-second-drag check in the bench (§4.2), so the grader fix does not hide the usability question.
 
 ### 3.19 The JS target autofocuses only at boot — **fix (a parity bug)**
 
-LLP 1035.000 D9 honours `autofocus` at mount, and the wasm target does. The JS target focuses the first `[autofocus]` once at boot. land44 documented a workaround: give the field an `id` and call `focus(id)` in the action.
+LLP 1035.000 D9 honours `autofocus` at mount, and the wasm target does (`navigation.js` scans on mount). The JS target focuses the first `[autofocus]` once at boot (`rt.js`). land44 documented a workaround: give the field an `id` and call `focus(id)` in the action.
+
+`checkpoint.js` already restores focus across a carried restart, so the fix is the mount scan.
 
 **Recommendation.** Fix it. It is a bug against an accepted decision. Small.
 
@@ -430,17 +488,24 @@ Each of these came up one to three times:
 - **t4 requirement 2** drags two cards in a row, waiting 250 ms after each release. Exact2 holds a drop until its move shows, then lands it, and refuses a drag until then (§3.18). The second drag fails in 40 of 82 graded runs, whatever the author does. Fix: wait until the board is settled (no lifted card, the moved card in its column) before the second drag, with a cap.
 - **Clicking a disabled button** ("blank adds nothing") times out as a driver failure, though nothing was added. Fix: treat a disabled control as the requirement met when nothing changed.
 
-### 4.2 New tasks (they need your yes)
+### 4.2 New tasks and missing coverage (they need your yes)
 
-The seven tasks are close to saturated: the last rounds pass at 100%. The next authoring problems live in what the tasks do not exercise:
+The seven tasks are close to saturated: the last rounds pass at 100%. Passing them does not establish the behaviours this document is about.
+
+Coverage the current tasks lack:
+- a late answer, and a retry after a deadline (§3.3, §3.5);
+- draft editing with commit-time normalization (§3.16);
+- a submit button that enables only when the form is valid (the disabled-button grader case);
+- two quick drags (§3.18).
+
+The next authoring problems also live in what the tasks do not exercise:
 - multi-screen navigation with deep links;
 - gestures and animation;
 - an app that syncs or works offline;
-- forms with heavier validation;
 - a canvas or game surface;
 - a native module.
 
-Two or three new tasks would find more than more rounds of these.
+Two or three new tasks, and checks for the coverage above, would find more than more rounds of these.
 
 ### 4.3 Android
 
@@ -448,18 +513,34 @@ Never run. Exact2 has no Android host verb, and the Hetzner boxes have no `/dev/
 
 ### 4.4 Cadence
 
-One regression round a day (all three machines) catches problems as main moves, at about a third of the current cost.
+One regression round a day (all three machines) catches problems as main moves, at about a third of the current cost. Add §4.2's coverage before relying on it.
 
 ## 5. Open questions for Charlie
 
-1. Accept §3.1–§3.2 (`parseNumber`, `ceil`, `round`, `"fixed"` with `toFixed`'s rounding)?
-2. Accept §3.3's source fault injection (fail and hold, in the runner) as a small RFC?
-3. §3.15: should a bare input stay a bare box, with `appearance="auto"` as an opt-in field? Or should fields default to the platform's look, as CSS does?
-4. §3.18: admit a second drag during a drop's session (amending LLP 1094 D8)?
-5. §3.16: do you want React's write-back for text fields?
-6. §4.1: may the two graders change? §4.2: may new tasks be added, and which?
-7. §4.4: cut to one round a day?
+1. Accept §3.1 (`parseNumber`, grammar as stated), §3.2's `ceil` and `round` (as `Math.round`), §3.4's `"iso"`, and the small CSS and attribute items (§3.6, §3.10–§3.12)?
+2. §3.2: for money, `toFixed` under the web's name with its rounding (and a stated D7 exception), or a cents-based decimal function?
+3. §3.4: specify `calendarDiff` now that t7 meets LLP 1054's trigger, or keep date arithmetic in the data module?
+4. §3.3: accept source faults as a failed host request (RFC), with resources first?
+5. §3.15: should text fields default to a visible platform field (CSS's default), or opt in with `appearance="auto"` (the button's rule)?
+6. §3.16: accept the editing contract (raw text while editing, normalize on commit) instead of React's write-back?
+7. §3.18: keep D8's hold; cut the landing short on a new drag?
+8. §4.1–§4.2: may the two graders change, and may new tasks and coverage checks be added? §4.4: one round a day?
 
 ## 6. Revisions
 
 - r1, 2026-10-06: first draft, from 659 counted trials (r1–r41, codex2–codex31, ios2–ios33; r24 and the noise runs excluded).
+- r2, 2026-10-06: one blind pass each by Astra (`gpt-6-astra`, xhigh) and Grok 4.7 (xhigh), folded in. No further rounds, by Charlie's direction. Changed:
+  - §3.1's grammar is stated (overflow, underflow, `.5`, `5.`, `-0`, exponents, `trim`'s whitespace, trailing junk), with the `num` crate's parser.
+  - §3.2 no longer proposes `"fixed"` on `formatNumber` (D7, closed arity, the binary-value trap); `round` is `Math.round`.
+  - §3.3 injects a failed host request, not `failed(resource)`; release by ticket; resources first.
+  - §3.4 separates `"iso"` (trivial) from `calendarDiff` (the real ask).
+  - §3.5's recipe needs an attempt key and a late-answer policy, demonstrated.
+  - §3.6 handles token lists, the type-derived content type and `off`.
+  - §3.8 separates the settings API from a first-frame promise.
+  - §3.10–§3.13 cost corrections.
+  - §3.11 keeps `auto`.
+  - §3.15 names the revert list and the measurement path, and records the reviewers' split.
+  - §3.16 proposes an editing contract instead of write-back.
+  - §3.18 keeps D8's hold.
+  - §4.2 adds coverage the tasks lack.
+
