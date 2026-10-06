@@ -10,11 +10,12 @@ guide's rules don't make obvious.
 
 ## Layout
 
-- **A root with `min-height="100%"` and `overflow-y="auto"` never scrolls itself.**
-  `min-height` lets the box grow with its content (CSS), so nothing overflows it. On
-  the web the document scrolls instead, and a screenshot shows only the first screen;
-  on iOS nothing scrolls, and what passes the window (or the keyboard) is cut. Fix:
-  `height="100%"` with `overflow-y="auto"`, or a `scroll` child with `flex=1
+- **A root with `min-height="100%"` and `overflow-y="auto"` does not scroll itself.**
+  `min-height` lets the box grow with its in-flow content (CSS), so it has nothing to
+  scroll and the document scrolls instead: on the web a screenshot shows only the first
+  screen, and on iOS a builder found the results stuck below the keyboard (a finger can
+  be caught by the root's own scroll view, which has no range). Fix: `height="100%"`
+  with `overflow-y="auto"`, or a `column height="100%"` holding a `scroll` with `flex=1
   min-height=0`. (Authoring bench, LLP 1087, r33 t1-tip and ios25 t1-tip, 2026-10-06.)
 
 - **A heading's lines are a screen apart with `line-height=28`.** Cause: a bare
@@ -140,11 +141,13 @@ guide's rules don't make obvious.
   runner's own data source has no such cap. Keep an answer under 16 MiB, or page
   it. (LLP 1090 conformance plan, `host/web-js/conformance/budget.contract`.)
 
-- **A finger on a card's ellipsis title does not lift the card.** A `text` inside a
-  `reorderFor` grip with `overflow-x="hidden"` (which `text-overflow="ellipsis"` needs)
-  is a scroll container, and the grip's `touch-action="none"` stops at a scroll
-  container (CSS), so where the page can scroll the browser takes a touch that starts
-  on the title: nothing lifts and nothing is logged. A mouse, or a finger on the grip's
+- **A finger on a card's ellipsis title does not lift the card on the web.** A `text`
+  inside a `reorderFor` grip with `overflow-x="hidden"` (which `text-overflow="ellipsis"`
+  needs) is a scroll container, and `touch-action` is resolved from the touched element
+  up to its nearest scroll container (Pointer Events), so the grip's `none` is never
+  consulted: where the page can scroll the browser takes a touch that starts on the
+  title, and nothing lifts or is logged. On iOS the title is not a scroll view and the
+  card lifts. A mouse, or a finger on the grip's
   padding, works. Driven at phone size on the web: the card stays; without the overflow,
   or with `touch-action="none"` (or `pointer-events="none"`) on the title, it moves. Fix:
   put `touch-action="none"` on that text too. (Authoring bench, LLP 1087, r32 and r33
