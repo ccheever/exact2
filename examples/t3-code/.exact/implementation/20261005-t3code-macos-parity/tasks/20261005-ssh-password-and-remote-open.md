@@ -1,12 +1,12 @@
 ---
 name: 20261005-ssh-password-and-remote-open
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
-branch: null
+branch: feat(example)/t3-code-ssh-password-and-remote-open
 pr_url: null
 verified_commit: null
 ---
@@ -108,13 +108,23 @@ Required environment: Xcode 27.0, pinned Bun, the oracle build; a Korean input s
 
 ## Progress
 
-Planned.
+Implemented on `feat(example)/t3-code-ssh-password-and-remote-open` (rebased on the feature branch after #147), verification unverified.
+
+- **Auth-attempt wrapper** (`modules/apple/T3SshAuth.swift`, `T3Ssh.swift` `withAuth`): every launch, tunnel and pairing run starts with `BatchMode=yes`; an auth failure (`isAuthFailure`, the reference's three patterns) asks for a password, two prompts at most, then runs again with `BatchMode=no`, `SSH_ASKPASS=<t3code-ssh-runtime-*/t3code-ssh-askpass/ssh-askpass.sh>` (0700), `SSH_ASKPASS_REQUIRE=force`, `T3_SSH_AUTH_SECRET`, `DISPLAY=t3code` when unset. The secret is kept in memory per connection key for later runs and dropped on failure; it never enters argv, a file, Keychain, defaults or logs. Messages: "SSH authentication cancelled for <destination>.", "SSH authentication timed out for <destination>.", "SSH authentication was cancelled because the app window closed." (module `destroy`). Without a prompt service (the AppKit test binary) the refusal is final with ssh's own message, as in the reference (`handleSshAuthFailure` returns the error before `promptForPassword`, so the reference's "SSH authentication failed for <host>." is unreachable there too).
+- **Queue and dialog** (`T3SshPrompts`, `ssh-auth.ts`, `ssh-prompt.contract`, root registration in `app.contract`): FIFO, one dialog at a time, 3-minute expiry (agent-only seam `T3_SSH_PROMPT_TIMEOUT_MS`); title, body with the target, the prompt line, `m:ss` countdown → "Expired", hint ↔ error text, Cancel/Dismiss, Continue disabled while responding or expired, Enter submits, Escape and an outside press cancel, no close button, no motion. The field is the module's native secure field `t3-ssh-password` (X35, upstream #134): masked, copy and cut refused, accessible name = the prompt, focused and selected on open, cleared on dismiss; Continue asks the module to read it, so the password never enters TypeScript or Contract state. Focus returns to the previous first responder when the field goes away (best effort).
+- **Remote Open** (`editors.ts`, `remote-open.ts`, `shell-details.ts/.contract`): `resolveRemoteOpenState` (an SSH environment's alias from the saved SSH targets, else the server's `remoteOpenTargets`, else unavailable; a loopback environment stands in for the primary), `buildRemoteOpenUrl`, the probed remote-capable editors with the `["vscode"]` fallback, the one-time hint (kept by the module per device), `shouldShowOpenInPicker`, `canUseMarkdownFileShellActions`. The details card's Open row: "Open in <editor>" from the effective editors, "No SSH route to <label>", "No installed editors found", the hint until the first accepted open; remote opens go to the OS, never `shell.openInEditor` on the other machine. The open-favorite key is offered only where the picker shows (`keyboard-dispatch.ts`) and opens remote-aware (`palette-commands.ts`); the Files surface's open goes the same way (`r4-surfaces-files.ts`).
+- **Probe and safe open** (`modules/apple/T3RemoteEditors.swift`): `probeRemoteEditors` over the login shell's PATH and `~/Applications` + `/Applications` bundle CLIs; `safeExternalUrl` (port of `parseSafeExternalUrl`) gates `NSWorkspace.open`; agent runs record the URL (`T3_REMOTE_OPEN_LOG`) and open nothing.
+
+Not done / differences: the clone's Markdown file links have no editor actions (they open the Files surface), so `canUseMarkdownFileShellActions` has no caller yet; the Files surface's editor list still comes from the server's editors (only its open is remote-aware); diagnostics and settings keep the server exec, as the reference's callers do; Tab order, real ⌘C, Korean IME in the secure field and the attended password host are unverified (attended); the oracle and trace-diff rows were not run (desktop-oracle-and-trace not built); 840×620 and dark mode not run (no pixel matrix). In agent runs the countdown follows the agent's virtual clock (it reads 3:00 until the clock moves), the expiry follows real time.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (implementation) | `02157028d` (+ this record) on `feat(example)/t3-code-ssh-password-and-remote-open`, rebased on `da40e6590` | `bun test examples/t3-code` 1352 pass / 0 fail (base 1321); strict `tsc` clean; `contract build` 2187 slots, 44 resources, 48396 nodes; `cargo test -p t3-code-macos --lib` 10/0; AppKit `ssh` 14/0 (live tunnel test through `fake-ssh.sh` included, 0 skipped); every other AppKit binary passes (activity 7, attach 3, composer 45, composer-files 4, contextmenu 11, fleet 8, intent 4, menus 10, notifications 4, r10-connect 5, r10-device 4, r11-device 3, r11-upstream 3, r12-sidebar 3, r5-composer 3, r5-panels 8, r6-device 3, r6-media 5, r7-device 13, …); `bun scripts/caps.mjs` within caps; the five checks: build, test (2926 pass / 0 fail), clippy, fmt, caps, boot all exit 0; macOS bundle build exit 0. | logs in `target/` and the session scratchpad (not committed) | — |
+| 2 (live drives, ADDENDUM 3/7) | same | Drive 1 (before + after): fixture error, `bin.mjs serve` ignores the bootstrap flag so the wizard stopped at an empty import step; nothing of this task ran. Drive 2: before (base `da40e6590`) shows "devbox: Permission denied (publickey,password,keyboard-interactive)."; after: `01 dialog: ssh-password-title "SSH Password Required", ssh-password-prompt "Enter the SSH password for devbox.", ssh-password-countdown "3:00", ssh-password-hint "Use SSH keys to avoid repeated password prompts on new SSH sessions."`; double log `batch refused devbox`, then after a wrong and a right password `password refused devbox, password accepted devbox ×3` (launch, tunnel and pairing: the secret reused, no third prompt); toast "Environment connected · devbox is ready over an SSH-managed tunnel."; with the loopback environment switched off the details card's menu lists `details-editor-vscode, details-editor-zed, details-editor-remote-hint` ("Opens over SSH. Needs your key on <label>"); VS Code recorded `vscode://vscode-remote/ssh-remote+devbox/<lane>/repo-devbox`; the reopened menu has no hint; 4096 log lines, 0 mention the password. The second SSH host of the fixture (keybox) did not connect in either drive: its proxy port 16115 was taken by another program. | composed before/after images in the PR | — |
+
+Not run: the attended rows (real copy, Tab order with a real keyboard, IME, a real password host), oracle and trace-diff pairs, 840×620 and dark mode, the expiry and window-close flows live (covered by the AppKit `ssh` tests).
 
 ## Next action
 
