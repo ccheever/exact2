@@ -1,12 +1,25 @@
 # LLP 1102: What the authoring bench asks for — the decisions left after the loop
 
 **Type:** RFC (a decision brief: each item proposes, Charlie decides)
-**Status:** Draft r2, 2026-10-06. Awaiting Charlie's decision on each item in §3. r2 folds in one blind pass by Astra (`gpt-6-astra`, xhigh) and Grok 4.7 (xhigh); no further rounds, by Charlie's direction (§6).
+**Status:** Decided in part (Charlie, 2026-10-06; §0). r2 folded in one blind pass by Astra (`gpt-6-astra`, xhigh) and Grok 4.7 (xhigh); no further rounds.
 **Systems:** Contract (`contract/{syntax,types,analyze,lower}`), the roster (`plan/tables/format.json` `stdlib`), the runner, the JS target (`host/web-js`), the web host (`host/web/index.html`'s control reset), the Apple hosts, the kernel's length values, the agent driver (`scripts/agent*.mjs`) and the authored-test grammar, the data module's `storage`, the Lean semantics and difftest (for any roster change), and the authoring bench itself (`ccheever/authoring-bench`: graders, tasks)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-06
 **Implementer:** none yet. Each item that Charlie accepts gets its own lane (and, where marked, its own RFC).
 **Related:** LLP 1087 (the authoring bench; this is its §8.1 step 4, "what needs a human"); LLP 1088 (what the app diaries ask of Contract: D2 deferred numeric parsing with a trigger this bench has now met, §3.1); LLP 1054.000.003 (the formatters); LLP 1092 (gated tasks); LLP 1094 D8 (a drag during the last drop's session); LLP 1035.000 D9 (`autocomplete` at mount); LLP 1001 (`position: fixed` is not a row); LLP 1064 D6 and LLP 1069.001 (the web's control reset); the bench's findings registry, `analysis/findings.md` in `ccheever/authoring-bench`
+
+## 0. Charlie's decisions (2026-10-06)
+
+| § | Question | Decision |
+|---|---|---|
+| §3.1, §3.2, §3.4, §3.6, §3.10–§3.12 | `parseNumber`, `ceil`, `round` (`Math.round`), the `"iso"` date style, `autocomplete`, `px` strings, `none` on `max-*`, number-input bounds as numbers | **Accepted.** Build them. |
+| §3.2 | Money: `toFixed` or a cents-based function | **Open.** Charlie wants to think more. |
+| §3.4 | `calendarDiff` | **Accepted, narrowly:** whole years and months between two ISO dates, `option<number>`. "Nice to have; let's try adding it for now." |
+| §3.3 | Source faults (`fail`, `hold`) as a failed host request | **Accepted** as recommended: a small RFC, resources first, then build. |
+| §3.15 | Text fields: visible by default, or opt in | **Visible by default.** A field draws the platform's field; `appearance="none"` keeps the bare box. Buttons keep their rule. |
+| §3.16 | The editing contract instead of write-back | **Accepted.** Docs and a recipe; no automatic write-back. |
+| §3.18 | Reorder | **Keep D8's hold; cut the landing short** when a new drag starts. |
+| §4.1, §4.2, §4.4 | Graders, new tasks and coverage, cadence | **Accepted.** Fix the two graders, add two or three tasks and the coverage checks, then one round a day. |
 
 ## 1. Summary
 
@@ -529,6 +542,7 @@ One regression round a day (all three machines) catches problems as main moves, 
 ## 6. Revisions
 
 - r1, 2026-10-06: first draft, from 659 counted trials (r1–r41, codex2–codex31, ios2–ios33; r24 and the noise runs excluded).
+- r3, 2026-10-06: §0 records Charlie's decisions.
 - r2, 2026-10-06: one blind pass each by Astra (`gpt-6-astra`, xhigh) and Grok 4.7 (xhigh), folded in. No further rounds, by Charlie's direction. Changed:
   - §3.1's grammar is stated (overflow, underflow, `.5`, `5.`, `-0`, exponents, `trim`'s whitespace, trailing junk), with the `num` crate's parser.
   - §3.2 no longer proposes `"fixed"` on `formatNumber` (D7, closed arity, the binary-value trap); `round` is `Math.round`.
