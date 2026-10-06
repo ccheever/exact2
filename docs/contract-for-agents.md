@@ -1437,7 +1437,11 @@ always dark does; leave it off to follow the surrounding scheme (LLP 1034 §8).
 an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not
 inherit is refused. `order` places flex and grid items. An image's accessible
 name is `alt` or `aria-label`; `enterkeyhint` labels a soft keyboard's enter
-key on the web and iOS.
+key on the web and iOS. A bare number on a length row is pixels, and the row
+takes CSS's spellings too (`font-size="14px"`, `letter-spacing="-0.5px"`,
+`"1.5rem"`); `max-width` and `max-height` take `none`, CSS's initial maximum, or
+`auto`. A number field's `min`, `max` and `step` take numbers, as a range's do;
+its `value` is its text.
 
 `border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
 resetting omitted components to medium/none/currentcolor. Widths are px/pt,

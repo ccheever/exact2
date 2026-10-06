@@ -448,6 +448,30 @@ fn option_and_select_keep_htmls_content_model() {
     assert!(e.contains("lower-attr-tag"), "{e}");
 }
 
+#[test]
+fn a_number_fields_bounds_take_numbers_as_a_ranges_do() {
+    // LLP 1102 §3.12: `min`, `max` and `step` as numbers; the field's value stays its text.
+    let mut r = boot(
+        r#"component App
+  state n = "3"
+  state lo = 2
+  action edit(v: string)
+    n = v
+  view
+    column
+      input type="number" value=n input=edit min=lo max=50 step=0.5 testId="team" aria-label="Team"
+"#,
+    );
+    let team = view_of(&r, "team");
+    let node = r.kernel().node(team).unwrap();
+    assert_eq!(node.props.str(PropId::Min), Some("2"));
+    assert_eq!(node.props.str(PropId::Max), Some("50"));
+    assert_eq!(node.props.str(PropId::Step), Some("0.5"));
+    r.dispatch(team, Event::Input("4.".into())).unwrap();
+    let node = r.kernel().node(team).unwrap();
+    assert_eq!(node.props.str(PropId::Value), Some("4."));
+}
+
 const VOLUME: &str = r#"component App
   state volume = 40
   state scale = 1

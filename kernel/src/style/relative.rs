@@ -161,6 +161,38 @@ pub(crate) fn of(id: StyleId, value: &StyleValue) -> Result<Option<(Unit, f32)>,
     Ok(Some((unit, n)))
 }
 
+/// A `<number>px` text on a pixel row that reads a bare number as pixels
+/// (`font-size="14px"`, `letter-spacing="0.5px"`): the number, as CSS takes
+/// both spellings (LLP 1102 §3.10). A dimension or line-height row reads its
+/// own text; any other row is left to its conversion, which refuses it. A
+/// negative length on a row CSS refuses one on is refused, as `rem` is.
+pub(crate) fn pixels_text(
+    id: StyleId,
+    value: &StyleValue,
+) -> Result<Option<StyleValue>, StyleValueError> {
+    let StyleValue::Text(text) = value else {
+        return Ok(None);
+    };
+    if matches!(id.codec(), StyleCodec::Dimension | StyleCodec::LineHeight) || !admits_relative(id)
+    {
+        return Ok(None);
+    }
+    let t = text.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
+    let px = t.len() > 2
+        && t.get(t.len() - 2..)
+            .is_some_and(|u| u.eq_ignore_ascii_case("px"));
+    let Some(n) = super::parse_pixel_length(t).filter(|_| px) else {
+        return Ok(None);
+    };
+    if n < 0.0 && nonnegative(id) {
+        return Err(StyleValueError::WrongKind {
+            style: id,
+            expected: "a nonnegative length",
+        });
+    }
+    Ok(Some(StyleValue::Number(n as f64)))
+}
+
 /// What the row holds until the kernel resolves it: the length at CSS's
 /// initial font size, in the form the row's codec reads as pixels.
 pub(crate) fn provisional(id: StyleId, (_, n): (Unit, f32)) -> StyleValue {
@@ -229,5 +261,44 @@ mod tests {
         assert!(s
             .set_dynamic(StyleId::MarginTop, &StyleValue::Text("-1em".into()))
             .is_ok());
+    }
+
+    #[test]
+    fn a_px_text_on_a_pixel_row_is_its_number() {
+        let mut s = StyleProps::default();
+        s.set_dynamic(StyleId::FontSize, &StyleValue::Text("14px".into()))
+            .unwrap();
+        assert_eq!(s.font_size, 14.0);
+        assert!(s.relative.is_empty());
+        s.set_dynamic(StyleId::LetterSpacing, &StyleValue::Text(" -0.5PX ".into()))
+            .unwrap();
+        assert_eq!(s.letter_spacing, -0.5);
+        // CSS refuses a negative font size; a unitless text and a non-pixel row stay refused.
+        for (row, text) in [
+            (StyleId::FontSize, "-2px"),
+            (StyleId::FontSize, "14"),
+            (StyleId::FontSize, "px"),
+            (StyleId::Opacity, "1px"),
+        ] {
+            assert!(
+                s.set_dynamic(row, &StyleValue::Text(text.into())).is_err(),
+                "{row:?} {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn none_on_a_maximum_is_its_unbounded_auto() {
+        let mut s = StyleProps::default();
+        s.set_dynamic(StyleId::MaxHeight, &StyleValue::Text(" NONE ".into()))
+            .unwrap();
+        assert_eq!(s.max_height, crate::Dimension::Auto);
+        s.set_dynamic(StyleId::MaxWidth, &StyleValue::Text("none".into()))
+            .unwrap();
+        assert_eq!(s.max_width, crate::Dimension::Auto);
+        // Only a maximum: `none` is no width.
+        assert!(s
+            .set_dynamic(StyleId::Width, &StyleValue::Text("none".into()))
+            .is_err());
     }
 }

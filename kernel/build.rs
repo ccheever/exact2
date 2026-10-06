@@ -1267,9 +1267,15 @@ fn generate(schema: &Schema, digest: u64) -> String {
         "        let provisional = relative.map(|r| crate::style::relative::provisional(id, r));"
     )
     .unwrap();
+    // `14px` on a row that reads a bare number as pixels (LLP 1102 §3.10).
     writeln!(
         w,
-        "        let value = provisional.as_ref().unwrap_or(value);"
+        "        let pixels = crate::style::relative::pixels_text(id, value)?;"
+    )
+    .unwrap();
+    writeln!(
+        w,
+        "        let value = provisional.as_ref().or(pixels.as_ref()).unwrap_or(value);"
     )
     .unwrap();
     writeln!(w, "        match id {{").unwrap();
