@@ -74,5 +74,20 @@ final class ZoomAlignmentIOSTests: XCTestCase {
         p.views[3] = plain; zoomed.addSubview(plain); plain.frame = CGRect(x: 10, y: 20, width: 30, height: 40)
         XCTAssertEqual(ModalHost.zoomAlignment(target: plain, fallbackNatural: nil, in: zoomed), CGRect(x: 10, y: 20, width: 30, height: 40))
     }
+
+    /// The interactive dismissal lands unaligned: given a rect, UIKit re-bases
+    /// the route that followed the finger onto it at lift-off (a held frame,
+    /// then a jump). The last rect is kept for the next aligned zoom, and an
+    /// unresolved target still answers it.
+    func testAnInteractiveDismissalLandsUnaligned() {
+        let landing = ZoomLanding(), rect = CGRect(x: 0, y: 286.25, width: 402, height: 301.5)
+        XCTAssertEqual(landing.answer(rect), rect)
+        XCTAssertEqual(landing.answer(nil), rect, "a target gone: the last answer")
+        landing.interactive = true
+        XCTAssertNil(landing.answer(rect))
+        XCTAssertNil(landing.answer(nil))
+        landing.interactive = false // cancelled: the route appeared again
+        XCTAssertEqual(landing.answer(nil), rect)
+    }
 }
 #endif

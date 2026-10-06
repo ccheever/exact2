@@ -56,8 +56,11 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     }
     required init?(coder: NSCoder) { nil }
     private var backdropTap: UITapGestureRecognizer?
+    /// Each appearance, the first and one after a cancelled interactive dismissal.
+    var appeared: (() -> Void)?
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        appeared?()
         guard backdropTap == nil, let container = presentationController?.containerView else { return }
         let tap = UITapGestureRecognizer(target: self, action: #selector(tappedBackdrop))
         tap.delegate = self
@@ -146,8 +149,23 @@ private final class Presentation {
     }
 }
 
-/// A zoom's last alignment answer (`ModalHost.present`).
-final class ZoomLanding { var rect: CGRect? }
+/// A zoom's last alignment answer (`ModalHost.present`), and whether the
+/// zoom now running is the person's interactive dismissal, which lands
+/// unaligned.
+final class ZoomLanding {
+    var rect: CGRect?
+    var interactive = false
+    /// What `alignmentRectProvider` answers for a resolved rect: none while an
+    /// interactive dismissal runs. UIKit follows the finger with the whole
+    /// route and, given an alignment rect, re-bases the content onto it at
+    /// lift-off: a visible jump and a held frame (a plain UIKit fixture does
+    /// the same). Unaligned, the release carries the drag on in one motion,
+    /// the route cross-fading into its source.
+    func answer(_ resolved: CGRect?) -> CGRect? {
+        if let resolved { rect = resolved }
+        return interactive ? nil : rect
+    }
+}
 
 final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     unowned let presenter: Presenter
@@ -314,10 +332,16 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         let controller = layer.controller
         if #available(iOS 18.0, tvOS 18.0, *), layer.kind == "fullscreen", route.props["navigationSource"] != nil {
             let options = UIViewController.Transition.ZoomOptions()
+            let landing = ZoomLanding()
             options.interactiveDismissShouldBegin = { [weak self, weak route] context in
                 guard let self, let route, context.willBegin else { return false }
-                return !self.refusesDismissal(of: route)
+                let begins = !self.refusesDismissal(of: route)
+                // Unaligned until this dismissal ends; one the finger cancels
+                // (the route appears again) aligns again.
+                if begins { landing.interactive = true }
+                return begins
             }
+            controller.appeared = { landing.interactive = false }
             // Where the source lands: the presented route's own element with
             // the source's id, when it has one; for an image, the image as it
             // is drawn (`object-fit`), so the zoom morphs photo into photo
@@ -326,7 +350,6 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             // The last answer, for the zoom back after a Close: by then the
             // route's nodes have left the presenter's map (`release`) though
             // UIKit still shows them. `prepare` samples it just before.
-            let landing = ZoomLanding()
             let resolve: (UIView, NodeView?) -> CGRect? = { [weak self, weak route] zoomed, sourceView in
                 guard let self, let route, let name = route.props["navigationSource"],
                       let target = presenter.views.values.filter({
@@ -338,10 +361,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                 return Self.zoomAlignment(target: target, fallbackNatural: source?.raster?.image.naturalSize, in: zoomed)
             }
             options.alignmentRectProvider = { context in
-                guard let zoomed = context.zoomedViewController.viewIfLoaded,
-                      let rect = resolve(zoomed, context.sourceView as? NodeView) else { return landing.rect }
-                landing.rect = rect
-                return rect
+                landing.answer(context.zoomedViewController.viewIfLoaded.flatMap { resolve($0, context.sourceView as? NodeView) })
             }
             layer.sampleLanding = { [weak controller] in
                 if let zoomed = controller?.viewIfLoaded, let rect = resolve(zoomed, nil) { landing.rect = rect }
