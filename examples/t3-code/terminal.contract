@@ -118,8 +118,11 @@ component TerminalContent
     command: action
     confirm: action
   state hovered = ""
+  state closeHovered = "" // PanelTabCloseButton's tooltip: the close label, shown over the button
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
+  action hoverClose(id: string, over: bool)
+    closeHovered = over ? id : (closeHovered == id ? "" : closeHovered)
   action message(target: string, value: string)
     command(`${view.commandPrefix}:message`, target, value, 0)
   action focused(target: string, active: bool)
@@ -154,8 +157,10 @@ component TerminalContent
                     text tab.heading flex=1 min-width=0 text-align="left" font-size=10 line-height="14px" color=(tab.groupActive ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") text-overflow="ellipsis" white-space="nowrap"
                     text `${tab.count}` font-size=9 line-height="12px" color="light-dark(#71717bb3, #818181b3)"
                 row align-items="center" gap=2 height=24 padding-left=6 padding-right=8 border-radius=6 background-color=(tab.active ? "light-dark(#f4f4f5, #ffffff14)" : (hovered == tab.id ? "light-dark(#f4f4f599, #ffffff0f)" : "#00000000")) hover=hover(tab.id) testId=`terminal-tab-${tab.id}`
-                  button press=confirm("ui:confirm", tab.target, `${view.commandPrefix}:close`, tab.closeTitle, tab.closeBody, true) aria-label=tab.closeLabel testId=`terminal-tab-close-${tab.id}` width=16 height=16 flex-shrink=0 padding=2 border-width=0 border-radius=2 background-color="#00000000"
-                    ShellIcon(name=(hovered == tab.id ? "x" : "square-terminal"), size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+                  box position="relative" flex-shrink=0
+                    button press=confirm("ui:confirm", tab.target, `${view.commandPrefix}:close`, tab.closeTitle, tab.closeBody, true) hover=hoverClose(tab.id) aria-label=tab.closeLabel testId=`terminal-tab-close-${tab.id}` width=16 height=16 padding=2 border-width=0 border-radius=2 background-color=(closeHovered == tab.id ? "light-dark(#f4f4f5, #ffffff14)" : "#00000000")
+                      ShellIcon(name=(hovered == tab.id ? "x" : "square-terminal"), size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+                    TipBubble(label=tab.closeLabel, side="top", align="start", offset=22, inset=0, shown=(closeHovered == tab.id))
                   button press=command(`${view.commandPrefix}:activate`, tab.target, "", 0) aria-label=tab.label aria-pressed=tab.active testId=`terminal-tab-select-${tab.id}` flex=1 min-width=0 height=24 padding=0 border-width=0 background-color="#00000000" text-align="left"
                     text tab.label width="100%" text-align="left" font-size=12 line-height="16px" color=(tab.active or hovered == tab.id ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") text-overflow="ellipsis" white-space="nowrap"
 
