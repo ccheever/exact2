@@ -113,7 +113,8 @@ describe('details source (upstream 429c625a85, d1034d62b2)', () => {
     const client = { ready: true, projectId: 'p1', threadId: 't1', environmentId: 'env', origin: 'http://127.0.0.1:3773', local: {}, draftKey: 'env:t1', generation: 1,
       config: { availableEditors: ['cursor'], environment: { label: 'Local' }, providers: [] }, projection: { thread: { id: 't1', lineage: {} }, runs: [], subagents: [], contextTransfers: [] },
       shell: { projects: [{ id: 'p1', workspaceRoot: '/work/project' }], threads: [shell('t1', { projectId: 'p1' })] },
-      restAccess: () => ({ call: async (request: Obj) => { calls.push(request); return request.op === 'subscribe' ? { id: `sub-${calls.length}` } : {}; } }), ...extra } as unknown as T3Client;
+      // Only the git status stream is recorded; the live scheduled-task stream (live-streams.ts) has its own tests.
+      restAccess: () => ({ call: async (request: Obj) => { if (request.key === 'scheduled-tasks' || request.key === 'project-clones') return { id: 'live-1' }; calls.push(request); return request.op === 'subscribe' ? { id: `sub-${calls.length}` } : {}; } }), ...extra } as unknown as T3Client;
     // The stream's first event, as the client's drain hands it over.
     const deliver = () => { const id = String(calls.filter(call => call.op === 'subscribe').length ? `sub-${calls.length}` : ''); vcsStatusEvent(client, { subscriptionId: id, value: { _tag: 'snapshot', local: status, remote: null } }); };
     return { client, calls, deliver };

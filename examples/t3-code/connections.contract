@@ -16,6 +16,10 @@ use CnSeparator from "./settings-b-kit.contract"
 use CnTooltip from "./settings-b-kit.contract"
 use CnFolded from "./settings-b-kit.contract"
 use CnSelect from "./settings-b-kit.contract"
+use EnvRoute from "./connections-routes.contract" // lane environment-routes
+use RouteCount from "./connections-routes.contract"
+use RouteMenuItem from "./connections-routes.contract"
+use EnvironmentRoutes from "./connections-routes.contract"
 
 // animate-status-pulse: full, then half opacity in six steps.
 keyframes cnStatusPulse
@@ -57,6 +61,10 @@ shape SavedEnvironment
   progressFailed: string
   iconLock: string
   icons: list<EnvIconChoice>
+  // Lane environment-routes: "Routes" / "N routes", the list's label and its rows.
+  routeCount: string
+  routesLabel: string
+  routes: list<EnvRoute>
 shape BalanceMachine
   key: string
   first: bool
@@ -109,6 +117,8 @@ component ConnectionsPanel
     remove: action
     menu: string
     toggleMenu: action
+    addRoute: action
+    still: bool
   state loadOpen = false
   state githubOpen = false
   action toggleLoad
@@ -148,7 +158,7 @@ component ConnectionsPanel
                 // "Publish agent activity" row (CloudLinkRow renders null) and this one-line sentence.
                 text "Click “Add environment” to pair another environment." font-size=14 line-height="20px" text-align="center" color="light-dark(#71717b, #818181)"
           each environment in page.environments key=environment.key
-            EnvironmentRow(environment=environment, busy=busy, op=op, remove=remove)
+            EnvironmentRow(environment=environment, busy=busy, op=op, remove=remove, addRoute=addRoute, still=still)
       when length(page.machines) >= 2
         CnFolded(title="Load balancing", summary=page.loadSummary, open=loadOpen, sectionId="load-balancing", toggle=toggleLoad, hasSwitch=true, switchOn=page.loadBalancing, switchLabel="Automatically balance load", flip=op("load-balancing", "", (page.loadBalancing ? "false" : "true")), busy=busy)
           text "New threads in shared projects start on the machine with the most free CPU and memory, weighted by each machine's preference." font-size=12 line-height="16px" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 color="light-dark(#71717b, #818181)"
@@ -172,19 +182,26 @@ component EnvironmentRow
     busy: bool
     op: action
     remove: action
+    addRoute: action
+    still: bool
   state tip = ""
+  state routesOpen = false
   action hover(which: string, over: bool)
     tip = over ? which : (tip == which ? "" : tip)
+  action toggleRoutes
+    routesOpen = not routesOpen
   view
     column width="100%" position="relative" border-top-style="solid" border-top-width=(environment.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)"
-      row width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 gap=12 align-items="center" opacity=(environment.dimmed ? 0.6 : 1) testId=`environment-${environment.environmentId}`
+      row width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=10 padding-bottom=(routesOpen ? 0 : 10) gap=12 align-items="center" opacity=(environment.dimmed ? 0.6 : 1) testId=`environment-${environment.environmentId}`
         CnMachineIcon(kind=environment.kind, size=16, color="light-dark(#71717b, #818181)")
         column flex=1 min-width=0
           text environment.label font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1
-          row hover=hover("status") min-width=0 position="relative"
-            text environment.subtitle font-size=12 line-height="16px" line-clamp=1 min-width=0 color=(environment.errorTone ? "light-dark(#e7000b, #ff6467)" : "light-dark(#71717b, #818181)") testId=`environment-status-${environment.environmentId}`
-            when tip == "status"
-              CnTooltip(tip=environment.tooltip, tipId=`environment-status-tip-${environment.environmentId}`, above=20)
+          row min-width=0 gap=4 align-items="center"
+            row hover=hover("status") min-width=0 flex-shrink=1 position="relative"
+              text environment.subtitle font-size=12 line-height="16px" line-clamp=1 min-width=0 color=(environment.errorTone ? "light-dark(#e7000b, #ff6467)" : "light-dark(#71717b, #818181)") testId=`environment-status-${environment.environmentId}`
+              when tip == "status"
+                CnTooltip(tip=environment.tooltip, tipId=`environment-status-tip-${environment.environmentId}`, above=20)
+            RouteCount(label=environment.routeCount, open=routesOpen, still=still, environmentId=environment.environmentId, toggle=toggleRoutes)
           // ServerUpdateProgress: a pulsing dot and "Downloading…"/"Restarting…", or the failure in red.
           when environment.progress != ""
             row margin-top=4 gap=8 align-items="center" max-width=448 testId=`environment-update-progress-${environment.environmentId}`
@@ -219,10 +236,15 @@ component EnvironmentRow
               PvIcon(name="ellipsis", size=14, color="light-dark(#71717b, #818181)")
             CnMenu(menuId=`environment-menu-${environment.environmentId}-popup`, label=`More actions for ${environment.label}`, width=196, endAlign=24, offsetX=0, offsetY=0)
               EnvironmentIconMenu(environment=environment, op=op)
+              RouteMenuItem(label=(routesOpen ? "Hide routes" : "Routes"), menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-routes-item-${environment.environmentId}`, disabled=busy, choose=toggleRoutes)
               when environment.traceId != ""
                 CnMenuItem(label="Copy trace ID", menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-trace-${environment.environmentId}`, destructive=false, disabled=busy, highlighted=false, note="", icon="", submenu="", choose=op("environment-trace", environment.key, environment.traceId))
               CnSeparator()
               CnMenuItem(label="Remove from this device…", menuId=`environment-menu-${environment.environmentId}-popup`, itemId=(environment.active ? "forget-server" : `environment-remove-${environment.environmentId}`), destructive=true, disabled=busy, highlighted=false, note="", icon="", submenu="", choose=remove(environment.key))
+      // EnvironmentRow `detail`: the routes, aligned with the label, inside the row's padding.
+      when routesOpen
+        column width="100%" box-sizing="border-box" padding-left=44 padding-right=16 padding-bottom=10 opacity=(environment.dimmed ? 0.6 : 1)
+          EnvironmentRoutes(environmentId=environment.environmentId, rowKey=environment.key, listLabel=environment.routesLabel, label=environment.label, routes=environment.routes, busy=busy, op=op, remove=remove, addRoute=addRoute)
 
 // EnvironmentIconMenu: "Icon" opens the machine kinds, the server's own
 // detection marked; a locked environment shows the reason as a disabled row.
@@ -307,6 +329,8 @@ component AddEnvironmentDialog
     set: action
     ssh: action
     close: action
+    routeTarget: string
+    routeLabel: string
   state mode = "remote"
   state username = ""
   state port = ""
@@ -315,6 +339,12 @@ component AddEnvironmentDialog
   action choose(value: string)
     mode = value
     suggest = false
+  // Lane environment-routes: "Add route" pairs the same machine at this address (id `<environment id> <host>`).
+  action submitted
+    if routeTarget == ""
+      submit()
+    else
+      ssh("environment-route-add", `${routeTarget} ${origin}`, credential)
   action editUsername(value: string)
     username = value
   action editPort(value: string)
@@ -329,17 +359,20 @@ component AddEnvironmentDialog
     if name == "ArrowDown"
       suggest = true
       dismissedFor = "-"
-  derive sshPayload = `username=${encodeURIComponent(username)}&port=${encodeURIComponent(port)}`
+  // Lane environment-routes: adding a route pairs only the machine it names (expectedEnvironmentId).
+  derive routePayload = (routeTarget == "" ? "" : `expectedEnvironmentId=${encodeURIComponent(routeTarget)}`)
+  derive sshPayload = `username=${encodeURIComponent(username)}&port=${encodeURIComponent(port)}${routeTarget == "" ? "" : "&"}${routePayload}`
+  derive adding = (routeTarget == "" ? "Add environment" : "Add route")
   // openOnInputClick, and open while typing until Escape dismisses this text.
   derive suggestions = (suggest or sshHost != "") and dismissedFor != sshHost and mode == "ssh" and sshHosts.hasContent and not busy
   // r10-connect: a pasted pairing URL shows as its host and code (handleSavedBackendHostChange).
   derive split = pairFields.host != "" and pairFields.source == origin
   view
     column class=CnOverlay testId="connection-overlay"
-      column width="100%" max-width=768 max-height=(viewportHeight - 32) box-sizing="border-box" padding=24 gap=16 border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" role="dialog" aria-label="Add Environment" testId="connection-dialog"
+      column width="100%" max-width=768 max-height=(viewportHeight - 32) box-sizing="border-box" padding=24 gap=16 border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" role="dialog" aria-label=(routeTarget == "" ? "Add Environment" : `Add a route to ${routeLabel}`) testId="connection-dialog"
         column gap=8
-          text "Add Environment" font-size=20 line-height="20px" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-          text "Pair another environment to this client." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+          text (routeTarget == "" ? "Add Environment" : `Add a route to ${routeLabel}`) font-size=20 line-height="20px" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text (routeTarget == "" ? "Pair another environment to this client." : "Pair this machine again over another address, such as its Tailscale name. It joins the existing routes instead of adding a second machine.") font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
         row width="100%" gap=12
           ModeCard(mode="remote", title="Remote link", description="Enter a backend host and pairing code.", icon="link", selected=(mode == "remote"), busy=busy, choose=choose("remote"))
           ModeCard(mode="ssh", title="SSH", description="Use local SSH config, agent, and tunnels for the backend.", icon="terminal", selected=(mode == "ssh"), busy=busy, choose=choose("ssh"))
@@ -357,9 +390,9 @@ component AddEnvironmentDialog
             text error font-size=12 line-height="16px" role="alert" color="light-dark(#e7000b, #ff6467)" testId="connection-error"
           when not available
             text "This client requires its macOS native transport module." font-size=12 role="alert" color="light-dark(#e7000b, #ff6467)"
-          button press=submit class=PvOutline width="100%" height=32 padding-left=11 padding-right=11 disabled=(busy or not available) testId="connect"
+          button press=submitted class=PvOutline width="100%" height=32 padding-left=11 padding-right=11 disabled=(busy or not available) testId="connect"
             PvIcon(name="plus", size=14, color="light-dark(#27272a, #f5f5f5)")
-            text (busy ? "Adding…" : "Add environment") font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            text (busy ? "Adding…" : adding) font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
         when mode == "ssh"
           column width="100%" gap=12
             column width="100%" gap=6
@@ -377,7 +410,7 @@ component AddEnvironmentDialog
                 text (error != "" ? error : sshHosts.error) font-size=14 line-height="20px" flex=1 min-width=0 color="light-dark(#c10007, #ff6467)"
             button press=ssh("environment-ssh-add", sshHost, sshPayload) class=PvOutline width="100%" height=32 padding-left=11 padding-right=11 disabled=(busy or not available) testId="ssh-connect"
               PvIcon(name="plus", size=14, color="light-dark(#27272a, #f5f5f5)")
-              text (busy ? "Adding…" : "Add environment") font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+              text (busy ? "Adding…" : adding) font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
         // AutocompletePopup, laid over the fields as a direct child of the dialog so it takes hits.
         when suggestions
           column position="absolute" left=24 right=24 top=264 max-height=288 overflow-y="scroll" box-sizing="border-box" padding=4 border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="listbox" aria-label="SSH hosts" testId="ssh-host-suggestions"
@@ -386,7 +419,7 @@ component AddEnvironmentDialog
             when sshHosts.noMatch != ""
               text sshHosts.noMatch font-size=12 line-height="16px" padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 color="light-dark(#71717b, #9a9a9a)" testId="ssh-host-no-match"
             each host in sshHosts.hosts key=host.alias
-              SshHostRow(host=host, busy=busy, pick=ssh("environment-ssh-pick", host.alias, ""))
+              SshHostRow(host=host, busy=busy, pick=ssh("environment-ssh-pick", host.alias, routePayload))
         button press=close class=PvIconButton width=32 height=32 position="absolute" top=8 right=8 aria-label="Close" aria-keyshortcuts="Escape" disabled=busy testId="close-connection"
           PvIcon(name="x", size=16, color="light-dark(#71717b, #818181)")
 

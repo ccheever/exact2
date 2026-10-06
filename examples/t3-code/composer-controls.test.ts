@@ -51,7 +51,8 @@ describe('sticky model and next-turn selection', () => {
     await command('send', '', 'Follow up');
     const sent = native.committed.slice(before);
     expect(sent.map(entry => entry.type)).toEqual(['thread.runtime-mode.set', 'message.dispatch']);
-    expect(sent[1]).toMatchObject({ modelSelection: { instanceId: 'codex', model: 'model-a', options: [{ id: 'reasoningEffort', value: 'low' }] },
+    // withImplicitFastModeDefault (composer-fidelity G9): model-a offers Fast and the user never chose it, so Normal is explicit.
+    expect(sent[1]).toMatchObject({ modelSelection: { instanceId: 'codex', model: 'model-a', options: [{ id: 'reasoningEffort', value: 'low' }, { id: 'fastMode', value: false }] },
       deliveryIntent: 'auto', dispatchMode: { type: 'start_immediately' } });
   });
   test('boolean traits are offered and applied', () => {

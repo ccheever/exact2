@@ -10,6 +10,7 @@ import { LUCIDE_PATHS } from './settings-b-lucide';
 import { fileIconToken } from './timeline-files';
 import { pushToast } from './toast';
 import type { T3Client } from './client';
+import { faviconPickLabel } from './desktop-shell-favicon';
 
 /** PROJECT_ICON_COLORS: swatch bg-*-500; icon ink text-*-600 / dark:text-*-400. */
 export const ICON_COLORS: { value: string; label: string; swatch: string; ink: string; surface: string; inkLight: string; inkDark: string }[] = ([
@@ -126,9 +127,9 @@ export function encodeIcon(input: { kind: string; name: string; color: string; t
 
 // ── The Project page's icon fields (ProjectFavicon for the representative) ──
 export type IconFields = { iconKind: string; iconName: string; iconD: string; iconInk: string; iconSurface: string; iconText: string; iconTextWidth: number;
-  iconEmoji: string; iconPickColor: string; iconLetters: string; faviconSrc: string; iconScope: string; iconCwd: string };
+  iconEmoji: string; iconPickColor: string; iconLetters: string; faviconSrc: string; iconScope: string; iconCwd: string; iconPickExternal: string };
 export const blankIconFields: IconFields = { iconKind: '', iconName: '', iconD: '', iconInk: '#00000000', iconSurface: '#00000000', iconText: '', iconTextWidth: 12,
-  iconEmoji: '', iconPickColor: 'blue', iconLetters: '', faviconSrc: '', iconScope: '', iconCwd: '' };
+  iconEmoji: '', iconPickColor: 'blue', iconLetters: '', faviconSrc: '', iconScope: '', iconCwd: '', iconPickExternal: '' };
 
 // Data sources have no clock: caches are keyed by the connection generation and bounded.
 const faviconCache = new Map<string, string>();
@@ -164,7 +165,8 @@ export async function iconFields(client: T3Client, native: Native | null | undef
     iconSurface: surfaceOf(icon.kind ? color : identity.color), iconText: shown, iconTextWidth: monogramWidth(shown), iconEmoji: icon.emoji,
     iconPickColor: color, iconLetters: icon.kind === 'monogram' ? icon.text : identity.monogram,
     faviconSrc: icon.kind ? '' : await faviconSource(client, native, representative),
-    iconScope: members.map(member => str(member.id)).join(','), iconCwd: str(representative.workspaceRoot) };
+    iconScope: members.map(member => str(member.id)).join(','), iconCwd: str(representative.workspaceRoot),
+    iconPickExternal: faviconPickLabel(client.origin, members) }; // desktop-shell-favicon.ts
 }
 
 // ── The picker resource (icon grid, emoji, monogram validity, image files) ──

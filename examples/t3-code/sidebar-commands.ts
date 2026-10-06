@@ -20,6 +20,8 @@ import { resetSidebarWidth } from './r4-polish-sidebar-width';
 import { sweepRelease } from './r11-upstream-sweep';
 import { discardDraft, draftMenu } from './r11-upstream-drafts';
 import { menuAnchor, rowKeyMenu, withMenuAnchor } from './r12-sidebar-keys';
+import { legacyCommand, legacyLocal } from './legacy-sidebar-commands'; // legacy-sidebar: the "Sidebar (legacy)" gestures
+import { legacyEnabled, legacyProjectOrder } from './legacy-sidebar-view';
 
 const failure = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
 const threadOf = (client: T3Client, id: string): Obj | undefined => client.shell.threads.find(thread => thread.id === id);
@@ -261,7 +263,8 @@ export async function sidebarSelecting(client: T3Client, nativeHandle: Native, i
   if (value === 'click') {
     let flags: Obj = {};
     try { flags = obj(await client.restAccess(nativeHandle).call({ op: 'sidebarModifiers' })); } catch { flags = {}; }
-    const rows = renderedRows(client, partition(client, wall(client))).map(entry => str(entry.thread.id));
+    // legacy-sidebar: ⇧-click ranges over the row's project list (rangeSelectTo(threadKey, orderedProjectThreadKeys)).
+    const rows = legacyEnabled(client) ? legacyProjectOrder(client, id) : renderedRows(client, partition(client, wall(client))).map(entry => str(entry.thread.id));
     if (flags.command === true) {
       session.selection = session.selection.includes(id) ? session.selection.filter(key => key !== id) : [...session.selection, id];
       session.anchor = id;
@@ -312,6 +315,7 @@ async function showMenu(client: T3Client, nativeHandle: Native, items: MenuItem[
 
 /** The sidebar's local ops: view state that never reaches the server. */
 export async function sidebarLocal(client: T3Client, _native: Native, op: string, id: string, value: string): Promise<string> {
+  if (op.startsWith('legacy-')) return legacyLocal(client, op.slice(7), id, value);
   const prefs = sidebarPrefs(client), session = sidebarSession(client);
   if (op === 'pill-dismiss') { dismissProviderPill(client, value); return ''; }
   if (op === 'shelf') {
@@ -359,6 +363,7 @@ export async function sidebarLocal(client: T3Client, _native: Native, op: string
 /** The sidebar's server ops. Failures are toasts, never the transcript banner. */
 export async function sidebarCommand(client: T3Client, nativeHandle: Native, storage: Files, op: string, id: string, value: string, at = 0): Promise<string> {
   adoptCommandTime(client, at);
+  if (op.startsWith('legacy-')) return legacyCommand(client, nativeHandle, storage, op.slice(7), id, value);
   const session = sidebarSession(client);
   const settings = client.local.clientSettings;
   if (op === 'undo') { await undoLatest(client, nativeHandle); return ''; }
@@ -384,7 +389,8 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
   if (op === 'new-thread-click') {
     let flags: Obj = {};
     try { flags = obj(await client.restAccess(nativeHandle).call({ op: 'sidebarModifiers' })); } catch { flags = {}; }
-    if (flags.shift !== true && client.projectGroups().length > 1) return 'sidebar:palette-new-thread';
+    // routes/_chat.tsx chat.new: the legacy sidebar keeps the immediate contextual create.
+    if (flags.shift !== true && client.projectGroups().length > 1 && !legacyEnabled(client)) return 'sidebar:palette-new-thread';
     try { await (client as unknown as Navigator).openDraft?.(nativeHandle, client.projectId); }
     catch (error) { toast(client, 'Could not create thread', error); return ''; }
     return 'sidebar:new-thread';

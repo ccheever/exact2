@@ -84,8 +84,8 @@ describe('composer controls', () => {
     expect(commandChords({}, 'composer.mode', 'Meta+Shift+A')).toBe('Meta+Shift+A');
   });
   test('trigger anchors come from the module status', () => {
-    expect(anchorsFrom({ anchors: { traits: [147, 90.5], runtime: [250.5, 133], controls: [0, 393] } })).toEqual({ traits: { x: 147, width: 90.5 }, runtime: { x: 250.5, width: 133 }, controls: { x: 0, width: 393 }, implement: { x: 0, width: 0 }, meter: { x: 0, width: 0 }, actions: { x: 0, width: 0 } });
-    expect(anchorsFrom({})).toEqual({ traits: { x: 0, width: 0 }, runtime: { x: 0, width: 0 }, controls: { x: 0, width: 0 }, implement: { x: 0, width: 0 }, meter: { x: 0, width: 0 }, actions: { x: 0, width: 0 } });
+    expect(anchorsFrom({ anchors: { traits: [147, 90.5], runtime: [250.5, 133], controls: [0, 393] } })).toEqual({ traits: { x: 147, width: 90.5 }, runtime: { x: 250.5, width: 133 }, controls: { x: 0, width: 393 }, implement: { x: 0, width: 0 }, meter: { x: 0, width: 0 }, actions: { x: 0, width: 0 }, more: { x: 0, width: 0 } });
+    expect(anchorsFrom({})).toEqual({ traits: { x: 0, width: 0 }, runtime: { x: 0, width: 0 }, controls: { x: 0, width: 0 }, implement: { x: 0, width: 0 }, meter: { x: 0, width: 0 }, actions: { x: 0, width: 0 }, more: { x: 0, width: 0 } });
   });
 });
 

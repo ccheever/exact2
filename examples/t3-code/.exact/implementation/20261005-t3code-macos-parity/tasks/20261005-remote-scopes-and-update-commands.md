@@ -1,8 +1,8 @@
 ---
 name: 20261005-remote-scopes-and-update-commands
 plan: 20261005-t3code-macos-parity
-implementation: implemented
-verification: failed
+implementation: in-progress
+verification: stale
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
@@ -72,7 +72,7 @@ Port changes for file headers: `Effect` services become plain functions; `useCop
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
-| recorded decision | U12 (sessions with three scopes) | none | Answered at `prepare` | pending |
+| recorded decision | U12 (sessions with three scopes) | User answer 2026-10-06 | Existing sessions stay unchanged; new scopes require re-pairing | Confirmed by user after failure review |
 | conditional merged task PR | [20261005-environment-routes](20261005-environment-routes.md) | pending | Only if U12 chooses the re-pair notice | pending |
 | scheduling preference | Either order with `20261005-environment-routes` | none | Both edit `connections.ts` and the pairing code in `T3Transport.swift` | pending |
 
@@ -125,8 +125,8 @@ remain pending, not satisfied). Reference `1e2ecbd975`.
   "The environment rejected the authentication request." (was "The server returned HTTP 400.").
   No retry with fewer scopes. The link is spent by the refusal (server behavior, confirmed live).
   The text is read from the reference source, not from an oracle redemption (no oracle on this branch).
-- U12: default taken (sessions paired before this change are left as they are; no notice). Open for
-  the user to confirm.
+- U12: confirmed by the user on 2026-10-06 after failure review: keep existing sessions
+  unchanged, with no notice; extra permissions arrive when the user pairs again.
 - Install-aware command: `server-installation.ts` ports `ServerInstallation`
   (`ForwardCompatibleOptional`: unknown kind or npm-global without prefix decodes as absent),
   `manualServerUpdateCommand`, the labels ("Copy update command" / "Copy relaunch command"), the
@@ -193,3 +193,12 @@ superseded by this attempt; the observed focus rendering defect remains.
 Product source was not changed during verification. Fixture processes, Keychain entries
 and preferences were cleaned up. Evidence and this task update are local and staged;
 no commit, PR publication or merge was performed.
+
+## Repair in progress (2026-10-06)
+
+The user authorized repairing the failed focus indicator and completing unfinished
+verification. U12 is now confirmed: retain existing sessions without a notice.
+AppKit defaults `focusRingMaskBounds` to an empty rectangle; the host draws a mask but
+never supplies its bounds. The repair gives custom pressables their local bounds and
+adds a host regression test. Actual normal-window evidence and full T0 trace comparison
+will follow; previous failed evidence remains unchanged.

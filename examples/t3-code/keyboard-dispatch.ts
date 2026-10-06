@@ -13,6 +13,7 @@ import { undoLive } from './sidebar-state';
 import { addStripShortcuts } from './composer-controls-branch';
 import { diffShown } from './r8-keys-chords'; // lane r8-keys: ⌘D
 import { closeChordTarget } from './r9-input-panel'; // lane r9-input: ⌘W closes the active surface tab
+import { legacyTraversal } from './legacy-sidebar-view'; // legacy-sidebar: ⌘1-9 and ⇧⌘[ / ⇧⌘] follow its visible order
 
 export type DispatchContext = { composerFocus: boolean; editableFocus: boolean; turnRunning: boolean; modelPickerOpen: boolean; draftThreadRoute: boolean; modalOpen: boolean; settingsOpen: boolean; diffOpen: boolean;
   paletteOpen?: boolean; paletteMode?: string; prNumber?: string; undoShown?: boolean; settingsRoute?: string };
@@ -146,9 +147,11 @@ function appearanceRow(add: DispatchAdd, client: T3Client, threads: Obj[], brows
 function threadOrderRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   // Thread order as the sidebar paints it: pinned, active, working, snoozed, settled.
   const order = ['pinned', 'active', 'working', 'snoozed', 'settled'];
-  const ordered = order.flatMap(section => threads.filter(thread => str(thread.section) === section));
+  const legacy = legacyTraversal(client);
+  const ordered = legacy?.ordered ?? order.flatMap(section => threads.filter(thread => str(thread.section) === section));
   const current = ordered.findIndex(thread => thread.selected === true);
-  if (ordered.length) {
+  if (legacy) { if (legacy.previous) add('thread.previous', 'thread', legacy.previous, 'Previous Thread'); if (legacy.next) add('thread.next', 'thread', legacy.next, 'Next Thread'); }
+  else if (ordered.length) {
     const previous = ordered[current <= 0 ? ordered.length - 1 : current - 1], following = ordered[current < 0 || current >= ordered.length - 1 ? 0 : current + 1];
     add('thread.previous', 'thread', str(previous.id), 'Previous Thread');
     add('thread.next', 'thread', str(following.id), 'Next Thread');

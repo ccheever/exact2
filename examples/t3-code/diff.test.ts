@@ -58,7 +58,8 @@ describe('diff panel', () => {
     await command('diff-view', 'file', 'fixture-result.md');
     const opened = snapshot(client);
     expect(opened.diffItems.map(item => [item.kind, item.tone, item.number])).toEqual([['file', '', ''], ['line', 'context', '1'], ['line', 'context', '2'], ['line', 'deletion', '3'], ['line', 'addition', '3'], ['pad', '', '']]);
-    expect(opened.diffItems[3]!.segments.map((segment: Obj) => segment.mark)).toEqual([false, true, false]);
+    // DiffPanel passes `lineDiffType: "none"`: a replaced line keeps one unmarked run.
+    expect(opened.diffItems[3]!.segments.map((segment: Obj) => segment.mark)).toEqual([false]);
     expect(opened.diffItems[1]!.gutter).toBe(33.3);
     expect(opened.diffItems[1]!.segments.map((segment: Obj) => segment.syntax)).toEqual(['tag']); // lane r12-render: Shiki's heading ink
   });

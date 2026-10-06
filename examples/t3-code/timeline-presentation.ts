@@ -21,14 +21,13 @@ import { gitChatLocal } from './r4-git-route';
 import { surfaceLocal } from './r4-surfaces-panel';
 import { closeTableMenu, tableMenuAction } from './r8-keys-table-menu'; // lane r8-keys: the table Copy popup
 import { preparationFailureRunId, retryableActivities } from './r11-upstream-retry'; // lane r11-upstream: Retry a failed workspace preparation
+import { numericDateFormatter, timestampFormatter } from './timestamp-format'; // desktop-shell-details: the host's locale
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
 export function shortTime(value: unknown, format: string): string {
   const date = new Date(typeof value === 'string' ? value : '');
   if (!Number.isFinite(date.getTime())) return '';
-  const options: Intl.DateTimeFormatOptions = {hour: 'numeric', minute: '2-digit'};
-  if (format !== 'locale') options.hour12 = format === '12-hour';
-  return new Intl.DateTimeFormat(undefined, options).format(date);
+  return timestampFormatter(format).format(date);
 }
 
 /** formatChatTimestampTooltip: "2:20 PM, 4th October 2026". */
@@ -44,16 +43,13 @@ export function timestampTooltip(value: unknown, format: string): string {
 export function messageTime(value: unknown, now: number, format: string): string {
   const date = new Date(typeof value === 'string' ? value : '');
   if (!Number.isFinite(date.getTime())) return '';
-  const options: Intl.DateTimeFormatOptions = {hour: 'numeric', minute: '2-digit'};
-  if (format !== 'locale') options.hour12 = format === '12-hour';
-  const time = new Intl.DateTimeFormat(undefined, options).format(date);
+  const time = timestampFormatter(format).format(date);
   const today = new Date(now);
   const dayDiff = Math.round((new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
     - new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()) / 86_400_000);
   if (dayDiff <= 0) return time;
   if (dayDiff === 1) return `yesterday at ${time}`;
-  return `${new Intl.DateTimeFormat(undefined, {month: 'numeric', day: 'numeric',
-    ...(date.getFullYear() === today.getFullYear() ? {} : {year: 'numeric'})}).format(date)} ${time}`;
+  return `${numericDateFormatter(date.getFullYear() !== today.getFullYear()).format(date)} ${time}`;
 }
 
 interface ViewState { open: Set<string>; copies: Map<string, { nonce: number; ok: boolean }>; nonce: number; codeCopy: { threadId: string; text: string; nonce: number };
