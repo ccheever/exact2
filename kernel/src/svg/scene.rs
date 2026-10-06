@@ -39,9 +39,27 @@ pub use clip::{Clip, ClipShape};
 pub use island::{Mask, Pattern};
 pub use text::{TextChunk, TextItem, TextRun};
 
-/// A host's presented value for a node's property: a running transition's
-/// or a sampled animation's; `None` shows the row.
-pub type Presented<'a> = &'a dyn Fn(NodeKey, Property) -> Option<Value>;
+/// What a host's motion engine presents: a node's value for a property (a
+/// running transition's or a sampled animation's), and a path's `d` while a
+/// transition moves it (LLP 1055.000 D15); `None` shows the row. A closure
+/// over the values is one that presents no path.
+pub trait Present {
+    /// The presented value of `p` on `key`.
+    fn value(&self, key: NodeKey, p: Property) -> Option<Value>;
+    /// The presented `d` of the path `key`.
+    fn path(&self, _key: NodeKey) -> Option<exact_motion::PathValue> {
+        None
+    }
+}
+
+impl<F: Fn(NodeKey, Property) -> Option<Value>> Present for F {
+    fn value(&self, key: NodeKey, p: Property) -> Option<Value> {
+        self(key, p)
+    }
+}
+
+/// A host's [`Present`].
+pub type Presented<'a> = &'a dyn Present;
 
 /// One `svg`, resolved.
 #[derive(Debug, Clone, PartialEq)]
@@ -319,7 +337,16 @@ fn cascade(node: &NodeRef<'_>, inherited: &StyleProps) -> StyleProps {
 
 impl Resolver<'_, '_> {
     fn value(&self, key: NodeKey, p: Property) -> Option<Value> {
-        (self.presented)(key, p).filter(|v| v.is_finite())
+        self.presented.value(key, p).filter(|v| v.is_finite())
+    }
+
+    /// A path's `d`: the presented one while a transition moves it, else
+    /// the attribute's.
+    fn d<'n>(&self, node: &NodeRef<'n>) -> Option<std::borrow::Cow<'n, str>> {
+        match self.presented.path(node.key) {
+            Some(path) => Some(std::borrow::Cow::Owned(path.to_d())),
+            None => node.props.str(PropId::D).map(std::borrow::Cow::Borrowed),
+        }
     }
 
     /// The inherited properties an animation or transition is moving on
@@ -615,6 +642,10 @@ impl Resolver<'_, '_> {
                 .map_or(vp.d(style.r), |v| v.x as f32);
             let (cx, cy) = (vp.x(style.cx), vp.y(style.cy));
             return circle(cx, cy, r).map(|p| (p, Some((cx, cy, r))));
+        }
+        if node.node_type == NodeType::SvgPath {
+            let path = super::parse_d(&self.d(node)?);
+            return (!path.0.is_empty()).then_some((path, None));
         }
         geometry(node.node_type, node.props, style, vp).map(|p| (p, None))
     }

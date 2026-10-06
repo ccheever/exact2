@@ -13,6 +13,13 @@ use exact_motion::{Presentation, Property, Value};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Host<D> {
+    /// A path's `d` while a transition moves it (LLP 1055.000 D15); `None`
+    /// paints the attribute.
+    pub fn presented_path(&self, id: ViewId) -> Option<exact_motion::PathValue> {
+        let key = self.runner.kernel().node(id)?.key;
+        self.engine.presented_path(motion_node(key))
+    }
+
     /// Adopt a commit's paint, after its `motion_sync` set the rows.
     pub(super) fn sync_paint(&mut self, receipt: &CommitReceipt) {
         let retired = self

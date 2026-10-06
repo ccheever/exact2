@@ -125,6 +125,7 @@ fn paint(p: &mut Painter, k: &Kernel) -> crate::paint::Frame {
             roots: &k.roots(),
             hidden: &|_| false,
             presented: &|_| Presented::IDENTITY,
+            paths: &|_| None,
             scroll: &BTreeMap::new(),
             page: (0., 0.),
             images: &BTreeMap::new(),

@@ -296,16 +296,31 @@ pub(super) fn resolve_svg(
     node: &NodeRef<'_>,
     content: Rect4,
 ) -> exact_kernel::svg::Scene {
-    resolve_with(walk.kernel, node, content, walk.presented)
+    resolve_with(walk.kernel, node, content, walk.presented, walk.paths)
 }
 
-/// [`resolve_svg`] with the host's presented values by view.
+/// [`resolve_svg`] with the host's presented values and paths by view.
 pub fn resolve_with(
     kernel: &exact_kernel::Kernel,
     node: &NodeRef<'_>,
     content: Rect4,
     presented: &dyn Fn(exact_kernel::ViewId) -> super::Presented,
+    paths: &dyn Fn(exact_kernel::ViewId) -> Option<exact_motion::PathValue>,
 ) -> exact_kernel::svg::Scene {
+    /// The host's values by node, as the scene asks for them.
+    struct ByNode<'a, V> {
+        kernel: &'a exact_kernel::Kernel,
+        value: V,
+        paths: &'a dyn Fn(exact_kernel::ViewId) -> Option<exact_motion::PathValue>,
+    }
+    impl<V: Fn(NodeKey, Property) -> Option<Value>> scene::Present for ByNode<'_, V> {
+        fn value(&self, key: NodeKey, p: Property) -> Option<Value> {
+            (self.value)(key, p)
+        }
+        fn path(&self, key: NodeKey) -> Option<exact_motion::PathValue> {
+            (self.paths)(self.kernel.node_by_key(key)?.id)
+        }
+    }
     {
         let value = |key: NodeKey, p: Property| -> Option<Value> {
             let id = kernel.node_by_key(key)?.id;
@@ -327,7 +342,16 @@ pub fn resolve_with(
                 _ => return None,
             })
         };
-        scene::resolve(kernel, node, content, &value)
+        scene::resolve(
+            kernel,
+            node,
+            content,
+            &ByNode {
+                kernel,
+                value,
+                paths,
+            },
+        )
     }
 }
 

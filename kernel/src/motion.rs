@@ -90,6 +90,9 @@ pub struct MotionSync {
     pub timelines: Vec<TimelineRows>,
     /// The sync's eligible targets; ordinary receipt sync has four per node.
     pub changes: Vec<Change>,
+    /// Each created or touched `path`'s `d`, absolute (LLP 1055.000 D15):
+    /// `None` unless its `transition` covers `d` and the data is whole.
+    pub paths: Vec<(u64, Option<exact_motion::PathValue>)>,
 }
 
 impl MotionSync {
@@ -118,6 +121,9 @@ impl MotionSync {
         }
         for change in &self.changes {
             engine.observe(*change)?;
+        }
+        for (node, path) in &self.paths {
+            engine.observe_path(*node, path.clone());
         }
         for (node, clock) in &self.clocks {
             engine.set_animation_clock(*node, clock.as_deref());
@@ -724,6 +730,16 @@ impl Kernel {
                     value,
                     velocity: None,
                 });
+            }
+            // @ref LLP 1055.000 D15 — a path's `d`, read only where a
+            // transition moves it, as a colour target is.
+            if node.node_type == NodeType::SvgPath {
+                let path = node
+                    .style
+                    .transition
+                    .matching(Property::D)
+                    .and_then(|_| crate::svg::parse_d_motion(node.props.str(PropId::D)?));
+                sync.paths.push((id, path));
             }
             if node.node_type.is_svg_shape() {
                 for (property, value) in self.svg_targets(*key) {

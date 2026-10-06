@@ -262,6 +262,12 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             if matches!(a, AttrTarget::Flex) {
                 lines.push("`flex: <n>` is CSS's `<n> 1 0%`".into());
             }
+            if rows == [StyleId::Transition] {
+                lines.push(format!(
+                    "properties {}",
+                    vocab::transition_properties().join(", ")
+                ));
+            }
             lines
         }
         AttrTarget::Prop(p) => {

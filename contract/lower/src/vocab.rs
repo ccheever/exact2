@@ -107,6 +107,22 @@ pub fn codec(row: StyleId) -> String {
         .unwrap_or_default()
 }
 
+/// What a `transition` names (`transition-property`, LLP 1002): `all`,
+/// `border-color`, and each property the engine moves, a path's `d` among
+/// them (LLP 1055.000 D15).
+pub fn transition_properties() -> Vec<&'static str> {
+    use exact_motion::Property;
+    let mut names = vec!["all", "border-color"];
+    names.extend(
+        Property::ALL
+            .into_iter()
+            .chain([Property::D])
+            .filter(|p| *p != Property::ShadowColor)
+            .map(|p| p.name()),
+    );
+    names
+}
+
 /// A style row's default as the schema writes it, if it declares one; a
 /// colour's zero is `transparent`.
 pub fn default(row: StyleId) -> Option<&'static str> {
