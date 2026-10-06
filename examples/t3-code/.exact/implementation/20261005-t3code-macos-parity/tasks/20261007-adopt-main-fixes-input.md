@@ -87,7 +87,25 @@ trace-diff rows (desktop-oracle-and-trace will not be built), 840×620 and dark 
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| 1 (2026-10-07) | on `1a50d0df3` | see Checks below | drive records below | — |
+| 1 (2026-10-07) | `be6c02599`…`126578c2d` on `1a50d0df3` | `bun test examples/t3-code` 2189 pass / 1 skip / 0 fail (base `1a50d0df3`: 2187; 2 new in `text-entry.test.ts`; one of them fails on the base contracts, naming 4 textareas); strict tsc: 8 errors, all in #175's terminal files (ES2020 lib: `replaceAll`, `toSorted`, `at`), the same 8 on the base `1a50d0df3`; contract build 2500 slots, 45 resources; `cargo test -p t3-code-macos --lib` 10/0; AppKit `r5-panels` 6/0, `composer` 43/0, `r10-connect` 5/0, `menus` 43/0, `ssh` 15/0 (1 skipped); macOS bundle builds; five checks pass (cargo build; cargo test 3310 pass, 0 fail, 32 ignored; clippy; fmt; caps; boot) | drive records below; PR image | — |
+
+Drives: one BEFORE (`t3-code-evidence-base` at `1a50d0df3`) and one AFTER (this branch), each
+one `agent.mjs macos --size 1280x840` call under the drive lock, against a lane server on 16360
+(isolated HOME, CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_*, T3CODE_HOME under `target/lane`,
+telemetry off; not committed). Steps: pair with a fresh link, Continue, agents Continue, skip
+import, `connection-settings`, `settings-appearance`, `tap "Add theme"`, then into
+`add-theme-json` the keys `' 0 . 1 '`, 700 ms real pause, `space - - space`, 700 ms, `' a ' space`,
+1500 ms, then `tree add-theme-json` and a window screenshot. A first pair of drives stopped at
+`tap Add theme` (the two words were split; the op needs quotes); the second pair ran through.
+
+```
+BEFORE  {"key":" ","value":"‘0.1’ "}            (after the first pause AppKit curled the quotes)
+        {"key":"'","value":"‘0.1’ — '"}         (the second pause turned -- into —)
+        TextInput#2916 [add-theme-json] value="‘0.1’ — ‘a’ " label="Theme JSON" [focused] (input)
+AFTER   {"key":" ","value":"'0.1' "}
+        {"key":"'","value":"'0.1' -- '"}
+        TextInput#2916 [add-theme-json] value="'0.1' -- 'a' " label="Theme JSON" [focused] (input)
+```
 
 ## Next action
 
