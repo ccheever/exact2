@@ -10,6 +10,13 @@ guide's rules don't make obvious.
 
 ## Layout
 
+- **A root with `min-height="100%"` and `overflow-y="auto"` never scrolls itself.**
+  `min-height` lets the box grow with its content (CSS), so nothing overflows it. On
+  the web the document scrolls instead, and a screenshot shows only the first screen;
+  on iOS nothing scrolls, and what passes the window (or the keyboard) is cut. Fix:
+  `height="100%"` with `overflow-y="auto"`, or a `scroll` child with `flex=1
+  min-height=0`. (Authoring bench, LLP 1087, r33 t1-tip and ios25 t1-tip, 2026-10-06.)
+
 - **A heading's lines are a screen apart with `line-height=28`.** Cause: a bare
   number is CSS's unitless `line-height`, a multiple of the font size (at 22 px,
   28 × 22 = 616 px), unlike a bare number on a length row such as `font-size` or
@@ -132,6 +139,16 @@ guide's rules don't make obvious.
   Rust data seam carries at most `MAX_HOST_WORK_BYTES` (16 MiB) a message; the
   runner's own data source has no such cap. Keep an answer under 16 MiB, or page
   it. (LLP 1090 conformance plan, `host/web-js/conformance/budget.contract`.)
+
+- **A finger on a card's ellipsis title does not lift the card.** A `text` inside a
+  `reorderFor` grip with `overflow-x="hidden"` (which `text-overflow="ellipsis"` needs)
+  is a scroll container, and the grip's `touch-action="none"` stops at a scroll
+  container (CSS), so where the page can scroll the browser takes a touch that starts
+  on the title: nothing lifts and nothing is logged. A mouse, or a finger on the grip's
+  padding, works. Driven at phone size on the web: the card stays; without the overflow,
+  or with `touch-action="none"` (or `pointer-events="none"`) on the title, it moves. Fix:
+  put `touch-action="none"` on that text too. (Authoring bench, LLP 1087, r32 and r33
+  t4-kanban, 2026-10-06.)
 
 - **A second card drag right after a drop does nothing.** A drag that starts before
   the last one's session ends is refused (LLP 1094 D8): the drop is held until its move
