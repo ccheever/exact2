@@ -181,7 +181,7 @@ component QuestionBanner
   view
     column margin-left=22 margin-right=22 margin-bottom=-17 padding-left=3 padding-right=3 padding-top=(stacked ? 4 : 3) padding-bottom=21 box-sizing="border-box" border-top-left-radius=(stacked ? 0 : 18) border-top-right-radius=(stacked ? 0 : 18) border-style="solid" border-top-width=(stacked ? 0 : 1) border-left-width=1 border-right-width=1 border-bottom-width=0 border-color="light-dark(#eaeaea, #1c1c1c)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)" testId="pending-question"
       row width="100%" height=24 align-items="center"
-        button press=toggle testId=`question-toggle-${q.id}` aria-label=(collapsed == q.id ? "Show the question and its options" : "Hide the question and its options") aria-expanded=(collapsed != q.id) flex=1 min-width=0 height=24 padding=0 gap=4 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+        button press=toggle testId=`question-toggle-${q.id}` aria-label=(collapsed == q.id ? "Show the question and its options" : "Hide the question and its options") title=(collapsed == q.id ? "Show the question and its options" : "Hide the question and its options") aria-expanded=(collapsed != q.id) flex=1 min-width=0 height=24 padding=0 gap=4 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
           box width=24 height=24 flex-shrink=0
           row flex=1 min-width=0 gap=4 align-items="center"
             text q.header font-size=12 font-weight=500 line-height="16px" color="light-dark(#71717a, #818181)" flex-shrink=0
@@ -192,7 +192,7 @@ component QuestionBanner
           box width=24 height=24 flex-shrink=0 display="flex" align-items="center" justify-content="center" rotate=(collapsed == q.id ? 180 : 0)
             ReqIcon(name="chevron-down", size=14, color="light-dark(#71717a, #818181)")
         when q.dismissible
-          button press=command("dismiss-question", q.requestId, "", 0) disabled=q.responding testId=`dismiss-question-${q.requestId}` aria-label="Dismiss question without answering" width=24 height=24 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+          button press=command("dismiss-question", q.requestId, "", 0) disabled=q.responding testId=`dismiss-question-${q.requestId}` aria-label="Dismiss question without answering" title="Dismiss question without answering" width=24 height=24 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
             ReqIcon(name="x", size=14, color="light-dark(#71717a, #818181)")
       when collapsed != q.id
         scroll max-height=maximumHeight width="100%" testId=`question-body-${q.id}`
