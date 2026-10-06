@@ -1,12 +1,12 @@
 ---
 name: 20261005-live-automations-and-clones
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
-branch: null
+branch: feat(example)/t3-code-live-automations-and-clones
 pr_url: null
 verified_commit: null
 ---
@@ -91,14 +91,47 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, oracle build, isolated 
 
 ## Progress
 
-Planned. No branch.
+Implemented 2026-10-06 on `feat(example)/t3-code-live-automations-and-clones` (from the feature
+branch after hot-file-split #147). Verification: unverified (no independent review, no oracle).
+
+- `scheduled-tasks.ts`: ports of `matchesScheduledTaskScope`, `resolveSettingsScope` (as
+  `resolveTaskScope`), `validateScheduledTasksSearch`, `taskToDraft`, `scheduledTaskDefaultModel`,
+  `scheduleLabel`, `relativeLabel`; `now` is an argument (X19 #124). The reference's 8 logic tests are
+  ported with their names (`scheduled-tasks.test.ts`, 22 cases with the `each` rows).
+- `live-streams.ts`: `scheduledTasks.subscribe` and `subscribeProjectClones` (clones only with
+  `projectCloneTracking`) per environment: the focused one over T3Client's transport (one dispatch line
+  in `client.ts` drain), every background one over its fleet transport (`liveFleetEvent` in the fleet
+  drain, `liveFleetPass` after it). Two more streams per transport (16-stream cap, X21 #126). A write
+  checks the live list; `scheduledTasks.list` runs only before a stream's first value.
+- Settings › Scheduled tasks (`scheduled-view.ts`, `settings-scheduled.contract`): a section per
+  environment in scope (heading only above one), loading / error / "Environment disconnected", the
+  scope filter, the `link|<env>|<task>` deep link that opens the editor once ("Task unavailable" when
+  missing), 60 s refresh from the existing clock; row writes go to the task's own environment
+  (`scheduled-tasks-commands.ts`).
+- Thread details › Automations (`thread-automations.ts/.contract`) between Version Control and
+  Lineage: status dot (pulses while running, still under reduced motion), title, schedule line,
+  Manage scheduled tasks, Edit (deep link), Run now (disabled while running or busy), Pause/Resume
+  switch; failures toast "Could not run automation" / "Could not update automation".
+- Tracked clones (`project-clones.ts`, `project-clones-live.ts`): the palette calls
+  `projectClone.start` when the server tracks clones, closes and opens the draft; the toast
+  coordinator runs from the shell build (loading + Cancel, 8 s success + Open project, error / info +
+  Retry + Remove project, steps aside while the draft is open); the composer banner and the send
+  block ("Cloning repository", "Repository not cloned"); Remove project is an unforced
+  `project.delete`. `updateToast` now patches kind, timeout, second button and copy button; a changed
+  timeout restarts the toast's timer.
+
+Left / limits: the editor's "Runs on" does not switch environment for a new task; Open project on a
+background environment's clone toast is not offered (no focus-a-project path; the reference opens
+it); action buttons close a toast here, so a toast closed by Retry returns on the next change; icon
+buttons have no tooltips; hover and focus rings unverified (attended, X13); a deep link that found no
+task leaves `restEditor` set until the next settings write.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (2026-10-06) | `0c0a95a4a` on `da40e6590` | `bun test examples/t3-code` 1364 pass / 0 fail (base 1321); strict tsc clean; `contract build` 2196 slots, 43 resources, 48535 nodes; `cargo test -p t3-code-macos --lib` 10 pass; caps within budget; five checks green (build, test, clippy, fmt, caps, boot); macOS bundle builds. No Swift changed, so no AppKit binary is touched | Live drive (lane servers 16170 after / 16171 before, isolated HOME, a seeded thread with two bound tasks): Automations section rows `Nightly triage` "Every 60 min · next in 278d" (agent clock), `Weekly summary` "Weekdays at 09:00 · paused", labels Edit / Run … now / Pause / Resume; `tap details-automation-run-…` started the run on the thread and Settings › Scheduled tasks then showed `succeeded` from the stream with no reload; Edit opened the editor through the deep link (`scheduled-task-dialog`, "Edit task", its fields). Before/after pairs 01 and 02 in the PR | Tracked clone live flow unverified: both drives stopped before it (drive 1: the sidebar was inert after the welcome import; drive 2: `tap add-project` did not open the palette after Settings closed, op 32/48). Clone toasts, banner, send block, Cancel/Retry/Remove covered by unit tests only. Not run: oracle and trace-diff (desktop-oracle-and-trace not built), second environment, old-server path, keyboard focus and reduced-motion transcript, attended rows |
 
 ## Next action
 
-`prepare` after the two prerequisites merge; check fleet stream delivery first, then `implement`.
+`verify`: drive the tracked clone (palette › Git URL with the slow-pack hook) and a second environment; run the oracle rows once desktop-oracle-and-trace exists.
