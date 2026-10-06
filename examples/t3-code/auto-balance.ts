@@ -135,7 +135,8 @@ export function autoBalanceState(client: T3Client, now = composerNow(client), so
   const weight = (id: string) => prefs.loadBalancingWeights[id] ?? DEFAULT_WEIGHT;
   const needs = automatic && !draft.choice;
   const provider = arr(client.config.providers).find(entry => entry.instanceId === client.providerId);
-  const driver = str(provider?.driver);
+  // selectedProvider: the chosen instance's driver, else the requested kind (resolveComposerProviderSelection falls back to Codex).
+  const driver = str(provider?.driver) || 'codex';
   const candidates = !needs ? [] : logical.filter(machine => machine.connected && weight(machine.id) > 0
     && arr(machine.config.providers).some(entry => (!client.providerId || entry.instanceId === client.providerId) && str(entry.driver) === driver && providerAvailable(entry)))
     .map(machine => machine.id);
