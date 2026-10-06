@@ -44,6 +44,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     var origin: URL?
     var token = ""
     private var privateValues: [String] = []
+    private var exchangeScope = "" // remote-scopes.ts: the scope TS asks for in this connect's exchange
     var descriptor: [String: Any] = [:]
     private var state = "disconnected"
     private var message = "Connect to your T3 server."
@@ -275,7 +276,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         retire(T3Failure(kind: "Replaced", message: "The connection was replaced.", uncertain: true))
         origin = newOrigin; descriptor = [:]; token = ""
         failureKind = ""; failureTrace = ""; lastHTTPTrace = ""
-        privateValues = credential.isEmpty ? [] : [credential]
+        privateValues = credential.isEmpty ? [] : [credential]; exchangeScope = request["scope"] as? String ?? ""
         wantsConnection = true; failures = 0; everConnected = false; opening = completion
         // r9-connect: the origin is remembered once its socket opens; a failed pairing leaves nothing behind.
         start(credential: credential)
@@ -316,14 +317,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     }
 
     private func exchange(_ credential: String, epoch: Int) {
-        let body = T3Endpoint.form([
-            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
-            "subject_token": credential,
-            "subject_token_type": "urn:t3:params:oauth:token-type:environment-bootstrap",
-            "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
-            "scope": "orchestration:read orchestration:operate review:write",
-            "client_label": "Exact T3 for Mac", "client_device_type": "desktop", "client_os": "macos",
-        ])
+        let body = T3RemoteAuth.exchangeForm(credential: credential, scope: exchangeScope)
         http(path: "/oauth/token", method: "POST", raw: body, contentType: "application/x-www-form-urlencoded", epoch: epoch, authorized: false) { [self] result in
             switch result {
             case .failure(let error): connectionFailed(error, epoch: epoch)
@@ -412,10 +406,9 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
                     let decoded = bytes.isEmpty ? [:] : (try? JSONSerialization.jsonObject(with: bytes, options: [.fragmentsAllowed]))
                     guard (200..<300).contains(response.statusCode) else {
                         if let trace = (decoded as? [String: Any])?["traceId"] as? String { self.lastHTTPTrace = String(trace.prefix(200)) }
-                        let reason = (decoded as? [String: Any])?["message"] as? String
-                            ?? ((decoded as? [String: Any])?["reason"] as? String == "invalid_credential" ? "The environment credential is invalid." : nil)
+                        let reason = T3RemoteAuth.failureMessage(decoded as? [String: Any], status: response.statusCode)
                         let kind = [401, 403].contains(response.statusCode) ? "Authentication" : response.statusCode == 426 ? "Protocol" : "HTTP"
-                        return completion(.failure(T3Failure(kind: kind, message: self.clean(reason ?? "The server returned HTTP \(response.statusCode)."))))
+                        return completion(.failure(T3Failure(kind: kind, message: self.clean(reason))))
                     }
                     guard let decoded else { return completion(.failure(T3Failure(kind: "Protocol", message: "The server returned invalid JSON."))) }
                     completion(.success(decoded))
