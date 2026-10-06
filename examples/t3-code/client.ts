@@ -1,4 +1,3 @@
-import { forgetDraftThreadId, launchThreadId } from './r7-handoff-thread'; // lane r7-handoff
 import { snapshotShortcut } from './snapshot-shortcut';
 import { snapshotIdentity, snapshotDefaultProject, snapshotDestinationExists, withoutSnapshot, snapshotNoProjectMessage, snapshotFailureMessage } from './snapshot-adopt';
 import { decodeClientPrefs, type ClientPrefs } from './settings-core';
@@ -11,19 +10,12 @@ import { trackRpc } from './shell-slow';
 import { configEventSideEffects } from './r3-protocol-config';
 import { beginRead, traceRpc, statusTicket, settleTraces } from './r3-protocol-reader';
 import { compatibilityProblem } from './r3-protocol-outdated';
-import { composerNow, type ComposerControlsPrefs, emptyComposerControls, decodeComposerControls, applySticky, applyStaged, stagesChanges, stage, rememberModel, rememberOptions, stagedFor, clearStaged, nextTurnCommands, resolveDispatchMode, followUpBehavior, withDispatchMode, planFollowUp, resolvePlanSubmission } from './composer-controls';
-import { additiveGesture, fanoutSelections, sendFanout, setFanout, toggleFanout } from './r3-composer-controls-fanout';
-import { composerCommand, composerLocal, acknowledgeWoke, lockedProviderReason, applyOptionChoice, backgroundStarted } from './composer-controls-commands';
-import { queuedEdit, saveQueuedEdit } from './composer-controls-queue';
-import { fanoutBase, workspaceStrategy } from './composer-controls-branch';
-import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from './composer-controls-usage';
+import { type ComposerControlsPrefs, emptyComposerControls, decodeComposerControls, applySticky, applyStaged } from './composer-controls';
+import { composerCommand, composerLocal } from './composer-controls-commands';
 import { chatLocal } from './timeline-presentation';
-import { editorLocal, withMessageContext } from './composer-editor';
-import { sendIntent } from './composer-editor-intent';
-import { launchTitle } from './composer-editor-title';
-import { promptLengthMessage } from './composer-editor-menu';
+import { editorLocal } from './composer-editor';
 import { adoptStash } from './composer-editor-stash';
-import { adoptComposerFiles, composerFileAttachments } from './composer-editor-files';
+import { adoptComposerFiles } from './composer-editor-files';
 import { startThreadSearch } from './sidebar-presentation';
 import { sidebarCommand, sidebarLocal, sidebarSelecting, sidebarOpened, sidebarRefreshed } from './sidebar-commands';
 import { reconnectOnLaunch, launchFocus } from './r8-pointer-reconnect';
@@ -35,11 +27,10 @@ import { fleet, parseFleetThreadId, focusFleetThread } from './settings-b-fleet'
 import { groupLabel } from './r6-polish-groups';
 import { adoptModelPrefs } from './settings-b-models';
 import { settingsBCommand } from './settings-b-commands';
-import { type RequestDraft, activeInput, pendingRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload, dismissThreadError } from './requests';
+import { type RequestDraft, dismissThreadError } from './requests';
 import { DiffState, DIFF_LOCAL_OPS, adoptDiff, diffPaths, diffRequest, diffView, selectCheckpoint, selectScope } from './diff';
 import { rememberDiffLayout } from './settings-appearance-look';
 import { TELEMETRY_KEY, telemetryEvent } from './settings-a-telemetry';
-import { threadPhase } from './composer-presentation';
 import { heroCarry, heroLand, ensureScratchProject, mostRecentProjectId } from './pages-home';
 import { pagesLocal } from './pages-commands';
 import { adoptPagesPrefs } from './pages-prefs';
@@ -53,8 +44,7 @@ import { WORKTREE_SETUP_KEY, worktreeSetupEvent } from './timeline-worktree';
 import { GIT_ACTION_KEY, gitActionEvent } from './r4-git-actions';
 import { obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThread, mergeHistory,
   readyCheckpoint, messages, type Obj, type Shell, type ThreadState } from './domain';
-import { ClientError, bridgeReply, activeRun, providerAvailable, modelSelection, sendPayload,
-  launchPayload, applyConfig, type Native, type Files } from './protocol';
+import { ClientError, bridgeReply, providerAvailable, applyConfig, type Native, type Files } from './protocol';
 
 const localPath = 'app:/data/t3-code.json';
 type Selection = { projectId: string; threadId: string };
@@ -167,7 +157,7 @@ export class T3Client {
   async request(native: Native, method: string, payload: Obj, expected = this.generation, write = false) {
     return this.call(native, { op: 'request', method, payload }, expected, write);
   }
-  private async ids(native: Native, count: number): Promise<string[]> {
+  async ids(native: Native, count: number): Promise<string[]> {
     const response = await this.raw(native, { op: 'ids', count });
     const ids = scopeStrings(response.value);
     if (!response.ok || ids.length !== count || ids.some(id => !id)) throw new ClientError('Could not allocate request identifiers.');
@@ -442,7 +432,7 @@ export class T3Client {
     applyStaged(this);
   }
 
-  private async openThread(native: Native, id: string, resume = false): Promise<void> {
+  async openThread(native: Native, id: string, resume = false): Promise<void> {
     const epoch = ++this.threadEpoch, generation = this.generation;
     this.threadLive = false; this.threadSubscription = '';
     delete this.subscriptions.thread;
@@ -546,7 +536,7 @@ export class T3Client {
     if (!this.writable) throw new ClientError(this.connection !== 'connected' ? 'Reconnect before making changes.' : 'Wait for synchronization and check your connection permissions.');
     if (this.pending) throw new ClientError('Resolve the previous operation before sending another.');
   }
-  private reconcilePending(): boolean {
+  reconcilePending(): boolean {
     const pending = this.pending;
     if (!pending) return false;
     const payload = pending.payload;
@@ -585,7 +575,7 @@ export class T3Client {
     });
     delete this.local.pending[environmentId];
   }
-  private async write(native: Native, storage: Files, pending: Pending, beforeRequest?: () => void): Promise<Obj> {
+  async write(native: Native, storage: Files, pending: Pending, beforeRequest?: () => void): Promise<Obj> {
     const generation = this.generation;
     const environmentId = this.environmentId;
     this.local.pending[environmentId] = pending;
@@ -614,7 +604,7 @@ export class T3Client {
       throw error;
     }
   }
-  private async dispatch(native: Native, storage: Files, payload: Obj, description: string, beforeRequest?: () => void): Promise<Obj> {
+  async dispatch(native: Native, storage: Files, payload: Obj, description: string, beforeRequest?: () => void): Promise<Obj> {
     return this.write(native, storage, { method: 'orchestration.dispatchCommand', payload, description,
       threadId: str(payload.threadId), text: str(payload.text), uncertain: false }, beforeRequest);
   }
@@ -635,17 +625,7 @@ export class T3Client {
       await this.load(storage);
       await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, confirmQuit: quitMode(this.local) });
       if (await runOps(this, READ_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
-      else if (op === 'draft') {
-        if (value.length > 1_000_000) throw new ClientError('Keep a draft under 1,000,000 characters.');
-        if (!setCustomAnswer(this, value)) this.local.drafts[this.draftKey] = value;
-       } else if (op === 'favorite-model') {
-        const key = JSON.stringify([id, value]);
-        if (!arr(this.config.providers).some(provider => provider.instanceId === id && arr(provider.models).some(model => model.slug === value))) {
-          throw new ClientError('That model is no longer advertised by T3.');
-        }
-        this.local.favoriteModels = this.local.favoriteModels.includes(key)
-          ? this.local.favoriteModels.filter(entry => entry !== key) : [...this.local.favoriteModels, key].slice(-200);
-      } else if (op === 'copy-message') {
+      else if (op === 'copy-message') {
         const message = messages(this.thread).find(message => message.id === id && ['user', 'assistant', 'plan'].includes(message.kind));
         if (!message) throw new ClientError('That message is no longer available.');
         await this.call(native, { op: 'copyText', text: message.body });
@@ -690,21 +670,7 @@ export class T3Client {
         else if (!(await sidebarSelecting(this, native, id, value))) await this.openSelected(native, id);
       } else if (op === 'history') await this.history(native);
       else if (['diff', 'checkpoint-diff', 'diff-scope', 'diff-refresh', 'diff-whitespace'].includes(op)) await this.diff(native, op, id, value, n);
-      else if (op === 'answer') setCustomAnswer(this, value);
-      else if (op === 'choice') chooseOption(this, id, value, text => this.carryAnswer(text));
-      else if (op === 'previous-question') previousQuestion(this);
-      else if (op === 'retry') {
-        if (!this.writable) throw new ClientError('Wait for a writable connection to synchronize before retrying.');
-        if (this.reconcilePending()) resultMessage = 'T3 already accepted the operation.';
-        else if (this.pending) {
-          const pending = this.pending;
-          const result = await this.write(native, storage, { ...pending, uncertain: false });
-          if (pending.method === 'orchestration.launchThread') {
-            this.threadId = str(result.threadId, str(pending.payload.threadId));
-            await this.openThread(native, this.threadId);
-          }
-        }
-      } else {
+      else {
         this.requireWrite();
         if (await runOps(this, WRITE_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
         else if (op === 'fork-message') {
@@ -718,10 +684,7 @@ export class T3Client {
             sourcePoint: { type: 'run', runId: source.runId }, title: `${str(obj(this.projection.thread).title, 'Thread')} fork` }, 'Fork response');
           this.threadId = targetThreadId;
           await this.openThread(native, targetThreadId);
-        } else if (op === 'send' && pendingRequests(this.projection).approvals.length) throw new ClientError('Resolve this approval request to continue.');
-        else if (op === 'send' && activeInput(this)) await this.submitAnswers(native, storage, '', value);
-        else if (op === 'send') await this.send(native, storage, value);
-        else if (op === 'add-project') await this.addProject(native, storage, id, value);
+        } else if (op === 'add-project') await this.addProject(native, storage, id, value);
         else if (op === 'rename-project' || op === 'remove-project') await this.manageProject(native, storage, op, id, value);
         else if (op === 'rename-group' || op === 'remove-group') await this.manageGroup(native, storage, op, id, value);
         else if (op === 'remove-group-member') {
@@ -729,22 +692,10 @@ export class T3Client {
           if (!this.projectGroups().some(group => group.key === value && group.members.some(member => member.id === id))) throw new ClientError('Project group membership changed. Reopen its settings.');
           await this.manageProject(native, storage, 'remove-project', id, '');
         }
-        else if (op === 'provider' || op === 'model') await this.changeModel(native, storage, op, id, value);
-        else if (op === 'model-option') await this.changeModelOption(native, storage, id, value);
-        else if (op === 'runtime' || op === 'interaction') await this.changeMode(native, storage, op, value);
         else if (op === 'unsettle') {
           const [commandId] = await this.ids(native, 1);
           await this.dispatch(native, storage, { type: 'thread.unsettle', commandId, threadId: this.threadId, reason: 'user' }, 'Un-settle thread');
         }
-        else if (op === 'stop') {
-          const run = activeRun(this.projection);
-          if (!run) throw new ClientError('There is no active turn to stop.');
-          const [commandId] = await this.ids(native, 1);
-          await this.dispatch(native, storage, { type: 'run.interrupt', commandId, threadId: this.threadId, runId: str(run.id), holdQueue: true }, 'Stop');
-        } else if (op === 'approval') await this.approve(native, storage, id, value);
-        else if (op === 'submit-answers' || op === 'advance-question') await this.submitAnswers(native, storage, id);
-        else if (op === 'pick-option') { if (chooseOption(this, id, value, text => this.carryAnswer(text))) await this.submitAnswers(native, storage, id.split('::')[0]!); }
-        else if (op === 'dismiss-question') await this.dispatchRequest(native, storage, dismissPayload(this, id), 'Dismiss question');
         else if (op.startsWith('rest:')) resultMessage = await restCommand(this, native, storage, op.slice(5), id, value);
         else if (op.startsWith('chat:')) resultMessage = await chatCommand(this, native, storage, op.slice(5), id, value);
         else if (op.startsWith('shell:')) resultMessage = await shellCommand(this, native, storage, op.slice(6), id, value);
@@ -771,73 +722,10 @@ export class T3Client {
     return { revision: this.revision, message: resultMessage };
   }
 
-  private async send(native: Native, storage: Files, value: string): Promise<void> {
-    const selection = { generation: this.generation, environmentId: this.environmentId, origin: this.origin, projectId: this.projectId, threadId: this.threadId, providerId: this.providerId, modelId: this.modelId, options: JSON.stringify(this.modelOptions), runtimeMode: this.runtimeMode, interactionMode: this.interactionMode };
-    const assertOwner = () => {
-      if (selection.generation !== this.generation || selection.environmentId !== this.environmentId || selection.origin !== this.origin || selection.projectId !== this.projectId || selection.threadId !== this.threadId || selection.providerId !== this.providerId || selection.modelId !== this.modelId || selection.options !== JSON.stringify(this.modelOptions) || selection.runtimeMode !== this.runtimeMode || selection.interactionMode !== this.interactionMode) throw new ClientError('The draft or model changed before sending. Your original draft is preserved.');
-    };
-    if (queuedEdit(this)) return saveQueuedEdit(this, native, storage, value);
-    // "/usage-limits" is answered locally from the provider snapshots; the agent never sees it.
-    if (isUsageLimitsCommand(value || this.draft) && !this.snapshotDrafts.length && usageLimitsOffered(this)) { if (openUsageLimits(this, composerNow(this))) this.local.drafts[this.draftKey] = ''; return; }
-    const plan = planFollowUp(this);
-    const submission = plan ? resolvePlanSubmission(value || this.draft, plan.markdown) : null;
-    const text = submission ? submission.text : value || this.draft;
-    if (!text.trim() && !this.snapshotDrafts.length) throw new ClientError('Write a message or attach an image first.');
-    if (promptLengthMessage(text)) throw new ClientError(promptLengthMessage(text));
-    if (!this.projectId) throw new ClientError('Choose or add a project first.');
-    if (!submission || submission.interactionMode === 'plan') this.local.drafts[this.draftKey] = text;
-    const gesture = await this.call(native, { op: 'composerSendIntent' }).catch(() => ({}));
-    const running = !!selection.threadId && threadPhase(this.projection) === 'running';
-    const intent = sendIntent(this.config, gesture, running, !selection.threadId);
-    const provider = arr(this.config.providers).find(provider => provider.instanceId === this.providerId);
-    if (!provider || !providerAvailable(provider)) throw new ClientError('This provider is unavailable. Configure it in T3 Code.');
-    if (!arr(provider.models).some(model => model.slug === this.modelId)) throw new ClientError('Choose one of the models advertised by T3.');
-    if (Array.isArray(provider.supportedRuntimeModes) && !provider.supportedRuntimeModes.includes(this.runtimeMode)) {
-      throw new ClientError('Choose a permission mode supported by this provider.');
-    }
-    const attachments = [...await this.uploadSnapshots(native, storage), ...await composerFileAttachments(this, native, text)]; // + folded pastes (composer-editor-files.ts)
-    assertOwner();
-    const [commandId, messageId, freshThreadId] = await this.ids(native, 3), launchKey = this.draftKey, threadId = selection.threadId ? freshThreadId : launchThreadId(this, launchKey, freshThreadId); // r7-handoff: a draft launches as its own id
-    assertOwner();
-    if (selection.threadId) {
-      const key = this.draftKey, staged = stagedFor(this);
-      for (const command of nextTurnCommands(obj(this.projection.thread), staged, submission?.interactionMode ?? '')) {
-        const [modeCommandId] = await this.ids(native, 1);
-        assertOwner();
-        await this.dispatch(native, storage, { ...command, commandId: modeCommandId, threadId: selection.threadId }, 'Change mode', assertOwner);
-      }
-      const mode = submission ? 'auto' : resolveDispatchMode(running, followUpBehavior(this), intent === 'alternate');
-      const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, text, attachments), text), mode,
-        modelSelection(selection.providerId, selection.modelId, JSON.parse(selection.options)));
-      if (submission?.interactionMode === 'default' && plan) payload.sourcePlanRef = { threadId: selection.threadId, planId: plan.planId };
-      await this.dispatch(native, storage, payload, 'Send', assertOwner);
-      clearStaged(this, key);
-      if (submission) this.interactionMode = submission.interactionMode;
-      await acknowledgeWoke(this, selection.threadId, native);
-      // composer.sendAndNewThread: the sent thread keeps running; a fresh new-thread composer opens in its project.
-      if (intent === 'background' && this.threadId === selection.threadId) await this.openFreshDraft(native);
-    } else if (fanoutSelections(this)) {
-      // Several models: one background thread each, in its own worktree (r3-composer-controls-fanout.ts).
-      await sendFanout(this, native, storage, { text, attachments, ...fanoutBase(this), runtimeMode: selection.runtimeMode, interactionMode: selection.interactionMode });
-    } else {
-      const payload = launchPayload(commandId, threadId, messageId, selection.projectId, text,
-        modelSelection(selection.providerId, selection.modelId, JSON.parse(selection.options)), selection.runtimeMode, selection.interactionMode, attachments);
-      payload.workspaceStrategy = workspaceStrategy(this);
-      payload.title = launchTitle(text, str(this.snapshotDrafts[0]?.name), str(attachments.find(attachment => attachment.type === 'file')?.name)); // composer-editor-title.ts
-      const result = await this.write(native, storage, { method: 'orchestration.launchThread', payload: withMessageContext(this, payload, text),
-        description: 'Create thread', threadId, text, uncertain: false }, assertOwner);
-      forgetDraftThreadId(this, launchKey);
-      assertOwner();
-      // composer.sendBackground: the thread starts out of view and a fresh draft stays open.
-      if (intent === 'background') { backgroundStarted(this, str(result.threadId, threadId)); return; }
-      this.threadId = str(result.threadId, threadId);
-      await this.openThread(native, this.threadId);
-    }
-  }
   /** handleNewThreadInActiveProject: the 'new-thread' op's switch to a draft in the current project. */
   /** Lane r6-pr: a pull request hand-off opens the project's draft (useNewThreadHandler) from inside its command. */
   async openProjectDraft(native: Native, projectId: string): Promise<void> { this.projectId = projectId; await this.openFreshDraft(native); }
-  private async openFreshDraft(native: Native): Promise<void> {
+  async openFreshDraft(native: Native): Promise<void> {
     this.threadId = ''; this.thread = null; this.threadSubscription = ''; this.threadEpoch++;
     delete this.subscriptions.thread;
     this.threadLive = true; this.diffOpen = false; this.answers = {}; this.chooseDefaults();
@@ -1013,7 +901,7 @@ export class T3Client {
     }
     await this.save(storage);
   }
-  private async uploadSnapshots(native: Native, storage: Files): Promise<Obj[]> {
+  async uploadSnapshots(native: Native, storage: Files): Promise<Obj[]> {
     const key = this.draftKey, generation = this.generation, owner = this.snapshotOwner;
     const current = () => key === this.draftKey && generation === this.generation && owner === this.snapshotOwner;
     const attachments: Obj[] = [];
@@ -1104,81 +992,7 @@ export class T3Client {
     }
     this.ensureSelection(); this.error = '';
   }
-  private async changeModel(native: Native, storage: Files, op: string, id: string, instance = ''): Promise<void> {
-    const providerId = op === 'provider' ? id : instance || this.providerId;
-    const provider = arr(this.config.providers).find(provider => provider.instanceId === providerId);
-    if (!provider || !providerAvailable(provider)) throw new ClientError('This provider is unavailable. Configure it in T3 Code.');
-    const models = arr(provider.models);
-    const modelId = op === 'model' ? id : str(models.find(model => model.isDefault === true)?.slug || models[0]?.slug);
-    if (!models.some(model => model.slug === modelId)) throw new ClientError('That model is no longer advertised by T3.');
-    if (this.threadId && provider.requiresNewThreadForModelChange === true && (providerId !== this.providerId || modelId !== this.modelId)) {
-      throw new ClientError('Start a new thread to change this model.');
-    }
-    const locked = lockedProviderReason(this, providerId);
-    if (locked) throw new ClientError(locked);
-    // A draft's Shift-click (or Shift+Return) adds the model to a multi-model fan-out; a plain pick ends it.
-    if (op === 'model' && await additiveGesture(this, native)) { const single = toggleFanout(this, providerId, modelId); if (!single) return; return this.changeModel(native, storage, 'model', single.model, single.instanceId); }
-    setFanout(this, null);
-    const remembered = rememberModel(this, providerId, modelId);
-    if (stagesChanges(this)) { stage(this, { providerId, modelId, options: remembered }); return; }
-    if (this.threadId) {
-      const [commandId] = await this.ids(native, 1);
-      await this.dispatch(native, storage, { type: 'thread.model-selection.set', commandId, threadId: this.threadId,
-        modelSelection: modelSelection(providerId, modelId, remembered) }, 'Change model');
-    }
-    this.providerId = providerId; this.modelId = modelId;
-    this.modelOptions = remembered;
-  }
-  private async changeModelOption(native: Native, storage: Files, id: string, value: string): Promise<void> {
-    const provider = arr(this.config.providers).find(provider => provider.instanceId === this.providerId);
-    const model = arr(provider?.models).find(model => model.slug === this.modelId);
-    const options = applyOptionChoice(arr(obj(model?.capabilities).optionDescriptors), this.modelOptions, id, value);
-    if (this.threadId && provider?.requiresNewThreadForModelChange === true) throw new ClientError('Start a new thread to change this model option.');
-    rememberOptions(this, this.providerId, this.modelId, options);
-    if (stagesChanges(this)) { stage(this, { options }); return; }
-    if (this.threadId) {
-      const [commandId] = await this.ids(native, 1);
-      await this.dispatch(native, storage, { type: 'thread.model-selection.set', commandId, threadId: this.threadId,
-        modelSelection: modelSelection(this.providerId, this.modelId, options) }, 'Change reasoning effort');
-    }
-    this.modelOptions = options;
-  }
-  private async changeMode(native: Native, storage: Files, op: string, value: string): Promise<void> {
-    const modes = op === 'runtime' ? ['approval-required', 'auto-accept-edits', 'auto', 'full-access'] : ['default', 'plan'];
-    if (!modes.includes(value)) throw new ClientError('That mode is not supported.');
-    const provider = arr(this.config.providers).find(provider => provider.instanceId === this.providerId);
-    if (op === 'runtime' && Array.isArray(provider?.supportedRuntimeModes) && !provider.supportedRuntimeModes.includes(value)) {
-      throw new ClientError('This provider does not support that permission mode.');
-    }
-    if (op === 'interaction' && value === 'plan' && provider?.showInteractionModeToggle === false) throw new ClientError('This provider does not support plan mode.');
-    if (stagesChanges(this)) { stage(this, op === 'runtime' ? { runtimeMode: value } : { interactionMode: value }); return; }
-    if (this.threadId) {
-      const [commandId] = await this.ids(native, 1);
-      const field = op === 'runtime' ? 'runtimeMode' : 'interactionMode';
-      await this.dispatch(native, storage, { type: `thread.${op === 'runtime' ? 'runtime' : 'interaction'}-mode.set`, commandId, threadId: this.threadId, [field]: value }, 'Change mode');
-    }
-    if (op === 'runtime') this.runtimeMode = value; else this.interactionMode = value;
-  }
 
-  private async dispatchRequest(native: Native, storage: Files, payload: Obj, description: string): Promise<void> {
-    const [commandId] = await this.ids(native, 1);
-    await this.dispatch(native, storage, { ...payload, commandId }, description);
-  }
-  private async approve(native: Native, storage: Files, id: string, decision: string): Promise<void> {
-    await this.dispatchRequest(native, storage, approvalPayload(this, id, decision), 'Approval');
-  }
-  /** A displaced custom answer returns to the thread draft (carryDisplacedCustomAnswerIntoPrompt). */
-  private carryAnswer(text: string): void {
-    const prompt = this.local.drafts[this.draftKey] || '';
-    this.local.drafts[this.draftKey] = prompt.trim() ? `${prompt.trimEnd()}\n\n${text}` : text;
-  }
-  /** The composer's Submit/Next and Return advance; the last question answers the provider. */
-  private async submitAnswers(native: Native, storage: Files, id: string, custom?: string): Promise<void> {
-    if (custom !== undefined && custom !== '') setCustomAnswer(this, custom);
-    const requestId = id || activeInput(this)?.input.requestId || '';
-    const answers = advanceQuestion(this, requestId);
-    if (answers) await this.dispatchRequest(native, storage, { type: 'runtime-request.respond', threadId: this.threadId, requestId, answers }, 'Answers');
-  }
   async history(native: Native): Promise<void> {
     if (!this.thread?.hasMore || !this.thread.historyCursor || this.historyLoading) return;
     const epoch = this.threadEpoch, id = this.threadId, cursor = this.thread.historyCursor;
