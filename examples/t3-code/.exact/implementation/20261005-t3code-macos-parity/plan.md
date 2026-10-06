@@ -20,19 +20,21 @@ unknown in the library (research "Knowledge-update handoff"; spec open decision 
 Reference product pin: T3 Code `1e2ecbd975` (no fetch made). The embedded server pin is
 chosen in `20261005-embedded-server-runtime`.
 
-## PR workflow, 2026-10-06 (supersedes every integration-branch rule below)
+## PR workflow, 2026-10-06 (supersedes every branch rule below)
 
-The user's decision: no integration branch and no stacked PRs.
+The user's decision (2026-10-06, model A): one feature branch, no stacked PRs.
 
 - The clone lives at `examples/t3-code/` (main's `examples/<app>/` layout; the AppKit crate is
-  `examples/t3-code/macos`, package `t3-code-macos`). The base PR `feat(example)/t3-code` →
-  `main` brings it over and replaces PR #97 (`daehyeon/t3code-parallel-features`, closed).
-- Every task is one independent PR from current `main` → `main`, branch
-  `feat(example)/t3-code-<task>`, in its own Orca worktree. A task that needs an unmerged PR
-  starts after that PR merges.
-- Framework gaps go out as GitHub issues only. Another contributor fixes and merges them to
-  `main`; then an `feat(example)/t3-code-adopt-<issue>` PR from `main` removes the workaround.
-- Where a task document says "integration branch" or `daehyeon/t3-code`, read `main`.
+  `examples/t3-code/macos`, package `t3-code-macos`). The feature branch
+  `feat(example)/t3-code` carries it; PR #99 takes it to `main` (it replaced #97).
+- Every task is one PR into `feat(example)/t3-code`, from a branch
+  `feat(example)/t3-code-<task>` created from the current feature branch in its own Orca
+  worktree. Independent tasks run in parallel. A task that needs another task starts after
+  that task's PR merges into the feature branch. No PR is based on another unmerged task branch.
+- The feature branch merges `main` regularly. #99 goes to `main` at milestones or at the end.
+- Framework gaps are GitHub issues (#100–#141, filed 2026-10-06). When a fix lands on `main`,
+  the feature branch merges `main` and a `feat(example)/t3-code-adopt-<issue>` task removes the workaround.
+- Where a task document says "integration branch" or `daehyeon/t3-code`, read `feat(example)/t3-code`.
 - Verification evidence logs are not committed. The pre-cleanup history, including the
   `evidence/` trees, stays on `daehyeon/t3code-parallel-features`.
 
@@ -68,7 +70,7 @@ packages were rerun with Bun 1.4.2. Full live backend acceptance remains unverif
 
 Groups run in order; tickets inside a group may run in parallel (the user's execution
 decision: one workflow per phase with at most 8 lanes + 1 integrator, so a large group runs
-in waves). Every PR targets `main`; dependent work starts from `main` after its
+in waves). Every task PR targets `feat(example)/t3-code`; dependent work starts from it after its
 prerequisites merge (no stacks, no integration branch).
 
 Common prerequisites, not repeated per row: every feature ticket (group 2 and later) needs

@@ -67,3 +67,52 @@ acceptance rows wait for the issue or carry its difference until it is resolved.
 | [X43](20261005-x43-tristate-switch-mixed.md) | A tri-state (`mixed`) accessibility value on a switch | framework-gap (unconfirmed) | settings-scoped-controls-and-theme-editor | draft |
 | [X44](20261005-x44-remote-image-policy.md) | Remote `image` loading policy (credentials, referrer, redirects, size cap, cache, load state) and remote SVG | framework-gap (unconfirmed) | provider-settings-upkeep | draft |
 | [X45](20261005-x45-app-relaunch.md) | An app cannot relaunch itself | framework-gap (unconfirmed) | local-primary-environment, this-machine-network-access | draft |
+
+## Upstream issues (filed 2026-10-06)
+
+Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverified on macOS; the web behavior is designed), X42 (already supported on main), X38–X41 (product scope, not framework gaps).
+
+| Gap | Upstream | Title |
+| --- | --- | --- |
+| X01 | [#100](https://github.com/ccheever/exact2/issues/100) | Policy decision: an embedded browser surface an app can drive as a shell |
+| X02 | [#101](https://github.com/ccheever/exact2/issues/101) | Policy decision: a developer-tools inspector for an app's own UI |
+| X03 | [#102](https://github.com/ccheever/exact2/issues/102) | An app cannot set the root font size that `rem` resolves against |
+| X04 | [#103](https://github.com/ccheever/exact2/issues/103) | macOS bundle cannot carry helper executables or large resource trees |
+| X05 | [#104](https://github.com/ccheever/exact2/issues/104) | Custom-scheme URLs reach an app only through a navigation root, and lossily |
+| X06 | [#105](https://github.com/ccheever/exact2/issues/105) | macOS: a native module gets no quit hook, and destroy() never runs at quit |
+| X07 | [#106](https://github.com/ccheever/exact2/issues/106) | macOS: app.json cannot set ATS keys, so an iframe cannot load http:// from a named host |
+| X08 | [#107](https://github.com/ccheever/exact2/issues/107) | macOS agent mouse: no middle or triple click, wheel point, held modifiers |
+| X09 | [#108](https://github.com/ccheever/exact2/issues/108) | Contract: a child component cannot own a resource or mutation |
+| X10 | [#128](https://github.com/ccheever/exact2/issues/128) | Text vs Chrome: macOS code-wrap breaks, placeholder color, balance, smoothing |
+| X11 | [#129](https://github.com/ccheever/exact2/issues/129) | macOS backdrop-filter misses content outside the parent; no saturate() |
+| X12 | [#130](https://github.com/ccheever/exact2/issues/130) | field-sizing: content ignores a hooked native text view's laid-out height |
+| X14 | [#109](https://github.com/ccheever/exact2/issues/109) | A watched topic that changes faster than native.later replies starves the resource |
+| X15 | [#110](https://github.com/ccheever/exact2/issues/110) | aria-keyshortcuts chords do not fire when the input source types non-Latin letters |
+| X16 | [#111](https://github.com/ccheever/exact2/issues/111) | macOS textarea with autocorrect="off" still turns ' into ‘ ’ and -- into — |
+| X17 | [#112](https://github.com/ccheever/exact2/issues/112) | Popovers cannot flip near a window edge: no position-try-fallbacks, few position-area values |
+| X18 | [#123](https://github.com/ccheever/exact2/issues/123) | SVG path `d` cannot transition; macOS jumps where the web morphs |
+| X19 | [#124](https://github.com/ccheever/exact2/issues/124) | Data modules have no timers: `setTimeout` and `Date.now` are refused |
+| X20 | [#125](https://github.com/ccheever/exact2/issues/125) | textarea editing: caret moves, setRangeText, beforeinput, undo, atomic ranges |
+| X21 | [#126](https://github.com/ccheever/exact2/issues/126) | Data modules cannot send on a WebSocket on native hosts (receive-only) |
+| X22 | [#127](https://github.com/ccheever/exact2/issues/127) | Layout facts beyond size: visibility, live position, container/anchor CSS |
+| X23 | [#138](https://github.com/ccheever/exact2/issues/138) | Scroll: restore a top-level list by key, scroll-padding/margin, smooth jumps, plain-scroll anchoring |
+| X24 | [#139](https://github.com/ccheever/exact2/issues/139) | macOS: hover does not follow layout changes under a stationary pointer |
+| X25 | [#140](https://github.com/ccheever/exact2/issues/140) | Keyboard: add keyup, KeyboardEvent.code and .repeat, held modifiers, capture phase |
+| X26 | [#141](https://github.com/ccheever/exact2/issues/141) | macOS: let an app declare its menu bar items, and support context-menu submenus |
+| X27 | [#113](https://github.com/ccheever/exact2/issues/113) | macOS window shrinks 32 pt per relaunch; no title-bar area or full-screen fact |
+| X28 | [#114](https://github.com/ccheever/exact2/issues/114) | Notification click to app action, app badge, and window-focus fact (policy) |
+| X29 | [#115](https://github.com/ccheever/exact2/issues/115) | Show a PDF: no PDF element, and `iframe` cannot show an `app:/` or bundled PDF |
+| X30 | [#116](https://github.com/ccheever/exact2/issues/116) | Any-type file input and image pixel readback/re-encode in data modules (policy) |
+| X31 | [#117](https://github.com/ccheever/exact2/issues/117) | macOS: no way to hold the first window until the app says it is ready |
+| X32 | [#131](https://github.com/ccheever/exact2/issues/131) | Sticky section header over several rows of a virtualized list |
+| X33 | [#132](https://github.com/ccheever/exact2/issues/132) | Text selection: macOS button press clears it; no end rect or clear/set |
+| X34 | [#133](https://github.com/ccheever/exact2/issues/133) | macOS: inline text run has no frame(), and agent hover skips inline runs |
+| X35 | [#134](https://github.com/ccheever/exact2/issues/134) | Password input: agent tree prints its value; no autocomplete attribute |
+| X36 | [#118](https://github.com/ccheever/exact2/issues/118) | `Intl.Locale` and its week info are missing from the macOS data runtime |
+| X37 | [#119](https://github.com/ccheever/exact2/issues/119) | `exact release` skips nested executables and has no app-declared entitlements |
+| X43 | [#120](https://github.com/ccheever/exact2/issues/120) | `aria-checked` refuses `"mixed"` on switch and checkbox roles |
+| X44 | [#121](https://github.com/ccheever/exact2/issues/121) | Remote `image`: no `load` event, silent SVG failure, undocumented fetch policy |
+| X45 | [#122](https://github.com/ccheever/exact2/issues/122) | macOS `reload()` reboots the session in-process; no process relaunch |
+| side (from X7) | [#135](https://github.com/ccheever/exact2/issues/135) | macOS: a bundled iframe page cannot load any `http:` sub-resource, even on loopback |
+| side (from X3) | [#136](https://github.com/ccheever/exact2/issues/136) | Web JS target bakes `rem` and `em` to px at build time |
+| side (from X3) | [#137](https://github.com/ccheever/exact2/issues/137) | A bound string `font-size` ("20px") works on web but macOS silently unsets it |
