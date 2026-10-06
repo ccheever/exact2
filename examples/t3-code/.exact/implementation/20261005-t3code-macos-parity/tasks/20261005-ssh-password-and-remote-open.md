@@ -69,10 +69,10 @@ Port changes for headers: `Effect` services become plain functions; the prompt s
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | [#147](https://github.com/ccheever/exact2/pull/147) | Merged into feature integration | Merged 2026-10-06, `7f692c9a1`; split sources present in this checkout |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
-| scheduling preference | After `20261005-environment-routes` | none | Shared `T3Ssh.swift` and `environmentKey` call sites; remote Open reads the SSH alias from the route list | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | none | Merged | Still planned/unverified; no oracle or trace-diff tools in this checkout |
+| scheduling preference | After `20261005-environment-routes` | [#148](https://github.com/ccheever/exact2/pull/148) | Shared route call sites | Merged 2026-10-06, `01f4cbb0a`; route code present, but this merge is not an ancestor of this older checkout (#147 is) |
 
 ## Issue assessment at preparation
 
@@ -115,7 +115,10 @@ Partial implementation on `feat(example)/t3-code-ssh-password-and-remote-open`; 
 - **Remote Open** (`editors.ts`, `remote-open.ts`, `shell-details.ts/.contract`): `resolveRemoteOpenState` (an SSH environment's alias from the saved SSH targets, else the server's `remoteOpenTargets`, else unavailable; a loopback environment stands in for the primary), `buildRemoteOpenUrl`, the probed remote-capable editors with the `["vscode"]` fallback, the one-time hint (kept by the module per device), `shouldShowOpenInPicker`, `canUseMarkdownFileShellActions`. The details card's Open row: "Open in <editor>" from the effective editors, "No SSH route to <label>", "No installed editors found", the hint until the first accepted open; remote opens go to the OS, never `shell.openInEditor` on the other machine. The open-favorite key is offered only where the picker shows (`keyboard-dispatch.ts`) and opens remote-aware (`palette-commands.ts`); the Files surface's open goes the same way (`r4-surfaces-files.ts`).
 - **Probe and safe open** (`modules/apple/T3RemoteEditors.swift`): `probeRemoteEditors` over the login shell's PATH and `~/Applications` + `/Applications` bundle CLIs; `safeExternalUrl` (port of `parseSafeExternalUrl`) gates `NSWorkspace.open`; agent runs record the URL (`T3_REMOTE_OPEN_LOG`) and open nothing.
 
-Not done / differences: the clone's Markdown file links have no editor actions (they open the Files surface), so `canUseMarkdownFileShellActions` has no caller yet; the Files surface's editor list still comes from the server's editors (only its open is remote-aware); diagnostics and settings keep the server exec, as the reference's callers do; Tab order, real ⌘C, Korean IME in the secure field and the attended password host are unverified (attended); the oracle and trace-diff rows were not run (desktop-oracle-and-trace not built); 840×620 and dark mode not run (no pixel matrix). In agent runs the countdown follows the agent's virtual clock (it reads 3:00 until the clock moves), the expiry follows real time.
+Current differences and remaining acceptance are recorded in the attended follow-up below.
+The Markdown caller and Files editor list are now implemented. Earlier fixture-only and
+not-run statements in the historical attempt table describe those attempts, not the
+current evidence. Full acceptance remains unverified.
 
 ## Follow-up handoff: incomplete acceptance (2026-10-06)
 
@@ -196,3 +199,58 @@ staged caps, boot and `git diff --cached --check` passed.
 No native app rebuild, attended session, real SSH host or actual editor launch
 was performed in this follow-up. These checks resolve integration confidence,
 not the open acceptance checklist above.
+
+
+### Attended follow-up, 2026-10-06 (PR #157)
+
+Base for this work: `6d41ae81194b707a66d01049f411351d900c2dbc`. Reference source:
+`1e2ecbd975`. Final code remains **in progress / unverified** because the entire
+acceptance matrix is not closed. No framework source change is included.
+
+Implementation added:
+
+- Files now uses installed local remote-capable editors for an SSH route and renders
+  the hint and unavailable state. The local route retains its server editor list.
+- Markdown file-link context menus offer editor/reveal actions only on resolved local
+  routes; remote routes retain path copying. Actions recheck the route after the menu.
+- The password overlay makes the background inert. Tab stays within field → Cancel →
+  Continue; Escape is bound inside the dialog. Cancelled Add Environment attempts
+  restore focus to the Add environment control after the prompt and busy state end.
+- A normal app-termination observer in T3Ssh cleans up pending prompts, tunnel processes,
+  cached secrets and askpass files when the host skips deferred session teardown.
+  See the [reproduced framework issue draft](../issues/20261006-native-module-termination.md).
+
+The user authorized an isolated local SSH fixture. The normal native module ran with
+`EXACT_AGENT=live` (not agent mode), a real wall clock, isolated app bundle identity and
+named storage. A wrapper only supplied `ssh -F <fixture config>`; authentication used
+`/usr/bin/ssh` against actual OpenSSH in Docker on loopback port 16257. The unmodified
+pinned T3 server and its built web assets served HTTP 200; the old root-ok proxy was
+removed. The prescribed T3_LOCAL_HOME/T3_LOCAL_PORT launch remains unavailable because
+its embedded-server-runtime prerequisite is still planned. This fixture is evidence
+for the tested flows, not a claim that the embedded runtime contract is implemented.
+
+| Check | Observed result | Local evidence under `target/ssh-live/` |
+| --- | --- | --- |
+| Password authentication | Wrong/right sequence, two-prompt limit, Cancel, reconnect and empty retry field exercised; actual sshd accepted the password | `real-ssh-connected.png`, `real-ssh-retry.png`, matching AX text |
+| Cache | One answer authenticated launch/tunnel/pairing; after server password rotation the cached secret failed, a new prompt appeared, and the replacement password connected | sshd Accepted/Failed password entries; no secret printed |
+| Real editor | OS dispatch opened VS Code Remote SSH on the fixture project; README content visible | `real-editor-project.png`, `real-editor-project-ax.txt` |
+| Secure input | Masking, copy/cut refusal, Enter, Tab and Escape exercised with native keyboard input; AppKit field-editor test also verifies clearing between requests | AppKit log, native AX captures |
+| Expiry | Actual three-minute wait; Expired, error hint, disabled input/Continue, Dismiss; no shortened timeout | `real-expiry.png`, `real-expiry-ax.txt` |
+| Size/theme | Dialog controls visible at 1280×840 and 840×620 in light and dark | `prompt-{light,dark}-{1280,840}.png` and AX text; no oracle comparison |
+| Focus restoration | After native Escape cancellation, focus returned to Add environment | `focus-restored-ax.txt` |
+| Window close | With prompt open and two live SSH children, ⌘W ended the app and both children; final app-only workaround, no host patch | `app-cleanup-before.json`, `app-cleanup-after.json` |
+| Key-only SSH | Real generated key route connected without password; native SSH suite ran against that fixture | `appkit-ssh-real-key.log`, `final-appkit.log` |
+| Secret audit | 80 product-storage/log/AX files read with zero matches for all three rotated secrets; recent ExactMac unified log also zero matches | `secret-audit.json`; no assertion of a forensic Keychain audit |
+| Unit/build checks | Bun 1,457 pass / 1 skip / 0 fail; strict TS clean; native SSH 15 pass / 0 skip; Contract and native bundle build passed | `final-bun.log`, `final-tsc.log`, `final-appkit.log`, `build-final.log` |
+
+The repository build/test/clippy/fmt/boot checks passed during this follow-up (use pinned
+Bun 1.4.2; system Bun 1.3.14 causes an unrelated grammar test failure). Final Rust app tests passed (10 tests); staged caps and final diff checks are recorded at close-out. Screenshot/log paths above
+are local ignored artifacts, not committed attachments or durable remote evidence.
+
+Still open: the exact pinned desktop oracle and trace comparison; Korean input-source
+behavior against that oracle; simultaneous live FIFO and full loading/error transition
+coverage; actual local Open and missing-route UI outcomes; native Files/Markdown
+context-menu interactions; dependency pin reconciliation. Unit tests cover routing and
+menu gating but do not close those runtime rows. Keep PR #157 draft. The earlier
+unchecked checklist remains the full acceptance contract; this table records partial
+progress without treating composite rows as passed.

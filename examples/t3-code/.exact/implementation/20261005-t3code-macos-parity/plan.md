@@ -13,7 +13,9 @@ every feature except the spec exclusions, and a downloadable build that runs on 
 PR #157: **in progress / unverified**, not complete. The next agent working this area
 must resume the ticket's unchecked implementation and acceptance items. Keep it in the
 active backlog after any integration; close it only with the required runtime evidence
-or an explicit user scope decision. No background agent or schedule is created by this record.
+or an explicit user scope decision. The attended follow-up now includes real SSH/editor evidence, Markdown/Files changes,
+secure prompt checks and app termination cleanup. Oracle/IME and the remaining runtime
+matrix stay open. No background agent or schedule is created by this record.
 
 ## Knowledge snapshot
 

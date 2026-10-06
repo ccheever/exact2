@@ -440,7 +440,7 @@ component ResolvedChip
       when chip.kind == "link"
         CodeTip(label=chip.tip, side="top", offset=21)
           // r4-surfaces: a file link opens in the Files surface (rightPanelStore.openFile).
-          button press=local("surface-file", chip.tip, "") aria-label=chip.tip padding=0 border-width=0 background-color="#00000000" testId=`chip-open-${run.id}`
+          button press=local("surface-file", chip.tip, "") contextmenu=local("surface-files-link-menu", chip.tip, "") aria-label=chip.tip padding=0 border-width=0 background-color="#00000000" testId=`chip-open-${run.id}`
             FileChipFace(run=run, label=run.text, icon=run.icon)
       else
         when chip.kind == "mention"
