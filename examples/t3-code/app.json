@@ -53,6 +53,9 @@
   "host": {
     "macos": {
       "minimumOS": "14.0",
+      "appTransportSecurity": {
+        "allowsArbitraryLoadsInWebContent": true
+      },
       "window": {
         "width": 1280,
         "height": 840,
