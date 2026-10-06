@@ -149,6 +149,41 @@ final class PressFeedbackIOSTests: XCTestCase {
         XCTAssertEqual(backFrom.a, there, accuracy: 1e-3, "the factor that showed at release")
     }
 
+    /// The render server's ease follows the box, and only the box: one that
+    /// resizes mid-press eases about its new origin with its progress kept,
+    /// and a view taken for another node carries none of it.
+    func testThePressEaseFollowsTheBoxAndNotItsNextNode() throws {
+        let (p, v) = try fixture(style: ["press_scale": 0.5, "transform_origin": [["pct": 0], ["pct": 0]]])
+        v.pressed = true
+        let first = try XCTUnwrap(v.layer.animation(forKey: "press") as? CABasicAnimation)
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 50.0, "y": 50.0, "w": 400.0, "h": 100.0]]))
+        let resized = try XCTUnwrap(v.layer.animation(forKey: "press") as? CABasicAnimation)
+        XCTAssertFalse(resized === first, "rebuilt about the new origin")
+        XCTAssertEqual(resized.beginTime, first.beginTime, accuracy: 1e-9, "its progress kept")
+        let from = CATransform3DGetAffineTransform(try XCTUnwrap(resized.fromValue as? CATransform3D))
+        // A factor of 2 about the top left, 200 points left of the centre: it moves the centre 200 right.
+        XCTAssertEqual(from.a, 2, accuracy: 1e-9)
+        XCTAssertEqual(from.tx, 200, accuracy: 1e-9)
+        v.rebind(99)
+        XCTAssertNil(v.layer.animation(forKey: "press"), "the next node shows none of it")
+        XCTAssertNil(v.press.easedAbout)
+    }
+
+    /// A release held for an unseen press goes for that press only: a newer
+    /// press on the view (the next node's, after a rebind) waits for its own.
+    func testAHeldReleaseIsForItsOwnPress() throws {
+        let (_, v) = try fixture(style: ["press_scale": 0.5])
+        v.pressed = true
+        v.pressed = false
+        XCTAssertTrue(v.press.releaseHeld)
+        var newer = PressFeedback(from: 1, to: 0.5, start: CACurrentMediaTime() + 0.1)
+        newer.releaseHeld = true
+        v.press = newer
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: PressFeedback.duration + 0.04))
+        XCTAssertEqual(v.press.to, 0.5, "the old release did not take the newer press")
+        XCTAssertTrue(v.press.releaseHeld)
+    }
+
     /// D6: every transform turns about `transform-origin`.
     func testTheTransformTurnsAboutTheTransformOrigin() throws {
         let (p, v) = try fixture(style: ["transform_origin": [["pct": 0], ["pct": 0]]])

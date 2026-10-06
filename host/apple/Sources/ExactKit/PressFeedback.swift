@@ -21,6 +21,11 @@ struct PressFeedback {
     /// the press has eased all the way in (D2): UIKit's delayed touches hand
     /// a quick tap in a scroll view its down and its up in one turn.
     var releaseHeld = false
+    #if os(iOS) || os(tvOS)
+    /// The origin's offset from the centre the render server's ease was
+    /// built about; nil while none runs.
+    var easedAbout: CGPoint?
+    #endif
     /// In and back alike: a fast settle that reads as a physical give.
     static let duration: CFTimeInterval = 0.12
     #if os(iOS) || os(tvOS)
@@ -140,16 +145,38 @@ extension NodeView {
     /// other; a re-aim replaces it from what shows.
     private func easePress(from shown: CGFloat) {
         applyTransform()
-        let to = press.to
-        guard to > 0, shown != to else { layer.removeAnimation(forKey: "press"); return }
+        guard press.to > 0, shown != press.to else { stopPressEase(); return }
+        addPressEase()
+        idleWhenSettled()
+    }
+    /// The ease from the factor at the aim to the target, about the origin
+    /// as it stands now, begun when the aim was: rebuilt part way through it
+    /// keeps its progress.
+    private func addPressEase() {
+        let o = transformOriginPoint
         let ease = CABasicAnimation(keyPath: "transform")
         ease.isAdditive = true
-        ease.fromValue = CATransform3DMakeAffineTransform(pressScale(shown / to))
+        ease.fromValue = CATransform3DMakeAffineTransform(pressScale(press.from / press.to))
         ease.toValue = CATransform3DIdentity
+        ease.beginTime = layer.convertTime(press.start, from: nil)
         ease.duration = PressFeedback.duration
         ease.timingFunction = PressFeedback.timing
         layer.add(ease, forKey: "press")
-        idleWhenSettled()
+        press.easedAbout = CGPoint(x: o.x - bounds.midX, y: o.y - bounds.midY)
+    }
+    /// No ease of the press on the render server: a view taken for another
+    /// node, or one a flight carries, shows its own transform alone.
+    func stopPressEase() {
+        guard press.easedAbout != nil || layer.animation(forKey: "press") != nil else { return }
+        layer.removeAnimation(forKey: "press")
+        press.easedAbout = nil
+    }
+    /// The model's origin moved under a running ease (the box resized):
+    /// the ease again, about the new one.
+    private func followPressEase(about d: CGPoint) {
+        guard let about = press.easedAbout, about != d else { return }
+        if press.settled(at: CACurrentMediaTime()) { press.easedAbout = nil; return }
+        addPressEase()
     }
     /// A scale by `k` about `transform-origin`, in the layer's own space:
     /// before the model's translate and rotate, as the press's own factor.
@@ -160,8 +187,9 @@ extension NodeView {
     /// A held release goes once the press has eased all the way in.
     private func releaseWhenSeen() {
         let wait = max(0, press.start + PressFeedback.duration - CACurrentMediaTime())
+        let start = press.start
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
-            guard let self, press.releaseHeld else { return }
+            guard let self, press.releaseHeld, press.start == start else { return }
             press.releaseHeld = false
             let shown = pressFactor
             press.aim(1, at: CACurrentMediaTime())
@@ -196,6 +224,7 @@ extension NodeView {
         // Flying scaled whole in its clip (LLP 1013.000 D4.4): the
         // flight's scale only.
         if let s = flightLook?.scale {
+            stopPressEase()
             transform = CGAffineTransform(scaleX: s, y: s)
             return
         }
@@ -205,6 +234,7 @@ extension NodeView {
         // Outermost, a layout transition's offset; its size is the surface's
         // alone (`Surface.swift`, LLP 1063).
         let o = transformOriginPoint, d = CGPoint(x: o.x - bounds.midX, y: o.y - bounds.midY), s = scale * pressModelFactor
+        followPressEase(about: d)
         // A sticky box's scroll offset moves it there too (LLP 1083).
         let outer = CGAffineTransform(translationX: layoutOffset.x + stickyOffset.x, y: layoutOffset.y - keyboardLift + stickyOffset.y).concatenating(contextTransform)
         if let space = spaceTransform(origin: d, scale: s) {

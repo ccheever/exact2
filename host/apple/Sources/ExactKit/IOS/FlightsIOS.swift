@@ -246,6 +246,7 @@ extension Presenter {
         f.view = view
         f.slot = slot
         f.container = layer
+        view.stopPressEase()
         view.transform = .identity
         view.isUserInteractionEnabled = false
         view.accessibilityElementsHidden = true
