@@ -463,7 +463,7 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
     refused(
         "text toFixed(1.5, 2)",
         "type-refused-idiom",
-        "floor(v * 100 + 0.5) / 100",
+        "round(v * 100) / 100",
     );
     refused(
         "text (1.5).toFixed(2)",

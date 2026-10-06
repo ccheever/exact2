@@ -53,7 +53,7 @@ pub fn refusal(name: &str) -> Option<String> {
         ),
         "toUpperCase" => "display casing is CSS: `text-transform=\"uppercase\"`; Contract has no `toUpperCase` (LLP 1088 D2)".into(),
         "Number" | "parseInt" | "parseFloat" => format!(
-            "Contract does not parse numbers from text (`{name}`, LLP 1088 D2 defers it): have the data module answer a number, or keep the number in state and print it with `toString`"
+            "write `parseNumber(s)` for `{name}`: `some(n)` for a decimal number in the text (`\" 12.5 \"`, `\"-3\"`, `\"1e3\"`), `none` for anything else (`\"\"`, `\"12px\"`, hex), so `match parseNumber(s)` handles a field's text (LLP 1102 §3.1)"
         ),
         "len" => "write `length(x)`: Contract spells the web's `.length`, of text or of a list, as a roster function".into(),
         "min" | "max" => format!(
@@ -63,7 +63,7 @@ pub fn refusal(name: &str) -> Option<String> {
         // 2026-09-28; a hint, not a second spelling: `contains` does not compile.
         "contains" => "write `includes(s, t)`, or `includes(xs, x)` for a list: the roster's search wears the web's name, `String.prototype.includes` and `Array.prototype.includes` (LLP 1006 §Expressions, renamed from `contains` 2026-09-28); `startsWith(s, t)` and `endsWith(s, t)` are the web's too".into(),
         "toFixed" | "toPrecision" => format!(
-            "`{name}` is refused (LLP 1017.003); round with `floor(v * 100 + 0.5) / 100` and print it with `toString` (or a template), or, for a count, `formatNumber(n, \"compact\")` prints `1.2K` (LLP 1054.000.003)"
+            "`{name}` is refused (LLP 1017.003; a fixed-decimal format is still open, LLP 1102 §3.2): round with `round(v * 100) / 100` and print it with `toString` (or a template), which drops trailing zeros (`1.5`, not `1.50`), so pad cents yourself or format in the data module; for a count, `formatNumber(n, \"compact\")` prints `1.2K` (LLP 1054.000.003)"
         ),
         _ => return None,
     })

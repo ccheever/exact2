@@ -288,9 +288,14 @@ at CSS.
 - Two strings compare with `<`, `<=`, `>`, `>=` in UTF-16 code-unit order, as on
   the web (`end > start` for `"HH:MM"` times). `slice(s, 0, -1)`,
   `replaceAll(s, find, with)` and `toLowerCase(s)` are the web's string methods.
-- Numbers have `floor`, `min`, `max`, `%` and `formatNumber`, and no text-to-number parse, `ceil`,
-  `round` or fixed-decimal format: a typed amount is parsed (and money formatted)
-  in a source, which takes the field's text and answers the number.
+- Numbers have `floor`, `ceil`, `round` (JavaScript's `Math.round`: `round(-2.5)` is
+  -2), `min`, `max`, `%` and `formatNumber`. A field's text is a number through
+  `match parseNumber(s) { case some(n) => …, case none => … }`: a decimal numeral,
+  trimmed, or `none` (`"12px"`, `""`). There is no fixed-decimal format:
+  `round(v * 100) / 100` prints `1.5`, not `1.50`, so money is formatted in a source.
+- Dates: `formatDate(ms, offset, "iso")` is `YYYY-MM-DD`, and `calendarDiff(from, to,
+  "years")` (or `"months"`) is the whole periods between two such dates as an
+  `option<number>`, counted as an age is (a Feb 29 birthday has its year on Mar 1).
 - There is no general list append: add an item to
   resource-backed data in its source and answer the updated list (a mutation that
   `refreshes` the list's resource, or its own answer).

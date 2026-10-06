@@ -709,6 +709,45 @@ fn the_instant_is_clipped_before_it_is_shifted() {
     assert_eq!(format_time(3_599_999.9, 0.0), Value::str("12:59 AM"));
 }
 
+/// `iso` (LLP 1102 §3.4) against `new Date(Math.trunc(ms) + offset * 60000)
+/// .toISOString().slice(0, 10)` in Bun 1.4.2: the date at the wall time,
+/// four-digit years; `""` outside years 1–9999 as every style (D7).
+#[test]
+fn iso_dates_are_to_iso_string_s_date_part() {
+    #[rustfmt::skip]
+    let rows: &[(f64, f64, &str)] = &[
+        (-0.5, 0.0, "1970-01-01"),
+        (-1.0, 0.0, "1969-12-31"),
+        (-1.0, 60.0, "1970-01-01"),
+        (86399999.0, 0.0, "1970-01-01"),
+        (86399999.0, 330.0, "1970-01-02"),
+        (951782400000.0, 0.0, "2000-02-29"),
+        (951782400000.0, -1.0, "2000-02-28"),
+        (1709164800000.0, -870.0, "2024-02-28"),
+        (1790043210987.5, 345.0, "2026-09-22"),
+        (-62135596800000.0, 0.0, "0001-01-01"),
+        (253402300799999.0, 0.0, "9999-12-31"),
+        (-59011459200000.0, 0.0, "0100-01-01"),
+        (0.0, 1080.0, "1970-01-01"),
+        (0.0, -1080.0, "1969-12-31"),
+    ];
+    for &(ms, offset, want) in rows {
+        assert_eq!(
+            date(ms, offset, "iso"),
+            Value::str(want),
+            "{ms} at {offset}"
+        );
+    }
+    for (ms, offset) in [
+        (253402300800000.0, 0.0),
+        (-62135596800001.0, 0.0),
+        (0.0, 1081.0),
+        (f64::NAN, 0.0),
+    ] {
+        assert_eq!(date(ms, offset, "iso"), Value::str(""), "{ms} at {offset}");
+    }
+}
+
 #[test]
 fn a_style_outside_the_table_is_refused_not_guessed() {
     let args = [Value::Number(0.0), Value::Number(0.0), Value::str("long")];

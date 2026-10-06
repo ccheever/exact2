@@ -242,6 +242,7 @@ fn validate(schema: &Schema) {
                             | "list<Entry>"
                             | "list<string>"
                             | "option<string>"
+                            | "option<number>"
                     ),
                 "format: stdlib `{}` type `{t}`",
                 f.name

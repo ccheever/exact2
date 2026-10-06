@@ -2,7 +2,7 @@
 //! precedence question arises, and `show`, which prints any value as a
 //! string expression for a `text` to observe.
 
-use super::ty::{number, template_text, Ty, STRINGS};
+use super::ty::{number, quote, template_text, Ty, STRINGS};
 use super::{Env, Gen};
 
 /// Instants (epoch ms) at the edges `format*` names: the epoch, a day's
@@ -20,6 +20,52 @@ const EPOCHS: &[f64] = &[
     -62_135_596_800_001.0,
     253_402_300_799_999.0,
     253_402_300_800_000.0,
+];
+
+/// Text for `parseNumber`: numerals in each of the grammar's forms, at
+/// rounding's edges, padded as `trim` strips, and near misses.
+const NUMERALS: &[&str] = &[
+    "12.5",
+    " -3 ",
+    "\u{a0}1e3\n",
+    "+.5",
+    "5.",
+    "-0",
+    "0",
+    "1.7976931348623159e308",
+    "2.4703282292062328e-324",
+    "1e-400",
+    "9007199254740993",
+    "0.1",
+    "",
+    ".",
+    "12px",
+    "0x1F",
+    "1_000",
+    "Infinity",
+    "1e",
+    "\u{85}1",
+];
+
+/// Dates for `calendarDiff`: Feb 29 and the month ends, either order, and
+/// near misses.
+const DATES: &[&str] = &[
+    "2024-02-29",
+    "2025-02-28",
+    "2025-03-01",
+    "2028-02-29",
+    "2024-01-31",
+    "2024-03-01",
+    "2024-04-30",
+    "1990-06-15",
+    "2026-06-14",
+    "2026-06-15",
+    "0000-01-01",
+    "9999-12-31",
+    "2025-02-29",
+    "2024-13-01",
+    "2024-1-01",
+    "",
 ];
 
 /// UTC offsets in minutes east: whole, half and quarter hours, the ±18 h
@@ -296,15 +342,20 @@ impl Gen<'_> {
             Ty::Bool => self.bool_expr(env, d),
             Ty::Opt(inner) => {
                 let list = Ty::list((**inner).clone());
-                match self.rng.weighted(&[5, if pinned { 2 } else { 0 }, 2, 2]) {
+                let read = if **inner == Ty::Num { 3 } else { 0 };
+                match self
+                    .rng
+                    .weighted(&[5, if pinned { 2 } else { 0 }, 2, 2, read])
+                {
                     0 => format!("some({})", self.expr(env, inner, d, pinned)),
                     1 => "none".into(),
                     2 => format!("first({})", self.expr(env, &list, d, false)),
-                    _ => {
+                    3 => {
                         let l = self.expr(env, &list, d, false);
                         let n = self.expr(env, &Ty::Num, d, false);
                         format!("at({l}, {n})")
                     }
+                    _ => self.read_number(env, d),
                 }
             }
             Ty::List(elem) => match self.rng.weighted(&[
@@ -391,7 +442,11 @@ impl Gen<'_> {
             }
             1 => format!("(-{})", self.expr(env, &Ty::Num, d, false)),
             2 => format!("length({})", self.sized(env, d)),
-            3 => format!("floor({})", self.expr(env, &Ty::Num, d, false)),
+            // `round` is JavaScript's `Math.round` (LLP 1102 §3.2).
+            3 => {
+                let f = *self.rng.pick(&["floor", "ceil", "round"]);
+                format!("{f}({})", self.expr(env, &Ty::Num, d, false))
+            }
             // `indexOf` over a list of strings, numbers or bools by strict
             // equality, or over text in code units (LLP 1088 §9.1).
             5 if self.rng.chance(1, 2) => {
@@ -486,6 +541,30 @@ impl Gen<'_> {
         }
     }
 
+    /// `parseNumber` of a numeral, a near one or any text, or `calendarDiff`
+    /// of two dates (LLP 1102 §3.1, §3.4).
+    fn read_number(&mut self, env: &Env, d: usize) -> String {
+        if self.rng.chance(1, 2) {
+            let s = if self.rng.chance(2, 3) {
+                quote(self.rng.pick(NUMERALS))
+            } else {
+                self.expr(env, &Ty::Str, d, false)
+            };
+            format!("parseNumber({s})")
+        } else {
+            let date = |g: &mut Self| {
+                if g.rng.chance(4, 5) {
+                    quote(g.rng.pick(DATES))
+                } else {
+                    g.expr(env, &Ty::Str, d, false)
+                }
+            };
+            let (a, b) = (date(self), date(self));
+            let unit = *self.rng.pick(&["\"years\"", "\"months\""]);
+            format!("calendarDiff({a}, {b}, {unit})")
+        }
+    }
+
     /// `formatTime`, `formatDate` or `formatNumber`: an instant (epoch ms)
     /// at a UTC offset (minutes east; past ±18 h prints `""`), or a count.
     fn format_expr(&mut self, env: &Env, d: usize) -> String {
@@ -503,7 +582,7 @@ impl Gen<'_> {
             }
             1 => {
                 let (at, off) = (num(self), number(*self.rng.pick(OFFSETS)));
-                let style = *self.rng.pick(&["\"medium\"", "\"month-year\""]);
+                let style = *self.rng.pick(&["\"medium\"", "\"month-year\"", "\"iso\""]);
                 format!("formatDate({at}, {off}, {style})")
             }
             _ => {

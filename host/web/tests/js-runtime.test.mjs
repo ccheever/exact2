@@ -183,6 +183,31 @@ test('slice, replaceAll and toLowerCase are the web methods, well formed and bou
   expect(replaceAll('😀😀', '', '', 9, 8)).toBe('😀😀');
 });
 
+// LLP 1102 §3.1–§3.4: the cases of runner/src/stdlib.rs's `number_and_date_reads_are_javascript_s`, roster.js's
+// against the oracle the runner names: `Number` for a numeral the grammar admits, `Math.round` and `Math.ceil`.
+test('parseNumber, round, ceil and calendarDiff are the runner\'s', async () => {
+  const { x_parseNumber, x_round, x_ceil, x_calendarDiff } = await import(resolve(dir, 'roster.js'));
+  for (const [text, want] of [[' 12.5 ', 12.5], ['-3', -3], ['+.5', 0.5], ['5.', 5], ['5.e3', 5000], ['1E-2', 0.01], ['00012', 12],
+    ['-0', -0], ['0e999999999999', 0], [' \t7\n', 7], ['﻿8', 8], ['9007199254740993', 9007199254740992],
+    ['1.7976931348623157e308', Number.MAX_VALUE], ['2.4703282292062328e-324', 5e-324], ['1.7976931348623159e308', null],
+    ['2.4703282292062327e-324', null], ['1e-400', null], ['1e999999999999', null], ['', null], ['.', null], ['+', null], ['1e', null],
+    ['1e+', null], ['.e1', null], ['12px', null], ['0x1F', null], ['1_000', null], ['Infinity', null], ['NaN', null], ['1 2', null],
+    ['1,5', null], ['\u00859', null], ['١', null]])
+    expect(Object.is(x_parseNumber(text), want)).toBe(true);
+  for (const [x, want] of [[2.5, 3], [-2.5, -2], [-1.5, -1], [0.49999999999999994, 0], [-0.4, -0], [-0.5, -0], [-0, -0],
+    [4503599627370495.5, 4503599627370496], [-4503599627370495.5, -4503599627370495], [Infinity, Infinity], [NaN, NaN]])
+    expect(Object.is(x_round(x), want)).toBe(true);
+  expect([x_ceil(-0.5), x_ceil(0.1)].map(v => Object.is(v, -0) ? '-0' : v)).toEqual(['-0', 1]);
+  for (const [from, to, years, months] of [['1990-06-15', '2026-06-14', 35, 431], ['1990-06-15', '2026-06-15', 36, 432],
+    ['2024-02-29', '2025-02-28', 0, 11], ['2024-02-29', '2025-03-01', 1, 12], ['2024-01-31', '2024-02-29', 0, 0],
+    ['2024-01-31', '2024-03-01', 0, 1], ['2026-06-14', '1990-06-15', -35, -431], ['2024-03-01', '2024-01-31', 0, -1],
+    ['2024-05-05', '2024-05-05', 0, 0], ['0000-02-29', '9999-12-31', 9999, 119998], ['2025-02-29', '2026-01-01', null, null],
+    ['2024-13-01', '2026-01-01', null, null], ['2024-1-01', '2026-01-01', null, null], ['2024-01-01', ' 2026-01-01', null, null]]) {
+    expect(Object.is(x_calendarDiff(from, to, 'years'), years)).toBe(true);
+    expect(Object.is(x_calendarDiff(from, to, 'months'), months)).toBe(true);
+  }
+});
+
 // LLP 1088 §9.1: `concat`, and `slice` and `includes` over a list, are the web's array methods (`includes` by
 // SameValueZero), on the caller's budget: each takes its `$s`, traps where the runner's `list_call` does — before it
 // builds — and leaves its own steps in `ST` (one an item kept, or scanned up to the match); text takes none.

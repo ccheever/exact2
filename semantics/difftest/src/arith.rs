@@ -5,18 +5,45 @@
 //! neighbours, near-cancelling pairs, integers around `2^53`, operands near
 //! overflow and underflow) and natural number `n`, both sides compute
 //! `a + b`, `a - b`, `a * b`, `a / b`, `a % b`, `floor(a)`, `max(a, b)`,
-//! `min(a, b)`, `trunc(a)`, `-a`, `n` as a double, and `a < b`, `a <= b`,
-//! `a == b`, as the runner does (`f64` operators, `f64::floor`, `f64::max`,
-//! `f64::min`, `f64::trunc`). Results are compared by bits, every NaN one.
+//! `min(a, b)`, `trunc(a)`, `-a`, `n` as a double, `ceil(a)`, `round(a)`
+//! (JavaScript's `Math.round`), and `a < b`, `a <= b`, `a == b`, as the
+//! runner does (`f64` operators, `f64::floor`, `f64::max`, `f64::min`,
+//! `f64::trunc`, `f64::ceil`, `stdlib::js_round`). Results are compared by
+//! bits, every NaN one. Each case also carries a numeral and two dates:
+//! `parseNumber` of the numeral and `calendarDiff` of the dates in years and
+//! in months (LLP 1102 §3.1, §3.4), as `exact_runner::stdlib` reads them.
 
 use crate::leanrun;
 use crate::rng::Rng;
+use exact_runner::stdlib;
 use std::path::Path;
 use std::process::Command;
 
-const OPS: [&str; 14] = [
-    "+", "-", "*", "/", "%", "floor", "max", "min", "trunc", "neg", "ofNat", "<", "<=", "==",
+const OPS: [&str; 19] = [
+    "+",
+    "-",
+    "*",
+    "/",
+    "%",
+    "floor",
+    "max",
+    "min",
+    "trunc",
+    "neg",
+    "ofNat",
+    "ceil",
+    "round",
+    "<",
+    "<=",
+    "==",
+    "parseNumber",
+    "years",
+    "months",
 ];
+/// The fields printed in hex, then one of three comparison bits, then the
+/// text reads.
+const HEX: usize = 13;
+const BITS: usize = HEX + 3;
 
 fn canon(x: f64) -> u64 {
     if x.is_nan() {
@@ -26,11 +53,24 @@ fn canon(x: f64) -> u64 {
     }
 }
 
+/// One case: two operands, a natural number, a numeral and two dates.
+struct Case {
+    a: f64,
+    b: f64,
+    n: u64,
+    numeral: String,
+    from: String,
+    to: String,
+}
+
 /// The runner's side of one line, in the Lean module's format.
-fn expected(a: f64, b: f64, n: u64) -> String {
+fn expected(c: &Case) -> String {
+    let (a, b, n) = (c.a, c.b, c.n);
     let bit = |p: bool| if p { '1' } else { '0' };
+    let opt = |v: Option<String>| v.unwrap_or_else(|| "none".into());
+    let diff = |months| opt(stdlib::calendar_diff(&c.from, &c.to, months).map(|n| n.to_string()));
     format!(
-        "{:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {}{}{}",
+        "{:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {}{}{} {} {} {}",
         canon(a + b),
         canon(a - b),
         canon(a * b),
@@ -42,9 +82,14 @@ fn expected(a: f64, b: f64, n: u64) -> String {
         canon(a.trunc()),
         canon(-a),
         canon(n as f64),
+        canon(a.ceil()),
+        canon(stdlib::js_round(a)),
         bit(a < b),
         bit(a <= b),
         bit(a == b),
+        opt(stdlib::parse_number(&c.numeral).map(|x| format!("{:016x}", canon(x)))),
+        diff(false),
+        diff(true),
     )
 }
 
@@ -142,19 +187,150 @@ fn natural(rng: &mut Rng) -> u64 {
     }
 }
 
+/// Numerals at the grammar's edges and at rounding's: the largest finite
+/// and just past it, the smallest subnormal's half on either side, a
+/// halfway case, `2^53 + 1`, signed zeros, and text that is not a numeral.
+const NUMERALS: &[&str] = &[
+    "0",
+    "-0",
+    "+0",
+    "-0.0e5",
+    "5.",
+    ".5",
+    "+.5",
+    "-.5e1",
+    "5.e3",
+    "1E5",
+    "00012",
+    "1e-7",
+    "1.7976931348623157e308",
+    "1.7976931348623158e308",
+    "1.7976931348623159e308",
+    "1e309",
+    "2.4703282292062327e-324",
+    "2.4703282292062328e-324",
+    "4.9406564584124654e-324",
+    "1e-400",
+    "0e999999999999",
+    "1e999999999999",
+    "1e-999999999999",
+    "9007199254740993",
+    "2.2250738585072011e-308",
+    "0.1",
+    "123456789012345678901234567890",
+    "",
+    ".",
+    "+",
+    "-",
+    "e5",
+    ".e1",
+    "1e",
+    "1e+",
+    "1.2.3",
+    "0x10",
+    "1_000",
+    "Infinity",
+    "NaN",
+    "--1",
+    "1,5",
+    "١٢",
+];
+
+/// A numeral: a listed one, the shortest or a long expansion of a random
+/// double with digits changed at its end, or random digits around a dot
+/// and an exponent. No whitespace: lines split on spaces.
+fn numeral(rng: &mut Rng, x: f64) -> String {
+    match rng.below(4) {
+        0 => NUMERALS[rng.below(NUMERALS.len() as u64) as usize].into(),
+        1 if x.is_finite() => {
+            let digits = rng.below(40) as usize + 1;
+            let mut s = format!("{x:.digits$e}");
+            if rng.chance(1, 2) {
+                let at = s.find('e').unwrap_or(s.len());
+                let tail = [
+                    "5",
+                    "49999999999999999999",
+                    "50000000000000000001",
+                    "1",
+                    "0",
+                ];
+                s.insert_str(at, tail[rng.below(tail.len() as u64) as usize]);
+            }
+            s
+        }
+        _ => {
+            let mut s = String::new();
+            if rng.chance(1, 3) {
+                s.push(if rng.chance(1, 2) { '-' } else { '+' });
+            }
+            for _ in 0..rng.below(25) {
+                s.push(char::from(b'0' + rng.below(10) as u8));
+            }
+            if rng.chance(1, 2) {
+                s.push('.');
+                for _ in 0..rng.below(25) {
+                    s.push(char::from(b'0' + rng.below(10) as u8));
+                }
+            }
+            if rng.chance(1, 2) {
+                s.push(if rng.chance(1, 2) { 'e' } else { 'E' });
+                if rng.chance(1, 2) {
+                    s.push(if rng.chance(1, 2) { '-' } else { '+' });
+                }
+                s.push_str(&rng.below(400).to_string());
+            }
+            s
+        }
+    }
+}
+
+/// A date, mostly well formed: years at leap rules' edges, months and days
+/// at and past their ends, now and then text that is not a date.
+fn date(rng: &mut Rng) -> String {
+    const YEARS: [u64; 8] = [0, 1900, 2000, 2023, 2024, 2025, 9999, 1970];
+    if rng.chance(1, 12) {
+        let bad = [
+            "2024-1-01",
+            "2024-02-29x",
+            "20240229",
+            "-",
+            "2024/02/29",
+            "x024-02-29",
+        ];
+        return bad[rng.below(bad.len() as u64) as usize].into();
+    }
+    let y = if rng.chance(1, 4) {
+        rng.below(10000)
+    } else {
+        YEARS[rng.below(8) as usize]
+    };
+    let m = if rng.chance(1, 10) {
+        rng.below(14)
+    } else {
+        rng.below(12) + 1
+    };
+    let d = if rng.chance(1, 3) {
+        [1, 28, 29, 30, 31, 0, 32][rng.below(7) as usize]
+    } else {
+        rng.below(31) + 1
+    };
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 fn module(data: &Path) -> String {
     format!(
-        "import Contract.Number\nimport Contract.OracleText\nopen Contract\n\n\
+        "import Contract.Number\nimport Contract.Value\nimport Contract.OracleText\nopen Contract\n\n\
 def hex16 (x : UInt64) : String :=\n  String.ofList ((List.range 16).reverse.map fun i => Nat.digitChar ((x.toNat >>> (4 * i)) % 16))\n\
 def cb (x : F64) : String := hex16 (Number.canonicalBits x)\n\
-def bit (p : Bool) : String := if p then \"1\" else \"0\"\n\n\
+def bit (p : Bool) : String := if p then \"1\" else \"0\"\n\
+def opt {{α}} (f : α → String) : Option α → String\n  | some x => f x\n  | none => \"none\"\n\n\
 def main : IO Unit := do\n  let out ← IO.getStdout\n  for line in (← IO.FS.lines {data:?}) do\n    \
 match line.splitOn \" \" with\n    \
-| [sa, sb, sn] =>\n      \
+| [sa, sb, sn, num, d1, d2] =>\n      \
 match OracleText.hexN 16 0 sa.toList, OracleText.hexN 16 0 sb.toList, sn.toNat? with\n      \
 | some (x, _), some (y, _), some n =>\n        \
 let a := F64.ofBits (UInt64.ofNat x)\n        let b := F64.ofBits (UInt64.ofNat y)\n        \
-out.putStrLn s!\"{{cb (a + b)}} {{cb (a - b)}} {{cb (a * b)}} {{cb (a / b)}} {{cb (Number.fmod a b)}} {{cb a.floor}} {{cb (Number.fmax a b)}} {{cb (Number.fmin a b)}} {{cb (Number.trunc a)}} {{cb (-a)}} {{cb (F64.ofNat n)}} {{bit (decide (a < b))}}{{bit (decide (a ≤ b))}}{{bit (a == b)}}\"\n      \
+out.putStrLn s!\"{{cb (a + b)}} {{cb (a - b)}} {{cb (a * b)}} {{cb (a / b)}} {{cb (Number.fmod a b)}} {{cb a.floor}} {{cb (Number.fmax a b)}} {{cb (Number.fmin a b)}} {{cb (Number.trunc a)}} {{cb (-a)}} {{cb (F64.ofNat n)}} {{cb a.ceil}} {{cb a.jsRound}} {{bit (decide (a < b))}}{{bit (decide (a ≤ b))}}{{bit (a == b)}} {{opt cb (Str.parseNumber num)}} {{opt toString (Str.calendarDiff d1 d2 false)}} {{opt toString (Str.calendarDiff d1 d2 true)}}\"\n      \
 | _, _, _ => out.putStrLn \"?\"\n    \
 | _ => out.putStrLn \"?\"\n",
         data = data.display().to_string()
@@ -194,15 +370,28 @@ fn run_batch(lines: &[String], dir: &Path, i: usize) -> Result<Vec<String>, Stri
 pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let mut rng = Rng::new(seed);
-    let cases: Vec<(f64, f64, u64)> = (0..count)
+    let cases: Vec<Case> = (0..count)
         .map(|_| {
             let (a, b) = pair(&mut rng);
-            (a, b, natural(&mut rng))
+            let n = natural(&mut rng);
+            let numeral = numeral(&mut rng, b);
+            let (from, to) = (date(&mut rng), date(&mut rng));
+            Case {
+                a,
+                b,
+                n,
+                numeral,
+                from,
+                to,
+            }
         })
         .collect();
     let lines: Vec<String> = cases
         .iter()
-        .map(|(a, b, n)| format!("{:016x} {:016x} {n}", a.to_bits(), b.to_bits()))
+        .map(|c| {
+            let (a, b, n) = (c.a.to_bits(), c.b.to_bits(), c.n);
+            format!("{a:016x} {b:016x} {n} {} {} {}", c.numeral, c.from, c.to)
+        })
         .collect();
     let jobs = std::env::var("DIFFTEST_JOBS")
         .ok()
@@ -236,23 +425,25 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
     }
     let mut bad = [0usize; OPS.len()];
     let mut shown = 0;
-    for ((a, b, n), l) in cases.iter().zip(&lean) {
-        let r = expected(*a, *b, *n);
+    for (c, l) in cases.iter().zip(&lean) {
+        let (a, b, n) = (&c.a, &c.b, c.n);
+        let r = expected(c);
         if &r == l {
             continue;
         }
         let rs: Vec<&str> = r.split(' ').collect();
         let ls: Vec<&str> = l.split(' ').collect();
         for k in 0..OPS.len() {
-            let (rv, lv) = if k < 11 {
+            let field = if k < HEX { k } else { k + 1 - BITS + HEX };
+            let (rv, lv) = if !(HEX..BITS).contains(&k) {
                 (
-                    rs.get(k).copied().unwrap_or(""),
-                    ls.get(k).copied().unwrap_or(""),
+                    rs.get(field).copied().unwrap_or(""),
+                    ls.get(field).copied().unwrap_or(""),
                 )
             } else {
                 let at = |v: &[&str]| {
-                    v.get(11)
-                        .and_then(|s| s.get(k - 11..k - 10))
+                    v.get(HEX)
+                        .and_then(|s| s.get(k - HEX..k - HEX + 1))
                         .unwrap_or("")
                         .to_string()
                 };
@@ -278,10 +469,13 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
                 if shown < 20 {
                     shown += 1;
                     println!(
-                        "DIVERGE {} a={:016x} b={:016x} n={n}: rust {rv} lean {lv}",
+                        "DIVERGE {} a={:016x} b={:016x} n={n} numeral={} dates={} {}: rust {rv} lean {lv}",
                         OPS[k],
                         a.to_bits(),
-                        b.to_bits()
+                        b.to_bits(),
+                        c.numeral,
+                        c.from,
+                        c.to
                     );
                 }
             }

@@ -471,12 +471,16 @@ never breaks an app that declared it first.
 | --- | --- |
 | `now()` | Milliseconds on the runner's clock since boot (the driver's clock under the agent), not a date: the date is `exactTime().epochAtZero + now()`. A read does not schedule a render, and a derive that reads it is not read again as time passes (when it is depends on the host's clock), so a value that follows the clock comes from a timer: keep the time in state that a `task … every` action writes |
 | `formatTime(ms, offsetMinutes, "short")` | String; fixed offset east of UTC, en-US formatting (`exactTime().utcOffset` is the zone's offset now, answered again when it changes) |
-| `formatDate(ms, offsetMinutes, "medium" or "month-year")` | String; format is a literal choice, not an expression containing `or` |
+| `formatDate(ms, offsetMinutes, "medium" or "month-year" or "iso")` | String; format is a literal choice, not an expression containing `or`. `"iso"` is `YYYY-MM-DD`, the date part of `toISOString` at that wall time (LLP 1102 §3.4); every style prints `""` outside years 1–9999 |
 | `formatNumber(n, "compact")` | String; admitted deterministic compact format |
 | `length(value)` | Number; list item count or string UTF-16 code-unit count |
 | `isEmpty(value)` | Boolean; empty string or list |
 | `toString(value)` | String; number, boolean, or string conversion |
 | `floor(n)` | Number |
+| `ceil(n)` | Number; `Math.ceil` |
+| `round(n)` | Number; JavaScript's `Math.round`: a half rounds up (`round(2.5)` is 3, `round(-2.5)` is -2), not away from zero. Two decimals is `round(v * 100) / 100` |
+| `parseNumber(text)` | `option<number>`; `some` for a decimal numeral in the text, trimmed as `trim` does: an optional sign, digits with an optional fraction or a fraction alone, an optional exponent (`" 12.5 "`, `"-3"`, `".5"`, `"1e3"`), the nearest double as `Number()` reads it; `none` for anything else (`""`, `"12px"`, `"0x1F"`, `"1_000"`, `"Infinity"`), past the largest finite, or a nonzero numeral that rounds to zero (LLP 1102 §3.1) |
+| `calendarDiff(from, to, "years" or "months")` | `option<number>`; whole years or months from one `YYYY-MM-DD` date to another, counted as an age is: a period completes when `to`'s month and day reach `from`'s (months compare the day), so a Feb 29 start completes a year on Mar 1 of a common year and a Jan 31 start a month on Mar 1, as date-fns' `differenceInYears` counts. When `to` is earlier, the count back, negated; `none` when either is not a real date (LLP 1102 §3.4) |
 | `max(a, b)` | Number |
 | `min(a, b)` | Number |
 | `includes(text, substring)` | Boolean, case-sensitive literal substring |
