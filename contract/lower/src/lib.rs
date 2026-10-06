@@ -25,7 +25,9 @@ mod color_profile;
 mod contain;
 pub mod controls;
 pub mod dataset;
+mod error;
 pub mod expr;
+mod fields;
 mod fonts;
 mod grouped;
 mod handlers;
@@ -47,6 +49,9 @@ mod values;
 pub mod vocab;
 
 pub use dataset::{data_words, hook_words};
+pub use error::LowerError;
+pub(crate) use error::{err, err_one};
+pub use fields::Profile;
 pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
@@ -65,44 +70,6 @@ use exact_plan::{
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// A typed rejection.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LowerError {
-    /// Stable id.
-    pub id: &'static str,
-    /// What went wrong.
-    pub message: String,
-    /// Where.
-    pub span: Span,
-}
-
-impl std::fmt::Display for LowerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} [{}] {}", self.span, self.id, self.message)
-    }
-}
-
-/// One refusal, as the plural result lowering returns.
-fn err_one(id: &'static str, message: impl Into<String>, span: Span) -> Vec<LowerError> {
-    vec![LowerError {
-        id,
-        message: message.into(),
-        span,
-    }]
-}
-
-pub(crate) fn err<T>(
-    id: &'static str,
-    message: impl Into<String>,
-    span: Span,
-) -> Result<T, LowerError> {
-    Err(LowerError {
-        id,
-        message: message.into(),
-        span,
-    })
-}
-
 /// The compiler identity a plan carries: the crate version folded with the
 /// configuration digest (there is no configuration yet).
 pub fn compiler_identity() -> u64 {
@@ -117,6 +84,8 @@ pub fn compiler_identity() -> u64 {
 pub(crate) struct Lowerer<'a> {
     pub b: PlanBuilder,
     sites: Option<Sites>,
+    /// The surface the plan is for: a text field's sheet differs.
+    profile: Profile,
     pub types: &'a Types,
     pub root: &'a contract_syntax::Component,
     pub ty_ids: BTreeMap<String, TypesId>,
@@ -197,19 +166,21 @@ pub fn lower(
     _analysis: &Analysis,
     asset_root: Option<&Path>,
 ) -> Result<Plan, LowerError> {
-    lower_with_sites(checked, _analysis, asset_root, false)
+    lower_with_sites(checked, _analysis, asset_root, false, Profile::Web)
         .map(|(plan, _)| plan)
         .map_err(|mut all| all.swap_remove(0))
 }
 
 /// Lower, reporting every independent refusal: each element and each of its
 /// attributes is lowered whatever its siblings' fate (at most
-/// [`MAX_REFUSALS`]). `mapped` also returns the development source sites.
+/// [`MAX_REFUSALS`]). `mapped` also returns the development source sites;
+/// `profile` is the surface the plan is for.
 pub fn lower_all(
     checked: &Checked<'_>,
     analysis: &Analysis,
     asset_root: Option<&Path>,
     mapped: bool,
+    profile: Profile,
 ) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
     if mapped && checked.expanded.instances.is_empty() {
         return Err(vec![LowerError {
@@ -218,7 +189,7 @@ pub fn lower_all(
             span: checked.expanded.root.span,
         }]);
     }
-    lower_with_sites(checked, analysis, asset_root, mapped)
+    lower_with_sites(checked, analysis, asset_root, mapped, profile)
 }
 
 fn lower_with_sites(
@@ -226,6 +197,7 @@ fn lower_with_sites(
     _analysis: &Analysis,
     asset_root: Option<&Path>,
     capture_sites: bool,
+    profile: Profile,
 ) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
     // Keep the exact expansion whose root and row slots inference checked.
     let Checked {
@@ -244,6 +216,7 @@ fn lower_with_sites(
     let mut l = Lowerer {
         b: PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, compiler_identity()),
         sites: capture_sites.then(|| Sites::declared(ex)),
+        profile,
         types,
         root,
         ty_ids: BTreeMap::new(),
@@ -687,9 +660,18 @@ impl<'a> Lowerer<'a> {
                 {
                     grouped::native_rows(&mut sheet);
                 }
+                // @ref LLP 1104 D2, D3 — a text field's sheet, under its classes.
+                let dressed = fields::sheet(
+                    tag,
+                    expanded.iter().flatten().chain(attrs),
+                    *span,
+                    &mut sheet,
+                    self.profile,
+                )?;
                 let class_len = expanded.as_ref().map_or(0, Vec::len) + sheet.len();
                 let expanded = match &mut expanded {
                     Some(rows) => {
+                        fields::over_sheet(rows, &sheet);
                         rows.splice(0..0, sheet.iter().cloned());
                         rows.extend(attrs.iter().filter(|a| a.name != "class").cloned());
                         rows.as_slice()
@@ -739,6 +721,7 @@ impl<'a> Lowerer<'a> {
                 let expanded = canonical_type.as_deref().unwrap_or(expanded);
                 let control = controls::control(tag, expanded)?;
                 let t = control.map_or(t.clone(), |kind| controls::tag(kind, t.clone()));
+                let t = if dressed { fields::tag(t) } else { t };
                 let face = (control == Some("button"))
                     .then(|| grouped::unsheet(children))
                     .flatten();
@@ -748,7 +731,7 @@ impl<'a> Lowerer<'a> {
                 }
                 controls::check_nesting(tag, parent_tag, *span)?;
                 self.check_menu_shapes(tag, expanded, children, *span)?;
-                let numeric = controls::range_attrs(control, expanded);
+                let numeric = controls::range_attrs(tag, control, expanded);
                 let expanded = numeric.as_deref().unwrap_or(expanded);
                 // @ref LLP 1084 D1, D3 — a grouped list's sheet, before its
                 // author's rows, and its sections' shape.
@@ -1227,6 +1210,7 @@ impl<'a> Lowerer<'a> {
         if (tag != "iframe"
             && matches!(a.name.as_str(), "sandbox" | "load" | "message")
             && !(tag == "canvas" && a.name == "message")
+            && !(tag == "image" && a.name == "load")
             && !module)
             || (!matches!(tag, "iframe" | "video" | "audio") && a.name == "src")
         {
@@ -1235,10 +1219,10 @@ impl<'a> Lowerer<'a> {
                 format!(
                     "`{}` belongs to {}, not `{tag}`",
                     a.name,
-                    if a.name == "message" {
-                        "`iframe` or `canvas`"
-                    } else {
-                        "`iframe`"
+                    match a.name.as_str() {
+                        "message" => "`iframe` or `canvas`",
+                        "load" => "`iframe`, `image` or a native module",
+                        _ => "`iframe`",
                     }
                 ),
                 a.span,
@@ -1356,10 +1340,10 @@ impl<'a> Lowerer<'a> {
                     let value = values::flex_component(&a.value, index)?;
                     let component = Attr { value, ..a.clone() };
                     let (code, ty) = self.typed_code(&component.value, scope, locals)?;
-                    values::check_style_value(&component, &[row], &ty, font)?;
                     if index < 2 && matches!(ty, Ty::String) {
                         return err("lower-attr-type", "a computed `flex` must be a number, a literal CSS shorthand or a choice of literal shorthands; for a computed basis write the longhands, as in `flex-grow=1 flex-shrink=1 flex-basis=w`", a.span);
                     }
+                    values::check_style_value(&component, &[row], &ty, font)?;
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
                         id: row as u16,

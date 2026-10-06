@@ -236,6 +236,17 @@ guide's rules don't make obvious.
   safe area. Fix: put `env(safe-area-inset-top)` on the route column, not on each
   authored header. (Signal Clone, build 5.)
 
+- **After a relaunch on iOS, a form opens with old values and ignores the fresh answer.**
+  While the data module is not ready, a native host (and the wasm web target) can make
+  the form's child from the resource's kept answer: a device-state reader's last small
+  answer for the same arguments. A child's states start once, so the fresh answer does
+  not reset them, and a write the resource did not hear about leaves that kept answer
+  old. The default web JS target keeps none, so a web run never shows it. Fixes: [the
+  agent guide](contract-for-agents.md#composition-and-lifetime), the form that edits a
+  saved record (refresh the resource after each write, or key the child by a string or
+  number from the answer). (Authoring bench, LLP 1087, ios19, ios22 and ios32
+  t7-wizard, 2026-10-05/06.)
+
 - **An empty date input can still show a date on iOS.** `input type="date" value=""`
   draws a date in the `UIDatePicker`, which has no empty state: today in a new picker,
   the last date in one whose value was cleared (`time` and `datetime-local` share the
@@ -245,6 +256,29 @@ guide's rules don't make obvious.
   2026-10-05.)
 
 ## Actions
+
+- **A token kept in an app data file.** Exact has a secret store, and it holds
+  strings, not only keys: grant `secret.keep <name>` and use
+  `store.set`/`store.get`/`store.forget` in an answer (the Keychain on Apple,
+  `localStorage` on the web; a Linux launch forgets it at exit for now). The
+  Signal clone kept its signal-cli bearer token in a plain config file because
+  `secret.keep` read like the P-256 key store of LLP 1069.005. (2026-10-06.)
+
+- **A superseded send's fetch rejects natively and completes on the web
+  build.** A newer `send x = command(…)` replaces the pending one; natively
+  (and in the web's wasm module realm) its `await fetch(…)` then rejects with
+  a `FetchError` of kind `Aborted` though the request may have been sent,
+  while on the web build (the JS target) the reply arrives and is dropped. Clear a busy flag or lock in a `finally`, and don't retry on
+  `Aborted` (it would send twice); declare the mutation `queue` when every
+  send's reply matters (LLP 1092). Until 2026-10-05 the continuation vanished
+  natively, which held the Signal clone's sends forever (build 35).
+
+- **`Date.now()` in a data module passes its Bun tests and fails on the
+  device.** Since 2026-10-05 the build refuses a direct use by file and line
+  (`Date.now()`, `new Date()`, `Math.random()`, timers); an alias still gets
+  past the build and throws on first use on every host but Bun. Take the time
+  from the call's arguments (the Contract's `wallTime.epochAtZero + now()`), as
+  every source already receives it. (Signal clone build 34, 2026-10-05.)
 
 - **A helper action does not see what its caller just assigned.** `sel = next`
   then `follow()`, with `follow` reading `sel`, would read the old `sel`: a call
@@ -438,6 +472,23 @@ guide's rules don't make obvious.
   `expect` that reads what its reply sets.
   (Authoring bench, LLP 1087, ios23 t5-pomodoro, 2026-10-05; iOS round 6.)
 
+- **An `iframe` of `http://` from a named host loads under the agent and shows an
+  App Transport Security error in the macOS app.** `http://localtest.me:5173/` or
+  `http://example.com/` read "The resource could not be loaded because the App
+  Transport Security policy requires the use of a secure connection" in the `.app`
+  (an IP literal such as `http://127.0.0.1` loads). Cause: ATS reads the bundle's
+  `Info.plist`, and `agent macos` runs the bare executable, which has none. Fix: set
+  `host.macos.appTransportSecurity` (and `host.ios.…` for iOS) to
+  `{ "allowsArbitraryLoadsInWebContent": true }` in `app.json`; it relaxes web views
+  only. On iOS, the host's wrapper for a remote HTTP page also uses HTTP:
+  an HTTPS wrapper would still block that page as mixed content after the ATS
+  opt-in. The inner iframe keeps its sandbox and its authored dimensions.
+  To drive what a user sees on macOS, build with `bun exact.mjs mac --bundle` and set
+  `EXACT_MAC_BIN` to the `.app`'s `Contents/MacOS/ExactMac`; the driver then skips its
+  stale-build check, so rebuild the bundle before each drive. Not covered: an app's
+  own page (`src="assets/…"`) that links an `http:` sub-resource (#135).
+  (Issue #106, 2026-10-06.)
+
 - **A drive script kept in the app folder makes the build stale.** Editing
   `verify.mjs` beside `app.contract` made the driver refuse the next drive until
   `bun exact.mjs web-build`. Cause: a file in the app folder counts as a build input
@@ -540,6 +591,16 @@ guide's rules don't make obvious.
   ([the human guide](contract-for-humans.md#writing-the-data-module) shows one).
   (LLP 1086 reading-list example, 2026-10-04.)
 
+- **An agent drive shows the app's defaults (a mock, an empty store) though
+  the app's files are there.** Cause: without `--storage <name>` every
+  `storage.fs` call in the data module throws "storage is unavailable in agent
+  mode…", and a module that catches a missing config file falls back silently.
+  The installed app's own files are not the drive's: a named scratch store lives
+  apart (on iOS under `Library/Caches/exact/<app id>/agent/<name>/data`). Fix:
+  `--storage <name>`, and copy the files the drive needs (a config, a saved
+  store) into that folder first; `logs` shows the module's `console.log`.
+  (Signal clone, live transport, 2026-10-05.)
+
 - **A save that fails in the background is lost to the person.** An answer that
   saves unawaited has replied before the write fails, so no answer reports it;
   `logs` has `storage failed: …`, but the person sees nothing. Fix: keep the
@@ -560,6 +621,13 @@ guide's rules don't make obvious.
 
 ## Working on exact2 itself
 
+- **A bisect that shares another worktree's Cargo target directory builds
+  stale code.** `CARGO_TARGET_DIR` pointed at one worktree while checking out
+  older commits in another left generated enums (`PropId`, `Stdlib`) from the
+  wrong commit, and the build failed for no reason in either tree until a
+  full `cargo clean` (65 GiB). Give a bisect or a second worktree its own
+  target directory. (2026-10-06.)
+
 - **A platform feature looks missing, and you start building it.** Cause: the
   feature already exists under a name you did not search for. Haptics
   (`haptic()`, `press-haptic`) were proposed as a new gap after they had
@@ -568,6 +636,14 @@ guide's rules don't make obvious.
   <term> llp`). Name the LLP that lacks it when you report the gap. (Signal
   Clone, 2026-10-04.)
 
+- **`build.mjs --test --ios` never returns after the tests pass.** Cause:
+  `xcodebuild test` can sit for ten minutes or more after `Test Suite 'Selected
+  tests' passed` and its `Executed N tests` line, with or without your change
+  (seen on 2026-10-05 on an iPhone 17 Pro simulator, Xcode 27). Fix: run it in
+  the background with its log in a file, wait for the `Executed N tests …
+  seconds` line of the whole run, read the verdict from it, then kill the
+  `xcodebuild test` PID whose `-derivedDataPath` is under your own checkout.
+  `build.mjs` then reports `BUILD INTERRUPTED`, which is not a test failure.
 - **Conformance fails on apps you didn't touch.** Cause: `host/web-js/conform.mjs`
   compares against wasm dists under `--wasm-root` (default `/tmp/e3-wasm`, shared by
   every checkout), and without `--build` it uses whatever another checkout or an
@@ -603,3 +679,15 @@ guide's rules don't make obvious.
   Flush ranks before capture and disable actions for that flush, including
   mirror writes. A same-batch texture upload then sees the new front sibling.
   (LLP 1083.000, Astra 6 regression.)
+- **A sub-agent's half-written crate breaks every build in the worktree.**
+  Cause: a crate listed in the root `Cargo.toml`'s `members` is resolved by
+  every `cargo` command, so one that does not parse or compile yet stops
+  builds that never touch it (about ten minutes of the harness's build, LLP
+  1101.002 §0 P15). Fix: list it in `exclude` while it is written, which lets
+  `cargo build --manifest-path <it>/Cargo.toml` build it alone, and move it
+  to `members` once that passes.
+- **"I opened it in a terminal" is not "it is running".** `open -na
+  Ghostty.app --args -e …` can return success while the window reports "The
+  terminal failed to initialize". Before telling a person the app is up,
+  confirm its process (`pgrep -f <binary>`) and kill a failed window's
+  instance before retrying (LLP 1101.002 §0 P16).

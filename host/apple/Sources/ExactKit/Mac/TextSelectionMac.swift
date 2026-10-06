@@ -108,12 +108,45 @@ final class TextSelection {
     }
 
     func clear() {
-        gesture += 1; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
+        leaving = nil; gesture += 1; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
         anchor = nil; focus = nil
         anchorIndex = 0; focusIndex = 0
         dragged = false
         list = nil; logicalAnchor = nil; logicalFocus = nil; allListText = false
         invalidate()
+    }
+
+    /// Where the focus goes decides whether the selection survives it. As on
+    /// the web, a press on a `button` (or its label) leaves the selection and
+    /// its highlight as they are, so its action reads it (#132); a link is
+    /// text and clears it. AppKit moves the focus before the button hears
+    /// `mouseDown`, so the node that takes it decides. When no node takes it,
+    /// the next turn decides: the window or the page keeping it (the pressed
+    /// button hid, a menu closed) leaves the selection, and a click on the
+    /// ground clears it itself (`PageScrollView`); any other responder (a
+    /// field's editor, as focus entering an editable takes the web's
+    /// selection, a region, a native view) clears it.
+    private var leaving: UInt64?
+    func focusLeft() {
+        guard isActive else { clear(); return }
+        let current = gesture
+        leaving = current
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.leaving == current else { return }
+            self.leaving = nil
+            let responder = self.presenter?.root.window?.firstResponder
+            if self.gesture == current, !(responder is NSWindow || responder === self.presenter?.viewport) { self.clear() }
+        }
+    }
+    func focusEntered(_ node: NodeView) {
+        guard leaving != nil else { return }
+        leaving = nil
+        var at: NSView? = node
+        while let view = at {
+            if let node = view as? NodeView, node.isButton, node.props["href"] == nil { return }
+            at = view.superview
+        }
+        clear()
     }
 
     private func selectable(_ node: NodeView) -> Bool {

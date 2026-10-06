@@ -492,6 +492,12 @@ inner frame remain only where one document cannot keep that parity:
 | Remote http(s), no `sandbox` | direct | the wrapper |
 | Remote with `sandbox`, and `data:`/`about:`/`blob:` | the wrapper | the wrapper |
 
+- **HTTP guests (#106).** The synthetic wrapper uses `http://exact.invalid`
+  for a remote `http:` source. An HTTPS wrapper would block that guest as
+  mixed content even when `app.json` explicitly permits it through ATS.
+  WebKit still enforces the bundle's ATS policy and the inner iframe's
+  `sandbox`; this does not enable HTTP by itself. Other sources keep the
+  HTTPS wrapper, including local documents and their subresources (#135).
 - **Direct** is the web view's own document. A local one is served at the
   synthetic origin `https://exact.invalid` (a srcdoc frame's origin in the
   wrapper), with `sandbox` sent as a `Content-Security-Policy: sandbox …`

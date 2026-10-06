@@ -27,6 +27,6 @@ component KeyboardBar
         text "Keyboard bar" testId="title" font-size=20 font-weight=700 color="#ffffff"
         button press=dismiss testId="dismiss" padding=10 border-radius=8 background-color="#7c4dff"
           text "Dismiss the keyboard" font-size=14 color="#ffffff"
-        input value=note input=setNote focus=focusIn blur=focusOut placeholder="A note" testId="note" padding=12 border-radius=8 border-style="solid" border-width=1 border-color="#5b4a7a" background-color="#ffffff"
+        input appearance="none" value=note input=setNote focus=focusIn blur=focusOut placeholder="A note" testId="note" padding=12 border-radius=8 border-style="solid" border-width=1 border-color="#5b4a7a" background-color="#ffffff"
       row testId="bar" width="100%" padding=14 box-sizing="border-box" justify-content="center" background-color="#ffd60a"
         text "This bar rides on the keyboard" testId="bar-note" font-size=14 font-weight=700 color="#12081f"

@@ -371,16 +371,20 @@ extension Presenter {
     /// that shows without pixels for what shows gets them now, from its
     /// worker if that has finished or is running, else painted here — the
     /// reader never sees it blank (LLP 1050.000 D1). A settled paragraph
-    /// costs one flag; the rest, their frame against the port.
-    func paintVisibleText() {
-        guard !applying else { return }
+    /// costs one flag; the rest, their frame against the port. True while
+    /// some paragraph lacks pixels: the pump's refresh has work then.
+    @discardableResult
+    func paintVisibleText() -> Bool {
+        guard !applying else { return true }
         let port = viewport.bounds
         let culls = viewport.clipsToBounds
         var clips: TextClips?
         defer { textClips = nil }
+        var owed = false
         // A paragraph that never rasters (it truncates as it paints, say)
         // is out before its geometry, which is most of a scan's cost.
         for node in textViews.values where !node.textRasterSettled && !node.bounds.isEmpty && node.canRasterText {
+            owed = true
             let c = clips ?? TextClips(viewport, soon: 0, reach: 0)
             clips = c; textClips = c
             if culls && !c.frame(node).intersects(port) { continue }
@@ -388,6 +392,7 @@ extension Presenter {
             guard !visible.isEmpty, node.textRaster == nil || !node.textRasterFrame.contains(visible) else { continue }
             textRasters.ensure(node, urgent: true)
         }
+        return owed
     }
 
     /// Paint motion's colour reaches the screen with its value (LLP 1062

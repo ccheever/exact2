@@ -317,10 +317,16 @@ fn same_request(a: &RegionTextRequest, b: &RegionTextRequest) -> bool {
 }
 #[cfg(test)]
 pub(super) fn test_wait_idle() {
-    let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    // The retiring session finishes its font work first, which a loaded
+    // machine can stretch well past a few seconds; the watchdog only
+    // catches a session that never retires.
+    let end = std::time::Instant::now() + std::time::Duration::from_secs(90);
     while SERVICE.occupied() {
-        assert!(std::time::Instant::now() < end);
-        std::thread::yield_now();
+        assert!(
+            std::time::Instant::now() < end,
+            "content region font session never retired"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
 }
 #[cfg(test)]

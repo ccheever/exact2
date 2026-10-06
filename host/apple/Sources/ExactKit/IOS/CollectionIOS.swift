@@ -188,6 +188,13 @@ extension CollectionHost {
                 self.reportAgain(id)
                 return
             }
+            // Its target folded to where the port already is (an estimate,
+            // then the measured row): no motion.
+            if abs(latest.y - scroll.contentOffset.y) + abs(latest.x - scroll.contentOffset.x) < 0.5 {
+                if scroll.contentOffset != latest { scroll.setContentOffset(latest, animated: false) }
+                self.animationEnded(id, atTarget: true)
+                return
+            }
             self.startOffsetDriver(id, scroll, to: latest)
         }
     }
@@ -253,7 +260,12 @@ extension CollectionHost {
         if animate {
             // On its way or at rest: one motion from what shows, retargeted
             // if one runs (`animateOffset`).
-            if !animating.contains(id), scroll.contentOffset == target { return }
+            // A gap under half a point is no motion: 0.3 s of frames for it
+            // moved nothing anyone could see.
+            if !animating.contains(id), abs(scroll.contentOffset.y - target.y) + abs(scroll.contentOffset.x - target.x) < 0.5 {
+                if scroll.contentOffset != target { scroll.setContentOffset(target, animated: false) }
+                return
+            }
             animateOffset(id, scroll, to: target)
             return
         }
@@ -337,14 +349,17 @@ extension CollectionHost {
 
 #if os(iOS) || os(tvOS)
 /// One smooth correction's frames: ease-in-out from where the port was to
-/// where it is headed, the offset set each display frame. A retarget begins
-/// a fresh ease from where the port is, toward the new target.
+/// where it is headed, the offset set each display frame. A retarget once a
+/// frame has shown begins a fresh ease from where the port is; one before
+/// is still the motion's one target (`retarget`).
 final class OffsetDriver: NSObject {
     weak var scroll: UIScrollView?
-    private var from: CGPoint, to: CGPoint, began: CFTimeInterval = 0
+    private var from: CGPoint
+    private(set) var to: CGPoint, began: CFTimeInterval = 0
+    /// Whether a frame has moved the port yet.
+    private(set) var drawn = false
     private let duration: TimeInterval
     private var serial: Int
-    private var link: CADisplayLink?
     private let done: (Int, Bool) -> Void
     private let reclamp: (CGPoint) -> Void
     init(scroll: UIScrollView, to: CGPoint, duration: TimeInterval, serial: Int, done: @escaping (Int, Bool) -> Void,
@@ -354,16 +369,29 @@ final class OffsetDriver: NSObject {
     }
     func start() {
         began = CACurrentMediaTime()
-        let link = CADisplayLink(target: self, selector: #selector(frame(_:)))
-        link.add(to: .main, forMode: .common)
-        self.link = link
+        FrameClock.shared.want(self, .offsetDriver, rate: FrameClock.full(on: scroll?.window?.screen)) { [weak self] in self?.frame($0) }
     }
     func retarget(_ target: CGPoint, serial: Int) {
         guard let scroll else { return }
-        from = scroll.contentOffset; to = target; self.serial = serial
+        self.serial = serial
+        // Before its first frame the motion has not shown: a followed end's
+        // measured row, a report after its estimate, is still its one target
+        // (LLP 1010 §6.8). After it, or once the port moved under it (content
+        // that shrank clamped it), a fresh ease from what shows.
+        if !drawn, scroll.contentOffset == from {
+            // Folded back onto the port: no motion at all.
+            if abs(target.y - from.y) + abs(target.x - from.x) < 0.5 {
+                scroll.contentOffset = target
+                cancel(); done(serial, true)
+                return
+            }
+            to = target
+            return
+        }
+        from = scroll.contentOffset; to = target
         began = CACurrentMediaTime()
     }
-    func cancel() { link?.invalidate(); link = nil }
+    func cancel() { FrameClock.shared.drop(self) }
     /// CSS `ease-in-out`, cubic-bezier(0.42, 0, 0.58, 1), as UIKit's.
     static func ease(_ x: Double) -> Double {
         let bez = { (a: Double, b: Double, s: Double) in 3 * a * s * (1 - s) * (1 - s) + 3 * b * s * s * (1 - s) + s * s * s }
@@ -371,7 +399,7 @@ final class OffsetDriver: NSObject {
         for _ in 0..<32 { let m = (lo + hi) / 2; if bez(0.42, 0.58, m) < x { lo = m } else { hi = m } }
         return bez(0, 1, (lo + hi) / 2)
     }
-    @objc private func frame(_ link: CADisplayLink) {
+    private func frame(_ link: CADisplayLink) {
         guard let scroll, scroll.window != nil else { cancel(); done(serial, false); return }
         // Content that shrank under it: from where the port can be now,
         // toward the edge it can reach; every frame stays inside the range.
@@ -385,6 +413,7 @@ final class OffsetDriver: NSObject {
         let e = CGFloat(Self.ease(max(0, x)))
         let point = CGPoint(x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e)
         scroll.contentOffset = CollectionHost.reachable(point, in: scroll)
+        drawn = true
         if x >= 1 { cancel(); done(serial, true) }
     }
 }

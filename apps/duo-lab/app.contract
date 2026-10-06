@@ -210,8 +210,8 @@ component DuoLab
                 button press=dismiss testId="note-dismiss" padding=10 border-radius=8 background-color="#e6e0d2"
                   text "Dismiss the keyboard" font-size=14 font-weight=600
                 text (noteFocused ? "editing" : "idle") testId="note-state" font-size=13 color="#6b655a"
-              input value=title input=writeTitle focus=focusIn blur=focusOut placeholder="Title" testId="note-title-input" aria-label="Title" width="100%" box-sizing="border-box" padding=10 border-width=1 border-style="solid" border-color="#cfc8b8" border-radius=10 font-size=16
-              textarea value=draft input=write focus=focusIn blur=focusOut placeholder="Write, then fold" testId="note-textarea" aria-label="Note" width="100%" min-height=96 box-sizing="border-box" padding=12 border-width=1 border-style="solid" border-color="#cfc8b8" border-radius=10 font-size=16 line-height="22px"
+              input appearance="none" value=title input=writeTitle focus=focusIn blur=focusOut placeholder="Title" testId="note-title-input" aria-label="Title" width="100%" box-sizing="border-box" padding=10 border-width=1 border-style="solid" border-color="#cfc8b8" border-radius=10 font-size=16
+              textarea appearance="none" value=draft input=write focus=focusIn blur=focusOut placeholder="Write, then fold" testId="note-textarea" aria-label="Note" width="100%" min-height=96 box-sizing="border-box" padding=12 border-width=1 border-style="solid" border-color="#cfc8b8" border-radius=10 font-size=16 line-height="22px"
 
 // The three facts and the viewport, printed so a screenshot is its own evidence.
 component Facts

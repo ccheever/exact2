@@ -95,6 +95,29 @@ fn a_package_is_found_through_node_modules_and_mapped_through_its_exports() {
     let e = contract::compile_path(&root).unwrap_err();
     assert_eq!(e.id, "contract-use-package", "{e}");
     assert!(e.message.contains("bun add @acme/nothing"), "{}", e.message);
+    // Declared but not installed (a fresh checkout): the refusal says to install.
+    dir.write(
+        "app/package.json",
+        r#"{"dependencies":{"@acme/nothing":"1.0.0"}}"#,
+    );
+    let e = contract::compile_path(&root).unwrap_err();
+    assert!(
+        e.message.contains("bun install --frozen-lockfile"),
+        "{}",
+        e.message
+    );
+    std::fs::remove_file(dir.0.join("app/package.json")).unwrap();
+    // A workspace's own package, as exact2's root declares `@exact/reading`.
+    dir.write(
+        "package.json",
+        r#"{"workspaces":["libs/*"],"dependencies":{"@acme/nothing":"workspace:*"}}"#,
+    );
+    let e = contract::compile_path(&root).unwrap_err();
+    assert!(
+        e.message.contains("is declared in") && e.message.contains("bun install --frozen-lockfile"),
+        "{}",
+        e.message
+    );
     // A bare file name is a mistaken path, not a package.
     dir.write(
         "app/app.contract",

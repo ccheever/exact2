@@ -84,7 +84,12 @@ impl<D: DataSource> Presenter<D> {
         }
         let value = self.field_text(id);
         let mut s = format!("{{\"typed\":{id},\"value\":");
-        quote(&value, &mut s);
+        // A password's value is never agent output (#134).
+        let props = self.host.kernel().node(id).map(|n| n.props);
+        quote(
+            props.map_or(&value[..], |p| exact_runner::agent::shown_value(p, &value)),
+            &mut s,
+        );
         s.push('}');
         Ok(s)
     }

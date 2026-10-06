@@ -231,7 +231,8 @@ public final class Agent {
         case "type": let r = releaseCanvasKey(req) ?? type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
         case "reveal": Agent.reply(tagged(reveal(req))) // before a tap or a type: a target out of view, scrolled into it
         case "clock": let r = clock(req); session.tellAgentOffset(); Agent.reply(tagged(r))
-        case "prefer": Agent.reply(tagged(prefer(req)))
+        // A fetch fault (LLP 1103) is the runner's, below; the device facts are this host's.
+        case "prefer" where req["faults"] == nil: Agent.reply(tagged(prefer(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
         case "sample": Agent.reply(tagged(sample(req)))
         case "logs":
@@ -304,6 +305,13 @@ public final class Agent {
         var out = r
         for (key, value) in tags where out[key] == nil { out[key] = value }
         return out
+    }
+
+    /// A field's value as a reply shows it (#134): a password's, when not
+    /// empty, is a fixed mark whatever its length — the runner's
+    /// `agent::MASKED`, which its tree already shows.
+    static func shownValue(_ value: String, of v: NodeView) -> String {
+        v.props["type"] == "password" && !value.isEmpty ? "•••" : value
     }
 
     public static func reply(_ obj: [String: Any]) {
@@ -469,6 +477,8 @@ public final class Agent {
             let runner = session.agent("{\"op\":\"tags\"}").data(using: .utf8)
                 .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["clock"] as? Double
             session.clock = max(session.now(), runner ?? 0)
+            // The display's cadence means nothing under the agent's clock.
+            session.sampler?.stop()
         }
         if req["take"] as? Bool == true { return ["clock": session.clock ?? 0] }
         let from = session.clock ?? 0

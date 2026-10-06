@@ -642,8 +642,8 @@ final class TextEngine {
                 continue
             }
             if let url = fontURL(source) { pendingFonts.append(url) }
-            staged[stack, default: []].append(RegisteredFace(
-                family: name, generic: nil, weight: Int(row.weight), italic: row.italic != 0, descriptor: descriptor))
+            staged[stack, default: []].append(RegisteredFace(family: name, generic: nil, weight: Int(row.weight),
+                italic: row.italic != 0, descriptor: Self.declaredFace(descriptor, weight: Int(row.weight))))
         }
         for stack in failed {
             staged.removeValue(forKey: stack)

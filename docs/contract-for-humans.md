@@ -803,7 +803,7 @@ call outside them fails. The capabilities are:
   ```ts
   edit(store, args) {
     song = apply(song, args);
-    storage.fs.atomicWriteFile(PATH, JSON.stringify(song)).catch(note);  // started now, not awaited
+    storage.fs.atomicWriteFile(PATH, new TextEncoder().encode(JSON.stringify(song))).catch(note);  // started now, not awaited
     return song;
   }
   ```
@@ -942,6 +942,11 @@ Bind a controlled text field's current value and its editing action:
 input value=query input=search placeholder="Search" aria-label="Search"
 textarea value=body input=editBody
 ```
+
+A bare text field is visible, as the browser's is: a thin border, rounded
+corners, padding and a fill that follow light and dark mode. Any row you write
+replaces only that row; `appearance="none"` gives the bare box for a field you
+draw yourself (LLP 1104).
 
 `input` and `change` carry the control's new value as the final action argument:
 a string for a text field, textarea or `select`, a boolean for a checkbox or

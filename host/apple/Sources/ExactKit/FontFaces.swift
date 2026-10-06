@@ -13,6 +13,21 @@ struct RegisteredFace {
 }
 
 extension TextEngine {
+    /// A declared face drawn at its declared weight. A variable file's
+    /// descriptors are its named instances, so the first is often Thin; a
+    /// browser draws a face at the weight its `@font-face` names, on the
+    /// `wght` axis, so the axis is set to it (clamped to the axis's range).
+    /// A static face has no axis and is returned as it is.
+    static func declaredFace(_ descriptor: CTFontDescriptor, weight: Int) -> CTFontDescriptor {
+        let tag = 0x77676874 // 'wght'
+        let font = CTFontCreateWithFontDescriptor(descriptor, 16, nil)
+        guard let axes = CTFontCopyVariationAxes(font) as? [[CFString: Any]],
+              let axis = axes.first(where: { ($0[kCTFontVariationAxisIdentifierKey] as? NSNumber)?.intValue == tag }) else { return descriptor }
+        let low = (axis[kCTFontVariationAxisMinimumValueKey] as? NSNumber)?.doubleValue ?? Double(weight)
+        let high = (axis[kCTFontVariationAxisMaximumValueKey] as? NSNumber)?.doubleValue ?? Double(weight)
+        return CTFontDescriptorCreateCopyWithVariation(descriptor, tag as CFNumber, CGFloat(min(max(Double(weight), low), high)))
+    }
+
     /// The faces of an installed family at CSS's normal stretch, its default
     /// face first so it wins a tie (Iowan Old Style's Roman over Titling).
     /// Weight is the face's OS/2 `usWeightClass`, the number CSS matches.

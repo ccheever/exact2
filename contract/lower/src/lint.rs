@@ -89,6 +89,34 @@ const ARIA: &[&str] = &[
     "aria-valuetext",
 ];
 
+/// The physical longhands for a CSS logical box property (r37 t1 wrote `padding-block`),
+/// in a left-to-right, top-to-bottom flow.
+fn logical(name: &str) -> Option<String> {
+    let (base, rest) = ["padding", "margin", "inset"]
+        .into_iter()
+        .find_map(|b| name.strip_prefix(b).map(|r| (b, r)))?;
+    let side = |s: &str| {
+        if base == "inset" {
+            format!("`{s}`")
+        } else {
+            format!("`{base}-{s}`")
+        }
+    };
+    Some(match rest {
+        "-block" => format!("{} and {}", side("top"), side("bottom")),
+        "-inline" => format!(
+            "{} and {} in a left-to-right flow",
+            side("left"),
+            side("right")
+        ),
+        "-block-start" => side("top"),
+        "-block-end" => side("bottom"),
+        "-inline-start" => format!("{} in a left-to-right flow", side("left")),
+        "-inline-end" => format!("{} in a left-to-right flow", side("right")),
+        _ => return None,
+    })
+}
+
 pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
     let hint = match tags::renamed(&a.name) {
         Some(new @ ("press" | "change" | "input")) => format!(
@@ -106,6 +134,11 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
                 fragmentation(&a.name).unwrap_or_default()
             )
         }
+        None if logical(&a.name).is_some() => format!(
+            "; CSS's logical `{}` is not admitted: write {}",
+            a.name,
+            logical(&a.name).unwrap_or_default()
+        ),
         None if a.name == "className" => {
             "; `class` names a `style` declared in this file, as in `class=Card`".into()
         }

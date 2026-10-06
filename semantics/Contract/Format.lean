@@ -1,8 +1,8 @@
 /-
 The roster's formatting and localization, as the runner computes them.
 
-`formatTime` is `runner/src/stdlib.rs`'s, `formatDate` and `formatNumber`
-the linked `format` capability's (`runner/src/format.rs`), `t` the
+`formatTime` is `runner/src/stdlib.rs`'s, `formatDate`, `formatNumber`,
+`toFixed` and `formatDecimal` the linked `format` capability's (`runner/src/format.rs`), `t` the
 strings tables' (`exact_plan::strings`: `Plan::localized` and `fill`).
 Each is transcribed: `en-US` at the fixed UTC offset the call names, the
 calendar by Hinnant's `civil_from_days` over integers, compact numbers
@@ -161,6 +161,50 @@ def formatDate (epoch offset : F64) (monthYear : Bool) : String :=
     let name := months.getD (month - 1) ""
     let head := if monthYear then name else String.ofList (name.toList.take 3) ++ " " ++ toString day ++ ","
     head ++ " " ++ toString year
+
+/-- `formatDate(epochMs, utcOffset, "iso")`: `YYYY-MM-DD`, the date part of
+`toISOString` at that wall time (LLP 1102 §3.4), `""` when invalid. Years
+are 1–9999 (`wallMs`), so four digits. -/
+def formatIsoDate (epoch offset : F64) : String :=
+  match wallMs epoch offset with
+  | .none => ""
+  | .some wall =>
+    let (year, month, day) := civil (floorInt (wall / 86400000))
+    let pad (n w : Nat) : String := let s := toString n; String.ofList (zeros (w - s.length)) ++ s
+    pad year.toNat 4 ++ "-" ++ pad month 2 ++ "-" ++ pad day 2
+
+/-! ## Fixed decimals (LLP 1102 §3.2, decided (c)) -/
+
+/-- The digits of `n / 10^places`: one before the point at least, `places`
+after it, no point for none. -/
+def places (n : Nat) (places : Nat) : String :=
+  let ds := (toString n).toList
+  let ds := zeros (places + 1 - ds.length) ++ ds
+  let int := ds.take (ds.length - places)
+  let frac := ds.drop (ds.length - places)
+  String.ofList int ++ (if places = 0 then "" else "." ++ String.ofList frac)
+
+/-- A digits argument the compiler admitted: a whole number from 0 to `max`. -/
+def digitsOf (d : F64) (max : Nat) : Option Nat :=
+  if isFinite d && d.mag % 2 ^ 1074 == 0 && !(d < 0) && d.toNat ≤ max then .some d.toNat else .none
+
+/-- `toFixed(x, digits)`: JavaScript's `Number.prototype.toFixed` on the
+exact value `|x| = mag / 2^1074`: `n = ⌊|x| × 10^digits + 1/2⌋`, the larger
+of two equally near (a tie away from zero), signed for any `x < 0`; `|x| ≥
+10^21` as `toString` prints it; `""` for a non-finite `x` (D7). -/
+def toFixed (x : F64) (digits : Nat) : String :=
+  if !isFinite x then ""
+  else if x.mag ≥ 10 ^ 21 * 2 ^ 1074 then jsToString x
+  else
+    let n := (x.mag * 10 ^ digits + 2 ^ 1073) / 2 ^ 1074
+    (if x < 0 then "-" else "") ++ places n digits
+
+/-- `formatDecimal(units, digits)`: an integer `units` as a decimal with
+`digits` places, exactly; `-0` is `0`; `""` for a count that is not an
+integer or not finite. -/
+def formatDecimal (x : F64) (digits : Nat) : String :=
+  if !isFinite x || x.mag % 2 ^ 1074 != 0 then ""
+  else (if x < 0 then "-" else "") ++ places (x.mag / 2 ^ 1074) digits
 
 /-! ## Localized text -/
 

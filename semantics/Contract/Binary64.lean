@@ -164,6 +164,17 @@ def floor (x : F64) : F64 :=
     let z := x.scaled / 2 ^ 1074 * 2 ^ 1074
     if z = x.scaled then x else ofScaled z false
 
+/-- `⌈x⌉` as `-⌊-x⌋`: exact, and `ceil(-0.5) = -0` (LLP 1102 §3.2). -/
+def ceil (x : F64) : F64 := neg (floor (neg x))
+
+/-- JavaScript's `Math.round` (LLP 1102 §3.2): `⌊x + 1/2⌋` taken exactly, so
+a half rounds up (`round(-2.5) = -2`) and `0.49999999999999994` rounds to 0,
+where Rust's `f64::round` rounds a half away from zero. A zero result keeps
+`x`'s sign (`round(-0.4) = -0`); NaN and the infinities are their own. -/
+def jsRound (x : F64) : F64 :=
+  if !x.isFinite then x
+  else ofScaled ((x.scaled + 2 ^ 1073) / 2 ^ 1074 * 2 ^ 1074) x.sign
+
 /-- A finite non-negative integer double as a `Nat` (else its floor's, or
 0 when negative or not finite). -/
 def toNat (x : F64) : Nat := if x.isFinite then (x.scaled / 2 ^ 1074).toNat else 0

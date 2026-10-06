@@ -461,14 +461,14 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
         "`lo` and `hi`",
     );
     refused(
-        "text toFixed(1.5, 2)",
+        "text toPrecision(1.5, 2)",
         "type-refused-idiom",
-        "floor(v * 100 + 0.5) / 100",
+        "`toFixed(x, digits)`",
     );
     refused(
         "text (1.5).toFixed(2)",
         "syntax-method-call",
-        "formatNumber",
+        "write `toFixed(x, digits)`",
     );
     // 3. Mapping to view nodes.
     refused(

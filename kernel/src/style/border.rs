@@ -20,6 +20,17 @@ impl StyleProps {
         })
     }
 
+    /// The widths as they occupy space under `env`: a terminal's border
+    /// rule makes each drawn side one cell (LLP 1101.001 P13).
+    pub fn border_widths_in(&self, env: &super::Env) -> [f32; 4] {
+        let widths = self.border_widths();
+        if env.cell_borders {
+            super::cells::border(widths)
+        } else {
+            widths
+        }
+    }
+
     /// Border colours after resolving currentColor against this node's
     /// computed colour. An `inset` side is the shade the browser paints: the
     /// top and left darkened, the bottom and right lightened, from the side's

@@ -2,7 +2,8 @@
 // globals. Host modules keep the browser's functions at every load time.
 import { fetchWith } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
-export const fetch = (input, options) => options?.exactStream === undefined ? fetchWith(tsGrantSet, input, options) : stream(input, options);
+export const fetch = (input, options) => options?.exactStream === undefined ? fetchWith(tsGrantSet, input, options)
+  : options.exactTimeout !== undefined ? Promise.reject(new TypeError('exactTimeout: a stream has no timeout')) : stream(input, options);
 
 // An answer that keeps coming (LLP 1016.000), with Hermes's words
 // (js/src/prelude.js): the stream is the answer's, so its fetch is made while

@@ -141,7 +141,8 @@ final class MenuHost {
                 }
                 continue
             }
-            v.isHidden = true
+            // UIKit's setter is not free, even to the same value: every batch.
+            if !v.isHidden { v.isHidden = true }
             if let name = v.props["id"] { popovers[name] = v }
         }
         var live = Set<UInt32>()

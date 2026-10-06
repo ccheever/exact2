@@ -3,7 +3,9 @@
 //! the live host and the document writer use ([`tag_for`], [`props_for`],
 //! [`crate::css::css_text`], [`host_css`]). The web build's JS target compiles a
 //! plan's static rows through this at build, so its stylesheet is this
-//! host's CSS, never a second mapping.
+//! host's CSS, never a second mapping — but for `rem` and `em`, which it
+//! writes as authored ([`crate::css::css_text_relative`]): the page keeps no
+//! kernel to re-resolve them when a font size changes, and the browser does.
 
 use super::{
     browser_kernel, css_style, font_names, host_css, in_button, props_for, svg_props, tag_for,
@@ -50,7 +52,8 @@ pub fn parts_with(
     let tag = tag_for(&node, in_button(kernel, &node));
     let mut props = props_for(&node);
     svg_props(kernel, &node, &mut props);
-    let (text, skipped) = crate::css::css_text(&css_style(kernel, &node), &font_names(plan));
+    let (text, skipped) =
+        crate::css::css_text_relative(&css_style(kernel, &node), &font_names(plan));
     let css = super::element::contents(
         host_css(&node, text, tag),
         may_fold && super::element::folded(kernel, &node, false),

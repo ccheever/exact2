@@ -265,19 +265,36 @@ fn a_runner_source_called_as_a_function_says_to_declare_it() {
 }
 
 #[test]
-fn a_maximum_of_none_says_no_limit_is_the_default() {
+fn a_logical_box_property_names_its_physical_longhands() {
+    for (attr, says) in [
+        (
+            "padding-block=8",
+            "`padding-block` is not admitted: write `padding-top` and `padding-bottom`",
+        ),
+        (
+            "margin-inline-start=4",
+            "`margin-inline-start` is not admitted: write `margin-left` in a left-to-right flow",
+        ),
+        (
+            "inset-inline=0",
+            "`inset-inline` is not admitted: write `left` and `right` in a left-to-right flow",
+        ),
+    ] {
+        let src = format!("component App\n  view\n    column {attr}\n      text \"a\"\n");
+        let error = contract::compile(&src).unwrap_err();
+        assert_eq!(error.id, "lower-unknown-attr", "{error}");
+        assert!(error.message.ends_with(says), "{error}");
+    }
+}
+
+#[test]
+fn a_maximum_of_none_and_a_pixel_text_compile() {
+    // CSS's initial maximum (LLP 1102 §3.11) and `px` on a pixel row (§3.10).
     for src in [
-        "component App\n  view\n    column max-height=\"none\"\n      text \"a\"\n",
+        "component App\n  view\n    column max-height=\"none\"\n      text \"a\" font-size=\"14px\" letter-spacing=\"-0.5px\"\n",
         "component App\n  state narrow = false\n  view\n    column max-width=(narrow ? \"320px\" : \"none\")\n      text \"a\"\n",
     ] {
-        let error = contract::compile(src).unwrap_err();
-        assert_eq!(error.id, "lower-attr-value", "{error}");
-        assert!(
-            error.message.ends_with(
-                "out (an explicit no-limit is `auto` here)"
-            ) && error.message.contains("; no limit is the default, so leave `max-"),
-            "{error}"
-        );
+        contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
     }
 }
 

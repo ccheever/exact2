@@ -200,6 +200,11 @@ extension NodeView {
         // On permits correction; UIKit's default also respects user preferences.
         return (props["autocorrect"] ?? "").lowercased() == "off" ? .no : .default
     }
+    /// No correction (`autocorrect="off"`, or an email, URL or password
+    /// input) keeps the text as typed, as HTML asks: no smart quotes or
+    /// dashes either (#111). Otherwise the keyboard's.
+    var inputSmartQuotes: UITextSmartQuotesType { inputCorrection == .no ? .no : .default }
+    var inputSmartDashes: UITextSmartDashesType { inputCorrection == .no ? .no : .default }
 
     var inputSpellChecking: UITextSpellCheckingType {
         switch props["spellcheck"] {
@@ -240,10 +245,14 @@ extension NodeView {
         f.isEditable = !disabled && props["editable"] != "false"
         #endif
         f.isSelectable = !disabled
-        let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking
+        let content = Autofill.contentType(props["autocomplete"], fallback: nil)
+        let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking || f.smartQuotesType != inputSmartQuotes || f.smartDashesType != inputSmartDashes || f.textContentType != content
         f.autocapitalizationType = inputCapitalization
         f.autocorrectionType = inputCorrection
         f.spellCheckingType = inputSpellChecking
+        f.smartQuotesType = inputSmartQuotes
+        f.smartDashesType = inputSmartDashes
+        f.textContentType = content
         if traitsChanged, f.isFirstResponder { f.reloadInputViews() }
         f.accessibilityLabel = props["accessibilityLabel"]
         f.accessibilityIdentifier = props["testId"]
