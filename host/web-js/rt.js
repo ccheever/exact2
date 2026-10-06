@@ -805,13 +805,13 @@ export function gridValue(kind, value) {
   if (kind === "justify" && /^(?:last baseline|legacy(?: (?:left|right|center))?|(?:left|right|center) legacy)$/.test(lower)) return refuse("Taffy has no such alignment mode");
   return v;
 }
+// A row's CSS text; `auto` on a maximum is CSS's unbounded `none` (LLP 1102 §3.11).
+const cssText = (prop, unit, v) => { const t = v == null ? null : typeof v === "number" ? v + unit : String(v); return t === "auto" && (prop === "max-width" || prop === "max-height") ? "none" : t; };
 function css(e, prop, unit, v, rendered) {
   // The value this binding last wrote: the same again writes nothing (each
   // write was two style mutations, for every dynamic row of every row a
   // list update touched).
-  const last = e.$css ??= {};
-  let t = v == null ? null : typeof v === "number" ? v + unit : String(v);
-  if (t === "auto" && (prop === "max-width" || prop === "max-height")) t = "none"; // CSS's unbounded maximum (LLP 1102 §3.11)
+  const last = e.$css ??= {}, t = cssText(prop, unit, v);
   if (last[prop] === t) return;
   last[prop] = t;
   // An adopted node's inline style is the renderer's: a value it already
@@ -858,7 +858,7 @@ export function Sm(e, prop, unit, f) {
   effect(() => {
     const v = f();
     // Held: the hold's authored style takes it, and what css() last wrote no longer says what shows.
-    if (Hooks.style?.(e, prop, v == null ? null : typeof v === "number" ? v + unit : String(v))) { if (e.$css) delete e.$css[prop]; }
+    if (Hooks.style?.(e, prop, cssText(prop, unit, v))) { if (e.$css) delete e.$css[prop]; }
     else css(e, prop, unit, v);
   });
 }

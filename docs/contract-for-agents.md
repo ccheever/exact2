@@ -1440,9 +1440,10 @@ name is `alt` or `aria-label`; `enterkeyhint` labels a soft keyboard's enter
 key on the web and iOS. A bare number on a length row is pixels (except
 `line-height`, where it is CSS's multiple of the font size), and the row takes
 CSS's spellings too (`font-size="14px"`, `letter-spacing="-0.5px"`,
-`stroke-width="2px"`, `"1.5rem"`); `max-width` and `max-height` take `none`,
-CSS's initial maximum, or `auto`, and the web writes `none` for either. A number field's `min`, `max` and `step` take numbers, as a range's do;
-its `value` is its text.
+`padding="1.5rem"`; `stroke-width="2px"` but no `rem` there); `max-width` and
+`max-height` take `none`, CSS's initial maximum, or `auto`, and the web writes
+`none` for either. A number field's (`input type="number"`, written so)
+`min`, `max` and `step` take numbers, as a range's do; its `value` is its text.
 
 `border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
 resetting omitted components to medium/none/currentcolor. Widths are px/pt,
