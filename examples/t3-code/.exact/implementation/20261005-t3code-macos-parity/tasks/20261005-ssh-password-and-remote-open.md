@@ -80,7 +80,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X35](../issues/20261005-x35-secure-text-entry.md) | Secure text entry in Contract | not in the library | unknown (workaround: native secure field in the module; result equals the reference) | check on the pin at `prepare` 2026-10-07: #134 closed by main #167; the native field stays, because agent `state` prints the slot a Contract field would bind (adopt-main-fixes-input). |
+| [X35](../issues/20261005-x35-secure-text-entry.md) | Secure text entry in Contract | not in the library | unknown (workaround: native secure field in the module; result equals the reference) | check on the pin at `prepare` 2026-10-07: #134 closed by main #167; the native field stays, because a Contract field would carry the password through Contract state and the data module, which #167 leaves outside its guarantee (adopt-main-fixes-input). |
 | [X26](../issues/20261005-x26-app-menu-control.md) | The editor menu is a native menu | existing menus | nonblocking | none |
 
 ## Implementation notes
