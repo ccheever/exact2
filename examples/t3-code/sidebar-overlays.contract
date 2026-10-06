@@ -187,7 +187,7 @@ component SidebarControlTip
     shown: bool
   view
     // `start`: shifted against the window's left edge (x is the bubble's left), else centered on x.
-    row position="absolute" left=(shown ? (start ? x : x - 160) : -4000) top=(y - 30.5) width=320 z-index=140 justify-content=(start ? "flex-start" : "center") pointer-events="none" inert=true aria-hidden=(not shown)
+    row position="absolute" left=(shown ? (start ? x : x - 160) : -4000) top=(y - 30.5) width=320 z-index=140 justify-content=(start ? "flex-start" : "center") pointer-events="none" aria-hidden=(not shown)
       TipCard(label=label, shown=shown)
 
 // SidebarThreadTooltip in ThreadHoverCardPopup (glass, side right, align
@@ -229,7 +229,7 @@ component SidebarHoverCard
     y: number
     shown: bool
   view
-    column position="absolute" left=(shown ? x : -4000) top=y z-index=29 opacity=(shown ? 1 : 0) transition=(shown ? "opacity 0ms linear 150ms" : "opacity 0ms") aria-hidden=(not shown) max-width=320 padding-left=12 padding-right=12 padding-top=12 padding-bottom=12 box-sizing="border-box" gap=8 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter="blur(16px)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" pointer-events="none" inert=true role="tooltip" testId=(shown ? `hover-card-${t.id}` : "hover-card-hidden")
+    column position="absolute" left=(shown ? x : -4000) top=y z-index=29 opacity=(shown ? 1 : 0) transition=(shown ? "opacity 0ms linear 150ms" : "opacity 0ms") aria-hidden=(not shown) max-width=320 padding-left=12 padding-right=12 padding-top=12 padding-bottom=12 box-sizing="border-box" gap=8 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter="blur(16px)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" pointer-events="none" role="tooltip" testId=(shown ? `hover-card-${t.id}` : "hover-card-hidden")
       text t.title max-width=296 font-size=12 line-height="15px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1
       column gap=6 padding-left=2
         when t.projectName != ""
@@ -267,7 +267,7 @@ component SidebarDragGhost
     y: number
     count: number
   view
-    row position="absolute" left=(x + 12) top=(y + 12) z-index=60 max-width=288 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 box-sizing="border-box" gap=8 align-items="center" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" pointer-events="none" inert=true aria-hidden=true testId="sidebar-drag-ghost"
+    row position="absolute" left=(x + 12) top=(y + 12) z-index=60 max-width=288 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 box-sizing="border-box" gap=8 align-items="center" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" pointer-events="none" aria-hidden=true testId="sidebar-drag-ghost"
       SidebarIcon(name="messages-square", size=16, color="light-dark(#71717b, #818181)")
       text t.title font-size=14 line-height="20px" color="light-dark(#27272a, #f3f3f3)" line-clamp=1 min-width=0
       when count > 1
@@ -283,7 +283,7 @@ component SidebarLiftedCard
     width: number
     verb: string
   view
-    column position="absolute" left=x top=y z-index=50 width=width height=(t.card ? 78 : 36) padding-left=10 padding-right=10 padding-top=(t.card ? 8 : 0) box-sizing="border-box" justify-content=(t.card ? "flex-start" : "center") border-radius=8 background-color="light-dark(#ffffff, #1b1b1b)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" pointer-events="none" inert=true aria-hidden=true testId="sidebar-lifted-row"
+    column position="absolute" left=x top=y z-index=50 width=width height=(t.card ? 78 : 36) padding-left=10 padding-right=10 padding-top=(t.card ? 8 : 0) box-sizing="border-box" justify-content=(t.card ? "flex-start" : "center") border-radius=8 background-color="light-dark(#ffffff, #1b1b1b)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" pointer-events="none" aria-hidden=true testId="sidebar-lifted-row"
       when t.card
         row width="100%" height=20 gap=6 align-items="center"
           SidebarProjectGlyph(g=t.glyph, size=16, dim=false)
