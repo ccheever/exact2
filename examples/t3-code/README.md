@@ -356,7 +356,7 @@ mkdir -p target/t3-tests
 xcrun swiftc -swift-version 5 -module-name ExactKit -I host/apple/Sources/CExact \
   $(rg --files host/apple/Sources/ExactKit -g '*.swift') \
   examples/t3-code/macos/tests/timeline-keyboard/main.swift \
-  -L target/aarch64-apple-darwin/apple-dev -lt3_code_macos -lc++ \
+  -L target/aarch64-apple-darwin/host-dev -lt3_code_macos -lc++ \
   -o target/t3-tests/timeline-keyboard-tests
 target/t3-tests/timeline-keyboard-tests
 ```

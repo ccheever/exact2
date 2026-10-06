@@ -307,8 +307,10 @@ component WorkEntry
             when entry.result != ""
               text entry.result font-size=12 line-height="16px" color="light-dark(#fb2c36, #fb414a)"
 
-// Focus handlers put the result in Exact's native Tab order. Scroll feedback
-// keeps the keyboard offset current after a wheel or a clamped request.
+// V2ItemInspector ToolOutput: loaded output is a bounded scroll region
+// (max-h-80 overflow-auto), which Chromium makes a Tab stop; the focus
+// handlers put it in Exact's Tab order. Loading, empty and error are plain
+// text, not regions. Scroll feedback keeps the keyboard offset current.
 component ToolOutput
   props
     id: string
@@ -329,8 +331,11 @@ component ToolOutput
     if name == " "
       top = min(max(0, frame(`work-output-content-${id}`).height - frame(`work-output-${id}`).height), top + 280)
   view
-    scroll focus=focusOutput(true) blur=focusOutput(false) key=outputKey scroll=scrolled scrollTop=top id=`work-output-${id}` testId=`work-output-${id}` width="100%" max-height=320 overflow-x="hidden" aria-label="Tool output" box-shadow=(focused ? "inset 0 0 0 2px light-dark(#1447e6, #50a2ff)" : "none")
-      text output id=`work-output-content-${id}` testId=`work-output-content-${id}` width="100%" font-family="ui-monospace" font-size=codeSize line-height=1.625 white-space="pre-wrap" overflow-wrap="anywhere" font-style=(outputState == "loading" or outputState == "empty" ? "italic" : "normal") color=(outputState == "error" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
+    when outputState == ""
+      scroll focus=focusOutput(true) blur=focusOutput(false) key=outputKey scroll=scrolled scrollTop=top id=`work-output-${id}` testId=`work-output-${id}` width="100%" max-height=320 overflow-x="hidden" aria-label="Tool output" box-shadow=(focused ? "inset 0 0 0 2px light-dark(#1447e6, #50a2ff)" : "none")
+        text output id=`work-output-content-${id}` testId=`work-output-content-${id}` width="100%" font-family="ui-monospace" font-size=codeSize line-height=1.625 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
+    else
+      text output testId=`work-output-content-${id}` width="100%" font-family="ui-monospace" font-size=codeSize line-height=1.625 white-space="pre-wrap" overflow-wrap="anywhere" font-style=(outputState == "loading" or outputState == "empty" ? "italic" : "normal") color=(outputState == "error" or outputState == "missing" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
 
 // TimelineSystemDivider: a rule, a pill with the event and its detail, a rule.
 component SystemDivider

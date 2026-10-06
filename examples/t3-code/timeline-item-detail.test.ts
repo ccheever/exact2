@@ -187,7 +187,7 @@ describe('on-demand turn item cache', () => {
   });
   test('exposes missing, fetched-empty and RPC error states', async () => {
     for (const [reply, state, text] of [
-      [{ item: null }, 'missing', 'Output is no longer available.'],
+      [{ item: null }, 'missing', "Couldn't load output: Output is no longer available."],
       [{ item: { ...command(), outputOmitted: false, output: '' } }, 'empty', 'No output.'],
       [null, 'error', "Couldn't load output: disconnected"],
     ] as const) {
