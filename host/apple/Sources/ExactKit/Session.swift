@@ -1187,7 +1187,7 @@ public final class ExactSession {
             }
             canvases.loadIfNeeded()
             natives.loadIfNeeded() // @ref LLP 1024 D3 — the turn after first draw
-            drainSurfaceWork()
+            drainSurfaceWork(); presenter.releaseLaunchAutofocus()
             frames.run(frames.motion || canvases.wantsFrames)
             frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
         }

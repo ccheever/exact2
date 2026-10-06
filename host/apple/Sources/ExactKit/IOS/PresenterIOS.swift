@@ -14,6 +14,8 @@ final class Presenter {
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
 
     var autofocusProcessed: Set<ObjectIdentifier> = []
+    /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
+    var launchAutofocusReleased = false
     private var projectionSyncOwed = false
     /// What the native projections show changed outside a batch (a subtree's
     /// appearance or size traits, geometry a sheet replayed after the batch).
