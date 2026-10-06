@@ -350,17 +350,18 @@ component DraftCard
     hoverCard: action
     hoverId: string
   derive hovering = hoverId == `draft:${d.id}` or startsWith(hoverId, `draft:${d.id}#`)
-  // r12-sidebar: SidebarDraftRow handleKeyDown: ContextMenu (the row's key handler) or Shift+F10 (a
-  // window shortcut while the row holds focus) opens the menu at the row's bottom left.
-  state focused = false
-  action focusRow(on: bool)
-    focused = on
+  // r12-sidebar: SidebarDraftRow handleKeyDown: ContextMenu or Shift+F10 opens the menu at the row's
+  // bottom left. The row's own key handler hears both, with its modifiers (main's KeyboardEvent, 8a0afbeab).
+  action rowKey(k: string, e: KeyboardEvent)
+    if e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey and k == "F10"
+      preventDefault()
+      run("row-key", `draft:${d.id}`, "Shift+F10")
+    else
+      run("row-key", `draft:${d.id}`, k)
   view
     column id=`row-draft:${d.id}` hover=hoverCard(`draft:${d.id}`) contextmenu=run("draft-menu", d.id, "") width="100%" position="relative" padding-top=2 padding-bottom=2 box-sizing="border-box"
       box id=`row-draft:${d.id}#discard` position="absolute" top=0 left=0 width=0 height=0 aria-hidden=true
-      when focused
-        button press=run("draft-menu", d.id, "key") aria-keyshortcuts="Shift+F10" aria-label="Draft actions" testId=`draft-keys-${d.id}` position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000"
-      button cursor="pointer" press=run("open-draft", d.id, "") key=run("row-key", `draft:${d.id}`) focus=focusRow(true) blur=focusRow(false) aria-label=`${d.preview}, Unsent draft, ${d.projectName}` testId=`draft-${d.id}` width="100%" height=78 box-sizing="border-box" padding-left=10 padding-right=10 padding-top=8 border-radius=8 border-width=0 background-color=(hovering ? "#fe9a0014" : "#fe9a000a") display="flex" flex-direction="column" align-items="stretch"
+      button cursor="pointer" press=run("open-draft", d.id, "") key=rowKey aria-label=`${d.preview}, Unsent draft, ${d.projectName}` testId=`draft-${d.id}` width="100%" height=78 box-sizing="border-box" padding-left=10 padding-right=10 padding-top=8 border-radius=8 border-width=0 background-color=(hovering ? "#fe9a0014" : "#fe9a000a") display="flex" flex-direction="column" align-items="stretch"
         row width="100%" height=20 gap=6 align-items="center"
           SidebarIcon(name="square-pen", size=12, color="light-dark(#bb4d00, #ffb900)")
           SidebarProjectGlyph(g=d.glyph, size=16, dim=false)
