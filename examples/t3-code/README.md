@@ -79,6 +79,7 @@ Exact repository root:
 ```sh
 bun install --frozen-lockfile
 export EXACT_APP_DIR="$PWD/examples/t3-code"
+bun examples/t3-code/terminal-host/build.mjs   # the terminal page into assets/ (ignored; EXACT2-GAPS X31)
 bun host/apple/build.mjs t3-code-macos --bundle --run
 ```
 
@@ -256,7 +257,9 @@ its command identifiers and draft and is never retried automatically.
 ## Known limits and exclusions
 
 - Excluded or not built: the terminal drawer and Terminal surface (a hand-off's setup script
-  runs on the server but its output is not shown), the Browser surface,
+  runs on the server but its output is not shown; the `t3-terminal` view, T3 Code's own Ghostty
+  emulator in a web view, exists with a development harness, ⌃⌥⇧T, `AGENT-HANDOFF.md` "Terminal
+  spike"), the Browser surface,
   pinch zoom of the 3D phone (the reference's is a no-op too; the iPhone Duo's pinch moves its
   hinge, `R9DeviceDuoView.swift`), dragging and resizing the floating device player, web,
   iOS and Linux delivery.
@@ -338,7 +341,7 @@ for d in examples/t3-code/macos/tests/*/; do
     -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \
     host/apple/modules/ExactNativeModule.swift "$R/ExactDataKeys.swift" $M "$d"*.swift -o "$O/$n-tests" || continue
   [ $n = snapshot ] && { rm -rf "$O/fixture"; mkdir -p "$O/fixture"; export T3_SNAPSHOT_TEST_ROOT="$O/fixture"; }
-  T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_MERMAID_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" "$O/$n-tests" $([ $n = mermaid ] && echo "$T3_SERVER")
+  T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_MERMAID_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" T3_TERMINAL_TEST_DIR="$O" "$O/$n-tests" $([ $n = mermaid ] && echo "$T3_SERVER")
 done
 ```
 
@@ -355,6 +358,9 @@ xcrun swiftc -swift-version 5 -module-name ExactKit -I host/apple/Sources/CExact
 target/t3-tests/timeline-keyboard-tests
 ```
 
+`terminal` needs `bun examples/t3-code/terminal-host/build.mjs` first (it loads the page from
+`assets/`); `T3_TERMINAL_SCALE=1` adds the 1/4/11/44-view cost table, and
+`bun examples/t3-code/terminal-host/verify-vendor.mjs` checks the vendored binaries.
 `mermaid` needs `T3_SERVER` set to a running T3 server's origin (it loads that server's
 Mermaid build into an offscreen web view). The live transport tests skip unless
 `T3_TRANSPORT_PAIRING_FILE` points at a fresh disposable pairing JSON file and
