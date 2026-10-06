@@ -1,0 +1,19 @@
+// Path Morph (issue #123): a path's `d` changes on a press. Does it morph?
+// `chev`: same command structure (M L L) at both ends: interpolates.
+// `odd`: M L L against M Q: not interpolable, discrete.
+component PathMorph
+  state open = false
+  action flip
+    open = not open
+  view
+    main testId="root" padding=24 background-color="#ffffff"
+      button "Flip" press=flip testId="flip"
+      row gap=24
+        svg width=96 height=96 viewBox="0 0 24 24" testId="icon"
+          path testId="chev" fill="none" stroke="#111" stroke-width=2
+            d=(open ? "M6 15 L12 9 L18 15" : "M6 9 L12 15 L18 9")
+            transition="all 600ms linear"
+        svg width=96 height=96 viewBox="0 0 24 24" testId="icon2"
+          path testId="odd" fill="none" stroke="#c00" stroke-width=2
+            d=(open ? "M6 15 L12 9 L18 15" : "M4 12 Q12 2 20 12")
+            transition="all 600ms linear"
