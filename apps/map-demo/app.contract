@@ -5,7 +5,16 @@
 // shows it. The buttons select a pin through the `selected` prop, the
 // non-gesture way to the same state.
 
+// No pointer is a TV's remote: it pans the map, but has no pinch, so the
+// zoom has buttons there (LLP 1039).
+shape Viewport
+  pointer: string
+
 component MapDemo
+  resource viewport = exactViewport() as shape Viewport
+  derive tv = viewport.pointer == "none"
+  // Degrees of latitude in view; the buttons halve and double it.
+  state span = 0.035
   state selected = ""
   state picks = 0
   action pick(id: string)
@@ -13,12 +22,16 @@ component MapDemo
     picks = picks + 1
   action choose(id: string)
     selected = id
+  action zoomIn
+    span = max(0.002, span / 2)
+  action zoomOut
+    span = min(2, span * 2)
   view
     main testId="map-demo" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#15171c" font-family="system-ui"
       row flex-shrink=0 align-items="center" padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
         text "Stores" flex=1 font-size=19 font-weight=600
         text (selected == "" ? "No store selected" : "Selected: " + selected) testId="selected" aria-live="polite" font-size=14 color="#4a505c"
-      native-map testId="map" flex=1 min-height=0 width="100%" latitude=37.7946 longitude=-122.4040 span=0.035 selected=selected pins="ferry|37.7955|-122.3937|Ferry Building;coit|37.8024|-122.4058|Coit Tower;union|37.7880|-122.4075|Union Square;chinatown|37.7941|-122.4078|Dragon Gate" aria-label="Map of stores; the buttons below select a store without the map" change=pick
+      native-map testId="map" flex=1 min-height=0 width="100%" latitude=37.7946 longitude=-122.4040 span=span selected=selected pins="ferry|37.7955|-122.3937|Ferry Building;coit|37.8024|-122.4058|Coit Tower;union|37.7880|-122.4075|Union Square;chinatown|37.7941|-122.4078|Dragon Gate" aria-label="Map of stores; the buttons below select a store without the map" change=pick
       row flex-shrink=0 gap=8 padding=12 flex-wrap="wrap"
         button press=choose("ferry") testId="pick-ferry" padding=10 border-radius=8 background-color="#eef1f6"
           text "Ferry Building"
@@ -26,4 +39,10 @@ component MapDemo
           text "Coit Tower"
         button press=choose("union") testId="pick-union" padding=10 border-radius=8 background-color="#eef1f6"
           text "Union Square"
+        when tv
+          view flex=1
+          button press=zoomOut disabled=(span >= 2) testId="zoom-out" aria-label="Zoom out" padding=10 border-radius=8 background-color="#eef1f6"
+            text "Zoom out −"
+          button press=zoomIn disabled=(span <= 0.002) testId="zoom-in" aria-label="Zoom in" padding=10 border-radius=8 background-color="#eef1f6"
+            text "Zoom in +"
       text ("Pins selected on the map: " + toString(picks)) testId="picks" font-size=13 color="#4a505c" padding-left=12 padding-bottom=12
