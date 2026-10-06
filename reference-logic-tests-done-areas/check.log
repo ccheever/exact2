@@ -1,6 +1,9 @@
 reference <reference checkout>
 files 734; rows 736 (734 file rows + 2 group rows)
-classes done-equivalent 2, port 235, swift 90, n/a-ui 99, n/a-server 20, n/a-excluded 150, later-ticket 138
+classes done-equivalent 5, port 236, swift 90, n/a-ui 99, n/a-server 20, n/a-excluded 150, later-ticket 134
+proof apps/web/src/components/chat/chatCanvasLayout.test.ts -> chat-canvas-layout.test.ts: 22/22 reference titles present; 0 clone-only
+proof apps/web/src/components/chat/threadDetailsCardLayout.test.ts -> thread-details-card-layout.test.ts: 12/12 reference titles present; 0 clone-only
+proof apps/web/src/previewMiniPlayerStore.test.ts -> previewMiniPlayerStore.test.ts: 7/7 reference titles present; 0 clone-only
 proof apps/web/src/rpc/requestLatencyState.test.ts -> request-latency.test.ts: 9/9 reference titles present; 3 clone-only
 proof packages/client-runtime/src/state/projectCommands.test.ts -> r13-threads.test.ts: 2/2 reference titles present; 18 clone-only
 OK
@@ -27,3 +30,6 @@ clone-only test a started thread keeps the static machine row, and only when its
 clone-only test a No project draft with another connected machine: the strip carries only "Run on"
 clone-only test Send reads "Preparing machine" while the machine is prepared: the readers wake at the start and the end
 clone-only test fails with ScratchProjectNotLoadedError after 10 seconds without the project
+apps/web/src/previewMiniPlayerStore.test.ts: 7/7 reference titles present
+apps/web/src/components/chat/chatCanvasLayout.test.ts: 22/22 reference titles present
+apps/web/src/components/chat/threadDetailsCardLayout.test.ts: 12/12 reference titles present
