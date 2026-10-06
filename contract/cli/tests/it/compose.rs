@@ -248,6 +248,17 @@ fn a_mutation_clause_out_of_order_names_the_order() {
 }
 
 #[test]
+fn a_runner_source_called_as_a_function_says_to_declare_it() {
+    let src = "component App\n  derive today = exactTime().epochAtZero + now()\n  view\n    text `${today}`\n";
+    let error = contract::compile(src).unwrap_err();
+    assert_eq!(error.id, "type-unknown-function", "{error}");
+    assert!(
+        error.message.ends_with("; `exactTime` is a source the runner answers: declare `resource r = exactTime() as shape S`, with a shape S of the fields you read, and read `r.field`"),
+        "{error}"
+    );
+}
+
+#[test]
 fn a_maximum_of_none_says_no_limit_is_the_default() {
     for src in [
         "component App\n  view\n    column max-height=\"none\"\n      text \"a\"\n",

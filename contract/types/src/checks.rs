@@ -274,7 +274,17 @@ pub(super) fn unknown_function(
     let mut message = format!(
         "`{name}` is not in the stdlib roster and is not an action; data comes from a `resource`"
     );
-    if let Some(candidate) = similar_function(name, scope, shapes) {
+    // The runner's own sources (the `SOURCE` of runner/src/time.rs, viewport.rs, page.rs,
+    // delivery.rs, surface_record.rs), called like functions (r34 t7: `exactTime().epochAtZero`).
+    if matches!(
+        name,
+        "exactTime" | "exactViewport" | "exactPage" | "exactDelivery" | "exactSurface"
+    ) {
+        message.push_str(&format!(
+            "; `{name}` is a source the runner answers: declare `resource r = {name}() as shape S`, \
+             with a shape S of the fields you read, and read `r.field`"
+        ));
+    } else if let Some(candidate) = similar_function(name, scope, shapes) {
         message.push_str(&format!("; did you mean `{candidate}`?"));
     }
     TypeError {
