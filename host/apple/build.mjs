@@ -741,12 +741,8 @@ async function main(args) {
   let bakedPlan, paths;
   const development = cargoEnv.EXACT_UPDATE_TRUST === 'development' && args.includes('--url') ? developmentAdmission(app, launchEnv.EXACT_DEV_PLAN) : null;
   cargoEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, cargoEnv);
-  if (ios && existsSync(resolve(app.dir, 'app.ts'))) {
-    if (cargoEnv.EXACT_JS_ENGINE !== 'stub') {
-      const bundle = hermesBundle(target, cargoEnv);
-      if (!bundle.installed) throw new Error(`the pinned Hermes bundle for ${target} is not installed. Install it once with:\n  ${bundle.fix}`);
-    }
-  }
+  const hermes = ios && existsSync(resolve(app.dir, 'app.ts')) && cargoEnv.EXACT_JS_ENGINE !== 'stub' && hermesBundle(target, cargoEnv);
+  if (hermes && !hermes.installed) throw new Error(`the pinned Hermes bundle for ${target} is not installed. Install it once with:\n  ${hermes.fix}`);
   // What the bake is expected to decide (the manifest's store level). The
   // shared Swift scratch is the same whatever it decides; the composition and
   // capture directory name the Swift host's environment before the bake ends.
