@@ -473,7 +473,10 @@ guide's rules don't make obvious.
   `Info.plist`, and `agent macos` runs the bare executable, which has none. Fix: set
   `host.macos.appTransportSecurity` (and `host.ios.…` for iOS) to
   `{ "allowsArbitraryLoadsInWebContent": true }` in `app.json`; it relaxes web views
-  only. To drive what a user sees, build with `bun exact.mjs mac --bundle` and set
+  only. On iOS, the host's wrapper for a remote HTTP page also uses HTTP:
+  an HTTPS wrapper would still block that page as mixed content after the ATS
+  opt-in. The inner iframe keeps its sandbox and its authored dimensions.
+  To drive what a user sees on macOS, build with `bun exact.mjs mac --bundle` and set
   `EXACT_MAC_BIN` to the `.app`'s `Contents/MacOS/ExactMac`; the driver then skips its
   stale-build check, so rebuild the bundle before each drive. Not covered: an app's
   own page (`src="assets/…"`) that links an `http:` sub-resource (#135).

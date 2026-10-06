@@ -82,13 +82,14 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         _ = template.defaultWebpagePreferences
         return template
     }()
-    var wrapperURL: URL { URL(string: "https://exact.invalid/frame/\(id)/index.html")! }
+    var wrapperURL: URL
 
     init(id: UInt32, context: UnsafeMutableRawPointer?, event: @escaping EventFn, reply: @escaping ReplyFn) {
         self.id = id
         self.context = context
         self.event = event
         self.reply = reply
+        self.wrapperURL = URL(string: "https://exact.invalid/frame/\(id)/index.html")!
         // A copy of one shared configuration, not a fresh one: a fresh
         // configuration builds its preferences, visited-link store and
         // page defaults again for every row (`ensureLazyInitializedRefs`,
@@ -203,6 +204,12 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         let local = error.map(errorDocument) ?? src.flatMap(localDocument)
         let remote = local == nil ? src.flatMap(remoteSource) : nil
         let web = remote.flatMap(URL.init(string:)).flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil }
+        // An HTTPS wrapper would block an HTTP guest as mixed content even
+        // when the app explicitly allows it through ATS. Match the remote
+        // HTTP guest's scheme; WebKit still enforces ATS and the iframe's
+        // sandbox. Local documents keep their existing HTTPS origin.
+        let scheme = web?.scheme?.lowercased() == "http" ? "http" : "https"
+        wrapperURL = URL(string: "\(scheme)://exact.invalid/frame/\(id)/index.html")!
         #if os(iOS)
         // iOS lays a top-level document out by its viewport `<meta>` (980
         // CSS px without one); a frame ignores it and takes its box. Only a
