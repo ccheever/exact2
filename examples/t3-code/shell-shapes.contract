@@ -117,6 +117,12 @@ shape ShellDetails
   editorLabel: string
   editors: list<ShellEditor>
   editorShortcut: string
+  // OpenInPicker's remote states (remote-open.ts): the row shows, the hint until the first remote
+  // open, "No SSH route to <label>" and "No installed editors found".
+  editorShow: bool
+  editorHint: string
+  editorUnavailable: string
+  editorEmpty: bool
   isGit: bool
   branch: string
   actionLabel: string

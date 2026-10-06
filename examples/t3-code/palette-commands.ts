@@ -11,6 +11,7 @@ import { cloneDestination, cloneDirectoryName, flowOf, githubAccount, inferTitle
 import { sortedThreads } from './palette';
 import { activeTarget } from './palette-files';
 import { favoriteEditor } from './keyboard-dispatch';
+import { openFavoriteHere } from './remote-open'; // remote Open: an SSH environment's workspace opens over SSH
 import { linkPullRequest } from './palette-linkpr';
 import { openScratchProject } from './r11-upstream-scratch';
 
@@ -188,6 +189,7 @@ async function restartSession(client: T3Client, native: Native, storage: Files, 
  */
 async function openInEditor(client: T3Client, native: Native, op: string, id: string, line: string): Promise<PaletteResult> {
   const editor = favoriteEditor(client.config);
+  if (op === 'open-favorite') { if (id) await openFavoriteHere(client, native, id, editor); return done(client); }
   const target = activeTarget(client);
   const path = op === 'open-file' ? (target ? `${target.cwd.replace(/\/+$/, '')}/${id}` : '') : id;
   if (!path) throw new Error('Open a project to open its files.');

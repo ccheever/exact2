@@ -107,10 +107,14 @@ component DetailsBody
                   text details.folderName flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size=13 font-weight=500 line-height="19.5px" color="light-dark(#27272acc, #f5f5f5cc)" testId="details-folder-name"
               when details.folderLabel != ""
                 text details.folderLabel flex-shrink=0 font-size=10 line-height="14px" color="light-dark(#71717bb3, #818181b3)" testId="details-folder-kind"
-          when details.editorId != ""
+          // OpenInPicker (panel form): shown for this machine, and for other machines unless they open locally (remote-open.ts).
+          when details.editorShow
             row height=32 align-items="center" border-radius=10 background-color=(hovered == "editor" or hovered == "editor-menu" or editorsOpen ? "light-dark(#0000000e, #ffffff13)" : "#00000000")
-              button press=act("shell:open-editor", details.cwd, details.editorId) hover=hover("editor") testId="details-open-editor" flex=1 min-width=0 height=32 padding-left=11 padding-right=10 box-sizing="border-box" gap=10 border-width=0 border-radius=10 background-color="#00000000" display="flex" flex-direction="row" align-items="center" disabled=(details.cwd == "")
-                ShellEditorIcon(editor=details.editorId, size=16)
+              button press=act("shell:open-editor", details.cwd, details.editorId) hover=hover("editor") testId="details-open-editor" flex=1 min-width=0 height=32 padding-left=11 padding-right=10 box-sizing="border-box" gap=10 border-width=0 border-radius=10 background-color="#00000000" display="flex" flex-direction="row" align-items="center" disabled=(details.cwd == "" or details.editorId == "" or details.editorUnavailable != "") opacity=(details.cwd == "" or details.editorId == "" or details.editorUnavailable != "" ? 0.64 : 1)
+                when details.editorId != ""
+                  ShellEditorIcon(editor=details.editorId, size=16)
+                else
+                  box width=16 height=16 flex-shrink=0
                 text details.editorLabel flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size=13 font-weight=500 line-height="19.5px" color="light-dark(#27272acc, #f5f5f5cc)"
               box width=1 height=16 flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff10)"
               button press=act("editors", "", "") hover=hover("editor-menu") aria-label="Choose editor" aria-expanded=editorsOpen testId="details-choose-editor" width=32 height=32 padding=0 border-width=0 border-radius=10 background-color=(editorsOpen or hovered == "editor-menu" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
@@ -135,12 +139,18 @@ component DetailsBody
         // OpenInPicker's menu, 4pt under its row and as wide: drawn over the card (it paints last) with a
         // click-away layer under it, since a popover would anchor at the chevron rather than the row.
         when scriptsOpen and details.scriptName != ""
-          R6ScriptMenu(details=details, top=(76 + (details.envShow ? 32 : 0) + (details.editorId != "" ? 32 : 0)), act=act, close=toggleScripts)
+          R6ScriptMenu(details=details, top=(76 + (details.envShow ? 32 : 0) + (details.editorShow ? 32 : 0)), act=act, close=toggleScripts)
         when editorsOpen
           button press=act("editors", "", "") aria-label="Close editor menu" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="details-editors-backdrop"
           column position="absolute" left=8 right=8 top=(details.envShow ? 108 : 76) padding=4 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Open in" testId="details-editors"
+            when details.editorUnavailable != ""
+              DisabledEditorItem(label=details.editorUnavailable, testId="details-editor-no-route")
+            when details.editorEmpty
+              DisabledEditorItem(label="No installed editors found", testId="details-editor-none")
             each editor in details.editors key=editor.id
               EditorOption(editor=editor, cwd=details.cwd, shortcut=details.editorShortcut, act=act)
+            when details.editorHint != ""
+              DisabledEditorItem(label=details.editorHint, testId="details-editor-remote-hint")
 
 // ThreadDetailsSection: px-2 pt-2 pb-2.5, a hairline above all but the first; the
 // heading row is hidden for Workspace and Version Control (upstream 429c625a85).
@@ -317,3 +327,13 @@ component EditorOption
       text editor.label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
       when editor.selected and shortcut != ""
         text shortcut flex-shrink=0 font-size=12 font-weight=500 line-height="16px" letter-spacing="0.05em" color="light-dark(#71717b, #818181)"
+
+// A disabled MenuItem (opacity-64, no hover): OpenInPicker's "No SSH route to …", "No installed
+// editors found" and the one-time "Opens over SSH. Needs your key on …".
+component DisabledEditorItem
+  props
+    label: string
+    testId: string
+  view
+    button disabled=true role="menuitem" testId=testId width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" border-width=0 border-radius=6 opacity=0.64 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+      text label flex=1 min-width=0 text-align="left" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
