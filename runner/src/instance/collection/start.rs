@@ -90,3 +90,14 @@ impl Collection {
         }
     }
 }
+/// A port this near a followed end is at it: hosts round offsets to device
+/// pixels (4405.1667 shows as 4405.333 at 3x), and a tighter test re-sent an
+/// unreachable end every commit (LLP 1010 §6.8). Half a pixel at 1x. A row
+/// anchor keeps 0.01: its moves add up, report on report.
+pub(super) fn at_offset(anchor: &super::index::Anchor) -> f64 {
+    if super::index::SizeIndex::follows_end(anchor) {
+        0.5
+    } else {
+        0.01
+    }
+}

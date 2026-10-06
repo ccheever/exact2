@@ -349,8 +349,9 @@ extension CollectionHost {
 
 #if os(iOS) || os(tvOS)
 /// One smooth correction's frames: ease-in-out from where the port was to
-/// where it is headed, the offset set each display frame. A retarget begins
-/// a fresh ease from where the port is, toward the new target.
+/// where it is headed, the offset set each display frame. A retarget once a
+/// frame has shown begins a fresh ease from where the port is; one before
+/// is still the motion's one target (`retarget`).
 final class OffsetDriver: NSObject {
     weak var scroll: UIScrollView?
     private var from: CGPoint
@@ -375,8 +376,18 @@ final class OffsetDriver: NSObject {
         self.serial = serial
         // Before its first frame the motion has not shown: a followed end's
         // measured row, a report after its estimate, is still its one target
-        // (LLP 1010 §6.8). After it, a fresh ease from what shows.
-        guard drawn else { to = target; return }
+        // (LLP 1010 §6.8). After it, or once the port moved under it (content
+        // that shrank clamped it), a fresh ease from what shows.
+        if !drawn, scroll.contentOffset == from {
+            // Folded back onto the port: no motion at all.
+            if abs(target.y - from.y) + abs(target.x - from.x) < 0.5 {
+                scroll.contentOffset = target
+                cancel(); done(serial, true)
+                return
+            }
+            to = target
+            return
+        }
         from = scroll.contentOffset; to = target
         began = CACurrentMediaTime()
     }

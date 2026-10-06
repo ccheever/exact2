@@ -41,10 +41,6 @@ pub(super) fn collections_json(tree: &Tree) -> String {
 
 const BOOTSTRAP_ROWS: usize = 16;
 const ESTIMATED_HEIGHT: f64 = 32.0;
-/// A port this near its target is there: hosts round offsets to device
-/// pixels (4405.1667 shows as 4405.333 at 3x), and a tighter test re-sent an
-/// unreachable correction every commit (LLP 1010 §6.8). Half a pixel at 1x.
-const AT_OFFSET: f64 = 0.5;
 /// Travel the window leads by, past its viewport of overscan.
 const LEAD_SECONDS: f64 = 0.25;
 /// A mounted row farther than this many viewports from what shows retires
@@ -733,7 +729,7 @@ impl Collection {
                 .index
                 .restore_anchor(&anchor, g.port_main)
                 .map_err(index_error)?;
-            if (corrected - g.offset).abs() > AT_OFFSET {
+            if (corrected - g.offset).abs() > start::at_offset(&anchor) {
                 // Relative only where the anchor's row stayed put (an end
                 // followed or clamped is absolute: the host's own clamp has
                 // moved it). One not yet acknowledged by a report is still
@@ -1432,7 +1428,7 @@ impl Collection {
             .index
             .restore_anchor(&anchor, g.port_main)
             .map_err(index_error)?;
-        if (corrected - feedback.offset).abs() > AT_OFFSET {
+        if (corrected - feedback.offset).abs() > start::at_offset(&anchor) {
             return Ok(None);
         }
         let pins = self.pins();

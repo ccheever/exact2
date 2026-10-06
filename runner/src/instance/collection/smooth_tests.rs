@@ -116,3 +116,97 @@ fn a_half_pixel_extent_is_reached_by_a_rounded_port() {
     let c = h.snapshot().correction.unwrap();
     assert!(c.smooth, "a later message still follows smoothly");
 }
+
+/// A row anchor keeps the tight test: a row above it measured 0.4 pt taller
+/// moves the port 0.4, and the next 0.4 again (half a point would drop each,
+/// and they add up report on report).
+#[test]
+fn a_row_anchors_small_moves_still_correct() {
+    let mut h = Harness::new(100, false, false);
+    h.send(h.feedback(642.0));
+    let mut offset = 642.0;
+    for _ in 0..2 {
+        let above = h
+            .snapshot()
+            .rows
+            .into_iter()
+            .filter(|r| (r.index as f64 + 1.0) * 32.0 <= 642.0)
+            .min_by_key(|r| r.index)
+            .expect("a mounted row above the port");
+        let mut f = h.feedback(offset);
+        let grown = h
+            .snapshot()
+            .rows
+            .iter()
+            .filter(|r| r.view == above.view)
+            .count();
+        assert_eq!(grown, 1);
+        f.measurements = vec![RowMeasurement {
+            view: above.view,
+            epoch: above.epoch,
+            size: 32.4 + (offset - 642.0),
+        }];
+        h.send(f);
+        let c = h.snapshot().correction.expect("a 0.4 pt move is corrected");
+        assert!(
+            (c.offset - (offset + 0.4)).abs() < 1e-9,
+            "{} after {}",
+            c.offset,
+            offset
+        );
+        offset = c.offset;
+    }
+}
+
+/// A list that opens at its end, whose end lands on half a pixel, opens
+/// when a 3x host's port rounds past it, and its next message then follows
+/// smoothly (an opening never settled made every follow a jump).
+#[test]
+fn an_opening_at_a_half_pixel_end_settles_and_then_follows_smoothly() {
+    let mut h = Harness::from_parts(
+        plan_opening(100, false, true, true, true),
+        vec![
+            values(100),
+            Value::Number(0.0),
+            Value::Number(0.0),
+            Value::Number(16.0),
+            Value::Unit,
+        ],
+    );
+    let end = h.snapshot().total_extent - 320.0;
+    h.send(h.feedback(end));
+    let report = |h: &Harness, top: f64| {
+        let mut f = h.feedback(top);
+        let last = h.snapshot().rows.iter().map(|r| r.index).max().unwrap();
+        f.measurements = h
+            .snapshot()
+            .rows
+            .iter()
+            .map(|r| RowMeasurement {
+                view: r.view,
+                epoch: r.epoch,
+                size: if r.index == last {
+                    32.0 + 1.0 / 6.0
+                } else {
+                    32.0
+                },
+            })
+            .collect();
+        f
+    };
+    for _ in 0..4 {
+        let top = h.snapshot().total_extent - 320.0;
+        // The host's port, rounded to a third of a point.
+        let shown = (top * 3.0).round() / 3.0;
+        let f = report(&h, shown);
+        h.send(f);
+    }
+    assert!(
+        ((h.snapshot().total_extent - 320.0) * 3.0).fract().abs() > 0.1,
+        "the end is on half a pixel"
+    );
+    h.slots[0] = values(101);
+    h.update().unwrap();
+    let c = h.snapshot().correction.expect("the new row is followed");
+    assert!(c.smooth, "the opening settled, so the follow is smooth");
+}

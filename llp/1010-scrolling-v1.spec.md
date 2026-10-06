@@ -961,8 +961,9 @@ ease-in-out (before: 0.27, and a 12-pt jump).
 (2026-10-05).** Measured on Signal Clone in the simulator, a send's measured
 row (−1 pt) and a reply's (−16 pt) arrive 0.5 to 4 ms after the estimated
 one (+64 pt), inside the frame the motion starts on. So:
-- A target that arrives before the motion's first frame (`OffsetDriver.drawn`)
-  replaces its target and keeps its start: one ease, not a retarget. After a
+- A target that arrives before the motion's first frame (`OffsetDriver.drawn`),
+  with the port where the motion began, replaces its target and keeps its
+  start: one ease, not a retarget. One that folds back onto the port ends it. After a
   frame has shown, a retarget is a fresh ease from what shows, as before.
 - A start whose target has folded back to within half a point of the port,
   and a smooth correction under half a point, set the offset and run no
@@ -974,8 +975,10 @@ one (+64 pt), inside the frame the motion starts on. So:
   250 ms poll), an opening list never settled (`settle_start` needs no
   correction owed), and with its opening unsettled no follow was smooth:
   in such a session every sent message snapped. The runner now takes a port
-  within half a point as there (`AT_OFFSET`, `collection/mod.rs`, and the
-  web JS target's `list.js`, which mirrors it). Half a point is half a pixel
+  within half a point of a followed end as at it (`at_offset`,
+  `collection/mod.rs`, and the web JS target's `list.js`, which mirrors it).
+  A row anchor keeps 0.01: a row above it measured 0.4 pt taller is a real
+  move, and such moves add up report on report. Half a point is half a pixel
   at 1x and more at any finer scale; a per-host half pixel would need each
   host's scale in its reports. The web hosts take the runner's corrections,
   so the same loop under a browser's device-pixel `scrollTop` ends with it.
@@ -988,5 +991,7 @@ one (+64 pt), inside the frame the motion starts on. So:
 Tests: `SmoothCollectionIOSTests`
 (`testATargetBeforeTheFirstFrameIsTheMotionsOneTarget`,
 `testASmoothCorrectionUnderHalfAPointIsSet`), the runner's
-`a_port_rounded_to_a_device_pixel_is_at_its_followed_end` and
-`a_half_pixel_extent_is_reached_by_a_rounded_port`.
+`a_port_rounded_to_a_device_pixel_is_at_its_followed_end`,
+`a_half_pixel_extent_is_reached_by_a_rounded_port`,
+`an_opening_at_a_half_pixel_end_settles_and_then_follows_smoothly` and
+`a_row_anchors_small_moves_still_correct`.

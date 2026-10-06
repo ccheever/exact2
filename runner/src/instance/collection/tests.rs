@@ -23,6 +23,10 @@ fn plan(n: usize, row_state: bool, follow: bool) -> Plan {
     plan_with(n, row_state, follow, false)
 }
 fn plan_with(n: usize, row_state: bool, follow: bool, smooth: bool) -> Plan {
+    plan_opening(n, row_state, follow, smooth, false)
+}
+/// `start_end`: the list opens at its end (`scroll-start: end`).
+fn plan_opening(n: usize, row_state: bool, follow: bool, smooth: bool, start_end: bool) -> Plan {
     let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     let num = b.primitive(TypeKind::Number);
     let list = b.list(num);
@@ -40,33 +44,34 @@ fn plan_with(n: usize, row_state: bool, follow: bool, smooth: bool) -> Plan {
     let follow = b.constant(&Value::Bool(follow));
     let height = b.constant(&Value::Number(320.0));
     let behavior = b.constant(&Value::str(if smooth { "smooth" } else { "auto" }));
-    let root = b.node(
-        NodeType::List as u8,
-        None,
-        None,
-        0,
-        &[
-            binding(
-                BindingKind::Style,
-                exact_kernel::StyleId::ScrollBehavior as u16,
-                behavior,
-            ),
-            binding(BindingKind::Prop, PropId::Virtualized as u16, enabled),
-            binding(BindingKind::Prop, PropId::ScrollFollowEnd as u16, follow),
-            binding(
-                BindingKind::Style,
-                exact_kernel::StyleId::FontSize as u16,
-                font,
-            ),
-            binding(
-                BindingKind::Style,
-                exact_kernel::StyleId::Height as u16,
-                height,
-            ),
-        ],
-        &[],
-        None,
-    );
+    let start = b.constant(&Value::str(if start_end { "end" } else { "start" }));
+    let mut bindings = vec![
+        binding(
+            BindingKind::Style,
+            exact_kernel::StyleId::ScrollBehavior as u16,
+            behavior,
+        ),
+        binding(BindingKind::Prop, PropId::Virtualized as u16, enabled),
+        binding(BindingKind::Prop, PropId::ScrollFollowEnd as u16, follow),
+        binding(
+            BindingKind::Style,
+            exact_kernel::StyleId::FontSize as u16,
+            font,
+        ),
+        binding(
+            BindingKind::Style,
+            exact_kernel::StyleId::Height as u16,
+            height,
+        ),
+    ];
+    if start_end {
+        bindings.push(binding(
+            BindingKind::Prop,
+            PropId::ScrollStart as u16,
+            start,
+        ));
+    }
+    let root = b.node(NodeType::List as u8, None, None, 0, &bindings, &[], None);
     let subject = code(&mut b, |a| {
         a.load_slot(data);
     });
