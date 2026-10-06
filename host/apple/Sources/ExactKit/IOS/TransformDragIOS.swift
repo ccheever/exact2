@@ -60,18 +60,43 @@ extension NodeView {
     /// where the platform would not zoom — a node from here up whose
     /// `touch-action` excludes `pinch-zoom`, as the browser decides (§2).
     /// The pan leaves the platform an axis the handle's own `touch-action`
-    /// names (rule 2: `pan-x` on a pager's photo pages it sideways), as a
-    /// `pan` does and as a browser's pointer is cancelled; `auto` and
-    /// `manipulation` keep every drag the binding's.
+    /// names when a scroller would take it (rule 2: `pan-x` on a pager's
+    /// photo pages it sideways), as a browser cancels the pointer; `auto`
+    /// and `manipulation` keep every drag the binding's, and a pan joining
+    /// the binding's pinch is always admitted (rule 6).
     func transformShouldBegin(_ gesture: UIGestureRecognizer) -> Bool? {
         guard gesture === transformRecognizer || gesture === transformContact?.pinch else { return nil }
         guard SwipeInput.allows(self), presenter?.transformBindings[id]?.target != nil else { return false }
         guard gesture === transformRecognizer else { return !allowsPinchZoom }
         let action = style["touch_action"]?.string ?? "auto"
         guard action != "auto", action != "manipulation", let pan = gesture as? UIPanGestureRecognizer else { return true }
-        let velocity = pan.velocity(in: self)
-        let direction = velocity == .zero ? pan.translation(in: self) : velocity
-        return direction == .zero || !allowsTouchPan(direction)
+        if let pinch = transformContact?.pinch, pinch.state == .began || pinch.state == .changed { return true }
+        let velocity = pan.velocity(in: self), translation = pan.translation(in: self)
+        let direction = velocity == .zero ? translation : velocity
+        guard direction != .zero else { return true }
+        let location = pan.location(in: self)
+        return !platformPans(direction, from: CGPoint(x: location.x - translation.x, y: location.y - translation.y))
+    }
+    /// Whether the platform takes a drag in `direction` begun at `start`
+    /// (this view's points): `touch-action` intersected from the node hit
+    /// there up through the nearest scroller that can move on that axis, its
+    /// owner included, as CSS and `ScrollView.gestureRecognizerShouldBegin`
+    /// decide. With no such scroller nothing would take it.
+    func platformPans(_ direction: CGPoint, from start: CGPoint) -> Bool {
+        let horizontal = abs(direction.x) > abs(direction.y)
+        var view: UIView? = bounds.contains(start) ? hitTest(start, with: nil) ?? self : self
+        while let current = view {
+            if let scroll = current as? ScrollView {
+                let room = horizontal ? scroll.contentSize.width - scroll.bounds.width : scroll.contentSize.height - scroll.bounds.height
+                if (horizontal ? scroll.scrollsX : scroll.scrollsY) && room > 0.5 {
+                    return (scroll.superview as? NodeView)?.allowsTouchPan(direction) ?? true
+                }
+            } else if let node = current as? NodeView, !node.allowsTouchPan(direction) {
+                return false
+            }
+            view = current.superview
+        }
+        return false
     }
     var allowsPinchZoom: Bool {
         var view: UIView? = self
