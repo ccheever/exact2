@@ -67,7 +67,8 @@ component DetailsBody
     scriptsOpen = not scriptsOpen
   view
     scroll width="100%" min-height=0 max-height=(maxHeight - 2)
-      column width="100%" position="relative"
+      // The content's full height, scrolled or not: the canvas keeps a floating player below it (chat-canvas-view.ts).
+      column width="100%" position="relative" hook="t3-frame" data-frame="details-content"
         DetailsSection(title="Workspace", separated=false, heading=false)
           when details.envShow
             // BranchToolbarEnvironmentSelector: a Select for a draft with somewhere else to run, else its static label (lane r4-git).
