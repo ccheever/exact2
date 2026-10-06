@@ -1,12 +1,12 @@
 ---
 name: 20261005-auto-balance
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-auto-balance
 pr_url: null
 verified_commit: null
 ---
@@ -136,13 +136,42 @@ Required environment: Xcode 27.0, pinned Bun 1.4.2, oracle desktop build, the st
 
 ## Progress
 
-Planned. No branch.
+Implemented on `feat(example)/t3-code-auto-balance` (base 1a50d0df3); verification: unverified.
+
+- `load-balancing.ts`: `chooseLoadBalancedEnvironment` ported unchanged, plus a `HostResourcesSnapshot` decoder.
+- `auto-balance.ts`: ChatView's `automaticEnvironment` / `needsLoadBalancing` / candidate filter /
+  `onAutoEnvironment` / `autoEnvironmentLabel` and onSend's guard. The draft keeps `environmentSelection`
+  and `loadBalancedEnvironmentId` per draft key (`composerControls.balance`, persisted). Host resources
+  load in `cclocal:balance-load`, sent by the root `balanceLoad` task when `branches.balanceFetch`
+  changes (X19), over each machine's own transport with a 5 s deadline (X21; `timeout` on
+  T3Transport's `request`); a result is fresh for 5 s and the window's wall time stands for receipt time.
+  Run on (strip, gitless strip, details panel) leads with "Auto balance" / "Checking machines…" /
+  "Auto balance unavailable"; picking a machine is manual and clears the choice; picking Auto asks
+  again; attachments warn "Keep attachments on this machine".
+- Port change (declared): the reference retargets the draft's project when the choice resolves. Here a
+  draft belongs to the focused connection and moving it refocuses the client, so resolution records the
+  machine only (text and focus stay); Send moves a resolved draft there, synchronizes, keeps its model,
+  then sends. A send in flight blocks the resolution.
+- `auto-balance-banner.ts` + `auto-balance.contract`: useAutoBalanceUpdateBanner (machine list, counts,
+  title, "N needs/need a manual update", Update all / Update K machines / Retry, dismiss) and
+  ServerUpdatesAction (eligible targets, one confirm for desktop apps through server-update-banner's
+  dialog, per-machine failure toast "<label> update failed"), reusing `updateEnvironment` and the
+  T3Fleet job table. The title opens a popover (`top span-right`, w-80) with one row per machine
+  (progress, failure, "Manual update required" + Copy command or the desktop sentence, "Ready to update
+  to X", "Reconnect this machine to update"). It replaces the single-machine notice on an Auto draft.
+
+Not done / limits: real typing during resolution (attended); keyboard through Run on / popover and
+Escape (attended); reduced-motion film; 840×620 and dark shots; "Real servers" row (the drive used real
+reference servers behind a stub proxy, not bare); the resolved machine is not shown in the UI (the
+reference does not either), so the drive proves it by `balanceFetch` clearing after one request per
+candidate; the "stale 20 s" case cannot come from a server (receipt time is the client's), so the drive
+used a busy (0.96) machine and unit tests cover age; oracle and trace-diff not run (not built).
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 | see PR | `bun test examples/t3-code` 2206 pass / 1 skip / 0 fail (base 2187 pass); strict tsc: 8 errors, all in base terminal files (ES2021+ lib), none in this change, clean with `--lib ES2023,DOM`; contract build 2505 slots, 45 resources; `cargo test -p t3-code-macos --lib` 11 pass; AppKit transport 54/0, fleet 9/0; caps pass; macOS bundle builds | Drives (1280×840; three reference servers 16341/16347/16345 behind a Bun stub proxy 16340/16346/16344 that answers `server.getHostResources` with fixed numbers, rewrites labels/update capabilities, plays a progress-then-failure update; not committed). Drives 1–2 failed in setup (no import candidates; Settings opens on General); drive 3 ran the flow but no candidate (no provider chosen); drive 4 after the fix: each proxy logged `server.getHostResources` once per load (draft open, then Auto pick), `branches.balanceFetch` "" after the load, strip `envMachineLabel` "Auto balance", `envOptions` [auto selected, Build box, Laptop, Studio], composer value "Draft typed while machines are checked" [focused] and the focused environment unchanged; banner "Update available for 3 machines · 1 needs a manual update · Update 2 machines"; popover rows Build box/Studio "Ready to update to 0.0.46-nightly.20261004.1", Laptop "Manual update required" + Copy update command; confirm "Update the T3 Code desktop apps on Studio?"; after Confirm both proxies logged `server.updateServerWithProgress`, tree "Updating 1 machine", Studio "Downloading…", Build box "Download failed", toast "Build box update failed / Download failed". Before drive on the base: "Server update available" + Copy update command, Run on lists the three machines only | The final screenshot drew the old title glyphs at the new width (tree correct); a keyed title node is committed but not re-driven |
 
 ## Next action
 

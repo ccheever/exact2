@@ -287,6 +287,13 @@ Task `20261005-media-actions` (`media-actions.*`, `media-views.ts`, `T3MediaActi
 - **An image that fails to decode (X44, [#121](https://github.com/ccheever/exact2/issues/121)).** Fixed on main (#177) and adopted 2026-10-07: an `image`'s `error` now shows "Image unavailable · <alt>" (chat Markdown), "Image unavailable. The file may have been moved or deleted." (expanded image), "Unable to load workspace image." (Files) and "Unable to load image." (attachment preview). Still different: an SVG never draws on Apple (it is an `error`), where the reference's browser draws it; the Files failure text sits at the top of the panel, where the reference centres it.
 - **Rendered HTML over `http://` to a named host (X7, [#106](https://github.com/ccheever/exact2/issues/106), side issue [#135](https://github.com/ccheever/exact2/issues/135)).** Fixed on main (#173) and adopted 2026-10-07: `app.json` allows arbitrary loads in web content, so the bundle loads it as the reference's frame does. #135 (an `http:` sub-resource of a page under the app's own `assets/`) stays open; no clone page is served from `assets/`.
 
+## Auto balance: declared differences
+
+Task `20261005-auto-balance` (`load-balancing.ts`, `auto-balance*.ts`, `auto-balance.contract`).
+- **The draft moves at Send, not when the machine is chosen.** The reference retargets the draft's project reference when the choice resolves. Here a draft belongs to the focused connection and moving it refocuses the client, so the resolution records the machine (`loadBalancedEnvironmentId`) and the draft moves there when it is sent; until then the composer reads the focused machine's config (models, notices). Not a framework gap: the clone's one-focused-connection design.
+- **Host resource timing (X19, X21; [#124](https://github.com/ccheever/exact2/issues/124)).** The load runs in a command a root task sends when the fetch key changes; receipt time is the window's wall time when the load starts (at most the 5 s deadline before the reply). The 5 s deadline is T3Transport's per-request `timeout`.
+- **The machine list popover (X17).** Placed with `position-area="top span-right"`; it does not flip near an edge.
+
 ## Not exact2 asks (stay in the app module)
 
 Keychain credentials, SSH tunnels, VideoToolbox/SceneKit device views, the terminal (WKWebView running REF's Ghostty WASM; no exact2 change needed), notifications, SnapShot capture, the offscreen Mermaid web view, agent export plumbing.
