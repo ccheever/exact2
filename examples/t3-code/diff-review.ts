@@ -97,6 +97,7 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
     state.draft = { scope, path: at.path, id, range, rangeLabel: comment.rangeLabel };
     return '';
   }
+  if (action === 'partial') return ''; // DiffFileStatus: the partial mark only explains itself
   if (action === 'cancel') { state.draft = null; state.selection = null; return ''; }
   if (action === 'save') {
     const draft = state.draft, target = draft ? file(draft.path) : undefined;
