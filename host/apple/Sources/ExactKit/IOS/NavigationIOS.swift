@@ -515,6 +515,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard let nav = controller as? UINavigationController,
               presentedNavigations.contains(where: { $0 === nav }) else { return }
         presentedNavigations.removeAll { $0 === nav }
+        // A presentation gone (UIKit's own dismissal included): the next
+        // batch syncs, whatever it holds, so a route still declared returns.
+        nativeMoved = true
         retireStack(nav)
         nav.delegate = nil
         if !preserving {

@@ -73,6 +73,8 @@ final class ListRowsIOSTests: XCTestCase {
             [["op": "props", "id": 11, "set": ["accessibilityRole": "tab"]]],      // a row becoming a tab
             [["op": "style", "id": 80, "style": ["accent_color": [[0, 0, 255, 255]]]]], // a row holding a tablist
             [["op": "create", "id": 60, "kind": "view"]],                           // placed nowhere
+            [["op": "create", "id": 61, "kind": "view", "props": ["accessibilityRole": "tablist"]],
+             ["op": "children", "id": 10, "ids": [11, 61]]],                          // a tablist placed in a row
             [["op": "roots", "ids": [30]]],
             [],
         ] {

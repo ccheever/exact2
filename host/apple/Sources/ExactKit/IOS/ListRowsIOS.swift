@@ -16,9 +16,11 @@ extension Presenter {
     func onlyListRows(_ batch: Batch) -> Bool {
         guard !batch.controls, !batch.ops.isEmpty else { return false }
         let back = navigation.container?.props["navigationBack"]
+        let scrolls = Set(navigation.controllers.values.compactMap { $0.node.props["navigationScroll"] })
         func projected(_ props: [String: String], kind: String) -> Bool {
             props["semanticTag"] == "header" || ["tab", "tablist", "tabpanel"].contains(props["accessibilityRole"] ?? "")
                 || props["navigationKey"] != nil || props["navigationBack"] != nil || (back != nil && props["id"] == back)
+                || props["id"].map(scrolls.contains) == true
         }
         func projected(_ node: NodeView) -> Bool { projected(node.props, kind: node.kind) }
         /// Read with everything under it: a header's items and title, a
@@ -36,8 +38,7 @@ extension Presenter {
         // lists (their tint comes from their ancestors), the Back control,
         // each route's named content scroller, the routes themselves.
         var read = chrome.ids("role:tablist").union(chrome.ids("navigationBack"))
-        let names = [back].compactMap { $0 } + navigation.controllers.values.compactMap { $0.node.props["navigationScroll"] }
-        for name in names { read.formUnion(chrome.named[name] ?? []) }
+        for name in [back].compactMap({ $0 }) + Array(scrolls) { read.formUnion(chrome.named[name] ?? []) }
         read.formUnion(navigation.controllers.keys)
         var lists: [ObjectIdentifier: Bool] = [:]
         /// A virtualized list that is not a route or a routes' owner, that no
@@ -84,6 +85,9 @@ extension Presenter {
             switch op.op {
             case .collections:
                 return true
+            case .children where op.ids.contains { read.contains($0) || (created[$0].map { projected($0.props, kind: $0.kind) } ?? false) }:
+                // It places something the projection reads (a named scroller, a tablist).
+                return false
             case .children, .content, .frame, .rank:
                 if let list = views[op.id], list.kind == "list" { return rowsList(list) }
                 return inRows(op.id)
