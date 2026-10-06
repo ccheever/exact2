@@ -209,21 +209,23 @@ timing were logged per frame. The simulator ran at 60 Hz.
     projection. What the projection reads still syncs: a header, a tab, a
     tablist or tabpanel, a route or the Back control on the way from the
     node to its list, a list that is a route or holds routes, a list inside
-    a header, a tab or the Back control, a presented value under a tab, a
-    header or the Back control, and an op that sets such props. So does
-    any batch while a sync is owed (`NavigationHost.syncOwed`: deferred, a
-    transition, no window yet, a presentation waiting for the first draw,
-    a stack UIKit moved itself since the last sync). An op on a node the
-    presenter never made counts as nothing.
+    a header, a tab or the Back control, a list holding a tablist, the Back
+    control, a route or a route's named content scroller, a presented value
+    under a tab, a header or the Back control, and an op that sets such
+    props. So does any batch while a sync is owed (`NavigationHost.syncOwed`:
+    the last sync stopped before its end, for a transition, the first draw
+    or a presentation it could not make yet; no window yet; a stack UIKit
+    moved itself since). An op on a node the presenter never made counts as
+    nothing.
   - `MenuHost.sync` and `ControlHost.sync` no longer set `isHidden` to the
     value it already has: UIKit's setter walks the view's subtree even then.
-- **Before and after**, three runs each (after: as landed, review r1's
+- **Before and after**, three runs each (after: as landed, with review's
   narrower rule):
 
 | | pass-1 apply, sum | apply, worst frame | busy p95 | busy, worst frame | pass-2 apply, sum |
 |---|---|---|---|---|---|
 | before | 355–404 ms | 11.2–13.4 ms | 10.8–12.7 ms | 16.8–27.3 ms | 384–416 ms |
-| after | 284–289 ms | 8.6–10.3 ms | 9.3–11.0 ms | 14.6–19.8 ms | 307–331 ms |
+| after | 278–300 ms | 7.9–8.5 ms | 9.3–9.8 ms | 14.4–20.0 ms | 313–327 ms |
 
   The simulator missed no frames either way; a phone two or three times
   slower misses them in the worst frames before. Tests:

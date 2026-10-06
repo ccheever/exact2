@@ -134,12 +134,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// and is still owed, or UIKit moved a stack itself (its back button, a
     /// swipe) since the last one: the next batch syncs, whatever it holds.
     var syncOwed: Bool {
-        pendingSync || changing || windowless || nativeMoved || drawOwed
+        pendingSync || changing || windowless || nativeMoved || !settled
             || ([primaryNavigation].compactMap { $0 } + presentedNavigations).contains { $0.transitionCoordinator != nil }
     }
-    /// No window yet; UIKit moved a stack since the last sync; a
-    /// presentation waits for the first draw.
-    private var windowless = false, nativeMoved = false, drawOwed = false
+    /// No window yet; UIKit moved a stack since the last sync; the last
+    /// sync ran to its end (one that stopped early, waiting for the first
+    /// draw, a transition or a presentation it could not make yet, is owed).
+    private var windowless = false, nativeMoved = false, settled = false
     /// Syncs asked for, for tests.
     private(set) var syncCalls = 0
     private var interactiveSource: (node: NodeView, key: String)?
@@ -330,11 +331,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard !syncing else { return }
         let window = presenter.session?.view?.window
         windowless = presenter.session != nil && window == nil
+        // With no session (a presenter on its own) nothing is projected or owed.
+        if presenter.session == nil { settled = true }
         guard window != nil else { return }
-        nativeMoved = false; drawOwed = false
+        nativeMoved = false; settled = false
         syncing = true
         defer { syncing = false; presenter.flushPendingFocus() }
-        guard let p = projection(batch) else { return }
+        guard let p = projection(batch) else { settled = true; return }
         let root = p.root, wanted = p.chosen
         let parts = NavigationRules.segments(presentations: p.routes[...p.selected].map { $0.props["navigationPresentation"] })
         reshape(p)
@@ -342,7 +345,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         // The other tabs' stacks, the selected tab and its items (LLP 1075.003 §3.7).
         if p.tabs != nil { syncTabs(p) }
         // Initial content draws before presentation takes over its viewport.
-        if parts.count > 1, let session = presenter.session, session.firstDrawMs == nil { drawOwed = true; return }
+        if parts.count > 1, let session = presenter.session, session.firstDrawMs == nil { return }
         guard !changing, !presenter.modals.inTransition else { pendingSync = true; return }
         pendingSync = false
         let boundaries = parts.dropFirst().map { wanted[$0.lowerBound].node }
@@ -408,6 +411,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         if p.tabs != nil { replayTabs() }
         reportCovers()
         refitForBars()
+        settled = true
     }
 
     /// The container standing in for the routes paints where they are in

@@ -32,14 +32,26 @@ extension Presenter {
             if op.op == .children { for child in op.ids { placed[child] = op.id } }
             if op.op == .create { created[op.id] = op }
         }
+        // What the projection reads by name or role, wherever it is: tab
+        // lists (their tint comes from their ancestors), the Back control,
+        // each route's named content scroller, the routes themselves.
+        var read = chrome.ids("role:tablist").union(chrome.ids("navigationBack"))
+        let names = [back].compactMap { $0 } + navigation.controllers.values.compactMap { $0.node.props["navigationScroll"] }
+        for name in names { read.formUnion(chrome.named[name] ?? []) }
+        read.formUnion(navigation.controllers.keys)
         var lists: [ObjectIdentifier: Bool] = [:]
-        /// A virtualized list that is not a route or a routes' owner, and
-        /// that no header, tab or Back control holds.
+        /// A virtualized list that is not a route or a routes' owner, that no
+        /// header, tab or Back control holds, and that holds nothing the
+        /// projection reads.
         func rowsList(_ list: NodeView) -> Bool {
             if let known = lists[ObjectIdentifier(list)] { return known }
             var result = list.kind == "list" && collections.owns(list.id) && !projected(list) && navigation.container !== list
             var up = list.superview
             while result, let u = up { if let n = u as? NodeView, readsInside(n) { result = false }; up = u.superview }
+            for id in read where result {
+                var up = views[id]?.superview
+                while let u = up { if u === list { result = false; break }; up = u.superview }
+            }
             lists[ObjectIdentifier(list)] = result
             return result
         }

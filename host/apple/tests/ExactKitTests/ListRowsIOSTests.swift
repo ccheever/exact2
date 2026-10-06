@@ -12,11 +12,12 @@ final class ListRowsIOSTests: XCTestCase {
          "rows": [["view": view * 10, "root": view * 10, "epoch": 1]]]
     }
     /// 30 holds a header 50, which holds a virtualized list 4 (row 40 > 42),
-    /// a virtualized list 1 (row 10 > 11), and a tab 70 whose face is 71.
+    /// a virtualized list 1 (row 10 > 11), a tab 70 whose face is 71, and a
+    /// virtualized list 5 whose row 80 holds a tablist 81.
     private func presenter() -> Presenter {
         let p = Presenter()
         p.apply(wireBatch([
-            ["op": "collections", "items": [snapshot(1, revision: 1), snapshot(4, revision: 1)]],
+            ["op": "collections", "items": [snapshot(1, revision: 1), snapshot(4, revision: 1), snapshot(5, revision: 1)]],
             ["op": "create", "id": 30, "kind": "view"],
             ["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll"]],
             ["op": "create", "id": 10, "kind": "view"], ["op": "create", "id": 11, "kind": "view"],
@@ -28,7 +29,10 @@ final class ListRowsIOSTests: XCTestCase {
             ["op": "children", "id": 50, "ids": [4]],
             ["op": "create", "id": 70, "kind": "view", "props": ["accessibilityRole": "tab"]], ["op": "create", "id": 71, "kind": "view"],
             ["op": "children", "id": 70, "ids": [71]],
-            ["op": "children", "id": 30, "ids": [50, 1, 70]], ["op": "roots", "ids": [30]],
+            ["op": "create", "id": 5, "kind": "list", "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 80, "kind": "view"], ["op": "create", "id": 81, "kind": "view", "props": ["accessibilityRole": "tablist"]],
+            ["op": "children", "id": 80, "ids": [81]], ["op": "children", "id": 5, "ids": [80]],
+            ["op": "children", "id": 30, "ids": [50, 1, 70, 5]], ["op": "roots", "ids": [30]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0],
         ]))
         return p
@@ -67,6 +71,7 @@ final class ListRowsIOSTests: XCTestCase {
             [["op": "style", "id": 42, "style": ["opacity": 0.5]]],                // a row under a header
             [["op": "children", "id": 4, "ids": [40]]],                             // a header's list
             [["op": "props", "id": 11, "set": ["accessibilityRole": "tab"]]],      // a row becoming a tab
+            [["op": "style", "id": 80, "style": ["accent_color": [[0, 0, 255, 255]]]]], // a row holding a tablist
             [["op": "create", "id": 60, "kind": "view"]],                           // placed nowhere
             [["op": "roots", "ids": [30]]],
             [],
