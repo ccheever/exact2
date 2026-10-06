@@ -26,6 +26,7 @@ mod sources;
 mod strings;
 mod surface;
 mod symbols;
+pub mod terminal;
 mod typescript;
 
 pub use contract_types::strings::Strings;
@@ -479,6 +480,20 @@ pub fn surface_findings(path: &Path) -> Result<SurfaceFindings, Vec<CompileError
         findings,
         newer: surface::newer_rust(&app_root),
     })
+}
+
+/// Compile a terminal entry (LLP 1101 D2): the terminal profile's refusals,
+/// every one, then the ordinary compile.
+pub fn compile_path_terminal(path: &Path) -> Result<Plan, Vec<CompileError>> {
+    let src = read_source(path).map_err(|e| vec![e])?;
+    let app_root = app_root(path)?;
+    let (file, sources) = sources::load(path, &src, &app_root)?;
+    terminal::check(&file).map_err(|all| {
+        all.into_iter()
+            .map(|e| sources.resolve(e))
+            .collect::<Vec<_>>()
+    })?;
+    compile_path_output(path, &src, false).map(|(plan, _)| plan)
 }
 
 /// [`compile_path_all`] without the surface-argument check, which the

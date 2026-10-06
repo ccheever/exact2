@@ -105,10 +105,12 @@ fn main() -> ExitCode {
         args.drain(i..(i + 2).min(args.len()));
     }
     let plan = if path.ends_with(".contract") {
-        match contract::compile_path(std::path::Path::new(&path)) {
+        match contract::compile_path_terminal(std::path::Path::new(&path)) {
             Ok(p) => p,
-            Err(e) => {
-                eprintln!("{e}");
+            Err(all) => {
+                for e in all {
+                    eprintln!("{e}");
+                }
                 return ExitCode::FAILURE;
             }
         }
