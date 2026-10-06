@@ -233,8 +233,16 @@ impl<D: DataSource> Host<D> {
         }
         // Keep the pre-action frame operations: the commit mirror has already
         // observed them, so they cannot be reconstructed from the action batch.
-        let (receipts, error, _) =
-            self.deliver_at(view, Event::HeightRelease { height, velocity }, now_ms);
+        let (early, early_error) = self.advance_for_input(now_ms);
+        let still = early.is_empty()
+            || self.runner.kernel().height_drag_target(drag.handle) == Some(drag.target);
+        let (receipts, error, _) = self.deliver_after(
+            view,
+            Event::HeightRelease { height, velocity },
+            early,
+            early_error,
+            still,
+        );
         self.commit_into(&receipts, error, batch)
     }
 }

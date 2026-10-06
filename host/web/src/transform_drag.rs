@@ -221,25 +221,39 @@ pub(super) fn valid_event(event: &Event) -> bool {
 }
 
 impl<D: DataSource> Host<D> {
-    /// An event the host delivers itself, mid-gesture (a drag's release, its
-    /// handle's new geometry), at the input's time `now_ms`: the runner's
-    /// clock moves there first, as [`Host::dispatch_at`] moves it, so a timer
-    /// due by then fires at its own time and the action's `now()` — and an
-    /// `after` it arms — is the input's, not the last advance's. The commits
-    /// in order, the event's last; the refusal, the event's or a timer's; and
-    /// whether the event committed.
-    pub(crate) fn deliver_at(
+    /// Before an event the host delivers itself, mid-gesture (a drag's
+    /// release, its handle's new geometry): the runner's clock moves to the
+    /// input's time `now_ms`, as [`Host::dispatch_at`] moves it, firing the
+    /// timers due by then at their own times. Idle, the runner's clock can be
+    /// seconds old, and the event's action would read that `now()` and arm
+    /// its `after`s from it. Their commits, in order, and a refusal, which
+    /// stops the clock at the refusing timer (the runner's rule): the event
+    /// then runs there, as through `dispatch_at`.
+    pub(crate) fn advance_for_input(&mut self, now_ms: f64) -> (Vec<Timed>, Option<String>) {
+        let a = self.runner.advance_timed(now_ms);
+        (a.receipts, a.error.map(|e| format!("{e:?}")))
+    }
+
+    /// The event after [`Host::advance_for_input`], its commit last, unless
+    /// the timers just fired ended its gesture (`still` false: they changed
+    /// or removed the binding the input was validated against). The commits,
+    /// the first refusal, and whether the event committed.
+    pub(crate) fn deliver_after(
         &mut self,
         view: ViewId,
         event: Event,
-        now_ms: f64,
+        mut receipts: Vec<Timed>,
+        mut error: Option<String>,
+        still: bool,
     ) -> (Vec<Timed>, Option<String>, bool) {
-        let mut a = self.runner.advance_timed(now_ms);
-        let mut error = a.error.take().map(|e| format!("{e:?}"));
+        if !still {
+            error.get_or_insert_with(|| "the gesture's binding changed before its event".into());
+            return (receipts, error, false);
+        }
         let committed = match self.runner.dispatch(view, event) {
             Ok(receipt) => {
-                a.receipts.push(Timed {
-                    at_ms: now_ms.max(a.now_ms),
+                receipts.push(Timed {
+                    at_ms: self.runner.now_ms(),
                     receipt,
                 });
                 true
@@ -249,7 +263,7 @@ impl<D: DataSource> Host<D> {
                 false
             }
         };
-        (a.receipts, error, committed)
+        (receipts, error, committed)
     }
 
     /// Consume the fixed v2 photo packet. Geometry does not prove a worker result
@@ -390,7 +404,15 @@ impl<D: DataSource> Host<D> {
         });
         // All six values/time passed preflight, both old holds are live, and the
         // action executes while both still own presentation. Do not lower first.
-        let (receipts, error, committed) = self.deliver_at(view, input.event(), input.now_ms);
+        let (early, early_error) = self.advance_for_input(input.now_ms);
+        let still = early.is_empty()
+            || self
+                .runner
+                .kernel()
+                .transform_drag_binding(input.binding.handle)
+                == Some(input.binding);
+        let (receipts, error, committed) =
+            self.deliver_after(view, input.event(), early, early_error, still);
         let batch = self.batch_for(&receipts, error.as_deref());
         Ok(format!(
             "{{\"accepted\":true,\"dispatched\":true,\"committed\":{committed},\"velocity\":[{},{},{}],\"batch\":{batch}}}",
@@ -438,6 +460,9 @@ impl<D: DataSource> Host<D> {
         // clock; its receipt performs the sole dirty-frame lowering.
         self.now_ms = input.now_ms;
         let mut batch = Batch::new();
+        // Timers due by the observation fire first, so the authoring adopted
+        // below while held, and the cancellation, are what they left.
+        let (early, early_error) = self.advance_for_input(input.now_ms);
         let synced = self.springs.synchronize_transform(
             self.runner.kernel(),
             input.binding.target,
@@ -454,18 +479,31 @@ impl<D: DataSource> Host<D> {
             self.retire_transform_pair(serial, &mut batch);
         }
         if dispatch {
-            let (receipts, error, committed) = self.deliver_at(view, input.event(), input.now_ms);
+            let still = early.is_empty()
+                || self
+                    .runner
+                    .kernel()
+                    .transform_drag_binding(input.binding.handle)
+                    == Some(input.binding);
+            let (receipts, error, committed) =
+                self.deliver_after(view, input.event(), early, early_error, still);
             if !committed {
                 Self::emit_lowered(&mut batch, self.springs.lower_current(self.runner.kernel()));
             }
-            Ok(accepted(self.batch_from(
-                batch,
-                &receipts,
-                error.as_deref(),
-            )))
+            Ok(admitted(
+                self.batch_from(batch, &receipts, error.as_deref()),
+                committed,
+            ))
         } else {
             Self::emit_lowered(&mut batch, self.springs.lower_current(self.runner.kernel()));
-            Ok(accepted(self.finish(batch, None)))
+            if early.is_empty() && early_error.is_none() {
+                Ok(accepted(self.finish(batch, None)))
+            } else {
+                Ok(admitted(
+                    self.batch_from(batch, &early, early_error.as_deref()),
+                    true,
+                ))
+            }
         }
     }
 
@@ -610,6 +648,12 @@ fn stale() -> String {
 }
 fn accepted(batch: String) -> String {
     format!("{{\"accepted\":true,\"batch\":{batch}}}")
+}
+
+/// A geometry reply that says whether its event committed: a timer's
+/// refusal in the batch is not the observation's (the glue admits from it).
+fn admitted(batch: String, committed: bool) -> String {
+    format!("{{\"accepted\":true,\"committed\":{committed},\"batch\":{batch}}}")
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

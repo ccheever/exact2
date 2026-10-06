@@ -962,3 +962,105 @@ fn release_and_geometry_actions_run_at_the_inputs_time_after_an_idle_clock() {
         "due exactly 300 ms after the release"
     );
 }
+
+/// Timers due by a gesture's own event fire before it, and what they leave
+/// is what the event meets: a timer that unbinds the photo ends the gesture
+/// (the release action does not run, the pair is released as refused), and
+/// one that drops the transition before new geometry makes the cancellation
+/// snap rather than spring.
+const RACED: &str = r#"component App
+  state reference = "photo"
+  state curve = "translate spring(180, 12, 1), scale spring(180, 12, 1)"
+  state released = 0
+  state measured = 0
+  state unbindArmed = false
+  state dropArmed = false
+  task unbindLater when unbindArmed
+    after(100, unbind)
+  task dropLater when dropArmed
+    after(100, drop)
+  action unbind
+    reference = "absent"
+  action drop
+    curve = "none"
+  action armUnbind
+    unbindArmed = true
+  action armDrop
+    dropArmed = true
+  action geometry(w: number, h: number, pw: number, ph: number)
+    measured = measured + 1
+  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number)
+    released = released + 1
+  view
+    column
+      button testId="arm-unbind" press=armUnbind width=80 height=24
+      button testId="arm-drop" press=armDrop width=80 height=24
+      column testId="clip" width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
+        column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 transition=curve
+          column testId="handle" transformDragFor=reference transformgeometry=geometry transformrelease=finish
+"#;
+
+fn raced_hold(arm: &str) -> (Host<NoData>, Packet) {
+    let (mut host, mut p, _) = boot_source(RACED);
+    accepted(&p.send(&mut host));
+    press(&mut host, arm, 1000.0);
+    p.op = 11;
+    p.values = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 1050.0;
+    let reply = p.send(&mut host);
+    accepted(&reply);
+    p.tokens = [
+        quoted(&reply, "translateToken"),
+        quoted(&reply, "scaleToken"),
+    ];
+    p.op = 12;
+    p.values = [0.0, 40.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 1060.0;
+    accepted(&p.send(&mut host));
+    (host, p)
+}
+
+#[test]
+fn a_timer_that_unbinds_the_photo_before_its_release_ends_the_gesture() {
+    let (mut host, mut p) = raced_hold("arm-unbind");
+    // The unbind is due at 1100; the release comes at 1200, with nothing
+    // having advanced the runner since the press.
+    p.op = 13;
+    p.values = [0.0, 60.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 1200.0;
+    let reply = p.send(&mut host);
+    assert!(reply.contains("\"committed\":false"), "{reply}");
+    assert!(
+        reply.contains("binding changed before its event"),
+        "{reply}"
+    );
+    assert_eq!(
+        count(&host, "released"),
+        0.0,
+        "the release action never ran"
+    );
+    assert_eq!(
+        host.runner().slot("reference"),
+        Some(&Value::str("absent")),
+        "the timer's commit is kept"
+    );
+}
+
+#[test]
+fn a_timer_that_drops_the_transition_before_new_geometry_snaps_the_cancel() {
+    let (mut host, mut p) = raced_hold("arm-drop");
+    let photo = p.identity[2];
+    p.op = 10;
+    p.values = [300.0, 200.5, 300.0, 200.5, 0.0, 0.0];
+    p.identity[4] = 2;
+    p.tokens = [0; 2];
+    p.now = 1200.0;
+    let reply = p.send(&mut host);
+    accepted(&reply);
+    assert!(reply.contains("\"committed\":true"), "{reply}");
+    assert_eq!(count(&host, "measured"), 2.0);
+    assert!(
+        !host.engine().is_active(photo, Property::Translate),
+        "the cancel met the timer's `transition: none` and snapped"
+    );
+}

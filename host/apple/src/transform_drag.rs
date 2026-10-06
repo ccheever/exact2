@@ -96,26 +96,40 @@ impl TransformDrags {
 }
 
 impl<D: DataSource> Host<D> {
-    /// An event the host delivers itself, mid-gesture (a drag's release, its
-    /// handle's new geometry), at the input's time `now_ms`: the runner's
-    /// clock moves there first, as [`Host::dispatch_at`] moves it, so a timer
-    /// due by then fires at its own time and the action's `now()` — and an
-    /// `after` it arms — is the input's, not the last advance's. Idle, with
-    /// no frame or timer to move it, the runner's clock can be seconds old.
-    /// The commits in order, the event's last; the refusal, the event's or
-    /// a timer's; and whether the event committed.
-    pub(super) fn deliver_at(
+    /// Before an event the host delivers itself, mid-gesture (a drag's
+    /// release, its handle's new geometry): the runner's clock moves to the
+    /// input's time `now_ms`, as [`Host::dispatch_at`] moves it, firing the
+    /// timers due by then at their own times. Idle, with no frame or timer to
+    /// move it, the runner's clock can be seconds old, and the event's action
+    /// would read that `now()` and arm its `after`s from it. Their commits,
+    /// in order, and a refusal, which stops the clock at the refusing timer
+    /// (the runner's rule): the event then runs there, as through
+    /// `dispatch_at`.
+    pub(super) fn advance_for_input(&mut self, now_ms: f64) -> (Vec<Timed>, Option<String>) {
+        let a = self.runner.advance_timed(now_ms);
+        (a.receipts, a.error.map(|e| format!("{e:?}")))
+    }
+
+    /// The event after [`Host::advance_for_input`], its commit last, unless
+    /// the timers just fired ended its gesture (`still` false: they changed
+    /// or removed the binding the input was validated against). The commits,
+    /// the first refusal, and whether the event committed.
+    pub(super) fn deliver_after(
         &mut self,
         view: ViewId,
         event: Event,
-        now_ms: f64,
+        mut receipts: Vec<Timed>,
+        mut error: Option<String>,
+        still: bool,
     ) -> (Vec<Timed>, Option<String>, bool) {
-        let mut a = self.runner.advance_timed(now_ms);
-        let mut error = a.error.take().map(|e| format!("{e:?}"));
+        if !still {
+            error.get_or_insert_with(|| "the gesture's binding changed before its event".into());
+            return (receipts, error, false);
+        }
         let committed = match self.runner.dispatch(view, event) {
             Ok(receipt) => {
-                a.receipts.push(Timed {
-                    at_ms: now_ms.max(a.now_ms),
+                receipts.push(Timed {
+                    at_ms: self.runner.now_ms(),
                     receipt,
                 });
                 true
@@ -125,7 +139,7 @@ impl<D: DataSource> Host<D> {
                 false
             }
         };
-        (a.receipts, error, committed)
+        (receipts, error, committed)
     }
 
     /// Consume the fixed v2 photo packet. Geometry does not prove a worker result
@@ -266,7 +280,15 @@ impl<D: DataSource> Host<D> {
         });
         // All six values/time passed preflight, both old holds are live, and the
         // action executes while both still own presentation. Do not lower first.
-        let (receipts, error, committed) = self.deliver_at(view, input.event(), input.now_ms);
+        let (early, early_error) = self.advance_for_input(input.now_ms);
+        let still = early.is_empty()
+            || self
+                .runner
+                .kernel()
+                .transform_drag_binding(input.binding.handle)
+                == Some(input.binding);
+        let (receipts, error, committed) =
+            self.deliver_after(view, input.event(), early, early_error, still);
         let batch = self.commit(&receipts, error);
         Ok(format!(
             "{{\"accepted\":true,\"dispatched\":true,\"committed\":{committed},\"velocity\":[{},{},{}],\"batch\":{batch}}}",
@@ -317,6 +339,9 @@ impl<D: DataSource> Host<D> {
         self.engine
             .advance(input.now_ms / 1000.0)
             .map_err(|_| "transform clock refused")?;
+        // Timers due by the observation fire first, so the authoring adopted
+        // below while held, and the cancellation, are what they left.
+        let (early, early_error) = self.advance_for_input(input.now_ms);
         // Latest authored pair targets/declarations arrive while still held.
         if let Some(node) = self.runner.kernel().node_by_key(input.binding.target) {
             let mut sync = exact_kernel::motion::MotionSync::default();
@@ -332,8 +357,14 @@ impl<D: DataSource> Host<D> {
                     });
                 }
             }
-            sync.apply(&mut self.engine)
-                .map_err(|_| "transform authoring refused")?;
+            if sync.apply(&mut self.engine).is_err() {
+                if early.is_empty() && early_error.is_none() {
+                    return Err("transform authoring refused");
+                }
+                // The timers' commits are in the tree: they reach the presenter.
+                let error = early_error.unwrap_or_else(|| "transform authoring refused".into());
+                return Ok(accepted(self.commit_into(&early, Some(error), batch)));
+            }
         }
         let active: Vec<_> = self
             .transform_drags
@@ -345,8 +376,20 @@ impl<D: DataSource> Host<D> {
             self.retire_transform_pair(serial, &mut batch);
         }
         if dispatch {
-            let (receipts, error, _) = self.deliver_at(view, input.event(), input.now_ms);
-            Ok(accepted(self.commit_into(&receipts, error, batch)))
+            let still = early.is_empty()
+                || self
+                    .runner
+                    .kernel()
+                    .transform_drag_binding(input.binding.handle)
+                    == Some(input.binding);
+            let (receipts, error, committed) =
+                self.deliver_after(view, input.event(), early, early_error, still);
+            Ok(admitted(
+                self.commit_into(&receipts, error, batch),
+                committed,
+            ))
+        } else if !early.is_empty() || early_error.is_some() {
+            Ok(admitted(self.commit_into(&early, early_error, batch), true))
         } else {
             self.present(&mut batch, false);
             Ok(accepted(self.finish(batch, None)))
@@ -504,6 +547,12 @@ impl<D: DataSource> Host<D> {
 }
 fn accepted(batch: String) -> String {
     format!("{{\"accepted\":true,\"batch\":{batch}}}")
+}
+
+/// A geometry reply that says whether its event committed: a timer's
+/// refusal in the batch is not the observation's.
+fn admitted(batch: String, committed: bool) -> String {
+    format!("{{\"accepted\":true,\"committed\":{committed},\"batch\":{batch}}}")
 }
 
 // Actual native samples are certified again by Swift. This preflight rejects
