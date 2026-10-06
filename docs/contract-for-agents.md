@@ -1473,9 +1473,10 @@ type, over the one `type` implies (iOS: `password`, `email`): `username`,
 `cc-additional-name`, `cc-family-name`, `cc-number`, `cc-exp`, `cc-exp-month`,
 `cc-exp-year`, `cc-csc`, `cc-type`, `bday`, `bday-day`, `bday-month` and
 `bday-year`.
-`off` clears the content type (the web's `autocomplete="off"`); `on`, a list
-HTML's grammar refuses, or a name the platform has no type for (`country`,
-`impp`, `sex`) leaves `type`'s, as the web autofills by its own lights then.
+`off` clears the content type (the web's `autocomplete="off"`); `on` or a
+list HTML's grammar refuses (the web's default) leaves `type`'s, and so does
+a name the platform has no type for (`country`, `impp`, `sex`), which only the
+web can act on.
 
 `border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
 resetting omitted components to medium/none/currentcolor. Widths are px/pt,
