@@ -340,6 +340,51 @@ fn conditional_pixel_lengths_compile_and_update() {
 }
 
 #[test]
+fn a_bound_string_on_a_number_row_is_refused_as_its_literal_is() {
+    let app = |node: &str| {
+        format!("component A\n  state size = 16\n  state label = \"2\"\n  action grow\n    size = 20\n  view\n    column\n      {node}\n")
+    };
+    // No native host reads text on these rows; a browser would apply it.
+    for (node, name) in [
+        ("text \"a\" opacity=`${size / 20}`", "opacity"),
+        ("column flex-grow=label", "flex-grow"),
+        ("text \"a\" z-index=label", "z-index"),
+        ("text \"a\" font-weight=`${size}0`", "font-weight"),
+        ("view column-count=label", "column-count"),
+        ("view column-rule-width=`${size}px`", "column-rule-width"),
+    ] {
+        let e = contract::compile(&app(node)).unwrap_err();
+        assert_eq!(e.id, "lower-attr-type", "{node}: {e}");
+        assert!(
+            e.message.contains(&format!("`{name}` takes a number")),
+            "{node}: {e}"
+        );
+    }
+    // A pixel row reads `<n>px` where it binds, as the browser does.
+    let mut runner = exact_runner::Runner::boot(
+        contract::compile(&app(
+            "text \"a\" testId=\"t\" font-size=`${size}px` letter-spacing=`${size / 16}px`",
+        ))
+        .unwrap(),
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    for expected in [16.0, 20.0] {
+        let key = runner.kernel().find_by_test_id("t")[0];
+        let style = &runner.kernel().node_by_key(key).unwrap().style;
+        assert_eq!(
+            (style.font_size, style.letter_spacing),
+            (expected, expected / 16.0)
+        );
+        runner.act("grow", vec![]).unwrap();
+    }
+    assert!(!runner.is_poisoned());
+}
+
+#[test]
 fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
     let app = |state: &str, node: &str| {
         format!("shape Todo\n  title: string\ncomponent A\n  state draft = \"\"\n{state}  view\n    column\n      {node}\n")

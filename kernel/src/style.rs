@@ -608,6 +608,38 @@ impl StyleValue {
     }
 }
 
+/// Whether `set_dynamic` reads any text on row `style` besides the CSS-wide
+/// keywords [`StyleValue::unsets`] clears a row with. A number row with no
+/// text arm (`opacity`, `flex-grow`, `z-index`, `font-weight`) refuses every
+/// computed string, where a browser applies one (`opacity: 0.5`), so the
+/// compiler refuses a string-typed binding of such a row as it refuses the
+/// literal (LLP 1017 P1a). The rows listed are those whose conversion has a
+/// text arm: `rem`/`em` and `px` lengths ([`relative`]), SVG's stroke
+/// lengths, and the CSS forms [`StyleValue::f32`] reads.
+pub fn takes_text(style: StyleId) -> bool {
+    use crate::generated::StyleCodec;
+    use StyleId::*;
+    match style.codec() {
+        StyleCodec::F32 => {
+            relative::admits_relative(style)
+                || matches!(
+                    style,
+                    StrokeWidth
+                        | StrokeDashoffset
+                        | Rotate
+                        | TranslateZ
+                        | Perspective
+                        | SymbolValue
+                        | TextStrokeWidth
+                        | BackdropBlur
+                        | ShapeMargin
+                )
+        }
+        StyleCodec::U16 | StyleCodec::U32 | StyleCodec::I32 => false,
+        _ => true,
+    }
+}
+
 // CSS pixel length or unitless zero, shared by dimensions and translation.
 /// A CSS length in an absolute unit (96 px to the inch), or a percentage
 /// written as text, with the CSS number grammar `px` lengths use (LLP
