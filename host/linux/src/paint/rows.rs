@@ -464,9 +464,16 @@ impl Painter {
         for b in &mut walk.boxes[start..] {
             b.clip = within(b.clip, clip_rect);
         }
+        // What the row can draw: each box within its clip (a scroller's
+        // content box is its whole extent, a horizontal list's thousands of
+        // px wide; only its port shows), one clipped away entirely nothing.
         let covered = boxes
             .iter()
-            .fold(None, |u, b| Some(union(u, b.rect)))
+            .filter_map(|b| match b.clip {
+                None => Some(b.rect),
+                Some(c) => Some(intersect(b.rect, c)).filter(|r| r.2 > 0.0 && r.3 > 0.0),
+            })
+            .fold(None, |u, r| Some(union(u, r)))
             .unwrap_or((origin.0, origin.1, 0.0, 0.0));
         let bounds = (
             covered.0 - origin.0 - MARGIN,
