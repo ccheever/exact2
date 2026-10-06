@@ -50,7 +50,7 @@ export function cargoOnPath(env = process.env, home = homedir()) {
   env.PATH = [rustup, ...dirs].join(delimiter);
   return true;
 }
-cargoOnPath();
+cargoOnPath(); process.env.HERMES_LEAN_SYS_OFFLINE = '1';
 
 /** Every Cargo process Exact starts refuses implicit Hermes acquisition. */
 export function cargoEnvironment(env = process.env) { return { ...env, HERMES_LEAN_SYS_OFFLINE: '1' }; }

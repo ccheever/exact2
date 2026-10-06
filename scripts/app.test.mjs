@@ -1036,6 +1036,7 @@ test('a build env keeps the pinned toolchain and the checked Bun ahead of ambien
   const pinned = /^channel\s*=\s*"([^"]+)"/m.exec(readFileSync(resolve(import.meta.dir, '../rust-toolchain.toml'), 'utf8'))[1];
   const previous = process.env.RUSTUP_TOOLCHAIN;
   try {
+    assert.equal(process.env.HERMES_LEAN_SYS_OFFLINE, '1');
     process.env.RUSTUP_TOOLCHAIN = 'stable'; // What `mise exec` exports.
     assert.equal(developmentBuildEnv().RUSTUP_TOOLCHAIN, undefined);
     for (const same of [pinned, `${pinned}-aarch64-apple-darwin`]) {

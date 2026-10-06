@@ -197,7 +197,7 @@ async function check(sha) {
   mkdirSync(dir, { recursive: true });
   prune();
   git(['checkout', '--detach', '--force', sha], WT);
-  const env = { ...process.env };
+  const env = { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' };
   delete env.EXACT_UPDATE_TRUST; delete env.CARGO_TARGET_DIR; delete env.EXACT_WEB_BROWSER;
   const installed = spawnSync('bun', ['install', '--frozen-lockfile'], { cwd: WT, env, encoding: 'utf8' });
   const result = { sha, subject: git(['log', '-1', '--format=%s', sha]), checks: {}, failures: [] };
