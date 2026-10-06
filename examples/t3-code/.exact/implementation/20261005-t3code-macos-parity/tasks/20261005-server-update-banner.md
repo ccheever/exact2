@@ -1,12 +1,12 @@
 ---
 name: 20261005-server-update-banner
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-server-update-banner
 pr_url: null
 verified_commit: null
 ---
@@ -156,13 +156,43 @@ Required environment: Xcode 27.0, pinned Bun 1.4.2, oracle desktop build, the st
 
 ## Progress
 
-Planned. No branch.
+Implemented on `feat(example)/t3-code-server-update-banner` (base 9670b0723); verification: unverified.
+
+- `version-skew.ts`: versionSkew.ts ported (resolveVersionMismatch, buildVersionMismatchDismissalKey,
+  isVersionMismatchDismissed/dismissVersionMismatch persisted in `t3-code.json` under
+  `shell.versionMismatchDismissals`, isServerUpdateFailureDismissed per attempt, serverUpdateGuidance,
+  capability readers). `connections.ts` re-exports CLIENT_VERSION/compareSemver/versionMismatch from it.
+- `server-update.ts`: ServerUpdateState and the server.ts helpers by name; the per-environment store is
+  T3Fleet's job table (`T3OutdatedHosts`, new `mode: "connected"`): progress stream or legacy
+  `server.updateServer`, desktop commit, wait for the descriptor to report the target (4 min).
+  `updateEnvironment(target, deps)` is the single-flight entry (auto-balance adds its batch on it);
+  `announceServerUpdates` toasts "<label> updated" once the connection reports the version.
+  Settings › Connections Update / Update all use the same store; a running row shows its progress.
+- `server-update-notices.ts` + `client-ops-server-update.ts` (`su:*` ops): offline notice moved from the
+  request stack into `composerNotices` with the 2 s grace (never while an update runs) and
+  "Disconnect server" after 20 s for a non-loopback environment; the server-version notice
+  (idle/running/failed, tooltip, guidance, Update/Copy…/Retry, dismiss); the desktop-managed confirm
+  (AppConfirm); the version-differ card in the details card and the 6 px warning dot on the toggle.
+- Timers (X19 workaround): the snapshot names the reconnecting/unavailable episodes; root tasks
+  `after(2000)` / `after(20000)` hand the elapsed episode back as snapshot arguments.
+- Motion: a dismissed notice slides out 220 ms (translate 64/112 px + fade; reduced motion fades only)
+  before its dismiss command runs (root `noticeDismiss` task).
+- Live drive found that a current (1e2ecbd975) server closes a socket that does not name
+  `orchestrationProtocol`; the connected-mode job now names protocol 2 (f14cc8052).
+
+Not done / limits: success toast not observed in the live drive (5 s toast vs 11 s wait; unit-tested);
+"Disconnect server" not shown live (a lane server must be loopback because remote HTTP is refused,
+and loopback is the primary stand-in; unit-tested); keyboard focus into/out of the confirm dialog and
+Enter/Escape (unverified, attended); the multi-machine banner and batch confirm (auto-balance);
+`ComposerBannerStack.test.tsx`'s only case (clipped-description details popover) not ported: the clone's
+NoticeRow has no details popover; oracle pixel pairs and trace-diff not run (oracle not built);
+`waitForDesktopUpdateTarget` commit retries (3) are one commit in Swift.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 | f14cc8052 | bun test 1881 pass / 0 fail (base 1829); strict tsc clean; contract build 2338 slots, 43 resources; cargo test -p t3-code-macos --lib 10 pass; AppKit fleet 9/0, transport 47/0; caps pass; five checks: see PR | Drive (after, 1280×840, stub proxy on 16221 → real server 16220): `notice-server-version` "Server update available" tip "server 0.0.45 → 0.0.46-nightly.20261004.1", "Update to stay in sync", Update; `details-version-mismatch` "Client 0.0.46-nightly.20261004.1 · server 0.0.45"; `thread-details-attention`; tap Update → "Updating server · Downloading…"; attempt 1 fails at installing → "Could not update server · Server update failed: The package could not be verified." + Retry + toast "Server update failed"; Retry → "Updating server · Restarting…" with no offline notice during the restart; after restart banner, card and dot gone; outage → "Studio is reconnecting" after the grace, `serverUpdate.unavailable` episode set, no Disconnect (loopback = primary). Shots `target/su-stub/shots/{before,after}`; the first after drive failed on the bare socket (fixed) | success toast and Disconnect live; keyboard (attended) |
 
 ## Next action
 
