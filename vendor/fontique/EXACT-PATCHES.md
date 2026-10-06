@@ -37,5 +37,16 @@ pass.
    collection on each one, re-adding every earlier face (45,763 faces for
    269 files), and rescanned a collection file once per face. Each file now
    has its own map and is registered once (277 faces for the same files).
+4. **A last-resort fallback list.** `FallbackMap::set_last_resort` and
+   `Collection::set_last_resort_fallbacks`: the families of every script
+   given no list of its own (its default key; a tracked locale of such a
+   script still finds none, as before). The host gives each script its own
+   families followed by one shared last resort (every installed family);
+   the ~125 scripts with none of their own now share that list instead of
+   each holding a copy (`fallback::configure` 0.42 to 0.25 ms of a Pixel 10
+   Pro XL's boot, LLP 1085.000 stage 3). Tests:
+   `host/linux/src/text/fallback.rs`
+   (`a_script_without_families_of_its_own_takes_the_last_resort`: every
+   script's list is what a copy per script gave).
 
 All other archive files are byte-for-byte upstream.

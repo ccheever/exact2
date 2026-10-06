@@ -188,6 +188,13 @@ impl Collection {
         self.inner.append_fallbacks(key, families)
     }
 
+    /// Sets the fallback families of every script given no list of its own
+    /// by [`set_fallbacks`](Self::set_fallbacks) (its default key; a
+    /// script's tracked locales still have none). Exact patch.
+    pub fn set_last_resort_fallbacks(&mut self, families: impl Iterator<Item = FamilyId>) {
+        self.inner.set_last_resort_fallbacks(families);
+    }
+
     /// Returns an object for selecting fonts from this collection.
     pub fn query<'a>(&'a mut self, source_cache: &'a mut SourceCache) -> Query<'a> {
         Query::new(self, source_cache)
@@ -465,6 +472,21 @@ impl Inner {
         }
         #[cfg(not(feature = "std"))]
         self.data.fallbacks.set(key, families)
+    }
+
+    /// See [`Collection::set_last_resort_fallbacks`].
+    pub fn set_last_resort_fallbacks(&mut self, families: impl Iterator<Item = FamilyId>) {
+        self.sync_shared();
+        self.fallback_cache.reset();
+        #[cfg(feature = "std")]
+        if let Some(shared) = &self.shared {
+            shared.data.lock().unwrap().fallbacks.set_last_resort(families);
+            shared.bump_version();
+        } else {
+            self.data.fallbacks.set_last_resort(families);
+        }
+        #[cfg(not(feature = "std"))]
+        self.data.fallbacks.set_last_resort(families);
     }
 
     /// Appends the set of family identifiers to the given fallback key.
