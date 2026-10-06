@@ -5,11 +5,12 @@
 //! attribute replaces any one of them; a literal `appearance="none"` leaves
 //! them all out, the bare box LLP 1064 D6 drew.
 
+use crate::tags::Tag;
 use crate::tags::{attr, AttrTarget};
 use crate::values::four_sided;
 use crate::{err, LowerError};
 use contract_syntax::{Attr, Expr, Span};
-use exact_kernel::StyleId;
+use exact_kernel::{PropId, StyleId};
 
 /// The field's outline and fill, iOS 27's measured system colours (a
 /// grouped cell's fill; `separator` opaque, as a field's border is).
@@ -45,25 +46,26 @@ fn field<'a>(tag: &str, rows: impl Iterator<Item = &'a Attr> + Clone) -> bool {
     }
 }
 
-/// The sheet's rows for a text field, pushed ahead of `sheet`'s, or none:
-/// for any other node, or one whose `appearance` (its class's, then its
-/// own) is the literal `"none"`. `"auto"`, the platform's own field, is not
-/// admitted yet (D3).
+/// The sheet's rows for a text field, pushed ahead of `sheet`'s, and
+/// whether it wears them; none for any other node, or one whose
+/// `appearance` (its class's, then its own) is the literal `"none"`.
+/// `"auto"`, the platform's own field, is not admitted yet (D3).
 pub(crate) fn sheet<'a>(
     tag: &str,
     rows: impl Iterator<Item = &'a Attr> + Clone,
     span: Span,
     sheet: &mut Vec<Attr>,
-) -> Result<(), LowerError> {
+) -> Result<bool, LowerError> {
     if !field(tag, rows.clone()) {
-        return Ok(());
+        return Ok(false);
     }
+    let disabled = rows.clone().filter(|a| a.name == "disabled").last();
     match rows.filter(|a| a.name == "appearance").last() {
         None => {}
         Some(Attr {
             value: Expr::Str(v, _),
             ..
-        }) if v == "none" => return Ok(()),
+        }) if v == "none" => return Ok(false),
         Some(a) => {
             let what = match &a.value {
                 Expr::Str(v, _) if v == "auto" => {
@@ -102,8 +104,37 @@ pub(crate) fn sheet<'a>(
     }
     rows.push(s("background-color", FILL));
     rows.push(s("color", INK));
+    // @ref LLP 1104 §4 Q2 — a disabled field is dimmed, as the web's is.
+    match disabled.map(|a| &a.value) {
+        None | Some(Expr::Bool(false, _)) => {}
+        Some(Expr::Bool(true, _)) => rows.push(n("opacity", 0.5)),
+        Some(cond) => rows.push(Attr {
+            name: "opacity".into(),
+            value: Expr::Ternary(
+                Box::new(cond.clone()),
+                Box::new(Expr::Number(0.5, span)),
+                Box::new(Expr::Number(1.0, span)),
+                span,
+            ),
+            span,
+        }),
+    }
     sheet.splice(0..0, rows);
-    Ok(())
+    Ok(true)
+}
+
+/// A field that wears the sheet carries `fieldStyle="default"` (D4): the
+/// mark the web's focus ring selects, which no style row can be.
+pub(crate) fn tag(t: Tag) -> Tag {
+    let fixed_props: &'static [(PropId, &'static str)] = match t.fixed_props {
+        [] => &[(PropId::FieldStyle, "default")],
+        [(PropId::SemanticTag, "textarea")] => &[
+            (PropId::SemanticTag, "textarea"),
+            (PropId::FieldStyle, "default"),
+        ],
+        other => unreachable!("a text field's fixed props: {other:?}"),
+    };
+    Tag { fixed_props, ..t }
 }
 
 /// A conditional class's rows over a sheet (D3): where one side of

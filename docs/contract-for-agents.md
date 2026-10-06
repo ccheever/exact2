@@ -1423,7 +1423,10 @@ ink (it does not inherit `color`). These are rows under yours: any row or class
 you write replaces that one row and keeps the rest; `padding` and `width` stay
 content-box, so the field is 18px wider and 14px taller than its content.
 `appearance="none"` (a literal) leaves them all out for a field you draw
-yourself, such as a composer inside a pill (LLP 1104).
+yourself, such as a composer inside a pill (LLP 1104). A field in this look
+shows a focus ring while focused (the web's `:focus-visible`, an accent ring on
+macOS and Linux; iOS shows its caret) and dims to `opacity` 0.5 while
+`disabled`; a bare field draws its own focus and disabled states.
 
 `textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
 height and `field-sizing="content"` override it. `maxlength=80` on text inputs

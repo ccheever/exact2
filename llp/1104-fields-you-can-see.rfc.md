@@ -1,7 +1,7 @@
 # LLP 1104: Fields you can see — a visible text field by default
 
 **Type:** RFC
-**Status:** Built r3, 2026-10-06 (§6), except D4's focus states, which are deferred. Charlie decided the direction (LLP 1102 §0, §3.15: "visible by default is right"). r2 folded in one blind pass by Astra and Grok (both READY WITH CHANGES, §5). This amends LLP 1102 §0's "the platform's field" to these default rows.
+**Status:** Built r4, 2026-10-06 (§6), focus states and disabled dimming included. Charlie decided the direction (LLP 1102 §0, §3.15: "visible by default is right"). r2 folded in one blind pass by Astra and Grok (both READY WITH CHANGES, §5). This amends LLP 1102 §0's "the platform's field" to these default rows.
 **Systems:** Contract lowering (`contract/lower/src/tags.rs` `input`/`textarea` `fixed_styles`, `controls.rs` for input types), the web host's control reset (`host/web/index.html`), the JS target (no change beyond the rows), the Apple and Linux hosts (they already paint authored rows; their native field chrome stays off), docs, conformance, apps in the repo that relied on a bare field
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-06
@@ -119,6 +119,7 @@ About two and a half lane-days.
   - fallbacks resolve by style row, so a style's own covering row wins and the sheet's last row decides;
   - three corpus fields opt out;
   - the tests assert exact colours.
+- r4, 2026-10-06: Charlie accepted the focus ring by a marker prop and the disabled dimming (§4 Q2); both built (§6).
 
 ## 6. As built
 
@@ -134,7 +135,13 @@ About two and a half lane-days.
 - **The repo's apps:** the 43 fields (and three in `contract/corpus`) that draw their own look (any authored border, padding or fill, including every `border-width=0` composer and search bar) now say `appearance="none"`, so they look as they did. RealWorld's classes set every row, so its fields are unchanged without it. The fields with no styling of their own (`windows-desk`, `native-fixture`'s searches, `markdown-stress`'s link URL) now get the default look.
 - **Docs:** the agents' guide (beside `textarea rows`) and the humans' guide (Input, events, and commands).
 
-**Deferred:**
-- **D4 focus states.** A field shows focus by its caret on every host, as a bare field did before. A web `:focus-visible` ring for dressed fields only needs a marker the web host can select on. Inline styles and the JS target's static classes cannot be told apart by a selector, and there is no `outline` row an author could use to turn a ring off. So the marker is a new prop, which is its own change, together with the macOS/Linux accent border.
-- **§4 Q2, a disabled field's dimming.** Not built; awaiting the decision.
-
+**Focus and disabled (r4, after Charlie's yes to both):**
+- **The mark.** A field in the default look carries `fieldStyle="default"` (prop 253). Contract sets it and no author can write it. It is needed because no CSS selector can see a style row, whether inline or in one of the JS target's static classes. The web writes it as `data-fieldstyle`.
+- **Focus.**
+  - Web: `[data-fieldstyle]:focus-visible { outline: revert; outline-offset: 0 }`.
+  - macOS: a two-point `keyboardFocusIndicatorColor` ring layer over the border. It is shown when the field or textarea takes the focus and removed when its editor ends editing, even with no edit.
+  - Linux: a two-point ring in the node's `accent-color` (Chrome's `#0075ff` when unset), painted over the border of the focused field.
+  - iOS: the caret, as before.
+  - Screenshots on the web, macOS and Linux show the ring moving from one field to the next and leaving the field it left.
+- **Disabled.** A field in the default look with `disabled` gets a sheet row `opacity` of 0.5, bound to the same expression. An authored `opacity` wins. Shown on the web, macOS, iOS and Linux.
+- **Tests.** `a_dressed_field_carries_its_mark_and_a_disabled_one_dims`. The schema digest moved, and exact-web's reserved data words now include `fieldstyle`.

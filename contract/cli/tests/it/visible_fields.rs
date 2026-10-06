@@ -198,3 +198,30 @@ fn a_fields_appearance_is_none_or_absent() {
         assert_eq!(e.id, "lower-field-appearance", "{}", e.message);
     }
 }
+
+#[test]
+fn a_dressed_field_carries_its_mark_and_a_disabled_one_dims() {
+    let mut r = boot(
+        "",
+        "input testId=\"field\"\ntextarea testId=\"area\"\ninput appearance=\"none\" testId=\"bare\"\ninput disabled=true testId=\"off\"\ninput disabled=on testId=\"bound\"\ninput disabled=true opacity=1 testId=\"opaque\"\nbutton press=flip testId=\"flip\"\n  text \"Flip\"",
+    );
+    let k = r.kernel();
+    let mark = |t: &str| {
+        k.node(id(&r, t))
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::FieldStyle)
+            .map(str::to_owned)
+    };
+    assert_eq!(mark("field").as_deref(), Some("default"));
+    assert_eq!(mark("area").as_deref(), Some("default"));
+    assert_eq!(mark("bare"), None, "`appearance=\"none\"` carries no mark");
+    let opacity = |r: &Runner<NoData>, t: &str| r.kernel().node(id(r, t)).unwrap().style.opacity;
+    assert_eq!(opacity(&r, "field"), 1.0);
+    assert_eq!(opacity(&r, "off"), 0.5, "a disabled field dims");
+    assert_eq!(opacity(&r, "bound"), 0.5);
+    assert_eq!(opacity(&r, "opaque"), 1.0, "an authored opacity wins");
+    let flip = id(&r, "flip");
+    r.dispatch(flip, Event::Press).unwrap();
+    assert_eq!(opacity(&r, "bound"), 1.0, "enabled again, undimmed");
+}

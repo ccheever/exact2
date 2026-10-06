@@ -9,7 +9,7 @@ use exact_kernel::{Appearance, NodeRef, PropId, StyleMask};
 use tiny_skia::Transform;
 
 /// Chrome's default accent, `#0075ff`, where `accent-color` is `auto`.
-const ACCENT: [u8; 4] = [0x00, 0x75, 0xff, 0xff];
+pub(crate) const ACCENT: [u8; 4] = [0x00, 0x75, 0xff, 0xff];
 
 /// A control's choice while its bound value is the one it had when the
 /// person chose, as the web build writes an input's `value` only when the

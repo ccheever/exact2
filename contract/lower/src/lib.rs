@@ -689,7 +689,7 @@ impl<'a> Lowerer<'a> {
                     grouped::native_rows(&mut sheet);
                 }
                 // @ref LLP 1104 D2, D3 — a text field's sheet, under its classes.
-                fields::sheet(
+                let dressed = fields::sheet(
                     tag,
                     expanded.iter().flatten().chain(attrs),
                     *span,
@@ -748,6 +748,7 @@ impl<'a> Lowerer<'a> {
                 let expanded = canonical_type.as_deref().unwrap_or(expanded);
                 let control = controls::control(tag, expanded)?;
                 let t = control.map_or(t.clone(), |kind| controls::tag(kind, t.clone()));
+                let t = if dressed { fields::tag(t) } else { t };
                 let face = (control == Some("button"))
                     .then(|| grouped::unsheet(children))
                     .flatten();
