@@ -1259,6 +1259,8 @@ impl Em<'_> {
                 | EventKind::Seeked
                 | EventKind::Ratechange
                 | EventKind::Volumechange
+                // @ref LLP 1042 — through `media.js`, a bool payload.
+                | EventKind::Fullscreenchange
                 // @ref LLP 1098 D6 — the media session's, through `media.js`.
                 | EventKind::Seekbackward
                 | EventKind::Seekforward
