@@ -27,3 +27,38 @@ The zero-direction fallback and `auto`/`manipulation` preservation match `layout
 XCTest was not run: its runner requires writes unavailable in this read-only checkout. No files were edited.
 
 **Verdict: NOT READY.**
+# Round 2
+
+- **Method:** one brief (sha256 `fff5b167cad43749f6986affb97fb485557b78829d041fec9176f45d2bf1cf47`), blind to the other review, on e8eed0a5f with round 1's artifacts.
+- **Verdict:** NOT READY.
+- **Disposition:** All three taken in r3 (90c3a1a2a). 1: a scroller at its edge that chains (`ScrollView.chains`, `handsOff` without its `bounces` write) passes the intersection on to the scroller it chains to, owner included (test: nested pagers, outer auto/none/pan-y, at the edge and mid-pager). 2: the walk starts at `hitTest(start)` with no bounds guard, so an overflowing child counts (test: a pointer-observing child below the handle). 3: range counts `adjustedContentInset` on both sides (test: a one-page pager with a leading inset). The press fixture is now a `pointerdown` observer and the test pan has a location.
+
+1. **P2 — A scroller that will hand off the drag is counted as its recipient.** [TransformDragIOS.swift:91](/tmp/bsky-tt-rv/host/apple/Sources/ExactKit/IOS/TransformDragIOS.swift:91)
+
+   With an inner horizontal scroller at its trailing edge, an outer horizontal scroller with remaining travel, and `touch-action="none"` on the outer owner, a leftward drag has no winner. `platformPans` stops at the inner scroller and rejects the photo pan. The inner scroller rejects through [`handsOff`](/tmp/bsky-tt-rv/host/apple/Sources/ExactKit/IOS/ScrollViewIOS.swift:52); the outer scroller rejects its touch-action intersection.
+
+   **Fix:** account for the existing handoff decision and continue the intersection toward the actual recipient when the inner scroller yields. Add this nested-edge case, alongside an accepting outer scroller.
+
+2. **P2 — The bounds check skips valid hits on overflowing descendants.** [TransformDragIOS.swift:87](/tmp/bsky-tt-rv/host/apple/Sources/ExactKit/IOS/TransformDragIOS.swift:87)
+
+   `NodeView.hitTest` deliberately supports descendants outside their parent’s bounds under visible overflow. This guard instead starts the walk at the handle. A touch on an overflowing descendant with `touch-action="none"` beneath a `pan-x` handle therefore rejects the photo pan, while the enclosing scroller’s hit test finds that descendant and rejects scrolling. This loses the [hit-to-container intersection](https://www.w3.org/TR/pointerevents3/#determining-supported-direct-manipulation-behavior).
+
+   **Fix:** let `hitTest` handle overflow without the preliminary bounds check, or retain the original touch target. Test an overflowing, hit-testable descendant without a press handler.
+
+3. **P2 — “Room” excludes inset-created scroll range.** [TransformDragIOS.swift:90](/tmp/bsky-tt-rv/host/apple/Sources/ExactKit/IOS/TransformDragIOS.swift:90)
+
+   A scroller with `contentSize.height == bounds.height` and a positive bottom inset can scroll, but this calculation treats it as immovable. Exact creates such insets for the keyboard and automatic navigation-bar adjustment. A `pan-y` photo consequently remains eligible to take scrolling that should belong to that scroller.
+
+   **Fix:** calculate the range using `adjustedContentInset`, consistent with [`ScrollView.handsOff`](/tmp/bsky-tt-rv/host/apple/Sources/ExactKit/IOS/ScrollViewIOS.swift:73): horizontal extent includes left/right insets; vertical extent includes top/bottom. Add inset-only range tests on both axes.
+
+Round 1’s ordinary restrictive-ancestor, no-scroller, and active-pinch cases are addressed. The first finding remains partially unresolved through the cases above. The walk correctly continues past a scroller without range on the requested axis; I found no separate RTL-specific defect in the extent calculation.
+
+The new tests **would fail against round 1’s implementation**, by inspection: the no-recipient assertions and active-pinch assertions reverse its results. Coverage still has limitations:
+
+- The [restrictive-descendant fixture](/tmp/bsky-tt-rv/host/apple/tests/ExactKitTests/GesturePrecedenceIOSTests.swift:205) uses `press`, which makes production `shouldReceive` refuse the transform before this predicate runs. Use a pointer observer instead.
+- Replacement pans provide no controlled location, so the tests do not verify start-position hit testing.
+- Pinch admission is tested; finger-lift continuation and a single release are not.
+
+XCTest was not run because its build requires writes unavailable in this read-only session. No files were changed.
+
+**Verdict: NOT READY.**

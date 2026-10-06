@@ -37,3 +37,37 @@ Web does not need this predicate: the browser cancels the pointer. macOS trackpa
 ## Verdict
 
 READY.
+
+# Round 2
+
+- **Method:** one brief (sha256 `fff5b167cad43749f6986affb97fb485557b78829d041fec9176f45d2bf1cf47`), blind to the other review, on e8eed0a5f with round 1's artifacts.
+- **Verdict:** READY WITH CHANGES.
+- **Disposition:** Both taken in r3 (90c3a1a2a): range counts `adjustedContentInset` (test: inset-only range); the bounds guard is gone, so a child drawn outside the handle is the hit (test). Nested scrollers are now covered too.
+
+I'll review the iOS pan-yield change read-only, starting with the review skill and the round-1 findings for this family.Round 1 of this review had no findings. I’ll read the round-2 pan-yield change and the tests that are supposed to cover it.Round 1 for this family had no findings. The two holes it described are closed for the cases the new tests build: a refusing hit, ancestor, or scroller owner keeps the drag, and a drag with no movable scroller stays the photo's. A pan whose pinch is already `.began` or `.changed` is admitted.
+
+The pager case is right. `platformPans` walks from the hit view through ancestors, stops at the first scroller that can move on the dominant axis, and includes that scroller's owner. An inner scroller that cannot move on the axis is skipped, so an ancestor that can still gets it. A `pan-x` owner on that inner scroller still blocks the ancestor, which matches CSS and `ScrollView.gestureRecognizerShouldBegin`. `pan-left` and `pan-right` stay physical (a leftward finger is `pan-right`), including under RTL. RTL does not change the overflow test; left and right insets add.
+
+[P2] Count insets in the "can move" test — `host/apple/Sources/ExactKit/IOS/TransformDragIOS.swift:90`
+
+`room` is `contentSize` minus `bounds`. Everywhere else, scrollable range is `contentSize + adjustedContentInset` on both sides minus `bounds` (`ScrollView.handsOff`, `Presenter.setKeyboardInset`, the keyboard toolbar's `contentInset.bottom`, and a navigation scroller with `contentInsetAdjustmentBehavior = .always`). A page that fits the viewport, with the keyboard open, still scrolls by that bottom inset. A handle whose `touch-action` allows the axis (`pan-y`, `pan-down`, `pan-x pan-y`) takes the drag, and the scroll view's pan begins too. That is the steal this change is meant to stop, limited to inset-only range. A multi-page pager whose content is already wider than its bounds is unaffected.
+
+Use the same span as `handsOff`: `adjustedContentInset` on both sides, threshold `0.5`. Keep it axis-wide, not "room from the current offset": at the edge the scroll view still takes the pan (rubber-band, or `handsOff` to an ancestor). The one-page test sets no inset, so it stays green. Add a pager whose content size equals its bounds and whose `contentInset` (or `adjustedContentInset`) is nonzero, and expect the pan to yield.
+
+[P2] Hit-test a start point that lies outside the handle — `host/apple/Sources/ExactKit/IOS/TransformDragIOS.swift:87`
+
+The walk starts at `hitTest` only when `bounds.contains(start)`. A touch on a child drawn outside the handle (`overflow` stays `visible`, and `NodeView.hitTest` is written to hit those children) never reaches that child. The handle's `pan-x` then yields to the pager, while `ScrollView.gestureRecognizerShouldBegin` hit-tests from the scroller, sees the child's `none`, and refuses. Neither gesture begins. That is the descendant-`none` hole from round 1, for a child the new hit test skips.
+
+Drop the `bounds.contains` guard and use `hitTest(start, with: nil) ?? self`. A miss still starts at the handle. `NodeView.hitTest` already returns the overflowing child when there is one.
+
+## Tests
+
+These assertions fail on the round-1 predicate, which stepped aside whenever the handle's own `touch-action` named the axis: `pan-y` downward on a horizontal pager, every case in `testThePhotoKeepsADragNoScrollerWouldTake`, and the `.began` / `.changed` pinch cases. The rest of `testThePhotoPanLeavesThePagerTheAxesItsTouchActionNames` also passed before this fix.
+
+Nothing covers a nonzero inset, a nested scroller (inner axis immovable, outer able to move), or a child outside the handle. `Pan` does not override `location(in:)`, so the translation fallback reconstructs a start point outside the handle and never hit-tests. I did not execute the XCTest bundle.
+
+Residual: `fitScroll` turns on `alwaysBounceVertical` for a non-carousel that scrolls vertically even when the content fits. UIKit will still begin that pan. The predicate treats it as immovable, matching the web and the one-page test, so the photo pan and the rubber-band can both try to begin. The unit test only calls `transformShouldBegin`.
+
+## Verdict
+
+READY WITH CHANGES.
