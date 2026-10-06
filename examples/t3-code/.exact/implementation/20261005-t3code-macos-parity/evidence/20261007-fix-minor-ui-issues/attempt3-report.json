@@ -1,0 +1,326 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-10-06T19:39:42.172098+00:00",
+  "project_root": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-minor-ui-issues",
+  "recipe_sha256": "2be130daf2128af79f77e6918023fabd07a63aebd092c4248ed7aec212dac4e2",
+  "environment": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.9.6 (default, Aug 25 2026, 21:26:21) \n[Clang 21.0.0 (clang-2100.3.34.2)]"
+  },
+  "source": {
+    "algorithm": "sha256",
+    "digest": "e9c81a2d201b69714767b5f209a5a67ca2679567c7305105bc6833c36fd6bbec",
+    "entries": [
+      {
+        "path": "examples/t3-code/composer-controls.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "d18ac8da5d00240cc2775cdced73af1a008306246b83d76bf5af92c49dc52e4f"
+      },
+      {
+        "path": "examples/t3-code/composer-presentation.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "ab325af23a9ea03c95bf00ad7dbbbfed471fae90848a52caf379c0cfcaccbffe"
+      },
+      {
+        "path": "examples/t3-code/composer-shapes.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b777e0ddf9e1be9d477bbff9214904161e05948582668f59fa7e2dd3cd1ba881"
+      },
+      {
+        "path": "examples/t3-code/diff.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "45e65f4fc75a6f9313c831210e934874420c6e66aca6f2129bdd39e6763ffeed"
+      },
+      {
+        "path": "examples/t3-code/diff.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "752f60389efe4854212175f1d4ac2122c738d9a09aac0012b4b6d180c7421367"
+      },
+      {
+        "path": "examples/t3-code/diff.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "07a9c397c315ce7d92aaf7af37bb0343abe955a4d9770f95f6f3e739f2df7d1c"
+      },
+      {
+        "path": "examples/t3-code/palette-add.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "9304c62dd665859553ffc7a2a4524f6c1432454a448d1249674b00d09617ad6c"
+      },
+      {
+        "path": "examples/t3-code/palette.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "86630aa1b42296c843682afdb528f1122ce7f91824a27cee8b4a1c405221693d"
+      },
+      {
+        "path": "examples/t3-code/presentation.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "55cf0c01d8f87b1062242bc8d922d218197b709ace76280f67b482830c883e94"
+      },
+      {
+        "path": "examples/t3-code/r4-integrate.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "7d449117e1a256b0dd2a8b10fdf180928a2768a83a6b3278fd951bd6c345ab3e"
+      },
+      {
+        "path": "examples/t3-code/r4-surfaces-panel.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "d8619d89ee6823e133f3b38b7293b199152413ffdc3924b437d14006a0ebf42f"
+      },
+      {
+        "path": "examples/t3-code/r5-composer-menus.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "ad97461e8334ce6884e0e2f5ee7e45b1922dfc7673560ab82d2ac2618e9f44c2"
+      },
+      {
+        "path": "examples/t3-code/settings-b-accent.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "0b72892fd53affab5444a431b2acd8b494be8aa06b8f71d77b3f2ad80beadb6b"
+      },
+      {
+        "path": "examples/t3-code/settings-core.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "ac700d5787a862ee15a25bbd474ed67a0f4f1738da3465518b4dbcdbe39f39c0"
+      },
+      {
+        "path": "examples/t3-code/settings-core.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "76d3da9e9f2db8aca322bf93409cfc589561c536b78bfc9272da62fe6bf76802"
+      },
+      {
+        "path": "examples/t3-code/settings-rows.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "29a4ff1eb112b41f9a7532d74968b11a3cdba18ad026435b6d9cfa37dedb0f5d"
+      },
+      {
+        "path": "examples/t3-code/shell-panels.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "73daed3e003a22d08cb7631d7523105167357919a29fe8fa863279d89f75fd74"
+      },
+      {
+        "path": "examples/t3-code/shell.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b964c795bdaa63721f30dee032ab49530ca39aec329295c715722c0f5f44950f"
+      },
+      {
+        "path": "examples/t3-code/shell.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "a20775054ccb1dfd84db75b0383b0f1337b9bd4aa90e66815c7a07d2f6a64fa6"
+      },
+      {
+        "path": "examples/t3-code/sidebar-overlays.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "03e085bab551c3c0702ba205ed34e92eb6cf723750ff0ee7b9ce59a79cba206b"
+      },
+      {
+        "path": "examples/t3-code/sidebar-row.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "70197f7ff299e4342bc4253fa884f41c78aef6a4af0b959956ed98573977c17c"
+      },
+      {
+        "path": "examples/t3-code/timeline.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "34369f6514ea1937a826477abd9d2fda5c4d3b121bf8b9233f5ebf865a34a4e4"
+      }
+    ]
+  },
+  "checks": [
+    {
+      "name": "clone unit tests",
+      "required": true,
+      "argv": [
+        "/Users/daehyeonmun/.bun-1.4.2/bin/bun",
+        "test",
+        "examples/t3-code"
+      ],
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-minor-ui-issues",
+      "timeout_seconds": 300,
+      "started_at": "2026-10-06T19:39:42.180614+00:00",
+      "exit_code": 0,
+      "stdout": "001.stdout.log",
+      "stderr": "001.stderr.log",
+      "status": "passed",
+      "finished_at": "2026-10-06T19:39:43.239010+00:00"
+    },
+    {
+      "name": "macOS bundle builds (contract build, Swift, Rust; EXACT_APP_DIR=examples/t3-code, Bun 1.4.2 first on PATH)",
+      "required": true,
+      "argv": [
+        "/Users/daehyeonmun/.bun-1.4.2/bin/bun",
+        "host/apple/build.mjs",
+        "t3-code-macos",
+        "--bundle"
+      ],
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-minor-ui-issues",
+      "timeout_seconds": 1500,
+      "started_at": "2026-10-06T19:39:43.239620+00:00",
+      "exit_code": 0,
+      "stdout": "002.stdout.log",
+      "stderr": "002.stderr.log",
+      "status": "passed",
+      "finished_at": "2026-10-06T19:40:39.886895+00:00"
+    }
+  ],
+  "status": "passed",
+  "source_after": {
+    "algorithm": "sha256",
+    "digest": "e9c81a2d201b69714767b5f209a5a67ca2679567c7305105bc6833c36fd6bbec",
+    "entries": [
+      {
+        "path": "examples/t3-code/composer-controls.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "d18ac8da5d00240cc2775cdced73af1a008306246b83d76bf5af92c49dc52e4f"
+      },
+      {
+        "path": "examples/t3-code/composer-presentation.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "ab325af23a9ea03c95bf00ad7dbbbfed471fae90848a52caf379c0cfcaccbffe"
+      },
+      {
+        "path": "examples/t3-code/composer-shapes.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b777e0ddf9e1be9d477bbff9214904161e05948582668f59fa7e2dd3cd1ba881"
+      },
+      {
+        "path": "examples/t3-code/diff.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "45e65f4fc75a6f9313c831210e934874420c6e66aca6f2129bdd39e6763ffeed"
+      },
+      {
+        "path": "examples/t3-code/diff.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "752f60389efe4854212175f1d4ac2122c738d9a09aac0012b4b6d180c7421367"
+      },
+      {
+        "path": "examples/t3-code/diff.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "07a9c397c315ce7d92aaf7af37bb0343abe955a4d9770f95f6f3e739f2df7d1c"
+      },
+      {
+        "path": "examples/t3-code/palette-add.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "9304c62dd665859553ffc7a2a4524f6c1432454a448d1249674b00d09617ad6c"
+      },
+      {
+        "path": "examples/t3-code/palette.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "86630aa1b42296c843682afdb528f1122ce7f91824a27cee8b4a1c405221693d"
+      },
+      {
+        "path": "examples/t3-code/presentation.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "55cf0c01d8f87b1062242bc8d922d218197b709ace76280f67b482830c883e94"
+      },
+      {
+        "path": "examples/t3-code/r4-integrate.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "7d449117e1a256b0dd2a8b10fdf180928a2768a83a6b3278fd951bd6c345ab3e"
+      },
+      {
+        "path": "examples/t3-code/r4-surfaces-panel.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "d8619d89ee6823e133f3b38b7293b199152413ffdc3924b437d14006a0ebf42f"
+      },
+      {
+        "path": "examples/t3-code/r5-composer-menus.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "ad97461e8334ce6884e0e2f5ee7e45b1922dfc7673560ab82d2ac2618e9f44c2"
+      },
+      {
+        "path": "examples/t3-code/settings-b-accent.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "0b72892fd53affab5444a431b2acd8b494be8aa06b8f71d77b3f2ad80beadb6b"
+      },
+      {
+        "path": "examples/t3-code/settings-core.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "ac700d5787a862ee15a25bbd474ed67a0f4f1738da3465518b4dbcdbe39f39c0"
+      },
+      {
+        "path": "examples/t3-code/settings-core.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "76d3da9e9f2db8aca322bf93409cfc589561c536b78bfc9272da62fe6bf76802"
+      },
+      {
+        "path": "examples/t3-code/settings-rows.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "29a4ff1eb112b41f9a7532d74968b11a3cdba18ad026435b6d9cfa37dedb0f5d"
+      },
+      {
+        "path": "examples/t3-code/shell-panels.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "73daed3e003a22d08cb7631d7523105167357919a29fe8fa863279d89f75fd74"
+      },
+      {
+        "path": "examples/t3-code/shell.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b964c795bdaa63721f30dee032ab49530ca39aec329295c715722c0f5f44950f"
+      },
+      {
+        "path": "examples/t3-code/shell.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "a20775054ccb1dfd84db75b0383b0f1337b9bd4aa90e66815c7a07d2f6a64fa6"
+      },
+      {
+        "path": "examples/t3-code/sidebar-overlays.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "03e085bab551c3c0702ba205ed34e92eb6cf723750ff0ee7b9ce59a79cba206b"
+      },
+      {
+        "path": "examples/t3-code/sidebar-row.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "70197f7ff299e4342bc4253fa884f41c78aef6a4af0b959956ed98573977c17c"
+      },
+      {
+        "path": "examples/t3-code/timeline.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "34369f6514ea1937a826477abd9d2fda5c4d3b121bf8b9233f5ebf865a34a4e4"
+      }
+    ]
+  },
+  "source_unchanged": true,
+  "finished_at": "2026-10-06T19:40:39.889294+00:00"
+}

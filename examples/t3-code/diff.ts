@@ -11,6 +11,7 @@ import { diffFileTreeEntries, diffTreeRows, collectDirectoryPaths, allDirectorie
 import { diffSource, lazyPatches, settledFileCount, fileState, type DiffSource, type LazyPatches, type FileContents, type Expansion } from './diff-lazy';
 import { diffReviewLines, type ReviewLine, type SelectedLineRange } from './diff-comments';
 import { ClientError } from './protocol';
+import { peekVcsStatus } from './shell-vcs';
 import type { T3Client } from './client';
 import { messageTime } from './timeline-presentation';
 import { lineTokens, overlay } from './timeline-diff-syntax';
@@ -94,10 +95,15 @@ function workspace(client: T3Client): string {
   return str(thread.worktreePath) || str(obj(thread.workspace).path) || str(project?.workspaceRoot);
 }
 function scopeKey(selection: DiffSelection): string { return selection.kind === 'turn' ? `turn:${selection.runId}` : selection.kind; }
+export const NOT_GIT_REPO = 'Turn diffs are unavailable because this project is not a git repository.';
+/** DiffPanel's !isGitRepo: the thread's workspace streams a status that is not a repository (unknown counts as one). */
+export const diffNotGit = (client: T3Client): boolean => !!client.threadId && !!client.projection && peekVcsStatus(client, workspace(client))?.isRepo === false;
 /** The request for the current selection, or an explanation when there is nothing to ask. */
 export function diffRequest(client: T3Client): { method: string; payload: Obj; scope: string; source: string } {
   const selection = currentSelection(client), state = client.diffState;
   if (!client.threadId) throw new ClientError('Select a thread to inspect turn diffs.');
+  // DiffPanel: isGitRepo (gitStatusQuery.data?.isRepo ?? true) gates every scope, turns included.
+  if (diffNotGit(client)) throw new ClientError(NOT_GIT_REPO);
   if (selection.kind === 'turn') {
     const turn = turnSummaries(client.projection).find(entry => entry.runId === selection.runId);
     if (!turn) throw new ClientError('No completed turns yet.');
@@ -271,7 +277,8 @@ function lineIndex(lines: ReviewLine[]): Map<string, number> {
 /** The snapshot's panel fields: header labels, menus, the tree, one flat virtualized list of file, line, gap and comment items. */
 export function diffSnapshot(client: T3Client, now: number) {
   const state = client.diffState, selection = currentSelection(client), turns = turnSummaries(client.projection);
-  const files = diffFiles(client), lazy = state.lazy, scope = state.scopeKey, section = reviewSection(client);
+  // Outside git nothing is listed, not even files a fetch before the status arrived returned.
+  const notGit = diffNotGit(client), files = notGit ? [] : diffFiles(client), lazy = state.lazy, scope = state.scopeKey, section = reviewSection(client);
   const gitSource = selection.kind !== 'turn' && state.source !== null;
   const turn = turns.find(entry => entry.runId === selection.runId);
   const scopeLabel = selection.kind === 'unstaged' ? 'Uncommitted' : selection.kind === 'branch' ? 'Changes'
@@ -373,10 +380,11 @@ export function diffSnapshot(client: T3Client, now: number) {
     diffScopeLabel: scopeLabel, diffMenu: client.diffOpen ? state.menu : '', diffScope: selection.kind === 'turn' ? `turn:${selection.runId}` : selection.kind,
     diffTurns: turns.map(entry => ({ id: `turn:${entry.runId}`, label: `Turn ${entry.count}`, time: messageTime(entry.completedAt, now, client.local.deviceSettings.timestampFormat), selected: selection.kind === 'turn' && selection.runId === entry.runId })),
     diffLatestSelected: selection.kind === 'turn' && selection.runId === turns[0]?.runId,
-    diffCanRefresh: selection.kind !== 'turn', diffLayout: state.layout, diffWrap: state.wrap, diffIgnoreWhitespace: state.ignoreWhitespace, diffTree: state.tree,
+    diffCanRefresh: selection.kind !== 'turn' && !notGit, diffLayout: state.layout, diffWrap: state.wrap, diffIgnoreWhitespace: state.ignoreWhitespace, diffTree: state.tree,
     // The size banner shows only for a truncated preview the panel cannot read file by file (older servers).
-    diffTruncated: (state.truncated && !lazy) || rows > ROW_LIMIT, diffEmpty: !client.diffLoading && !client.diffError && files.length === 0,
-    diffEmptyLabel: client.diffText.trim() || lazy ? 'No patch available for this selection.' : 'No net changes in this selection.',
+    // A project outside git reads as the centred empty state, as DiffPanel's !isGitRepo branch, not as an error.
+    diffTruncated: (state.truncated && !lazy) || rows > ROW_LIMIT, diffEmpty: notGit || (!client.diffLoading && (!client.diffError || client.diffError === NOT_GIT_REPO) && files.length === 0),
+    diffEmptyLabel: notGit ? NOT_GIT_REPO : client.diffText.trim() || lazy ? 'No patch available for this selection.' : 'No net changes in this selection.',
     diffAdditions: totals.reduce((sum, file) => sum + file.additions, 0), diffDeletions: totals.reduce((sum, file) => sum + file.deletions, 0),
     diffAllCollapsed: files.every(file => (state.expanded[`${scope}::${file.path}`] ?? state.defaultExpanded) !== true),
     diffFiles: files.map(file => ({ id: file.path, name: file.path.split('/').pop() ?? file.path, path: file.path, status: file.status, letter: statusLetter[file.status] ?? 'M',

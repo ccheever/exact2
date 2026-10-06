@@ -129,7 +129,7 @@ component ThreadRow
                 else
                   box flex=1
                 when t.badge != ""
-                  SidebarPrBadge(t=t)
+                  SidebarPrBadge(t=t, recede=false)
                 when t.terminalCount > 0
                   TerminalProcessIndicator(label=t.terminalLabel, tooltip="", size=14, reduced=reduced, id=`sidebar-terminal-status-${t.id}`)
                 // r6-polish: a thread on another environment carries its machine glyph (size-3.5, muted/70) before the provider stack.
@@ -167,7 +167,7 @@ component ThreadRow
               when t.pinned
                 SidebarPinButton(t=t, busy=busy, run=run, hoverCard=hoverCard, hoverId=hoverId)
               when t.badge != ""
-                SidebarPrBadge(t=t)
+                SidebarPrBadge(t=t, recede=(t.section == "settled" and not hovering))
               when t.terminalCount > 0
                 TerminalProcessIndicator(label=t.terminalLabel, tooltip="", size=14, reduced=reduced, id=`sidebar-terminal-status-${t.id}`)
               when lifted and dragVerb != ""
