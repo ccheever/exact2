@@ -2,9 +2,21 @@
 //! JSON) to Fleet's cloud, which forwards them to Axiom. Each event is a name
 //! and a few scalar attributes: what happened and why, never message or
 //! transcript text, session titles, machine names, ids or tokens. The install
-//! id is random and kept on this phone only.
+//! id is random and kept on this phone only. The machine an event concerns is
+//! a tag (`machine_tag`), as the relay tags it, so the two line up.
 
 use serde_json::{json, Value as Json};
+
+/// A machine in telemetry: 12 hex digits of FNV-1a 64 over "ocho:" and its
+/// id, the relay's `MachineTag`.
+pub fn machine_tag(id: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in "ocho:".bytes().chain(id.bytes()) {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{hash:016x}")[..12].to_string()
+}
 
 /// The app's version and build, as the archive's Info.plist has them
 /// (`EXACT_BUILD_NUMBER` at build time; "dev" in a development build).
@@ -184,6 +196,15 @@ fn record(e: &Event) -> Json {
 
 #[cfg(test)]
 mod tests {
+    /// The relay's `MachineTag` gives the same (fleet's telemetry_test.go).
+    #[test]
+    fn machine_tags_match_the_relays() {
+        assert_eq!(
+            super::machine_tag("c494e3eac2e7c4398163ba6e70488b6c"),
+            "7ac8b113a4b8"
+        );
+    }
+
     use super::*;
 
     #[test]

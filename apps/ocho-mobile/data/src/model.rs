@@ -725,7 +725,18 @@ impl Model {
 
     /// Record a health or funnel event (see `telemetry.rs` for what never
     /// goes in one).
-    fn track(&mut self, name: &'static str, warn: bool, attrs: Vec<(&'static str, Attr)>) {
+    /// An event, with the machine answering now (its tag, and whether it is
+    /// the Mac this phone paired with or a peer).
+    fn track(&mut self, name: &'static str, warn: bool, mut attrs: Vec<(&'static str, Attr)>) {
+        if !self.via.is_empty() {
+            let role = if self.via == self.home() {
+                "home"
+            } else {
+                "peer"
+            };
+            attrs.push(("machine", crate::telemetry::machine_tag(&self.via).into()));
+            attrs.push(("role", role.into()));
+        }
         self.telemetry.track(self.now, name, warn, attrs);
     }
 
@@ -1076,7 +1087,12 @@ impl Model {
         } else {
             "peer"
         };
-        self.track("failover", true, vec![("to", to.into())]);
+        let target_tag = crate::telemetry::machine_tag(&target);
+        self.track(
+            "failover",
+            true,
+            vec![("to", to.into()), ("target", target_tag.into())],
+        );
         self.via = target;
         self.since = 0;
         self.instance.clear();
