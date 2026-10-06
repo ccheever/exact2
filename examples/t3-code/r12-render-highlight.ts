@@ -7,11 +7,12 @@
 // (synSlant). Chat code blocks, the diff panel, the Files panel, the attachment code preview and
 // content-search lines all reach this through timeline-highlight.ts's highlight().
 //
-// shiki-residuals, cost: Hermes runs the tokenizer at tens of thousands of characters a second, so
-// once the app turns slicing on (startHighlightTurn), one answer tokenizes for at most
-// SLICE_BUDGET_MS. A text that does not finish in that time keeps the heuristic tokenizer's colours
-// (shikiTokens answers null) and goes on in highlightSlice turns, which the root drives while a
-// resource reports highlightPending(); its Shiki tokens replace the heuristic ones when it is done.
+// shiki-residuals, cost: Hermes runs the slowest grammars here at about 70,000 characters a second,
+// so once the app turns slicing on (startHighlightTurn), one answer tokenizes at most
+// SLICE_BUDGET_CHARS (at most about 50 ms; a data source has no clock, so the budget is counted in
+// characters). A text that does not finish keeps the heuristic tokenizer's colours (shikiTokens
+// answers null) and goes on in highlightSlice turns, which the root drives while a resource reports
+// highlightPending(); its Shiki tokens replace the heuristic ones when it is done.
 // A text that extends a recently tokenized one (a streaming code block, the same file again)
 // resumes from the last unchanged line's state.
 
@@ -20,8 +21,11 @@ import type { Cls, Token } from './timeline-highlight';
 
 /** A longer text keeps the heuristic tokenizer (decision U15: the reference has no limit). */
 export const SHIKI_MAX_CHARS = 1_000_000;
-/** The longest a data-module turn tokenizes (Hermes measurements: the shiki-residuals task record). */
-export const SLICE_BUDGET_MS = 50;
+/** The characters one data-module turn tokenizes: at most about 50 ms in the pinned Hermes for the slowest
+ *  grammars here (typescript, html; measurements in the shiki-residuals task record). */
+export const SLICE_BUDGET_CHARS = 2_500;
+/** A text nobody asked for again within this many turns is dropped (about five seconds of slices). */
+const STALE_TURNS = 300;
 
 /** Each pierre-light / pierre-dark foreground pair the themes define, as its synColor class. */
 export const CLASS_OF_PAIR: Record<string, Cls> = {
@@ -77,22 +81,21 @@ export function shikiLanguage(nameOrPath: string): string {
 interface Document { lang: string; lines: string[]; states: LineState[]; runs: Token[][] }
 const documents: Document[] = [];
 const results = new Map<string, Token[]>();
-/** A text still being tokenized: its lines, the states and pieces so far, when it was last asked for. */
+/** A text still being tokenized: its lines, the states and runs so far, the turn it was last asked in. */
 interface Job extends Document { key: string; asked: number }
 const jobs = new Map<string, Job>();
 
 // ── Turns and slices ────────────────────────────────────────────────────────────────────────
-let slicing = false, turnLeft = Infinity, turnEndsAt = Infinity;
-const clock = (): number => Date.now();
-/** The app calls this at the start of each answer: from then on a turn tokenizes for at most the budget. */
-export function startHighlightTurn(budget = SLICE_BUDGET_MS): void {
+let slicing = false, turnLeft = Infinity, turn = 0;
+/** The app calls this at the start of each answer: from then on a turn tokenizes at most `budget` characters. */
+export function startHighlightTurn(budget = SLICE_BUDGET_CHARS): void {
   slicing = true;
   turnLeft = budget;
-  turnEndsAt = Infinity;
+  turn++;
 }
 /** Tests: back to unsliced, everything tokenized at once, and no queued work. */
 export function resetHighlightSlicing(): void {
-  slicing = false; turnLeft = Infinity; turnEndsAt = Infinity; jobs.clear(); results.clear(); documents.length = 0;
+  slicing = false; turnLeft = Infinity; turn = 0; jobs.clear(); results.clear(); documents.length = 0;
 }
 /** Whether a text is waiting for its Shiki tokens (the root keeps slicing while this holds). */
 export const highlightPending = (): boolean => jobs.size > 0;
@@ -112,13 +115,15 @@ function newJob(text: string, lang: string, key: string): Job {
   for (const doc of documents) consider(doc, doc.lines.length);
   for (const job of jobs.values()) consider(job, job.states.length);
   const from = base as Document | null;
-  return { key, lang, lines, asked: clock(), states: from ? from.states.slice(0, shared) : [], runs: from ? from.runs.slice(0, shared) : [] };
+  return { key, lang, lines, asked: turn, states: from ? from.states.slice(0, shared) : [], runs: from ? from.runs.slice(0, shared) : [] };
 }
-/** Tokenizes the job's next lines until `until` (a clock time); true when every line is done. */
-function advance(job: Job, until: number): boolean {
+/** Tokenizes the job's next lines while `budget.left` characters remain (a line costs its length
+ *  and one); true when every line is done. */
+function advance(job: Job, budget: { left: number }): boolean {
   let state: LineState = job.states.length ? job.states[job.states.length - 1]! : null;
   for (let index = job.states.length; index < job.lines.length; index++) {
-    if (clock() >= until) return false;
+    if (budget.left <= 0) return false;
+    budget.left -= job.lines[index]!.length + 1;
     const result = tokenizeLine(job.lines[index]!, job.lang, state);
     state = result.state;
     const runs: Token[] = [];
@@ -149,26 +154,24 @@ function finish(job: Job): Token[] {
   return tokens;
 }
 /** Runs `work` within what is left of this turn's budget. */
-function withinTurn(work: (until: number) => boolean): boolean {
-  if (!slicing) return work(Infinity);
+function withinTurn(work: (budget: { left: number }) => boolean): boolean {
+  if (!slicing) return work({ left: Infinity });
   if (turnLeft <= 0) return false;
-  const started = clock();
-  if (turnEndsAt === Infinity) turnEndsAt = started + turnLeft;
-  const done = work(turnEndsAt);
-  turnLeft -= clock() - started;
+  const budget = { left: turnLeft };
+  const done = work(budget);
+  turnLeft = budget.left;
   return done;
 }
 
 /** One background turn (the root's highlightSlice mutation): the most recently asked texts go on
- *  for up to `budget` ms; a text nobody asked for in five seconds is dropped. */
-export function highlightSlice(budget = SLICE_BUDGET_MS): { finished: boolean; pending: boolean } {
-  const now = clock();
-  for (const job of [...jobs.values()]) if (now - job.asked > 5000) jobs.delete(job.key);
-  const until = now + budget;
+ *  for up to `chars` characters; a text nobody asked for in STALE_TURNS turns is dropped. */
+export function highlightSlice(chars = SLICE_BUDGET_CHARS): { finished: boolean; pending: boolean } {
+  for (const job of [...jobs.values()]) if (turn - job.asked > STALE_TURNS) jobs.delete(job.key);
+  const budget = { left: chars };
   let finished = false;
   for (const job of [...jobs.values()].reverse()) {
-    if (clock() >= until) break;
-    if (advance(job, until)) { finish(job); finished = true; }
+    if (budget.left <= 0) break;
+    if (advance(job, budget)) { finish(job); finished = true; }
   }
   return { finished, pending: jobs.size > 0 };
 }
@@ -183,11 +186,11 @@ export function shikiTokens(text: string, nameOrPath: string): Token[] | null {
   const known = results.get(key);
   if (known) return known.map(token => ({ ...token }));
   let job = jobs.get(key);
-  if (job) { jobs.delete(key); job.asked = clock(); } else job = newJob(text, lang, key);
+  if (job) { jobs.delete(key); job.asked = turn; } else job = newJob(text, lang, key);
   jobs.set(key, job); // the most recently asked text is sliced first
   let tokens: Token[] | null = null;
   try {
-    if (withinTurn(until => advance(job!, until))) tokens = finish(job);
+    if (withinTurn(budget => advance(job!, budget))) tokens = finish(job);
   } catch {
     // A grammar that throws paints as plain text, as the reference falls back to "text".
     jobs.delete(key);
