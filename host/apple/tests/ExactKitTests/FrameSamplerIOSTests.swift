@@ -34,10 +34,10 @@ final class FrameSamplerIOSTests: XCTestCase {
         XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
         let sampler = try XCTUnwrap(session.sampler)
         sampler.activity()
-        let before = (sampler.reply()["lifetime"] as? [String: Int])?["overruns"] ?? 0
         // Turns of the run loop with the link running; then one turn held
         // 60 ms, past any frame's target.
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+        let before = (sampler.reply()["lifetime"] as? [String: Int])?["overruns"] ?? 0
         DispatchQueue.main.async { let end = CACurrentMediaTime() + 0.06; while CACurrentMediaTime() < end {} }
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
         let after = try XCTUnwrap(sampler.reply()["lifetime"] as? [String: Int])
