@@ -714,6 +714,9 @@ component T3Code
     else
       if op == "draft" or op == "search" or op == "sidebar" or op == "answer" or op == "choice" or op == "dismiss-error" or op == "close-diff" or op == "diff-view" or op == "favorite-model" or startsWith(op, "terminallocal:")
         send localChanged = command(op, id, value, n)
+        // terminal-drawer: ChatView's terminalOpen effect focuses the composer whenever the drawer closes (⌘J, or the shell exits)
+        if (op == "terminallocal:toggle" and shell.terminalOpen) or op == "terminallocal:exited"
+          focus("composer")
       else
         if not commandPending
           commandPending = true
@@ -1455,6 +1458,8 @@ component T3Code
     if accept and not commandPending
       commandPending = true
       send changed = command(confirmOp, confirmTarget, confirmValue, 0)
+    if accept and confirmOp == "terminallocal:close" // terminal-drawer: closing the drawer's terminal returns to the composer
+      focus("composer")
   view
     main testId="t3-code" viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) font-family=(settingsCore.interfaceFont == "ui-serif" ? "ui-serif" : settingsCore.interfaceFont == "ui-rounded" ? "ui-rounded" : settingsCore.interfaceFont == "serif" ? "serif" : settingsCore.interfaceFont == "sans-serif" ? "sans-serif" : settingsCore.interfaceFont == "monospace" ? "monospace" : settingsCore.interfaceFont == "ui-monospace" ? "ui-monospace" : settingsCore.interfaceFont == "ui-sans-serif" ? "ui-sans-serif" : "system-ui") color=(settingsCore.palette.text == "" ? "light-dark(#27272a, #f5f5f5)" : settingsCore.palette.text)
       row width="100%" height="100%" min-width=0 position="relative" inert=sshPrompt.open testId="ssh-background"

@@ -189,12 +189,15 @@ Required environment: lane backend at the pin, oracle build, Xcode 27.0, Bun 1.4
   thread under `terminal` in `t3-code.json`. Mounted threads (active + 10 hidden) keep their sessions
   natively without a web view (`terminalRetain`); a view replays the buffer when its thread returns.
 - Decision U19: the paste is not split; the server's refusal shows as `[terminal] <message>`.
+- Focus on close (ChatView.tsx:7545-7565, the `terminalOpen` effect): whenever the drawer closes the reference
+  focuses the composer on the next frame, and opening it focuses the terminal. The clone now focuses the
+  composer on every close path: ⌘J and the layout toggles, the confirmed Close, and the shell's exit
+  (`app.contract` `command` and `confirmUi`). Checked by the Contract build and the Bun suite; not driven (drive limit).
 
 Not done / limits: split, tabs, New in the toolbar (20261005-terminal-layout); drafts without a server
 thread have no drawer (the clone's drafts carry no thread id); a background (fleet) environment's
 thread has no drawer (sessions use the focused transport); the chat canvas layout still measures the
-window height, not the height above the drawer; ⌘J closing does not move focus to the composer (the
-layout toggles do); under the agent the terminal takes the system scheme, so it can be dark in a light
+window height, not the height above the drawer; under the agent the terminal takes the system scheme, so it can be dark in a light
 window (spike note). Oracle and trace-diff rows: not run. Attended rows: unverified (attended).
 
 ## Attempts and evidence
@@ -202,6 +205,7 @@ window (spike note). Oracle and trace-diff rows: not run. Attended rows: unverif
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
 | 1 (implementation) | `0f66bbb0e` (drive build), checks at `c7e240c80` | `bun test examples/t3-code` 1921 pass / 1 skip / 0 fail (base 1829); strict tsc clean; `contract build` 2324 slots, 44 resources; `cargo test -p t3-code-macos --lib` 10/0; AppKit: terminal 13 pass + 1 skip, transport 49/0, composer 45/0, menus 43/0, r5-panels 8/0, every other binary pass (mermaid needs a server, timeline-keyboard separate recipe: not run); caps pass; five checks pass (build, test 2928 pass, clippy, fmt, caps, boot); macOS bundle builds | Live drive (one AFTER call after two runs that stopped in the welcome wizard on the recipe): paired with the lane server (port 16200, `SHELL=/bin/sh`), opened seeded thread "Drawer one", `toggle-terminal` → drawer 280 pt, `touch drawer-proof` + `ls` (file created in the thread folder; screen `drawer-proof README.md`), separator drag −120 → 400, `seq 1 200000` ran and the drawer kept answering, Close → confirm text as above, Cancel kept it, Confirm closed it (`metadata` 0 sessions), reopen + `exit` → `[terminal] Process exited` and the drawer closed. BEFORE drive on the base shows the disabled toggle | The drive exposed "the reply was not JSON" (an ArraySlice in the terminal status) — fixed in `9d4fd4deb` with a test, not re-driven (drive limit). Flood: retained bytes and Ack counts were not visible to the agent (native status is not in `state`); covered by the transport and vector tests. Relaunch replay, 3-thread switching, Settings font/theme, three-scope session: not driven (unit tests only). Attended: ⌘J with the terminal focused, Korean typing, live window resize |
+| 2 (⌘J focus) | after `da0cdf31f` | Matches the reference: composer focus on every drawer close. `contract build` 2328 slots, 45 resources; `bun test examples/t3-code` 1959 pass / 1 skip / 0 fail | Reference read: `ChatView.tsx:7545-7565` | Not driven (one-drive rule); attended row "⌘J closes and the composer has focus" |
 
 ## Next action
 
