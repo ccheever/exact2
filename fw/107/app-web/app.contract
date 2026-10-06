@@ -1,0 +1,22 @@
+fn mods(s: bool, c: bool, a: bool, m: bool): string = `${s ? "Shift" : ""}${c ? "Control" : ""}${a ? "Alt" : ""}${m ? "Meta" : ""}`
+
+component X08WebMouse
+  state log = ""
+  action down(e: PointerEvent)
+    log = `${log}pointerdown buttons=${e.buttons} at=(${e.offsetX},${e.offsetY}) mods=${mods(e.shiftKey, e.ctrlKey, e.altKey, e.metaKey)}\n`
+  action move(e: PointerEvent)
+    if e.buttons > 0
+      log = `${log}pointermove buttons=${e.buttons} at=(${e.offsetX},${e.offsetY}) mods=${mods(e.shiftKey, e.ctrlKey, e.altKey, e.metaKey)}\n`
+  action up(e: PointerEvent)
+    log = `${log}pointerup buttons=${e.buttons} at=(${e.offsetX},${e.offsetY}) mods=${mods(e.shiftKey, e.ctrlKey, e.altKey, e.metaKey)}\n`
+  action menu(e: PointerEvent)
+    log = `${log}contextmenu at=(${e.offsetX},${e.offsetY}) mods=${mods(e.shiftKey, e.ctrlKey, e.altKey, e.metaKey)}\n`
+  action twice()
+    log = `${log}dblclick\n`
+  action wheeled(e: WheelEvent)
+    log = `${log}wheel d=(${e.deltaX},${e.deltaY}) at=(${e.offsetX},${e.offsetY}) mods=${mods(e.shiftKey, e.ctrlKey, e.altKey, e.metaKey)}\n`
+  view
+    main testId="root" padding=16
+      column testId="probe" width=200 height=120 background-color="#dde6ff" border="1px solid #3070ff" touch-action="none" pointerdown=down pointermove=move pointerup=up contextmenu=menu dblclick=twice wheel=wheeled
+        text "probe 200×120"
+      text log testId="log" white-space="pre-wrap" font-family="monospace" font-size=11 margin-top=12

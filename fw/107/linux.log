@@ -1,0 +1,23 @@
+### linux before
+=== agent linux "tap probe auxclick"
+{"tapped": 2, "at": [117, 77], "target": "probe", "delivery": "platform", "carrier": "linux", "mode": "agent", "epoch": 1, "incarnation": 1, "clock": 0}
+=== agent linux "tap probe clicks 3"
+{"tapped": 2, "at": [117, 77], "target": "probe", "delivery": "platform", "carrier": "linux", "mode": "agent", "epoch": 1, "incarnation": 1, "clock": 0}
+=== agent linux "tap probe wheel 0 20 at 10 10"
+{"tapped": 2, "wheel": [0, 20], "at": [117, 77], "target": "probe", "delivery": "platform", "carrier": "linux", "mode": "agent", "epoch": 2, "incarnation": 1, "clock": 0}
+  wheel d=(0,20) at=(100,60) mods=
+=== agent linux "tap probe contextmenu at 10 10 modifiers Shift"
+  REFUSED: op 1/2 `tap probe contextmenu at 10 10 modifiers Shift`: view 2 does not carry canvas contextmenu input
+=== agent linux "tap probe drag 40 0 from 10 20 mouse modifiers Shift"
+  REFUSED: op 1/2 `tap probe drag 40 0 from 10 20 mouse modifiers Shift`: tap … drag: unknown option modifiers; from <x> <y>, mouse, press <ms>, over <ms>, hold <ms>, during "<op>" …
+### linux after
+=== agent linux "tap probe auxclick"
+{"tapped": 2, "target": "probe", "delivery": "unsupported", "reason": "linux does not carry a middle-button click (auxclick) (LLP 1012 \u00a71)", "carrier": "linux", "mode": "agent", "epoch": 1, "incarnation": 1, "clock": 0}
+=== agent linux "tap probe clicks 3"
+{"tapped": 2, "target": "probe", "delivery": "unsupported", "reason": "linux does not carry clicks 3 (LLP 1012 \u00a71)", "carrier": "linux", "mode": "agent", "epoch": 1, "incarnation": 1, "clock": 0}
+=== agent linux "tap probe wheel 0 20 at 10 10"
+{"tapped": 2, "target": "probe", "delivery": "unsupported", "reason": "linux does not carry a wheel at a point (LLP 1012 \u00a71)", "carrier": "linux", "mode": "agent", "epoch": 1, "incarnation": 1, "clock": 0}
+=== agent linux "tap probe contextmenu at 10 10 modifiers Shift"
+{"tapped": 2, "target": "probe", "delivery": "unsupported", "reason": "linux does not carry modifiers held through a context menu, a double click, a mouse click, a contact or a drag (LLP 1012 \u00a71)", "carrier": "linux", "mode": "agent", "epoch": 1, "incarnation": 1, "clock": 0}
+=== agent linux "tap probe drag 40 0 from 10 20 mouse modifiers Shift"
+{"tapped": 2, "target": "probe", "delivery": "unsupported", "reason": "linux does not carry modifiers held through a context menu, a double click, a mouse click, a contact or a drag (LLP 1012 \u00a71)", "carrier": "linux", "mode": "agent", "epoch": 1, "incarnation": 1, "clock": 0}

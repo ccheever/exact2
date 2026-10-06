@@ -1,0 +1,41 @@
+{
+  "$schema": "../../../scripts/app.schema.json",
+  "name": "X08 Agent Mouse",
+  "short_name": "X08 Agent Mouse",
+  "id": "com.example.x08-agent-mouse",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "com.example.x08-agent-mouse",
+    "name": "X08 Agent Mouse"
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 900,
+        "height": 700
+      }
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  },
+  "modules": [
+    "mouse-probe",
+    "mouse-log"
+  ]
+}

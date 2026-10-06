@@ -1,0 +1,5 @@
+component X08AgentMouse
+  view
+    main testId="root" padding=16
+      mouse-probe testId="probe" width=200 height=120
+      mouse-log testId="log" width=560 height=420 margin-top=12

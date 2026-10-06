@@ -1,0 +1,63 @@
+=== agent macos "tap probe mouse"
+{"tapped":2,"delivery":"platform","at":[116,76],"target":"probe","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+  probe view type=1 button=0 clicks=1 mods=none at=(100,60)
+  probe view type=2 button=0 clicks=1 mods=none at=(100,60)
+=== agent macos "tap probe dblclick"
+{"tapped":2,"delivery":"platform","at":[116,76],"target":"probe","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+  probe view type=1 button=0 clicks=1 mods=none at=(100,60)
+  probe view type=2 button=0 clicks=1 mods=none at=(100,60)
+  probe view type=1 button=0 clicks=2 mods=none at=(100,60)
+  probe view type=2 button=0 clicks=2 mods=none at=(100,60)
+=== agent macos "tap probe contextmenu"
+{"contextmenu":true,"delivery":"platform","at":[116,76],"tapped":2,"target":"probe","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+  probe view type=3 button=0 clicks=1 mods=none at=(100,60)
+  probe view type=4 button=0 clicks=1 mods=none at=(100,60)
+=== agent macos "tap probe modifiers Shift"
+{"tapped":2,"delivery":"platform","at":[116,76],"target":"probe","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+  probe view type=1 button=0 clicks=1 mods=Shift at=(100,60)
+  probe view type=2 button=0 clicks=1 mods=Shift at=(100,60)
+=== agent macos "tap probe wheel 0 20"
+{"gesture":false,"wheel":[0,20],"tapped":2,"at":[116,76],"target":"probe","delivery":"platform","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+  probe view type=22 button=0 clicks=- mods=none at=(538,-51) d=(0,-20)
+=== agent macos "tap probe wheel 0 20 modifiers Shift"
+{"gesture":false,"wheel":[0,20],"tapped":2,"at":[116,76],"target":"probe","delivery":"platform","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+  probe view type=22 button=0 clicks=- mods=Shift at=(394,-123) d=(0,-20)
+=== agent macos "tap probe auxclick"
+{"tapped":2,"at":[116,76],"delivery":"platform","target":"probe","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+  probe view type=1 button=0 clicks=1 mods=none at=(100,60)
+  probe view type=2 button=0 clicks=1 mods=none at=(100,60)
+=== agent macos "tap probe clicks 3"
+{"at":[116,76],"tapped":2,"delivery":"platform","target":"probe","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+  probe view type=1 button=0 clicks=1 mods=none at=(100,60)
+  probe view type=2 button=0 clicks=1 mods=none at=(100,60)
+=== agent macos "tap probe wheel 0 20 at 10 10"
+{"wheel":[0,20],"gesture":false,"at":[116,76],"tapped":2,"target":"probe","delivery":"platform","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+  probe view type=22 button=0 clicks=- mods=none at=(442,-99) d=(0,-20)
+=== agent macos "tap probe contextmenu at 10 10"
+{"contextmenu":true,"delivery":"platform","tapped":2,"at":[116,76],"target":"probe","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+  probe view type=3 button=0 clicks=1 mods=none at=(100,60)
+  probe view type=4 button=0 clicks=1 mods=none at=(100,60)
+=== agent macos "tap probe auxclick at 30 40 modifiers Meta"
+{"at":[116,76],"delivery":"platform","tapped":2,"target":"probe","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+  probe view type=1 button=0 clicks=1 mods=none at=(100,60)
+  probe view type=2 button=0 clicks=1 mods=none at=(100,60)
+=== agent macos "tap probe down at 10 20 modifiers Shift" "tap move 30 20" "tap up"
+{"phase":"down","at":[26,36],"contact":2,"delivery":"platform","tapped":2,"target":"probe","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+{"phase":"move","at":[30,20],"delivery":"platform","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+{"delivery":"platform","phase":"up","at":[30,20],"carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+  probe monitor type=1 button=0 clicks=1 mods=none at=(26,584)
+  probe view type=1 button=0 clicks=1 mods=none at=(10,20)
+  probe monitor type=6 button=0 clicks=1 mods=none at=(30,600)
+  probe view type=6 button=0 clicks=1 mods=none at=(14,4)
+  probe monitor type=2 button=0 clicks=1 mods=none at=(30,600)
+  probe view type=2 button=0 clicks=1 mods=none at=(14,4)
+=== agent macos "tap probe drag 40 0 from 10 20 mouse modifiers Shift over 32"
+  REFUSED: op 1/2 `tap probe drag 40 0 from 10 20 mouse modifiers Shift over 32`: tap … drag: unknown option modifiers; from <x> <y>, mouse, press <ms>, over <ms>, hold <ms>, during "<op>" …
+=== agent macos "tap probe mouse foo"
+{"at":[116,76],"tapped":2,"delivery":"platform","target":"probe","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+  probe view type=1 button=0 clicks=1 mods=none at=(100,60)
+  probe view type=2 button=0 clicks=1 mods=none at=(100,60)
+=== agent macos "tap probe clicks 4"
+{"tapped":2,"at":[116,76],"delivery":"platform","target":"probe","carrier":"macos","mode":"agent","epoch":1,"incarnation":1,"clock":0}
+  probe view type=1 button=0 clicks=1 mods=none at=(100,60)
+  probe view type=2 button=0 clicks=1 mods=none at=(100,60)
