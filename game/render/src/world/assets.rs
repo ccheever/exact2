@@ -1,5 +1,6 @@
 use super::*;
-use crate::{models::REPLACE, DrawInstance, MaterialId, RENDER_SLOT_BASE};
+use crate::{models::REPLACE, DrawInstance, MaterialId, MeshId, RENDER_SLOT_BASE};
+use exact_game::Mesh;
 // Geometry, material, mirrored, viewmodel, and the level of detail.
 type GroupKey = (MeshId, MaterialId, bool, bool, u8);
 #[derive(Default)]

@@ -1,6 +1,9 @@
+use super::materials::material_floats;
 use super::*;
+use crate::{MeshId, Vertex};
 use exact_game::{
-    Camera, Clock, DirectionalLight, Entity, Game, Input, PointLight, Quat, Sim, Vec3,
+    Camera, Clock, DirectionalLight, Entity, Game, Input, Mesh, Parent, PointLight, Quat, Sim,
+    Vec3, Visible,
 };
 
 #[derive(Debug, PartialEq)]

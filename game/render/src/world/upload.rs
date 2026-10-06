@@ -1,5 +1,7 @@
 //! Retained page fingerprints and coalesced runs. Zero means unknown, never a hash.
 use crate::buffers::bytes;
+use crate::RenderError;
+use exact_game::PAGE;
 
 // Independent 64-bit lanes hide multiply latency. Presentation-only, never the
 // stable save hash. Eight-byte reads are unaligned and endian-explicit.
@@ -73,6 +75,28 @@ impl Pages {
         };
         dirty
     }
+}
+
+pub(super) fn page_len(first: u32, limit: u32) -> usize {
+    (limit.saturating_sub(first) as usize).min(PAGE)
+}
+pub(super) fn check_page(
+    first: u32,
+    mask: &[u64],
+    limit: u32,
+    arena: &'static str,
+) -> Result<(), RenderError> {
+    if let Some((word, bits)) = mask.iter().enumerate().rev().find(|(_, bits)| **bits != 0) {
+        let slot = u64::from(first) + (word * 64 + 63 - bits.leading_zeros() as usize) as u64;
+        if slot >= u64::from(limit) {
+            return Err(RenderError::Capacity {
+                arena,
+                slot,
+                limit: u64::from(limit),
+            });
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
