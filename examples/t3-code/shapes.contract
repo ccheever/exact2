@@ -9,6 +9,7 @@ use ComposerView from "./composer-shapes.contract"
 use SnoozePreset from "./sidebar-shapes.contract"
 use Thread from "./sidebar-shapes.contract"
 use SidebarView from "./sidebar-shapes.contract"
+use LegacySidebarView from "./legacy-sidebar-shapes.contract"
 use Look from "./settings-appearance-look.contract"
 use ComposerVideo from "./r4-composer.contract"
 use ComposerVideoPreview from "./r4-composer.contract"
@@ -320,6 +321,8 @@ shape Snapshot
   snoozePresets: list<SnoozePreset>
   threads: list<Thread>
   sidebar: SidebarView
+  // legacy-sidebar: General › Sidebar (legacy)'s per-project thread trees (legacy-sidebar-view.ts).
+  legacy: LegacySidebarView
   messages: list<Message>
   historyError: string
   revertPending: string
