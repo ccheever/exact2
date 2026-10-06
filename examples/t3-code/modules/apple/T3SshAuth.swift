@@ -7,9 +7,9 @@
 // its environment, never argv, a file, Keychain, defaults or a log. The queue blocks the
 // SSH worker (T3Ssh's background queue), never the main thread, and expires a request
 // after three minutes. The dialog is Contract (ssh-prompt.contract); its field is the
-// native secure field below (X35, upstream #134: the Contract password input's value
-// shows in the agent's tree), which the module reads on Continue, so the password never
-// enters TypeScript.
+// native secure field below, which the module reads on Continue, so the password never
+// enters TypeScript or Contract state (X35: since exact2 #134 a Contract password input's
+// value is masked in the agent's tree, but agent `state` still prints the slot it binds).
 import Foundation
 import AppKit
 
