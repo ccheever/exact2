@@ -4,6 +4,7 @@
 // the toast stack with its timers, the header's panel-control labels, the
 // right panel's surface chooser and the thread title's action menu.
 import type { T3Client } from './client';
+import { highlightPending } from './r12-render-highlight';
 import { toasts, dismissToast, type Toast, type ToastKind } from './toast';
 import { arr, obj, str, type Obj } from './domain';
 import type { Files, Native } from './protocol';
@@ -262,5 +263,6 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     panel: await panelSaved(client, storage, await panelView(client, native, now, sheet)), // r12-threads: `sheet` (window ≤ 980)
     prCheckout: checkoutView(client), // lane r9-connect
     notifications: `${state.status.authorization}${state.status.agent ? ' (agent)' : ''}${state.status.active ? '' : ' (window inactive)'}`,
+    highlightPending: highlightPending(), // shiki-residuals: after the panel's code texts asked for their tokens
   };
 }

@@ -64,6 +64,17 @@ ops one by one: `local` (device-only ops) and `formCommand` (errors that go to t
 a new op in an existing prefix needs neither. The `composer`, `menus` and `r5-panels`
 XCTests define their own `exactModule` and leave out `T3Module*.swift` (README recipe).
 
+## Code colours (shiki-residuals)
+
+`r12-render-grammar.ts` (16 languages, with the themes) and `r12-render-grammar-more.ts` (c, java,
+kotlin, csharp, xml, diff, docker, make, ruby) are generated: edit `GROUPS` in
+`tools/grammar/gen-grammar.mjs`, run `bun install --frozen-lockfile` there, then `bun
+gen-grammar.mjs` (`--check` compares). A group has its own rule ids, so a grammar includes only
+grammars of its own group compiled before it. `tools/shiki-compare/shiki-compare.mjs` compares
+the engine with real Shiki 4.2 (Oniguruma engine) per character; keep corpora in `target/`. Long
+texts: each answer tokenizes for at most 50 ms, then `highlightSlice` turns (the root's
+`highlightPump` task) finish it; the heuristic colours show meanwhile.
+
 ## Checks on the integrated tree (round 11)
 
 Round 11 merged three lanes. r11-upstream ported the client half of `f90b77d809..f870c419fc`:

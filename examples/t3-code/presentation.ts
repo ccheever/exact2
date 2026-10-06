@@ -1,5 +1,6 @@
 import { legacySidebarSnapshot } from './legacy-sidebar-view';
 import { timelineReadsNeeded } from './timeline-prepare';
+import { highlightPending } from './r12-render-highlight';
 import { markdownSkills } from './r4-timeline-chips';
 import { workspaceValues } from './composer-workspace-snapshots';
 import { workspaceCwd } from './composer-editor';
@@ -167,6 +168,7 @@ export function snapshot(client: T3Client, now = 0) {
     composer: composerSnapshot(client, now),
     look: look(client),
     ...tableMenuSnapshot(client), // lane r8-keys: a table's Copy popup over every layer
+    highlightPending: highlightPending(), // shiki-residuals: last, after every code text above asked for its tokens
   };
 }
 
