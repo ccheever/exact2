@@ -17,9 +17,9 @@ extension NodeView {
     }
     @objc func controlTextDidBeginEditing(_ obj: Notification) {
         presenter?.collections.pinsChanged()
-        (field?.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
-        (field?.currentEditor() as? NSTextView)?.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
-        (field?.currentEditor() as? NSTextView)?.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
+        guard let editor = field?.currentEditor() as? NSTextView else { return }
+        editor.insertionPointColor = caretColor
+        applyTextChecking(editor)
     }
     @objc func controlTextDidEndEditing(_ obj: Notification) {
         presenter?.collections.pinsChanged()
