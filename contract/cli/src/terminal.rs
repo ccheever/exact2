@@ -62,7 +62,7 @@ fn refused_tag(tag: &str) -> Option<&'static str> {
         "video" | "audio" => "a terminal plays no media",
         "iframe" => "a terminal embeds no page",
         "svg" => "a terminal draws no vector graphics",
-        "img" | "picture" => "images in a terminal are not built yet (LLP 1101 §4: kitty, iTerm2, sixel, half-blocks)",
+        "picture" => "a terminal draws one image, not a set of sources: write `image` (kitty, iTerm2 or half-blocks, as the terminal allows)",
         _ => return None,
     })
 }

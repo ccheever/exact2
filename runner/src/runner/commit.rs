@@ -889,6 +889,17 @@ impl<D: DataSource> Runner<D> {
         self.conformed.borrow_mut().conforms(&self.plan, value, ty)
     }
 
+    /// The refusal of `value`, which did not conform to `ty`.
+    pub(super) fn shape(
+        &self,
+        resource: String,
+        value: &Value,
+        ty: exact_plan::TypesId,
+    ) -> RunnerError {
+        let why = crate::conform::mismatch(&self.plan, value, ty);
+        RunnerError::Shape { resource, why }
+    }
+
     pub(super) fn poison(&mut self) {
         self.poisoned = true;
         self.notes.clear();
@@ -1316,7 +1327,7 @@ impl<D: DataSource> Runner<D> {
             }
         };
         if !self.conforms(&value, ty) {
-            return Err(RunnerError::Shape { resource: name });
+            return Err(self.shape(name, &value, ty));
         }
         match p.target {
             Target::Resource(i) => {

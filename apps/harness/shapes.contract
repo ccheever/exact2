@@ -46,6 +46,8 @@ shape Block
 //   blocks: the rendered body; more: lines hidden from a long tool output
 //   image: an image file's path ("" when none), cols × rows its cell box
 //   link: what the title links to (a tool's file), or ""
+//   model: the label of the model the entry's turn started with ("mock"
+//     for the mock); "" outside a turn (banner, notices, commands)
 shape Entry
   id: string
   kind: string
@@ -58,6 +60,7 @@ shape Entry
   cols: number
   rows: number
   link: string
+  model: string
 
 // A tool call waiting for the person's answer.
 shape Approval

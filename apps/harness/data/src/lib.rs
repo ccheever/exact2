@@ -29,6 +29,7 @@ mod keys;
 mod markdown;
 pub mod providers;
 mod settle;
+pub mod shapes;
 mod shell;
 pub mod sse;
 mod state;

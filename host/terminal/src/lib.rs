@@ -17,6 +17,8 @@
 //!   and paste in `keys`.
 //! - [`image`] — PNGs decoded once; kitty, iTerm2 or half-blocks.
 //! - [`term`] — raw mode, vte, the loop, restoration.
+//! - [`vt`] — the headless screen: a terminal emulator the agent reads.
+//! - [`pointer`] — clicks and the wheel against what was presented.
 
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
@@ -28,4 +30,6 @@ pub mod image;
 mod keys;
 pub mod measure;
 pub mod paint;
+pub mod pointer;
 pub mod term;
+pub mod vt;

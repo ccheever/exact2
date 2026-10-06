@@ -1,7 +1,9 @@
-//! The state as `exact_plan::Value`s, field for field in the order
-//! `shapes.contract` declares them. Every string passes [`clean`] on the
-//! way out, so app text never carries a terminal control sequence.
+//! The state as `exact_plan::Value`s, through the records `contract rust`
+//! generates from `shapes.contract` (LLP 1101.002 P9). Every string passes
+//! [`clean`] on the way out, so app text never carries a terminal control
+//! sequence.
 
+use crate::shapes::{Ack, ContractValue, Frame, Session};
 use crate::state::{Approval, Block, Entry, Line, ModelChoice, Run, State};
 use exact_plan::Value;
 use std::borrow::Cow;
@@ -37,123 +39,106 @@ fn link(href: &str) -> String {
     }
 }
 
-fn s(text: &str) -> Value {
-    Value::str(&clean(text))
+fn c(text: &str) -> String {
+    clean(text).into_owned()
 }
 
-/// `shape Run`.
-pub fn run(r: &Run) -> Value {
-    Value::record(vec![
-        s(&r.text),
-        Value::str(&r.fg),
-        Value::str(&r.bg),
-        Value::Bool(r.bold),
-        Value::Bool(r.italic),
-        Value::Bool(r.dim),
-        Value::Bool(r.under),
-        Value::Bool(r.strike),
-        Value::str(&link(&r.href)),
-    ])
+/// A run with its text cleaned and its link checked.
+fn run(r: &Run) -> Run {
+    Run {
+        text: c(&r.text),
+        href: link(&r.href),
+        ..r.clone()
+    }
 }
 
-fn runs(rs: &[Run]) -> Value {
-    Value::list(rs.iter().map(run).collect())
+fn line(l: &Line) -> Line {
+    Line {
+        runs: l.runs.iter().map(run).collect(),
+    }
 }
 
-/// `shape Line`.
-pub fn line(l: &Line) -> Value {
-    Value::record(vec![runs(&l.runs)])
+fn block(b: &Block) -> Block {
+    Block {
+        kind: b.kind.clone(),
+        depth: b.depth,
+        marker: c(&b.marker),
+        lang: c(&b.lang),
+        runs: b.runs.iter().map(run).collect(),
+        lines: b.lines.iter().map(line).collect(),
+    }
 }
 
-/// A list of lines.
-pub fn lines(ls: &[Line]) -> Value {
-    Value::list(ls.iter().map(line).collect())
-}
-
-/// `shape Block`.
-pub fn block(b: &Block) -> Value {
-    Value::record(vec![
-        Value::str(&b.kind),
-        Value::Number(b.depth),
-        s(&b.marker),
-        s(&b.lang),
-        runs(&b.runs),
-        lines(&b.lines),
-    ])
-}
-
-/// `shape Entry`.
-pub fn entry(e: &Entry) -> Value {
-    Value::record(vec![
-        Value::str(&e.id),
-        Value::str(&e.kind),
-        Value::Bool(e.busy),
-        s(&e.title),
-        Value::str(&e.status),
-        Value::list(e.blocks.iter().map(block).collect()),
-        Value::Number(e.more),
-        s(&e.image),
-        Value::Number(e.cols),
-        Value::Number(e.rows),
-        Value::str(&link(&e.link)),
-    ])
-}
-
-/// `shape Approval`.
-pub fn approval(a: &Approval) -> Value {
-    Value::record(vec![
-        Value::str(&a.id),
-        s(&a.tool),
-        s(&a.summary),
-        lines(&a.lines),
-    ])
-}
-
-/// `shape ModelChoice`.
-pub fn model(m: &ModelChoice) -> Value {
-    Value::record(vec![
-        Value::str(&m.id),
-        s(&m.label),
-        Value::str(&m.provider),
-        Value::Bool(m.available),
-    ])
+fn entry(e: &Entry) -> Entry {
+    Entry {
+        id: e.id.clone(),
+        kind: e.kind.clone(),
+        busy: e.busy,
+        title: c(&e.title),
+        status: e.status.clone(),
+        blocks: e.blocks.iter().map(block).collect(),
+        more: e.more,
+        image: c(&e.image),
+        cols: e.cols,
+        rows: e.rows,
+        link: link(&e.link),
+        model: c(&e.model),
+    }
 }
 
 /// The context window the gauge measures against.
 pub const CONTEXT: f64 = 200_000.0;
 
-/// `shape Session`.
+/// `shape Session`: the state mapped onto the generated record, every
+/// string cleaned on the way.
 pub fn session(st: &State) -> Value {
-    Value::record(vec![
-        s(&st.model),
-        Value::str(&st.provider()),
-        s(&st.cwd),
-        s(&st.branch),
-        Value::Bool(st.busy()),
-        Value::str(if st.phase.is_empty() {
-            "idle"
+    Session {
+        model: c(&st.model),
+        provider: st.provider(),
+        cwd: c(&st.cwd),
+        branch: c(&st.branch),
+        busy: st.busy(),
+        phase: if st.phase.is_empty() {
+            "idle".into()
         } else {
-            &st.phase
-        }),
-        Value::Number(st.tokens_in),
-        Value::Number(st.tokens_out),
-        Value::Number((st.context / CONTEXT * 100.0).clamp(0.0, 100.0)),
-        Value::list(st.entries.iter().map(entry).collect()),
-        approval(&st.approval),
-        s(&st.toast),
-        Value::list(st.models.iter().map(model).collect()),
-        Value::Number(st.retired),
-        Value::list(st.queue.iter().map(|q| s(q)).collect()),
-        Value::Number(st.epoch),
-    ])
+            st.phase.clone()
+        },
+        tokens_in: st.tokens_in,
+        tokens_out: st.tokens_out,
+        context_pct: (st.context / CONTEXT * 100.0).clamp(0.0, 100.0),
+        entries: st.entries.iter().map(entry).collect(),
+        approval: Approval {
+            id: st.approval.id.clone(),
+            tool: c(&st.approval.tool),
+            summary: c(&st.approval.summary),
+            lines: st.approval.lines.iter().map(line).collect(),
+        },
+        toast: c(&st.toast),
+        models: st
+            .models
+            .iter()
+            .map(|m| ModelChoice {
+                label: c(&m.label),
+                ..m.clone()
+            })
+            .collect(),
+        retired: st.retired,
+        queued: st.queue.iter().map(|q| c(q)).collect(),
+        epoch: st.epoch,
+    }
+    .to_value()
 }
 
 /// `shape Frame`.
 pub fn frame(title: &str, ls: &[Line]) -> Value {
-    Value::record(vec![s(title), lines(ls)])
+    Frame {
+        title: c(title),
+        lines: ls.iter().map(line).collect(),
+    }
+    .to_value()
 }
 
 /// `shape Ack`.
 pub fn ack(ok: bool) -> Value {
-    Value::record(vec![Value::Bool(ok)])
+    Ack { ok }.to_value()
 }

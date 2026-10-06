@@ -9,7 +9,7 @@ use crate::paint::{paint, Painted, Scene};
 use exact_kernel::style::cells::{COLUMN, ROW};
 use exact_kernel::{AxisOffer, Kernel, NodeType, Offer, PropId, ViewId};
 use exact_plan::{EventKind, Plan};
-use exact_runner::{DataSource, Event, Runner, Viewport};
+use exact_runner::{DataSource, Event, Runner, RunnerError, Viewport};
 use std::collections::HashMap;
 use std::sync::Arc;
 use unicode_segmentation::UnicodeSegmentation;
@@ -106,6 +106,8 @@ pub struct Host<D: DataSource> {
     pub(crate) prevented: bool,
     /// Decoded images by source.
     pub images: crate::image::Images,
+    /// What the terminal last showed, for every pointer event.
+    pub(crate) presented: crate::pointer::Presented,
     /// Frames written to the terminal so far. With the count when each
     /// interactive node appeared, and the count when the keys being handled
     /// were read (LLP 1101.001 P11): a key can press only a node that a
@@ -134,7 +136,14 @@ impl<D: DataSource> Host<D> {
         kernel.set_cell_borders(true);
         let viewport = Viewport::sized(cols as f64 * COLUMN as f64, rows as f64 * ROW as f64);
         let runner =
-            Runner::boot(plan, data, kernel, viewport, "/").map_err(|e| format!("{e:?}"))?;
+            Runner::boot(plan, data, kernel, viewport, "/").map_err(|e| match e {
+                // The data module answered another declaration than the
+                // screen's: most often a binary older than the shapes.
+                RunnerError::Shape { resource, why } => format!(
+                    "`{resource}` answered a different shape than the screen declares ({why}); rebuild the binary that answers it"
+                ),
+                e => format!("{e:?}"),
+            })?;
         let mut host = Host {
             runner,
             cols,
@@ -150,6 +159,7 @@ impl<D: DataSource> Host<D> {
             quit: false,
             prevented: false,
             images: crate::image::Images::default(),
+            presented: crate::pointer::Presented::default(),
             frames: 0,
             born: HashMap::new(),
             read_at: 0,
@@ -305,6 +315,9 @@ impl<D: DataSource> Host<D> {
         if self.painted.is_none() {
             let roots = self.runner.roots();
             let painted = paint(&self.scene(), &roots, self.cols, self.rows, 0);
+            if self.mode == Mode::Fullscreen {
+                self.present(&painted, Some(0));
+            }
             self.painted = Some(painted);
         }
         self.painted.as_ref().expect("painted")
@@ -416,7 +429,7 @@ impl<D: DataSource> Host<D> {
     /// Whether a key may press `id` yet: a frame written before the key
     /// was read showed it (LLP 1101.001 P11).
     pub(crate) fn armed(&self, id: ViewId) -> bool {
-        !self.arm || self.born.get(&id).is_none_or(|born| *born < self.read_at)
+        !self.arm || self.born.get(&id).is_some_and(|born| *born < self.read_at)
     }
 
     /// The nearest node at or above `view` with a handler for `kind`.
@@ -650,6 +663,11 @@ impl<D: DataSource> Host<D> {
     /// descendant focused, the focus it took remembered.
     pub fn open_layer(&mut self, layer: ViewId) {
         self.layers.push((layer, self.focus));
+        // Its controls are born now, unseen: a key read before a frame shows
+        // them cannot press them (LLP 1101.002 §0, typed-ahead).
+        for id in self.focusables() {
+            self.born.entry(id).or_insert(self.frames);
+        }
         let kernel = self.runner.kernel();
         let all = self.focusables();
         let first = all
@@ -666,6 +684,17 @@ impl<D: DataSource> Host<D> {
         self.changed();
     }
 
+    /// A close request the person made — Escape, or a press outside a
+    /// `closedby="any"` layer: close it, then fire HTML's `cancel` at it
+    /// when the app listens (LLP 1101.002 §0 P8), so a dialog's draft can
+    /// be dropped with it.
+    pub fn dismiss(&mut self, layer: ViewId) {
+        self.close_layer(layer);
+        if self.runner.handlers_of(layer).contains(&EventKind::Cancel) {
+            self.dispatch(layer, Event::Cancel);
+        }
+    }
+
     /// Close a dialog or popover, giving back the focus it took.
     pub fn close_layer(&mut self, layer: ViewId) {
         let Some(at) = self.layers.iter().position(|(l, _)| *l == layer) else {
@@ -677,34 +706,6 @@ impl<D: DataSource> Host<D> {
         self.changed();
     }
 
-    /// The topmost interactive node at a cell.
-    pub fn hit(&mut self, x: i32, y: i32) -> Option<ViewId> {
-        self.frame()
-            .hits
-            .iter()
-            .rev()
-            .find(|(_, r)| r.contains(x, y))
-            .map(|(id, _)| *id)
-    }
-
-    /// A mouse press at a cell. With a dialog open, a press outside it
-    /// closes it only when `closedby="any"`.
-    pub fn click(&mut self, x: i32, y: i32) {
-        let hit = self.hit(x, y);
-        self.click_hit(hit);
-    }
-
-    /// A press at a cell of a region painted apart (inline's live region),
-    /// hit-tested against that painting's boxes.
-    pub fn click_in(&mut self, hits: &[(ViewId, CellRect)], x: i32, y: i32) {
-        let hit = hits
-            .iter()
-            .rev()
-            .find(|(_, r)| r.contains(x, y))
-            .map(|(id, _)| *id);
-        self.click_hit(hit);
-    }
-
     /// The open top layer's height in rows, if one is open.
     pub fn layer_rows(&self) -> Option<usize> {
         let (top, _) = self.layers.last()?;
@@ -712,56 +713,9 @@ impl<D: DataSource> Host<D> {
         Some((n.frame.height / ROW).round().max(1.0) as usize)
     }
 
-    /// A wheel at a cell of a region painted apart (inline's live region),
-    /// against that painting's scrollers.
-    pub fn wheel_in(&mut self, scrollers: &[(ViewId, CellRect, f32)], x: i32, y: i32, rows: i32) {
-        let found = scrollers.iter().rev().find(|(_, r, _)| r.contains(x, y));
-        if let Some((id, _, reach)) = found {
-            let at = self.scroll.entry(*id).or_insert(0.0);
-            *at = (at.min(*reach) + rows as f32 * ROW).clamp(0.0, *reach);
-            self.changed();
-        }
-    }
-
     /// Whether a dialog or popover is open.
     pub fn has_layer(&self) -> bool {
         !self.layers.is_empty()
-    }
-
-    fn click_hit(&mut self, hit: Option<ViewId>) {
-        if let Some((top, _)) = self.layers.last().copied() {
-            let inside = hit.is_some_and(|h| self.focusables().contains(&h));
-            if !inside {
-                let any = self
-                    .kernel()
-                    .node(top)
-                    .and_then(|n| n.props.str(PropId::Closedby).map(str::to_string));
-                if any.as_deref() == Some("any") {
-                    self.close_layer(top);
-                }
-                return;
-            }
-        }
-        match hit {
-            Some(id) => self.press(id),
-            None => self.focus(None),
-        }
-    }
-
-    /// A wheel at a cell: the innermost scroller under it moves by rows.
-    pub fn wheel(&mut self, x: i32, y: i32, rows: i32) {
-        let found = self
-            .frame()
-            .scrollers
-            .iter()
-            .rev()
-            .find(|(_, r, _)| r.contains(x, y))
-            .map(|(id, _, reach)| (*id, *reach));
-        if let Some((id, reach)) = found {
-            let at = self.scroll.entry(id).or_insert(0.0);
-            *at = (at.min(reach) + rows as f32 * ROW).clamp(0.0, reach);
-            self.changed();
-        }
     }
 
     /// The node an agent names by `testId`.

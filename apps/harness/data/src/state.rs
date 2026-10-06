@@ -6,23 +6,12 @@
 use crate::keys::Keys;
 use crate::providers::Sources;
 use exact_runner::Native;
+
+// The seam's records are the generated ones (LLP 1101.002 P9); the
+// helpers below are this crate's own.
+pub use crate::shapes::{Approval, Block, Entry, Line, ModelChoice, Run};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-
-/// `shape Run`.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Run {
-    pub text: String,
-    pub fg: String,
-    pub bg: String,
-    pub bold: bool,
-    pub italic: bool,
-    pub dim: bool,
-    pub under: bool,
-    pub strike: bool,
-    /// A link target, or empty.
-    pub href: String,
-}
 
 impl Run {
     /// A plain run.
@@ -63,12 +52,6 @@ impl Run {
     }
 }
 
-/// `shape Line`.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Line {
-    pub runs: Vec<Run>,
-}
-
 impl Line {
     /// One plain run.
     pub fn plain(text: impl Into<String>) -> Line {
@@ -98,17 +81,6 @@ impl Line {
     }
 }
 
-/// `shape Block`.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Block {
-    pub kind: String,
-    pub depth: f64,
-    pub marker: String,
-    pub lang: String,
-    pub runs: Vec<Run>,
-    pub lines: Vec<Line>,
-}
-
 impl Block {
     /// A paragraph of runs.
     pub fn p(runs: Vec<Run>) -> Block {
@@ -127,41 +99,6 @@ impl Block {
             ..Block::default()
         }
     }
-}
-
-/// `shape Entry`.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Entry {
-    pub id: String,
-    pub kind: String,
-    pub busy: bool,
-    pub title: String,
-    pub status: String,
-    pub blocks: Vec<Block>,
-    pub more: f64,
-    pub image: String,
-    pub cols: f64,
-    pub rows: f64,
-    /// What the title links to, or empty.
-    pub link: String,
-}
-
-/// `shape Approval`; `id` empty when nothing waits.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Approval {
-    pub id: String,
-    pub tool: String,
-    pub summary: String,
-    pub lines: Vec<Line>,
-}
-
-/// `shape ModelChoice`.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct ModelChoice {
-    pub id: String,
-    pub label: String,
-    pub provider: String,
-    pub available: bool,
 }
 
 /// One message of the conversation, provider-neutral.
@@ -228,6 +165,9 @@ pub enum Choice {
 pub struct Turn {
     pub id: u64,
     pub cancel: Arc<AtomicBool>,
+    /// The label of the model the turn started with (P12): what its
+    /// entries say answered, whatever the picker says later.
+    pub model: String,
 }
 
 impl Turn {
@@ -366,6 +306,41 @@ impl State {
             }
         }
         self.models = models;
+    }
+
+    /// The running turn's model label, or "" outside a turn.
+    pub fn turn_model(&self) -> String {
+        self.turn
+            .as_ref()
+            .map(|t| t.model.clone())
+            .unwrap_or_default()
+    }
+
+    /// The selected model's short label: "mock" for the mock, else the
+    /// picker's label without a "Provider: " prefix.
+    pub fn model_label(&self) -> String {
+        if self.provider() == "mock" {
+            return "mock".into();
+        }
+        let label = self
+            .models
+            .iter()
+            .find(|m| m.id == self.model)
+            .map_or(self.model.as_str(), |m| m.label.as_str());
+        match label.split_once(": ") {
+            Some((_, rest)) if !rest.trim().is_empty() => rest.trim().to_string(),
+            _ => label.to_string(),
+        }
+    }
+
+    /// An error entry for the running turn, labelled with its model.
+    pub fn turn_error(&mut self, message: &str) -> String {
+        let model = self.turn_model();
+        let id = self.error_scrubbed(message);
+        if let Some(e) = self.entries.last_mut().filter(|e| e.id == id) {
+            e.model = model;
+        }
+        id
     }
 
     /// An error entry with every key scrubbed out of it.

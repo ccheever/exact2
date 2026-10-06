@@ -32,10 +32,16 @@ pub fn start(shared: &Arc<Shared>, prompt: &str) {
             )],
             ..Entry::default()
         });
+        // The model is captured with the route: what this turn's entries
+        // say answered, even if the picker changes mid-turn (P12).
+        let model = s.model_label();
         match providers::route(&s.model, &s.provider(), &s.sources()) {
             Err(e) => {
                 let message = format!("Can't reach {}: {e}", s.model);
-                s.error_scrubbed(&message);
+                let id = s.error_scrubbed(&message);
+                if let Some(e) = s.entries.last_mut().filter(|e| e.id == id) {
+                    e.model = model;
+                }
                 None
             }
             Ok(route) => {
@@ -44,6 +50,7 @@ pub fn start(shared: &Arc<Shared>, prompt: &str) {
                 s.turn = Some(Turn {
                     id: s.next_turn,
                     cancel: Arc::new(AtomicBool::new(false)),
+                    model,
                 });
                 s.phase = "thinking".into();
                 Some(route)
@@ -266,7 +273,7 @@ fn round(shared: &Arc<Shared>, turn: &Turn, route: &Route) -> Option<bool> {
         }
     }
     if let Err(e) = result {
-        s.error_scrubbed(&e);
+        s.turn_error(&e);
         end(&mut s);
         drop(s);
         shared.changed();
@@ -321,9 +328,11 @@ fn settle(s: &mut State, tail: &mut Option<String>, settled: &mut usize, blocks:
         e.busy = false;
         return;
     }
+    let model = s.turn_model();
     s.push(Entry {
         kind: kind.into(),
         blocks,
+        model,
         ..Entry::default()
     });
 }
@@ -334,10 +343,12 @@ fn show_tail(s: &mut State, tail: &mut Option<String>, settled: usize, blocks: V
         e.blocks = blocks;
         return;
     }
+    let model = s.turn_model();
     let id = s.push(Entry {
         kind: if settled == 0 { "assistant" } else { "more" }.into(),
         busy: true,
         blocks,
+        model,
         ..Entry::default()
     });
     *tail = Some(id);
@@ -373,6 +384,7 @@ fn tool(
             title,
             status: if ask { "waiting" } else { "running" }.into(),
             link: tools::file_link(name, input),
+            model: turn.model.clone(),
             ..Entry::default()
         });
         if ask {

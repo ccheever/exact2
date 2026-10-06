@@ -23,6 +23,11 @@ png = "=0.18.1"
 rustix = { version = "1.1", features = ["process"] }
 ureq = { version = "=3.4.0", default-features = false, features = ["rustls"] }
 
+# `build.rs` generates the seam's Rust types from `../shapes.contract`
+# with `contract rust` (LLP 1101.002 P9).
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+
 [dev-dependencies]
 contract = { path = "../../../contract/cli" }
 exact-kernel = { path = "../../../kernel" }

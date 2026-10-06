@@ -79,7 +79,7 @@ pub const HELP: &str = "**Commands**\n\n\
 - `/clear` — clear the transcript\n\
 - `/model <id>` · `/models` — choose the model, list them\n\
 - `/tools` — the tools the agent can call\n\
-- `/stress [n]` — n entries of varied content (default 200)\n\
+- `/stress [n] [paced]` — n entries of varied content (default 200); `paced` releases them 20 at a time\n\
 - `/ascii` · `/ansi` · `/image [path]` · `/unicode` · `/diff` — rendering demos\n\n\
 Anything else is a prompt. With the **mock** model, try prompts containing *long*, *edit* or *error*.";
 

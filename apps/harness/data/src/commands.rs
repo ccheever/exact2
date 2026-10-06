@@ -72,21 +72,32 @@ fn run(shared: &Arc<Shared>, name: &str, rest: &str) -> bool {
             });
         }
         "stress" => {
-            let n = if rest.is_empty() {
-                Some(200)
-            } else {
-                rest.parse::<usize>().ok()
+            // `/stress [n]` is one burst; `/stress n paced` releases the
+            // same entries a screenful at a time (LLP 1101.002 P14).
+            let mut words = rest.split_whitespace();
+            let n = match words.next() {
+                None => Some(200),
+                Some(w) => w.parse::<usize>().ok(),
             };
-            let Some(n) = n else {
-                shared
-                    .lock()
-                    .error(&format!("/stress takes a count, not {rest:?}"));
+            let paced = match words.next() {
+                None => Some(false),
+                Some("paced") => Some(true),
+                Some(_) => None,
+            };
+            let (Some(n), Some(paced)) = (n, paced) else {
+                shared.lock().error(&format!(
+                    "/stress takes a count and optionally `paced`, not {rest:?}"
+                ));
                 return false;
             };
             let entries = art::stress(n.min(20_000));
-            let mut s = shared.lock();
-            for e in entries {
-                s.push(e);
+            if paced {
+                pace(shared, entries);
+            } else {
+                let mut s = shared.lock();
+                for e in entries {
+                    s.push(e);
+                }
             }
         }
         "ascii" => {
@@ -280,4 +291,28 @@ pub fn set_key(shared: &Arc<Shared>, provider: &str, key: &str) -> Option<bool> 
     };
     shared.toast(&toast);
     Some(provider == "openrouter" && !key.is_empty())
+}
+
+/// Entries released per paced batch: about a screenful.
+pub const BATCH: usize = 20;
+/// The pause between paced batches, for the host to print and retire.
+const PAUSE: std::time::Duration = std::time::Duration::from_millis(30);
+
+/// Release `entries` from a thread in batches of [`BATCH`], announcing
+/// each and pausing between them.
+fn pace(shared: &Arc<Shared>, entries: Vec<Entry>) {
+    let shared = shared.clone();
+    std::thread::spawn(move || {
+        let mut entries = entries.into_iter().peekable();
+        while entries.peek().is_some() {
+            {
+                let mut s = shared.lock();
+                for e in entries.by_ref().take(BATCH) {
+                    s.push(e);
+                }
+            }
+            shared.changed();
+            std::thread::sleep(PAUSE);
+        }
+    });
 }

@@ -29,6 +29,8 @@ pub struct Painted {
     /// Image nodes and the cells they occupy (unclipped), for a writer that
     /// draws them with a terminal's image protocol.
     pub images: Vec<(ViewId, CellRect)>,
+    /// The open top layer's cells, when one is painted.
+    pub layer: Option<CellRect>,
 }
 
 /// What the walk needs from the host.
@@ -61,6 +63,7 @@ pub fn paint(scene: &Scene<'_>, roots: &[ViewId], cols: usize, rows: usize, top:
         hits: Vec::new(),
         scrollers: Vec::new(),
         images: Vec::new(),
+        layer: None,
     };
     let clip = out.grid.bounds();
     let dy = top as f32 * ROW;
@@ -68,9 +71,15 @@ pub fn paint(scene: &Scene<'_>, roots: &[ViewId], cols: usize, rows: usize, top:
         node(scene, &mut out, root, clip, 0.0, dy, false);
     }
     for &layer in &scene.layers {
+        // A modal layer: what is beneath is faint and takes no pointer.
         out.grid.dim();
         out.hits.clear();
+        out.scrollers.clear();
         let (dx, ldy) = placement(scene, layer, cols, rows, dy);
+        if let Some(n) = scene.kernel.node(layer) {
+            let f = n.frame;
+            out.layer = Some(cells(f.x - dx, f.y - ldy, f.width, f.height));
+        }
         node(scene, &mut out, layer, clip, dx, ldy, true);
     }
     out

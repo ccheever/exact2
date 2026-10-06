@@ -170,6 +170,22 @@ impl Grid {
         }
     }
 
+    /// Whether a cell shows the same as `other`'s at the same place: text,
+    /// style and link target — links compared by URL, since each grid
+    /// numbers its links itself (LLP 1101.002 §0).
+    fn same(&self, x: usize, y: usize, other: &Grid) -> bool {
+        let (a, b) = (self.cell(x, y), other.cell(x, y));
+        a.text == b.text
+            && Style { link: 0, ..a.style } == Style { link: 0, ..b.style }
+            && self.url(a.style.link) == other.url(b.style.link)
+    }
+
+    fn url(&self, link: u16) -> Option<&str> {
+        self.links
+            .get((link as usize).wrapping_sub(1))
+            .map(String::as_str)
+    }
+
     /// The link index for `url`, interned.
     pub fn link(&mut self, url: &str) -> u16 {
         if let Some(i) = self.links.iter().position(|l| l == url) {
@@ -287,7 +303,7 @@ impl Grid {
         for y in 0..self.rows {
             let mut x = 0;
             while x < self.cols {
-                if before.cell(x, y) == self.cell(x, y) {
+                if self.same(x, y, before) {
                     x += 1;
                     continue;
                 }
@@ -302,7 +318,7 @@ impl Grid {
                 let _ = write!(out, "\x1b[{}G", start + 1);
                 let mut end = start;
                 while end < self.cols {
-                    let differs = before.cell(end, y) != self.cell(end, y);
+                    let differs = !self.same(end, y, before);
                     if end > x && !differs && !self.cell(end, y).text.is_empty() {
                         break;
                     }
@@ -336,7 +352,7 @@ impl Grid {
         for y in 0..self.rows {
             let mut x = 0;
             while x < self.cols {
-                let changed = before.is_none_or(|b| b.cell(x, y) != self.cell(x, y));
+                let changed = before.is_none_or(|b| !self.same(x, y, b));
                 if !changed {
                     x += 1;
                     continue;
@@ -349,7 +365,7 @@ impl Grid {
                 let _ = write!(out, "\x1b[{};{}H", y + 1, start + 1);
                 let mut at = start;
                 while at < self.cols {
-                    let differs = before.is_none_or(|b| b.cell(at, y) != self.cell(at, y));
+                    let differs = before.is_none_or(|b| !self.same(at, y, b));
                     if at > x && !differs && !self.cell(at, y).text.is_empty() {
                         break;
                     }
@@ -401,6 +417,41 @@ fn sgr(out: &mut String, s: Style) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_link_that_changes_target_on_the_same_text_is_redrawn() {
+        let all = Grid::new(3, 1).bounds();
+        let mut before = Grid::new(3, 1);
+        let one = before.link("https://a.example");
+        before.put(
+            0,
+            0,
+            "x",
+            1,
+            Style {
+                link: one,
+                ..Style::default()
+            },
+            all,
+        );
+        let mut after = Grid::new(3, 1);
+        let two = after.link("https://b.example");
+        after.put(
+            0,
+            0,
+            "x",
+            1,
+            Style {
+                link: two,
+                ..Style::default()
+            },
+            all,
+        );
+        assert_eq!(one, two, "each grid numbers its links from 1");
+        let mut out = String::new();
+        after.diff_relative(&before, &mut out);
+        assert!(out.contains("b.example"), "{out:?}");
+    }
 
     #[test]
     fn a_wide_cluster_takes_two_cells_and_the_diff_redraws_from_its_lead() {

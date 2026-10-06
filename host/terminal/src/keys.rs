@@ -190,7 +190,7 @@ impl<D: DataSource> Host<D> {
                     .node(top)
                     .and_then(|n| n.props.str(PropId::Closedby).map(str::to_string));
                 if none.as_deref() != Some("none") {
-                    self.close_layer(top);
+                    self.dismiss(top);
                 }
                 return After::Continue;
             }
@@ -215,14 +215,8 @@ impl<D: DataSource> Host<D> {
                 }
             }
             Key::Named("Escape") => self.focus(None),
-            Key::Named("PageDown") | Key::Named("PageUp") => {
-                let rows = self.rows as i32 - 2;
-                let sign = if key == Key::Named("PageDown") { 1 } else { -1 };
-                let target = self.frame().scrollers.first().map(|(_, r, _)| (r.x, r.y));
-                if let Some((x, y)) = target {
-                    self.wheel(x, y, sign * rows);
-                }
-            }
+            Key::Named("PageDown") => self.page(true),
+            Key::Named("PageUp") => self.page(false),
             _ => {}
         }
         After::Continue

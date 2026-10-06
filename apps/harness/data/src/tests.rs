@@ -1,6 +1,7 @@
 //! The session driven through the `DataSource` API, with the mock model.
 
 use super::*;
+use crate::shapes::{ContractValue, Session};
 use crate::state::Block;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -397,14 +398,9 @@ fn retire_drops_printed_entries_from_the_session() {
     assert!(!send(&mut h, "retire", &["nope"]));
     assert_eq!(h.shared.lock().retired, 2.0);
     // The snapshot answers what is left, and says how many went.
-    let Value::Record(fields) = h.session() else {
-        panic!()
-    };
-    let Value::List(entries) = &fields[9] else {
-        panic!()
-    };
-    assert_eq!(entries.len(), 2);
-    assert_eq!(fields[13], Value::Number(2.0));
+    let snapshot = Session::from_value(&h.session()).unwrap();
+    assert_eq!(snapshot.entries.len(), 2);
+    assert_eq!(snapshot.retired, 2.0);
     // New entries still append, with larger ids; /clear still works.
     assert!(send(&mut h, "submit", &["/diff"]));
     let after = ids(&h.shared.lock().entries);
@@ -447,13 +443,8 @@ fn prompts_queue_while_a_turn_runs() {
         assert!(s.busy());
         assert_eq!(Vec::from(s.queue.clone()), ["second", "third"]);
     }
-    let Value::Record(fields) = h.session() else {
-        panic!()
-    };
-    assert_eq!(
-        fields[14],
-        Value::list(vec![Value::str("second"), Value::str("third")])
-    );
+    let snapshot = Session::from_value(&h.session()).unwrap();
+    assert_eq!(snapshot.queued, ["second", "third"]);
     // Commands run at once during a turn; /clear waits.
     let before = h.shared.lock().entries.len();
     assert!(send(&mut h, "submit", &["/help"]));
@@ -504,4 +495,68 @@ fn the_chaos_run_ends_bounded() {
     );
     assert!(entries.last().unwrap().kind == "assistant");
     assert!(entries.iter().filter(|e| e.kind == "more").count() > 300);
+}
+
+#[test]
+fn a_turn_keeps_the_model_it_started_with() {
+    let dir = std::env::temp_dir().join(format!("exact-harness-model-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    providers::mock::FAST.store(true, std::sync::atomic::Ordering::Relaxed);
+    let mut h = Harness::with_options(Options::offline(Some(dir.clone())));
+    // A closed port: the next turn fails fast, without the network.
+    h.shared.lock().openrouter_base = "http://127.0.0.1:9".into();
+    assert!(send(&mut h, "setModel", &["mock"]));
+    assert!(send(&mut h, "submit", &["hi"]));
+    let start = Instant::now();
+    while h.shared.lock().approval.tool != "bash" {
+        assert!(start.elapsed() < Duration::from_secs(30));
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    // The picker changes mid-turn: an OpenRouter key arrives.
+    assert!(send(
+        &mut h,
+        "setKey",
+        &["openrouter", "test-only-not-a-key"]
+    ));
+    assert!(h.shared.lock().model.starts_with("openrouter:"));
+    let entries = drive(&mut h, "yes");
+    let turn: Vec<&Entry> = entries.iter().skip(2).collect();
+    assert!(turn.len() > 5);
+    for e in &turn {
+        assert_eq!(e.model, "mock", "{} {}", e.kind, e.title);
+    }
+    assert_eq!(entries[0].model, "", "the banner is outside any turn");
+    assert_eq!(entries[1].model, "", "so is the prompt");
+    // The next turn carries the new model, even when it fails.
+    assert!(send(&mut h, "submit", &["again"]));
+    let entries = drive(&mut h, "yes");
+    let last = entries.last().unwrap();
+    assert_eq!(last.kind, "error");
+    assert_eq!(last.model, "Claude Sonnet 4.5");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn paced_stress_releases_every_entry_in_batches() {
+    let mut h = mock();
+    let before = h.shared.lock().entries.len();
+    assert!(send(&mut h, "submit", &["/stress 95 paced"]));
+    let start = Instant::now();
+    let mut seen = vec![];
+    loop {
+        let n = h.shared.lock().entries.len() - before;
+        if seen.last() != Some(&n) {
+            seen.push(n);
+        }
+        if n == 95 {
+            break;
+        }
+        assert!(start.elapsed() < Duration::from_secs(10), "stuck at {n}");
+        std::thread::sleep(Duration::from_millis(3));
+    }
+    assert!(seen.len() >= 4, "released in batches: {seen:?}");
+    assert!(seen
+        .iter()
+        .all(|n| *n <= 95 && (*n % commands::BATCH == 0 || *n == 95)));
+    assert!(!send(&mut h, "submit", &["/stress 5 fast"]));
 }

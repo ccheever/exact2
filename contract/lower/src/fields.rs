@@ -3,7 +3,8 @@
 //! radius, a fill and the ink that reads on it. The rows go under the
 //! author's, as a grouped list's sheet does (LLP 1084 D7), so a class or an
 //! attribute replaces any one of them; a literal `appearance="none"` leaves
-//! them all out, the bare box LLP 1064 D6 drew.
+//! them all out, the bare box LLP 1064 D6 drew. In a terminal the sheet is
+//! the fill alone ([`Profile::Terminal`]).
 
 use crate::tags::Tag;
 use crate::tags::{attr, AttrTarget};
@@ -17,6 +18,21 @@ use exact_kernel::{PropId, StyleId};
 const BORDER: &str = "light-dark(#c6c6c8, #48484a)";
 const FILL: &str = "light-dark(#ffffff, #1c1c1e)";
 const INK: &str = "light-dark(#000000, #ffffff)";
+/// A terminal field's fill: a shade off the background, the cell's own
+/// ink on it (LLP 1101.002 §0 P7).
+const CELL_FILL: &str = "light-dark(#e4e4e4, #303030)";
+
+/// The surface a plan is lowered for. A text field's sheet is the only row
+/// that differs: in character cells a border and padding cost whole rows
+/// and columns, so a terminal field is a fill alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Profile {
+    /// The web and every native host: LLP 1104's field.
+    #[default]
+    Web,
+    /// The terminal host (LLP 1101).
+    Terminal,
+}
 
 /// The `type`s that are a text field one types into (D2). `hidden` paints
 /// nothing; `color`, `month` and `week` lower as text fields but are not.
@@ -55,6 +71,7 @@ pub(crate) fn sheet<'a>(
     rows: impl Iterator<Item = &'a Attr> + Clone,
     span: Span,
     sheet: &mut Vec<Attr>,
+    profile: Profile,
 ) -> Result<bool, LowerError> {
     if !field(tag, rows.clone()) {
         return Ok(false);
@@ -91,18 +108,22 @@ pub(crate) fn sheet<'a>(
         span,
     };
     let mut rows = Vec::new();
-    for side in ["top", "right", "bottom", "left"] {
-        rows.push(n(&format!("border-{side}-width"), 1.0));
-        rows.push(s(&format!("border-{side}-style"), "solid"));
-        rows.push(s(&format!("border-{side}-color"), BORDER));
+    if profile == Profile::Terminal {
+        rows.push(s("background-color", CELL_FILL));
+    } else {
+        for side in ["top", "right", "bottom", "left"] {
+            rows.push(n(&format!("border-{side}-width"), 1.0));
+            rows.push(s(&format!("border-{side}-style"), "solid"));
+            rows.push(s(&format!("border-{side}-color"), BORDER));
+        }
+        for corner in ["top-left", "top-right", "bottom-right", "bottom-left"] {
+            rows.push(n(&format!("border-{corner}-radius"), 6.0));
+        }
+        for (side, inset) in [("top", 6.0), ("right", 8.0), ("bottom", 6.0), ("left", 8.0)] {
+            rows.push(n(&format!("padding-{side}"), inset));
+        }
+        rows.push(s("background-color", FILL));
     }
-    for corner in ["top-left", "top-right", "bottom-right", "bottom-left"] {
-        rows.push(n(&format!("border-{corner}-radius"), 6.0));
-    }
-    for (side, inset) in [("top", 6.0), ("right", 8.0), ("bottom", 6.0), ("left", 8.0)] {
-        rows.push(n(&format!("padding-{side}"), inset));
-    }
-    rows.push(s("background-color", FILL));
     rows.push(s("color", INK));
     // @ref LLP 1104 §4 Q2 — a disabled field is dimmed, as the web's is.
     match disabled.map(|a| &a.value) {

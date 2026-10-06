@@ -5,6 +5,7 @@
 use exact_kernel::Kernel;
 use exact_plan::Value;
 use exact_runner::{DataSource, Runner, RunnerError};
+use harness_data::shapes::{ContractValue, Session};
 use harness_data::{Harness, Options};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -18,14 +19,7 @@ component App
 "#;
 
 fn entries(v: &Value) -> usize {
-    // `Session.entries` is the tenth field.
-    let Value::Record(fields) = v else {
-        panic!("{v:?}")
-    };
-    match &fields[9] {
-        Value::List(items) => items.len(),
-        other => panic!("{other:?}"),
-    }
+    Session::from_value(v).expect("a Session").entries.len()
 }
 
 #[test]
@@ -85,7 +79,14 @@ component App
         "/",
     );
     match booted {
-        Err(RunnerError::Shape { resource }) => assert_eq!(resource, "session"),
+        Err(RunnerError::Shape { resource, why }) => {
+            assert_eq!(resource, "session");
+            // The refusal names the field (LLP 1101.002 §0 P9).
+            assert!(
+                why.starts_with("Wrong.model: a Number was declared"),
+                "{why}"
+            );
+        }
         Err(other) => panic!("refused for another reason: {other:?}"),
         Ok(_) => panic!("a session read as the wrong shape was accepted"),
     }

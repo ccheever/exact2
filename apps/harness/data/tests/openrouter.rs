@@ -5,6 +5,7 @@
 
 use exact_plan::Value;
 use exact_runner::DataSource;
+use harness_data::shapes::{Ack, ContractValue, Entry, Session};
 use harness_data::{Harness, Options};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
@@ -83,30 +84,22 @@ fn serve(listener: TcpListener, seen: Seen) {
     }
 }
 
-fn record(v: &Value) -> Vec<Value> {
-    match v {
-        Value::Record(f) => f.iter().cloned().collect(),
-        other => panic!("{other:?}"),
-    }
-}
-
-fn list(v: &Value) -> Vec<Value> {
-    match v {
-        Value::List(items) => items.iter().cloned().collect(),
-        other => panic!("{other:?}"),
-    }
+fn session(h: &mut Harness) -> Session {
+    Session::from_value(&h.query("session", &[]).unwrap()).expect("a Session")
 }
 
 fn ack(h: &mut Harness, source: &str, args: &[&str]) -> bool {
     let args: Vec<Value> = args.iter().map(|a| Value::str(a)).collect();
-    record(&h.query(source, &args).unwrap())[0] == Value::Bool(true)
+    Ack::from_value(&h.query(source, &args).unwrap())
+        .expect("an Ack")
+        .ok
 }
 
-fn idle(h: &mut Harness) -> Value {
+fn idle(h: &mut Harness) -> Session {
     let start = Instant::now();
     loop {
-        let s = h.query("session", &[]).unwrap();
-        if record(&s)[4] == Value::Bool(false) {
+        let s = session(h);
+        if !s.busy {
             return s;
         }
         assert!(start.elapsed() < Duration::from_secs(20), "never idle");
@@ -114,16 +107,15 @@ fn idle(h: &mut Harness) -> Value {
     }
 }
 
-fn texts(entry: &Value) -> String {
+fn texts(entry: &Entry) -> String {
     let mut out = String::new();
-    for block in list(&record(entry)[5]) {
-        let block = record(&block);
-        for run in list(&block[4]) {
-            out.push_str(record(&run)[0].as_str().unwrap());
+    for block in &entry.blocks {
+        for run in &block.runs {
+            out.push_str(&run.text);
         }
-        for line in list(&block[5]) {
-            for run in list(&record(&line)[0]) {
-                out.push_str(record(&run)[0].as_str().unwrap());
+        for line in &block.lines {
+            for run in &line.runs {
+                out.push_str(&run.text);
             }
             out.push('\n');
         }
@@ -150,28 +142,23 @@ fn an_openrouter_turn_end_to_end() {
 
     assert!(ack(&mut h, "submit", &["go"]));
     let s = idle(&mut h);
-    let entries = list(&record(&s)[9]);
-    let kinds: Vec<String> = entries
-        .iter()
-        .map(|e| record(e)[1].as_str().unwrap().to_string())
-        .collect();
+    let entries = &s.entries;
+    let kinds: Vec<&str> = entries.iter().map(|e| e.kind.as_str()).collect();
     assert_eq!(
         kinds,
         ["banner", "user", "assistant", "tool", "assistant", "error"]
     );
     assert_eq!(texts(&entries[2]), "Running it.");
-    let tool = record(&entries[3]);
-    assert_eq!(tool[4], Value::str("error"));
+    assert_eq!(entries[3].status, "error");
     assert!(texts(&entries[3]).starts_with("invalid JSON arguments"));
     assert_eq!(texts(&entries[4]), "Sorry,");
     assert_eq!(texts(&entries[5]), "Upstream error (Anthropic): overloaded");
     // The broken call never asked for approval.
-    assert_eq!(record(&record(&s)[10])[0], Value::str(""));
+    assert_eq!(s.approval.id, "");
 
     assert!(ack(&mut h, "submit", &["again"]));
     let s = idle(&mut h);
-    let entries = list(&record(&s)[9]);
-    let last = texts(entries.last().unwrap());
+    let last = texts(s.entries.last().unwrap());
     assert!(last.starts_with("HTTP 401: invalid credentials"), "{last}");
     assert!(last.contains("[redacted]"), "{last}");
     let shown = format!("{s:?}");
@@ -234,18 +221,16 @@ fn an_interrupt_stops_a_stalled_stream_at_once() {
     assert!(ack(&mut h, "submit", &["go"]));
     let start = Instant::now();
     loop {
-        let s = h.query("session", &[]).unwrap();
-        if record(&s)[5] == Value::str("streaming") {
+        if session(&mut h).phase == "streaming" {
             break;
         }
         assert!(start.elapsed() < Duration::from_secs(10), "never streamed");
         std::thread::sleep(Duration::from_millis(5));
     }
     assert!(ack(&mut h, "interrupt", &[]));
-    let s = h.query("session", &[]).unwrap();
-    assert_eq!(record(&s)[4], Value::Bool(false));
-    let entries = list(&record(&s)[9]);
-    assert_eq!(texts(entries.last().unwrap()), "Start[interrupted]");
+    let s = session(&mut h);
+    assert!(!s.busy);
+    assert_eq!(texts(s.entries.last().unwrap()), "Start[interrupted]");
     // The work stopped, not only the entry: the body reader's thread ends
     // within a read slice though the server never sends another byte.
     let stopped = Instant::now();

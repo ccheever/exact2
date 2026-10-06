@@ -70,7 +70,7 @@ component Harness
     Cmd(name="/model", help="choose a model (ctrl+o)"),
     Cmd(name="/key", help="add an API key: OpenRouter, Anthropic, OpenAI"),
     Cmd(name="/clear", help="start over"),
-    Cmd(name="/stress", help="flood the scrollback (try /stress 2000)"),
+    Cmd(name="/stress", help="flood the scrollback (try /stress 2000, or /stress 500 paced)"),
     Cmd(name="/image", help="an image: kitty, iTerm2 or half-blocks"),
     Cmd(name="/ascii", help="ASCII art"),
     Cmd(name="/ansi", help="ANSI art in truecolour"),
@@ -207,6 +207,10 @@ component Harness
     keyFor = p
   action writeKey(value)
     keyDraft = value
+  // Escape or a click outside: a half-pasted key does not wait for the next
+  // open (HTML's `cancel`, LLP 1101.002 §0 P8).
+  action dropKey
+    keyDraft = ""
   action saveKey
     send keyed = setKey(keyFor, trim(keyDraft))
     keyDraft = ""
@@ -296,7 +300,7 @@ component Harness
               text (m.id == session.model ? "●" : "○") color=(m.available ? "#87afff" : "#585858")
               text m.label color=(m.available ? "inherit" : "#585858") flex-grow=1
               text (m.available ? m.provider : `${m.provider} · no key`) color="#6c6c6c"
-      dialog id="keys" closedby="any" left="2ch" right="2ch" border="thin solid #5fd75f" border-radius="1ch" padding="0 1ch" background-color="#1c1c1c" testId="key-dialog"
+      dialog id="keys" closedby="any" cancel=dropKey left="2ch" right="2ch" border="thin solid #5fd75f" border-radius="1ch" padding="0 1ch" background-color="#1c1c1c" testId="key-dialog"
         text "Add an API key" font-weight=700 color="#5fd75f"
         text "Saved to ~/.config/exact-harness/keys, readable only by you. It never enters the transcript." color="#6c6c6c"
         row gap="2ch" margin-top="1lh"
@@ -308,7 +312,7 @@ component Harness
             text (keyFor == "openai" ? "● OpenAI" : "○ OpenAI")
         row margin-top="1lh"
           text "key › " white-space="pre" color="#5fd75f" flex-shrink=0
-          input type="password" appearance="none" value=keyDraft input=writeKey submit=saveKey autofocus=true placeholder="paste your key, then Enter" flex-grow=1 testId="key-input"
+          input type="password" value=keyDraft input=writeKey submit=saveKey autofocus=true placeholder="paste your key, then Enter" flex-grow=1 testId="key-input"
         text "shift+tab or click for the provider · enter to save · esc to cancel" color="#6c6c6c"
 
 // The transcript: one log child per entry, each known by its `id` (which
@@ -393,6 +397,10 @@ component EntryView
         row
           text (e.busy ? `${star(tick)} ` : "⏺ ") white-space="pre" color=(e.busy ? "#d78700" : "#d0d0d0") flex-shrink=0
           column flex-grow=1 min-width=0
+            // Which model answered: a turn keeps the one it started with
+            // (LLP 1101.002 §0 P12).
+            when e.model != ""
+              text e.model color="#6c6c6c" font-style="italic"
             each b, i in e.blocks key=i
               BlockView(b=b, first=i == 0)
       else when e.kind == "more"

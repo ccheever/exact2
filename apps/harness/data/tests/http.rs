@@ -5,6 +5,7 @@
 
 use exact_plan::Value;
 use exact_runner::DataSource;
+use harness_data::shapes::{Ack, ContractValue, Session};
 use harness_data::{Harness, Options};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
@@ -71,18 +72,8 @@ fn serve(listener: TcpListener, bodies: Arc<Mutex<Vec<String>>>) {
     }
 }
 
-fn record(v: &Value) -> &[Value] {
-    match v {
-        Value::Record(f) => f,
-        other => panic!("{other:?}"),
-    }
-}
-
-fn list(v: &Value) -> Vec<Value> {
-    match v {
-        Value::List(items) => items.iter().cloned().collect(),
-        other => panic!("{other:?}"),
-    }
+fn session(h: &mut Harness) -> Session {
+    Session::from_value(&h.query("session", &[]).unwrap()).expect("a Session")
 }
 
 #[test]
@@ -96,44 +87,37 @@ fn an_openai_compatible_stream_drives_a_turn() {
     std::env::set_var("EXACT_HARNESS_OLLAMA_MODEL", "fake");
 
     let mut h = Harness::with_options(Options::offline(None));
-    let ack = h.query("setModel", &[Value::str("ollama:fake")]).unwrap();
-    assert_eq!(record(&ack)[0], Value::Bool(true));
+    let ack = Ack::from_value(&h.query("setModel", &[Value::str("ollama:fake")]).unwrap());
+    assert_eq!(ack, Some(Ack { ok: true }));
     h.query("submit", &[Value::str("look around")]).unwrap();
     let start = Instant::now();
-    let session = loop {
-        let s = h.query("session", &[]).unwrap();
-        if record(&s)[4] == Value::Bool(false) {
+    let s = loop {
+        let s = session(&mut h);
+        if !s.busy {
             break s;
         }
         assert!(start.elapsed() < Duration::from_secs(20), "never idle");
         std::thread::sleep(Duration::from_millis(5));
     };
-    let fields = record(&session);
-    let kinds: Vec<String> = list(&fields[9])
-        .iter()
-        .map(|e| record(e)[1].as_str().unwrap().to_string())
-        .collect();
+    let kinds: Vec<&str> = s.entries.iter().map(|e| e.kind.as_str()).collect();
     assert_eq!(kinds, ["banner", "user", "assistant", "tool", "assistant"]);
-    let tool = list(&fields[9])[3].clone();
-    assert_eq!(record(&tool)[3], Value::str("List(.)"));
-    assert_eq!(record(&tool)[4], Value::str("ok"));
+    assert_eq!(s.entries[3].title, "List(.)");
+    assert_eq!(s.entries[3].status, "ok");
+    assert_eq!(s.entries[2].model, "Ollama fake");
     // Tokens: 100 + 180 in, 20 + 5 out; the gauge reads the last request.
-    assert_eq!(fields[6], Value::Number(280.0));
-    assert_eq!(fields[7], Value::Number(25.0));
-    assert_eq!(fields[8], Value::Number(0.09));
+    assert_eq!(s.tokens_in, 280.0);
+    assert_eq!(s.tokens_out, 25.0);
+    assert_eq!(s.context_pct, 0.09);
 
     // A refused request is an error entry, and the session is idle again.
     h.query("submit", &[Value::str("again")]).unwrap();
     let start = Instant::now();
     loop {
-        let s = h.query("session", &[]).unwrap();
-        let entries = list(&record(&s)[9]);
-        let last = record(entries.last().unwrap());
-        if last[1] == Value::str("error") {
-            let block = record(&list(&last[5])[0]).to_vec();
-            let run = record(&list(&block[4])[0]).to_vec();
-            assert_eq!(run[0], Value::str("HTTP 401: bad key"));
-            assert_eq!(record(&s)[4], Value::Bool(false));
+        let s = session(&mut h);
+        let last = s.entries.last().unwrap();
+        if last.kind == "error" {
+            assert_eq!(last.blocks[0].runs[0].text, "HTTP 401: bad key");
+            assert!(!s.busy);
             break;
         }
         assert!(start.elapsed() < Duration::from_secs(20), "no error entry");

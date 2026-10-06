@@ -272,7 +272,7 @@ pub fn flush_escape(decoder: &mut Decoder) -> Vec<Input> {
 }
 
 /// The inline writer's memory of what it already put on the screen.
-struct Inline {
+pub(crate) struct Inline {
     /// Transcript children already printed into scrollback, by identity,
     /// and the `id` of the last one, which the app reads to retire them.
     printed: std::collections::HashSet<exact_kernel::NodeKey>,
@@ -287,20 +287,46 @@ struct Inline {
     /// What the last frame showed: generation, size.
     shown: Option<(u64, usize, usize)>,
     protocol: Protocol,
-    /// The live region as last written, and its boxes for hit-testing.
+    /// The live region as last written.
     last: Option<crate::grid::Grid>,
-    hits: Vec<(exact_kernel::ViewId, crate::grid::CellRect)>,
-    scrollers: Vec<(exact_kernel::ViewId, crate::grid::CellRect, f32)>,
-    /// Mouse reporting is on (only while a dialog is open, LLP 1101.001):
-    /// the cursor row inside the region at each position query still
-    /// unanswered, and the region's top screen row from the last answer.
+    /// Mouse reporting is on (only while a dialog is open, LLP 1101.001),
+    /// and the cursor row inside the region at each position query still
+    /// unanswered: the answer places the presented painting on the screen.
     mouse: bool,
     queries: std::collections::VecDeque<usize>,
-    top: Option<usize>,
 }
 
 impl Inline {
-    fn frame<D: DataSource>(&mut self, host: &mut Host<D>, out: &mut String) {
+    /// A writer that has written nothing.
+    pub(crate) fn new(protocol: Protocol) -> Inline {
+        Inline {
+            printed: std::collections::HashSet::new(),
+            through: String::new(),
+            log: None,
+            printed_any: false,
+            live: 0,
+            cursor_row: 0,
+            shown: None,
+            protocol,
+            last: None,
+            mouse: false,
+            queries: std::collections::VecDeque::new(),
+        }
+    }
+
+    /// The `id` of the last transcript child written to scrollback.
+    pub(crate) fn through(&self) -> &str {
+        &self.through
+    }
+
+    /// Position queries asked and not yet answered.
+    pub(crate) fn unanswered(&self) -> usize {
+        self.queries.len()
+    }
+}
+
+impl Inline {
+    pub(crate) fn frame<D: DataSource>(&mut self, host: &mut Host<D>, out: &mut String) {
         let (cols, rows) = host.size();
         if self.shown == Some((host.generation, cols, rows)) {
             return;
@@ -322,7 +348,9 @@ impl Inline {
             if self.cursor_row > 0 {
                 out.push_str(&format!("\x1b[{}A", self.cursor_row));
             }
-            out.push_str("\x1b[H\x1b[2J\x1b[3J");
+            // The screen only: the terminal's scrollback holds the person's
+            // own history too, which a new transcript has no right to erase.
+            out.push_str("\x1b[H\x1b[2J");
             self.printed.clear();
             self.cursor_row = 0;
             self.last = None;
@@ -365,8 +393,6 @@ impl Inline {
         }
         let top = bottom_of(through);
         let live_total = total.saturating_sub(top);
-        // An open dialog is anchored to the region's bottom; the region
-        // grows down (new rows) to fit it, never up over printed rows.
         // An open dialog goes below the live content, anchored to the
         // region's bottom; the region grows down into new rows to hold it,
         // never up over what is printed.
@@ -410,9 +436,8 @@ impl Inline {
             out.push_str(&format!("\x1b[{}G\x1b[5 q\x1b[?25h", cx + 1));
         }
         self.cursor_row = target_row;
+        host.present(&painted, None);
         self.last = Some(painted.grid);
-        self.hits = painted.hits;
-        self.scrollers = painted.scrollers;
         // Clicks only while a dialog is open; scroll and selection are the
         // terminal's the rest of the time.
         let want = host.has_layer();
@@ -423,9 +448,10 @@ impl Inline {
                 "\x1b[?1006l\x1b[?1000l"
             });
             self.mouse = want;
-            self.top = None;
         }
-        if self.mouse {
+        // Where the region is on the screen: asked while clicks matter and
+        // after a resize, when the terminal has reflowed what is above.
+        if self.mouse || resized {
             out.push_str("\x1b[6n");
             self.queries.push_back(self.cursor_row);
         }
@@ -434,23 +460,9 @@ impl Inline {
 
     /// A position answer: the region's top is the answered row less the
     /// cursor's row in the region when it was asked.
-    fn answered(&mut self, row: usize) {
+    pub(crate) fn answered<D: DataSource>(&mut self, host: &mut Host<D>, row: usize) {
         if let Some(in_region) = self.queries.pop_front() {
-            self.top = Some((row - 1).saturating_sub(in_region));
-        }
-    }
-
-    /// A click at a screen cell, if it lands in the live region.
-    fn click<D: DataSource>(&self, host: &mut Host<D>, x: i32, y: i32) {
-        if let Some(top) = self.top {
-            host.click_in(&self.hits, x, y - top as i32);
-        }
-    }
-
-    /// A wheel at a screen cell, if it lands in the live region.
-    fn wheel<D: DataSource>(&self, host: &mut Host<D>, x: i32, y: i32, rows: i32) {
-        if let Some(top) = self.top {
-            host.wheel_in(&self.scrollers, x, y - top as i32, rows);
+            host.anchor((row as i32 - 1 - in_region as i32).max(0));
         }
     }
 
@@ -497,6 +509,21 @@ impl Inline {
 }
 
 /// The terminal's record for the app, `exactSurface("terminal")`.
+/// A JSON string's contents: quotes, backslashes and controls escaped, so
+/// an id round-trips unchanged.
+fn json_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 pub(crate) fn record(mode: Mode, images: Protocol, printed: &str) -> String {
     let mode = if mode == Mode::Inline {
         "inline"
@@ -508,10 +535,7 @@ pub(crate) fn record(mode: Mode, images: Protocol, printed: &str) -> String {
         Protocol::Iterm => "iterm",
         Protocol::Blocks => "blocks",
     };
-    let printed: String = printed
-        .chars()
-        .filter(|c| !c.is_control() && *c != '"' && *c != '\\')
-        .collect();
+    let printed = json_string(printed);
     format!(
         "{{\"mode\":\"{mode}\",\"images\":\"{images}\",\"colors\":24,\"printed\":\"{printed}\"}}"
     )
@@ -565,22 +589,7 @@ fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
     let mut parser = Parser::new();
     let mut decoder = Decoder::default();
     let mut shown: Option<crate::grid::Grid> = None;
-    let mut inline = Inline {
-        printed: std::collections::HashSet::new(),
-        through: String::new(),
-        log: None,
-        printed_any: false,
-        live: 0,
-        cursor_row: 0,
-        shown: None,
-        protocol: Protocol::detect(),
-        last: None,
-        hits: Vec::new(),
-        scrollers: Vec::new(),
-        mouse: false,
-        queries: std::collections::VecDeque::new(),
-        top: None,
-    };
+    let mut inline = Inline::new(Protocol::detect());
     let mut buf = [0u8; 8192];
     let mut published = String::new();
     host.publish(&record(mode, inline.protocol, ""));
@@ -598,14 +607,7 @@ fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
                     shown = Some(grid.clone());
                 }
             }
-            Mode::Inline => {
-                inline.frame(host, &mut out);
-                // Tell the app what is in scrollback now, so it can let go.
-                if inline.through != published {
-                    published = inline.through.clone();
-                    host.publish(&record(mode, inline.protocol, &published));
-                }
-            }
+            Mode::Inline => inline.frame(host, &mut out),
         }
         if host.quitting() {
             if mode == Mode::Inline {
@@ -619,6 +621,12 @@ fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
             stdout.write_all(out.as_bytes())?;
             stdout.flush()?;
             host.frames += 1;
+        }
+        // Tell the app what is in scrollback now that the bytes are out,
+        // so it can let go (LLP 1101.001 P1; 1101.002 §0 P5).
+        if mode == Mode::Inline && inline.through != published {
+            published = inline.through.clone();
+            host.publish(&record(mode, inline.protocol, &published));
         }
         // Sleep until input, a wake, the next timer, or a size check.
         let wait = host
@@ -677,10 +685,8 @@ fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
                         return Ok(());
                     }
                 }
-                Input::Click(x, y) if mode == Mode::Inline => inline.click(host, x, y),
                 Input::Click(x, y) => host.click(x, y),
-                Input::CursorAt(row, _) => inline.answered(row),
-                Input::Wheel(x, y, rows) if mode == Mode::Inline => inline.wheel(host, x, y, rows),
+                Input::CursorAt(row, _) => inline.answered(host, row),
                 Input::Wheel(x, y, rows) => host.wheel(x, y, rows),
                 Input::Paste(text) => host.paste(&text),
             }
@@ -743,147 +749,5 @@ mod tests {
             decode(&mut p, &mut d, b"q\x7fline two\x1b[201~"),
             vec![Input::Paste("line one\nqline two".into())]
         );
-    }
-
-    /// The inline writer through a VT emulator (LLP 1101.001 P14): what
-    /// a terminal shows, not what the headless `print` draws.
-    mod writer {
-        use super::super::*;
-
-        const APP: &str = "component App\n  state items = [\"one\", \"two\"]\n  state busy = true\n  state tick = 0\n  action add\n    items = concat(items, [`item ${length(items)}`])\n  action spin\n    tick = tick + 1\n  action settle\n    busy = false\n  view\n    column\n      column role=\"log\"\n        each it, i in items key=i\n          text it id=`e${i}`\n        when busy\n          text `working ${tick}` aria-busy=true id=\"tail\"\n      text \"prompt\"\n";
-
-        struct Screen {
-            vt: vt100::Parser,
-            scrolled: Vec<String>,
-        }
-
-        impl Screen {
-            fn feed(&mut self, bytes: &str) {
-                for chunk in bytes.as_bytes().chunks(16) {
-                    self.vt.process(chunk);
-                    self.vt.set_scrollback(usize::MAX);
-                    let len = self.vt.screen().scrollback();
-                    self.vt.set_scrollback(0);
-                    let new = len.saturating_sub(self.scrolled.len());
-                    if new > 0 {
-                        self.vt.set_scrollback(new);
-                        let text = self.vt.screen().contents();
-                        self.scrolled
-                            .extend(text.lines().take(new).map(str::to_string));
-                        self.vt.set_scrollback(0);
-                    }
-                }
-            }
-            fn all(&self) -> String {
-                format!(
-                    "{}\n{}",
-                    self.scrolled.join("\n"),
-                    self.vt.screen().contents()
-                )
-            }
-        }
-
-        fn writer() -> Inline {
-            Inline {
-                printed: std::collections::HashSet::new(),
-                through: String::new(),
-                log: None,
-                printed_any: false,
-                live: 0,
-                cursor_row: 0,
-                shown: None,
-                protocol: Protocol::Blocks,
-                last: None,
-                hits: Vec::new(),
-                scrollers: Vec::new(),
-                mouse: false,
-                queries: std::collections::VecDeque::new(),
-                top: None,
-            }
-        }
-
-        const PICKER: &str = "component App\n  state picked = \"none\"\n  action pick(v: string)\n    picked = v\n  action open\n    showModal(\"d\")\n  view\n    column\n      column role=\"log\"\n        text \"line one\" id=\"a\"\n        text \"line two\" id=\"b\"\n      text `picked ${picked}`\n      dialog id=\"d\" closedby=\"any\"\n        each v in [\"alpha\", \"beta\", \"gamma\", \"delta\"] key=v\n          button press=pick(v) commandfor=\"d\" command=\"close\" text-align=\"start\"\n            text v\n";
-
-        /// A click on a dialog item lands on that item: the writer locates
-        /// its live region by the terminal's answer to a cursor query, as a
-        /// real terminal gives it (here, vt100's).
-        #[test]
-        fn an_inline_click_hits_the_item_under_it() {
-            let plan = contract::compile(PICKER).expect("compiles");
-            let mut host = Host::boot(plan, (), Mode::Inline, 30, 12).expect("boots");
-            host.arm = false;
-            let mut screen = Screen {
-                vt: vt100::Parser::new(12, 30, 1000),
-                scrolled: Vec::new(),
-            };
-            let mut inline = writer();
-            // Some history first, so the region is not at the screen's top.
-            for _ in 0..3 {
-                let mut out = String::new();
-                inline.frame(&mut host, &mut out);
-                screen.feed(&out);
-                for _ in 0..out.matches("\x1b[6n").count() {
-                    inline.answered(screen.vt.screen().cursor_position().0 as usize + 1);
-                }
-                host.act("open");
-            }
-            let contents = screen.vt.screen().contents();
-            let (y, line) = contents
-                .lines()
-                .enumerate()
-                .find(|(_, l)| l.contains("gamma"))
-                .expect("the dialog is on screen");
-            let x = line.find("gamma").expect("gamma") as i32;
-            inline.click(&mut host, x, y as i32);
-            let mut out = String::new();
-            inline.frame(&mut host, &mut out);
-            screen.feed(&out);
-            assert!(screen.all().contains("picked gamma"), "{}", screen.all());
-        }
-
-        #[test]
-        fn settled_rows_are_written_once_and_a_tick_costs_bytes() {
-            let plan = contract::compile(APP).expect("compiles");
-            let mut host = Host::boot(plan, (), Mode::Inline, 30, 4).expect("boots");
-            let mut screen = Screen {
-                vt: vt100::Parser::new(4, 30, 1000),
-                scrolled: Vec::new(),
-            };
-            let mut inline = writer();
-            let mut frame = |host: &mut Host<()>, screen: &mut Screen| {
-                let mut out = String::new();
-                inline.frame(host, &mut out);
-                screen.feed(&out);
-                out
-            };
-            frame(&mut host, &mut screen);
-            for _ in 0..6 {
-                host.act("add");
-                frame(&mut host, &mut screen);
-            }
-            // A spinner tick changes one cell of the live region.
-            host.act("spin");
-            let tick = frame(&mut host, &mut screen);
-            assert!(
-                tick.len() < 120,
-                "a tick wrote {} bytes: {tick:?}",
-                tick.len()
-            );
-            assert!(
-                !tick.contains("item"),
-                "a tick re-sent settled rows: {tick:?}"
-            );
-            host.act("settle");
-            frame(&mut host, &mut screen);
-            let all = screen.all();
-            for item in ["one", "two", "item 2", "item 3", "item 7"] {
-                let count = all.lines().filter(|l| l.trim() == item).count();
-                assert_eq!(count, 1, "{item:?} appears {count} times in:\n{all}");
-            }
-            assert!(
-                !all.contains("working"),
-                "the busy tail went away when it settled:\n{all}"
-            );
-        }
     }
 }

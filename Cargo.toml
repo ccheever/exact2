@@ -18,6 +18,9 @@ default-members = [
     "apps/markdown/parse", "apps/markdown-stress/data", "apps/textflow/data", "apps/typetour/data",
     "apps/update-lab/data", "apps/video-player/data", "apps/sparkline/data", "apps/svg-gallery/data", "apps/carousel/data", "apps/motion-gallery/data", "apps/spark/data",
     "apps/shared-elements/data",
+    # The terminal host, an official platform (LLP 1101); its writer tests
+    # run against a terminal emulator (LLP 1101.002 §0 P2).
+    "host/terminal",
 ]
 # Vendored path dependencies are built, not linted or tested here.
 exclude = ["vendor", "snapback4", "apps/messages-legacy"]

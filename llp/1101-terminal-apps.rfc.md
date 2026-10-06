@@ -379,6 +379,21 @@ plan:
   argument is already read as the location (LLP 1015 §1, `exact_route`), so
   routes work unchanged.
 
+**Inline, as built** (LLP 1101.001; its layer rule is LLP 1101.002 §0 P6).
+The settled children of a `role="log"`, up to its first `aria-busy` child,
+are printed once into the terminal's scrollback; everything below is the
+live region, redrawn in place. An open dialog or popover in inline mode
+goes below the live content, anchored to the region's bottom: the region
+grows downward into new rows, pushing older rows into scrollback, and never
+upward over printed rows. Those rows belong to the terminal now, and
+painting over them erases what the person may be reading or has selected.
+The first two implementations got this wrong both ways: one put a closed
+dialog in flow, where it took rows, and one centered an open dialog over
+printed rows. A layer taller than the screen scrolls inside itself (a
+`max-height` and a `scroll`), and clicks reach it only while it is open,
+since the mouse is the terminal's (selection, scrolling) the rest of the
+time.
+
 A plain CLI with flags and no view is out of scope. That is the data module
 invoked with arguments, a different program shape from anything Contract
 describes.

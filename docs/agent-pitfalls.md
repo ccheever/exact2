@@ -655,3 +655,15 @@ guide's rules don't make obvious.
   Flush ranks before capture and disable actions for that flush, including
   mirror writes. A same-batch texture upload then sees the new front sibling.
   (LLP 1083.000, Astra 6 regression.)
+- **A sub-agent's half-written crate breaks every build in the worktree.**
+  Cause: a crate listed in the root `Cargo.toml`'s `members` is resolved by
+  every `cargo` command, so one that does not parse or compile yet stops
+  builds that never touch it (about ten minutes of the harness's build, LLP
+  1101.002 §0 P15). Fix: list it in `exclude` while it is written, which lets
+  `cargo build --manifest-path <it>/Cargo.toml` build it alone, and move it
+  to `members` once that passes.
+- **"I opened it in a terminal" is not "it is running".** `open -na
+  Ghostty.app --args -e …` can return success while the window reports "The
+  terminal failed to initialize". Before telling a person the app is up,
+  confirm its process (`pgrep -f <binary>`) and kill a failed window's
+  instance before retrying (LLP 1101.002 §0 P16).

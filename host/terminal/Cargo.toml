@@ -33,7 +33,6 @@ unicode-segmentation = "1.13"
 unicode-width = "0.2"
 # Input bytes into CSI/OSC/key events (LLP 1101 D9).
 vte = "0.15"
-
-[dev-dependencies]
-# The writer checked against a terminal emulator (LLP 1101 §5).
+# The headless screen: what the agent reads is a terminal emulator's
+# (LLP 1101.002 §0 P1); the writer's tests check against it too.
 vt100 = "0.15"

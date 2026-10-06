@@ -7,7 +7,12 @@
 //! `tap <testId>`, `type <testId> <text>`, `key <Name>`, `paste <text>`,
 //! `wheel <testId> <rows>`, `resize <COLSxROWS>`, `wait <ms>`,
 //! `until <text>` (wait up to 15 s for the screen to show it), `tree`,
-//! `screenshot <file.txt|file.ans>`, `print` (inline: the whole document).
+//! `screenshot <file.txt|file.ans>`, `print [--all]` (the screen; `--all`
+//! puts the scrollback above it), `document` (the whole laid-out document).
+//!
+//! Headless, frames go into a terminal emulator, and those verbs read its
+//! screen: what a person would see (LLP 1101.002 §0 P1). `tap`, `type` and
+//! `wheel` refuse a node that is not on it.
 
 use crate::host::{Host, Key, Mode};
 use exact_runner::DataSource;
@@ -109,16 +114,14 @@ fn tree<D: DataSource>(host: &Host<D>) -> String {
     out
 }
 
-fn screen<D: DataSource>(host: &mut Host<D>, ansi: bool) -> String {
+/// The whole laid-out document, as the host sees it rather than as a
+/// terminal shows it: the `document` verb.
+fn document<D: DataSource>(host: &mut Host<D>) -> String {
     let grid = match host.mode {
         Mode::Fullscreen => host.frame().grid.clone(),
         Mode::Inline => host.render(0, host.document_rows().max(1)).grid,
     };
-    if ansi {
-        grid.ansi()
-    } else {
-        grid.text()
-    }
+    grid.text()
 }
 
 /// Run an app: `entry` is the default `.contract` (or `.plan`) when the
@@ -190,59 +193,78 @@ pub fn run<D: DataSource>(
             }
         };
     }
-    // Headless: the agent's verbs wait explicitly, so keys arm at once.
-    host.arm = false;
-    host.publish(&crate::term::record(
-        host.mode,
-        crate::image::Protocol::detect(),
-        "",
-    ));
+    // Headless: the frames go into a terminal emulator, which the verbs
+    // read. Keys stay armed: each verb is one read, against the screen as
+    // the last verb left it (LLP 1101.002 §0 P1).
+    let mut vt = crate::vt::Vt::new(&mut host);
     // Announcements land at the next wait.
     let woken = Arc::new(AtomicBool::new(true));
     let flag = woken.clone();
     host.listen(Arc::new(move || flag.store(true, Ordering::SeqCst)));
     let start = Instant::now();
-    let pump = |host: &mut Host<D>| {
+    let pump = |host: &mut Host<D>, vt: &mut crate::vt::Vt| {
         if woken.swap(false, Ordering::SeqCst) {
             host.announced();
         }
         host.tick(start.elapsed().as_secs_f64() * 1000.0);
+        vt.render(host);
     };
-    pump(&mut host);
+    pump(&mut host, &mut vt);
     if args.is_empty() {
         args.push("print".into());
     }
-    let mut ops = args.into_iter();
+    let mut ops = args.into_iter().peekable();
     while let Some(op) = ops.next() {
         let mut arg = || ops.next().unwrap_or_default();
+        host.read_at = host.frames;
         match op.as_str() {
             "tap" => {
                 let id = arg();
                 match host.by_test_id(&id) {
-                    Some(v) => host.press(v),
-                    None => eprintln!("tap: no node #{id}"),
+                    Some(v) if host.on_screen(v) => host.press(v),
+                    Some(_) => {
+                        eprintln!("tap: #{id} is not on the screen");
+                        return ExitCode::FAILURE;
+                    }
+                    None => {
+                        eprintln!("tap: no node #{id}");
+                        return ExitCode::FAILURE;
+                    }
                 }
             }
             "type" => {
                 let (id, text) = (arg(), arg());
                 match host.by_test_id(&id) {
-                    Some(v) => {
+                    Some(v) if host.on_screen(v) => {
                         host.press(v);
                         for c in text.chars() {
                             host.key(Key::Char(c));
                         }
                     }
-                    None => eprintln!("type: no node #{id}"),
+                    Some(_) => {
+                        eprintln!("type: #{id} is not on the screen");
+                        return ExitCode::FAILURE;
+                    }
+                    None => {
+                        eprintln!("type: no node #{id}");
+                        return ExitCode::FAILURE;
+                    }
                 }
             }
             "key" => {
-                host.key(key_of(&arg()));
+                if host.key(key_of(&arg())) == crate::host::After::Quit {
+                    break;
+                }
             }
             "paste" => host.paste(&arg()),
             "wheel" => {
                 let (id, n) = (arg(), arg());
-                if let Some(r) = host.by_test_id(&id).and_then(|v| host.cells_of(v)) {
-                    host.wheel(r.x, r.y, n.parse().unwrap_or(1));
+                let moved = host
+                    .by_test_id(&id)
+                    .is_some_and(|v| host.wheel_on(v, n.parse().unwrap_or(1)));
+                if !moved {
+                    eprintln!("wheel: no scroller on the screen holds #{id}");
+                    return ExitCode::FAILURE;
                 }
             }
             "resize" => {
@@ -254,15 +276,15 @@ pub fn run<D: DataSource>(
                 let until = Instant::now() + Duration::from_millis(arg().parse().unwrap_or(100));
                 while Instant::now() < until {
                     std::thread::sleep(Duration::from_millis(5));
-                    pump(&mut host);
+                    pump(&mut host, &mut vt);
                 }
             }
             "until" => {
                 let want = arg();
                 let until = Instant::now() + Duration::from_secs(15);
                 loop {
-                    pump(&mut host);
-                    if screen(&mut host, false).contains(&want) {
+                    pump(&mut host, &mut vt);
+                    if vt.text(true).contains(&want) {
                         break;
                     }
                     if Instant::now() > until {
@@ -273,15 +295,31 @@ pub fn run<D: DataSource>(
                 }
             }
             "tree" => print!("{}", tree(&host)),
-            "print" => print!("{}", screen(&mut host, false)),
+            "print" => {
+                let all = ops.next_if(|a| a == "--all").is_some();
+                print!("{}", vt.text(all));
+            }
+            "document" => print!("{}", document(&mut host)),
             "screenshot" => {
                 let file = arg();
-                let body = screen(&mut host, file.ends_with(".ans"));
+                let body = if file.ends_with(".ans") {
+                    vt.ansi()
+                } else {
+                    vt.text(false)
+                };
                 if let Err(e) = std::fs::write(&file, body) {
                     eprintln!("screenshot: {e}");
                 }
             }
-            other => eprintln!("unknown operation {other:?}"),
+            other => {
+                eprintln!("unknown operation {other:?}");
+                return ExitCode::FAILURE;
+            }
+        }
+        pump(&mut host, &mut vt);
+        if vt.unanswered() > 0 {
+            eprintln!("{op}: the writer is waiting on a position answer it never got");
+            return ExitCode::FAILURE;
         }
     }
     ExitCode::SUCCESS

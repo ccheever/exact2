@@ -141,6 +141,8 @@ pub enum RunnerError {
     },
     Shape {
         resource: String,
+        /// Where the answer first differs from the declared shape.
+        why: String,
     },
     UnknownView(ViewId),
     /// A typed host event carries invalid numeric values. No action ran.
