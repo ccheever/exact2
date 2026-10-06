@@ -1,10 +1,10 @@
 ---
 name: 20261005-x35-secure-text-entry
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap (unconfirmed)
 blocks: [20261005-managed-codex-chatgpt, 20261005-provider-settings-upkeep, 20261005-provider-sign-in-and-install, 20261005-ssh-password-and-remote-open]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/134
 reproduced_on: null
 ---
 
@@ -73,5 +73,4 @@ Under A: the SSH password dialog uses the Contract field and drops the native se
 
 ## Status and next action
 
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (check the capability on the pin first; if it already exists, record it and close this issue; otherwise reproduce, search for duplicates and prepare the report for the user's approval; publication only after approval).
+Filed as #134; closed by main #167: an `input type="password"`'s value is `•••` in `tree`, `layout` and the `type` reply on every host, and `autocomplete` sets the AutoFill content type. The clone's provider and Bitbucket password inputs are masked with no change. task `20261007-adopt-main-fixes-input` kept the SSH dialog's native secure field: a Contract field needs its value in a state slot, and main's docs say agent `state` prints slots ("the app's own"), so the password would appear in a `state` reply and in drive transcripts. Still missing upstream: masking a password field's bound slot in agent `state` (or a field whose value is read only on submit).

@@ -92,7 +92,7 @@ Checked sources and time: plan issue drafts in [issues](../issues/README.md), 20
 | --- | --- | --- | --- | --- |
 | [X8](../issues/20261005-x08-agent-pointer-native-views.md) | Pointer phases for native views in the agent | `EXACT2-GAPS.md` X8 | nonblocking (workaround: `(attended session)` rows) | Keep mouse, wheel and IME rows attended |
 | [X25](../issues/20261005-x25-keyboard-keyup-code-capture.md) | keyup, `code`, capture phase for keys | `EXACT2-GAPS.md` X25 | nonblocking (workaround: native key monitors) | S1 shows the real path |
-| [X15](../issues/20261005-x15-non-latin-key-equivalents.md) | Chords under a non-Latin input source | `R10Connect.swift` re-issues chords | nonblocking | S7 checks ⌃C under Korean 2-Set |
+| [X15](../issues/20261005-x15-non-latin-key-equivalents.md) | Chords under a non-Latin input source | `R10Connect.swift` re-issues chords | nonblocking | S7 checks ⌃C under Korean 2-Set 2026-10-07: #110 closed by main #168, which covers declared chords and the host's command items only; `R10Connect.swift` and the key-code fallbacks stay (adopt-main-fixes-input). |
 | `EXACT2-GAPS.md` X2 option 3 | Inspectable web views in development builds | Not reproduced | nonblocking | S9 |
 | new — record at prepare | Agent text/key input into a native web view; agent screenshot of web view content | Unknown in the library | blocking for agent rows only if S4 fails; else none | S4, S5 decide; rows become attended on failure |
 
