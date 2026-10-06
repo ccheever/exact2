@@ -36,8 +36,10 @@ pub trait Game: 'static {
     /// reaches the hash; once loaded they stay resident. One an entity shows is
     /// fetched on sight, the rest when `prefetch` asks for them.
     const STREAMED: &'static [&'static str] = &[];
-    /// One typed JSON value required before setup; declares its own asset name.
-    const LEVEL: Option<crate::asset::Level> = None;
+    /// Typed JSON files required before setup, each declaring its own asset
+    /// name: simulation data (`Level::of`, read by `World::level`, its identity
+    /// saved) or presentation data (`Level::shown`, read only by `present`).
+    const LEVELS: &'static [crate::asset::Level] = &[];
     /// Canvas argument declarations in positional order; also declares exact arity.
     type Args: Args;
     /// Whether to fetch the `STREAMED` name before anything shows it, under these
@@ -263,7 +265,7 @@ impl<G: Game> Sim<G> {
         world.assets = assets;
         world.assets.declared_by = Some(crate::asset::level::declared_by::<G>);
         world.assets.restart_generated();
-        if !G::ASSETS.is_empty() || G::LEVEL.is_some() {
+        if !G::ASSETS.is_empty() || !G::LEVELS.is_empty() {
             for name in crate::asset::level::names::<G>() {
                 if !world.assets.declared.contains(name) {
                     world.assets.declared.insert(name.into());

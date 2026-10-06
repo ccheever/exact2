@@ -1111,8 +1111,8 @@ fn a_level_declares_its_asset_requirement_without_a_model_list() {
     struct LevelOnly;
     impl Game for LevelOnly {
         const ID: &'static str = "level-only-surface";
-        const LEVEL: Option<exact_game::asset::Level> =
-            Some(exact_game::asset::Level::of::<u32>("seed.level.json"));
+        const LEVELS: &'static [exact_game::asset::Level] =
+            &[exact_game::asset::Level::of::<u32>("seed.level.json")];
         type Args = ();
         fn setup(w: &mut World, _: &()) {
             let seed = w.level::<u32>("seed.level.json").unwrap();

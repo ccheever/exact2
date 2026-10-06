@@ -8,10 +8,7 @@ mod feedback;
 pub mod garden;
 pub mod hud;
 mod looks;
-mod models;
 mod pass;
-mod scenery;
-mod sculpt;
 pub mod shop;
 
 use exact_game::character::Character;
@@ -50,7 +47,7 @@ const STATUS_MS: u64 = 1000;
 #[derive(Default, Resource)]
 pub struct Shown {
     pub second: u64,
-    pub prompt: String,
+    pub prompt: hud::Prompt,
     pub tile: Option<[u16; 2]>,
     pub events: u64,
     pub at_barrel: bool,
@@ -62,12 +59,23 @@ impl Game for Garden {
     /// A garden does not need 120 Hz: walking interpolates, and every tick
     /// of an hour-long `clock +N` seek is paid for.
     const HZ: u32 = 30;
-    /// The art pass's baked models: never awaited, and fetched only for the
+    /// Every look's baked models: never awaited, and fetched only for the
     /// look that draws them (`prefetch`), so the others never download them.
     const STREAMED: &'static [&'static str] = pass::MODELS;
+    /// The balance (simulation: its identity is in every save) and every
+    /// look's palette, lighting and camera (presentation: in none).
+    const LEVELS: &'static [asset::Level] = &[
+        asset::Level::of::<crops::Balance>(crops::BALANCE),
+        asset::Level::shown::<looks::Looks>(looks::LOOKS),
+    ];
     type Args = Options;
-    fn prefetch(_: &str, args: &Options) -> bool {
-        args.art == "pass"
+    fn prefetch(name: &str, args: &Options) -> bool {
+        let look = |tag: &str| name.strip_prefix(tag).is_some_and(|n| n.starts_with('-'));
+        match args.art.as_str() {
+            "pass" => !look("golden") && !look("storybook"),
+            art @ ("golden" | "storybook") => look(art),
+            _ => false,
+        }
     }
     fn actions() -> Actions {
         Actions::new()
@@ -95,36 +103,21 @@ impl Game for Garden {
     }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
-        w.insert_resource(Environment {
-            zenith: [0.18, 0.38, 0.60],
-            horizon: [0.62, 0.76, 0.67],
-            ground: [0.12, 0.16, 0.07],
-            ambient: 0.45,
-            exposure: 0.9,
-            fog: Some(Fog {
-                color: Some([0.62, 0.76, 0.67]),
-                ..Fog::new(0.0025, 0.04)
-            }),
-            ..Environment::default()
-        });
-        w.insert_resource(AmbientOcclusion {
-            radius: 0.6,
-            intensity: 0.8,
-            ..AmbientOcclusion::default()
-        });
+        // Every look draws its own sky, occlusion and sun (`present`).
         w.insert_resource(Schedule::default());
         w.insert_resource(GardenClock::default());
         w.insert_resource(Weather::default());
         w.insert_resource(Census::default());
         w.insert_resource(Shop::default());
-        w.insert_resource(Farm::new());
+        w.insert_resource(Farm::new(&crops::balance(w)));
         w.insert_resource(Shown::default());
+        // Every look dresses the ground with its soil (`present`).
         w.spawn_named(
             "ground",
             (
                 Transform::default(),
                 Mesh::plane(1.0, 1.0),
-                Material::grid([0.12, 0.065, 0.025], garden::TILE),
+                Material::default(),
             ),
         );
         let player = w.spawn_named(
@@ -148,10 +141,7 @@ impl Game for Garden {
             "sun",
             (
                 Transform::at(10.0, 20.0, 8.0).looking_at(Vec3::ZERO, Vec3::Y),
-                DirectionalLight {
-                    color: [1.0, 0.90, 0.72],
-                    ..DirectionalLight::default()
-                },
+                DirectionalLight::default(),
             ),
         );
         farm::create_plot_outline(w);
@@ -177,7 +167,7 @@ impl Game for Garden {
         shop::restock(w, 0);
         w.resource_mut::<Schedule>()
             .push(garden::change_after(w), Due::Weather);
-        hud::publish(w, String::new(), true);
+        hud::publish(w, true);
     }
     fn paused(args: &Options) -> bool {
         args.paused
@@ -186,6 +176,12 @@ impl Game for Garden {
         art::present(p, args);
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
+        // A development reload replaced the balance: every value is read where
+        // it is used, but the HUD's records restate prices and timings only
+        // when they are published, so they are published again now.
+        if w.take_replaced(crops::BALANCE) {
+            hud::publish(w, true);
+        }
         farm::observe_epoch(w, args.epoch);
         let now = garden::now_ms(w);
         garden::run_due(w, now);
@@ -212,7 +208,7 @@ impl Game for Garden {
         for (action, f) in [
             (
                 "water",
-                farm::water_here as fn(&World) -> Result<String, String>,
+                farm::water_here as fn(&World) -> Result<hud::Note, hud::Note>,
             ),
             ("refill", farm::refill),
             ("feed", farm::feed_here),
@@ -244,12 +240,12 @@ impl Game for Garden {
             {
                 let mut shown = w.resource_mut::<Shown>();
                 shown.second = now / STATUS_MS;
-                shown.prompt = prompt.clone();
+                shown.prompt = prompt;
                 shown.tile = tile;
                 shown.events = processed;
                 shown.at_barrel = at_barrel;
             }
-            hud::publish(w, prompt, false);
+            hud::publish(w, false);
         }
     }
 }

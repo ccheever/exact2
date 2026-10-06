@@ -7,18 +7,29 @@ use garden_logic::garden::{Census, Schedule};
 use garden_logic::{Garden, Options};
 use std::time::Instant;
 
+/// A garden whose declared data (the balance and the looks) has arrived from
+/// the game's `assets/`, as a host delivers it before setup.
+fn garden(options: Options) -> Sim<Garden> {
+    let mut sim = Sim::<Garden>::new(options).unwrap();
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+    for name in ["garden.level.json", "looks.level.json"] {
+        let bytes = std::fs::read(dir.join(name)).unwrap();
+        sim.asset(name, Some(&bytes)).unwrap();
+    }
+    sim
+}
+
 fn new(smooth: bool) -> Sim<Garden> {
     look(smooth, "")
 }
 
 fn look(smooth: bool, art: &str) -> Sim<Garden> {
-    Sim::<Garden>::new(Options {
+    garden(Options {
         seed: 1,
         smooth,
         art: art.into(),
         ..Options::default()
     })
-    .unwrap()
 }
 
 fn tick(game: &mut Sim<Garden>) {
@@ -80,18 +91,19 @@ fn sizes() -> Vec<u32> {
 #[ignore]
 fn empty_plot_guidance_at_maximum_size() {
     let mut game = new(false);
-    garden_logic::farm::resize(game.world_mut(), garden_logic::farm::MAX_SIZE);
+    let max = garden_logic::crops::balance(game.world()).farm.max_size;
+    garden_logic::farm::resize(game.world_mut(), max);
     game.tap("KeyE");
     send(&mut game, "buy carrot");
     // One real plant and 65,535 empty tiles: the lookup examines the entire
     // bounded tile table, without charging a forest of meshes to the hint.
     let t = Instant::now();
-    let mut hint = String::new();
+    let mut hint = Default::default();
     for _ in 0..1_000 {
         hint = std::hint::black_box(garden_logic::farm::planting_guidance(game.world()));
     }
     let lookup = ms(t) / 1_000.0;
-    assert!(hint.starts_with("Empty plot"));
+    assert_eq!(hint.what, "empty");
     game.world_mut().resource_mut::<Farm>().held = None;
     let idle = frames(&mut game, 600);
     game.world_mut().resource_mut::<Farm>().held = Some(0);
@@ -176,8 +188,8 @@ fn looks_at_scale() {
 /// What a look costs to start in (an empty garden), and to switch to live
 /// from classic the first time and again in a restored garden bearing every
 /// crop's fruit: the best of nine fresh games each, which a loaded machine
-/// disturbs least. A look's generated models are made when
-/// it first draws them, so a game pays for the looks it shows.
+/// disturbs least. A look's baked models are streamed while it is chosen,
+/// so a game pays for the looks it shows.
 #[test]
 #[ignore]
 fn setup_per_look() {

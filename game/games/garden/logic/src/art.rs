@@ -1,6 +1,9 @@
 //! Authored low-poly garden models. One immutable mesh per crop keeps a full
 //! field instanced; scenery adds a fixed number of entities, never one per tile.
-use crate::{crops::CROPS, garden::paint};
+use crate::{
+    crops::{balance, Crop},
+    garden::paint,
+};
 use exact_game::{
     asset::{MeshBuilder, MeshData},
     *,
@@ -184,8 +187,7 @@ fn watering_can() -> MeshData {
     m.finish()
 }
 
-fn plant(kind: usize) -> MeshData {
-    let c = &CROPS[kind];
+fn plant(c: &Crop) -> MeshData {
     let mut m = model();
     let base = -c.height * 0.5;
     let woody = c.height >= 2.0;
@@ -230,11 +232,10 @@ fn plant(kind: usize) -> MeshData {
     m.finish()
 }
 
-fn fruit(kind: usize) -> MeshData {
-    let c = &CROPS[kind];
+fn fruit(c: &Crop) -> MeshData {
     let mut m = model();
     let r = c.fruit_size;
-    match c.id {
+    match c.id.as_str() {
         "carrot" => {
             m.cone(Vec3::Y * (-r * 1.2), r * 0.08, r * 0.70, r * 2.3, [1.0; 3]);
             for y in [-0.45, 0.2, 0.65] {
@@ -417,18 +418,19 @@ pub fn setup(w: &mut World) {
             Visible(false),
         ),
     );
-    for kind in 0..CROPS.len() {
-        w.generated(&format!("plant-{kind}.model"), plant(kind))
+    for (kind, c) in balance(w).crops.iter().enumerate() {
+        w.generated(&format!("plant-{kind}.model"), plant(c))
             .expect("plant mesh");
-        w.generated(&format!("fruit-{kind}.model"), fruit(kind))
+        w.generated(&format!("fruit-{kind}.model"), fruit(c))
             .expect("fruit mesh");
     }
+    // Every look dresses the meadow (`present`).
     w.spawn_named(
         "meadow",
         (
             Transform::at(0., -0.10, 0.),
             Mesh::plane(1600., 1600.),
-            paint([0.49, 0.68, 0.34]),
+            Material::default(),
         ),
     );
     // Classic props: bare poses `classic` dresses.
@@ -461,8 +463,40 @@ pub fn present(p: &mut Present, args: &crate::Options) {
     }
 }
 
-/// The classic look: the simulation's own models, and its props dressed.
+/// The classic look: the simulation's own models, its sky, sun, soil and
+/// meadow from the looks data, and its props dressed.
 fn classic(p: &mut Present) {
+    let looks = crate::looks::looks(p);
+    let lit = &looks.classic;
+    if let Some(camera) = p.named("camera") {
+        p.insert(
+            camera,
+            DrawnEnvironment {
+                environment: lit.environment,
+                ambient_occlusion: Some(lit.occlusion),
+            },
+        );
+    }
+    if let Some(sun) = p.named("sun") {
+        p.insert(
+            sun,
+            DrawnLight::Directional(DirectionalLight {
+                color: lit.sun.color,
+                illuminance: lit.sun.illuminance,
+                shadows: true,
+            }),
+        );
+    }
+    if let Some(ground) = p.named("ground") {
+        let plane = p.get::<Mesh>(ground).map(|m| m.clone()).unwrap_or_default();
+        let soil = Material::grid(lit.soil, crate::garden::TILE);
+        p.insert(ground, DrawnMesh::new(plane).material(soil));
+    }
+    dress(
+        p,
+        "meadow",
+        DrawnMesh::new(Mesh::plane(1600., 1600.)).material(paint(lit.meadow)),
+    );
     let orchard = p.generated("orchard.model", orchard).expect("orchard mesh");
     let flowers = p
         .generated("flowers.model", flower_bank)
@@ -471,7 +505,7 @@ fn classic(p: &mut Present) {
     dress(p, "flowers-west", DrawnMesh::new(flowers.clone()));
     dress(p, "flowers-east", DrawnMesh::new(flowers));
     if let Some(bed) = bed(p) {
-        dress(p, "bed-edge", bed.material(paint([0.51, 0.34, 0.21])));
+        dress(p, "bed-edge", bed.material(paint(lit.bed)));
     }
     hide(p, "weather");
     hide(p, "ambience-golden");

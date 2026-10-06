@@ -4,8 +4,7 @@ use std::path::Path;
 pub mod compress;
 mod files;
 mod geometry;
-use files::write_changed;
-pub use files::{bake_game_level, check_size};
+pub use files::{bake_game_levels, check_size};
 mod sound;
 pub use sound::sound;
 mod textures;
@@ -734,6 +733,30 @@ fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 /// The same bounded encoding for both CLI and generated shell builds.
+fn write_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    if std::fs::read(path).ok().as_deref() == Some(bytes) {
+        return Ok(());
+    }
+    let tmp = path.with_file_name(format!(
+        ".{}.{}.tmp",
+        path.file_name().unwrap().to_string_lossy(),
+        std::process::id()
+    ));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
+        .map_err(|e| format!("{}: {e}", tmp.display()))?;
+    let result = file
+        .write_all(bytes)
+        .and_then(|()| std::fs::rename(&tmp, path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result.map_err(|e| format!("{}: {e}", path.display()))
+}
+
 pub fn encode(name: &str, value: &impl exact_game::Data) -> Result<Vec<u8>, String> {
     let bytes = exact_game::bin::to_vec(value);
     check_size(name, bytes.len())?;

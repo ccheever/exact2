@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
-// The garden's "art pass" look (`art: "pass"`), authored as code: every plant
-// stage, fruit shape, prop, the farmer and the stall keeper are procedural
-// meshes written as binary glTF into art/, sampling six shared textures in
-// art/textures/ (each bakes once, by name, however many models use it). Run
+// The garden's baked art, authored as code. The "art pass" look (`art:
+// "pass"`): every plant stage, fruit shape, prop, the farmer and the stall
+// keeper are procedural meshes written as binary glTF into art/, sampling six
+// shared textures in art/textures/ (each bakes once, by name, however many
+// models use it); and the golden and storybook looks' models (looks.mjs). Run
 // `bun game/games/garden/art.mjs`; the game's bake turns art/*.glb into
 // .model assets. Deterministic: the same script writes the same bytes.
 //
@@ -10,11 +11,11 @@
 // fruit-<crop>[-unripe][-far]; a fruit's body is material 0, which the game
 // recolours per mutation (MaterialOverrides), and a lantern's glass is
 // material 0, which it lights at night.
-import { mkdirSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { encodePng } from '../../../scripts/png.mjs';
-
-const ART = resolve(import.meta.dir, 'art');
+import { ART, writeGlb } from './kit.mjs';
+import { writeLooks } from './looks.mjs';
 
 // ------------------------------------------------------------ randomness
 const rng = seed => () => {
@@ -150,7 +151,7 @@ const M = {
 class Model {
   constructor() { this.parts = new Map(); }
   material(name, spec = {}) {
-    if (!this.parts.has(name)) this.parts.set(name, { spec: { ...(M[name] ?? M.plain), ...spec }, p: [], n: [], t: [], c: [], i: [] });
+    if (!this.parts.has(name)) this.parts.set(name, { spec: { colors: 'u8', ...(M[name] ?? M.plain), ...spec }, p: [], n: [], t: [], c: [], i: [] });
     return this.parts.get(name);
   }
   // Append a grid (rows × cols of vertices) through M.
@@ -224,97 +225,18 @@ const veined = (base, lift = 1) => (p, u, v) => {
 };
 const flat = c => () => c;
 
-// ------------------------------------------------------------ binary glTF
-// Linear vertex colours as normalised bytes, alpha one.
-const rgba8 = c => {
-  const out = new Uint8Array((c.length / 3) * 4);
-  for (let i = 0, o = 0; i < c.length; i += 3, o += 4) {
-    for (let k = 0; k < 3; k++) out[o + k] = Math.round(Math.max(0, Math.min(1, c[i + k])) * 255);
-    out[o + 3] = 255;
-  }
-  return out;
-};
-function writeGlb(name, model) {
-  const json = { asset: { version: '2.0', generator: 'garden art.mjs' }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0, name }], meshes: [{ primitives: [] }], materials: [], accessors: [], bufferViews: [], buffers: [] };
-  const chunks = []; let length = 0;
-  const view = (bytes, target) => {
-    const pad = (4 - (length % 4)) % 4;
-    if (pad) { chunks.push(new Uint8Array(pad)); length += pad; }
-    json.bufferViews.push({ buffer: 0, byteOffset: length, byteLength: bytes.byteLength, target });
-    chunks.push(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)); length += bytes.byteLength;
-    return json.bufferViews.length - 1;
-  };
-  const accessor = (typed, type, componentType, target, extra = {}) => {
-    const width = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 }[type];
-    json.accessors.push({ bufferView: view(typed, target), componentType, count: typed.length / width, type, ...extra });
-    return json.accessors.length - 1;
-  };
-  const images = new Map();
-  const tex = key => {
-    if (!images.has(key)) {
-      json.images ??= []; json.textures ??= []; json.samplers ??= [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }];
-      json.images.push({ uri: `textures/${key}.png` });
-      json.textures.push({ source: json.images.length - 1, sampler: 0 });
-      images.set(key, json.textures.length - 1);
-    }
-    return images.get(key);
-  };
-  const used = new Set();
-  for (const [matName, P] of model.parts) {
-    if (!P.i.length) continue;
-    const m = P.spec, color = m.color ?? [1, 1, 1];
-    const mat = { name: matName, pbrMetallicRoughness: { baseColorFactor: [...color.slice(0, 3), color[3] ?? 1], metallicFactor: m.metal ?? 0, roughnessFactor: m.rough ?? 0.5 } };
-    if (m.tex) mat.pbrMetallicRoughness.baseColorTexture = { index: tex(m.tex) };
-    if (m.emissive) {
-      mat.emissiveFactor = m.emissive;
-      if (m.strength && m.strength !== 1) { mat.extensions = { KHR_materials_emissive_strength: { emissiveStrength: m.strength } }; used.add('KHR_materials_emissive_strength'); }
-    }
-    if (m.double) mat.doubleSided = true;
-    json.materials.push(mat);
-    const count = P.p.length / 3, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-    for (let i = 0; i < P.p.length; i++) { min[i % 3] = Math.min(min[i % 3], P.p[i]); max[i % 3] = Math.max(max[i % 3], P.p[i]); }
-    const attributes = {
-      POSITION: accessor(new Float32Array(P.p), 'VEC3', 5126, 34962, { min, max }),
-      NORMAL: accessor(new Float32Array(P.n), 'VEC3', 5126, 34962),
-      COLOR_0: accessor(rgba8(P.c), 'VEC4', 5121, 34962, { normalized: true }),
-    };
-    if (m.tex) attributes.TEXCOORD_0 = accessor(new Float32Array(P.t), 'VEC2', 5126, 34962);
-    const indices = count < 65536 ? accessor(new Uint16Array(P.i), 'SCALAR', 5123, 34963) : accessor(new Uint32Array(P.i), 'SCALAR', 5125, 34963);
-    json.meshes[0].primitives.push({ attributes, indices, material: json.materials.length - 1 });
-  }
-  if (used.size) json.extensionsUsed = [...used];
-  const pad4 = (b, fill) => Buffer.concat([b, Buffer.alloc((4 - (b.length % 4)) % 4, fill)]);
-  const bin = pad4(Buffer.concat(chunks.map(c => Buffer.from(c))), 0);
-  json.buffers.push({ byteLength: bin.length });
-  const text = pad4(Buffer.from(JSON.stringify(json)), 0x20);
-  const header = Buffer.alloc(12), jh = Buffer.alloc(8), bh = Buffer.alloc(8);
-  header.writeUInt32LE(0x46546c67, 0); header.writeUInt32LE(2, 4); header.writeUInt32LE(12 + 8 + text.length + 8 + bin.length, 8);
-  jh.writeUInt32LE(text.length, 0); jh.writeUInt32LE(0x4e4f534a, 4);
-  bh.writeUInt32LE(bin.length, 0); bh.writeUInt32LE(0x004e4942, 4);
-  const out = Buffer.concat([header, jh, text, bh, bin]);
-  writeFileSync(resolve(ART, `${name}.glb`), out);
-  return { bytes: out.length, triangles: [...model.parts.values()].reduce((s, P) => s + P.i.length / 3, 0) };
-}
-
 // ------------------------------------------------------------ the crops
-// Mirrors crops.rs: id, look, mature height, leaf colour, fruit colour (both
-// as crops.rs writes them), fruit radius, fruit shape.
-const CROPS = [
-  ['carrot', 'fronds', 0.4, [0.3, 0.7, 0.25], [0.95, 0.5, 0.1], 0.22, 'root'],
-  ['strawberry', 'bush', 0.5, [0.25, 0.6, 0.25], [0.9, 0.12, 0.15], 0.14, 'berry'],
-  ['blueberry', 'bush', 0.6, [0.2, 0.5, 0.3], [0.25, 0.3, 0.85], 0.12, 'blue'],
-  ['tomato', 'staked', 0.9, [0.25, 0.55, 0.2], [0.85, 0.15, 0.1], 0.2, 'tomato'],
-  ['corn', 'stalk', 1.4, [0.45, 0.65, 0.2], [0.95, 0.85, 0.25], 0.18, 'cob'],
-  ['watermelon', 'vine', 0.5, [0.2, 0.5, 0.2], [0.2, 0.6, 0.25], 0.55, 'melon'],
-  ['pumpkin', 'vine', 0.5, [0.3, 0.5, 0.2], [0.95, 0.55, 0.1], 0.5, 'pumpkin'],
-  ['apple', 'tree', 2.4, [0.2, 0.45, 0.2], [0.8, 0.1, 0.12], 0.2, 'apple'],
-  ['bamboo', 'bamboo', 2.8, [0.45, 0.75, 0.3], [0.5, 0.8, 0.35], 0.25, 'shoot'],
-  ['coconut', 'palm', 3.2, [0.25, 0.5, 0.2], [0.45, 0.3, 0.15], 0.28, 'coconut'],
-  ['cactus', 'cactus', 1.8, [0.3, 0.6, 0.35], [0.9, 0.4, 0.6], 0.2, 'pear'],
-  ['dragon', 'dragon', 1.6, [0.35, 0.6, 0.3], [0.95, 0.2, 0.55], 0.24, 'dragon'],
-  ['mango', 'tree', 2.6, [0.2, 0.5, 0.2], [1.0, 0.65, 0.15], 0.24, 'mango'],
-  ['grape', 'trellis', 1.4, [0.25, 0.45, 0.25], [0.45, 0.15, 0.55], 0.16, 'grapes'],
-];
+// Each crop's look and fruit shape here; its mature height, leaf and fruit
+// colours and fruit radius from the balance (assets/garden.level.json), as
+// the game reads them: id, look, height, leaf, fruit, radius, shape.
+const SHAPES = {
+  carrot: ['fronds', 'root'], strawberry: ['bush', 'berry'], blueberry: ['bush', 'blue'], tomato: ['staked', 'tomato'],
+  corn: ['stalk', 'cob'], watermelon: ['vine', 'melon'], pumpkin: ['vine', 'pumpkin'], apple: ['tree', 'apple'],
+  bamboo: ['bamboo', 'shoot'], coconut: ['palm', 'coconut'], cactus: ['cactus', 'pear'], dragon: ['dragon', 'dragon'],
+  mango: ['tree', 'mango'], grape: ['trellis', 'grapes'],
+};
+const CROPS = JSON.parse(readFileSync(resolve(import.meta.dir, 'assets/garden.level.json'), 'utf8')).crops
+  .map(c => [c.id, SHAPES[c.id][0], c.height, c.leaf, c.fruit, c.fruit_size, SHAPES[c.id][1]]);
 // Shared with pass.rs, which hangs fruit on these: a tree's canopy centre
 // height and radius when mature, a palm's lean and trunk length.
 const CANOPY = { apple: { y: 1.78, r: 0.8 }, mango: { y: 1.95, r: 0.85 } };
@@ -763,7 +685,7 @@ mkdirSync(resolve(ART, 'textures'), { recursive: true });
 for (const f of readdirSync(ART)) if (f.endsWith('.glb') || f.endsWith('.gltf')) rmSync(resolve(ART, f));
 for (const [name, make] of Object.entries(TEXTURES)) writeFileSync(resolve(ART, 'textures', `${name}.png`), make());
 let files = 0, bytes = 0, tris = 0;
-const out = (name, m) => { const r = writeGlb(name, m); files++; bytes += r.bytes; tris += r.triangles; return r.triangles; };
+const out = (name, m, instances) => { const r = writeGlb(name, m.parts ?? m, instances); files++; bytes += r.bytes; tris += r.triangles; return r.triangles; };
 const table = [];
 for (const crop of CROPS) {
   const id = crop[0], row = [id];
@@ -790,5 +712,6 @@ for (const who of Object.keys(PEOPLE)) {
   out(`${who}-arm`, arm(who));
   out(`${who}-leg`, leg(who));
 }
+writeLooks(out);
 if (process.env.ART_VERBOSE) console.log(`triangles (stages 0-4, fruit, unripe):\n${table.join('\n')}`);
 console.log(`art: ${files} glb files, ${Object.keys(TEXTURES).length} textures, ${(bytes / 1024).toFixed(0)} KiB, ${tris} triangles`);

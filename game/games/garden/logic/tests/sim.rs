@@ -1,13 +1,66 @@
 use exact_game::{DrawnMesh, Material, Sim, Transform, Visible};
-use garden_logic::crops::{kind_of, CROPS};
+use garden_logic::crops::Balance;
 use garden_logic::farm::Farm;
 use garden_logic::garden::{now_ms, Census, Fruit, GardenClock, Plant, Schedule, Weather};
 use garden_logic::shop::Shop;
 use garden_logic::{census_of, Garden, Options};
 
-/// A garden fed its baked art as a host feeds it (`Sim::baked`).
+/// The balance, as the game reads it.
+static BAL: std::sync::LazyLock<Balance> = std::sync::LazyLock::new(|| {
+    exact_game::json::from_str(include_str!("../../assets/garden.level.json")).unwrap()
+});
+
+/// A garden fed its assets as a host feeds it (`Sim::baked`).
+fn garden(options: Options) -> Sim<Garden> {
+    Sim::<Garden>::baked(options)
+}
+
+/// A garden whose declared data (the balance and the looks) has arrived from
+/// the game's `assets/`, as a host delivers it before setup, and nothing else:
+/// for a test that reads the requests a host would make itself.
+fn undelivered(options: Options) -> Sim<Garden> {
+    let mut sim = Sim::<Garden>::new(options).unwrap();
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+    for name in ["garden.level.json", "looks.level.json"] {
+        let bytes = std::fs::read(dir.join(name)).unwrap();
+        sim.asset(name, Some(&bytes)).unwrap();
+    }
+    sim
+}
+
+/// What the HUD shows now: the status record, as values.
+fn hud(game: &Sim<Garden>) -> garden_logic::hud::Status {
+    garden_logic::hud::status(game.world())
+}
+
+/// The status the world last published, if it published since the last look.
+fn published(game: &mut Sim<Garden>) -> Option<garden_logic::hud::Status> {
+    game.take_published()
+        .map(|json| exact_game::json::from_str(&json).unwrap())
+}
+
+/// The movement key for a published way across the garden.
+fn key(dir: &str) -> &'static str {
+    match dir {
+        "north" => "KeyW",
+        "south" => "KeyS",
+        "east" => "KeyD",
+        "west" => "KeyA",
+        _ => panic!("no direction: {dir:?}"),
+    }
+}
+
+fn plot(x: u32, z: u32, crop: &str) -> garden_logic::hud::Plot {
+    garden_logic::hud::Plot {
+        inside: true,
+        x,
+        z,
+        crop: crop.into(),
+    }
+}
+
 fn new(seed: u64) -> Sim<Garden> {
-    Sim::<Garden>::baked(Options {
+    garden(Options {
         seed,
         ..Options::default()
     })
@@ -32,11 +85,10 @@ fn plant_grow_harvest_sell() {
     game.run(100.0);
     assert_eq!(game.world().resource::<Census>().plants, 1);
     assert_eq!(game.world().resource::<Farm>().seeds[0], 0);
-    let prompt = game.world().published("prompt").unwrap();
+    let prompt = hud(&game).prompt;
     assert!(
-        prompt.text().starts_with("Carrot growing"),
-        "{}",
-        prompt.text()
+        prompt.what == "growing" && prompt.crop == "Carrot",
+        "{prompt:?}"
     );
     // Not ripe yet: E harvests nothing.
     game.tap("KeyE");
@@ -44,9 +96,10 @@ fn plant_grow_harvest_sell() {
     assert!(game.world().resource::<Farm>().bag.is_empty());
     game.run(20_000.0);
     assert_eq!(game.world().resource::<Census>().ripe, 1);
+    let prompt = hud(&game).prompt;
     assert_eq!(
-        game.world().published("prompt").unwrap().text(),
-        "E: harvest 1 Carrot"
+        (prompt.what.as_str(), prompt.count, prompt.crop.as_str()),
+        ("harvest", 1, "Carrot")
     );
     game.tap("KeyE");
     game.run(100.0);
@@ -55,7 +108,7 @@ fn plant_grow_harvest_sell() {
     // A carrot is single-harvest: the plant is gone, the tile free.
     assert_eq!(game.world().resource::<Census>().plants, 0);
     assert!(game.world().resource::<Farm>().at([0, 0]).is_none());
-    let value = bag[0].value();
+    let value = bag[0].value(&BAL);
     send(&mut game, "sell all");
     assert_eq!(sheckles(&game), 20 + value);
     assert_eq!(
@@ -71,13 +124,10 @@ fn buy_from_the_shop_and_regrow() {
     assert_eq!(sheckles(&game), 10);
     assert_eq!(game.world().resource::<Farm>().seeds[0], 2);
     send(&mut game, "buy strawberry");
-    assert!(
-        game.world().resource::<Farm>().last.contains("costs 50"),
-        "{}",
-        game.world().resource::<Farm>().last
-    );
+    let last = game.world().resource::<Farm>().last.clone();
+    assert!(last.what == "costs" && last.coins == 50, "{last:?}");
     game.world_mut().resource_mut::<Farm>().sheckles = 1000;
-    let berry = kind_of("strawberry").unwrap();
+    let berry = BAL.kind_of("strawberry").unwrap();
     let stock = game.world().resource::<Shop>().stock[berry as usize];
     send(&mut game, "buy strawberry");
     if stock == 0 {
@@ -106,9 +156,10 @@ fn buy_from_the_shop_and_regrow() {
 fn shop_restocks_every_five_minutes() {
     let mut game = new(3);
     assert_eq!(game.world().resource::<Shop>().restocks, 1);
-    assert_eq!(game.world().published("restock_in").unwrap().text(), "5:00");
+    let restock = |game: &Sim<Garden>| game.world().published("restock_s").unwrap().as_number();
+    assert_eq!(restock(&game), Some(300.0));
     game.run(60_100.0);
-    assert_eq!(game.world().published("restock_in").unwrap().text(), "4:00");
+    assert_eq!(restock(&game), Some(240.0));
     game.run(240_100.0);
     assert_eq!(game.world().resource::<Shop>().restocks, 2);
     // Carrots always appear.
@@ -174,11 +225,7 @@ fn away_is_the_same_as_playing_through() {
         live.world().resource::<Shop>().stock,
         away.world().resource::<Shop>().stock
     );
-    assert!(away
-        .world()
-        .resource::<Farm>()
-        .away
-        .starts_with("While you were away"));
+    assert!(away.world().resource::<Farm>().away.events > 0);
 }
 
 #[test]
@@ -207,12 +254,7 @@ fn watering_once_preserves_progress_and_old_events_cannot_regrow_the_plant() {
         game.tap("KeyQ");
         game.run(100.0);
         assert_eq!(game.world().resource::<Farm>().water, 2, "no repeat dose");
-        assert!(game
-            .world()
-            .published("care")
-            .unwrap()
-            .text()
-            .contains("Watered"));
+        assert_eq!(game.world().published("care").unwrap().text(), "watered");
         let saved = game.save().unwrap();
         let mut restored = new(7);
         restored.restore(&saved).unwrap();
@@ -265,7 +307,7 @@ fn watering_fruit_resets_after_harvest_and_refilling_requires_the_barrel() {
     assert_eq!(game.world().resource::<Farm>().water, 0);
     game.tap("KeyQ");
     game.run(100.0);
-    assert!(game.world().resource::<Farm>().last.contains("Can empty"));
+    assert_eq!(game.world().resource::<Farm>().last.what, "can_empty");
     game.hold("KeyD", 1000.0);
     game.run(100.0);
     game.tap("KeyR");
@@ -275,18 +317,8 @@ fn watering_fruit_resets_after_harvest_and_refilling_requires_the_barrel() {
         if garden_logic::farm::at_barrel(game.world()) {
             break;
         }
-        let hint = game.world().published("refill").unwrap().text().to_string();
-        let key = [
-            ("west", "KeyA"),
-            ("east", "KeyD"),
-            ("north", "KeyW"),
-            ("south", "KeyS"),
-        ]
-        .iter()
-        .find(|(word, _)| hint.contains(word))
-        .unwrap()
-        .1;
-        game.hold(key, 200.0);
+        let way = hud(&game).barrel.way;
+        game.hold(key(&way.dir), 200.0);
         game.run(100.0);
     }
     game.tap("KeyR");
@@ -315,13 +347,13 @@ fn refill_availability_updates_at_the_range_boundary_within_one_plot_and_second(
         .unwrap()
         .as_bool()
         .unwrap());
-    let plot = game.world().published("plot").unwrap().text().to_string();
+    let plot = hud(&game).plot;
     game.world_mut()
         .require_mut::<Transform>("player")
         .position
         .x = 0.4;
     game.run(100.0);
-    assert_eq!(game.world().published("plot").unwrap().text(), plot);
+    assert_eq!(hud(&game).plot, plot);
     assert!(now_ms(game.world()) < 1000);
     assert!(game
         .world()
@@ -334,33 +366,28 @@ fn refill_availability_updates_at_the_range_boundary_within_one_plot_and_second(
 #[test]
 fn a_later_epoch_grows_the_garden_offline() {
     let epoch = 1.8e12;
-    let mut game = Sim::<Garden>::new(Options {
+    let mut game = garden(Options {
         seed: 9,
         epoch,
         ..Options::default()
-    })
-    .unwrap();
+    });
     game.tap("KeyE");
     game.run(2_000.0);
     assert_eq!(game.world().resource::<Census>().ripe, 0);
     let saved = game.save().unwrap();
     // A new session an hour later restores that save.
-    let mut later = Sim::<Garden>::new(Options {
+    let mut later = garden(Options {
         seed: 9,
         epoch: epoch + 3_600_000.0,
         ..Options::default()
-    })
-    .unwrap();
+    });
     later.restore_bound(&saved).unwrap();
     later.run(100.0);
     let clock = later.world().resource::<GardenClock>().offline_ms;
     assert!((3_597_000..=3_600_000).contains(&clock), "{clock}");
     assert_eq!(later.world().resource::<Census>().ripe, 1);
-    assert!(
-        later.world().resource::<Farm>().away.contains("(59:58)"),
-        "{}",
-        later.world().resource::<Farm>().away
-    );
+    let away = later.world().resource::<Farm>().away.clone();
+    assert_eq!(away.s, 3598, "{away:?}");
     // The same epoch again is the same session: no second catch-up.
     later.run(1000.0);
     assert_eq!(later.world().resource::<GardenClock>().offline_ms, clock);
@@ -438,7 +465,7 @@ fn schedule_stays_bounded() {
         queued <= census.fruit - census.ripe + census.plants + 2,
         "{queued}"
     );
-    assert_eq!(CROPS.len(), 14);
+    assert_eq!(BAL.crops.len(), 14);
 }
 
 #[test]
@@ -462,7 +489,7 @@ fn market_delivers_the_requested_fruit_once_and_preserves_its_full_value() {
         muts: 0,
         fed: false,
     };
-    let value = carrot.value();
+    let value = carrot.value(&BAL);
     game.world_mut().resource_mut::<Farm>().bag = vec![extra, carrot];
     game.world_mut().resource_mut::<Shop>().stock[1] = 0;
     let saved = game.save().unwrap();
@@ -472,12 +499,8 @@ fn market_delivers_the_requested_fruit_once_and_preserves_its_full_value() {
     assert_eq!(game.world().resource::<Shop>().stock[1], 1);
     assert_eq!(game.world().resource::<Farm>().bag.len(), 1);
     assert_eq!(game.world().resource::<Farm>().bag[0].kind, 2);
-    assert!(game
-        .world()
-        .published("order")
-        .unwrap()
-        .text()
-        .contains("4 Strawberry"));
+    let order = hud(&game).order;
+    assert_eq!((order.count, order.crop.as_str()), (4, "Strawberry"));
     send(&mut game, "deliver");
     assert_eq!(sheckles(&game), 20 + value + 30);
     let mut restored = new(7);
@@ -520,33 +543,19 @@ fn order_guidance_tracks_equipped_seed_and_movement_between_empty_tiles() {
         game.world().published("order_seed").unwrap().text(),
         "blueberry"
     );
-    assert!(game
-        .world()
-        .published("order_hint")
-        .unwrap()
-        .text()
-        .starts_with("Hold your Blueberry"));
+    let hint = hud(&game).order_hint;
+    assert_eq!(
+        (hint.what.as_str(), hint.crop.as_str()),
+        ("hold_seed", "Blueberry")
+    );
     send(&mut game, "equip blueberry");
-    assert!(game
-        .world()
-        .published("order_hint")
-        .unwrap()
-        .text()
-        .contains("Move to an empty tile"));
+    assert_eq!(hud(&game).order_hint.what, "move");
     game.key_down("KeyD");
     game.run(500.0);
     game.key_up("KeyD");
     game.run(100.0);
-    assert_eq!(
-        game.world().published("plot").unwrap().text(),
-        "Plot 2, 1 · Empty"
-    );
-    assert!(game
-        .world()
-        .published("order_hint")
-        .unwrap()
-        .text()
-        .starts_with("Press E to plant Blueberry"));
+    assert_eq!(hud(&game).plot, plot(1, 0, ""));
+    assert_eq!(hud(&game).order_hint.what, "plant_here");
     let saved = game.save().unwrap();
     let mut restored = new(7);
     restored.restore(&saved).unwrap();
@@ -557,22 +566,12 @@ fn order_guidance_tracks_equipped_seed_and_movement_between_empty_tiles() {
         sim.run(400.0);
         sim.key_up("KeyD");
         sim.run(100.0);
-        assert_eq!(
-            sim.world().published("plot").unwrap().text(),
-            "Plot 3, 1 · Empty"
-        );
+        assert_eq!(published(sim).map(|s| s.plot), Some(plot(2, 0, "")));
         sim.tap("KeyE");
         sim.run(100.0);
-        assert_eq!(
-            sim.world().published("plot").unwrap().text(),
-            "Plot 3, 1 · Blueberry"
-        );
-        assert!(sim
-            .world()
-            .published("order_hint")
-            .unwrap()
-            .text()
-            .starts_with("Wait here for Blueberry"));
+        let shown = published(sim).unwrap();
+        assert_eq!(shown.plot, plot(2, 0, "Blueberry"));
+        assert_eq!(shown.order_hint.what, "wait_here");
     }
     assert!(
         game.save().unwrap() == restored.save().unwrap(),
@@ -596,16 +595,12 @@ fn a_lost_player_can_follow_the_public_prompt_after_restore() {
         game.world().require::<Transform>("player").position.z,
         -12.0
     );
+    assert!(!hud(&game).plot.inside);
+    let prompt = hud(&game).prompt;
     assert_eq!(
-        game.world().published("plot").unwrap().text(),
-        "Outside the garden"
+        (prompt.what.as_str(), prompt.way.dir.as_str()),
+        ("return", "south")
     );
-    assert!(game
-        .world()
-        .published("prompt")
-        .unwrap()
-        .text()
-        .starts_with("Return to garden: south (S)"));
     game.tap("KeyE");
     game.run(100.0);
     assert_eq!(game.world().resource::<Farm>().seeds[0], 1);
@@ -618,13 +613,11 @@ fn a_lost_player_can_follow_the_public_prompt_after_restore() {
         sim.run(500.0);
         sim.key_up("KeyS");
         sim.run(100.0);
+        assert_eq!(hud(sim).plot, plot(1, 5, ""));
+        let prompt = hud(sim).prompt;
         assert_eq!(
-            sim.world().published("plot").unwrap().text(),
-            "Plot 2, 6 · Empty"
-        );
-        assert_eq!(
-            sim.world().published("prompt").unwrap().text(),
-            "E: plant Carrot (1 left)"
+            (prompt.what.as_str(), prompt.crop.as_str(), prompt.count),
+            ("plant", "Carrot", 1)
         );
         sim.tap("KeyE");
         sim.run(100.0);
@@ -637,7 +630,7 @@ fn a_lost_player_can_follow_the_public_prompt_after_restore() {
 fn return_guidance_reaches_the_garden_from_every_edge_and_corner() {
     use exact_game::Vec3;
     use garden_logic::farm;
-    for size in [farm::START_SIZE, 16] {
+    for size in [BAL.farm.start_size, 16] {
         for (x, z) in [
             (-1., 0.),
             (1., 0.),
@@ -657,20 +650,11 @@ fn return_guidance_reaches_the_garden_from_every_edge_and_corner() {
             // Read only the same instructions a player sees; the next step
             // may turn a corner. No hidden position chooses the movement.
             for _ in 0..40 {
-                let prompt = game.world().published("prompt").unwrap().text().to_owned();
-                if prompt.starts_with("E: plant") {
+                let prompt = hud(&game).prompt;
+                if prompt.what == "plant" {
                     break;
                 }
-                let key = [
-                    ("north (W)", "KeyW"),
-                    ("east (D)", "KeyD"),
-                    ("south (S)", "KeyS"),
-                    ("west (A)", "KeyA"),
-                ]
-                .into_iter()
-                .find(|(direction, _)| prompt.contains(direction))
-                .unwrap_or_else(|| panic!("no return direction: {prompt:?}"))
-                .1;
+                let key = key(&prompt.way.dir);
                 game.key_down(key);
                 game.run(500.0);
                 game.key_up(key);
@@ -682,7 +666,7 @@ fn return_guidance_reaches_the_garden_from_every_edge_and_corner() {
                 "lost at {p:?}, size {size}"
             );
             assert!(game.world().require::<Visible>("plot-north").0);
-            assert_eq!(sheckles(&game), farm::START_SHECKLES);
+            assert_eq!(sheckles(&game), BAL.farm.start_sheckles);
             assert_eq!(game.world().resource::<Farm>().seeds[0], 1);
         }
     }
@@ -705,61 +689,33 @@ fn an_occupied_north_row_guides_planting_after_restore() {
     game.run(100.0);
     game.tap("KeyE");
     send(&mut game, "buy carrot");
-    let guidance = game.world().published("planting");
-    assert!(
-        guidance
-            .as_ref()
-            .is_some_and(|p| p.text().starts_with("Empty plot")),
+    assert_eq!(
+        hud(&game).planting.what,
+        "empty",
         "an occupied edge plot must show where to plant the held seed"
     );
-    assert!(game
-        .world()
-        .published("prompt")
-        .unwrap()
-        .text()
-        .starts_with("Carrot growing"));
+    assert_eq!(hud(&game).prompt.what, "growing");
     let saved = game.save().unwrap();
     let mut restored = new(7);
     restored.restore(&saved).unwrap();
     for sim in [&mut game, &mut restored] {
         follow_empty_plot(sim);
-        assert_eq!(sim.world().published("planting").unwrap().text(), "");
+        assert_eq!(hud(sim).planting.what, "");
         sim.tap("KeyE");
         sim.run(100.0);
         assert_eq!(sim.world().resource::<Census>().plants, 2);
         assert_eq!(sim.world().resource::<Farm>().seeds[0], 0);
-        assert_eq!(sim.world().published("planting").unwrap().text(), "");
+        assert_eq!(hud(sim).planting.what, "");
     }
     assert!(game.save().unwrap() == restored.save().unwrap());
 }
 
 fn follow_empty_plot(game: &mut Sim<Garden>) {
     for _ in 0..80 {
-        if game
-            .world()
-            .published("prompt")
-            .unwrap()
-            .text()
-            .starts_with("E: plant")
-        {
+        if hud(game).prompt.what == "plant" {
             return;
         }
-        let hint = game
-            .world()
-            .published("planting")
-            .unwrap()
-            .text()
-            .to_owned();
-        let key = [
-            ("north (W)", "KeyW"),
-            ("east (D)", "KeyD"),
-            ("south (S)", "KeyS"),
-            ("west (A)", "KeyA"),
-        ]
-        .into_iter()
-        .find(|(direction, _)| hint.contains(direction))
-        .unwrap_or_else(|| panic!("no empty-plot direction: {hint:?}"))
-        .1;
+        let key = key(&hud(game).planting.way.dir);
         game.key_down(key);
         game.run(500.0);
         game.key_up(key);
@@ -772,14 +728,11 @@ fn follow_empty_plot(game: &mut Sim<Garden>) {
 fn planting_guidance_updates_when_harvesting_or_expanding_a_full_garden() {
     let mut game = new(7);
     send(&mut game, "fill 36");
-    assert_eq!(
-        game.world().published("planting").unwrap().text(),
-        "Garden full · expand to add empty plots"
-    );
+    assert_eq!(hud(&game).planting.what, "full");
     game.run(20_100.0);
     game.tap("KeyE");
     game.run(100.0);
-    assert_eq!(game.world().published("planting").unwrap().text(), "");
+    assert_eq!(hud(&game).planting.what, "");
     // The only empty tile is now the harvested carrot at the opposite corner.
     game.world_mut().require_mut::<Transform>("player").position =
         exact_game::Vec3::new(10.0, 0.9, -10.0);
@@ -787,10 +740,7 @@ fn planting_guidance_updates_when_harvesting_or_expanding_a_full_garden() {
     follow_empty_plot(&mut game);
     game.tap("KeyE");
     send(&mut game, "buy carrot");
-    assert_eq!(
-        game.world().published("planting").unwrap().text(),
-        "Garden full · expand to add empty plots"
-    );
+    assert_eq!(hud(&game).planting.what, "full");
     garden_logic::farm::resize(game.world_mut(), 8);
     game.run(1_000.0);
     follow_empty_plot(&mut game);
@@ -852,12 +802,11 @@ fn plot_outline_tracks_growth_harvest_movement_and_restore() {
 #[test]
 fn stems_and_fruit_keep_the_same_offset_through_growth_and_regrowth() {
     for smooth in [false, true] {
-        let mut game = Sim::<Garden>::new(Options {
+        let mut game = garden(Options {
             seed: 7,
             smooth,
             ..Options::default()
-        })
-        .unwrap();
+        });
         send(&mut game, "fill 14");
         let anchors: Vec<_> = game
             .world()
@@ -903,19 +852,18 @@ fn stems_and_fruit_keep_the_same_offset_through_growth_and_regrowth() {
 
 #[test]
 fn market_bonus_stops_after_the_last_request() {
-    use garden_logic::farm::ORDERS;
     use garden_logic::garden::Item;
     let mut game = new(7);
-    for &(kind, count, bonus) in ORDERS {
+    for (kind, count, bonus) in (0..BAL.orders.len() as u32).filter_map(|i| BAL.order(i)) {
         let before = sheckles(&game);
         let item = Item {
             id: 0,
             kind,
-            weight: CROPS[kind as usize].weight,
+            weight: BAL.crops[kind as usize].weight,
             muts: 0,
             fed: false,
         };
-        let value = item.value();
+        let value = item.value(&BAL);
         game.world_mut().resource_mut::<Farm>().bag = vec![item; count as usize];
         send(&mut game, "deliver");
         assert_eq!(sheckles(&game), before + value * count as u64 + bonus);
@@ -924,13 +872,12 @@ fn market_bonus_stops_after_the_last_request() {
     let before = sheckles(&game);
     send(&mut game, "deliver");
     assert_eq!(sheckles(&game), before);
-    assert_eq!(game.world().resource::<Farm>().orders, ORDERS.len() as u32);
-    assert!(game
-        .world()
-        .published("order")
-        .unwrap()
-        .text()
-        .contains("all 5 orders filled"));
+    assert_eq!(
+        game.world().resource::<Farm>().orders,
+        BAL.orders.len() as u32
+    );
+    let order = hud(&game).order;
+    assert!(order.done && order.total == 5, "{order:?}");
 }
 
 #[test]
@@ -989,10 +936,53 @@ fn compost_spends_only_the_chosen_fruit_and_refuses_stale_ids_or_a_full_pouch() 
     assert_eq!(back.world().resource::<Farm>().bag[0].id, 3);
 }
 
+/// A development reload of the balance (LLP 1046.009 G2) reaches the running
+/// garden: the shop restates the new price on the next tick, and the world,
+/// its planted carrot included, carries on.
+#[test]
+fn a_balance_reload_reprices_the_running_shop() {
+    use garden_logic::hud::ShopHud;
+    let carrot = |game: &mut Sim<Garden>| {
+        let json = game.take_published().expect("the shop republished");
+        let hud: ShopHud = exact_game::json::from_str(&json).unwrap();
+        hud.shop
+            .iter()
+            .find(|row| row.id == "carrot")
+            .unwrap()
+            .price
+    };
+    let mut game = undelivered(Options {
+        seed: 1,
+        ..Options::default()
+    });
+    game.tap("KeyE");
+    game.run(2_000.0);
+    assert_eq!(carrot(&mut game), 10);
+    let (tick, plants) = (
+        game.world().tick(),
+        game.world().resource::<Census>().plants,
+    );
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+    let text = std::fs::read_to_string(dir.join("garden.level.json")).unwrap();
+    let edited = text.replacen("\"price\": 10,", "\"price\": 17,", 1);
+    assert_eq!(
+        game.assets_changed(["garden.level.json"]),
+        ["garden.level.json"]
+    );
+    game.take_assets();
+    game.asset("garden.level.json", Some(edited.as_bytes()))
+        .unwrap();
+    game.run(100.0);
+    assert_eq!(carrot(&mut game), 17);
+    assert!(game.world().tick() > tick);
+    assert_eq!(game.world().resource::<Census>().plants, plants);
+    assert_eq!(plants, 1);
+}
+
 #[test]
 fn feeding_improves_one_harvest_without_rerolling_it_and_survives_restore() {
     for (kind, late) in [(0, false), (1, false), (1, true), (2, false), (2, true)] {
-        let crop = &CROPS[kind as usize];
+        let crop = &BAL.crops[kind as usize];
         let mut fed = new(7);
         let mut plain = new(7);
         for game in [&mut fed, &mut plain] {
@@ -1063,14 +1053,9 @@ fn feeding_improves_one_harvest_without_rerolling_it_and_survives_restore() {
             game.tap("KeyE");
             game.run(100.0);
         }
-        assert!(fed
-            .world()
-            .resource::<Farm>()
-            .bag
-            .iter()
-            .all(|i| i.fed && i.label().starts_with("Fed ")));
+        assert!(fed.world().resource::<Farm>().bag.iter().all(|i| i.fed));
         assert!(fed.save().unwrap() == back.save().unwrap());
-        if crop.regrows {
+        if crop.regrows() {
             assert!(
                 garden_logic::garden::needs_feed(fed.world(), plant),
                 "new growth can be fed again"
@@ -1091,7 +1076,7 @@ fn feeding_improves_one_harvest_without_rerolling_it_and_survives_restore() {
 /// A game in a look, bound the way the canvas binds its arguments, with the
 /// bake's real bytes delivered as a host delivers them.
 fn in_look(seed: u64, art: &str) -> Sim<Garden> {
-    Sim::<Garden>::baked(Options {
+    garden(Options {
         seed,
         art: art.into(),
         ..Options::default()
@@ -1185,7 +1170,7 @@ fn the_art_pass_hangs_fruit_on_its_plants_and_presents_mutations() {
             swap.mesh,
             Mesh::asset(format!(
                 "plant-{}-{}.model",
-                CROPS[p.kind as usize].id, p.stage
+                BAL.crops[p.kind as usize].id, p.stage
             ))
         );
         assert!(swap.lod.is_some());
@@ -1204,7 +1189,7 @@ fn the_art_pass_hangs_fruit_on_its_plants_and_presents_mutations() {
         assert!(
             (at.x - center.x).abs() < 1.6 && (at.z - center.z).abs() < 1.6,
             "{} slot {} hangs off its tile: {at:?} from {center:?}",
-            CROPS[f.kind as usize].id,
+            BAL.crops[f.kind as usize].id,
             f.slot
         );
         let Mesh::Asset(name) = &w.require::<DrawnMesh>(e).mesh else {
@@ -1274,56 +1259,47 @@ fn the_art_pass_draws_day_and_night_without_simulating_them() {
     assert!(game.world().get::<DirectionalLight>("moon").is_none());
 }
 
-/// No look's generated model takes a name the art pass streams: the classic
-/// and generated looks never draw one, nor download one; a switch to the art
-/// pass fetches its models then.
+/// Each look draws and downloads only its own baked models: classic none, a
+/// styled look its `golden-`/`storybook-` set, the art pass the rest; a
+/// switch to a look fetches what it shows first.
 #[test]
-fn no_look_generates_a_streamed_model_name() {
+fn each_look_fetches_only_its_own_models() {
     use exact_game::{Game, Mesh};
-    // Undelivered: this test reads the requests a host would make itself.
-    let mut game = Sim::<Garden>::new(Options {
+    let own = |art: &str, name: &str| match art {
+        "" => false,
+        "pass" => !name.starts_with("golden-") && !name.starts_with("storybook-"),
+        art => name.starts_with(&format!("{art}-")),
+    };
+    let mut game = undelivered(Options {
         seed: 1,
         ..Options::default()
-    })
-    .unwrap();
+    });
     send(&mut game, "fill 30");
     game.run(900_000.0);
-    for art in ["", "golden", "storybook"] {
+    for art in ["", "golden", "storybook", "pass"] {
         switch(&mut game, 1, art);
-        game.run(100.0);
         let fetched = game.take_assets();
         assert!(
-            !fetched
-                .iter()
-                .any(|n| Garden::STREAMED.contains(&n.as_str())),
-            "look {art:?} fetches the art pass: {fetched:?}"
+            fetched.iter().all(|n| own(art, n)),
+            "look {art:?} fetches another look's models: {fetched:?}"
         );
+        if !art.is_empty() {
+            assert!(
+                !fetched.is_empty() && fetched.len() < Garden::STREAMED.len(),
+                "what {art:?} shows, alone first: {fetched:?}"
+            );
+        }
+        game.run(100.0);
         let w = game.world();
-        let names = w
-            .query::<&Mesh>()
-            .iter()
-            .map(|(_, m)| m.clone())
-            .chain(w.query::<&DrawnMesh>().iter().map(|(_, d)| d.mesh.clone()))
-            .collect::<Vec<_>>();
-        for mesh in names {
-            if let Mesh::Asset(name) = mesh {
-                assert!(
-                    !Garden::STREAMED.contains(&name.as_str()),
-                    "look {art:?} generates the streamed name {name}"
-                );
+        for (_, d) in w.query::<&DrawnMesh>().iter() {
+            if let Mesh::Asset(name) = &d.mesh {
+                if Garden::STREAMED.contains(&name.as_str()) {
+                    assert!(own(art, name), "look {art:?} draws {name}");
+                }
             }
         }
+        game.take_assets();
     }
-    switch(&mut game, 1, "pass");
-    let fetched = game.take_assets();
-    assert!(
-        !fetched.is_empty()
-            && fetched
-                .iter()
-                .all(|n| Garden::STREAMED.contains(&n.as_str()))
-            && fetched.len() < Garden::STREAMED.len(),
-        "what the art pass shows, alone first: {fetched:?}"
-    );
 }
 
 /// Every look beside the art pass's real streamed bytes, delivered as a host

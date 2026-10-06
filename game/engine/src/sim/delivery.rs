@@ -30,21 +30,13 @@ impl Delivery {
     /// game/app/shells.mjs <game> --test` bakes `art/` there before the tests.
     /// The game's directory is the nearest above the test's crate (Cargo's
     /// `CARGO_MANIFEST_DIR`, else the working directory) holding
-    /// `logic/src/lib.rs`. A declared level is read where the author wrote
-    /// it, not from the bake's copy, which an edit makes stale.
+    /// `logic/src/lib.rs`. Declared levels are authored in `assets/`, as
+    /// they are delivered.
     pub fn baked() -> Self {
         let game = game_dir();
         let assets = game.join("assets");
         Self::new(move |name: &str| {
-            // A level is read where the author wrote it: its assets/ copy
-            // is the last bake's, older than the source after an edit.
-            let at = assets.join(name);
-            let level = game.join(name);
-            let path = if name.ends_with(".level.json") && level.exists() {
-                level
-            } else {
-                at
-            };
+            let path = assets.join(name);
             std::fs::read(&path).map_err(|e| {
                 format!(
                     "{}: {e}; `bun game/app/shells.mjs {} --test` bakes art/ into assets/ first",

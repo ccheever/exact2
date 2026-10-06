@@ -21,7 +21,7 @@ const write = (name, bytes) => {
   writeFileSync(path, bytes);
 };
 // The arena is the tables' (`rivals.level.json`), the colliders' one layout.
-const layout = JSON.parse(readFileSync(resolve(here, '../rivals.level.json'), 'utf8')).arena;
+const layout = JSON.parse(readFileSync(resolve(here, '../assets/rivals.level.json'), 'utf8')).arena;
 
 // Shared textures: art/textures/ is colour (sRGB), art/data/ linear (normal and
 // metallic-roughness maps). A model names them by URI, so each bakes once, by

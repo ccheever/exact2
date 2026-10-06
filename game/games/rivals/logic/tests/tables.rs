@@ -12,7 +12,7 @@ fn game_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
 }
 fn source() -> String {
-    std::fs::read_to_string(game_dir().join(tables::NAME)).unwrap()
+    std::fs::read_to_string(game_dir().join("assets").join(tables::NAME)).unwrap()
 }
 fn parse(text: &str) -> Tables {
     exact_game::json::from_str(text).unwrap()

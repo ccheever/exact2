@@ -270,10 +270,21 @@ when nothing shows them, so one that returns is Loaded at once and never gates a
 save. Undeclared cosmetics still retire when unshown, which bounds their memory. A paranoid
 round trip that falls while a mid-game request is in flight waits for the next sample.
 
-Declare a data-authored level with
-`const LEVEL: Option<asset::Level> = Some(asset::Level::of::<Island>("island.level.json"))`.
-`Island` uses `Data`; the bake validates the JSON and setup reads
-`w.level::<Island>("island.level.json").expect("validated level")` after delivery.
+Declare data-authored files with
+`const LEVELS: &'static [asset::Level] = &[asset::Level::of::<Island>("island.level.json")]`,
+authored at `assets/island.level.json`. `Island` uses `Data`; the bake validates the
+JSON and setup reads `w.level::<Island>("island.level.json").expect("validated level")`
+after delivery. `w.shared_level::<T>(name)` is the same value as decoded at delivery,
+an `Arc`, for a table a tick reads each time rather than copying it at setup.
+`Level::checked::<T>(name)` also runs `T`'s `asset::Checked` (what the shape cannot
+say) at bake and at every delivery (Rivals' `rivals.level.json`). `Level::shown::<T>(name)`
+declares presentation data instead: awaited like the rest, read only by
+`Present::shared_level` (`World::level` and `shared_level` refuse it), and recorded in
+no save or hash, so a restore with a changed file draws the same world in its new
+colours (Grow a Garden's `looks.level.json`). A development reload
+(`Sim::assets_changed`) replaces any of them in the running world; a simulation
+level's save then records the new identity, and `w.take_replaced(name)` tells the
+game once, so it can rebuild what it derived at setup (Rivals' arena colliders).
 JSON levels need no `game.assets` setting. Agent asset state includes their value;
 malformed fields report their path.
 
@@ -290,14 +301,16 @@ shapes give; `.squared()` stores colours authored by eye squared (gamma 2). Its
 shapes are `cuboid`, `ellipsoid`, `tube`, `lathe` and `sheet`, each painted per
 vertex by a closure, over `vertex`/`triangle` and single-colour `facet`s; `finish`
 bounds the mesh. A game keeps its own shapes and palette on top (Garden's classic
-look and `sculpt.rs`, Forest's far trees and deer). It is the engine's portable
+look, Forest's far trees and deer). Art that changes often is lighter authored
+offline as a script that writes glTF and baked (Garden's `kit.mjs` ports these
+shapes to TypeScript for its golden and storybook looks). It is the engine's portable
 math, so equal calls make byte-equal meshes and identities on every host.
 A material is part of the model's identity. The entity's `Material` still tints and
 adds emission to every part; its metallic and roughness do not reach a model (a
 `MaterialOverride`'s do, per material: a Gold fruit's skin). Materials may sample
 textures named in `model.textures`, such as a shared `art/textures/` PNG, which become
 the model's dependencies and are requested like a baked model's. A generated name
-is the game's alone: registering one that `Game::ASSETS`, `STREAMED` or `LEVEL`
+is the game's alone: registering one that `Game::ASSETS`, `STREAMED` or `LEVELS`
 declares returns an error naming the declaration, since delivered bytes would
 otherwise land on it later. Saves store names and content identities,
 not vertices, so reconstruct from the same level and seed before restoring. Changed
@@ -374,7 +387,8 @@ resources for its frames. A model a `DrawnMesh` names is requested like a `Mesh`
 saves, picking, physics and animation keep the simulated mesh. A look that is
 presentation only is a `#[live]` argument `present` reads: switching it keeps the
 world (Grow a Garden's `art`), and the look's own models are made when it first draws
-them (`p.generated_model`, [above](#saves-and-assets)).
+them (`p.generated_model`, [above](#saves-and-assets)) or are `Game::STREAMED` and
+fetched while it is chosen (`Game::prefetch`; Grow a Garden's baked looks).
 
 A look over every entity derives its rows per entity and keeps them:
 `p.each::<K>(|p, e| { ...; Derived::Kept })`, where `K` is a simulation component or a

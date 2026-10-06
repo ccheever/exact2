@@ -196,6 +196,7 @@ fn the_streamed_walk_is_drawn_and_carries_the_socketed_charm() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (start, _) = fixture::render(&gpu, &mut surface, &frame).unwrap();
     frame.now_ms = 400.;

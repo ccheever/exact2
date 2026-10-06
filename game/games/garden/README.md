@@ -26,15 +26,18 @@ The Garden panel's **Look** row switches the look of the garden you have grown;
 play, saves and the world's hash are identical in each. A look is presentation
 only (`art` is a live argument): setup places every look's props as bare poses, and
 `Game::present` draws the chosen look (`DrawnMesh`, `DrawnLight`, the camera's
-`DrawnEnvironment`), making a look's generated models the first time it draws them
-(`Present::generated`), so a game pays for the looks it shows. **Art pass** draws baked models from `art.mjs` (run
-`bun game/games/garden/art.mjs` to regenerate `art/`; the bake turns it into
-`.model` assets): a model per crop and growth stage with far levels of detail,
+`DrawnEnvironment`). Every look but classic draws baked models that `art.mjs`
+writes (run `bun game/games/garden/art.mjs` to regenerate `art/`; the bake turns
+it into `.model` assets). They are `Game::STREAMED` and only their own look
+prefetches them (`Game::prefetch`): the other looks never download them, and
+switching to a look fetches what it shows first, then the rest, outside any first
+frame. **Golden hour** and **Storybook** (`looks.mjs`) paint every vertex: a
+gardener, can and barrel, an orchard and fence, flowers, a meadow of a few
+dozen grass tufts placed thousands of times, hills, and a plant and fruit per
+crop, in each look's palette (`assets/looks.level.json`). **Art pass** has a model
+per crop and growth stage with far levels of detail,
 fruit shapes recoloured per mutation, a picket fence with lanterns, a seed
-stall with its keeper, a ten-minute day and night, and rain and snow. Its
-models are `Game::STREAMED` and only the art pass prefetches them
-(`Game::prefetch`): the other looks never download them, and switching to the
-art pass fetches what it shows first, then the rest, outside any first frame.
+stall with its keeper, a ten-minute day and night, and rain and snow.
 
 Walk with WASD or the stick. **E** plants the seed in your hand on the tile
 under you, or harvests what is ripe there. You start with 20¢ and one carrot.
@@ -110,6 +113,15 @@ keyboard controls. It does not change the earlier market playtest policies.
 
 ## How it is built
 
+- **Numbers are data.** The balance (`assets/garden.level.json`: the seed
+  catalogue, mutations and their odds, the weather, market orders, restock
+  timing, the farm's rules and the camera) is simulation data: a save records
+  its identity, so a balance change moves the pins. Every look's sky, lights,
+  soil, meadow, palette, the art pass's day and camera (`assets/looks.level.json`)
+  are presentation data, in no save. Both are `Game::LEVELS`, decoded once;
+  with `bun game/dev.mjs garden` running, an edit reaches the running garden
+  with no build: the looks redraw it, and the balance is read from the next
+  tick (what a save holds — a planted crop's timings — keeps its old values).
 - **Garden time** is world time plus every span the garden spent away
   (`GardenClock`). Everything that will happen — a plant's next stage, a fruit
   ripening, the restock, the weather — is an entry in one saved min-heap
@@ -127,8 +139,14 @@ keyboard controls. It does not change the earlier market playtest policies.
 - **The HUD** is three published records — status, shop, backpack — each
   republished only when it changes (status timers once a garden second;
     actions, events and crossing a plot boundary publish immediately).
-  The backpack is published 200 rows a page: a 164,000-fruit backpack would be
-  a 13.6 MB field rebuilt on every harvest.
+  They hold values, never sentences: counts, crop names and ids, seconds, a
+  direction and distance, and what the last action did (`Note`'s `what`, such
+  as `planted` or `can_empty`). `app.contract` words them (`noteText`,
+  `promptText`, `hintText`, `compact`, `clock`…), so the HUD's wording changes
+  with no Rust rebuild. The backpack is published 200 rows a page: a
+  164,000-fruit backpack would be a 13.6 MB field rebuilt on every harvest.
+  The panels sit below the top bar however it wraps, the market beside them,
+  and on a phone's width they span it and the care panel steps aside.
 - **Watering** shifts the effective start and deadline together, preserving
   smooth-growth progress. It queues an earlier event; the old deadline is ignored
   when it comes due. Only this plant and its bounded fruit slots are visited.
@@ -139,12 +157,14 @@ keyboard controls. It does not change the earlier market playtest policies.
 | `logic/src/lib.rs` | arguments, setup, the tick |
 | `logic/src/art.rs`, `feedback.rs` | classic models, every look's setup and `present` dispatch, saved gestures, action particles and sounds |
 | `logic/src/looks.rs`, `pass.rs` | the golden and storybook looks, and the art pass: their props, sky and drawn models |
+| `art.mjs`, `looks.mjs`, `kit.mjs` | every look's baked models, written to `art/`; the glTF writer and mesh shapes they share |
 | `logic/src/garden.rs` | the clock, the schedule, plants, fruit, weather |
 | `logic/src/farm.rs` | tiles, purse, backpack, commands, offline catch-up |
-| `logic/src/shop.rs`, `crops.rs`, `hud.rs` | stock, the catalogue and values, publication |
+| `logic/src/shop.rs`, `crops.rs`, `hud.rs` | stock, the balance's types and values, the HUD's records |
+| `assets/garden.level.json`, `assets/looks.level.json` | the balance; every look's lighting, palette and camera |
 | `logic/tests/sim.rs` | the hostless game tests |
 | `logic/tests/scale.rs` | ignored measurements (`--ignored --nocapture`, release) |
-| `app.contract` | title, top bar, shop, backpack, tools, prompts, touch controls |
+| `app.contract` | title, top bar, shop, backpack, tools, prompts, touch controls, and every word the HUD shows |
 | `proof.mjs` | the real-host proof, `--scale` and Jev's `--playtest` |
 
 ![The garden in play](artifacts/art-final-view-web/grown.png)

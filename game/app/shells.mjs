@@ -276,7 +276,7 @@ fn main() {
         fs::write(&temporary, text).expect("write game surface declaration");
         fs::rename(temporary, &path).expect("publish complete game surface declaration");
     }
-${bakeArt ? `    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n` : ''}    bake_files::bake_game_level::<Logic>(${JSON.stringify(relative(shell, appDir))}).expect("bake level");
+${bakeArt ? `    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n` : ''}    bake_files::bake_game_levels::<Logic>(${JSON.stringify(relative(shell, appDir))}).expect("bake level");
     println!("cargo:rerun-if-changed={}", level_bake_path());
     println!("cargo:rerun-if-changed=build.rs");
 }
