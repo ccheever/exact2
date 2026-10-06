@@ -197,11 +197,13 @@ component T3Code
   mutation workspaceRefreshed as shape WorkspaceRefresh refreshes workspaceDiscovery, data then workspaceRefreshFinished
   state workspaceRetryKey = ""
   state workspaceRetryAt = 0
+  state workspaceRetryWake = 0 // ChatComposer: without a pending snapshot, only a change after the cooldown retries.
   action workspaceRefreshFinished
     match workspaceRefreshed
       case some(result)
         workspaceRetryKey = result.key
         workspaceRetryAt = result.retry ? now() + 10000 : 0
+        workspaceRetryWake = result.wake
       case none
         workspaceRetryAt = now() + 10000
   action liveTick
@@ -210,8 +212,11 @@ component T3Code
         send timelineReadsRefreshed = refreshTimelineReads(wallTime.epochAtZero + now())
       if not pending(timelineReadsRefreshedNext)
         send timelineReadsRefreshedNext = refreshTimelineReads(wallTime.epochAtZero + now())
-    if workspaceDiscovery.needed and not pending(workspaceRefreshed) and (workspaceRetryKey != workspaceDiscovery.key or now() >= workspaceRetryAt)
-      send workspaceRefreshed = refreshComposerWorkspace(workspaceDiscovery.key)
+    if workspaceDiscovery.needed and not pending(workspaceRefreshed)
+      if workspaceRetryKey != workspaceDiscovery.key or (now() >= workspaceRetryAt and (workspaceDiscovery.timer or workspaceDiscovery.wake != workspaceRetryWake))
+        send workspaceRefreshed = refreshComposerWorkspace(workspaceDiscovery.key)
+      if workspaceRetryKey == workspaceDiscovery.key and now() < workspaceRetryAt
+        workspaceRetryWake = workspaceDiscovery.wake
     if data.running or data.sidebar.ticking or data.sidebar.undoUntil > wallTime.epochAtZero + liveNow
       liveNow = now()
   task liveClock mount
