@@ -8,6 +8,7 @@ use ShellIcon from "./shell-icons.contract"
 use TipBubble from "./shell-tip.contract"
 use R6VideoTile from "./r6-media-video.contract"
 use R6ExpandedVideo from "./r6-media-video.contract"
+use MediaActions, MediaVideoFailure, MediaView from "./media-actions.contract"
 
 shape MessageImage
   id: string
@@ -91,10 +92,13 @@ component AttachmentTile
 // ExpandedImageDialog: the image at its own size up to 92% of the window
 // (less 96pt for the arrows) and min(86vh, 100vh − 160pt) high, its close
 // button 40pt above the top-right corner, "name (1/2)" below it, and the
-// previous/next arrows at the dialog's edges.
-component ImagePreviewDialog
+// previous/next arrows at the dialog's edges. media-actions: the media and its caption sit in
+// MediaActions (Save, Copy image); an image with no URL says it is unavailable, and a video that
+// fails shows ExpandedMediaFailure's black panel with Retry video.
+component ImagePreviewHost
   props
-    url: string
+    id: string
+    urls: list<AttachmentUrl>
     name: string
     position: string
     previous: bool
@@ -103,21 +107,63 @@ component ImagePreviewDialog
     windowWidth: number
     windowHeight: number
     local: action
+  derive shown = filter(urls, (entry) => entry.id == id and entry.url != "")
+  view
+    when length(shown) > 0
+      each preview in shown key=preview.id
+        ImagePreviewDialog(id=id, url=preview.url, failed=false, name=name, position=position, previous=previous, next=next, video=video, windowWidth=windowWidth, windowHeight=windowHeight, local=local)
+    else
+      ImagePreviewDialog(id=id, url="", failed=(length(filter(urls, (entry) => entry.id == `failed:${id}`)) > 0), name=name, position=position, previous=previous, next=next, video=video, windowWidth=windowWidth, windowHeight=windowHeight, local=local)
+
+component ImagePreviewDialog
+  props
+    id: string
+    url: string
+    failed: bool
+    name: string
+    position: string
+    previous: bool
+    next: bool
+    video: bool
+    windowWidth: number
+    windowHeight: number
+    local: action
+  // MediaVideoPlayer failedSrc: the URL the player refused; Retry video signs the attachment again.
+  state failedUrl = ""
+  derive videoFailed = failedUrl != "" and failedUrl == url
+  action broke(reason: string)
+    let ignored = reason
+    failedUrl = url
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-label=(video ? "Expanded video preview" : "Expanded image preview") testId="image-preview"
       button press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") aria-keyshortcuts="Escape" position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="image-preview-backdrop"
       row width=(windowWidth * 0.92) align-items="center" justify-content="space-between"
         PreviewStep(label="Previous media", shown=previous, flip=true, press=local("image-step", "", "previous"), testId="image-preview-previous")
-        column min-width=0 align-items="center"
-          box position="relative"
-            // lane r6-media: ExpandedVideo, the player with native controls, playing (r6-media.contract).
-            when video
-              R6ExpandedVideo(url=url, name=name, maxWidth=(windowWidth * 0.92 - 96), maxHeight=min(windowHeight * 0.86, windowHeight - 160))
-            else
-              image url aria-label=name max-width=(windowWidth * 0.92 - 96) max-height=min(windowHeight * 0.86, windowHeight - 160) object-fit="contain" border-radius=8
-            button press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") testId="image-preview-close" position="absolute" right=0 top=-40 width=24 height=24 padding=0 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center"
-              Icon(name="x", size=14, color="#ffffff")
-          text (position != "" ? `${name} ${position}` : name) margin-top=8 line-clamp=1 font-size=12 line-height="16px" color="#ffffffcc"
+        MediaActions(source=`attachment:${id}`, tip=name, local=local, testId="image-preview-actions")
+          column min-width=0 align-items="center"
+            box position="relative"
+              // lane r6-media: ExpandedVideo, the player with native controls, playing (r6-media.contract).
+              when video
+                when url != "" and not videoFailed
+                  R6ExpandedVideo(url=url, name=name, maxWidth=(windowWidth * 0.92 - 96), maxHeight=min(windowHeight * 0.86, windowHeight - 160), broke=broke)
+                else
+                  when failed or videoFailed
+                    column width=min(windowWidth * 0.92 - 96, 512)
+                      MediaVideoFailure(media=MediaView(kind="video", state="failed", url=url, name=name, tip=name, source="", failText=(name != "" ? `Video unavailable · ${name}` : "Video unavailable"), openUrl=url, openLabel="Open in browser", openIcon="external-link", retryKey=`attachment:${id}`, retrying=false), dark=true, local=local, testId="image-preview-video-failed")
+                  else
+                    box width=min(windowWidth * 0.92 - 96, 512) height=192 border-radius=8 background-color="#000000" role="status" aria-label="Loading video"
+              else
+                when url != ""
+                  image url aria-label=name max-width=(windowWidth * 0.92 - 96) max-height=min(windowHeight * 0.86, windowHeight - 160) object-fit="contain" border-radius=8
+                else
+                  when failed
+                    column role="alert" width=min(windowWidth * 0.92 - 96, 512) height=192 padding=24 box-sizing="border-box" gap=12 align-items="center" justify-content="center" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0d)" background-color="#000000" testId="image-preview-unavailable"
+                      text "Image unavailable. The file may have been moved or deleted." text-align="center" font-size=14 line-height="20px" color="#ffffff"
+                  else
+                    box width=min(windowWidth * 0.92 - 96, 512) height=192 border-radius=8 background-color="#000000" role="status" aria-label="Loading image"
+              button press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") testId="image-preview-close" position="absolute" right=0 top=-40 width=24 height=24 padding=0 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                Icon(name="x", size=14, color="#ffffff")
+            text (position != "" ? `${name} ${position}` : name) margin-top=8 line-clamp=1 font-size=12 line-height="16px" color="#ffffffcc"
         PreviewStep(label="Next media", shown=next, flip=false, press=local("image-step", "", "next"), testId="image-preview-next")
 
 component PreviewStep

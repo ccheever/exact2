@@ -10,7 +10,7 @@ import { eventRow } from './timeline-events';
 import { messageCodeBlocks } from './timeline-highlight';
 import { planAction, planBody, planCollapsible, planSaveView, proposedPlanTitle } from './timeline-plan';
 import { treeRows } from './timeline-tree';
-import { imagePreviewAction, imagePreviewView, messageAttachments } from './timeline-attachments';
+import { cachedAttachmentUrl, forgetAttachmentUrl, imagePreviewAction, imagePreviewView, messageAttachments } from './timeline-attachments';
 import { revealCitation } from './r5-composer-citation';
 import { jumpToTurn, minimapCurrent, minimapItems, nativeTurns, type MinimapRow } from './timeline-minimap';
 import { diagramPreviewAction, diagramPreviewView, messageDiagrams, retryMermaid } from './timeline-mermaid';
@@ -18,7 +18,8 @@ import { setupView, threadWorktreeSetup, worktreeDetailsOpen, worktreeSetupActio
 import { chippedAttachmentIds, markdownEnv, messageChips } from './r4-timeline-chips';
 import { hasQuestionAnswer, notificationSubagent, plainOutput, questionAnswerPreview, questionHistory, questionTextPreview, runlessWorkStartedAt, type InspectorCode } from './timeline-inspect';
 import { gitChatLocal } from './r4-git-route';
-import { surfaceLocal } from './r4-surfaces-panel';
+import { openFileSurface, surfaceLocal } from './r4-surfaces-panel';
+import { mediaLocal } from './media-views'; // media-actions: the media menu, a video's error and Retry
 import { closeTableMenu, tableMenuAction } from './r8-keys-table-menu'; // lane r8-keys: the table Copy popup
 import { preparationFailureRunId, retryableActivities } from './r11-upstream-retry'; // lane r11-upstream: Retry a failed workspace preparation
 import { numericDateFormatter, timestampFormatter } from './timestamp-format'; // desktop-shell-details: the host's locale
@@ -71,6 +72,8 @@ const scoped = (client: T3Client, kind: string, id: string) => `${client.threadI
 export async function chatLocal(client: T3Client, native: Native, op: string, id: string, value: string, storage?: Files): Promise<string> {
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // r4-surfaces: the right panel's surfaces (window chatLocal)
   if (op.startsWith('git-')) return gitChatLocal(client, native, op.slice(4), id, value); // lane r4-git (r4-git-route.ts)
+  if (op.startsWith('media-')) return mediaLocal(client, native, op.slice(6), id, value, { urlOf: attachmentId => cachedAttachmentUrl(client, attachmentId), // media-actions (media-views.ts)
+    openFile: relativePath => openFileSurface(client, native, relativePath, 0), forgetAttachment: attachmentId => forgetAttachmentUrl(client, attachmentId) });
   const view = timelineView(client);
   if (op === 'item-detail') { setTurnItemOpen(client, id, value === 'open'); return ''; }
   if (op === 'history') {

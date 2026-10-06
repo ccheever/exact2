@@ -1,0 +1,105 @@
+// media-actions (T3 Code 1e2ecbd975, MIT; see LICENSE-T3): components/media/MediaActions.tsx,
+// OpenMediaLink.tsx, MediaVideoPlayer.tsx's failure slot and FilePreviewPanel.tsx's
+// WorkspaceImagePreview / WorkspaceVideoPreview (chat Markdown's media: media-markdown.contract).
+// Only ShellIcon is imported, so the timeline's attachment views can use it without a cycle.
+//
+// `MediaActions` wraps a media node: it takes the focus (tabindex 0), shows the path, URL or name
+// as its tooltip, and a right click, the Menu key or Shift+F10 opens the native menu
+// (`chatlocal:media-menu`, media-actions.ts): at the pointer, or at the node's bottom-left corner
+// for a key. The source is the JSON a view built (media-views.ts) or `attachment:<id>`.
+use ShellIcon from "./shell-icons.contract"
+
+// A media slot (media-views.ts MediaView): kind "image" / "video" / "" (none); state "loading",
+// "ready" or "failed"; the open link ("" for none) and the Retry key ("" for no Retry).
+shape MediaView
+  kind: string
+  state: string
+  url: string
+  name: string
+  tip: string
+  source: string
+  failText: string
+  openUrl: string
+  openLabel: string
+  openIcon: string
+  retryKey: string
+  retrying: bool
+
+component MediaActions
+  props
+    source: string
+    tip: string
+    local: action
+    testId: string
+  // MediaActions onKeyDown: ContextMenu or Shift+F10 opens the menu at the node's bottom-left corner.
+  action menuKey(k: string, e: KeyboardEvent)
+    if k == "ContextMenu" or (e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey and k == "F10")
+      preventDefault()
+      stopPropagation()
+      local("media-menu", source, "key")
+  slot
+  view
+    box tabindex=0 title=tip contextmenu=local("media-menu", source, "pointer") key=menuKey aria-label=tip position="relative" max-width="100%" testId=testId
+      children
+
+// OpenMediaLink: a small secondary button that opens the URL in the default browser.
+component MediaOpenLink
+  props
+    url: string
+    label: string
+    icon: string
+    dark: bool
+    testId: string
+  view
+    when url != ""
+      link href=url aria-label=label testId=testId height=28 padding-left=10 padding-right=10 box-sizing="border-box" gap=6 border-radius=8 border-width=1 border-style="solid" border-color=(dark ? "#ffffff29" : "light-dark(#d4d4d8, #ffffff14)") background-color=(dark ? "#ffffff1a" : "light-dark(#f4f4f5, #ffffff0f)") display="flex" flex-direction="row" align-items="center" text-decoration-line="none"
+        ShellIcon(name=icon, size=14, color=(dark ? "#ffffff" : "light-dark(#27272a, #f5f5f5)"))
+        text label font-size=13 line-height="18px" font-weight=500 white-space="nowrap" color=(dark ? "#ffffff" : "light-dark(#27272a, #f5f5f5)")
+
+// MediaVideoPlayer's failure slot: the same 16:9 box as the player, "Video unavailable · <label>",
+// then Retry video ("Retrying…" while it runs) and the open link. `dark` is the expanded dialog's
+// black panel (EXPANDED_MEDIA_STATE_CLASS_NAME).
+component MediaVideoFailure
+  props
+    media: MediaView
+    dark: bool
+    local: action
+    testId: string
+  view
+    column role="alert" width="100%" aspect-ratio=(dark ? "auto" : "16 / 9") height=(dark ? 192 : "auto") min-height=112 padding=16 box-sizing="border-box" gap=12 align-items="center" justify-content="center" border-radius=8 border-width=1 border-style="solid" border-color=(dark ? "light-dark(#e4e4e7b3, #ffffff0d)" : "light-dark(#e4e4e766, #ffffff06)") background-color=(dark ? "#000000" : "light-dark(#f4f4f566, #ffffff06)") testId=testId
+      row gap=6 align-items="center" max-width="100%"
+        ShellIcon(name="triangle-alert", size=14, color=(dark ? "#ffffff" : "light-dark(#71717b, #818181)"))
+        text media.failText font-size=14 line-height="20px" text-align="center" line-clamp=2 color=(dark ? "#ffffff" : "light-dark(#71717b, #818181)") testId=`${testId}-label`
+      row flex-wrap="wrap" gap=8 align-items="center" justify-content="center"
+        when media.retryKey != ""
+          button press=local("media-retry", media.retryKey, media.url) disabled=media.retrying aria-label=(media.retrying ? "Retrying…" : "Retry video") testId=`${testId}-retry` height=28 padding-left=10 padding-right=10 box-sizing="border-box" gap=6 border-radius=8 border-width=1 border-style="solid" border-color=(dark ? "#ffffff29" : "light-dark(#d4d4d8, #ffffff14)") background-color=(dark ? "#ffffff1a" : "light-dark(#f4f4f5, #ffffff0f)") opacity=(media.retrying ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+            svg width=14 height=14 viewBox="0 0 24 24" fill="none" stroke=(dark ? "#ffffff" : "light-dark(#27272a, #f5f5f5)") stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+              path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8M21 3v5h-5"
+            text (media.retrying ? "Retrying…" : "Retry video") font-size=13 line-height="18px" font-weight=500 white-space="nowrap" color=(dark ? "#ffffff" : "light-dark(#27272a, #f5f5f5)")
+        MediaOpenLink(url=media.openUrl, label=media.openLabel, icon=media.openIcon, dark=dark, testId=`${testId}-open`)
+
+// The Files surface's image or video file (WorkspaceImagePreview / WorkspaceVideoPreview).
+component FilesMedia
+  props
+    media: MediaView
+    local: action
+  view
+    when media.state == "loading"
+      column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" role="status" aria-label=(media.kind == "video" ? "Loading video" : "Loading image") testId="file-media-loading"
+        ShellIcon(name="loader", size=24, color="light-dark(#71717b, #818181)")
+    when media.state == "failed" and media.kind == "image"
+      MediaActions(source=media.source, tip=media.tip, local=local, testId="file-image-failed")
+        column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" padding-left=24 padding-right=24 box-sizing="border-box"
+          text media.failText text-align="center" font-size=12 line-height="19.5px" color="light-dark(#e40014, #ff6467)" testId="file-image-error"
+    when media.state == "ready" and media.kind == "image"
+      column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" overflow="auto" padding=16 box-sizing="border-box" testId="file-image"
+        MediaActions(source=media.source, tip=media.tip, local=local, testId="file-image-actions")
+          image media.url aria-label=media.name max-width="100%" max-height="100%" object-fit="contain" testId="file-image-picture"
+    when media.kind == "video" and media.state != "loading"
+      column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" overflow="hidden" padding=16 box-sizing="border-box" testId="file-video"
+        column width="100%" max-width=1024 align-items="center"
+          MediaActions(source=media.source, tip=media.tip, local=local, testId="file-video-actions")
+            when media.state == "failed"
+              MediaVideoFailure(media=media, dark=false, local=local, testId="file-video-failed")
+            else
+              video media.url controls=true playsinline=true preload="metadata" aria-label=media.name error=local("media-video-error", media.url) width="100%" aspect-ratio="16 / 9" background-color="#000000" object-fit="contain" testId="file-video-player"

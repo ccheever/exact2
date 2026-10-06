@@ -6,6 +6,7 @@ use AttachmentUrl from "./timeline-attachments.contract"
 use CodeTip from "./r4-timeline-tips.contract"
 use Icon from "./icons.contract"
 use CiteButton, CitePart from "./diff-cite.contract"
+use MarkdownMedia from "./media-markdown.contract"
 shape ChatRun
   id: string
   text: string
@@ -182,6 +183,8 @@ component AnswerMarkdown
     // diff-review (Cite): the assistant message id ("" for no Cite) and the command the quote goes through.
     source: string
     cite: action
+    // media-actions: signed URLs for the answer's host-path media (timeline-attachments.ts).
+    urls: list<AttachmentUrl>
   // The selected part of each prose block, in the message's text stream (AssistantSelectionToolbar).
   state parts = filter([CitePart(block="", start=0, end=0)], (p) => p.end > 0)
   state anchor = 0
@@ -197,7 +200,7 @@ component AnswerMarkdown
     parts = []
   view
     column width="100%" position="relative" id=`cite-root-${source}`
-      DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=noUrls(), source=source, cite=selected)
+      DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls, source=source, cite=selected)
       when source != "" and length(parts) > 0
         CiteButton(parts=parts, stream=citeStream(document.blocks), source=source, top=anchor, cite=cite, dismiss=dismiss)
 
@@ -340,7 +343,12 @@ component BlockBody
               MarkdownTable(block=block, prose=prose, fit=fit, wrapDefault=wrapDefault, local=local, copied=(copiedText == block.markdown or copiedText == block.csv ? copiedNonce : 0))
             else
               when block.kind == "image"
-                image block.href aria-label=block.text max-width="100%" object-fit="contain"
+                // media-actions: an image line draws through its media chip (media-views.ts markdownMediaChips).
+                when length(filter(chips, (c) => c.kind == "media" and c.href == block.href)) > 0
+                  each chip in filter(chips, (c) => c.kind == "media" and c.href == block.href) key=chip.id
+                    MarkdownMedia(alt=chip.label, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local)
+                else
+                  image block.href aria-label=block.text max-width="100%" object-fit="contain"
               else
                 when block.kind == "quote"
                   when block.flow

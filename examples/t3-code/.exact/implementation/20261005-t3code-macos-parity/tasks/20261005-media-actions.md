@@ -1,13 +1,13 @@
 ---
 name: 20261005-media-actions
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-media-actions
+pr_url: https://github.com/ccheever/exact2/pull/166
 verified_commit: null
 ---
 
@@ -95,12 +95,12 @@ by symbol. Tools are named by their `target/t3-ui-parity/…` path (committed un
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | 20261005-clone-on-exact2-main | pending | Merged | pending |
-| merged task PR | 20261005-desktop-oracle-and-trace | pending | Merged | pending |
-| merged task PR | 20261005-main-fix-adoption | pending | Merged (the Menu-key and Shift+F10 path needs main's key events with modifiers, `preventDefault()` and `tabindex` on media nodes) | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
-| decision | What the oracle does on Save | none | Observe the Electron oracle (save dialog or direct download, folder, name) and copy it | pending |
-| decision | Hostname for the http-host check | none | Needs a dotted host name that resolves without editing system files, or a public host in an attended check | pending |
+| merged task PR | 20261005-clone-on-exact2-main | feature branch | Merged | satisfied (the clone is on `feat(example)/t3-code`) |
+| merged task PR | 20261005-desktop-oracle-and-trace | none | Merged | waived: the oracle will not be built; oracle and trace-diff rows are not run |
+| merged task PR | 20261005-main-fix-adoption | pending | Merged (the Menu-key and Shift+F10 path needs main's key events with modifiers, `preventDefault()` and `tabindex` on media nodes) | #155 merged |
+| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | #147 merged |
+| decision | What the oracle does on Save | reference source | Observe the Electron oracle (save dialog or direct download, folder, name) and copy it | answered from source: the main window installs no `will-download` (only the Browser preview does, `apps/desktop/src/preview/Manager.ts:3570`, whose comment says Electron opens a native Save dialog for a download with no save path), so Save is Electron's default: the Save dialog as a sheet, the media's file name, the session's last folder (Downloads first); "Download started" shows while it is open |
+| decision | Hostname for the http-host check | none | Needs a dotted host name that resolves without editing system files, or a public host in an attended check | `localtest.me` (public DNS to 127.0.0.1, as #106 used) |
 
 ## Issue assessment at preparation
 
@@ -161,15 +161,42 @@ only if the user grants it for native-menu capture.
 
 ## Progress
 
-Planned. No branch.
+2026-10-06, branch `feat(example)/t3-code-media-actions` (wave 3). Implementation: implemented; verification: unverified.
+
+Built:
+- Ports with the reference tests: `media-reference.ts` (mediaFileReference, mediaUrlReference, mediaReferenceFileName),
+  `media-source.ts` (resolveMediaSource, classifyMarkdownImageSource, mediaMimeType and the markdownLinks helpers);
+  `media-actions.ts` (mediaMenuItems, the menu flow with its toasts and the reference's error sentences, re-signing an
+  asset at action time, OpenMediaLink, resolveProtocolRelativeMediaUrl); `media-views.ts` (what each surface hands the wrapper).
+- `media-actions.contract` `MediaActions`: right click, Menu key and Shift+F10 (`chatlocal:media-menu`), `tabindex=0`,
+  tooltip; `MediaVideoFailure` (16:9 "Video unavailable · <label>", Retry video / "Retrying…", open link);
+  `FilesMedia` (Files image and video previews, new: "Unable to load workspace image."); `media-markdown.contract` (chat
+  Markdown image lines: direct URLs, host paths through `media-file` assets, "Image unavailable · <alt>", videos).
+- Surfaces wrapped: chat Markdown images and videos (user and assistant), the Files image and video previews, the
+  expanded image/video dialog (unavailable image text, video failure with Retry), the message video tile.
+- Native (`T3MediaActions.swift`, `T3Module+Media.swift`): `mediaMenu` (NSMenu at the pointer or the focused media's
+  bottom-left; the agent answers `T3_AGENT_MEDIA_PICKS`), `mediaCopyText`, `mediaSave` (fetch, refusals, Save panel sheet
+  as Electron's default download; agent: exports/), `mediaCopyImage` (PNG as is, else decoded and re-encoded, 64,000,000
+  pixel limit; agent: a private named pasteboard).
+- Rendered HTML: reproduced (AppKit test): http IP stylesheet, script and fetch, a named http host (`localtest.me`, unbundled
+  binary) and a public https image load. README, AGENT-HANDOFF gap #1 and EXACT2-GAPS X7 corrected; differences declared.
+
+Not built / limits: composer chips (excluded); Files' rendered Markdown preview media (the Files Markdown blocks get no
+signed URLs; chat Markdown does); an image whose bytes fail to decode keeps its box (no `image` error event, #121);
+the tooltip is AppKit's, not the code-style popup; Copy image is never "unavailable" (declared); http named host in the
+bundle (#106, #135).
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 implement | `ff5425066` on `9670b0723` | `bun test examples/t3-code` 1888 pass / 0 fail / 1 skip (base 1829; +59: media-reference 19, media-source 21, media-actions 19); strict tsc clean; `contract build` `[]`; `cargo test -p t3-code-macos --lib` 10 pass; AppKit `media-actions` 7/0, `r6-media` 5/0, `contextmenu` 13/0, `sidebar` 5/0; caps pass; five checks build/test/clippy/fmt/caps/boot all 0; bundle build ok | lane fixture under `target/lane` (not committed) | X7 (#106) for http named hosts in the bundle |
+| 2 rebase | onto `302169b08` (#157 merged) | conflict in `r4-surfaces-files.ts` only (`emptyFiles`: #157's editor fields kept, `media: NO_MEDIA` added); `bun test examples/t3-code` 1926 pass / 0 fail / 1 skip; strict tsc clean; `contract build` `[]`; `cargo test -p t3-code-macos --lib` 10 pass; AppKit `media-actions` 7/0, `r6-media` 5/0, `contextmenu` 13/0; caps pass; bundle build ok; no new drive | — | X7 (#106) |
+| 1 drive | AFTER `ff5425066`, BEFORE `9670b0723`, 1280×840, fixture server :16260, HTML fixture :16262 | AFTER exit 0: `View [markdown-image-actions] label="<lane>/repo/screens/logo.png" (contextmenu, key)`; `[markdown-video-actions]` → "Video unavailable · Clip", Retry video, Open in browser; Files `View [file-image-actions] … Image [file-image-picture]`; contextmenu picks: "Path copied", second relative path, Save → "Download started" (exports/logo.png sha256 064acdc2… = source), Shift+F10 → Copy image → "Image copied" (private pasteboard: PNG 480×300, 134417 bytes = source); `broken.mp4` → `[file-video-failed-label] "Video unavailable · media/broken.mp4"`, Retry re-signed and failed again; `page.html`: fixture log `GET /style.css Host=127.0.0.1:16262`, `GET /named.svg Host=localtest.me:16262`, `GET /data.json` (Origin null), Google favicon painted. BEFORE: the Markdown media draw nothing; logo.png shows "Failed to read workspace file"; its video step could not reach the tree under the provider-update toast (3 tries) | PR screenshots (before/after pairs) | real right click, real Menu key, real Save panel: unverified (attended) |
+
 
 ## Next action
 
-After the two base tickets merge: `prepare` (observe the oracle's Save, reproduce the external-host cases,
-get the user's decision on X7: wait for the framework fix, or waive the one criterion), then `implement`.
+Review the PR. Attended checks: a real right click and the Menu key on each surface, the Save panel's folder and name,
+Escape returning focus to the media, reduced motion. Oracle and trace-diff rows: not run (no oracle). The "Rendered
+HTML, http host" row stays blocked on X7 (#106).
