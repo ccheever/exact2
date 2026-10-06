@@ -368,11 +368,12 @@ guide's rules don't make obvious.
 ## Driving and testing
 
 - **A test passes on the web and fails on iOS right after an input that saves.** An
-  `expect` straight after `type` or `tap` reads what the input's mutation answered;
-  an input step ends with the answers given in its own turn ([authored
-  tests](contract-grammar.md#authored-tests)), and a source that awaits a storage
-  write answers in that turn on the web but later on a native host. Fix: put
-  `clock data` after the input, before the `expect` that reads what its reply sets.
+  `expect` straight after `type` or `tap` reads what the input's mutation answered,
+  but an input step only finishes the `then`s of answers already settled; it does not
+  wait for outstanding storage ([authored tests](contract-grammar.md#authored-tests)).
+  A fast web reply (the web input waits two frames) can make the `expect` pass while
+  the native reply is still pending. Fix: put `clock data` after the input, before the
+  `expect` that reads what its reply sets.
   (Authoring bench, LLP 1087, ios23 t5-pomodoro, 2026-10-05; iOS round 6.)
 
 - **A drive script kept in the app folder makes the build stale.** Editing
