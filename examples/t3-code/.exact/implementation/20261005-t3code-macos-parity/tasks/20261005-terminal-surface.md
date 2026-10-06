@@ -1,12 +1,12 @@
 ---
 name: 20261005-terminal-surface
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-terminal-surface
 pr_url: null
 verified_commit: null
 ---
@@ -161,14 +161,28 @@ Required environment: Xcode 27.0, Bun 1.4.2, the oracle from `20261005-desktop-o
 
 ## Progress
 
-Planned. No branch.
+2026-10-06: implemented on `feat(example)/t3-code-terminal-surface` (rebased on `da40e6590`, after
+hot-file-split #147). The spike verdict is **GO if the user accepts the S2 budget**; the full table,
+numbers and the proposed budget are in `AGENT-HANDOFF.md` "Terminal spike". Scope 2–4 are in place
+because the spike needed them: vendored assets with `VENDOR.json` and `verify-vendor.mjs`; the page
+(`terminal-host/src/entry.ts`), its build and the `t3-terminal` view (a module view rather than a
+hook, so the agent's `type`/`press` and a canvas snapshot reach it); the ported tests. A development
+harness (`terminal.contract`, ⌃⌥⇧T) stands in for the drawer.
+
+Not done: the render pair against the Electron oracle (desktop-oracle-and-trace will not be built:
+not run); the attended rows (mouse, wheel, drag selection, links, right-click, scrollbar drag,
+resize, ⌘C/⌘V through WebKit's clipboard, real Korean 2-Set typing and the candidate window,
+⌃C under 2-Set, Safari inspection); the seven session-buffer `core.test.ts` tests (move to the
+drawer with `state/terminal.ts`). Open decisions: the GO and the S2 budget; apparatus approval for
+`terminal-host/build.mjs` and `verify-vendor.mjs`; X46 (no pre-bake step: run the page build before
+the bundle build); the harness stays until the drawer replaces it.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (implementation + spike) | `b9e4d15a8` on `da40e6590` | `bun test examples/t3-code` 1457/0 (base 1321; terminal-host + terminal-links 136); strict tsc on `app.ts` clean, on `terminal-host/src/entry.ts` (ES2023, DOM) clean; `contract build` 2189 slots, 43 resources, 48356 nodes; `cargo test -p t3-code-macos --lib` 10/0; `macos/tests/terminal` 8 (1 skipped unless `T3_TERMINAL_SCALE=1`; the scale run passes too); every other AppKit binary passes (mermaid needs a server: not run); `verify-vendor.mjs` 7 files match; `build.mjs` under `sandbox-exec` (reference and network denied) exit 0, two builds same sha256; caps pass; macOS bundle builds with the page in `Resources/assets/` | `AGENT-HANDOFF.md` "Terminal spike" (S1–S9 table, S2 numbers); drive transcripts and pictures in the PR | User: GO and S2 budget. Live: canvas paint under the agent fixed after the drive, not re-driven; attended rows unverified |
 
 ## Next action
 
-`prepare` after both dependencies merge. Run the spike first. Stop and ask the user for the verdict before any other work.
+The user reads the spike verdict and accepts or rejects GO and the S2 budget. On GO, the drawer, layout, integrations and sign-in terminal tasks may start; the attended rows run in a person's session.
