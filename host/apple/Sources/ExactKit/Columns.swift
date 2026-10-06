@@ -153,6 +153,8 @@ extension NodeView {
         let host = layer
         #endif
         let old = host.sublayers?.first { $0.name == "exact-column-rules" }
+        // Linux `column_rules` returns when the container does not paint.
+        if cssVisibilityHidden { old?.removeFromSuperlayer(); return }
         let width = CGFloat(number("column_rule_width", 3))
         guard let columns = columnRecord?.columns, columns.count > 1, width > 0,
               style["column_rule_style"]?.string == "solid" else { old?.removeFromSuperlayer(); return }

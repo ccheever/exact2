@@ -26,16 +26,28 @@ function flush() {
   Dirty.clear();
   if (later.length) requestAnimationFrame(() => { for (const e of later) install(e); });
 }
-// The opening seek finishes after the glue attaches. `clock settle` waits, so a
-// boot snapshot is not taken between `seeking` and `seeked` (synthetic-media).
+// The wasm host does not count a load with no source, or one that stalls or
+// empties, as in flight. An opening seek still holds, so `clock settle` is
+// not taken between `seeking` and `seeked` (synthetic-media).
+function mediaSource(e) {
+  return e.currentSrc || (typeof e.getAttribute === "function" && e.getAttribute("src")) || e.exactMedia?.props?.src || "";
+}
 function holdUntilPlayable(e) {
   if (e.$media.hold || e.error || (e.readyState >= 3 && e.seeking !== true)) return;
+  if (e.seeking !== true && !mediaSource(e)) return;
   e.$media.hold = true;
   inflight.n++;
-  const release = () => { if (!e.$media.hold) return; e.$media.hold = false; inflight.n--; for (const n of ['seeked', 'canplay', 'error']) e.removeEventListener(n, check); };
-  const check = () => { if (e.$media.retired || e.error || (e.readyState >= 3 && e.seeking !== true)) release(); };
+  const names = ["seeked", "canplay", "error", "emptied", "stalled"];
+  const release = () => { if (!e.$media.hold) return; e.$media.hold = false; inflight.n--; for (const n of names) e.removeEventListener(n, check); };
+  const check = (ev) => {
+    if (e.$media.retired || e.error) return release();
+    const kind = ev && ev.type;
+    if (kind === "emptied" || kind === "stalled") return release();
+    if (e.seeking !== true && !mediaSource(e)) return release();
+    if (e.readyState >= 3 && e.seeking !== true) release();
+  };
   e.$media.release = release;
-  for (const n of ['seeked', 'canplay', 'error']) e.addEventListener(n, check);
+  for (const n of names) e.addEventListener(n, check);
 }
 function install(e) {
   if (e.$media.retired) return;

@@ -138,7 +138,7 @@ extension BatchReader {
         try object { r, key in
             switch key {
             case "font_size", "font_weight", "font_family", "font_style", "letter_spacing", "text_color", "text_decoration_line", "background_color", "font_variant_numeric",
-                 "text_shadow", "text_stroke_width", "text_stroke_color":
+                 "text_shadow", "text_stroke_width", "text_stroke_color", "visibility":
                 try style.set(key, r.value())
             case "line_height": height = try r.value()
             default: try r.skip()

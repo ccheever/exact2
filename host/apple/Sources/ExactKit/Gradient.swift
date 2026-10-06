@@ -289,7 +289,7 @@ extension NodeView {
     /// The gradient painted by `draw(_:)`, over the background and under
     /// the border, inside the border box's outline.
     func paintGradient(_ ctx: CGContext, clip: CGPath) {
-        guard surface == nil else { return }
+        guard surface == nil, !cssVisibilityHidden else { return }
         #if os(iOS)
         // A fixed gradient is the layer's (LLP 1066 D7).
         if gradientLayered && boxGradient != nil { return }

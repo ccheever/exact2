@@ -19,7 +19,7 @@ extension NodeView {
         // A native button's children are its face, not views (LLP 1069.011 D5),
         // read from the kernel, current on its first batch (LLP 1069.011.000 D1).
         if isNativeButton { return face?.title ?? "" }
-        if isParagraph { return inlineText.filter(\.paints).map(\.text).joined() }
+        if isParagraph { return visibleParagraphText }
         // accname: an `aria-hidden` child names nothing (habits F16: a tab's icon glyph).
         let children = container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["accessibilityElementsHidden"] != "true" }
         return children.map(\.accessibleText).filter { !$0.isEmpty }.joined(separator: " ")
@@ -84,7 +84,7 @@ extension NodeView {
     }
     static let ariaAttributes = ["AXInvalid", "AXHasPopup", "AXPopupValue", "AXARIACurrent"]
     var accessibilityVisible: Bool {
-        guard paragraphOwner.window != nil, !inert, !cssVisibilityHidden else { return false }
+        guard paragraphOwner.window != nil, !inert, accessibilityExposed else { return false }
         #if os(macOS)
         var ancestor: NSView? = paragraphOwner
         #else
