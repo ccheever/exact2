@@ -55,6 +55,17 @@ shape ComposerNotice
   iconTone: string
   sep: bool
   liveRole: string
+  // auto-balance: the multi-machine update banner's popover rows, and its title's accessible name.
+  machines: list<NoticeMachine>
+  menuLabel: string
+// auto-balance: one machine of the banner's popover (status idle, running or failed; a manual copy action or note).
+shape NoticeMachine
+  id: string
+  label: string
+  status: string
+  line: string
+  copyLabel: string
+  note: string
 shape ComposerTask
   key: string
   text: string
@@ -111,6 +122,8 @@ shape ComposerBranches
   envMachineLabel: string
   envOptions: list<R4EnvOption>
   envMenuWidth: number
+  // auto-balance: the host-resource load the root's balanceLoad task sends ("" when none is due).
+  balanceFetch: string
   originShown: bool
   originOn: bool
   // lane r7-handoff: the pull request badge before the branch trigger (r7-handoff-strip.ts).
