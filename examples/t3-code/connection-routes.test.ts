@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   connectionRouteId, connectionRouteKind, connectionRouteLabel, credentialConnectionId, entryWithRoutes, gitHubRoutingConnectionKey,
-  insertRoute, mergeLearnedRoutes, moveRoute, registerRoute, removedWithRelay, reorderRoutes, routesAfterRemoving, savedRoutes,
+  insertRoute, mergeLearnedRoutes, registerRoute, removedWithRelay, reorderRoutes, routesAfterRemoving, savedRoutes,
   singleRouteKey, storedRoute, upsertRoute, connectionRouteAddress, type ConnectionRoute, type RouteEntry,
 } from './connection-routes';
 
@@ -164,11 +164,6 @@ describe('EnvironmentRegistry routes', () => {
     const stored = [storedRoute(TAILNET), storedRoute({ ...LAN, id: `learned:e:http://192.168.1.10:3773@${TAILNET.id}`, learned: true })];
     expect(stored[1]).toMatchObject({ credential: TAILNET.id, learned: true });
     expect(ids(savedRoutes({ origin: 'x', routes: stored }))).toEqual(['tailnet', `learned:e:http://192.168.1.10:3773@${TAILNET.id}`]);
-  });
-  it('moves a route by keyboard within the list', () => {
-    expect(moveRoute(['a', 'b', 'c'], 'c', -1)).toEqual(['a', 'c', 'b']);
-    expect(moveRoute(['a', 'b', 'c'], 'a', -1)).toEqual(['a', 'b', 'c']);
-    expect(moveRoute(['a', 'b', 'c'], 'a', 5)).toEqual(['b', 'c', 'a']);
   });
 });
 const ids = (routes: ConnectionRoute[] | null) => routes?.map(route => route.id) ?? null;

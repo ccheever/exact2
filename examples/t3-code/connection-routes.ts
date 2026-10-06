@@ -248,16 +248,6 @@ export function reorderRoutes(routes: readonly ConnectionRoute[], ids: readonly 
   }
   return ids.map(id => byId.get(id)!);
 }
-/** Moves one route by `delta` places (the keyboard reorder), clamped to the list. */
-export function moveRoute(ids: readonly string[], id: string, delta: number): string[] {
-  const from = ids.indexOf(id);
-  if (from < 0) return [...ids];
-  const to = Math.max(0, Math.min(ids.length - 1, from + delta));
-  const next = ids.filter(other => other !== id);
-  next.splice(to, 0, id);
-  return next;
-}
-
 // ── Decoding the native store (T3SavedEnvironments) ──────────────────────
 const asString = (value: unknown) => typeof value === 'string' ? value : '';
 function decodeSsh(value: unknown): RouteSshTarget | undefined {
