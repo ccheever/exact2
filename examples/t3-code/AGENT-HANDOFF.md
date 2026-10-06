@@ -4,6 +4,22 @@ Current as of the functional repair verification, 2026-10-06 (KST).
 
 ## Start here
 
+SSH password and remote Open, PR #157, remain **in progress / unverified**.
+Resume the [SSH follow-up checklist](.exact/implementation/20261005-t3code-macos-parity/tasks/20261005-ssh-password-and-remote-open.md#follow-up-handoff-incomplete-acceptance-2026-10-06).
+It tracks real SSH authentication and actual editor opening, missing Markdown/Files
+integration, native input and prompt lifecycle checks, and remaining acceptance evidence.
+Fixture success is not end-to-end acceptance. Keep this task active until its checklist
+and required acceptance rows are closed with evidence or an explicit user scope decision.
+
+Live automations and tracked clones, PR #156: client implementation and partial UI
+verification only. The old `succeeded` screenshot does not prove a completed model
+response: the retained Codex provider log ends in HTTP 401 and a failed turn.
+Authenticated manual and scheduled execution remain unverified. Follow the
+[automation verification handoff](.exact/implementation/20261005-t3code-macos-parity/tasks/20261005-live-automations-and-clones.md#handoff-authenticated-automation-verification)
+for isolated backend authentication, run/turn correlation, real-time interval tests,
+failure/status investigation and cleanup. Tracked-clone runtime acceptance also remains
+open. Keep the task unverified until its required acceptance rows are satisfied.
+
 Read `rules/RULES.md`, `rules/DEFERRED.md`, then this app's `README.md` and
 `.exact/implementation/20261005-t3code-macos-parity/plan.md`.
 The round-12 source is now tracked and preserved in commit `1c6b4a12a`.
@@ -63,6 +79,17 @@ budget is about 140 lines until X9 lands. Two lists in `client.ts` `command()` s
 ops one by one: `local` (device-only ops) and `formCommand` (errors that go to their form);
 a new op in an existing prefix needs neither. The `composer`, `menus` and `r5-panels`
 XCTests define their own `exactModule` and leave out `T3Module*.swift` (README recipe).
+
+## Code colours (shiki-residuals)
+
+`r12-render-grammar.ts` (16 languages, with the themes) and `r12-render-grammar-more.ts` (c, java,
+kotlin, csharp, xml, diff, docker, make, ruby) are generated: edit `GROUPS` in
+`tools/grammar/gen-grammar.mjs`, run `bun install --frozen-lockfile` there, then `bun
+gen-grammar.mjs` (`--check` compares). A group has its own rule ids, so a grammar includes only
+grammars of its own group compiled before it. `tools/shiki-compare/shiki-compare.mjs` compares
+the engine with real Shiki 4.2 (Oniguruma engine) per character; keep corpora in `target/`. Long
+texts: each answer tokenizes for at most 50 ms, then `highlightSlice` turns (the root's
+`highlightPump` task) finish it; the heuristic colours show meanwhile.
 
 ## Checks on the integrated tree (round 11)
 

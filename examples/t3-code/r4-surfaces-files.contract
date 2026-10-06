@@ -14,6 +14,7 @@ use ShellEditorIcon from "./shell-icons.contract"
 use TipBubble from "./shell-tip.contract"
 use FileTypeIcon from "./timeline-files.contract"
 use synColor from "./markdown.contract"
+use synSlant from "./markdown.contract"
 use MarkdownBlocks from "./markdown.contract"
 use R4Icon from "./r4-surfaces-icons.contract"
 
@@ -215,7 +216,7 @@ component R4CodeRow
       text line.number width=gutter flex-shrink=0 padding-right=9.83 box-sizing="border-box" text-align="right" font-family="ui-monospace" font-size=13 line-height="20px" font-variant-numeric="tabular-nums" color="light-dark(#565656, #9d9d9d)"
       text flex=1 min-width=0 padding-left=7.8 padding-right=7.8 box-sizing="border-box" font-family="ui-monospace" font-size=13 line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         each run in line.runs key=run.id
-          text run.text color=synColor(run.syntax)
+          text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax)
 
 // FileBrowserPanel: refresh, "Search files" and expand/collapse all (36pt, 4pt
 // below in the inline panel), status lines, then the compact tree (24pt rows,

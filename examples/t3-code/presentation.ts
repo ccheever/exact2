@@ -1,5 +1,7 @@
 import { legacySidebarSnapshot } from './legacy-sidebar-view';
 import { timelineReadsNeeded } from './timeline-prepare';
+import { projectCloneBlock } from './project-clones-live';
+import { highlightPending } from './r12-render-highlight';
 import { markdownSkills } from './r4-timeline-chips';
 import { workspaceValues } from './composer-workspace-snapshots';
 import { workspaceCwd } from './composer-editor';
@@ -138,7 +140,7 @@ export function snapshot(client: T3Client, now = 0) {
     // The header title keyed by its text: a reused one-line text keeps drawing the previous title clipped to the new width.
     threadHeading: [str(obj(client.projection.thread).title, 'New thread')].map(title => ({ id: title, label: title })), draft: client.draft, snapshotDrafts: snapshotDraftTiles(client), snapshotOwner: client.snapshotOwner,
     settled: section(obj(client.projection.thread)) === 'settled', ...projectIdentity(str(project?.title)),
-    running: !!run, canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId,
+    running: !!run, canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client), // a cloning project waits (project-clones-live.ts)
     canStop: client.writable && !pending && !client.busy && !!run,
     providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? triggerModelName(currentModel) : client.modelId || 'Choose model',
     composerCollapseOnScroll: client.local.deviceSettings.composerCollapseOnScroll,
@@ -167,6 +169,7 @@ export function snapshot(client: T3Client, now = 0) {
     composer: composerSnapshot(client, now),
     look: look(client),
     ...tableMenuSnapshot(client), // lane r8-keys: a table's Copy popup over every layer
+    highlightPending: highlightPending(), // shiki-residuals: last, after every code text above asked for its tokens
   };
 }
 

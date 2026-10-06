@@ -35,8 +35,12 @@ export function pushToast(client: T3Client, toast: { kind: ToastKind; title: str
   return id;
 }
 
-/** toastManager.update: change a live toast in place (same id, same place, same timer). */
-export function updateToast(client: T3Client, id: number, patch: Partial<Pick<Toast, 'title' | 'description' | 'details' | 'expandLabels' | 'action'>>): void {
+/**
+ * toastManager.update: change a live toast in place (same id, same place). A phase change
+ * (ProjectCloneToastCoordinator) also patches the kind, timeout, second button and copy
+ * button; a changed timeout restarts its timer (shell.ts advanceToasts).
+ */
+export function updateToast(client: T3Client, id: number, patch: Partial<Pick<Toast, 'title' | 'description' | 'details' | 'expandLabels' | 'action' | 'kind' | 'timeoutMs' | 'secondary' | 'hideCopy'>>): void {
   queues.set(client, (queues.get(client) ?? []).map(toast => toast.id === id ? { ...toast, ...patch } : toast));
 }
 

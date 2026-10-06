@@ -1,11 +1,11 @@
 ---
 name: 20261005-ssh-password-and-remote-open
 plan: 20261005-t3code-macos-parity
-implementation: implemented
+implementation: in-progress
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
+base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-ssh-password-and-remote-open
 pr_url: https://github.com/ccheever/exact2/pull/157
 verified_commit: null
@@ -108,7 +108,7 @@ Required environment: Xcode 27.0, pinned Bun, the oracle build; a Korean input s
 
 ## Progress
 
-Implemented on `feat(example)/t3-code-ssh-password-and-remote-open` (rebased on the feature branch after #147), verification unverified.
+Partial implementation on `feat(example)/t3-code-ssh-password-and-remote-open`; task remains in progress and verification unverified. Existing tests and fixture drives do not establish complete acceptance.
 
 - **Auth-attempt wrapper** (`modules/apple/T3SshAuth.swift`, `T3Ssh.swift` `withAuth`): every launch, tunnel and pairing run starts with `BatchMode=yes`; an auth failure (`isAuthFailure`, the reference's three patterns) asks for a password, two prompts at most, then runs again with `BatchMode=no`, `SSH_ASKPASS=<t3code-ssh-runtime-*/t3code-ssh-askpass/ssh-askpass.sh>` (0700), `SSH_ASKPASS_REQUIRE=force`, `T3_SSH_AUTH_SECRET`, `DISPLAY=t3code` when unset. The secret is kept in memory per connection key for later runs and dropped on failure; it never enters argv, a file, Keychain, defaults or logs. Messages: "SSH authentication cancelled for <destination>.", "SSH authentication timed out for <destination>.", "SSH authentication was cancelled because the app window closed." (module `destroy`). Without a prompt service (the AppKit test binary) the refusal is final with ssh's own message, as in the reference (`handleSshAuthFailure` returns the error before `promptForPassword`, so the reference's "SSH authentication failed for <host>." is unreachable there too).
 - **Queue and dialog** (`T3SshPrompts`, `ssh-auth.ts`, `ssh-prompt.contract`, root registration in `app.contract`): FIFO, one dialog at a time, 3-minute expiry (agent-only seam `T3_SSH_PROMPT_TIMEOUT_MS`); title, body with the target, the prompt line, `m:ss` countdown → "Expired", hint ↔ error text, Cancel/Dismiss, Continue disabled while responding or expired, Enter submits, Escape and an outside press cancel, no close button, no motion. The field is the module's native secure field `t3-ssh-password` (X35, upstream #134): masked, copy and cut refused, accessible name = the prompt, focused and selected on open, cleared on dismiss; Continue asks the module to read it, so the password never enters TypeScript or Contract state. Focus returns to the previous first responder when the field goes away (best effort).
@@ -116,6 +116,59 @@ Implemented on `feat(example)/t3-code-ssh-password-and-remote-open` (rebased on 
 - **Probe and safe open** (`modules/apple/T3RemoteEditors.swift`): `probeRemoteEditors` over the login shell's PATH and `~/Applications` + `/Applications` bundle CLIs; `safeExternalUrl` (port of `parseSafeExternalUrl`) gates `NSWorkspace.open`; agent runs record the URL (`T3_REMOTE_OPEN_LOG`) and open nothing.
 
 Not done / differences: the clone's Markdown file links have no editor actions (they open the Files surface), so `canUseMarkdownFileShellActions` has no caller yet; the Files surface's editor list still comes from the server's editors (only its open is remote-aware); diagnostics and settings keep the server exec, as the reference's callers do; Tab order, real ⌘C, Korean IME in the secure field and the attended password host are unverified (attended); the oracle and trace-diff rows were not run (desktop-oracle-and-trace not built); 840×620 and dark mode not run (no pixel matrix). In agent runs the countdown follows the agent's virtual clock (it reads 3:00 until the clock moves), the expiry follows real time.
+
+## Follow-up handoff: incomplete acceptance (2026-10-06)
+
+The user explicitly requires this task to remain active until the missing implementation
+and runtime acceptance are handled. Resume this ticket and PR #157; do not treat the
+existing code, a green test suite, or a merge as completion. The plan and AGENT-HANDOFF.md
+link here so a later agent can pick up the same unfinished work.
+
+Evidence boundary: prior macOS drives used `fake-ssh.sh`. Remote Open in agent mode
+records a URL and returns success without calling `NSWorkspace.open`. Neither proves
+real SSH password authentication or an editor opening the requested remote project.
+On `ea407aa162d883e5a1c6583f7d4edc3f9935bc4c`, the follow-up audit reran
+`bun test examples/t3-code/remote-open.test.ts examples/t3-code/ssh-auth.test.ts examples/t3-code/settings-b-ssh.test.ts`:
+36 passed, 0 failed. This is unit-test evidence only; the larger check counts below
+are historical reports, not a fresh end-to-end verification.
+
+Next agent checklist:
+
+- [ ] Reconcile the current feature-branch base and the dependency table with merged PRs;
+  record the exact app/reference commits and actual oracle availability before testing.
+- [ ] Complete or resolve the missing Markdown editor-action caller and the Files editor
+  list sourced from the server. Compare the relevant reference callers, implement the
+  required behavior, and test local, SSH, advertised-host and unavailable routes.
+  If a requirement is excluded, record the user's explicit scope decision here.
+- [ ] Use an authorized password-accepting SSH test host in a normal, isolated lane launch
+  with `T3_LOCAL_HOME` and `T3_LOCAL_PORT`; retain the agent mode's fake-host isolation.
+  Verify wrong/right passwords, the two-prompt limit, connect/reconnect, cached-secret
+  reuse and invalidation. Record observable server/tunnel outcomes without secrets.
+- [ ] In that normal launch, use a real installed remote-capable editor and verify the
+  requested host and project actually open. A recorded URL or successful OS dispatch
+  alone is insufficient. Verify local Open and unavailable-route behavior too.
+- [ ] Drive Cancel, Escape/outside dismiss, FIFO queue, live countdown/expiry and window
+  close; confirm disabled/error states and focus restoration. AppKit unit coverage
+  alone does not close the app-interaction rows.
+- [ ] Check real Tab order, Enter/Escape, copy/cut refusal, masked accessibility values,
+  field clearing and Korean input-source behavior against the reference. Audit logs
+  and app storage for the test secret without publishing the secret or credentials.
+- [ ] Complete bounded functional checks at 1280×840 and 840×620 in light/dark mode,
+  plus the required oracle/trace comparison when its dependency is available. Respect
+  the handoff's user stop on pixel-perfect fix loops; do not restart those loops.
+- [ ] Re-run the key-only fixture on a free lane port, and investigate/verify tunnel
+  cleanup after app exit. Record whether the previous root-ok proxy limitation still
+  applies; a proxy-only result is not proof of an unmodified real server working.
+- [ ] Run the applicable tests, strict TypeScript, Contract build and native build/drive
+  on the final code. Record commands, revision, observed outcomes and evidence links
+  per acceptance row, then update this ticket, the handoff, plan and PR together.
+
+If a host, authorized credentials, interactive session, editor or oracle is unavailable,
+record that specific dependency and the next action; leave its checkbox open. Do other
+independent work first. Do not replace missing evidence with an inferred pass.
+Only mark implementation complete and verification verified, with `verified_commit` set,
+when every required acceptance row is evidenced or explicitly descoped by the user.
+Until then keep PR #157 described as partial and not ready for final acceptance.
 
 ## Attempts and evidence
 
@@ -129,3 +182,17 @@ Not run: the attended rows (real copy, Tab order with a real keyboard, IME, a re
 ## Next action
 
 `prepare` after the three merged task PRs. Close with clone checks green (bun test, strict tsc, contract build, `cargo test -p t3-code-macos --lib`, `ssh` AppKit binary), `bun scripts/caps.mjs` after `git add -A`, the repository's five checks, and every moved matrix cell fixed or declared in `EXACT2-GAPS.md` with an issue link.
+
+### Follow-up integration checks, 2026-10-06
+
+Merged the current `origin/feat(example)/t3-code`; the sole conflict was the
+`shell-details.ts` imports. Retained both remote Open and thread automations.
+`~/.bun-1.4.2/bin/bun test examples/t3-code`: 1,452 pass, 1 skip, 0 fail.
+The skipped row is grammar regeneration. The default PATH's Bun 1.3.14 produced
+one HTML highlighting failure; use the repository-pinned Bun 1.4.2.
+Focused SSH/remote Open/details/automation tests: 83 pass, 0 fail.
+Strict TypeScript, Contract build (2,222 slots, 44 resources, 48,923 nodes),
+staged caps, boot and `git diff --cached --check` passed.
+No native app rebuild, attended session, real SSH host or actual editor launch
+was performed in this follow-up. These checks resolve integration confidence,
+not the open acceptance checklist above.
