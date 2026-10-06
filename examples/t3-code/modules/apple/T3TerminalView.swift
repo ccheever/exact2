@@ -25,7 +25,7 @@ import WebKit
 final class T3TerminalView: ExactNativeInstance {
     static let factory = ExactNativeFactory(snapshot: true) { (owner: ExactModule, props: [String: String], events: ExactNativeEvents) in
         T3TerminalView(props: props, events: events, agent: owner.context.agent,
-                       sessions: (owner as? T3Module).map { T3TerminalSessions.of($0.transport) })
+                       sessions: (owner as? T3TerminalSessionOwner)?.terminalSessions)
     }
 
     final class WebView: WKWebView {

@@ -2,7 +2,9 @@
 // mounted threads' terminals keep their attach streams without a view (T3TerminalSessions.retain).
 import Foundation
 
-extension T3Module {
+extension T3Module: T3TerminalSessionOwner {
+    var terminalSessions: T3TerminalSessions { T3TerminalSessions.of(transport) }
+
     /// `terminalRetain` { sessions: [JSON.stringify([environmentId, threadId, terminalId])] }.
     func terminalOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
         guard request["op"] as? String == "terminalRetain" else { return next() }
