@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "source_paths": [
+    "examples/t3-code/composer-controls.contract",
+    "examples/t3-code/composer-presentation.ts",
+    "examples/t3-code/composer-shapes.contract",
+    "examples/t3-code/diff.contract",
+    "examples/t3-code/diff.test.ts",
+    "examples/t3-code/diff.ts",
+    "examples/t3-code/palette-add.ts",
+    "examples/t3-code/palette.test.ts",
+    "examples/t3-code/presentation.ts",
+    "examples/t3-code/r4-integrate.contract",
+    "examples/t3-code/r4-surfaces-panel.ts",
+    "examples/t3-code/r5-composer-menus.ts",
+    "examples/t3-code/settings-b-accent.contract",
+    "examples/t3-code/settings-core.test.ts",
+    "examples/t3-code/settings-core.ts",
+    "examples/t3-code/settings-rows.contract",
+    "examples/t3-code/shell-panels.contract",
+    "examples/t3-code/shell.test.ts",
+    "examples/t3-code/shell.ts",
+    "examples/t3-code/sidebar-overlays.contract",
+    "examples/t3-code/sidebar-row.contract",
+    "examples/t3-code/timeline.contract"
+  ],
+  "checks": [
+    {
+      "name": "clone unit tests",
+      "argv": [
+        "/Users/daehyeonmun/.bun-1.4.2/bin/bun",
+        "test",
+        "examples/t3-code"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 300,
+      "required": true
+    },
+    {
+      "name": "macOS bundle builds (contract build, Swift, Rust; EXACT_APP_DIR=examples/t3-code, Bun 1.4.2 first on PATH)",
+      "argv": [
+        "/Users/daehyeonmun/.bun-1.4.2/bin/bun",
+        "host/apple/build.mjs",
+        "t3-code-macos",
+        "--bundle"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1500,
+      "required": true
+    }
+  ]
+}

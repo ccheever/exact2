@@ -33,6 +33,17 @@ function harness() {
 const requests = (calls: Obj[]) => calls.filter(call => call.op === 'request');
 
 describe('diff panel', () => {
+  test('a workspace outside git shows the reference\'s notice, not an empty diff or an error (DiffPanel !isGitRepo)', async () => {
+    const { client, command, calls } = harness();
+    const { watchVcsStatus, vcsStatusEvent } = await import('./shell-vcs');
+    void watchVcsStatus(client, { available: true, watch() {}, later: async () => ({ ok: true, generation: 1, value: {} }) }, '/repo', 1000);
+    vcsStatusEvent(client, { subscriptionId: '1-99', value: { _tag: 'snapshot', local: { isRepo: false }, remote: null } });
+    await command('diff');
+    expect(requests(calls).filter(call => call.method === 'review.getDiffPreview')).toHaveLength(0);
+    expect(snapshot(client)).toMatchObject({ diffError: '', diffEmpty: true, diffEmptyLabel: 'Turn diffs are unavailable because this project is not a git repository.' });
+    // ChatView: the Diff surface is offered for Git repositories only.
+    expect((await import('./r4-surfaces-panel')).availability(client).diff).toBe(false);
+  });
   test('parses statuses, numbered hunks and hidden ranges from git patches', () => {
     const files = parsePatch(treePatch);
     expect(files.map(file => [file.path, file.status, file.additions, file.deletions])).toEqual([['a.ts', 'modified', 2, 1], ['README.md', 'deleted', 0, 2], ['src/new.ts', 'added', 1, 0]]);

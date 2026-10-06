@@ -299,17 +299,29 @@ function modelControl(context: ServerContext, selection: Obj | null, textGenerat
   if (!provider) return { kind: 'text-only', label: textGeneration ? 'No text generation providers available.' : 'No providers available' };
   const models = arr(provider.models);
   const model = chosen ? models.find(entry => entry.slug === selection!.model)! : models.find(entry => entry.isDefault === true) || models[0];
-  const effort = arr(obj(model?.capabilities).optionDescriptors).find(descriptor => descriptor.type === 'select' && ['reasoningEffort', 'effort'].includes(str(descriptor.id)));
-  const chosenEffort = arr(chosen ? selection!.options : []).find(entry => entry.id === effort?.id)?.value;
+  // TraitsPicker: every select trait in its own section (Reasoning, Service Tier), radio rows with a Default badge.
+  const descriptors = arr(obj(model?.capabilities).optionDescriptors).filter(descriptor => descriptor.type === 'select' && arr(descriptor.options).length > 0);
+  const selections = arr(chosen ? selection!.options : []);
+  const current = (descriptor: Obj) => str(selections.find(entry => entry.id === descriptor.id)?.value,
+    str(arr(descriptor.options).find(entry => entry.isDefault === true)?.id, str(arr(descriptor.options)[0]?.id)));
+  const effort = descriptors.find(descriptor => ['reasoningEffort', 'effort'].includes(str(descriptor.id)));
   const efforts = arr(effort?.options);
-  const effortValue = str(chosenEffort, str(efforts.find(entry => entry.isDefault === true)?.id, str(efforts[0]?.id)));
+  const effortValue = effort ? current(effort) : '';
+  // buildTraitsTriggerDisplay: a Fast or Ultrafast service tier draws a bolt beside the effort.
+  const tier = descriptors.find(descriptor => descriptor.id === 'serviceTier');
+  const tierLabel = tier ? str(arr(tier.options).find(entry => entry.id === current(tier))?.label) : '';
+  // Codex only, and only beside another label: a tier alone reads as its own label ("Fast"), with no bolt.
+  const speed = str(provider.driver) !== 'codex' || !effort ? '' : tierLabel === 'Ultrafast' ? 'ultrafast' : tierLabel === 'Fast' ? 'fast' : '';
+  const traits = descriptors.flatMap((descriptor, index) => [option(`section:${str(descriptor.id)}`, str(descriptor.label, str(descriptor.id)), false, { icon: index ? 'section-rule' : 'section', disabled: true }),
+    ...arr(descriptor.options).map(entry => option(`${str(descriptor.id)}=${str(entry.id)}`, str(entry.label, str(entry.id)), current(descriptor) === entry.id,
+      { detail: str(entry.description), icon: entry.isDefault === true ? 'default' : '' }))]);
   return {
     value: `${str(provider.instanceId)}|${str(model?.slug)}`, label: str(model?.name, str(model?.slug)), driver: str(provider.driver),
     badge: providerBadge(provider, context.providers).providerBadge, badgeColor: providerBadge(provider, context.providers).providerBadgeColor,
     options: providers.flatMap(entry => arr(entry.models).map(candidate => option(`${str(entry.instanceId)}|${str(candidate.slug)}`, str(candidate.name, str(candidate.slug)),
       entry.instanceId === provider.instanceId && candidate.slug === model?.slug, { detail: str(entry.displayName, str(entry.driver)), icon: str(entry.driver) }))),
-    value2: effortValue, label2: str(efforts.find(entry => entry.id === effortValue)?.label, effortValue),
-    options2: efforts.map(entry => option(str(entry.id), str(entry.label, str(entry.id)), entry.id === effortValue)),
+    value2: effortValue, label2: str(efforts.find(entry => entry.id === effortValue)?.label, effortValue) || tierLabel, icon: speed,
+    options2: traits,
   };
 }
 
@@ -501,8 +513,12 @@ function modelValue(raw: string, part: string, key: string, context: ServerConte
   if (part === 'effort') {
     const control = modelControl(context, current === null ? null : obj(current), key === 'textGenerationModelSelection');
     const [instanceId, model] = str(control.value).split('|');
-    if (!control.options2?.some(entry => entry.value === raw)) throw new ClientError('Choose a supported reasoning effort.');
-    return { instanceId: instanceId!, model: model!, options: [{ id: 'reasoningEffort', value: raw }] };
+    // A bare value is a reasoning effort (older ids); "<descriptor>=<option>" picks one trait and keeps the others.
+    const pick = raw.includes('=') ? raw : str(control.options2?.find(entry => /^(reasoningEffort|effort)=/.test(entry.value) && entry.value.endsWith(`=${raw}`))?.value);
+    if (!control.options2?.some(entry => entry.value === pick && !entry.icon.startsWith('section'))) throw new ClientError('Choose a supported reasoning effort.');
+    const [id, value] = [pick.slice(0, pick.indexOf('=')), pick.slice(pick.indexOf('=') + 1)];
+    const previous = current !== null && obj(current).instanceId === instanceId && obj(current).model === model ? arr(obj(current).options) : [];
+    return { instanceId: instanceId!, model: model!, options: [...previous.filter(entry => entry.id !== id).map(entry => ({ id: str(entry.id), value: entry.value as Json })), { id, value }] };
   }
   const separator = raw.indexOf('|');
   const instanceId = raw.slice(0, separator), model = raw.slice(separator + 1);

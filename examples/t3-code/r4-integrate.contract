@@ -11,8 +11,12 @@ use prdTone from "./pages-pr-detail.contract"
 component SidebarPrBadge
   props
     t: Thread
+    recede: bool
+  // A settled row at rest recedes every text to secondary-label/70, the badge's tone included
+  // (Sidebar variantAction "unsettle": [&:not(:hover):not(:focus-within)_*]:text-secondary-label/70).
+  derive tone = (recede ? "light-dark(#71717bb3, #818181b3)" : t.badgeState == "" ? "light-dark(#71717b, #818181)" : prdTone(t.badgeState))
   view
     // r5-panels: the glyph and number wear the badge's state tone (muted until a snapshot arrives).
     row gap=2 align-items="center" flex-shrink=0
-      PgIcon(name=t.badgeIcon, size=12, color=(t.badgeState == "" ? "light-dark(#71717b, #818181)" : prdTone(t.badgeState)))
-      text t.badge font-size=12 font-variant-numeric="tabular-nums" color=(t.badgeState == "" ? "light-dark(#71717b, #818181)" : prdTone(t.badgeState))
+      PgIcon(name=t.badgeIcon, size=12, color=tone)
+      text t.badge font-size=12 font-variant-numeric="tabular-nums" color=tone
