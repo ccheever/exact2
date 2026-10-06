@@ -1083,6 +1083,12 @@ test('the web build\'s deadline covers a stalled body, and keeps the caller\'s o
   try {
     const stalled = await fetchWith(set, origin.url.href, { exactTimeout: 150 }).catch(e => e);
     expect([stalled.name, stalled.kind, stalled.message]).toEqual(['FetchError', 'Timeout', 'the request timed out after 150 ms']);
+    // A bodyless status, and the response's own URL, come through a deadline.
+    const empty = Bun.serve({ port: 0, fetch: () => new Response(null, { status: 204 }) });
+    try {
+      const done = await fetchWith(normalized(`net.fetch ${empty.url.origin}`), empty.url.href, { exactTimeout: 2000 });
+      expect([done.status, done.url, await done.text()]).toEqual([204, empty.url.href, '']);
+    } finally { empty.stop(true); }
     const aborted = new AbortController(); aborted.abort();
     const own = await fetchWith(set, new Request(origin.url.href, { signal: aborted.signal }), { exactTimeout: 5000 }).catch(e => e);
     expect([own.name, own.kind]).toEqual(['FetchError', 'Network']);

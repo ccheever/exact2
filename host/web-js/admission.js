@@ -41,9 +41,10 @@ export async function fetchWith(set, input, init = {}) {
     const { exactTimeout: _, ...rest } = init;
     // The caller's signal, from `init` or the input `Request`, beside the
     // deadline: the combined signal keeps whichever reason came first.
-    const own = rest.signal ?? (typeof Request === 'function' && input instanceof Request ? input.signal : undefined);
+    // An explicit `signal: null` clears the Request's, as `fetch` has it.
+    const own = 'signal' in rest ? rest.signal : typeof Request === 'function' && input instanceof Request ? input.signal : undefined;
     signal = deadline ? (own ? AbortSignal.any([own, deadline.signal]) : deadline.signal) : rest.signal;
-    let response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...rest, ...(signal ? { signal } : {}), redirect: 'follow' });
+    const response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...rest, ...(signal ? { signal } : {}), redirect: 'follow' });
     // A redirect that left the grants names where it led (podcast F5), as
     // the native executor does; the browser followed it to this last hop.
     if (response.url && (asset
@@ -51,15 +52,14 @@ export async function fetchWith(set, input, init = {}) {
       : !admitsNetwork(set, response.url, 'fetch'))) throw new FetchError('Refused', `${refusal('net.fetch')}: redirected to ${new URL(response.url).origin}`);
     // The deadline covers the body too, as natively: read it here, so a
     // stalled body is this fetch's Timeout, not a later read's AbortError.
-    if (deadline) {
-      const body = await response.arrayBuffer();
-      response = new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
-    }
+    // Its clone is read whole; the response keeps its URL, type and null
+    // body, and its own read is served from what the clone took.
+    if (deadline) await response.clone().arrayBuffer();
     return response;
   }
   catch (error) {
     if (error instanceof FetchError) throw error;
-    if (deadline && signal?.reason?.name === 'TimeoutError') throw new FetchError('Timeout', `the request timed out after ${deadline.ms} ms`);
+    if (deadline && signal?.aborted && signal.reason === deadline.signal.reason) throw new FetchError('Timeout', `the request timed out after ${deadline.ms} ms`);
     throw new FetchError('Network', error?.message ?? error);
   }
 }

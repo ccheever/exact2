@@ -235,6 +235,13 @@ impl<D: DataSource> Bridge<D> {
             let mut presenter = crate::batch::Batch::new();
             Self::auth_forgotten(h, &mut presenter);
             for r in h.take_requests() {
+                // A deadline on work that cannot take one is refused before
+                // the auth and surface paths, which skip the executor.
+                if let Some(why) = r.request.timeout_refusal() {
+                    h.refuse_request(r.ticket, why, r.request.is_ordered());
+                    x.notify();
+                    continue;
+                }
                 if r.request.is_auth() {
                     Self::auth_arm(h, x, &mut presenter, &r);
                     continue;

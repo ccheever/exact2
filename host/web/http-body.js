@@ -189,7 +189,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
     return { kind: 0, status: response.status, headers: [...response.headers].map(([k, v]) => `${k}: ${v}`).join('\n'), body: await boundedHttpBody(response, op.maxResponseBytes) };
   } catch (error) {
     // Whichever ended it first: the combined signal keeps the first reason.
-    if (deadline && signal.reason?.name === 'TimeoutError') return failed(10, `the request timed out after ${op.timeoutMs} ms`);
+    if (deadline && signal.aborted && signal.reason === deadline.reason) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
     return failed(controller.signal.aborted ? 4 : 1, error);
   }
   finally { controllers.delete(controller); }

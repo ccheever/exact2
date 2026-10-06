@@ -494,6 +494,7 @@ impl Transport for RustlsHttpTransport {
                 .timeout_connect(Some(limit))
                 .timeout_send_request(Some(limit))
                 .timeout_send_body(Some(limit))
+                .timeout_await_100(Some(limit))
                 .timeout_recv_response(Some(limit))
                 .timeout_recv_body(Some(limit))
                 .build(),
