@@ -1,0 +1,891 @@
+{
+  "scope": "Actual macOS app; agent-delivered platform toggle gestures and controlled clock. Geometry/focus allowlist only.",
+  "configuredDurationMs": 400,
+  "runs": [
+    {
+      "run": 9,
+      "entry": 0,
+      "command": [
+        "prefer",
+        {
+          "prefers-color-scheme": "light"
+        }
+      ],
+      "clock": 10900,
+      "media": {
+        "prefers-reduced-motion": "no-preference",
+        "prefers-color-scheme": "light"
+      }
+    },
+    {
+      "run": 9,
+      "entry": 1,
+      "command": [
+        "tap",
+        "connection-settings"
+      ],
+      "clock": 10900
+    },
+    {
+      "run": 9,
+      "entry": 2,
+      "command": [
+        "clock",
+        "data"
+      ],
+      "clock": 10900
+    },
+    {
+      "run": 9,
+      "entry": 3,
+      "command": [
+        "tap",
+        "settings-appearance"
+      ],
+      "clock": 10900
+    },
+    {
+      "run": 9,
+      "entry": 4,
+      "command": [
+        "clock",
+        "data"
+      ],
+      "clock": 10900
+    },
+    {
+      "run": 9,
+      "entry": 6,
+      "command": [
+        "clock",
+        "data"
+      ],
+      "clock": 10900
+    },
+    {
+      "run": 9,
+      "entry": 7,
+      "command": [
+        "tap",
+        "close-settings"
+      ],
+      "clock": 10900
+    },
+    {
+      "run": 9,
+      "entry": 8,
+      "command": [
+        "clock",
+        "data"
+      ],
+      "clock": 10900
+    },
+    {
+      "run": 9,
+      "entry": 9,
+      "command": [
+        "clock",
+        "settle"
+      ],
+      "clock": 10900
+    },
+    {
+      "run": 9,
+      "entry": 10,
+      "command": [
+        "layout"
+      ],
+      "clock": 10900,
+      "nodes": [
+        {
+          "id": 1859,
+          "testId": "terminal-drawer",
+          "type": "View",
+          "x": 256,
+          "y": 560,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1860,
+          "testId": "terminal-drawer-inner",
+          "type": "View",
+          "x": 256,
+          "y": 560,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1865,
+          "testId": "terminal-view",
+          "type": "NativeView",
+          "x": 256,
+          "y": 561,
+          "w": 1024,
+          "h": 279
+        }
+      ]
+    },
+    {
+      "run": 9,
+      "entry": 11,
+      "command": [
+        "state"
+      ],
+      "clock": 10900,
+      "focus": {
+        "responder": null,
+        "editor": null,
+        "logical": null,
+        "pending": null
+      }
+    },
+    {
+      "run": 9,
+      "entry": 12,
+      "command": [
+        "tap",
+        "toggle-terminal"
+      ],
+      "clock": 10900
+    },
+    {
+      "run": 9,
+      "entry": 13,
+      "command": [
+        "clock",
+        "data"
+      ],
+      "clock": 10900
+    },
+    {
+      "run": 9,
+      "entry": 14,
+      "command": [
+        "layout"
+      ],
+      "clock": 10900,
+      "nodes": [
+        {
+          "id": 1859,
+          "testId": "terminal-drawer",
+          "type": "View",
+          "x": 256,
+          "y": 560,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1860,
+          "testId": "terminal-drawer-inner",
+          "type": "View",
+          "x": 256,
+          "y": 560,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1865,
+          "testId": "terminal-view",
+          "type": "NativeView",
+          "x": 256,
+          "y": 561,
+          "w": 1024,
+          "h": 279
+        }
+      ]
+    },
+    {
+      "run": 9,
+      "entry": 15,
+      "command": [
+        "state"
+      ],
+      "clock": 10900,
+      "focus": {
+        "responder": "TextArea",
+        "editor": 149,
+        "logical": 149,
+        "pending": null
+      }
+    },
+    {
+      "run": 9,
+      "entry": 16,
+      "command": [
+        "clock",
+        "+100"
+      ],
+      "clock": 11000
+    },
+    {
+      "run": 9,
+      "entry": 17,
+      "command": [
+        "layout"
+      ],
+      "clock": 11000,
+      "nodes": [
+        {
+          "id": 1859,
+          "testId": "terminal-drawer",
+          "type": "View",
+          "x": 256,
+          "y": 665.88,
+          "w": 1024,
+          "h": 174.12
+        },
+        {
+          "id": 1860,
+          "testId": "terminal-drawer-inner",
+          "type": "View",
+          "x": 256,
+          "y": 665.88,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1865,
+          "testId": "terminal-view",
+          "type": "NativeView",
+          "x": 256,
+          "y": 666.88,
+          "w": 1024,
+          "h": 279
+        }
+      ]
+    },
+    {
+      "run": 9,
+      "entry": 18,
+      "command": [
+        "clock",
+        "+300"
+      ],
+      "clock": 11300
+    },
+    {
+      "run": 9,
+      "entry": 19,
+      "command": [
+        "layout"
+      ],
+      "clock": 11300,
+      "nodes": [
+        {
+          "id": 1859,
+          "testId": "terminal-drawer",
+          "type": "View",
+          "x": 256,
+          "y": 840,
+          "w": 1024,
+          "h": 0
+        },
+        {
+          "id": 1860,
+          "testId": "terminal-drawer-inner",
+          "type": "View",
+          "x": 256,
+          "y": 840,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1865,
+          "testId": "terminal-view",
+          "type": "NativeView",
+          "x": 256,
+          "y": 841,
+          "w": 1024,
+          "h": 279
+        }
+      ]
+    },
+    {
+      "run": 9,
+      "entry": 20,
+      "command": [
+        "state"
+      ],
+      "clock": 11300,
+      "focus": {
+        "responder": "TextArea",
+        "editor": 149,
+        "logical": 149,
+        "pending": null
+      }
+    },
+    {
+      "run": 9,
+      "entry": 21,
+      "command": [
+        "tap",
+        "toggle-terminal"
+      ],
+      "clock": 11300
+    },
+    {
+      "run": 9,
+      "entry": 22,
+      "command": [
+        "clock",
+        "data"
+      ],
+      "clock": 11300
+    },
+    {
+      "run": 9,
+      "entry": 23,
+      "command": [
+        "layout"
+      ],
+      "clock": 11300,
+      "nodes": [
+        {
+          "id": 1859,
+          "testId": "terminal-drawer",
+          "type": "View",
+          "x": 256,
+          "y": 840,
+          "w": 1024,
+          "h": 0
+        },
+        {
+          "id": 1860,
+          "testId": "terminal-drawer-inner",
+          "type": "View",
+          "x": 256,
+          "y": 840,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1865,
+          "testId": "terminal-view",
+          "type": "NativeView",
+          "x": 256,
+          "y": 841,
+          "w": 1024,
+          "h": 279
+        }
+      ]
+    },
+    {
+      "run": 9,
+      "entry": 24,
+      "command": [
+        "clock",
+        "+100"
+      ],
+      "clock": 11400
+    },
+    {
+      "run": 9,
+      "entry": 25,
+      "command": [
+        "layout"
+      ],
+      "clock": 11400,
+      "nodes": [
+        {
+          "id": 1859,
+          "testId": "terminal-drawer",
+          "type": "View",
+          "x": 256,
+          "y": 734.12,
+          "w": 1024,
+          "h": 105.88
+        },
+        {
+          "id": 1860,
+          "testId": "terminal-drawer-inner",
+          "type": "View",
+          "x": 256,
+          "y": 734.12,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1865,
+          "testId": "terminal-view",
+          "type": "NativeView",
+          "x": 256,
+          "y": 735.12,
+          "w": 1024,
+          "h": 279
+        }
+      ]
+    },
+    {
+      "run": 9,
+      "entry": 26,
+      "command": [
+        "clock",
+        "+300"
+      ],
+      "clock": 11700
+    },
+    {
+      "run": 9,
+      "entry": 27,
+      "command": [
+        "layout"
+      ],
+      "clock": 11700,
+      "nodes": [
+        {
+          "id": 1859,
+          "testId": "terminal-drawer",
+          "type": "View",
+          "x": 256,
+          "y": 560,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1860,
+          "testId": "terminal-drawer-inner",
+          "type": "View",
+          "x": 256,
+          "y": 560,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1865,
+          "testId": "terminal-view",
+          "type": "NativeView",
+          "x": 256,
+          "y": 561,
+          "w": 1024,
+          "h": 279
+        }
+      ]
+    },
+    {
+      "run": 9,
+      "entry": 28,
+      "command": [
+        "state"
+      ],
+      "clock": 11700,
+      "focus": {
+        "responder": "WebView",
+        "editor": null,
+        "logical": 1865,
+        "pending": null
+      }
+    },
+    {
+      "run": 10,
+      "entry": 0,
+      "command": [
+        "tap",
+        "toggle-terminal"
+      ],
+      "clock": 11700
+    },
+    {
+      "run": 10,
+      "entry": 1,
+      "command": [
+        "clock",
+        "data"
+      ],
+      "clock": 11700
+    },
+    {
+      "run": 10,
+      "entry": 2,
+      "command": [
+        "clock",
+        "+100"
+      ],
+      "clock": 11800
+    },
+    {
+      "run": 10,
+      "entry": 3,
+      "command": [
+        "layout"
+      ],
+      "clock": 11800,
+      "nodes": [
+        {
+          "id": 1859,
+          "testId": "terminal-drawer",
+          "type": "View",
+          "x": 256,
+          "y": 665.88,
+          "w": 1024,
+          "h": 174.12
+        },
+        {
+          "id": 1860,
+          "testId": "terminal-drawer-inner",
+          "type": "View",
+          "x": 256,
+          "y": 665.88,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1865,
+          "testId": "terminal-view",
+          "type": "NativeView",
+          "x": 256,
+          "y": 666.88,
+          "w": 1024,
+          "h": 279
+        }
+      ]
+    },
+    {
+      "run": 10,
+      "entry": 4,
+      "command": [
+        "state"
+      ],
+      "clock": 11800,
+      "focus": {
+        "responder": "TextArea",
+        "editor": 149,
+        "logical": 149,
+        "pending": null
+      }
+    },
+    {
+      "run": 10,
+      "entry": 5,
+      "command": [
+        "tap",
+        "toggle-terminal"
+      ],
+      "clock": 11800
+    },
+    {
+      "run": 10,
+      "entry": 6,
+      "command": [
+        "clock",
+        "data"
+      ],
+      "clock": 11800
+    },
+    {
+      "run": 10,
+      "entry": 7,
+      "command": [
+        "layout"
+      ],
+      "clock": 11800,
+      "nodes": [
+        {
+          "id": 1859,
+          "testId": "terminal-drawer",
+          "type": "View",
+          "x": 256,
+          "y": 665.88,
+          "w": 1024,
+          "h": 174.12
+        },
+        {
+          "id": 1860,
+          "testId": "terminal-drawer-inner",
+          "type": "View",
+          "x": 256,
+          "y": 665.88,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1865,
+          "testId": "terminal-view",
+          "type": "NativeView",
+          "x": 256,
+          "y": 666.88,
+          "w": 1024,
+          "h": 279
+        }
+      ]
+    },
+    {
+      "run": 10,
+      "entry": 8,
+      "command": [
+        "clock",
+        "+100"
+      ],
+      "clock": 11900
+    },
+    {
+      "run": 10,
+      "entry": 9,
+      "command": [
+        "layout"
+      ],
+      "clock": 11900,
+      "nodes": [
+        {
+          "id": 1859,
+          "testId": "terminal-drawer",
+          "type": "View",
+          "x": 256,
+          "y": 577.02,
+          "w": 1024,
+          "h": 262.98
+        },
+        {
+          "id": 1860,
+          "testId": "terminal-drawer-inner",
+          "type": "View",
+          "x": 256,
+          "y": 577.02,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1865,
+          "testId": "terminal-view",
+          "type": "NativeView",
+          "x": 256,
+          "y": 578.02,
+          "w": 1024,
+          "h": 279
+        }
+      ]
+    },
+    {
+      "run": 10,
+      "entry": 10,
+      "command": [
+        "clock",
+        "+300"
+      ],
+      "clock": 12200
+    },
+    {
+      "run": 10,
+      "entry": 11,
+      "command": [
+        "layout"
+      ],
+      "clock": 12200,
+      "nodes": [
+        {
+          "id": 1859,
+          "testId": "terminal-drawer",
+          "type": "View",
+          "x": 256,
+          "y": 560,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1860,
+          "testId": "terminal-drawer-inner",
+          "type": "View",
+          "x": 256,
+          "y": 560,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1865,
+          "testId": "terminal-view",
+          "type": "NativeView",
+          "x": 256,
+          "y": 561,
+          "w": 1024,
+          "h": 279
+        }
+      ]
+    },
+    {
+      "run": 10,
+      "entry": 12,
+      "command": [
+        "prefer",
+        {
+          "prefers-reduced-motion": "reduce"
+        }
+      ],
+      "clock": 12200,
+      "media": {
+        "prefers-color-scheme": "light",
+        "prefers-reduced-motion": "reduce"
+      }
+    },
+    {
+      "run": 10,
+      "entry": 13,
+      "command": [
+        "clock",
+        "data"
+      ],
+      "clock": 12200
+    },
+    {
+      "run": 10,
+      "entry": 14,
+      "command": [
+        "tap",
+        "toggle-terminal"
+      ],
+      "clock": 12200
+    },
+    {
+      "run": 10,
+      "entry": 15,
+      "command": [
+        "clock",
+        "data"
+      ],
+      "clock": 12200
+    },
+    {
+      "run": 10,
+      "entry": 16,
+      "command": [
+        "layout"
+      ],
+      "clock": 12200,
+      "nodes": [
+        {
+          "id": 1859,
+          "testId": "terminal-drawer",
+          "type": "View",
+          "x": 256,
+          "y": 840,
+          "w": 1024,
+          "h": 0
+        },
+        {
+          "id": 1860,
+          "testId": "terminal-drawer-inner",
+          "type": "View",
+          "x": 256,
+          "y": 840,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1865,
+          "testId": "terminal-view",
+          "type": "NativeView",
+          "x": 256,
+          "y": 841,
+          "w": 1024,
+          "h": 279
+        }
+      ]
+    },
+    {
+      "run": 10,
+      "entry": 17,
+      "command": [
+        "state"
+      ],
+      "clock": 12200,
+      "focus": {
+        "responder": "TextArea",
+        "editor": 149,
+        "logical": 149,
+        "pending": null
+      }
+    },
+    {
+      "run": 10,
+      "entry": 18,
+      "command": [
+        "tap",
+        "toggle-terminal"
+      ],
+      "clock": 12200
+    },
+    {
+      "run": 10,
+      "entry": 19,
+      "command": [
+        "clock",
+        "data"
+      ],
+      "clock": 12200
+    },
+    {
+      "run": 10,
+      "entry": 20,
+      "command": [
+        "layout"
+      ],
+      "clock": 12200,
+      "nodes": [
+        {
+          "id": 1859,
+          "testId": "terminal-drawer",
+          "type": "View",
+          "x": 256,
+          "y": 560,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1860,
+          "testId": "terminal-drawer-inner",
+          "type": "View",
+          "x": 256,
+          "y": 560,
+          "w": 1024,
+          "h": 280
+        },
+        {
+          "id": 1865,
+          "testId": "terminal-view",
+          "type": "NativeView",
+          "x": 256,
+          "y": 561,
+          "w": 1024,
+          "h": 279
+        }
+      ]
+    },
+    {
+      "run": 10,
+      "entry": 21,
+      "command": [
+        "state"
+      ],
+      "clock": 12200,
+      "focus": {
+        "responder": "WebView",
+        "editor": null,
+        "logical": 1865,
+        "pending": null
+      }
+    },
+    {
+      "run": 10,
+      "entry": 22,
+      "command": [
+        "prefer",
+        {
+          "prefers-reduced-motion": "no-preference"
+        }
+      ],
+      "clock": 12200,
+      "media": {
+        "prefers-reduced-motion": "no-preference",
+        "prefers-color-scheme": "light"
+      }
+    },
+    {
+      "run": 10,
+      "entry": 23,
+      "command": [
+        "clock",
+        "data"
+      ],
+      "clock": 12200
+    }
+  ]
+}

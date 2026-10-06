@@ -1,0 +1,39 @@
+{
+  "value": "",
+  "events": [
+    {
+      "type": "keydown",
+      "data": null,
+      "inputType": null,
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "isComposing": false,
+      "isTrusted": true,
+      "ctrl": true,
+      "alt": false,
+      "meta": false,
+      "shift": false,
+      "target": "oracle-ime-control",
+      "value": "",
+      "time": 3360727.5
+    },
+    {
+      "type": "keyup",
+      "data": null,
+      "inputType": null,
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "isComposing": false,
+      "isTrusted": true,
+      "ctrl": true,
+      "alt": false,
+      "meta": false,
+      "shift": false,
+      "target": "oracle-ime-control",
+      "value": "",
+      "time": 3360872.899999857
+    }
+  ]
+}

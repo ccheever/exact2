@@ -1,0 +1,22 @@
+PASS: fixture OAuth exchange
+PASS: fixture project exists
+PASS: real thread created and visible
+PASS: all4 shells produced history and child PIDs
+PASS: real metadata reports4 running subprocesses
+PASS: modern sidebar real metadata count and label
+PASS: legacy sidebar real metadata count
+PASS: palette real metadata count
+PASS: production sidebar remove returns deleted
+PASS: production delete closes all sessions with history before thread.delete
+PASS: all4 live attach streams observe closed
+PASS: all4 shell PIDs and4 child PIDs exited
+PASS: metadata removes all deleted thread terminals
+PASS: backend thread removed
+PASS: local draft cleared
+PASS: persisted terminal UI state removed
+PASS: all3 list projections clear running indicator
+PASS: term-1 server history deleted
+PASS: term-2 server history deleted
+PASS: term-3 server history deleted
+PASS: term-4 server history deleted
+PASS: A11 real deletion complete

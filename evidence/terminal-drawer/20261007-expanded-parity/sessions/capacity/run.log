@@ -1,0 +1,59 @@
+PASS: real pinned server connects
+PASS: all44 real terminal sessions attach across11threads
+PASS: 44 terminal streams held
+PASS: 44 simultaneous floods drain to final markers
+PASS: all44 buffers obey512KiB16KiB1024chunk limits
+PASS: total native retained output bounded by44times512KiB
+PASS: retained hidden sessions keep streams without live views
+PASS: app stream1 accepted beside44terminals
+PASS: app stream2 accepted beside44terminals
+PASS: app stream3 accepted beside44terminals
+PASS: app stream4 accepted beside44terminals
+PASS: app stream5 accepted beside44terminals
+PASS: app stream6 accepted beside44terminals
+PASS: app stream7 accepted beside44terminals
+PASS: app stream8 accepted beside44terminals
+PASS: app stream9 accepted beside44terminals
+PASS: app stream10 accepted beside44terminals
+PASS: app stream11 accepted beside44terminals
+PASS: app stream12 accepted beside44terminals
+PASS: app stream13 accepted beside44terminals
+PASS: app stream14 accepted beside44terminals
+PASS: app stream15 accepted beside44terminals
+PASS: app stream16 accepted beside44terminals
+PASS: 17th app stream refuses Busy independently
+PASS: 45th terminal refuses once without changing44streams
+PASS: overflow refusal has no attach retry
+PASS: close thread0 all4shells
+PASS: close thread1 all4shells
+PASS: close thread2 all4shells
+PASS: close thread3 all4shells
+PASS: close thread4 all4shells
+PASS: close thread5 all4shells
+PASS: close thread6 all4shells
+PASS: close thread7 all4shells
+PASS: close thread8 all4shells
+PASS: close thread9 all4shells
+PASS: close thread10 all4shells
+PASS: all44 sessions receive closed
+PASS: dropping unretained hidden sessions detaches44streams
+retained output bytes at peak: 23068672; expected cap: 23068672
+chunk acknowledgements: 600
+        8.38 real         2.14 user         0.08 sys
+            38371328  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                2627  page reclaims
+                   8  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                 739  messages sent
+                 637  messages received
+                   0  signals received
+                   5  voluntary context switches
+                9846  involuntary context switches
+         62646723704  instructions retired
+          9524244094  cycles elapsed
+            24363704  peak memory footprint

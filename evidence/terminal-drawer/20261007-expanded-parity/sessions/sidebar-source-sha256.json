@@ -1,0 +1,15 @@
+{
+  "examples/t3-code/sidebar-view.ts": "f160c5ab97f5e98bcf144dc0736e4449c8924fcef2e529a65fd8bfe48eaa2b68",
+  "examples/t3-code/sidebar-row.contract": "e0148c2536da68d698f9a68e3e55461fc6c9c12cc7962fd93ca79d306a37376c",
+  "examples/t3-code/sidebar-shapes.contract": "fff18e305b8d3a5dcb797ae8eeec53a55b7a010ea2365d220be77f6de2b3da27",
+  "examples/t3-code/sidebar-overlays.contract": "319e64d09521067d3956636b6bfb49e1ce9f347c4dc00f6ccf3b5ad8c06e6e06",
+  "examples/t3-code/sidebar.contract": "51c20b08a050e20f228dd269f85cb1e3eac4f7bae4332baf215b7cbaa7eb6c8b",
+  "examples/t3-code/sidebar.test.ts": "f4cfcdc44f53acd5d53369d72e582f356aea788cc0ef0ee49099e5641b5b5204",
+  "examples/t3-code/legacy-sidebar-view.ts": "7d20f667a4d5f74fa8429fcec8f7d4e7ecb3e714680ae0e909a712dea4184590",
+  "examples/t3-code/legacy-sidebar.contract": "a2b674ff189437f10cd825feb6ea2732f36a5aa342c0d1820031e4a40cd92cfd",
+  "examples/t3-code/legacy-sidebar-shapes.contract": "00bce530b98b642e65ebce48ae729d3336f66a6f92e2644efd9023f8579f2167",
+  "examples/t3-code/palette.ts": "da01797124e071a2d9d32298a91c62bceb980f3628338ce4b422e417bf1b12fd",
+  "examples/t3-code/palette.contract": "3049554aa1cc9fdf64c0536c05697e73e56624e6ae474386ddfe85cd2e500afa",
+  "examples/t3-code/settings-b-fleet.ts": "2ba655d419d15c722a034258a62530e4e65b20089a1529af9c766dde61796b46",
+  "examples/t3-code/settings-b.test.ts": "6811c09f8159e922ce1be4dd549c7ac0149eff17b6b17ae351c6502fbee02a62"
+}

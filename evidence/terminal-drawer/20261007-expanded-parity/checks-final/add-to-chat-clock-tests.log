@@ -1,0 +1,57 @@
+bun test v1.4.2 (744846f84)
+
+examples/t3-code/terminal-integrations.test.ts:
+(pass) terminal context reference ports > formatTerminalContextLabel and reference [0.09ms]
+(pass) terminal context reference ports > normalizeTerminalContextText and isTerminalContextExpired [0.05ms]
+(pass) terminal context reference ports > legacy ordinal placeholders migrate in order and extra placeholders disappear [0.02ms]
+(pass) terminal context reference ports > external records validate and normalize without a client text cap [0.05ms]
+(pass) terminal context reference ports > captured selection inserts at native caret, survives storage reload and is sent as a record [0.66ms]
+(pass) terminal context reference ports > native Add to chat uses the injected snapshot clock without ambient Date access [0.29ms]
+(pass) terminal context reference ports > expired-only sends refuse; mixed sends omit missing chips with guidance [0.12ms]
+(pass) terminal selection menu ports > popup and context menus omit Add to chat without target and disable empty selection actions [0.02ms]
+(pass) terminal selection menu ports > superseded selection popup cannot clear the newer context menu [0.01ms]
+(pass) Run in terminal > only a complete single-line shell command without controls can run [0.06ms]
+(pass) Run in terminal > fences must close with matching character and sufficient width [0.06ms]
+(pass) terminal links > original browser preference and modifier bypass remain distinct [0.07ms]
+(pass) project script integration > script runs through open/write, remembers secondary choice and updates primary label [0.67ms]
+(pass) project script integration > autoOpenPreview runs the script but reports the unmatched Browser dependency [0.13ms]
+(pass) project script integration > open failures never write and write failures surface original server message [0.22ms]
+
+examples/t3-code/terminal-drawer-view.test.ts:
+(pass) terminal drawer commands > ⌘J on a thread with no terminal opens term-1 in the worktree with the project script env [1.05ms]
+(pass) terminal drawer commands > ⌘J dispatches the toggle where the drawer can open (keyboard-dispatch MAIN_ROWS) [0.05ms]
+(pass) terminal drawer commands > a thread without a worktree opens in the project root and sends no worktree path [0.07ms]
+(pass) terminal drawer commands > a thread without a project has no drawer [0.05ms]
+(pass) terminal drawer commands > Close deletes the session with its history and removes the tab at once [0.21ms]
+(pass) terminal drawer commands > a failing close types exit into the shell instead [0.12ms]
+(pass) terminal drawer commands > an exit closes the tab without asking, through the same close [0.07ms]
+(pass) terminal drawer commands > the dragged height is kept per thread, clamped to the window [0.20ms]
+(pass) terminal drawer commands > New in the empty state allocates the lowest free id the server and the drawer both leave [0.32ms]
+(pass) terminal drawer commands > thread delete closes every session of the thread with its history, then forgets its drawer [0.10ms]
+(pass) the sidebar delete hook (worktree-cleanup) closes terminals through the drawer
+(pass) terminal drawer resource > subscribes to the metadata stream once, labels the terminal from it and keeps closed ids hidden [0.29ms]
+(pass) terminal drawer resource > a session without terminal:operate gets the server message once and no retry loop [0.10ms]
+(pass) terminal drawer resource > keeps the active and the ten most recent hidden open threads attached natively [0.55ms]
+(pass) draft terminal reserves its send identity, worktree and session across first send [0.20ms]
+(pass) closing the last pane and hiding the drawer return composer focus; a remaining pane keeps focus [0.14ms]
+(pass) terminal keys use actual running state for custom when clauses [0.11ms]
+(pass) a retained drawer session exiting never takes focus from the panel [0.19ms]
+(pass) immediate native close targets the emitting split before focus state refresh [0.10ms]
+(pass) native toggle preserves composer-focus result and rejects obsolete scope [0.06ms]
+(pass) dedicated focus operations update pane context without dispatching a terminal command [0.06ms]
+
+examples/t3-code/terminal-panel.test.ts:
+(pass) right-panel terminals > closing the active split selects the last pane; final pane selects neighbouring surface [0.06ms]
+(pass) right-panel terminals > restoration keeps split order, direction and active pane [0.11ms]
+(pass) right-panel terminals > single close guards the entire surface once; bulk close cleans up without a guard [0.15ms]
+(pass) panel splits stop at four; new surfaces and drawer IDs never collide [0.38ms]
+(pass) single surface close queues all names once; confirmed and bulk closes delete every history [0.44ms]
+(pass) accepting a queued close after switching threads closes only the original sessions [0.07ms]
+(pass) draft right-panel sessions share reserved identity and survive first send [0.06ms]
+(pass) native pane commands use emitting surface while another surface is active [0.15ms]
+(pass) panel dedicated focus operations preserve surface identity [0.05ms]
+
+ 45 pass
+ 0 fail
+ 165 expect() calls
+Ran 45 tests across 3 files. [39.00ms]

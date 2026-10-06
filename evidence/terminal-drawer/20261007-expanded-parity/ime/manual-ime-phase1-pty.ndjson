@@ -1,0 +1,5 @@
+{"event": "ready", "timeNs": 1791301188989781000}
+{"event": "input", "timeNs": 1791301241845264000, "hex": "e3858e"}
+{"event": "input", "timeNs": 1791301242794402000, "hex": "e3858f"}
+{"event": "input", "timeNs": 1791301242876812000, "hex": "e384b4"}
+{"event": "input", "timeNs": 1791301243980723000, "hex": "eab88020"}

@@ -1,0 +1,1710 @@
+Test Suite 'ComposerTests' started at 2026-10-07 01:26:36.669.
+Test Case '-[T3ComposerTests.ComposerTests testAppearanceChangesWindowAndRestoresSystemInheritance]' started.
+Test Case '-[T3ComposerTests.ComposerTests testAppearanceChangesWindowAndRestoresSystemInheritance]' passed (0.102 seconds).
+Test Case '-[T3ComposerTests.ComposerTests testApplicationDeliveryDispatchesWithoutInsertingNewline]' started.
+Test Case '-[T3ComposerTests.ComposerTests testApplicationDeliveryDispatchesWithoutInsertingNewline]' passed (0.006 seconds).
+Test Case '-[T3ComposerTests.ComposerTests testConfiguredSendShortcutUsesPromptAndPreservesIME]' started.
+Test Case '-[T3ComposerTests.ComposerTests testConfiguredSendShortcutUsesPromptAndPreservesIME]' passed (0.003 seconds).
+Test Case '-[T3ComposerTests.ComposerTests testEndedControlsAndDestroyDisableDispatch]' started.
+Test Case '-[T3ComposerTests.ComposerTests testEndedControlsAndDestroyDisableDispatch]' passed (0.008 seconds).
+Test Case '-[T3ComposerTests.ComposerTests testIMECompositionNeverDispatches]' started.
+Test Case '-[T3ComposerTests.ComposerTests testIMECompositionNeverDispatches]' passed (0.007 seconds).
+Test Case '-[T3ComposerTests.ComposerTests testModelPickerKeysBelongToContractNotTheReturnMonitor]' started.
+Test Case '-[T3ComposerTests.ComposerTests testModelPickerKeysBelongToContractNotTheReturnMonitor]' passed (0.006 seconds).
+Test Case '-[T3ComposerTests.ComposerTests testModifiedReturnStaysWithTextSystem]' started.
+Test Case '-[T3ComposerTests.ComposerTests testModifiedReturnStaysWithTextSystem]' passed (0.008 seconds).
+Test Case '-[T3ComposerTests.ComposerTests testOtherKeysAndOtherFocusedFieldsAreUntouched]' started.
+Test Case '-[T3ComposerTests.ComposerTests testOtherKeysAndOtherFocusedFieldsAreUntouched]' passed (0.005 seconds).
+Test Case '-[T3ComposerTests.ComposerTests testOtherWindowAndReadonlyComposerAreUntouched]' started.
+Test Case '-[T3ComposerTests.ComposerTests testOtherWindowAndReadonlyComposerAreUntouched]' passed (0.007 seconds).
+Test Case '-[T3ComposerTests.ComposerTests testReturnDispatchesOnceWithoutEditingText]' started.
+Test Case '-[T3ComposerTests.ComposerTests testReturnDispatchesOnceWithoutEditingText]' passed (0.003 seconds).
+Test Case '-[T3ComposerTests.ComposerTests testTimelineRejectsProgrammaticMovementAndResetsOwner]' started.
+Test Case '-[T3ComposerTests.ComposerTests testTimelineRejectsProgrammaticMovementAndResetsOwner]' passed (0.003 seconds).
+Test Case '-[T3ComposerTests.ComposerTests testTimelineResizeAndComposerInteractionDoNotCollapse]' started.
+Test Case '-[T3ComposerTests.ComposerTests testTimelineResizeAndComposerInteractionDoNotCollapse]' passed (0.003 seconds).
+Test Case '-[T3ComposerTests.ComposerTests testTitlebarKeepsNativeButtonsCenteredAndContentFullSize]' started.
+Test Case '-[T3ComposerTests.ComposerTests testTitlebarKeepsNativeButtonsCenteredAndContentFullSize]' passed (0.010 seconds).
+Test Case '-[T3ComposerTests.ComposerTests testTriggerAnchorsReportRowOffsetsOnlyWhenTheyMove]' started.
+Test Case '-[T3ComposerTests.ComposerTests testTriggerAnchorsReportRowOffsetsOnlyWhenTheyMove]' passed (0.003 seconds).
+Test Suite 'ComposerTests' passed at 2026-10-07 01:26:36.846.
+	 Executed 14 tests, with 0 failures (0 unexpected) in 0.175 (0.177) seconds
+Test Suite 'ComposerEditorTests' started at 2026-10-07 01:26:36.846.
+Test Case '-[T3ComposerTests.ComposerEditorTests testAChipStaysAChipOnceTheSpaceAfterItIsGone]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testAChipStaysAChipOnceTheSpaceAfterItIsGone]' passed (0.045 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testArrowUpRecallsSentPromptsAndDownRestoresTheDraft]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testArrowUpRecallsSentPromptsAndDownRestoresTheDraft]' passed (0.020 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testChipsAreAtomicForTheCaretAndDeletion]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testChipsAreAtomicForTheCaretAndDeletion]' passed (0.019 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testChipsSitHalfAnXHeightAboveTheBaseline]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testChipsSitHalfAnXHeightAboveTheBaseline]' passed (0.010 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testChipTokens]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testChipTokens]' passed (0.000 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testCommandBAndIToggleMarksOnTheSelection]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testCommandBAndIToggleMarksOnTheSelection]' passed (0.013 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testContextInsertionRetainsCaretAndSelectionAfterComposerBlur]' started.
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/macos/tests/composer/editor.swift:109: error: -[T3ComposerTests.ComposerEditorTests testContextInsertionRetainsCaretAndSelectionAfterComposerBlur] : XCTAssertEqual failed: ("LEFT RIGHT [Terminal 1](t3-context://v1/terminal/probe) ") is not equal to ("LEFT [Terminal 1](t3-context://v1/terminal/probe) RIGHT") - insertion must preserve the retained selection even after a terminal menu takes focus
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/macos/tests/composer/editor.swift:109: error: -[T3ComposerTests.ComposerEditorTests testContextInsertionRetainsCaretAndSelectionAfterComposerBlur] : XCTAssertEqual failed: ("LEFT RIGHT [Terminal 1](t3-context://v1/terminal/probe) ") is not equal to ("LEFT [Terminal 1](t3-context://v1/terminal/probe) ") - insertion must preserve the retained selection even after a terminal menu takes focus
+Test Case '-[T3ComposerTests.ComposerEditorTests testContextInsertionRetainsCaretAndSelectionAfterComposerBlur]' failed (0.041 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testEditorStateCarriesTheLiveTextForTheStash]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testEditorStateCarriesTheLiveTextForTheStash]' passed (0.008 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testFileChipsDrawTheirSizeAndTheTextIcon]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testFileChipsDrawTheirSizeAndTheTextIcon]' passed (0.009 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testFinderFolderDropInsertsAFileLinkAtTheEnd]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testFinderFolderDropInsertsAFileLinkAtTheEnd]' passed (0.010 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testHistorySteps]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testHistorySteps]' passed (0.000 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testInkAuthoredOnAnEmptyPromptReachesTypedText]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testInkAuthoredOnAnEmptyPromptReachesTypedText]' passed (0.009 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testInlineMarksHideTheirMarkers]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testInlineMarksHideTheirMarkers]' passed (0.000 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testLargePasteFoldsIntoAFileChipWhereThePasteWent]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testLargePasteFoldsIntoAFileChipWhereThePasteWent]' passed (0.043 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testListContinuationAndIndent]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testListContinuationAndIndent]' passed (0.000 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testListContinuationTabIndentAndPlanToggleOnRealKeys]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testListContinuationTabIndentAndPlanToggleOnRealKeys]' passed (0.025 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testMenuKeysPressTheContractsButtonsAndEscapeDismisses]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testMenuKeysPressTheContractsButtonsAndEscapeDismisses]' passed (0.034 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testPasteBeyondThePromptLimitIsRefusedWithANotice]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testPasteBeyondThePromptLimitIsRefusedWithANotice]' passed (0.034 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testPickedRowsReplaceOnlyTheTriggerTheyWereBuiltFor]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testPickedRowsReplaceOnlyTheTriggerTheyWereBuiltFor]' passed (0.008 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testProxyForwardsTheNodesNotificationsAndReportsTheTrigger]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testProxyForwardsTheNodesNotificationsAndReportsTheTrigger]' passed (0.011 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testRedrawingAfterTheTextIsReplacedKeepsTextKit2]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testRedrawingAfterTheTextIsReplacedKeepsTextKit2]' passed (0.017 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testReplacingChipsWithShorterTextNeverSnapsOnTheOldChips]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testReplacingChipsWithShorterTextNeverSnapsOnTheOldChips]' passed (0.010 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testRichTextStylesMarksAndTogglesTasks]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testRichTextStylesMarksAndTogglesTasks]' passed (0.008 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testTriggerDetectionMatchesComposerLogic]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testTriggerDetectionMatchesComposerLogic]' passed (0.000 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testTypeToFocusAndPasteToFocusReachTheComposer]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testTypeToFocusAndPasteToFocusReachTheComposer]' passed (0.011 seconds).
+Test Case '-[T3ComposerTests.ComposerEditorTests testUndoGroupsSplitBetweenInsertingAndDeleting]' started.
+Test Case '-[T3ComposerTests.ComposerEditorTests testUndoGroupsSplitBetweenInsertingAndDeleting]' passed (0.010 seconds).
+Test Suite 'ComposerEditorTests' failed at 2026-10-07 01:26:37.244.
+	 Executed 26 tests, with 2 failures (0 unexpected) in 0.396 (0.398) seconds
+Test Suite 'ComposerImageChipTests' started at 2026-10-07 01:26:37.244.
+Test Case '-[T3ComposerTests.ComposerImageChipTests testADraftImageGivesItsChipASquareThumbnail]' started.
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.244 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.248 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.251 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.251 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.251 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.251 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.251 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.251 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.252 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.256 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.259 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.259 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.259 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.259 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.259 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.259 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.259 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.259 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.259 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.259 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.259 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.259 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.259 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.259 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.259 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.259 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.260 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.264 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.265 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.266 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.267 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unrecognized colorspace number -1
+2026-10-07 01:26:37.268 composer-tests-caret[3138:117482301] Unknown number of components for colorspace model -1
+Test Case '-[T3ComposerTests.ComposerImageChipTests testADraftImageGivesItsChipASquareThumbnail]' passed (0.026 seconds).
+Test Case '-[T3ComposerTests.ComposerImageChipTests testPaletteMixesTheAccentAsContextChipDoes]' started.
+Test Case '-[T3ComposerTests.ComposerImageChipTests testPaletteMixesTheAccentAsContextChipDoes]' passed (0.000 seconds).
+Test Case '-[T3ComposerTests.ComposerImageChipTests testTheAccentIsTheAlphaWeightedAverage]' started.
+Test Case '-[T3ComposerTests.ComposerImageChipTests testTheAccentIsTheAlphaWeightedAverage]' passed (0.000 seconds).
+Test Case '-[T3ComposerTests.ComposerImageChipTests testTheSuffixIsTheSizeAloneAndTheImageIsLookedUpByDraftId]' started.
+Test Case '-[T3ComposerTests.ComposerImageChipTests testTheSuffixIsTheSizeAloneAndTheImageIsLookedUpByDraftId]' passed (0.001 seconds).
+Test Suite 'ComposerImageChipTests' passed at 2026-10-07 01:26:37.272.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.027 (0.027) seconds
+Test Suite 'ComposerChipTipTests' started at 2026-10-07 01:26:37.272.
+Test Case '-[T3ComposerTests.ComposerChipTipTests testChipsCarryTheReferenceTooltips]' started.
+Test Case '-[T3ComposerTests.ComposerChipTipTests testChipsCarryTheReferenceTooltips]' passed (0.012 seconds).
+Test Suite 'ComposerChipTipTests' passed at 2026-10-07 01:26:37.284.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.012 (0.012) seconds
+Test Suite 'ImageAccentTests' started at 2026-10-07 01:26:37.284.
+Test Case '-[T3ComposerTests.ImageAccentTests testAverageMatchesTheReferenceCanvasSample]' started.
+Test Case '-[T3ComposerTests.ImageAccentTests testAverageMatchesTheReferenceCanvasSample]' passed (0.001 seconds).
+Test Suite 'ImageAccentTests' passed at 2026-10-07 01:26:37.285.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Composer: 46 tests, 2 failures

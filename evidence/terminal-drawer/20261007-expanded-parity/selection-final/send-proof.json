@@ -1,0 +1,12 @@
+{
+  "provider": "native-fixture",
+  "model": "default",
+  "newPromptCount": 1,
+  "markersEachOnce": true,
+  "contextId": "terminal_c10ae203-503e-42aa-84fd-7310618bfe1b",
+  "lineNumbers": [
+    1,
+    2,
+    3
+  ]
+}

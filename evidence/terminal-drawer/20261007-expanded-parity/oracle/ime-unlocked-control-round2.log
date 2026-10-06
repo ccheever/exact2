@@ -1,0 +1,12 @@
+original=com.apple.keylayout.ABC
+selectStatus=0
+selectedSource=com.apple.inputmethod.Korean.2SetKorean
+key=5 flags=0 source=com.apple.inputmethod.Korean.2SetKorean targetStillFrontmost=true
+key=40 flags=0 source=com.apple.inputmethod.Korean.2SetKorean targetStillFrontmost=true
+key=1 flags=0 source=com.apple.inputmethod.Korean.2SetKorean targetStillFrontmost=true
+key=15 flags=0 source=com.apple.inputmethod.Korean.2SetKorean targetStillFrontmost=true
+key=46 flags=0 source=com.apple.inputmethod.Korean.2SetKorean targetStillFrontmost=true
+key=3 flags=0 source=com.apple.inputmethod.Korean.2SetKorean targetStillFrontmost=true
+key=49 flags=0 source=com.apple.inputmethod.Korean.2SetKorean targetStillFrontmost=true
+restoreStatus=0 restoredSource=com.apple.keylayout.ABC
+DONE physical keys only; no Enter or shell command

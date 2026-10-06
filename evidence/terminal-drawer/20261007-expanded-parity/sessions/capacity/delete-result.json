@@ -1,0 +1,65 @@
+{
+  "assertions": [
+    "fixture OAuth exchange",
+    "fixture project exists",
+    "real thread created and visible",
+    "all4 shells produced history and child PIDs",
+    "real metadata reports4 running subprocesses",
+    "modern sidebar real metadata count and label",
+    "legacy sidebar real metadata count",
+    "palette real metadata count",
+    "production sidebar remove returns deleted",
+    "production delete closes all sessions with history before thread.delete",
+    "all4 live attach streams observe closed",
+    "all4 shell PIDs and4 child PIDs exited",
+    "metadata removes all deleted thread terminals",
+    "backend thread removed",
+    "local draft cleared",
+    "persisted terminal UI state removed",
+    "all3 list projections clear running indicator",
+    "term-1 server history deleted",
+    "term-2 server history deleted",
+    "term-3 server history deleted",
+    "term-4 server history deleted"
+  ],
+  "threadId": "f3c81d01-f9b3-4417-bd6c-c78809409ea1",
+  "terminalPids": [
+    {
+      "terminalId": "term-1",
+      "pid": 75829,
+      "child": 75834
+    },
+    {
+      "terminalId": "term-2",
+      "pid": 75830,
+      "child": 75835
+    },
+    {
+      "terminalId": "term-3",
+      "pid": 75831,
+      "child": 75836
+    },
+    {
+      "terminalId": "term-4",
+      "pid": 75833,
+      "child": 75837
+    }
+  ],
+  "deletionCalls": [
+    {
+      "method": "terminal.close",
+      "payload": {
+        "threadId": "f3c81d01-f9b3-4417-bd6c-c78809409ea1",
+        "deleteHistory": true
+      }
+    },
+    {
+      "method": "orchestration.dispatchCommand",
+      "payload": {
+        "type": "thread.delete",
+        "threadId": "f3c81d01-f9b3-4417-bd6c-c78809409ea1",
+        "commandId": "0c60e3e4-f6ce-4048-aae6-95faf8b245a2"
+      }
+    }
+  ]
+}

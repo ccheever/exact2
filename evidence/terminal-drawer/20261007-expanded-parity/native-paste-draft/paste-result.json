@@ -1,0 +1,9 @@
+{
+  "pass": true,
+  "payload": "alpha \ud55c\uae00\ud83d\ude00\\nsecond line\\n",
+  "actualHex": "1b5b3230307e616c70686120ed959ceab880f09f98800a7365636f6e64206c696e650a1b5b3230317e04",
+  "expectedHex": "1b5b3230307e616c70686120ed959ceab880f09f98800a7365636f6e64206c696e650a1b5b3230317e04",
+  "bytesPreserved": true,
+  "newlines": "LF preserved in bracketed mode",
+  "subsequentInput": "Ctrl+D terminates recorder; AFTER_PASTE_LIVE and stty 14 109 rendered"
+}

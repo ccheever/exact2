@@ -1,0 +1,10 @@
+Review terminal output: [Terminal: Terminal 2 lines 1-3; ref=terminal_c10ae203-503e-42aa-84fd-7310618bfe1b]  
+
+<t3_context version="1">
+<context kind="terminal" id="terminal_c10ae203-503e-42aa-84fd-7310618bfe1b">
+terminal: Terminal 2
+1 | PARITY_SELECT_ONE
+2 | PARITY_SELECT_TWO
+3 | PARITY_SELECT_THREE
+</context>
+</t3_context>

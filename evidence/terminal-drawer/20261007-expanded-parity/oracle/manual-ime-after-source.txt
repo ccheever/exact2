@@ -1,0 +1,1 @@
+com.apple.inputmethod.Korean.2SetKorean

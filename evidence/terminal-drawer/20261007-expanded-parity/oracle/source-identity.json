@@ -1,0 +1,60 @@
+{
+  "referencePin": "1e2ecbd975",
+  "applicationVersion": "0.0.45",
+  "electronVersion": "44.4.2",
+  "buildNodeVersion": "26.7.0",
+  "referenceNodeEngine": "^24.13.1",
+  "shell": "/bin/sh",
+  "sourceGitMetadata": "Source copied without .git; git rev-parse would incorrectly identify enclosing clone worktree. Source hashes compared directly with pinned reference files.",
+  "files": [
+    {
+      "path": "apps/web/src/components/ThreadTerminalDrawer.tsx",
+      "builtSourceSHA256": "553648877e1919f191fd554cb85046f0f9d1edeaedf7a411a82771688b7f11e0",
+      "referenceSHA256": "553648877e1919f191fd554cb85046f0f9d1edeaedf7a411a82771688b7f11e0",
+      "match": true
+    },
+    {
+      "path": "apps/web/src/components/ChatView.tsx",
+      "builtSourceSHA256": "d123361d03249af09bca451e90607a8493ea0ddb83971a057e84dd1684890260",
+      "referenceSHA256": "d123361d03249af09bca451e90607a8493ea0ddb83971a057e84dd1684890260",
+      "match": true
+    },
+    {
+      "path": "apps/web/src/terminal/ghostty/surface.ts",
+      "builtSourceSHA256": "1ea94e19afd13966f21c2f234ad0b801182394fb2fdccf82a09d84d4a65176cb",
+      "referenceSHA256": "1ea94e19afd13966f21c2f234ad0b801182394fb2fdccf82a09d84d4a65176cb",
+      "match": true
+    },
+    {
+      "path": "apps/web/src/components/onboarding/WelcomeWizard.tsx",
+      "builtSourceSHA256": "8580df04c83208d254f18f052b8536eed66cdf67c080c4a353014fd25f98f35f",
+      "referenceSHA256": "8580df04c83208d254f18f052b8536eed66cdf67c080c4a353014fd25f98f35f",
+      "match": true
+    },
+    {
+      "path": "apps/web/src/components/settings/ProviderAuthTerminal.tsx",
+      "builtSourceSHA256": "9ce3a10b814cbd95b772f0c753551e88b93bb6f68736aa130f659f2109375213",
+      "referenceSHA256": "9ce3a10b814cbd95b772f0c753551e88b93bb6f68736aa130f659f2109375213",
+      "match": true
+    },
+    {
+      "path": "apps/web/src/components/preview/openTerminalLinkInPreview.ts",
+      "builtSourceSHA256": "dd412dedb417a7a173a8a34cc0853409b9fcb842daca45d942c30e9693d459ff",
+      "referenceSHA256": "dd412dedb417a7a173a8a34cc0853409b9fcb842daca45d942c30e9693d459ff",
+      "match": true
+    },
+    {
+      "path": "apps/desktop/src/electron/ElectronMenu.ts",
+      "builtSourceSHA256": "b309147f03321cf603d0af73f5a018d42c999e3d6af1cfd602c4456a079633ab",
+      "referenceSHA256": "b309147f03321cf603d0af73f5a018d42c999e3d6af1cfd602c4456a079633ab",
+      "match": true
+    },
+    {
+      "path": "apps/server/dist/bin.mjs",
+      "builtSourceSHA256": "2d2a508d19b8f9b5171cb92cca0e2662ecb3fff86f506b8fc7b582b4b2bcee18",
+      "referenceSHA256": "2d2a508d19b8f9b5171cb92cca0e2662ecb3fff86f506b8fc7b582b4b2bcee18",
+      "match": true
+    }
+  ],
+  "electronExecutableSHA256": "ad321e34b2795d1910ff1a24f2b4249269f556dc7184ea64f353a851339f1582"
+}

@@ -1,0 +1,15 @@
+examples/t3-code/modules/apple/R8KeysMenus.swift:98:45: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 96 | 
+ 97 |     @objc func undo(_ sender: Any?) {
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+    |                                             `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+
+examples/t3-code/modules/apple/R8KeysMenus.swift:100:26: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+    |                          `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+101 |     }
+102 |     @objc func closeWindow(_ sender: Any?) {

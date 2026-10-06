@@ -1,0 +1,247 @@
+[
+  {
+    "name": "resolveEditorLaunch",
+    "spanId": "5ea4adb8a11f105a",
+    "parentSpanId": "d4336a744e3bc8a0",
+    "durationMs": 2.711209,
+    "attributes": {
+      "externalLauncher.editor": "cursor",
+      "externalLauncher.cwd": "<checkout>/target/terminal-parity/native/t3-home/worktrees/d04-repo/t3code-631dfb3c/./link-fixture.txt:7:4",
+      "externalLauncher.platform": "darwin"
+    },
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "externalLauncher.launchAndUnref",
+    "spanId": "318395fecee89ee2",
+    "parentSpanId": "c38f51359f2b588e",
+    "durationMs": 2.607833,
+    "attributes": {},
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "externalLauncher.launchEditorProcess",
+    "spanId": "c38f51359f2b588e",
+    "parentSpanId": "d4336a744e3bc8a0",
+    "durationMs": 3.035208,
+    "attributes": {},
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "ws.rpc.shell.openInEditor",
+    "spanId": "d4336a744e3bc8a0",
+    "parentSpanId": "752473a1a0214f45",
+    "durationMs": 5.850834,
+    "attributes": {
+      "rpc.transport": "websocket",
+      "rpc.system": "effect-rpc",
+      "rpc.method": "shell.openInEditor",
+      "rpc.aggregate": "workspace"
+    },
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "resolveEditorLaunch",
+    "spanId": "959fe837fba6d23f",
+    "parentSpanId": "f75aa781b54e949c",
+    "durationMs": 1.619958,
+    "attributes": {
+      "externalLauncher.editor": "cursor",
+      "externalLauncher.cwd": "<checkout>/target/terminal-parity/native/t3-home/worktrees/d04-repo/t3code-631dfb3c/./link-fixture.txt:7:4",
+      "externalLauncher.platform": "darwin"
+    },
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "externalLauncher.launchAndUnref",
+    "spanId": "3c7d5fe4930d1d2d",
+    "parentSpanId": "4868677b7df704b6",
+    "durationMs": 1.137792,
+    "attributes": {},
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "externalLauncher.launchEditorProcess",
+    "spanId": "4868677b7df704b6",
+    "parentSpanId": "f75aa781b54e949c",
+    "durationMs": 1.837541,
+    "attributes": {},
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "ws.rpc.shell.openInEditor",
+    "spanId": "f75aa781b54e949c",
+    "parentSpanId": "752473a1a0214f45",
+    "durationMs": 3.621667,
+    "attributes": {
+      "rpc.transport": "websocket",
+      "rpc.system": "effect-rpc",
+      "rpc.method": "shell.openInEditor",
+      "rpc.aggregate": "workspace"
+    },
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "resolveEditorLaunch",
+    "spanId": "57c2a61a57b16147",
+    "parentSpanId": "b5a164091c598261",
+    "durationMs": 1.719375,
+    "attributes": {
+      "externalLauncher.editor": "vscode",
+      "externalLauncher.cwd": "<checkout>/target/terminal-parity/native/t3-home/worktrees/d04-repo/t3code-631dfb3c",
+      "externalLauncher.platform": "darwin"
+    },
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "externalLauncher.launchAndUnref",
+    "spanId": "1fd9f254267043df",
+    "parentSpanId": "06b80051400c2527",
+    "durationMs": 5.735416,
+    "attributes": {},
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "externalLauncher.launchEditorProcess",
+    "spanId": "06b80051400c2527",
+    "parentSpanId": "b5a164091c598261",
+    "durationMs": 5.981333,
+    "attributes": {},
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "ws.rpc.shell.openInEditor",
+    "spanId": "b5a164091c598261",
+    "parentSpanId": "752473a1a0214f45",
+    "durationMs": 7.776333,
+    "attributes": {
+      "rpc.transport": "websocket",
+      "rpc.system": "effect-rpc",
+      "rpc.method": "shell.openInEditor",
+      "rpc.aggregate": "workspace"
+    },
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "resolveEditorLaunch",
+    "spanId": "934b12fec9e864e7",
+    "parentSpanId": "36769f0a56cd8e08",
+    "durationMs": 0.748167,
+    "attributes": {
+      "externalLauncher.editor": "vscode",
+      "externalLauncher.cwd": "<checkout>/target/terminal-parity/native/t3-home/worktrees/d04-repo/t3code-631dfb3c/./link-fixture.txt:7:4",
+      "externalLauncher.platform": "darwin"
+    },
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "externalLauncher.launchAndUnref",
+    "spanId": "f6f0b43eeb3fe6c7",
+    "parentSpanId": "af947932c440adae",
+    "durationMs": 0.500792,
+    "attributes": {},
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "externalLauncher.launchEditorProcess",
+    "spanId": "af947932c440adae",
+    "parentSpanId": "36769f0a56cd8e08",
+    "durationMs": 0.637667,
+    "attributes": {},
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "ws.rpc.shell.openInEditor",
+    "spanId": "36769f0a56cd8e08",
+    "parentSpanId": "752473a1a0214f45",
+    "durationMs": 1.459041,
+    "attributes": {
+      "rpc.transport": "websocket",
+      "rpc.system": "effect-rpc",
+      "rpc.method": "shell.openInEditor",
+      "rpc.aggregate": "workspace"
+    },
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "resolveEditorLaunch",
+    "spanId": "4188db82e39ba41c",
+    "parentSpanId": "aeb68fb44b0d5b69",
+    "durationMs": 2.559458,
+    "attributes": {
+      "externalLauncher.editor": "cursor",
+      "externalLauncher.cwd": "<checkout>/target/terminal-parity/native/t3-home/worktrees/d04-repo/t3code-631dfb3c",
+      "externalLauncher.platform": "darwin"
+    },
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "externalLauncher.launchAndUnref",
+    "spanId": "c8f6d39556d1a685",
+    "parentSpanId": "56aabfd8515ea592",
+    "durationMs": 0.599959,
+    "attributes": {},
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "externalLauncher.launchEditorProcess",
+    "spanId": "56aabfd8515ea592",
+    "parentSpanId": "aeb68fb44b0d5b69",
+    "durationMs": 0.788667,
+    "attributes": {},
+    "exit": {
+      "_tag": "Success"
+    }
+  },
+  {
+    "name": "ws.rpc.shell.openInEditor",
+    "spanId": "aeb68fb44b0d5b69",
+    "parentSpanId": "752473a1a0214f45",
+    "durationMs": 3.419792,
+    "attributes": {
+      "rpc.transport": "websocket",
+      "rpc.system": "effect-rpc",
+      "rpc.method": "shell.openInEditor",
+      "rpc.aggregate": "workspace"
+    },
+    "exit": {
+      "_tag": "Success"
+    }
+  }
+]

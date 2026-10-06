@@ -1,0 +1,15 @@
+{
+  "examples/t3-code/modules/apple/T3TerminalSessions.swift": "f3fb821d5d09bb11d758cef7fd4ac1e93e2792447f46f29a2233149052470f59",
+  "examples/t3-code/modules/apple/T3Transport+Terminal.swift": "b1554cfb801306a9a5489a3fcfa9bf9ad700bfb835d6e3d365b7af7ded8fcfc0",
+  "examples/t3-code/modules/apple/T3TerminalOutput.swift": "045b8a2489f7201e967fa042a1f0813624ef1412c807d65d0d0c72ced3f506e7",
+  "examples/t3-code/modules/apple/T3Transport.swift": "1abebd8e1ee22551cbba62560e5ddde622b183eeed6db0733cdd61895bd430e8",
+  "examples/t3-code/client.ts": "7fa63f055d47a0f055b309e73ae24bf073b001154730201cb3675659848d3b6a",
+  "examples/t3-code/sidebar-commands.ts": "b6efe15899c166f0dfd02726072294c8751aa2211cc0928a08e94eb26673e2f0",
+  "examples/t3-code/worktree-cleanup.ts": "d39286430255783d20cc6d523008e281e42e85bd231ff7e53a109104762a393b",
+  "examples/t3-code/terminal-drawer-view.ts": "d5376c18bfad7827ddc26e45bd9dfbf8b707938c671e7c719b20d2425e7052dd",
+  "examples/t3-code/terminal-ui-state.ts": "a1590ab91b49c170c8631887d13681b52b3e7946c7f4d2505222a59093ab5f24",
+  "examples/t3-code/sidebar-view.ts": "f160c5ab97f5e98bcf144dc0736e4449c8924fcef2e529a65fd8bfe48eaa2b68",
+  "examples/t3-code/legacy-sidebar-view.ts": "7d20f667a4d5f74fa8429fcec8f7d4e7ecb3e714680ae0e909a712dea4184590",
+  "examples/t3-code/palette.ts": "da01797124e071a2d9d32298a91c62bceb980f3628338ce4b422e417bf1b12fd",
+  "examples/t3-code/settings-b-fleet.ts": "2ba655d419d15c722a034258a62530e4e65b20089a1529af9c766dde61796b46"
+}

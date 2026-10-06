@@ -1,0 +1,7 @@
+{
+  "examples/t3-code/modules/apple/T3TerminalSessions.swift": "f3fb821d5d09bb11d758cef7fd4ac1e93e2792447f46f29a2233149052470f59",
+  "examples/t3-code/modules/apple/T3Transport+Terminal.swift": "b1554cfb801306a9a5489a3fcfa9bf9ad700bfb835d6e3d365b7af7ded8fcfc0",
+  "examples/t3-code/modules/apple/T3TerminalOutput.swift": "045b8a2489f7201e967fa042a1f0813624ef1412c807d65d0d0c72ced3f506e7",
+  "examples/t3-code/modules/apple/T3Transport.swift": "1abebd8e1ee22551cbba62560e5ddde622b183eeed6db0733cdd61895bd430e8",
+  "examples/t3-code/macos/tests/transport/terminal-streams.swift": "cf4ed746860eb1c12a8d310a889d7c06a1d3ccaf444a0bf8e00631c42368b3fb"
+}

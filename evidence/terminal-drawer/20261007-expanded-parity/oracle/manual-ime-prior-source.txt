@@ -1,0 +1,4 @@
+AXIsProcessTrusted=true
+current=com.apple.keylayout.ABC
+available=com.apple.inputmethod.Korean.2SetKorean
+available=com.apple.inputmethod.Korean

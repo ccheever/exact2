@@ -1,0 +1,5 @@
+original=com.apple.keylayout.ABC
+sourceSwitch=physical Control+Space
+selectedSource=com.apple.keylayout.ABC
+restoreStatus=0 restoredSource=com.apple.keylayout.ABC
+BLOCKED input source changed: com.apple.keylayout.ABC

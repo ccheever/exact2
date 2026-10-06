@@ -1,0 +1,29 @@
+PASS: real pinned server connects
+PASS: provider instance settings saved
+PASS: attach starts real shell
+PASS: worktree cwd and runtime environment
+PASS: attach resolves provider home and environment
+PASS: real resize acknowledged
+PASS: PTY reports requested grid
+PASS: oversized paste refused exactly once
+paste refusal: Expected a value with a length of at most 65536
+  at ["data"]
+PASS: reconnect accepted
+PASS: session reattaches and restores desired grid
+PASS: reattach snapshot replays history
+PASS: PTY reports resized offline grid
+PASS: flood drains to final marker
+PASS: production buffer remains bounded
+PASS: remount replay equals retained buffer
+PASS: pressure stream attached
+PASS: pressure workload accepted
+PASS: withheld acknowledgements stop server window
+PASS: acknowledgements release and drain server window
+withheld window chunks: 8
+PASS: close all thread terminals accepted
+PASS: backend close event received
+counters: writes=6 failures=1 attaches=2 chunks=144 ack=144 bytes=524288
+PASS: deleteHistory removes backend replay
+PASS: three-scope session connects
+PASS: missing terminal scope shows server refusal
+PASS: authorization failure does not retry attach

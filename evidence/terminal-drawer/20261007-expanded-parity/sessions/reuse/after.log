@@ -1,0 +1,10 @@
+PASS: connect
+PASS: old session running
+PASS: old write accepted
+PASS: old close accepted
+PASS: new lifetime object
+PASS: replacement eventually running
+replacement observed statuses: ["running", "running"]
+replacement output contains old marker: false
+replacement attach count: 1
+STALE_LIFETIME_CORRUPTION=false

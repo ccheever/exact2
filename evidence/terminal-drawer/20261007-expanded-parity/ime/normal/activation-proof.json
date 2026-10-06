@@ -1,0 +1,9 @@
+{
+  "pid": 42138,
+  "NSApplicationIsActive": true,
+  "NSWorkspaceFrontmostPID": 42138,
+  "windowIsKey": true,
+  "source": "ime-normal/inject-ime.log, captured before physical input",
+  "initialDOMEvents": 0,
+  "initialPTYInputEvents": 0
+}

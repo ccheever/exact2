@@ -1,0 +1,66 @@
+{
+  "fixture": "Harmless local PTY; no real authentication service",
+  "individualPhysicalKeys": {
+    "expected": "abc",
+    "actual": "abc",
+    "focusAfterEach": "Terminal input"
+  },
+  "escape": {
+    "ptyCodepoints": [
+      "U+001B"
+    ],
+    "settingsRetained": true
+  },
+  "paste": {
+    "total": 10008,
+    "pasteLength": 10000,
+    "exact": true,
+    "chunks": [
+      1,
+      3,
+      1,
+      1,
+      1,
+      1,
+      1022,
+      1022,
+      1022,
+      1022,
+      8,
+      1022,
+      1022,
+      1022,
+      1022,
+      8,
+      1022,
+      786
+    ]
+  },
+  "cancelRetry": {
+    "cancelUnmounted": true,
+    "restartCreatedNewPty": true,
+    "subsequentPhysicalAbcExact": true
+  },
+  "finalTab": {
+    "forwardFocus": "Registry agent ID",
+    "reverseSettledFocus": "Cancel",
+    "ptyInputBytes": 0
+  },
+  "normalPersistence": {
+    "agentInjected": false,
+    "sameBundleAcrossFinalCycle": true,
+    "marker": "PERSIST_A08_FINAL_16334",
+    "groupSizes": [
+      2,
+      1
+    ],
+    "direction": "side by side",
+    "activeTerminal": "Terminal 1",
+    "nativePaneHeightBefore": 363,
+    "nativePaneHeightAfter": 363,
+    "drawerHeight": 388,
+    "composerTextRestored": true,
+    "chipPersistence": "not tested",
+    "rePairRequired": false
+  }
+}

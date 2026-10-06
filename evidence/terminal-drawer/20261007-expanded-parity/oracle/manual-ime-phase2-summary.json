@@ -1,0 +1,84 @@
+{
+  "phase1PrefixUnchanged": true,
+  "deltaHex": "e3858ee3858e207f7f7f7f1b1b",
+  "deltaText": "ㅎㅎ \u001b\u001b",
+  "events": [
+    {
+      "type": "compositionstart",
+      "data": "",
+      "key": null,
+      "isComposing": null,
+      "trusted": true
+    },
+    {
+      "type": "compositionupdate",
+      "data": "ㅎ",
+      "key": null,
+      "isComposing": null,
+      "trusted": true
+    },
+    {
+      "type": "compositionend",
+      "data": "ㅎ",
+      "key": null,
+      "isComposing": null,
+      "trusted": false
+    },
+    {
+      "type": "compositionstart",
+      "data": "",
+      "key": null,
+      "isComposing": null,
+      "trusted": true
+    },
+    {
+      "type": "compositionupdate",
+      "data": "ㅎ",
+      "key": null,
+      "isComposing": null,
+      "trusted": true
+    },
+    {
+      "type": "compositionupdate",
+      "data": "ㅎ ",
+      "key": null,
+      "isComposing": null,
+      "trusted": true
+    },
+    {
+      "type": "compositionend",
+      "data": "ㅎ ",
+      "key": null,
+      "isComposing": null,
+      "trusted": false
+    },
+    {
+      "type": "keydown",
+      "data": null,
+      "key": "Escape",
+      "isComposing": false,
+      "trusted": true
+    },
+    {
+      "type": "keyup",
+      "data": null,
+      "key": "Escape",
+      "isComposing": false,
+      "trusted": true
+    },
+    {
+      "type": "keydown",
+      "data": null,
+      "key": "Escape",
+      "isComposing": false,
+      "trusted": true
+    },
+    {
+      "type": "keyup",
+      "data": null,
+      "key": "Escape",
+      "isComposing": false,
+      "trusted": true
+    }
+  ]
+}

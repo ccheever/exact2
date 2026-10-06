@@ -1,0 +1,17 @@
+{
+  "before": {
+    "threadId": "2e1f723f-cbed-442b-8cb8-5c46565b10f8",
+    "terminalId": "term-1",
+    "sessionKey": "[\"6a5e1117-ab0d-4d96-a7f7-4afd20ad83fd\",\"2e1f723f-cbed-442b-8cb8-5c46565b10f8\",\"term-1\"]",
+    "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-parity/native/repo",
+    "open": true
+  },
+  "after": {
+    "threadId": "2e1f723f-cbed-442b-8cb8-5c46565b10f8",
+    "terminalId": "term-1",
+    "sessionKey": "[\"6a5e1117-ab0d-4d96-a7f7-4afd20ad83fd\",\"2e1f723f-cbed-442b-8cb8-5c46565b10f8\",\"term-1\"]",
+    "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-parity/native/repo",
+    "open": true
+  },
+  "sameSession": true
+}

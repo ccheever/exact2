@@ -1,0 +1,23 @@
+{
+  "inputs": [
+    {
+      "command": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+      "bytes": 52,
+      "hex": "6375726c202d6673534c2068747470733a2f2f636861746770742e636f6d2f636f6465782f696e7374616c6c2e7368207c207368",
+      "containsCR": false,
+      "containsLF": false,
+      "wrapperAndShellPidsGone": true
+    },
+    {
+      "command": "curl -fsSL https://claude.ai/install.sh | bash",
+      "bytes": 46,
+      "hex": "6375726c202d6673534c2068747470733a2f2f636c617564652e61692f696e7374616c6c2e7368207c2062617368",
+      "containsCR": false,
+      "containsLF": false,
+      "wrapperAndShellPidsGone": true
+    }
+  ],
+  "enterSent": false,
+  "scope": "isolated backend16342 and client16343",
+  "rpcFrameCaptured": false
+}

@@ -1,0 +1,22 @@
+bun test v1.4.2 (744846f84)
+
+examples/t3-code/timeline-worktree.test.ts:
+(pass) worktree setup card (3a7058d) > stages read like work rows: labels, the checkout percentage, pending rows dimmed by status [0.17ms]
+(pass) worktree setup card (3a7058d) > the script tail appears with its first line, four fixed slots, and stays after a failure [0.12ms]
+(pass) worktree setup card (3a7058d) > only a failed or cancelled setup brings its own header; a handed-off one collapses [0.08ms]
+(pass) worktree setup card (3a7058d) > visibility: running always, a clean finish leaves once the turn is live, a follow-up retires every outcome [0.04ms]
+(pass) worktree setup card (3a7058d) > the stream keeps the newest snapshot for the subscribed thread [0.09ms]
+(pass) worktree setup card (3a7058d) > a stream event for another subscription or an older sequence is ignored [0.04ms]
+(pass) the setup card in the timeline > a running setup sits under "Setting up worktree…" in the working slot, with no Thinking row [1.00ms]
+(pass) the setup card in the timeline > a finished setup keeps the slot until the run starts, then leaves [0.14ms]
+(pass) the setup card in the timeline > a failed script outlives the handoff as one collapsed row under the send [0.08ms]
+(pass) setup terminal is offered after setup starts and reveals the existing session without spawning [6.10ms]
+(pass) worktree setup subscription lifetime > early snapshots register before the subscribe reply and older replies cannot replace them [0.19ms]
+(pass) worktree setup subscription lifetime > thread changes reject old events and replies even when returning to the same thread [0.05ms]
+(pass) worktree setup subscription lifetime > connection generation and environment fence old replies and events [0.03ms]
+(pass) worktree setup subscription lifetime > retry notification retires the failed stream and a late reply cannot revive it [0.04ms]
+
+ 14 pass
+ 0 fail
+ 42 expect() calls
+Ran 14 tests across 1 file. [39.00ms]

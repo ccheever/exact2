@@ -1,0 +1,9 @@
+{"event": "ready", "timeNs": 1791301188989781000}
+{"event": "input", "timeNs": 1791301241845264000, "hex": "e3858e"}
+{"event": "input", "timeNs": 1791301242794402000, "hex": "e3858f"}
+{"event": "input", "timeNs": 1791301242876812000, "hex": "e384b4"}
+{"event": "input", "timeNs": 1791301243980723000, "hex": "eab88020"}
+{"event": "input", "timeNs": 1791301595072693000, "hex": "e38581"}
+{"event": "input", "timeNs": 1791301595074413000, "hex": "7f"}
+{"event": "input", "timeNs": 1791301595666424000, "hex": "ed959c"}
+{"event": "input", "timeNs": 1791301596046371000, "hex": "eab88020"}

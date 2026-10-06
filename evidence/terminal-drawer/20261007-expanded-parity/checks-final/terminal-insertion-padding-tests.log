@@ -1,0 +1,41 @@
+bun test v1.4.2 (744846f84)
+
+examples/t3-code/terminal-integrations.test.ts:
+(pass) terminal context reference ports > formatTerminalContextLabel and reference [0.10ms]
+(pass) terminal context reference ports > normalizeTerminalContextText and isTerminalContextExpired [0.05ms]
+(pass) terminal context reference ports > legacy ordinal placeholders migrate in order and extra placeholders disappear [0.02ms]
+(pass) terminal context reference ports > external records validate and normalize without a client text cap [0.06ms]
+(pass) terminal context reference ports > captured selection inserts at native caret, survives storage reload and is sent as a record [0.66ms]
+(pass) terminal context reference ports > native Add to chat uses the injected snapshot clock without ambient Date access [0.32ms]
+(pass) terminal context reference ports > expired-only sends refuse; mixed sends omit missing chips with guidance [0.13ms]
+(pass) terminal selection menu ports > popup and context menus omit Add to chat without target and disable empty selection actions [0.02ms]
+(pass) terminal selection menu ports > superseded selection popup cannot clear the newer context menu [0.01ms]
+(pass) Run in terminal > only a complete single-line shell command without controls can run [0.06ms]
+(pass) Run in terminal > fences must close with matching character and sufficient width [0.07ms]
+(pass) terminal links > original browser preference and modifier bypass remain distinct [0.08ms]
+(pass) project script integration > script runs through open/write, remembers secondary choice and updates primary label [0.66ms]
+(pass) project script integration > autoOpenPreview runs the script but reports the unmatched Browser dependency [0.10ms]
+(pass) project script integration > open failures never write and write failures surface original server message [0.18ms]
+
+examples/t3-code/composer-editor-insert.test.ts:
+(pass) insert-context > a thread becomes a kind-scoped context link labelled by its title [0.07ms]
+(pass) insert-context > files become file links, folders @mentions (quoted with spaces) [0.08ms]
+(pass) insert-context > citations insert an Assistant quote link and refuse other hrefs [0.04ms]
+(pass) local ids > are v4 UUIDs from crypto (data sources refuse Math.random) [0.14ms]
+
+examples/t3-code/composer-editor-attach.test.ts:
+(pass) Attach files: plain files (addComposerAttachments) > the staging limit follows fileAttachmentStagingLimit [0.05ms]
+(pass) Attach files: plain files (addComposerAttachments) > refusals read as the reference names them [0.05ms]
+(pass) Attach files: plain files (addComposerAttachments) > an accepted file is a chip at the caret that uploads under its own type and binds to the send [0.36ms]
+(pass) Attach files: plain files (addComposerAttachments) > several files share one insert; without an editor the chips join the stored draft [0.06ms]
+(pass) Attach files: plain files (addComposerAttachments) > the draft counts its referenced files toward the 100-attachment limit [0.02ms]
+(pass) Attach files: plain files (addComposerAttachments) > a staged attached file survives a restart; a folded paste does not [0.04ms]
+(pass) Attach files: plain files (addComposerAttachments) > a lost staged copy refuses the send with the reattach message [0.09ms]
+(pass) Attach files: plain files (addComposerAttachments) > pruning an emptied draft reports the files it dropped [0.03ms]
+(pass) Attach files: image chips (imageAttachmentsGetChips) > an image gets an inline chip only when the prompt has prose [0.07ms]
+(pass) Attach files: image chips (imageAttachmentsGetChips) > the chip resolves to the shelf image and binds to its upload [0.06ms]
+
+ 29 pass
+ 0 fail
+ 108 expect() calls
+Ran 29 tests across 3 files. [40.00ms]

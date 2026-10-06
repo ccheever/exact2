@@ -1,0 +1,15 @@
+{
+  "rows": [
+    {
+      "event": "input",
+      "timeNs": 1791301036231957000,
+      "hex": "04"
+    },
+    {
+      "event": "closed",
+      "timeNs": 1791301036232013000
+    }
+  ],
+  "sourceAfterCleanup": "com.apple.inputmethod.Korean.2SetKorean",
+  "restorePendingOwner": "parent after native comparison"
+}

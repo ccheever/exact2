@@ -1,0 +1,20 @@
+bun test v1.4.2 (744846f84)
+
+examples/t3-code/terminal-integrations.test.ts:
+48 |       inserted.push(String(obj(input).text)); return { ok: true, generation: 1, value: { applied: true } };
+49 |     } };
+50 |     const original = globalThis.Date;
+51 |     globalThis.Date = new Proxy(original, {
+52 |       construct(target, args) {
+53 |         if (args.length === 0) throw new Error('new Date() is unavailable in data sources');
+                                              ^
+error: new Date() is unavailable in data sources
+      at construct (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/terminal-integrations.test.ts:53:42)
+      at handleTerminalMessage (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/terminal-drawer-view.ts:342:186)
+      at <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/terminal-integrations.test.ts:63:20)
+(fail) terminal context reference ports > native Add to chat uses the injected snapshot clock without ambient Date access [0.53ms]
+
+ 0 pass
+ 14 filtered out
+ 1 fail
+Ran 1 test across 1 file. [36.00ms]

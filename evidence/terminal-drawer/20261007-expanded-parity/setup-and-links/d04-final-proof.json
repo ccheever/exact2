@@ -1,0 +1,14 @@
+{
+  "threadId": "e89399cf-dae7-49d6-a2ed-0ddfe1acf578",
+  "terminalId": "setup-native-setup-proof",
+  "script": "printf D04_SETUP_STARTED; sleep 45; exit 1",
+  "noNavigationBetweenFirstSendAndCompletion": true,
+  "failedCardObservedAutomatically": true,
+  "openTerminalObserved": true,
+  "hideAndReopenObserved": true,
+  "threadPtyLogCountAfterReopen": 1,
+  "setupLogContainsStartMarker": true,
+  "setupLogContainsFailedCompletion": true,
+  "copiedAppExecutableSha256": "0994fd249e57a8cd071adbe8d43ca0ad5d8d3a3051bed4717fb8c79b816d057c",
+  "fixtureScriptRestoration": "server.updateSettings Success"
+}

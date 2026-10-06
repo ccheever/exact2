@@ -1,0 +1,22 @@
+examples/t3-code/modules/apple/R8KeysMenus.swift:98:45: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 96 | 
+ 97 |     @objc func undo(_ sender: Any?) {
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+    |                                             `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+
+examples/t3-code/modules/apple/R8KeysMenus.swift:100:26: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+    |                          `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+101 |     }
+102 |     @objc func closeWindow(_ sender: Any?) {
+examples/t3-code/macos/tests/terminal/main.swift:254:130: warning: use '#selector' instead of explicitly constructing a 'Selector'
+252 |         spin(until: { view.focused }, timeout: 5)
+253 |         let conforms = (view.web as AnyObject) as? NSTextInputClient
+254 |         print("terminal S7 web view is NSTextInputClient: \(conforms != nil); responds to setMarkedText: \(view.web.responds(to: Selector(("setMarkedText:selectedRange:replacementRange:"))))")
+    |                                                                                                                                  `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+255 |         let client = try XCTUnwrap(conforms, "WKWebView is not an NSTextInputClient at run time")
+256 |         client.setMarkedText("ㅎ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))

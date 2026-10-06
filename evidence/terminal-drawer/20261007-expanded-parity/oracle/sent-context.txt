@@ -1,0 +1,12 @@
+<user_request>
+[Terminal: Terminal 1 lines 13-15; ref=terminal_dcc7e45a-3a48-4594-9c85-c24b164ba3b0] AFTER_CHIP
+
+<t3_context version="1">
+<context kind="terminal" id="terminal_dcc7e45a-3a48-4594-9c85-c24b164ba3b0">
+terminal: Terminal 1
+13 | SELECT_ALPHA
+14 | SELECT_BETA
+15 | SELECT_GAMMA
+</context>
+</t3_context>
+</user_request>

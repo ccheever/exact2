@@ -1,0 +1,122 @@
+[
+  {
+    "ms": 35,
+    "height": 280,
+    "parent": 0
+  },
+  {
+    "ms": 52,
+    "height": 280,
+    "parent": 12.3203125
+  },
+  {
+    "ms": 77,
+    "height": 280,
+    "parent": 36.1328125
+  },
+  {
+    "ms": 101,
+    "height": 280,
+    "parent": 54.625
+  },
+  {
+    "ms": 125,
+    "height": 280,
+    "parent": 83.5703125
+  },
+  {
+    "ms": 150,
+    "height": 280,
+    "parent": 112.6015625
+  },
+  {
+    "ms": 176,
+    "height": 280,
+    "parent": 131.375
+  },
+  {
+    "ms": 202,
+    "height": 280,
+    "parent": 55.1875
+  },
+  {
+    "ms": 227,
+    "height": 280,
+    "parent": 30.078125
+  },
+  {
+    "ms": 252,
+    "height": 280,
+    "parent": 16.046875
+  },
+  {
+    "ms": 277,
+    "height": 280,
+    "parent": 8.140625
+  },
+  {
+    "ms": 302,
+    "height": 280,
+    "parent": 3.8125
+  },
+  {
+    "ms": 327,
+    "height": 280,
+    "parent": 1.59375
+  },
+  {
+    "ms": 352,
+    "height": 280,
+    "parent": 0.546875
+  },
+  {
+    "ms": 377,
+    "height": 280,
+    "parent": 0.140625
+  },
+  {
+    "ms": 402,
+    "height": 280,
+    "parent": 0.015625
+  },
+  {
+    "ms": 427,
+    "height": 280,
+    "parent": 0
+  },
+  {
+    "ms": 450,
+    "height": 280,
+    "parent": 0
+  },
+  {
+    "ms": 476,
+    "height": 280,
+    "parent": 0
+  },
+  {
+    "ms": 502,
+    "height": 280,
+    "parent": 0
+  },
+  {
+    "ms": 527,
+    "height": 280,
+    "parent": 0
+  },
+  {
+    "ms": 553,
+    "height": 280,
+    "parent": 0
+  },
+  {
+    "ms": 576,
+    "height": 280,
+    "parent": 0
+  },
+  {
+    "ms": 603,
+    "height": 0,
+    "parent": 0
+  }
+]

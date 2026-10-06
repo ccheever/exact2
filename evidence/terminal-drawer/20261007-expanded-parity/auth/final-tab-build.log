@@ -1,0 +1,26 @@
+   Compiling t3-code-macos v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/macos)
+    Finished `host-dev` profile [optimized] target(s) in 49.60s
+host/apple: baked L=0; Swift embedded composition
+Building for debugging...
+Build complete! (0.17 sec)
+Building for debugging...
+[2 / 3] ExactMac-product
+Build complete! (0.47 sec)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/modules/apple/R8KeysMenus.swift:98:45: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 96 | 
+ 97 |     @objc func undo(_ sender: Any?) {
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+    |                                             `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/modules/apple/R8KeysMenus.swift:100:26: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+    |                          `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+101 |     }
+102 |     @objc func closeWindow(_ sender: Any?) {
+local client: /Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/clients/a68f797431941fe48fdce6c7/com.exact.t3code.macos/macos/T3 Code (Exact).app
+  No development opening link: build with --url <dev server URL> to register one.
+host/apple: target/clients/a68f797431941fe48fdce6c7/com.exact.t3code.macos/macos/aarch64-apple-darwin/embedded/development/standalone/ExactMac (cargo 50.3 s, swift 1.0 s, arms 53.1 s, modules 0.0 s, package 1.2 s; signed 0F0D033A); GPU: no GPU crate; web arm: libexact_web.dylib; modules: libexact_modules.dylib

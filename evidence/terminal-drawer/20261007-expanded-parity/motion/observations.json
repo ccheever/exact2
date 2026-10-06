@@ -1,0 +1,364 @@
+{
+  "frameworkCommit": "4e65300c1b715befeba8c42db9488b16864bbcdd",
+  "platform": "macOS 26.6.2 (25G83)",
+  "settingMs": 400,
+  "legend": {
+    "1793": "clipping parent",
+    "1794": "fixed inner",
+    "1966": "native terminal"
+  },
+  "observations": [
+    {
+      "source": "result-2.json",
+      "clock": 11000,
+      "focus": {
+        "pending": null,
+        "editor": null,
+        "responder": null,
+        "logical": null
+      },
+      "boxes": [
+        {
+          "y": 560,
+          "x": 256,
+          "h": 280,
+          "id": 1793,
+          "opacity": 1,
+          "exiting": false,
+          "w": 1024
+        },
+        {
+          "id": 1966,
+          "w": 880,
+          "h": 279,
+          "x": 256,
+          "exiting": false,
+          "y": 561,
+          "opacity": 1
+        },
+        {
+          "x": 256,
+          "h": 280,
+          "y": 560,
+          "w": 1024,
+          "id": 1794,
+          "opacity": 1,
+          "exiting": false
+        }
+      ]
+    },
+    {
+      "source": "result-2.json",
+      "clock": 11000,
+      "focus": {
+        "responder": "TextArea",
+        "editor": 149,
+        "pending": null,
+        "logical": 149
+      },
+      "boxes": [
+        {
+          "opacity": 1,
+          "h": 0,
+          "exiting": false,
+          "w": 1024,
+          "id": 1793,
+          "x": 256,
+          "y": 840
+        },
+        {
+          "y": 841,
+          "id": 1966,
+          "h": 279,
+          "w": 880,
+          "opacity": 1,
+          "exiting": false,
+          "x": 256
+        },
+        {
+          "h": 280,
+          "opacity": 1,
+          "exiting": false,
+          "id": 1794,
+          "w": 1024,
+          "y": 840,
+          "x": 256
+        }
+      ]
+    },
+    {
+      "source": "result-2.json",
+      "clock": 11400,
+      "focus": {
+        "pending": null,
+        "logical": 149,
+        "responder": "TextArea",
+        "editor": 149
+      },
+      "boxes": [
+        {
+          "h": 0,
+          "id": 1793,
+          "w": 1024,
+          "exiting": false,
+          "x": 256,
+          "opacity": 1,
+          "y": 840
+        },
+        {
+          "id": 1966,
+          "h": 279,
+          "x": 256,
+          "y": 841,
+          "opacity": 1,
+          "exiting": false,
+          "w": 880
+        },
+        {
+          "w": 1024,
+          "y": 840,
+          "id": 1794,
+          "x": 256,
+          "opacity": 1,
+          "exiting": false,
+          "h": 280
+        }
+      ]
+    },
+    {
+      "source": "result-2.json",
+      "clock": 11800,
+      "focus": {
+        "logical": 1966,
+        "responder": "WebView",
+        "editor": null,
+        "pending": null
+      },
+      "boxes": [
+        {
+          "y": 560,
+          "h": 280,
+          "x": 256,
+          "id": 1793,
+          "w": 1024,
+          "exiting": false,
+          "opacity": 1
+        },
+        {
+          "x": 256,
+          "w": 880,
+          "y": 561,
+          "h": 279,
+          "exiting": false,
+          "id": 1966,
+          "opacity": 1
+        },
+        {
+          "x": 256,
+          "y": 560,
+          "id": 1794,
+          "w": 1024,
+          "opacity": 1,
+          "exiting": false,
+          "h": 280
+        }
+      ]
+    },
+    {
+      "source": "result-3.json",
+      "clock": 11900,
+      "focus": {
+        "logical": 149,
+        "pending": null,
+        "editor": 149,
+        "responder": "TextArea"
+      },
+      "boxes": [
+        {
+          "h": 0,
+          "exiting": false,
+          "y": 840,
+          "opacity": 1,
+          "x": 256,
+          "w": 1024,
+          "id": 1793
+        },
+        {
+          "x": 256,
+          "id": 1966,
+          "opacity": 1,
+          "w": 880,
+          "exiting": false,
+          "y": 841,
+          "h": 279
+        },
+        {
+          "exiting": false,
+          "x": 256,
+          "y": 840,
+          "w": 1024,
+          "h": 280,
+          "opacity": 1,
+          "id": 1794
+        }
+      ]
+    },
+    {
+      "source": "result-3.json",
+      "clock": 12000,
+      "focus": {
+        "logical": 1966,
+        "responder": "WebView",
+        "pending": null,
+        "editor": null
+      },
+      "boxes": [
+        {
+          "id": 1793,
+          "w": 1024,
+          "x": 256,
+          "exiting": false,
+          "y": 560,
+          "opacity": 1,
+          "h": 280
+        },
+        {
+          "x": 256,
+          "w": 880,
+          "id": 1966,
+          "h": 279,
+          "exiting": false,
+          "opacity": 1,
+          "y": 561
+        },
+        {
+          "x": 256,
+          "y": 560,
+          "h": 280,
+          "exiting": false,
+          "opacity": 1,
+          "w": 1024,
+          "id": 1794
+        }
+      ]
+    },
+    {
+      "source": "result-3.json",
+      "clock": 12400,
+      "focus": {
+        "logical": 1966,
+        "responder": "WebView",
+        "pending": null,
+        "editor": null
+      },
+      "boxes": [
+        {
+          "opacity": 1,
+          "x": 256,
+          "id": 1793,
+          "y": 560,
+          "w": 1024,
+          "h": 280,
+          "exiting": false
+        },
+        {
+          "id": 1966,
+          "h": 279,
+          "exiting": false,
+          "opacity": 1,
+          "x": 256,
+          "w": 880,
+          "y": 561
+        },
+        {
+          "h": 280,
+          "opacity": 1,
+          "w": 1024,
+          "id": 1794,
+          "y": 560,
+          "x": 256,
+          "exiting": false
+        }
+      ]
+    },
+    {
+      "source": "result-3.json",
+      "clock": 12400,
+      "focus": {
+        "logical": 149,
+        "responder": "TextArea",
+        "editor": 149,
+        "pending": null
+      },
+      "boxes": [
+        {
+          "h": 0,
+          "x": 256,
+          "exiting": false,
+          "id": 1793,
+          "y": 840,
+          "opacity": 1,
+          "w": 1024
+        },
+        {
+          "y": 841,
+          "h": 279,
+          "exiting": false,
+          "x": 256,
+          "id": 1966,
+          "opacity": 1,
+          "w": 880
+        },
+        {
+          "h": 280,
+          "w": 1024,
+          "opacity": 1,
+          "y": 840,
+          "exiting": false,
+          "id": 1794,
+          "x": 256
+        }
+      ]
+    },
+    {
+      "source": "result-3.json",
+      "clock": 12400,
+      "focus": {
+        "responder": "WebView",
+        "logical": 1966,
+        "editor": null,
+        "pending": null
+      },
+      "boxes": [
+        {
+          "exiting": false,
+          "h": 280,
+          "x": 256,
+          "y": 560,
+          "id": 1793,
+          "w": 1024,
+          "opacity": 1
+        },
+        {
+          "x": 256,
+          "y": 561,
+          "w": 880,
+          "id": 1966,
+          "h": 279,
+          "opacity": 1,
+          "exiting": false
+        },
+        {
+          "y": 560,
+          "id": 1794,
+          "w": 1024,
+          "exiting": false,
+          "x": 256,
+          "h": 280,
+          "opacity": 1
+        }
+      ]
+    }
+  ],
+  "conclusion": "Numeric height jumps at toggle; native view identity and fixed inner dimensions persist. Reduced-motion immediate result passes; smooth motion and reversal fail."
+}
