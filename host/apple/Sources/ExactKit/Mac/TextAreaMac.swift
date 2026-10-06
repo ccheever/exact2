@@ -38,6 +38,7 @@ final class TextArea: NSTextView {
         let ok = super.becomeFirstResponder()
         // A selection a script set while it had no focus (x2apps codeedit #2).
         if ok, let owner { owner.presenter?.fieldSelections.focused(owner) }
+        if ok { owner?.showFieldFocus(true) }
         if ok, let owner, owner.handlers.contains("focus") { owner.presenter?.focus(owner.id) }
         return ok
     }
@@ -171,6 +172,7 @@ extension NodeView {
         f.isSelectable = !disabled
         f.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
         f.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
+        f.contentType = Autofill.contentType(props["autocomplete"], fallback: nil)
         f.setAccessibilityLabel(props["accessibilityLabel"])
         f.setAccessibilityIdentifier(props["testId"])
         (f as? TextArea)?.placeholder = props["placeholder"] ?? ""
@@ -226,6 +228,7 @@ extension NodeView {
     }
     func textDidEndEditing(_ notification: Notification) {
         presenter?.collections.pinsChanged()
+        showFieldFocus(false)
         presenter?.commitEdit(id, textArea?.string ?? "", change: handlers.contains("change"))
         if handlers.contains("blur") { presenter?.blur(id) }
     }
@@ -251,6 +254,7 @@ private func focused(_ delegate: NSTextFieldDelegate?, _ become: () -> Bool) -> 
     let owner = delegate as? NodeView, selections = owner?.presenter?.fieldSelections
     let ok = selections?.quietly(become) ?? become()
     if ok, let owner { selections?.focused(owner) }
+    if ok { owner?.showFieldFocus(true) }
     if ok, let owner, owner.handlers.contains("focus") { owner.presenter?.focus(owner.id) }
     return ok
 }

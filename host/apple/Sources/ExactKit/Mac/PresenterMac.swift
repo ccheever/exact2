@@ -33,6 +33,7 @@ final class Presenter {
     /// A view's props were written (`NodeView.props`' own observer).
     func propsChanged(_ view: NodeView) {
         chrome.note(view.id, props: view.props)
+        if view.fieldFocused, view.disabled || view.props["fieldStyle"] == nil { view.fieldFocused = false }
         // HTML's `title`: the platform's tooltip (studio diary R24).
         if view.toolTip != view.props["title"] { view.toolTip = view.props["title"] }
     }

@@ -143,6 +143,7 @@ impl Ty {
             "list<Entry>" => Ty::List(Box::new(Ty::Record("Entry".into()))),
             "list<string>" => Ty::List(Box::new(Ty::String)),
             "option<string>" => Ty::Option(Box::new(Ty::String)),
+            "option<number>" => Ty::Option(Box::new(Ty::Number)),
             _ => Ty::Unknown,
         }
     }

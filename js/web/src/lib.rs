@@ -342,6 +342,13 @@ impl Module {
                     unavailable("fetch headers are not an array of [name, value] strings")
                 })?;
                 request.body = r["body"].as_str().unwrap_or("").as_bytes().to_vec();
+                // `exactTimeout`, as the prelude checked it (1..=3600000 ms).
+                if let Some(ms) = r["timeout_ms"].as_u64() {
+                    request.timeout_ms =
+                        Some(u32::try_from(ms).map_err(|_| {
+                            unavailable("a request timeout must be 1 to 3600000 ms")
+                        })?);
+                }
                 if r["stream"] == true {
                     // The page opens it; its events come back as messages.
                     request = match Answer::stream(request) {

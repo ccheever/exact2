@@ -1027,7 +1027,7 @@ component ArticlePage
                   border-radius=12
                   margin-bottom=12
                   overflow="hidden"
-                  textarea value=draft
+                  textarea appearance="none" value=draft
                     input=setDraft
                     placeholder="Write a comment..."
                     aria-label="Write a comment"

@@ -491,6 +491,14 @@ impl StyleValue {
             StyleValue::Percent(p) if (*p as f32).is_finite() => Ok(Dimension::Percent(*p as f32)),
             StyleValue::Auto if admits_auto => Ok(Dimension::Auto),
             StyleValue::Auto => Err(StyleValueError::AutoNotAdmitted { style }),
+            // CSS's initial maximum, the unbounded one `auto` already names here (LLP 1102 §3.11).
+            StyleValue::Text(t)
+                if matches!(style, StyleId::MaxWidth | StyleId::MaxHeight)
+                    && t.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])
+                        .eq_ignore_ascii_case("none") =>
+            {
+                Ok(Dimension::Auto)
+            }
             StyleValue::Text(t) => match env::parse(t) {
                 Err(refusal) => Err(StyleValueError::BadEnv { style, refusal }),
                 Ok(parsed) => Ok(parsed),

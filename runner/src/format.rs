@@ -20,13 +20,14 @@ pub fn formatting(f: Stdlib, args: &[Value]) -> Option<Value> {
     let style = |i: usize| args.get(i).and_then(Value::as_str);
     Some(match f {
         Stdlib::FormatDate => {
-            let month_year = match style(2)? {
-                "medium" => false,
-                "month-year" => true,
+            let style = match style(2)? {
+                "medium" => Style::Medium,
+                "month-year" => Style::MonthYear,
+                "iso" => Style::Iso,
                 _ => return None,
             };
             match wall_ms(num(0)?, num(1)?) {
-                Some(wall) => date(wall, month_year),
+                Some(wall) => date(wall, style),
                 None => Value::str(""),
             }
         }
@@ -53,14 +54,38 @@ const MONTHS: [&str; 12] = [
     "December",
 ];
 
-/// `Sep 26, 2026` (`{ dateStyle: "medium" }`) or `September 2026`
-/// (`{ month: "long", year: "numeric" }`) of a wall time in range. `en-US`'s
-/// short months are the first three letters of the long ones.
-fn date(wall: f64, month_year: bool) -> Value {
+/// A `formatDate` style.
+#[derive(Clone, Copy, PartialEq)]
+enum Style {
+    Medium,
+    MonthYear,
+    Iso,
+}
+
+/// `Sep 26, 2026` (`{ dateStyle: "medium" }`), `September 2026`
+/// (`{ month: "long", year: "numeric" }`) or `2026-09-26` (LLP 1102 §3.4: the
+/// date part of `toISOString`) of a wall time in range. `en-US`'s short months are the first three letters of
+/// the long ones.
+fn date(wall: f64, style: Style) -> Value {
     let (year, month, day) = civil((wall / 86_400_000.0).floor() as i64);
-    let name = MONTHS[month as usize - 1];
     let mut out = String::with_capacity(16);
-    if month_year {
+    if style == Style::Iso {
+        // `wall_ms` admits years 1–9999 only (D7), so four digits always.
+        let pad = |out: &mut String, n: f64, width: usize| {
+            let mut digits = String::new();
+            push_number(n, &mut digits);
+            out.extend(std::iter::repeat_n('0', width.saturating_sub(digits.len())));
+            out.push_str(&digits);
+        };
+        pad(&mut out, year as f64, 4);
+        out.push('-');
+        pad(&mut out, f64::from(month), 2);
+        out.push('-');
+        pad(&mut out, f64::from(day), 2);
+        return Value::str(&out);
+    }
+    let name = MONTHS[month as usize - 1];
+    if style == Style::MonthYear {
         out.push_str(name);
     } else {
         out.push_str(&name[..3]);

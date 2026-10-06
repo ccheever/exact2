@@ -724,37 +724,16 @@ pub(crate) fn check_style_value(
                         );
                     }
                     if let Err(e) = probe.set_dynamic(*row, &v) {
-                        // A number written as a pixel string: say the number.
-                        let pixels = match (&e, value) {
-                            (StyleValueError::WrongKind { .. }, Expr::Str(text, _)) => text
-                                .trim()
-                                .strip_suffix("px")
-                                .and_then(|n| n.trim().parse::<f64>().ok())
-                                .map(|n| format!("; write `{}={n}` (a number is pixels)", a.name)),
-                            _ => None,
-                        };
-                        // A viewport-pinned box (authoring bench, t6-todo-more).
-                        let hint = pixels.or_else(|| {
-                            (a.name == "position"
-                                && matches!(value, Expr::Str(t, _) if t.trim() == "fixed"))
-                            .then(|| {
-                                "; `fixed` is not a row (LLP 1001): pin a box to the viewport \
-                                 with `absolute`, directly inside a viewport-sized root that \
-                                 does not scroll (its content scrolls in a `scroll` beside it)"
-                                    .to_string()
-                            })
-                        });
-                        // CSS's initial `none` on a maximum (r30 t4-kanban).
-                        let hint = hint.or_else(|| {
-                            (matches!(a.name.as_str(), "max-width" | "max-height")
-                                && matches!(value, Expr::Str(t, _) if t.trim() == "none"))
-                            .then(|| {
-                                format!(
-                                    "; no limit is the default, so leave `{}` out \
-                                     (an explicit no-limit is `auto` here)",
-                                    a.name
-                                )
-                            })
+                        // A viewport-pinned box (authoring bench, t6-todo-more). A pixel row
+                        // takes `14px` as CSS does (LLP 1102 §3.10), and a maximum takes
+                        // `none` (§3.11), so neither needs a hint here.
+                        let hint = (a.name == "position"
+                            && matches!(value, Expr::Str(t, _) if t.trim() == "fixed"))
+                        .then(|| {
+                            "; `fixed` is not a row (LLP 1001): pin a box to the viewport \
+                             with `absolute`, directly inside a viewport-sized root that \
+                             does not scroll (its content scrolls in a `scroll` beside it)"
+                                .to_string()
                         });
                         return err(
                             "lower-attr-value",

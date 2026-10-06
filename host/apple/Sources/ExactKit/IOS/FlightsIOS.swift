@@ -55,7 +55,7 @@ final class Flight {
     /// its radius and its clip (D4.4).
     var clip: UIView?
     var geometry: BatchOp?
-    var saved: (radius: CGFloat, clips: Bool, interaction: Bool, hidden: Bool)?
+    var saved: (interaction: Bool, hidden: Bool)?
     init(id: UInt32, source: FlightSource) { self.id = id; self.source = source }
 }
 
@@ -161,13 +161,14 @@ extension Presenter {
         parent.insertSubview(view, aboveSubview: slot)
         slot.removeFromSuperview()
         f.clip?.removeFromSuperview()
-        restore(view, f)
         let op = f.geometry ?? {
             var op = BatchOp(op: .frame, nodeID: f.id)
             op.x = slot.frame.minX; op.y = slot.frame.minY; op.w = slot.frame.width; op.h = slot.frame.height
             return op
         }()
         applyGeometry(op)
+        // At its landed size: a radius CSS reduces to fit is the size's.
+        restore(view, f)
         view.setNeedsLayout()
         if view.kind == "image" { view.applyImageLayer() }
         f.container.map(Self.dropEmptyLayer)
@@ -176,11 +177,20 @@ extension Presenter {
     private func restore(_ view: NodeView, _ f: Flight) {
         view.flightLook = nil
         if let s = f.saved {
-            view.layer.cornerRadius = s.radius
-            view.layer.masksToBounds = s.clips
             view.isUserInteractionEnabled = s.interaction
             view.accessibilityElementsHidden = s.hidden
         }
+        // Its clip and corners are its style's as it lands, not as they were
+        // at lift. An image flew clipped by its own layer, and a style in
+        // flight may have changed its overflow. While it flew, a box pass
+        // left its layer's radius to the flight (`applyBoxLayer`), so a style
+        // that came or changed in flight (an arriver's first, a cluster's
+        // new joint) was never put on it; in a clip, the clip flew rounded,
+        // not the view. A gradient sublayer copies the layer's radius when
+        // the view displays, so it displays again.
+        view.layer.masksToBounds = view.overflowClips && view.clipBox == nil
+        view.applyBoxLayer()
+        view.setNeedsDisplay()
     }
 
     /// A destroyed arriver's flight ends with it.
@@ -252,7 +262,7 @@ extension Presenter {
             l.setPaintForeground()
             return l
         }()
-        f.saved = (view.layer.cornerRadius, view.layer.masksToBounds, view.isUserInteractionEnabled, view.accessibilityElementsHidden)
+        f.saved = (view.isUserInteractionEnabled, view.accessibilityElementsHidden)
         f.view = view
         f.slot = slot
         f.container = layer

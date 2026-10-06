@@ -128,11 +128,12 @@ def roster : List String :=
    "encodeURIComponent", "encodeRouteSegment", "includes", "trim", "first", "t", "map",
    "filter", "join", "formatDate", "formatNumber", "frame", "measure", "at", "startsWith",
    "endsWith", "slice", "replaceAll", "toLowerCase", "concat", "indexOf", "split",
-   "elementFromPoint"]
+   "elementFromPoint", "parseNumber", "ceil", "round", "calendarDiff"]
 
 /-- A roster entry's result type. -/
 def rosterTy (f : String) (args : List STy) : STy :=
-  if f = "now" ∨ f = "length" ∨ f = "floor" ∨ f = "max" ∨ f = "min" ∨ f = "indexOf" then .number
+  if f = "now" ∨ f = "length" ∨ f = "floor" ∨ f = "ceil" ∨ f = "round" ∨ f = "max" ∨ f = "min"
+    ∨ f = "indexOf" then .number
   else if f = "isEmpty" ∨ f = "includes" ∨ f = "startsWith" ∨ f = "endsWith" then .bool
   else if f = "toString" ∨ f = "trim" ∨ f = "encodeURIComponent" ∨ f = "join"
     ∨ f = "replaceAll" ∨ f = "toLowerCase" ∨ f = "formatTime" ∨ f = "formatDate" ∨ f = "formatNumber"
@@ -149,6 +150,7 @@ def rosterTy (f : String) (args : List STy) : STy :=
     | .list a :: .list b :: _ => .list (STy.join a b)
     | _ => .top
   else if f = "elementFromPoint" then .option .string
+  else if f = "parseNumber" ∨ f = "calendarDiff" then .option .number
   else if f = "first" ∨ f = "at" then
     match args with
     | .list t :: _ => .option t

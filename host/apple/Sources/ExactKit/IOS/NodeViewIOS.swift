@@ -1092,8 +1092,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             // The web's `type` and `inputmode`, as UIKit spells them.
             let type = props["type"] ?? "text"
             f.isSecureTextEntry = type == "password"
-            f.textContentType = type == "password" ? .password : type == "email" ? .emailAddress : nil
-            let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking
+            // `autocomplete` names the field to AutoFill over what `type` implies (LLP 1102 §3.6).
+            let content = Autofill.contentType(props["autocomplete"], fallback: type == "password" ? .password : type == "email" ? .emailAddress : nil)
+            let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking || f.textContentType != content
+            f.textContentType = content
             f.autocapitalizationType = inputCapitalization
             f.autocorrectionType = inputCorrection
             f.spellCheckingType = inputSpellChecking
@@ -1227,6 +1229,14 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// Scrolling and clipping come from the effective overflow the host
     /// wrote in (never from the node's kind): `scroll` on an axis makes a
     /// scroll container that scrolls that axis; `hidden` clips.
+    /// Whether the style clips the children (`overflow: hidden`); a waiting
+    /// scroll clips as its scroll view would. Without a clip box, it is the
+    /// layer's `masksToBounds` (`syncScroll`; a landing flight, `FlightsIOS`).
+    var overflowClips: Bool {
+        let ox = style["overflow_x"]?.string ?? "visible", oy = style["overflow_y"]?.string ?? "visible"
+        return ox == "hidden" || oy == "hidden" || scrollDormant
+    }
+
     func syncScroll() {
         let ox = style["overflow_x"]?.string ?? "visible", oy = style["overflow_y"]?.string ?? "visible"
         let scrolls = (ox == "scroll" || ox == "auto") || (oy == "scroll" || oy == "auto")
@@ -1269,8 +1279,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
         updateKeyboardDismissal()
         fitScroll()
-        // A waiting scroll clips as its scroll view would.
-        let clips = ox == "hidden" || oy == "hidden" || scrollDormant
+        let clips = overflowClips
         // A paragraph paints its own text, which a box would not clip.
         syncClipBox(clips && kind != "text" && shadowColor != nil && scroll == nil && overlay == nil && materialKind != "glass")
         clipsToBounds = clips && clipBox == nil

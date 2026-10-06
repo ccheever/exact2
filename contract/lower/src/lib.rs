@@ -26,6 +26,7 @@ mod contain;
 pub mod controls;
 pub mod dataset;
 pub mod expr;
+mod fields;
 mod fonts;
 mod grouped;
 mod handlers;
@@ -687,9 +688,17 @@ impl<'a> Lowerer<'a> {
                 {
                     grouped::native_rows(&mut sheet);
                 }
+                // @ref LLP 1104 D2, D3 — a text field's sheet, under its classes.
+                let dressed = fields::sheet(
+                    tag,
+                    expanded.iter().flatten().chain(attrs),
+                    *span,
+                    &mut sheet,
+                )?;
                 let class_len = expanded.as_ref().map_or(0, Vec::len) + sheet.len();
                 let expanded = match &mut expanded {
                     Some(rows) => {
+                        fields::over_sheet(rows, &sheet);
                         rows.splice(0..0, sheet.iter().cloned());
                         rows.extend(attrs.iter().filter(|a| a.name != "class").cloned());
                         rows.as_slice()
@@ -739,6 +748,7 @@ impl<'a> Lowerer<'a> {
                 let expanded = canonical_type.as_deref().unwrap_or(expanded);
                 let control = controls::control(tag, expanded)?;
                 let t = control.map_or(t.clone(), |kind| controls::tag(kind, t.clone()));
+                let t = if dressed { fields::tag(t) } else { t };
                 let face = (control == Some("button"))
                     .then(|| grouped::unsheet(children))
                     .flatten();
@@ -748,7 +758,7 @@ impl<'a> Lowerer<'a> {
                 }
                 controls::check_nesting(tag, parent_tag, *span)?;
                 self.check_menu_shapes(tag, expanded, children, *span)?;
-                let numeric = controls::range_attrs(control, expanded);
+                let numeric = controls::range_attrs(tag, control, expanded);
                 let expanded = numeric.as_deref().unwrap_or(expanded);
                 // @ref LLP 1084 D1, D3 — a grouped list's sheet, before its
                 // author's rows, and its sections' shape.

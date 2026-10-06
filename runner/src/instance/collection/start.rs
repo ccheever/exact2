@@ -90,3 +90,21 @@ impl Collection {
         }
     }
 }
+/// Whether a port at `offset` is where the anchor puts it (`corrected`).
+/// Hosts round offsets to device pixels (4405.1667 shows as 4405.333 at
+/// 3x): a followed end already sent (`sent`) is reached within half a point,
+/// else the same unreachable end went out with every commit and an opening
+/// never settled (LLP 1010 §6.8). An end that moved is sent once; a row
+/// anchor keeps 0.01, since its moves add up report on report.
+pub(super) fn at_target(
+    anchor: &super::index::Anchor,
+    corrected: f64,
+    offset: f64,
+    sent: f64,
+) -> bool {
+    let gap = (corrected - offset).abs();
+    gap <= 0.01
+        || (super::index::SizeIndex::follows_end(anchor)
+            && gap <= 0.5
+            && (corrected - sent).abs() <= 0.01)
+}

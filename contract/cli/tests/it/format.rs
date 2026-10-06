@@ -132,7 +132,64 @@ fn the_roster_names_are_the_roster_s() {
     assert_eq!(e.id, "type-arity", "{e}");
     assert!(
         e.message
-            .contains(r#"formatDate(number, number, "medium" | "month-year")"#),
+            .contains(r#"formatDate(number, number, "medium" | "month-year" | "iso")"#),
         "{e}"
     );
+}
+
+/// LLP 1102 §3.1–§3.4: a birthday field's text read as a number, a total
+/// rounded as JavaScript rounds it, a day as `YYYY-MM-DD`, and an age in
+/// whole years, through the compiler and the runner. Only `iso` links the
+/// `format` capability; the reads are the core's.
+#[test]
+fn a_field_s_number_an_age_and_an_iso_day() {
+    let src = r#"component App
+  state field = " 12.5 "
+  state born = "2024-02-29"
+  derive amount = match parseNumber(field) { case some(n) => n, case none => 0 }
+  derive age = match calendarDiff(born, "2025-02-28", "years") { case some(n) => toString(n), case none => "?" }
+  action type(s: string)
+    field = s
+  view
+    column
+      text `${round(amount)} ${ceil(amount)} ${round(-amount)}` testId="amount"
+      text age testId="age"
+"#;
+    let plan = contract::compile(src).unwrap();
+    assert_eq!(exact_runner::uses(&plan).to_string(), "");
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(text(&r, "amount"), "13 13 -12");
+    assert_eq!(text(&r, "age"), "0", "Feb 29 completes a year on Mar 1");
+    r.act("type", vec![Value::str("12px")]).unwrap();
+    assert_eq!(text(&r, "amount"), "0 0 0");
+    let iso =
+        "component App\n  view\n    text formatDate(1790000000000, 0, \"iso\") testId=\"x\"\n";
+    let plan = contract::compile(iso).unwrap();
+    assert_eq!(exact_runner::uses(&plan).to_string(), "format");
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(text(&r, "x"), "2026-09-21");
+    // A unit is a listed literal, as a style is.
+    let e = contract::compile(
+        "component A\n  view\n    text toString(calendarDiff(\"2024-01-01\", \"2025-01-01\", \"days\") == none)\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-format-style", "{e}");
+    assert!(e.message.contains(r#"one of `"years"`, `"months"`"#), "{e}");
+    let e =
+        contract::compile("component A\n  view\n    text toString(round(\"2\"))\n").unwrap_err();
+    assert_eq!(e.id, "type-argument", "{e}");
 }

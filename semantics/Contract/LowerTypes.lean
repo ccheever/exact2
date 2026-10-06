@@ -272,6 +272,11 @@ theorem stdlib_ty {env : Env} {sh f vs ts v} (h : stdlib env f vs = .ok v) (hts 
       cases t0 <;> cases t1 <;> simp [VTy] at hts ⊢
       exact VTyAll.append (VTyAll.imp (fun hv => vty_join_left hv) hts.1)
         (VTyAll.imp (fun hv => vty_join_right hv) hts.2.1)
+  case h_42 =>
+    split <;> simp [VTy]
+  case h_43 =>
+    split at h <;> simp at h; subst h
+    split <;> simp [VTy]
 
 /-! ## Strict operators -/
 

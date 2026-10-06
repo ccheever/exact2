@@ -96,6 +96,7 @@ def formatting (f : String) (args : List Value) : Result Value :=
   | "formatTime", [.num e, .num o, .str "short"] => .ok (.str (Format.formatTime e o))
   | "formatDate", [.num e, .num o, .str "medium"] => .ok (.str (Format.formatDate e o false))
   | "formatDate", [.num e, .num o, .str "month-year"] => .ok (.str (Format.formatDate e o true))
+  | "formatDate", [.num e, .num o, .str "iso"] => .ok (.str (Format.formatIsoDate e o))
   | "formatNumber", [.num n, .str "compact"] => .ok (.str (Format.compact n))
   | f, _ => .error (.unsupported s!"roster entry `{f}` of arguments it does not take")
 
@@ -207,10 +208,21 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   | "formatDate", vs => formatting "formatDate" vs
   | "formatNumber", vs => formatting "formatNumber" vs
   | "t", vs => text env.prog.strings vs
+  -- LLP 1102 §3.2: `round` is JavaScript's `Math.round`, a half up.
+  | "ceil", [.num x] => .ok (.num x.ceil)
+  | "round", [.num x] => .ok (.num x.jsRound)
+  -- LLP 1102 §3.1, §3.4: a number or a date difference read from text.
+  | "parseNumber", [.str s] => .ok (match Str.parseNumber s with | .some n => .some (.num n) | .none => .none)
+  | "calendarDiff", [.str a, .str b, .str u] =>
+    if u = "years" ∨ u = "months" then
+      .ok (match Str.calendarDiff a b (u = "months") with
+        | .some n => .some (.num (if n < 0 then -(F64.ofNat n.natAbs) else F64.ofNat n.natAbs))
+        | .none => .none)
+    else .error (.unsupported "`calendarDiff` of a unit it does not take")
   | "length", _ | "isEmpty", _ | "floor", _ | "max", _ | "min", _ | "first", _ | "at", _
   | "includes", _ | "startsWith", _ | "endsWith", _ | "trim", _ | "join", _
   | "encodeURIComponent", _ | "slice", _ | "replaceAll", _ | "concat", _ | "indexOf", _
-  | "split", _ =>
+  | "split", _ | "ceil", _ | "round", _ | "parseNumber", _ | "calendarDiff", _ =>
     .error (.type s!"`{f}` of arguments it does not take")
   | f, _ => .error (.unsupported s!"roster entry `{f}`")
 

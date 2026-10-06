@@ -240,10 +240,12 @@ extension NodeView {
         f.isEditable = !disabled && props["editable"] != "false"
         #endif
         f.isSelectable = !disabled
-        let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking
+        let content = Autofill.contentType(props["autocomplete"], fallback: nil)
+        let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking || f.textContentType != content
         f.autocapitalizationType = inputCapitalization
         f.autocorrectionType = inputCorrection
         f.spellCheckingType = inputSpellChecking
+        f.textContentType = content
         if traitsChanged, f.isFirstResponder { f.reloadInputViews() }
         f.accessibilityLabel = props["accessibilityLabel"]
         f.accessibilityIdentifier = props["testId"]

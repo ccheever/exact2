@@ -54,11 +54,42 @@ impl Module {
         let Some(engine) = self.engine.as_mut() else {
             return;
         };
-        let mut owed = false;
+        let (mut owed, mut rejected) = (false, false);
         for call in calls {
-            owed |= engine
-                .call("__exact_forget", [&call.to_string(), "", ""])
-                .is_ok_and(|r| r == "storage");
+            if let Ok(said) = engine.call("__exact_forget", [&call.to_string(), "", ""]) {
+                owed |= said.starts_with("storage");
+                rejected |= said.ends_with("rejected");
+            }
+        }
+        // The rejected fetches' continuations run now, their answers
+        // discarded, before any answer is current: what they set (a busy
+        // flag) is cleared, never stranded, and never lands on a live
+        // answer's store. Between answers, as a let-go's steps run: storage
+        // they start is the background's, not refused as at bake.
+        if rejected {
+            self.host.between_answers = true;
+            // An interrupt (or a job that throws) ends the job it stopped;
+            // the jobs queued behind it still run here, not in the next
+            // answer's drain. Each try pops at least the job it stopped; the
+            // bound only ends an endless chain of failing jobs.
+            let mut drained = engine.drain();
+            for _ in 0..1024 {
+                if drained.is_ok() {
+                    break;
+                }
+                self.watch.take();
+                drained = engine.drain();
+            }
+            self.host.between_answers = false;
+            if drained.is_ok() {
+                // A continuation another answer shared may have settled it:
+                // a waiter counts this as progress (`wake`).
+                self.progress += 1;
+            } else {
+                self.watch.take();
+            }
+            // Storage a continuation started is the background's: arm it.
+            self.refresh_background();
         }
         if owed {
             self.finish_let_go();

@@ -364,7 +364,7 @@ component Expose
                 svg viewBox="0 0 24 24" width=16 height=16
                   path d="M12 5v14M5 12h14" fill="none" stroke="light-dark(#0b0b0c, #f5f5f7)" stroke-width=2.4 stroke-linecap="round"
               row flex=1 min-width=0 min-height=36 border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#c6c6c8, #3a3a3c)" align-items="center" padding-left=14 padding-right=4 gap=6
-                input id="composer" testId="composer" value=draft input=write submit=sendDraft placeholder=(chat.kind == "assistant" ? "Ask Expose" : "Message") aria-label="Message" flex=1 min-width=0 height=34 border-width=0 font-size=(17 * scale) color="light-dark(#0b0b0c, #f5f5f7)" disabled=(chat.kind != "assistant")
+                input appearance="none" id="composer" testId="composer" value=draft input=write submit=sendDraft placeholder=(chat.kind == "assistant" ? "Ask Expose" : "Message") aria-label="Message" flex=1 min-width=0 height=34 border-width=0 font-size=(17 * scale) color="light-dark(#0b0b0c, #f5f5f7)" disabled=(chat.kind != "assistant")
                 when trim(draft) != "" and chat.kind == "assistant"
                   button press=sendDraft testId="send" aria-label="Send" press-scale=0.9 width=28 height=28 border-radius=14 background-color="#ff6a2b" display="flex" flex-direction="row" align-items="center" justify-content="center"
                     svg viewBox="0 0 24 24" width=16 height=16
@@ -490,7 +490,7 @@ component Expose
                   column class=Card padding=16 gap=10
                     text "OPENROUTER KEY" font-size=13 class=Muted
                     row align-items="center" gap=8
-                      input id="key" testId="key" type="password" value=keyDraft input=writeKey submit=saveKey placeholder="sk-or-v1-…" aria-label="OpenRouter key" flex=1 min-width=0 height=40 padding-left=12 padding-right=12 border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#c6c6c8, #3a3a3c)" font-size=16 color="light-dark(#0b0b0c, #f5f5f7)" background-color="light-dark(#ffffff, #0b0b0c)"
+                      input appearance="none" id="key" testId="key" type="password" value=keyDraft input=writeKey submit=saveKey placeholder="sk-or-v1-…" aria-label="OpenRouter key" flex=1 min-width=0 height=40 padding-left=12 padding-right=12 border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#c6c6c8, #3a3a3c)" font-size=16 color="light-dark(#0b0b0c, #f5f5f7)" background-color="light-dark(#ffffff, #0b0b0c)"
                       button press=saveKey testId="save-key" disabled=(trim(keyDraft) == "") press-scale=0.95 height=40 padding-left=14 padding-right=14 border-radius=10 background-color=(trim(keyDraft) == "" ? "light-dark(#e9e9ee, #2a2a2e)" : "#ff6a2b") display="flex" flex-direction="row" align-items="center"
                         text "Save" font-size=15 font-weight=600 color=(trim(keyDraft) == "" ? "light-dark(#8e8e93, #6e6e75)" : "#ffffff")
                     when keySaved

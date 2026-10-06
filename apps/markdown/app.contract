@@ -88,7 +88,7 @@ component Markdown
               text "Files" font-size=12 font-weight=600 color=theme.ink
             // The one node every open route ends at. A path typed here and
             // a path delivered by Launch Services are the same event.
-            input id="open-file" value=asked change=openFile placeholder="Path to a Markdown file" aria-label="Path to a Markdown file" testId="open-file" flex=1 padding=8 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=13 color=theme.ink
+            input appearance="none" id="open-file" value=asked change=openFile placeholder="Path to a Markdown file" aria-label="Path to a Markdown file" testId="open-file" flex=1 padding=8 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=13 color=theme.ink
             button press=chooseFile aria-label="Open a file" testId="open-document" padding=6 border-radius=6 background-color=theme.control
               text "Open…" font-size=12 font-weight=600 color=theme.ink
             button press=chooseFolder aria-label="Open a folder" testId="open-folder" padding=6 border-radius=6 background-color=theme.control

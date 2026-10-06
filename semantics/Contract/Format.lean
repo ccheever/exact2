@@ -162,6 +162,17 @@ def formatDate (epoch offset : F64) (monthYear : Bool) : String :=
     let head := if monthYear then name else String.ofList (name.toList.take 3) ++ " " ++ toString day ++ ","
     head ++ " " ++ toString year
 
+/-- `formatDate(epochMs, utcOffset, "iso")`: `YYYY-MM-DD`, the date part of
+`toISOString` at that wall time (LLP 1102 §3.4), `""` when invalid. Years
+are 1–9999 (`wallMs`), so four digits. -/
+def formatIsoDate (epoch offset : F64) : String :=
+  match wallMs epoch offset with
+  | .none => ""
+  | .some wall =>
+    let (year, month, day) := civil (floorInt (wall / 86400000))
+    let pad (n w : Nat) : String := let s := toString n; String.ofList (zeros (w - s.length)) ++ s
+    pad year.toNat 4 ++ "-" ++ pad month 2 ++ "-" ++ pad day 2
+
 /-! ## Localized text -/
 
 /-- The strings tables: (locale, (key, text)…), the base first. -/

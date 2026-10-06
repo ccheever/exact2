@@ -912,3 +912,6 @@ fn completed_latency_is_measured_before_the_ui_drains_it() {
     assert!(matches!(outcome, Outcome::Response(_)));
     assert!(elapsed.unwrap() <= completed_by);
 }
+
+#[path = "executor_timeout_tests.rs"]
+mod timeout;

@@ -288,9 +288,14 @@ at CSS.
 - Two strings compare with `<`, `<=`, `>`, `>=` in UTF-16 code-unit order, as on
   the web (`end > start` for `"HH:MM"` times). `slice(s, 0, -1)`,
   `replaceAll(s, find, with)` and `toLowerCase(s)` are the web's string methods.
-- Numbers have `floor`, `min`, `max`, `%` and `formatNumber`, and no text-to-number parse, `ceil`,
-  `round` or fixed-decimal format: a typed amount is parsed (and money formatted)
-  in a source, which takes the field's text and answers the number.
+- Numbers have `floor`, `ceil`, `round` (JavaScript's `Math.round`: `round(-2.5)` is
+  -2), `min`, `max`, `%` and `formatNumber`. A field's text is a number through
+  `match parseNumber(s) { case some(n) => …, case none => … }`: a decimal numeral,
+  trimmed, or `none` (`"12px"`, `""`). There is no fixed-decimal format:
+  `round(v * 100) / 100` prints `1.5`, not `1.50`, so money is formatted in a source.
+- Dates: `formatDate(ms, offset, "iso")` is `YYYY-MM-DD`, and `calendarDiff(from, to,
+  "years")` (or `"months"`) is the whole periods between two such dates as an
+  `option<number>`, counted as an age is (a Feb 29 birthday has its year on Mar 1).
 - There is no general list append: add an item to
   resource-backed data in its source and answer the updated list (a mutation that
   `refreshes` the list's resource, or its own answer).
@@ -1211,6 +1216,29 @@ as `clock data` does: its data module activated and every request launch started
 test does not start with `clock settle`. `before data`, a launch line, skips the
 wait; what has landed then is the host's (a native app runs on real time before
 the driver connects).
+
+To test an error path, fail the fetch: `fail fetch "<url prefix>"` makes every
+later fetch whose URL starts with it fail exactly as a refused connection does
+on that host (a TypeScript source's `fetch` rejects with `FetchError` kind
+`"Network"`; a Rust source's request settles `Failed { kind: Network }`), and it
+never goes out. Leading the test it is armed before the first data load, so
+"the API is down when the screen opens" is the launch; later it is a step.
+`times N` fails only the next N; `pass fetch "<prefix>"` stops it; a counted
+fault that never fired fails the test. The app's own `catch`, error record and
+retry run, so this checks the real error handling (LLP 1103). A drive takes
+`--fail-fetch <prefix>` at open and the ops `"fail fetch <prefix> [times N]"`
+and `"pass fetch <prefix>"`; `state.faults` shows each prefix's hits.
+
+```contract-test
+test "the list shows an error, then retries and loads"
+  fail fetch "https://api.example.com/recipes"
+  expect text "error" == "Couldn't load recipes."
+  pass fetch "https://api.example.com/recipes"
+  tap "retry"
+  clock data
+  expect tree has "recipes"
+```
+
 A test whose text depends on the date names its `epoch`; without one it runs at
 the driver's 2026-01-01 UTC. The steps are `tap "id" [hover|dblclick|contextmenu]`,
 `tap "id" modifiers "Shift+Meta"` (a press with keys held),
@@ -1410,6 +1438,19 @@ says so once per box. Refused, each saying what to write: `column-span`, page
 and region breaks, `balance-all`, dashed or dotted rules, and multi-column rows
 on `row` or `column` (CSS ignores them on flex and grid; write `view`).
 
+A bare text field (`input` of type `text`, `email`, `password`, `search`, `tel`,
+`url`, `number` or none, and `textarea`) is visible, as the browser's is: a 1px
+`light-dark(#c6c6c8, #48484a)` border, radius 6, padding 6/8, a
+`light-dark(#ffffff, #1c1c1e)` fill and its own `light-dark(#000000, #ffffff)`
+ink (it does not inherit `color`). These are rows under yours: any row or class
+you write replaces that one row and keeps the rest; `padding` and `width` stay
+content-box, so the field is 18px wider and 14px taller than its content.
+`appearance="none"` (a literal) leaves them all out for a field you draw
+yourself, such as a composer inside a pill (LLP 1104). A field in this look
+shows a focus ring while focused (the web's `:focus-visible`, an accent ring on
+macOS and Linux; iOS shows its caret) and dims to `opacity` 0.5 while
+`disabled`; a bare field draws its own focus and disabled states.
+
 `textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
 height and `field-sizing="content"` override it. `maxlength=80` on text inputs
 and textareas limits user edits in UTF-16 units; authored `value` updates are
@@ -1437,7 +1478,31 @@ always dark does; leave it off to follow the surrounding scheme (LLP 1034 §8).
 an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not
 inherit is refused. `order` places flex and grid items. An image's accessible
 name is `alt` or `aria-label`; `enterkeyhint` labels a soft keyboard's enter
-key on the web and iOS.
+key on the web and iOS. A bare number on a length row is pixels (except
+`line-height`, where it is CSS's multiple of the font size), and the row takes
+CSS's spellings too (`font-size="14px"`, `letter-spacing="-0.5px"`,
+`padding="1.5rem"`; `stroke-width="2px"` but no `rem` there); `max-width` and
+`max-height` take `none`, CSS's initial maximum, or `auto`, and the web writes
+`none` for either. A number field's (`input type="number"`, written so)
+`min`, `max` and `step` take numbers, as a range's do; its `value` is its text.
+
+`autocomplete` on an `input` or `textarea` is HTML's attribute, written as
+HTML writes it (`autocomplete="username"`, `"section-login current-password"`,
+`"shipping postal-code"`). The web sets it as written. iOS and macOS read its
+last field name (a trailing `webauthn` aside) as the field's AutoFill content
+type, over the one `type` implies (iOS: `password`, `email`): `username`,
+`current-password`, `new-password`, `one-time-code`, `email`, `tel`, `url`,
+`name`, `given-name`, `additional-name`, `family-name`, `honorific-prefix`,
+`honorific-suffix`, `nickname`, `organization`, `organization-title`,
+`street-address`, `address-line1`, `address-line2`, `address-level1`…`3`,
+`postal-code`, `country-name`, `cc-name`, `cc-given-name`,
+`cc-additional-name`, `cc-family-name`, `cc-number`, `cc-exp`, `cc-exp-month`,
+`cc-exp-year`, `cc-csc`, `cc-type`, `bday`, `bday-day`, `bday-month` and
+`bday-year`.
+`off` clears the content type (the web's `autocomplete="off"`); `on` or a
+list HTML's grammar refuses (the web's default) leaves `type`'s, and so does
+a name the platform has no type for (`country`, `impp`, `sex`), which only the
+web can act on.
 
 `border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
 resetting omitted components to medium/none/currentcolor. Widths are px/pt,

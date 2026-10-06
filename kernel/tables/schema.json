@@ -1454,6 +1454,18 @@
       "name": "colorType",
       "kind": "str",
       "_comment": "LLP 1100 D12a: getContext's `colorType`, `unorm8` (default) or `float16`."
+    },
+    {
+      "id": 252,
+      "name": "autocomplete",
+      "kind": "str",
+      "_comment": "HTML's `autocomplete` on an input or textarea (LLP 1102 §3.6): the web writes the attribute; iOS and macOS set the field's text content type from its last field token (`email`, `username`, `current-password`, `new-password`, `one-time-code`, `name`, `tel`, `postal-code`, ...), over the one `type` implies; `off` clears it; a token the platform has no type for leaves `type`'s."
+    },
+    {
+      "id": 253,
+      "name": "fieldStyle",
+      "kind": "str",
+      "_comment": "@ref LLP 1104 D4: set by Contract, never authored: `default` on a text field that wears the default field rows (not `appearance=\"none\"`). The web shows such a field's `:focus-visible` ring; a host may mark its focus."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

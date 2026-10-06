@@ -246,6 +246,12 @@ pub struct Request {
     /// already in memory has paid for the attack it was meant to refuse, so a
     /// transport that cannot stop mid-response cannot honor this field.
     pub max_body: Option<usize>,
+    /// The platform transport's own request timeout, where it has one (on
+    /// Apple, `NSURLRequest.timeoutInterval`, URLSession's idle timeout,
+    /// 60 seconds when `None`; off Apple, ureq's total and wait limits, 30 s
+    /// and 15 s when `None`). A transport limit, not the caller's deadline: a
+    /// caller that needs the whole exchange bounded aborts its signal as well.
+    pub timeout: Option<std::time::Duration>,
 }
 
 impl Request {
@@ -257,6 +263,7 @@ impl Request {
             body: None,
             redirect: RedirectMode::Follow,
             max_body: None,
+            timeout: None,
         }
     }
 

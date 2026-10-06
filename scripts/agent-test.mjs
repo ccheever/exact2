@@ -8,7 +8,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { open } from './agent.mjs';
 import { duringOp } from './agent-drag.mjs';
-import { driveStore, launchFacts } from './agent-launch.mjs';
+import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
 import { resolveApp } from './app.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
@@ -112,7 +112,7 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * the test says `before data`. A failed expect names the test, the line, and what
  * was seen. Returns `{ passed, failed, results }`.
  */
-export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, storage = 'test', touch = 'agent', chrome: bars = 'agent' } = {}) {
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent' } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
@@ -131,15 +131,20 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const failures = [];
     const store = base || host !== 'web' ? `${storage}${tag}.t${n}` : storage, fresh = { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
     // A test's launch lines lead its steps and override the drive's flags (habits F7).
-    const facts = { size, seed, locale, timeZone, epoch };
+    // The drive's `--fail-fetch` is every test's, with its own leading `fail fetch` lines added (LLP 1103 D3).
+    const facts = { size, seed, locale, timeZone, epoch, failFetch };
     const lines = [];
-    let beforeData = false;
+    let beforeData = false, leading = 0;
+    // `fail fetch` lines that lead the steps are armed before the app's first data load (LLP 1103 D3).
+    const armed = new Map(); // prefix -> the line that armed it with a count
     for (const st of t.steps) {
       if (st.op === 'before-data') beforeData = true;
+      else if (st.op === 'fail-fetch') { facts.failFetch = [facts.failFetch, st.times == null ? st.prefix : `${st.prefix}\t${st.times}`].filter(Boolean).join('\n'); if (st.times != null) armed.set(st.prefix, st.line); }
       else if (st.op === 'size') facts.size = [st.width, st.height];
       else if (LAUNCH[st.op]) facts[LAUNCH[st.op]] = st.value;
       else break;
       lines.push(st.line);
+      leading++;
     }
     // A zone or locale the driver refuses fails this test at its line, not the run.
     try { launchFacts({ ...facts, env: env ?? {} }); } catch (e) {
@@ -169,8 +174,12 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         if (r.settled === false) throw new Error(`reload: the app's storage did not finish before the restart: ${r.diagnostic ?? r.reason}`);
       }
       const notes = waiting ? [`reload: waited for ${waiting} storage operation${waiting === 1 ? '' : 's'}`] : [];
-      if (s.host === 'web') { await s.carrier.reset({ keep: true }); s.now = 0; s.logCursor = 0; s.notes = notes; return; }
-      await s.close(); s = await launch(env); s.notes = notes;
+      // The fault table as it is now, not as it was at launch (LLP 1103 D3): a cleared or spent fault stays so.
+      // A page whose table no fetch or fault request made yet still has its launch's; an unreadable state is an error.
+      const now = await s.state().catch((e) => { throw new Error(`reload: could not read the fault table to carry: ${e.message}`); });
+      const failFetch = now.faults ? faultSpecOf(now.faults) : undefined;
+      if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch }); s.now = 0; s.logCursor = 0; s.notes = notes; return; }
+      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars }); s.notes = notes;
     };
     // The clock stands still between steps: what an input started (a reply,
     // a mutation's `then`, a timer, a transition) lands at a clock step. A
@@ -191,13 +200,43 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     };
     try {
       try { await data(); } catch (e) { failures.push(`${t.name}: waiting for the app's data before the first step: ${e.message}`); }
-      for (const st of failures.length ? [] : t.steps) {
+      // A counted fault that matched no fetch fails the test at the line that armed it (LLP 1103 D3).
+      // A table the host never made (no fetch consulted it) matched nothing either; an unreadable state is said so.
+      const unfired = async (prefix) => {
+        const line = armed.get(prefix);
+        if (line == null) return;
+        armed.delete(prefix);
+        let state;
+        try { state = await s.state(); } catch (e) { failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)}: could not read whether it fired: ${e.message}`); return; }
+        const f = (state.faults ?? []).find((e) => e.prefix === prefix);
+        if (!f || f.hits === 0) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} times ${f?.times ?? '?'} matched no fetch`);
+      };
+      // Before an input while counted faults are outstanding: those that fired leave the check, so a press the app
+      // answers with `close()` cannot take an unfired one's evidence with it (LLP 1103 D3).
+      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'clipboard', 'resize']);
+      const settleFired = async () => {
+        if (!armed.size) return;
+        const faults = (await s.state()).faults ?? [];
+        for (const f of faults) if (f.hits > 0) armed.delete(f.prefix);
+      };
+      for (const [n, st] of (failures.length ? [] : t.steps).entries()) {
         const at = `${t.name}: line ${st.line}`;
         if (closedAt != null) { failures.push(`${at}: the window closed at line ${closedAt}, so nothing after it runs`); break; }
         current = st.line;
         try {
+          if (INPUTS.has(st.op)) await settleFired();
           switch (st.op) {
             case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': break; // the session opened with it
+            // A driver fault (LLP 1103): a leading one was a launch line; a later one arms (or re-arms) now, a `pass` stops it.
+            case 'fail-fetch': {
+              if (n < leading) break;
+              await unfired(st.prefix);
+              const r = await s.op({ op: 'prefer', faults: { fail: st.prefix, ...(st.times != null ? { times: st.times } : {}) } });
+              if (r?.error) throw new Error(r.error);
+              if (st.times != null) armed.set(st.prefix, st.line);
+              break;
+            }
+            case 'pass-fetch': { const r = await s.op({ op: 'prefer', faults: { pass: st.prefix } }); if (r?.error) throw new Error(r.error); break; }
             // The driver's `tap` forms (feed F10): `into` brings a virtualized list's row into view by its key.
             case 'tap': {
               const opts = st.form === 'into' ? { into: { key: st.key } }
@@ -231,7 +270,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             case 'resize': delivered(await s.resize(st.width, st.height)); input = st.line; break;
             // The window's close button (studio diary R17): a window a `beforeunload` keeps stays and the test goes on;
             // one that closed takes the session, so a step after it fails naming it.
-            case 'close': delivered(await s.closeWindow()); input = st.line; break;
+            // Counted faults are checked first: a window that closes takes the table with it.
+            case 'close': for (const prefix of [...armed.keys()]) await unfired(prefix); delivered(await s.closeWindow()); input = st.line; break;
             case 'screenshot': await s.screenshot(st.path); break;
             case 'expect-tree': {
               const tree = await s.tree();
@@ -299,6 +339,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
           break;
         }
       }
+      if (closedAt == null) for (const prefix of [...armed.keys()]) await unfired(prefix);
+      else for (const [prefix, line] of armed) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} matched no fetch before the window closed at line ${closedAt}`);
     } finally {
       // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
       await s.close().catch((e) => { if (closedAt == null) throw e; });
