@@ -20,6 +20,7 @@ import { prRowsView, emptyPrRows } from './r5-panels-pr'; // lane r5-panels: the
 import { EDITOR_DEFINITIONS } from './editors';
 import { openInView } from './remote-open'; // OpenInPicker's remote Open: deep links for environments on other machines
 import { threadAutomations, NO_AUTOMATIONS } from './thread-automations'; // ThreadAutomationsPanel
+import { versionCard } from './server-update-notices'; // server-update-banner: the version-differ card
 
 /** EDITORS in contracts/editor.ts order; `file-manager` is Finder on macOS (editorLabelForPlatform). */
 export const EDITORS: [string, string][] = EDITOR_DEFINITIONS.map(editor => [editor.id, editor.label]);
@@ -78,7 +79,7 @@ export function environmentIndicator(input: { isPrimary: boolean; available: num
 
 type LineageView = ReturnType<typeof lineageView>;
 const noLineage: LineageView = { lineageTitle: 'Lineage', lineage: [], showLineage: false, previousCount: 0, previousFailed: 0, mergeRunId: '', mergeTargetId: '', mergeSourceId: '', mergeLabel: '', mergeHint: '' };
-const empty = { ready: false, inline: false, error: '', folderName: '', folderLabel: '', cwd: '', editorId: '', editorLabel: '', editors: [] as { id: string; label: string; selected: boolean }[], editorShortcut: '', editorShow: false, editorHint: '', editorUnavailable: '', editorEmpty: false,
+const empty = { versionClient: '', versionServer: '', versionLabel: '', ready: false, inline: false, error: '', folderName: '', folderLabel: '', cwd: '', editorId: '', editorLabel: '', editors: [] as { id: string; label: string; selected: boolean }[], editorShortcut: '', editorShow: false, editorHint: '', editorUnavailable: '', editorEmpty: false,
   isGit: false, branch: '', actionLabel: 'Commit', actionKind: 'show_hint', actionDisabled: true, actionHint: '', insertions: 0, deletions: 0,
   envModeSelect: false, envMode: 'local', envIcon: 'folder', previousLabel: '', actionIcon: 'git-commit', changesEnabled: false, diffScheme: 'red-green',
   envShow: false, envLabel: '', envKind: 'server', automations: NO_AUTOMATIONS, git: EMPTY_GIT, prRows: emptyPrRows(), ...NO_SCRIPTS, ...noLineage };
@@ -124,6 +125,7 @@ export async function shellDetails(client: T3Client, native: Native | null | und
   const env = environmentIndicator({ isPrimary: isLoopback(client.origin), available: environmentOptions(client).length, environmentId: client.environmentId,
     runtimeLabel: str(environment.label), savedLabel: '', machine: machineKind(client.config) });
   return {
+    ...versionCard(client), // server-update-notices.ts: the version-differ card
     ready: true, inline, error, folderName: creating ? 'New worktree' : cwd.replace(/\/+$/, '').split('/').pop() ?? '',
     // The panel names the workspace kind only when it is not the project folder.
     folderLabel: creating ? 'Create' : worktree ? 'Worktree' : '', cwd,

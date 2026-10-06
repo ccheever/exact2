@@ -114,6 +114,9 @@ component ChatColumn
     // reports a player gesture to it.
     canvas: ChatCanvasView
     canvasGesture: action
+    // server-update-banner: the composer notice sliding out and its delayed dismissal (app.contract noticeDismiss).
+    noticeExit: string
+    noticeDismiss: action
   // r8-pointer D9/D10: the transcript's hovered row (message.hoverKey) and its hovered tooltip part.
   state rowHover = ""
   state partHover = ""
@@ -163,9 +166,9 @@ component ChatColumn
             column flex=1 min-width=0 margin-right=(editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) ? -18 : 0) hook="t3-frame" data-frame="dock"
               when editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)
                 when viewport.prefersColorScheme == "dark"
-                  ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop, urls=attachmentUrls.items)
+                  ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop, urls=attachmentUrls.items, exiting=noticeExit, still=viewport.prefersReducedMotion, dismiss=noticeDismiss)
                 else
-                  ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop, urls=attachmentUrls.items)
+                  ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop, urls=attachmentUrls.items, exiting=noticeExit, still=viewport.prefersReducedMotion, dismiss=noticeDismiss)
             when editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) and data.requestMode != "approval" and not data.composer.subagent
               StashBadge(stash=editor.stash, op=editorOp)
           RequestBanner(data=data, command=command, busy=commandPending, scheme=viewport.prefersColorScheme, compact=(min(data.look.chatMax, conversationWidth - 40) - 68 <= 560), maximumHeight=min(384, viewport.height * 0.4))
