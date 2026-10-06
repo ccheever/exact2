@@ -70,6 +70,10 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     func control(of id: UInt32) -> UISegmentedControl? { controls[id] }
     private var bars: [UInt32: ExactTabBar] = [:]
     private var sizes: [UInt32: CGSize] = [:]
+    /// A segmented control's own size, with what it was measured from: its
+    /// segments, their fonts and the text size. Measuring is UIKit laying out
+    /// every segment, and a sync runs after every batch (a fling's fills).
+    private var naturals: [UInt32: (source: String, size: CGSize)] = [:]
     private var hidden: [UInt32: Bool] = [:]
     private var members: [UInt32: [UInt32]] = [:]
     /// Tablists a tab container's bar has taken the place of, hidden here.
@@ -191,9 +195,20 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     }
 
     private func clearSize(owner id: UInt32) {
+        naturals.removeValue(forKey: id)
         if sizes.removeValue(forKey: id) != nil, let owner = presenter.views[id] {
             presenter.queueIntrinsicSize(owner, generation: owner.loadGeneration, nil)
         }
+    }
+
+    private func natural(_ id: UInt32, _ control: UISegmentedControl) -> CGSize {
+        let fonts = [UIControl.State.normal, .selected].map { (control.titleTextAttributes(for: $0)?[.font] as? UIFont).map { "\($0.fontName) \($0.pointSize)" } ?? "" }
+        let segments = (0..<control.numberOfSegments).map { "\(control.titleForSegment(at: $0) ?? "")|\(control.imageForSegment(at: $0)?.size ?? .zero)" }
+        let source = "\(segments)|\(fonts)|\(control.traitCollection.preferredContentSizeCategory.rawValue)"
+        if let known = naturals[id], known.source == source { return known.size }
+        let size = control.intrinsicContentSize
+        naturals[id] = (source, size)
+        return size
     }
 
     private func measure(_ owner: NodeView, _ control: UIView) {
@@ -205,7 +220,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             // (the seam takes only a positive one), so a resize does not
             // remeasure. It fills the content box, so a border-box minimum
             // also holds the padding and border around it.
-            let natural = control.intrinsicContentSize
+            let natural = natural(owner.id, control as! UISegmentedControl)
             size = CGSize(width: max(natural.width, 1), height: natural.height)
             if owner.style["box_sizing"]?.string == "border-box" {
                 let border = owner.number("border_width")
