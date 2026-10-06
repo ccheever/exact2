@@ -41,7 +41,7 @@ describe('rightPanelStore', () => {
 });
 describe('tab menu and rename editor', () => {
   test('menu order, kinds and disabled flags', () => { const state = panel(); expect(tabContextMenuItems(state.surfaces[0]!, state.surfaces).map(item => item.id)).toEqual(['copy-path', 'close', 'close-others', 'close-to-right', 'close-all']); const device = openDeviceSurface(state, android); expect(tabContextMenuItems(device, state.surfaces).map(item => item.id)).toEqual(['rename', 'close', 'close-others', 'close-to-right', 'close-all']); expect(tabContextMenuItems(device, state.surfaces).find(item => item.id === 'close-to-right')?.disabled).toBe(true); const diff = surface('diff', 'diff'); expect(tabContextMenuItems(diff, [diff])).toEqual([{ id: 'close', label: 'Close' }, { id: 'close-others', label: 'Close others', disabled: true }, { id: 'close-to-right', label: 'Close to the right', disabled: true }, { id: 'close-all', label: 'Close all', disabled: false }]); expect(tabContextMenuItems(diff, [])).toEqual([]); const attachment = { ...surface('attached'), attachment: { id: 'a', name: 'a', mimeType: '', sizeBytes: 0 } }; expect(tabContextMenuItems(attachment, [attachment]).some(item => item.id === 'copy-path')).toBe(false); });
-  test('Enter/blur commit; Escape cancels even if blur follows', () => { const state = panel(), device = openDeviceSurface(state, android); editTabName(state, 'rename', device.id, ''); expect(tabRename(state)).toEqual({ id: device.id, value: 'Pixel' }); editTabName(state, 'rename-edit', device.id, 'Changed'); editTabName(state, 'rename-cancel', device.id, ''); editTabName(state, 'rename-commit', device.id, ''); expect(device.title).toBeUndefined(); editTabName(state, 'rename', device.id, ''); editTabName(state, 'rename-edit', device.id, ' New '); editTabName(state, 'rename-commit', device.id, ''); expect(device.title).toBe('New'); expect(tabRename(state).id).toBe(''); });
+  test('Enter/blur commit; Escape cancels even if blur follows', () => { const state = panel(), device = openDeviceSurface(state, android); editTabName(state, 'rename', device.id, ''); expect(tabRename(state)).toEqual({ id: device.id, value: 'Pixel' }); editTabName(state, 'rename-cancel', device.id, ''); editTabName(state, 'rename-commit', device.id, 'Changed'); expect(device.title).toBeUndefined(); editTabName(state, 'rename', device.id, ''); editTabName(state, 'rename-commit', device.id, ' New '); expect(device.title).toBe('New'); expect(tabRename(state).id).toBe(''); editTabName(state, 'rename-commit', device.id, 'After blur'); expect(device.title).toBe('New'); editTabName(state, 'rename', device.id, ''); editTabName(state, 'rename-commit', device.id, ''); expect(device.title).toBe('Pixel'); });
   test('menu ignores disabled, unknown and dismissed responses', async () => { const state = panel(); for (const clicked of ['close-to-right', 'toggle-mute', '', null]) expect(await showTabMenu(client(async () => ({ clicked })), native, state, 'c')).toBe(''); });
 });
 describe('close hooks and integration', () => {
@@ -107,8 +107,7 @@ describe('tab context popover (r4-tab-menu)', () => {
     expect(tabRename(state).id).toBe('');
     await surfaceLocal(c, native, 'rename', device.id, '');
     expect(tabRename(state)).toEqual({ id: device.id, value: 'Pixel' });
-    await surfaceLocal(c, native, 'rename-edit', device.id, 'Bench phone');
-    await surfaceLocal(c, native, 'rename-commit', device.id, '');
+    await surfaceLocal(c, native, 'rename-commit', device.id, 'Bench phone');
     expect(device.title).toBe('Bench phone'); expect(tabRename(state).id).toBe('');
   });
 });

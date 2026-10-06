@@ -99,8 +99,9 @@ export function editTabName(state: PanelState, op: string, id: string, value: st
   const surface = state.surfaces.find(entry => entry.id === id && entry.kind === 'device');
   if (!surface) return;
   if (op === 'rename') editors.set(state, { id, value: surface.title || surface.device?.name || 'Device' });
-  else if (op === 'rename-edit' && editors.get(state)?.id === id) editors.set(state, { id, value });
-  else if (op === 'rename-commit' && editors.get(state)?.id === id) { renameDevice(state, id, tabRename(state).value); editors.delete(state); }
+  // The editor's field owns the typed name and commits it as `value` (r4-surfaces.contract
+  // R4TabNameField): Enter and blur, after Escape's cancel the commit finds no editor.
+  else if (op === 'rename-commit' && editors.get(state)?.id === id) { renameDevice(state, id, value); editors.delete(state); }
   else if (op === 'rename-cancel') editors.delete(state);
 }
 export async function copyTabPath(client: T3Client, native: Native, surface: Surface): Promise<void> {
