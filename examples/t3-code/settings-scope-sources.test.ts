@@ -1,7 +1,7 @@
 // Settings across environments (D15): the scope menu lists every environment, a write
 // reaches each selected connected environment through its own transport, a failure names
 // the environments that did not save, and disagreeing targets draw the mixed switch.
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import { applyShell, initialShell, type Obj } from './domain';
 import type { Native } from './protocol';
@@ -51,6 +51,7 @@ function nativeFor(fail = new Set<string>(), calls: Obj[] = []): Native {
 }
 const B = 'http://127.0.0.1:16101\nenv-b', C = 'http://127.0.0.1:16102\nenv-c';
 beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
+afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
 
 describe('settings scope across environments', () => {
   test('the menu lists every environment, disambiguates same names by address and marks an offline one', () => {
