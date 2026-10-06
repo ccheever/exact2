@@ -50,6 +50,7 @@ use RightSheets from "./app-main.contract"
 use ComposerMenus from "./composer-controls.contract"
 use ProjectPicker from "./app-overlays.contract"
 use SettingsWindow from "./app-settings.contract"
+use ThemeEditorHost from "./settings-appearance-editor.contract"
 use WelcomeLayer from "./app-overlays.contract"
 use ShortcutDispatch from "./settings-shortcuts.contract"
 use ProjectDialogs from "./app-settings.contract"
@@ -324,16 +325,22 @@ component T3Code
     if op == "copy-thread"
       paletteOpen = false
       send localChanged = command("restlocal:copy-thread", ":", "", 0)
-    if op == "settings" or op == "theme-editor" or op == "project-settings"
-      // Toggle theme editor: the Appearance editor seeded from the active theme (toggleThemeEditorForTheme).
-      let editing = settingsOpen and (settingsThemeDialog == "create" or settingsThemeDialog == "edit" or settingsThemeDialog == "duplicate")
+    // The theme editor session (create/edit/duplicate) floats above the app and outlives Settings (D16).
+    let editing = settingsThemeDialog == "create" or settingsThemeDialog == "edit" or settingsThemeDialog == "duplicate"
+    if op == "theme-editor"
+      // toggleThemeEditorForTheme: the row and themeEditor.toggle open or close the editor, never Settings.
+      paletteOpen = false
+      settingsThemeDialog = editing ? "" : "create"
+      settingsThemeSubject = ""
+      modalError = ""
+    if op == "settings" or op == "project-settings"
       paletteOpen = false
       settingsEnvironmentId = settings.environmentId
       settingsOpen = true
-      settingsRoute = op == "theme-editor" ? "appearance" : (op == "project-settings" ? "projects" : arg)
+      settingsRoute = op == "project-settings" ? "projects" : arg
       settingsFocusTarget = op == "settings" ? arg2 : ""
-      settingsThemeDialog = op == "theme-editor" and not editing ? "create" : ""
-      settingsThemeSubject = ""
+      settingsThemeDialog = editing ? settingsThemeDialog : ""
+      settingsThemeSubject = editing ? settingsThemeSubject : ""
       settingsQuery = ""
       settingsMenu = ""
       settingsMachine = ""
@@ -425,7 +432,7 @@ component T3Code
   state diagnosticPeriod = "15m"
   resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute) as shape list<KeyDispatch>
   resource sourceControl = sourceControlPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "source-control", settingsRefresh, data.revision) as shape SourceControlPage
-  resource integrations = integrationsPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "integrations", settingsRefresh, data.revision) as shape IntegrationsPage
+  resource integrations = integrationsPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "integrations", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape IntegrationsPage
   resource storageSettings = storageSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "storage", settingsRefresh, data.revision) as shape StoragePage
   resource archives = archivedSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "archived", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision) as shape ArchivePage
   resource licenses = licenseSettings(licenseQuery, licenseExpanded, licenseRetry, settingsOpen and settingsRoute == "open-source-licenses", data.revision) as shape LicenseSettings
@@ -449,6 +456,7 @@ component T3Code
   state settingsRestoreOpen = false
   state settingsThemeDialog = ""
   state settingsThemeSubject = ""
+  state settingsThemeRequest = 0
   resource delivery = exactDelivery() as shape AboutDelivery // the binary's own update facts (settings-a-about)
   resource settingsCore = settingsCore(settingsMachine, settingsProjectKey, settingsCheckout, settingsProjectId, settingsRoute, settingsFocusTarget, settingsOpen, settingsRefresh, data.revision, settingsThemeDialog, settingsThemeSubject, delivery.stream, delivery.staged) as shape SettingsCore
   resource settings = settings(settingsEnvironmentId, settingsProjectId, data.revision, composerFocused, modal, data.running, data.threadId != "", modelsOpen) as shape Settings
@@ -848,7 +856,9 @@ component T3Code
       send changed = command("settings-core", `restore-device-defaults:|${settingsCore.scopeKey}`, "", 0)
   action coreThemeDialog(kind: string, theme: string)
     settingsThemeDialog = kind
-    settingsThemeSubject = theme
+    // openThemeEditor: each request is a new session (its id), so Create while a create is open restarts the draft.
+    settingsThemeRequest = settingsThemeRequest + 1
+    settingsThemeSubject = kind == "create" or kind == "edit" or kind == "duplicate" ? `${theme}#${settingsThemeRequest + 1}` : theme
     modalError = ""
   action coreThemeChange(row: string, part: string, value: string)
     if not commandPending
@@ -1394,6 +1404,7 @@ component T3Code
         ComposerMenus(data=data, session=popoverSession, which=optionsOpen, left=composerLeft, viewport=viewport, resting=resting, close=closeOptions, chooseTrait=menuPick("model-option"), chooseRuntime=menuPick("runtime", ""), command=menuCommand, branches=branches, branchQuery=branchQuery, searchBranches=searchBranches, local=chatLocal)
       ProjectPicker(projectsOpen=projectsOpen, viewport=viewport, paletteShow=paletteShow, data=data, closeModal=closeModal, manageProject=manageProject, commandPending=commandPending, selectProject=selectProject)
       SettingsWindow(settingsOpen=settingsOpen, settingsCore=settingsCore, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsRestoreOpen=settingsRestoreOpen, data=data, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, sidebarWidth=sidebarWidth, viewport=viewport, settingsMenu=settingsMenu, settingsEscapeHeld=settingsEscapeHeld, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, closeModal=closeModal, toggleSidebar=toggleSidebar, commandPending=commandPending, coreRestoreOpen=coreRestoreOpen, settingsScrollTop=settingsScrollTop, coreMenuClose=coreMenuClose, settingsLegacyOpen=settingsLegacyOpen, coreLegacy=coreLegacy, coreMenu=coreMenu, coreChange=coreChange, coreSlide=coreSlide, coreNavigate=coreNavigate, coreScope=coreScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, rest=rest, restInput=restInput, restLocal=restLocal, integrations=integrations, snapshotSettings=snapshotSettings, snapshotSetupOpen=snapshotSetupOpen, toggleSnapshots=toggleSnapshots, showSnapshotSetup=showSnapshotSetup, changeSnapshot=settingsCommand("setting-snapshot"), previewSnapshotSound=previewSnapshotSound, recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), bindings=bindings, keybindingQuery=keybindingQuery, keybindingSearch=keybindingSearch, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, searchKeybindings=searchKeybindings, keybindingSearchKey=keybindingSearchKey, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, restOpen=restOpen, storageSettings=storageSettings, archives=archives, restMenu=restMenu, restRaw=restRaw, restMenuOpen=restMenuOpen, restClose=restClose, licenses=licenses, licenseQuery=licenseQuery, licenseSearchOpen=licenseSearchOpen, editLicenseQuery=editLicenseQuery, openLicenseSearch=openLicenseSearch, closeLicenseSearch=closeLicenseSearch, licenseSearchKey=licenseSearchKey, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, openConnection=openConnection, connectionOp=connectionOp, connectionAskRemove=connectionAskRemove, connectionMenu=connectionMenu, connectionToggleMenu=connectionToggleMenu, openRoute=openRoute, providerPage=providerPage, providerDialog=providerDialog, providerUi=providerUi, providerOp=providerOp, providerAccent=providerAccent, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreRestoreClose=coreRestoreClose, coreRestoreConfirm=coreRestoreConfirm)
+      ThemeEditorHost(kind=settingsThemeDialog, core=settingsCore, viewport=viewport, busy=commandPending, error=modalError, close=coreThemeDialog("", ""), commit=coreChange, save=coreThemeChange("theme-editor-save", ""))
       WelcomeLayer(welcome=welcome, viewport=viewport, welcomeStep=welcomeStep, commandPending=commandPending, modalError=modalError, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeHelpOpen=welcomeHelpOpen, welcomeGo=welcomeGo, welcomeImport=welcomeImport, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, welcomeToggleHelp=welcomeToggleHelp, prCopy=prCopy, welcomeSetup=welcomeSetup, providerUi=providerUi, welcomeFinish=welcomeFinish)
       ShortcutDispatch(items=shortcuts, selectThread=selectThread, newThread=newThread, chatNew=sidebarNewThread, deviceSetting=deviceSetting, toggleDiff=panelUi("toggle", ""), openDiff=panelUi("choose", "diff"), closeDiff=panelUi("close", ""), panel=panelUi, prClose=prClose, stop=command("stop", "", "", 0), openOptions=openOptions, selectProvider=selectProvider, selectModel=selectModel, back=closeModal, copyThread=restLocal, palette=paletteShow, run=paletteRun, command=command, settings=openSettings, copy=prCopy)
       ProjectDialogs(restEditor=restEditor, restSubject=restSubject, restLabel=restLabel, scheduled=scheduled, projectsSettings=projectsSettings, commandPending=commandPending, modalError=modalError, rest=rest, restRaw=restRaw, restClose=restClose, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, viewport=viewport, sbSet=sbSet)

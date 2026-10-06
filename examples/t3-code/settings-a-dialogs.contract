@@ -8,7 +8,6 @@ use SettingsGhost from "./settings-core.contract"
 use CoreSelect from "./settings-rows.contract"
 use AddThemeDialog from "./settings-appearance-import.contract"
 use SettingsConfirm from "./settings-rest-dialogs.contract"
-use ThemeEditorPanel from "./settings-appearance-editor.contract"
 use DeviceHostDialog from "./settings-a-hosts.contract"
 use CollectionRemoveDialog from "./settings-a-collections.contract"
 
@@ -57,9 +56,7 @@ component SettingsADialogs
           SettingsConfirm(title=`Remove “${card.label}”?`, description="You can bring it back anytime by importing its JSON file.", confirmLabel="Remove theme", destructive=true, busy=busy, error=error, dialogId="theme-remove", cancel=close, confirm=change("theme-remove", "", card.id))
     when kind == "import"
       AddThemeDialog(data=core.themeImport, pal=core.palette, viewportHeight=viewportHeight, busy=busy, error=error, close=close, commit=commit, change=change)
-    // The theme editor floats over the page (non-modal); its draft paints the settings live.
-    when (kind == "create" or kind == "duplicate" or kind == "edit") and core.editor.open
-      ThemeEditorPanel(editor=core.editor, pal=core.palette, viewportHeight=viewportHeight, busy=busy, error=error, close=close, commit=commit, save=change("theme-editor-save", ""))
+    // The theme editor is hosted at the window root (ThemeEditorHost, settings-appearance-editor.contract; D16).
 
 // DialogPopup over its backdrop (bg-background/60, blur 4px), centred; DialogHeader
 // p-6 pb-3 with a 20pt semibold title and muted description; the close button.
