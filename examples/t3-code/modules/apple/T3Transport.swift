@@ -30,6 +30,9 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     private let activityID = UUID()
     private var activityScopes: [String: UUID] = [:]
     private var streams: [String: String] = [:] // request id -> app subscription key
+    /// terminal-drawer: attach streams by request id, outside the 16-stream cap and the app's inbox (T3Transport+Terminal.swift).
+    var terminalStreams: [String: T3TerminalStream] = [:]
+    var terminalConnection: ((Bool) -> Void)?
     /// Same-session resubscribes after a stream failure (rpc/client.ts): consecutive
     /// failures per key, and the failed subscription whose `_retryDue` is scheduled.
     private var streamRetries: [String: Int] = [:]
@@ -498,8 +501,8 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         }
     }
 
-    private func nextID() -> String { serial += 1; return "\(generation)-\(serial)" }
-    private func rpc(_ request: [String: Any], completion: @escaping Completion) throws {
+    func nextID() -> String { serial += 1; return "\(generation)-\(serial)" }
+    func rpc(_ request: [String: Any], completion: @escaping Completion) throws {
         guard state == "connected" else { throw T3Failure(kind: "Disconnected", message: "The server is not connected.") }
         guard let method = request["method"] as? String, !method.isEmpty else { throw arguments("request requires a method.") }
         guard pending.count < 64 else { throw T3Failure(kind: "Busy", message: "Too many server requests are already pending.") }
@@ -530,11 +533,11 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
             send(["_tag": "Interrupt", "requestId": id], epoch: generation)
         }
     }
-    private func send(_ object: [String: Any], epoch: Int) {
+    func send(_ object: [String: Any], epoch: Int) {
         do { send(try T3Wire.encode(object), epoch: epoch) }
         catch { connectionFailed(failure(error), epoch: epoch) }
     }
-    private func send(_ text: String, epoch: Int) {
+    func send(_ text: String, epoch: Int) {
         guard socket != nil, generation == epoch else { return }
         guard outbox.count < 4096, outboxBytes + text.utf8.count <= T3Wire.maximumBytes else {
             return connectionFailed(T3Failure(kind: "Limit", message: "The server is not consuming outgoing messages."), epoch: epoch)
@@ -600,6 +603,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         guard let id = T3Wire.identifier(frame["requestId"]) else { throw T3Failure(kind: "Protocol", message: "The server RPC response has no request ID.") }
         if tag == "Chunk" {
             guard let values = frame["values"] as? [Any] else { throw T3Failure(kind: "Protocol", message: "An RPC chunk has no values.") }
+            if terminalChunk(id: id, requestId: frame["requestId"]!, values: values, epoch: epoch) { return } // terminal-drawer: acknowledged once buffered
             if let key = streams[id] {
                 streamRetries[key] = nil // the first value resets the retry ladder
                 var notify = false
@@ -619,6 +623,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
             throw T3Failure(kind: "Protocol", message: "The server sent an unsupported RPC response.")
         }
         let success = exit["_tag"] as? String == "Success"
+        if terminalEnded(id: id, failure: success ? nil : failure(T3Wire.failure(exit))) { return } // terminal-drawer
         if let call = pending.removeValue(forKey: id) {
             if success { finish(call.completion, value: exit["value"] ?? NSNull()) }
             else { finish(call.completion, failure: T3Wire.failure(exit)) }
@@ -683,6 +688,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         let calls = Array(pending.values); pending.removeAll()
         for call in calls { finish(call.completion, failure: reason) }
         streams.removeAll(); streamRetries.removeAll(); failedStreams.removeAll()
+        terminalRetired() // terminal-drawer: attach streams end with the socket; sessions attach again on the next one
         if let waiting = opening { opening = nil; finish(waiting, failure: reason) }
     }
 
@@ -850,6 +856,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
                 self.routes.schedule { [weak self] in self?.lookForBetterRoute() }
             }
             self.runTimer()
+            self.terminalConnection?(true) // terminal-drawer: sessions attach again on the new socket
             if let completion = self.opening { self.opening = nil; self.finish(completion, value: self.status()) }
         }
     }

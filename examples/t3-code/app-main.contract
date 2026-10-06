@@ -132,7 +132,7 @@ component ChatColumn
   derive stackWidth = canvas.ready ? canvas.width : max(0, min(data.look.chatMax, conversationWidth - 40))
   derive stackLeft = canvas.ready ? canvas.left : 20 + max(0, conversationWidth - 40 - stackWidth) / 2
   view
-    column flex=1 min-width=0 height="100%" position="relative" inert=pageCover hook="t3-frame" data-frame="chat"
+    column flex=1 min-width=0 min-height=0 height="100%" position="relative" inert=pageCover hook="t3-frame" data-frame="chat"
       when viewport.prefersColorScheme == "dark"
         ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or details.inline), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
       else

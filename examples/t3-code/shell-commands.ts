@@ -4,6 +4,7 @@
 // main window's actions. `shell:` ops write to the server through the
 // client's generation-guarded access; `shelllocal:` ops never do.
 import { cloneCommand } from './project-clones-live';
+import { closeThreadTerminals } from './terminal-drawer-view'; // terminal-drawer
 import { automationCommand } from './scheduled-tasks-commands';
 import type { T3Client } from './client';
 import { pushToast } from './toast';
@@ -96,6 +97,7 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   if (op === 'archive' && (thread.activeRunId || ['preparing', 'starting', 'running', 'waiting'].includes(str(thread.status)))) {
     throw new ClientError('Stop the running turn before archiving this thread.');
   }
+  if (op === 'delete') await closeThreadTerminals(client, native, id); // terminal-drawer: useThreadActions closes the thread's terminals first
   await access.dispatch(storage, { ...entry[1], commandId, threadId: id }, `${entry[0]} ${title}`);
   return '';
 }
