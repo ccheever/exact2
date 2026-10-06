@@ -1,7 +1,7 @@
 ---
 name: 20261005-terminal-drawer
 plan: 20261005-t3code-macos-parity
-implementation: implemented
+implementation: in-progress
 verification: unverified
 delivery: open
 repository: https://github.com/ccheever/exact2
@@ -207,6 +207,39 @@ window (spike note). Oracle and trace-diff rows: not run. Attended rows: unverif
 | 1 (implementation) | `0f66bbb0e` (drive build), checks at `c7e240c80` | `bun test examples/t3-code` 1921 pass / 1 skip / 0 fail (base 1829); strict tsc clean; `contract build` 2324 slots, 44 resources; `cargo test -p t3-code-macos --lib` 10/0; AppKit: terminal 13 pass + 1 skip, transport 49/0, composer 45/0, menus 43/0, r5-panels 8/0, every other binary pass (mermaid needs a server, timeline-keyboard separate recipe: not run); caps pass; five checks pass (build, test 2928 pass, clippy, fmt, caps, boot); macOS bundle builds | Live drive (one AFTER call after two runs that stopped in the welcome wizard on the recipe): paired with the lane server (port 16200, `SHELL=/bin/sh`), opened seeded thread "Drawer one", `toggle-terminal` → drawer 280 pt, `touch drawer-proof` + `ls` (file created in the thread folder; screen `drawer-proof README.md`), separator drag −120 → 400, `seq 1 200000` ran and the drawer kept answering, Close → confirm text as above, Cancel kept it, Confirm closed it (`metadata` 0 sessions), reopen + `exit` → `[terminal] Process exited` and the drawer closed. BEFORE drive on the base shows the disabled toggle | The drive exposed "the reply was not JSON" (an ArraySlice in the terminal status) — fixed in `9d4fd4deb` with a test, not re-driven (drive limit). Flood: retained bytes and Ack counts were not visible to the agent (native status is not in `state`); covered by the transport and vector tests. Relaunch replay, 3-thread switching, Settings font/theme, three-scope session: not driven (unit tests only). Attended: ⌘J with the terminal focused, Korean typing, live window resize |
 | 2 (⌘J focus) | after `da0cdf31f` | Matches the reference: composer focus on every drawer close. `contract build` 2328 slots, 45 resources; `bun test examples/t3-code` 1959 pass / 1 skip / 0 fail | Reference read: `ChatView.tsx:7545-7565` | Not driven (one-drive rule); attended row "⌘J closes and the composer has focus" |
 
+## Repair verification, 2026-10-06
+
+The user requested terminal verification, repair of discovered bugs, and PR evidence. The previous
+Electron comparison is preserved at PR #175 comment 6017408751 and on the `t3-code-evidence`
+branch, commit `a80581a8dc5ac3995da6abf8af1723fb187ec0da`.
+
+Two defects were reproduced and repaired:
+
+- Delayed WebKit/WASM readiness reclaimed focus after the user typed in the composer. Focus is
+  now requested when the terminal mounts; readiness completes it only if the terminal still owns
+  the native first responder. AppKit tests exercise initial focus, composer focus during loading,
+  and a later explicit focus request.
+- A failed resize was recorded as applied, so a disconnected resize remained stale after
+  reconnection. The session now keeps the desired grid separately from the successful grid and
+  reapplies it on attach. Loopback WebSocket tests cover disconnected resize, failure retry,
+  successful deduplication, and coalescing of pending sizes.
+
+Guidance remains `20261005-platforms-v3`: accessibility, state/data, testing/debugging. These are
+app-native repairs; no framework or dependency changes. Repair verification passed: terminal XCTest 16 executed / 1 skipped / 0 failures; transport
+XCTest 51 executed / 2 skipped / 0 failures; Bun 2115 passed / 1 skipped; Cargo 2928 passed /
+18 ignored; build, Clippy, fmt, caps and boot passed. Both repair source identity and root-check
+source identity remained unchanged. Independent review found no blocking repair findings.
+Actual macOS capture confirms initial focus, composer focus retention, shell filesystem effect,
+280→400 resize with settled 21×129 grid, ⌘J focus return, Cancel retention and confirmed close.
+Evidence: `t3-code-evidence` branch, `evidence/terminal-drawer/20261006-repairs/README.md`.
+
+The previous live focus recipe was confounded by an asynchronous open. A new actual WKWebView
+regression compiled with the original view fails at the expected composer-focus assertion;
+the repaired view passes. The corrected live sequence checks drawer-open before typing.
+Full parity acceptance remains open for the previously unverified normal-launch persistence,
+physical Korean IME, three-scope authorization, and visual/motion rows.
+
 ## Next action
 
-Review the PR; run the attended rows and a relaunch/three-thread drive in a person's session.
+Review the repairs and evidence on PR #175. Keep the overall ticket active until the remaining
+acceptance rows have direct evidence.
