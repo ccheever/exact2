@@ -280,9 +280,14 @@ pub(super) fn unknown_function(
         name,
         "exactTime" | "exactViewport" | "exactPage" | "exactDelivery" | "exactSurface"
     ) {
+        let call = if name == "exactSurface" {
+            "exactSurface(\"world\")".to_string()
+        } else {
+            format!("{name}()")
+        };
         message.push_str(&format!(
-            "; `{name}` is a source the runner answers: declare `resource r = {name}() as shape S`, \
-             with a shape S of the fields you read, and read `r.field`"
+            "; `{name}` is a source the runner answers: declare `resource r = {call} as shape S` in the \
+             root component, with a shape S of the fields you read, and read `r.field`"
         ));
     } else if let Some(candidate) = similar_function(name, scope, shapes) {
         message.push_str(&format!("; did you mean `{candidate}`?"));
