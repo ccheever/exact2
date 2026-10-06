@@ -81,7 +81,7 @@ export function initialBrowseQuery(client: T3Client): string {
 
 // ── Flow state (per client): the clone step's repository and the New project option ──
 export type CloneFlow = { source: string; repositoryInput: string; title: string; description: string; remoteUrl: string; pinned: string };
-type Flow = { clone: CloneFlow | null; publish: boolean; discovery: { key: string; value: Obj } | null; browse: { key: string; value: Obj; error: string } | null };
+type Flow = { clone: CloneFlow | null; publish: boolean; discovery: { key: string; value: Obj } | null; discoveryFailed?: { key: string; revision: number }; browse: { key: string; value: Obj; error: string } | null };
 const flows = new WeakMap<T3Client, Flow>();
 export function flowOf(client: T3Client): Flow {
   let flow = flows.get(client);
@@ -113,8 +113,12 @@ export function githubAccount(discovery: Obj | null): string | null {
 async function discover(client: T3Client, native: Native): Promise<Obj | null> {
   const flow = flowOf(client), key = `${client.origin}:${client.generation}`;
   if (flow.discovery?.key === key) return flow.discovery.value;
+  // A failed discovery (often an answer let go mid-request) is not kept: the reference's query
+  // asks again, so one lost request must not mark every provider "Setup Required" for the session.
+  // Bounded: after a failure the next ask waits for the client's state to move (its revision), not every palette read.
+  if (flow.discoveryFailed?.key === key && flow.discoveryFailed.revision === client.revision) return {};
   try { flow.discovery = { key, value: await client.restAccess(native).request('server.discoverSourceControl', {}) }; }
-  catch { flow.discovery = { key, value: {} }; }
+  catch { flow.discoveryFailed = { key, revision: client.revision }; return {}; }
   return flow.discovery.value;
 }
 
