@@ -1148,6 +1148,13 @@ impl Em<'_> {
             if b.kind == BindingKind::Prop && b.id == PropId::FocusGuide as u16 {
                 continue;
             }
+            // Nor has the status bar's style (LLP 1105 D7).
+            if b.kind == BindingKind::Prop
+                && (b.id == PropId::StatusBarStyle as u16
+                    || b.id == PropId::StatusBarAnimation as u16)
+            {
+                continue;
+            }
             if let Some(v) = style::literal(plan, plan.code(b.expr)) {
                 // A literal source is built into pieces too, once: left as a
                 // constant it painted nothing (notes diary's link repro).

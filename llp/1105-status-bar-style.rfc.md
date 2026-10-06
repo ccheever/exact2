@@ -1,7 +1,7 @@
 # LLP 1105: The status bar's style, declared from state
 
 **Type:** RFC
-**Status:** Draft r2, 2026-10-06. r1 had one blind design pass: Astra (max) NOT READY, Grok (xhigh) READY WITH CHANGES (§5); r2 takes both.
+**Status:** Built r2, 2026-10-06. r1 had one blind design pass: Astra (max) NOT READY, Grok (xhigh) READY WITH CHANGES (§5); r2 takes both; Charlie's lead approved r2.
 **Systems:** the kernel schema (two props), Contract lowering (`contract/lower/src/tags.rs`, `values.rs`), the iOS presenter (`ModalIOS.swift`, a small `StatusBarIOS.swift`), the standalone iOS adapter's root controller and `ExactView`; the web and JS targets skip the props; macOS, Linux and tvOS do nothing
 **Author:** Claude (Opus 5.5) for Charlie Cheever, who approved the feature
 **Date:** 2026-10-06
@@ -77,12 +77,13 @@ The bar follows committed state. The presenter resolves the style once at
 the end of each outermost batch's projection, synchronously, and calls
 `setNeedsStatusBarAppearanceUpdate` in that turn (inside a 0.3 s animation
 block that wraps only that call, for `fade`), so a flip shows in the frame
-its batch commits. A push, a completed pop, a tab change and a presentation
-apply in the batch that commits them (a push therefore changes as its
-animation starts). While a transition is in flight (an interactive back
-swipe, a sheet being dragged, a presentation animating), the last committed
-style stays, and the batch or callback that commits the outcome applies the
-new one: a finger-driven dismiss snaps when it commits. Following the finger
+its batch commits. While a navigation or presentation transition is in flight (a push, a
+pop, an interactive back swipe, a sheet being dragged, a presentation
+animating), the last committed style stays, and the transition's end
+(`didShow`, the modal's appearance or disappearance) applies the new one: a
+push changes as it lands, a finger-driven dismiss when it commits. (r2 had a
+push change as its animation started; as built, every transition takes the
+one rule, which needs no committed-route bookkeeping.) Following the finger
 would need a style per route and the transition coordinator; not now. A
 sheet's detent change re-resolves without a batch. The animation is the
 winner's.

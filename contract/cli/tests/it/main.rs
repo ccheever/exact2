@@ -91,6 +91,7 @@ mod share;
 mod sound;
 mod source_locations;
 mod source_map;
+mod status_bar;
 mod strings;
 mod styles;
 mod styles_rows;

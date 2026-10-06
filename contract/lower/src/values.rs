@@ -881,6 +881,24 @@ pub(crate) fn check_prop_value(
             span,
         );
     }
+    if prop == PropId::StatusBarStyle
+        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "light-content" | "dark-content" | "auto"))
+    {
+        return err(
+            "lower-attr-value",
+            "`status-bar-style` takes \"light-content\" (light text, for a dark surface), \"dark-content\" or \"auto\"",
+            span,
+        );
+    }
+    if prop == PropId::StatusBarAnimation
+        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "none" | "fade"))
+    {
+        return err(
+            "lower-attr-value",
+            "`status-bar-animation` takes \"none\" or \"fade\"",
+            span,
+        );
+    }
     if prop == PropId::FocusGuide && matches!(value, Expr::Str(s, _) if s != "auto") {
         return err("lower-attr-value", "`focusGuide` takes \"auto\"", span);
     }

@@ -559,6 +559,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // (LLP 1008 §9): the layout viewport becomes the whole screen and
         // `env(safe-area-inset-*)` lengths carry the insets.
         "viewport-fit" => AttrTarget::Prop(p("viewportFit")),
+        // The status bar's text over this node's screen, from state (LLP 1105).
+        "status-bar-style" => AttrTarget::Prop(p("statusBarStyle")),
+        "status-bar-animation" => AttrTarget::Prop(p("statusBarAnimation")),
         // The viewport meta's `interactive-widget`, read from the first root
         // (LLP 1008 §9): `resizes-content` shrinks the layout viewport to a
         // software keyboard's top, so what is pinned to the bottom rises with
@@ -1077,6 +1080,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "enterKeyHint" | "returnKeyType" => "enterkeyhint",
         "autoComplete" | "textContentType" | "autoCompleteType" => "autocomplete",
         "viewportFit" | "safeArea" | "safeAreaView" => "viewport-fit",
+        "statusBarStyle" | "barStyle" | "StatusBar" => "status-bar-style",
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",
         "onClick" | "onPress" => "press",

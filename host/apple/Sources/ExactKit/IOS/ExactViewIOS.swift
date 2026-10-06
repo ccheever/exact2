@@ -39,6 +39,15 @@ public final class ExactView: UIView {
     /// The adapter's hook for the head's title (LLP 1048.003 D1): the scene
     /// title is the app's to set. It hears the current title when set.
     public var onTitle: ((String?) -> Void)? { didSet { onTitle?(session.presenter.title) } }
+    #if os(iOS)
+    /// The status bar's style the app declared (LLP 1105), for the
+    /// controller that hosts this view to return from
+    /// `preferredStatusBarStyle`, and the hook that says it changed, called
+    /// inside the change's animation (a fade, when the app asks for one) and
+    /// with the current style when set: call `setNeedsStatusBarAppearanceUpdate`.
+    public var statusBarStyle: UIStatusBarStyle { session.presenter.statusBar.style }
+    public var onStatusBarStyle: ((UIStatusBarStyle) -> Void)? { didSet { onStatusBarStyle?(statusBarStyle) } }
+    #endif
 
     public init(session: ExactSession) {
         self.session = session
@@ -56,6 +65,9 @@ public final class ExactView: UIView {
         session.presenter.onViewportFit = { [weak self] in self?.setNeedsLayout(); self?.onViewportFit?() }
         session.presenter.onCanvasColor = { [weak self] color in self?.backgroundColor = color; self?.onCanvasColor?(color) }
         session.presenter.onTitle = { [weak self] title in self?.onTitle?(title) }
+        #if os(iOS)
+        session.presenter.onStatusBar = { [weak self] choice in self?.onStatusBarStyle?(choice.style) }
+        #endif
         session.presenter.onKeyboardResize = { [weak self] in self?.fit() }
         // A pop that takes the editing route away moves the keys with it: the
         // hide arrives while the transition freezes the viewport, and once

@@ -1576,6 +1576,11 @@ natively), or `light-dark(a, b)`; the kernel parses it once for every host.
 `color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve
 `light-dark()`, platform colours and glass in that scheme, as a sheet that is
 always dark does; leave it off to follow the surrounding scheme (LLP 1034 §8).
+`status-bar-style="light-content"` (light text, for a dark surface),
+`"dark-content"` or `"auto"` on any node, bound to state, sets an iOS phone's
+status bar: of what the bar sits over, the declaration painted on top wins, and
+a flip shows in its own batch's frame; `status-bar-animation="fade"` fades it
+(LLP 1105). Other hosts ignore both.
 `currentcolor` takes the node's `color` on borders, `background-color`,
 `tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
 an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not
