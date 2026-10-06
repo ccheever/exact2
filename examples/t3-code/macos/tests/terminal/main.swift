@@ -409,10 +409,12 @@ final class TerminalSurfaceTests: XCTestCase {
 setvbuf(stdout, nil, _IOLBF, 0)
 _ = TestApplication.shared
 NSApp.setActivationPolicy(.accessory)
-var suite = XCTestSuite(forTestCaseClass: TerminalSurfaceTests.self)
+var suite = XCTestSuite(name: "terminal")
+suite.addTest(XCTestSuite(forTestCaseClass: TerminalSurfaceTests.self))
+suite.addTest(XCTestSuite(forTestCaseClass: TerminalDrawerTests.self)) // terminal-drawer (drawer.swift)
 if let only = ProcessInfo.processInfo.environment["T3_TERMINAL_ONLY"] {
     let picked = XCTestSuite(name: only)
-    for test in suite.tests where test.name.contains(only) { picked.addTest(test) }
+    for case let group as XCTestSuite in suite.tests { for test in group.tests where test.name.contains(only) { picked.addTest(test) } }
     suite = picked
 }
 suite.run()

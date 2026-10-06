@@ -21,7 +21,7 @@ type Step = {
   expect: { text: Text; retainedBytes: number; chunks: number; nextOffset: number; resetVersion: number; read: { type: string; data: Text }; staleRead?: { type: string; data: Text } };
 };
 const matches = (actual: string, expected: Text) =>
-  typeof expected === "string" ? expect(actual).toBe(expected) : expect({ length: actual.length, head: actual.slice(0, 64), tail: actual.slice(-64) }).toEqual(expected);
+  typeof expected === "string" ? expect(actual).toBe(expected) : expect({ length: actual.length, head: Array.from(actual).slice(0, 64).join(""), tail: Array.from(actual).slice(-64).join("") }).toEqual(expected);
 
 describe("terminal output vectors", () => {
   for (const vector of vectors.cases as { name: string; steps: Step[] }[]) {

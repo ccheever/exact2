@@ -11,6 +11,12 @@ import WebKit
 /// paint; bytes still parse, surface.ts setVisible), `chords` (space-separated web-named chords the
 /// page leaves to the app, ThreadTerminalDrawer.tsx beforeKey), `fixture` (development harness bytes:
 /// "render", "loopback", "flood").
+/// Session props (task terminal-drawer; T3TerminalSessions.swift): `environment`, `thread` and `terminal`
+/// name a server terminal session, `cwd`, `worktree` and `env` (JSON object) launch it; the view then
+/// shows the session's output, sends what is typed and its grid size to the server, writes the
+/// reference's `[terminal] …` lines (ThreadTerminalDrawer.tsx writeSystemMessage) and, on the tick after
+/// it prints `Process exited`, reports `{"type":"exited","terminalId":…}` as its only `message`.
+/// `focus-request` (a number) focuses the terminal whenever it changes.
 /// Events: focus / blur as the page's input gains and loses focus; `message` with the bridge's
 /// JSON for ready, resize, selection, link, contextmenu, chord, error (data stays native: a session
 /// owner reads it through `onData`).
@@ -18,7 +24,8 @@ import WebKit
 /// opens no window and keeps no website data.
 final class T3TerminalView: ExactNativeInstance {
     static let factory = ExactNativeFactory(snapshot: true) { (owner: ExactModule, props: [String: String], events: ExactNativeEvents) in
-        T3TerminalView(props: props, events: events, agent: owner.context.agent)
+        T3TerminalView(props: props, events: events, agent: owner.context.agent,
+                       sessions: (owner as? T3Module).map { T3TerminalSessions.of($0.transport) })
     }
 
     final class WebView: WKWebView {
@@ -71,8 +78,14 @@ final class T3TerminalView: ExactNativeInstance {
     /// Typed bytes, for a session owner (the drawer); the loopback fixture echoes them.
     var onData: ((String) -> Void)?
     private var disposed = false
+    /// The server session this view shows (terminal-drawer), and the renderer's place in its output.
+    private let sessions: T3TerminalSessions?
+    private(set) var session: T3TerminalSession?
+    private var cursor = T3TerminalOutput.Cursor.initial
+    private var synchronizedStatus = "closed", handledExit = false, shownVersion = -1, shownError: String? = nil
 
-    init(props: [String: String], events: ExactNativeEvents, agent: Bool = false) {
+    init(props: [String: String], events: ExactNativeEvents, agent: Bool = false, sessions: T3TerminalSessions? = nil) {
+        self.sessions = sessions
         self.props = props
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
@@ -103,7 +116,63 @@ final class T3TerminalView: ExactNativeInstance {
         if agent, web.responds(to: occlusion) { web.perform(occlusion, with: false) }
         T3Terminals.shared.add(self)
         web.load(URLRequest(url: T3TerminalAssets.pageURL))
+        bindSession()
     }
+
+    // MARK: Session (terminal-drawer)
+
+    var sessionMode: Bool { !(props["thread"] ?? "").isEmpty }
+
+    private func bindSession() {
+        guard sessionMode, let sessions else { return }
+        let env = props["env"].flatMap { $0.data(using: .utf8) }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] } ?? [:]
+        let bound = sessions.bind(self, environment: props["environment"] ?? "", thread: props["thread"] ?? "", terminal: identity,
+                                  cwd: props["cwd"] ?? "", worktreePath: props["worktree"] ?? "", env: env)
+        session = bound
+        // TerminalViewport setup: the retained output as one reset, the error, then exit handling from "closed".
+        let initial = bound.output.read(from: .initial)
+        if case .reset(let data) = initial.update, !data.isEmpty { write(data) }
+        cursor = initial.cursor
+        if let error = bound.error { systemMessage(error) }
+        shownVersion = bound.version; shownError = bound.error
+        synchronizedStatus = "closed"
+        synchronize(bound.status)
+    }
+
+    /// The reference's session effect: exit handling, then what is new since the cursor.
+    func sessionChanged(_ session: T3TerminalSession) {
+        guard !disposed, session === self.session else { return }
+        synchronize(session.status)
+        guard session.version != shownVersion else { return }
+        let next = session.output.read(from: cursor)
+        switch next.update {
+        case .reset(let data): resetAndWrite(data)
+        case .append(let data): write(data)
+        case .none: break
+        }
+        cursor = next.cursor
+        if !selection.isEmpty { send(["type": "clearSelection"]); selection = "" }
+        if let error = session.error, error != shownError { systemMessage(error) }
+        shownVersion = session.version; shownError = session.error
+    }
+
+    /// synchronizeTerminalStatus with shouldHandleTerminalExit (terminal-drawer.ts): print the exit once, then
+    /// report it on the next tick (the drawer closes the tab without a confirmation).
+    private func synchronize(_ status: String) {
+        if status == "running" { handledExit = false }
+        else if (status == "closed" || status == "exited"), status != synchronizedStatus, !handledExit {
+            handledExit = true
+            systemMessage(status == "closed" ? "Terminal closed" : "Process exited")
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.handledExit, !self.disposed else { return }
+                self.events.message(Self.json(["type": "exited", "terminalId": self.identity, "thread": self.props["thread"] ?? ""]))
+            }
+        }
+        synchronizedStatus = status
+    }
+
+    /// writeSystemMessage: `\r\n[terminal] <message>\r\n`.
+    func systemMessage(_ message: String) { write("\r\n[terminal] \(message)\r\n") }
 
     /// Inspectable in development runs only: the host's `--run` and the agent set EXACT_ASSETS.
     static var inspectable: Bool {
@@ -143,6 +212,7 @@ final class T3TerminalView: ExactNativeInstance {
         if previous["active"] != next["active"] { send(["type": "visible", "visible": next["active"] != "false"]) }
         if previous["chords"] != next["chords"] { send(["type": "chords", "chords": Self.chords(next["chords"])]) }
         if previous["fixture"] != next["fixture"], ready { T3TerminalFixtures.start(next["fixture"] ?? "", on: self) }
+        if previous["focus-request"] != next["focus-request"], (Int(next["focus-request"] ?? "") ?? 0) > 0 { focusTerminal() }
     }
 
     // MARK: Native → page
@@ -184,6 +254,12 @@ final class T3TerminalView: ExactNativeInstance {
         web.evaluateJavaScript("t3Terminal.receive(\(Self.json(message)))") { value, _ in reply?(value) }
     }
 
+    /// A focus request (the drawer opened, a terminal was activated): the web view and then the page's input.
+    func focusTerminal() {
+        if let window = web.window, window.firstResponder !== web { window.makeFirstResponder(web) }
+        send(["type": "focus"])
+    }
+
     func readSelection(_ done: @escaping (String) -> Void) { send(["type": "readSelection"]) { done($0 as? String ?? "") } }
 
     /// The page's own view of itself (ready, grid, visible text, selection, error).
@@ -210,14 +286,19 @@ final class T3TerminalView: ExactNativeInstance {
             let data = body["data"] as? String ?? ""
             dataEvents += 1; dataBytes += data.utf8.count
             log("data \(Self.json(data))")
+            if let session, let sessions { sessions.write(data, to: session, from: self) }
             onData?(data)
             return
         case "ready":
             ready = true
             cols = body["cols"] as? Int ?? 0; rows = body["rows"] as? Int ?? 0
             T3TerminalFixtures.start(props["fixture"] ?? "", on: self)
+            if let session, let sessions { sessions.resize(session, cols: cols, rows: rows) }
+            // Startup may finish after a focus request (TerminalViewport: focus once the surface exists).
+            if (Int(props["focus-request"] ?? "") ?? 0) > 0 { focusTerminal() }
         case "resize":
             cols = body["cols"] as? Int ?? cols; rows = body["rows"] as? Int ?? rows
+            if let session, let sessions { sessions.resize(session, cols: cols, rows: rows) }
         case "selection": selection = body["text"] as? String ?? ""
         case "focus":
             focused = body["focused"] as? Bool ?? false
@@ -231,7 +312,8 @@ final class T3TerminalView: ExactNativeInstance {
         default: break
         }
         log("\(type) \(Self.json(body))")
-        events.message(Self.json(body))
+        // A session view reports only its exit (synchronize); the harness hears every bridge message.
+        if !sessionMode { events.message(Self.json(body)) }
     }
 
     private func log(_ line: String) {
@@ -308,6 +390,7 @@ final class T3TerminalView: ExactNativeInstance {
         send(["type": "dispose"])
         disposed = true
         T3TerminalFixtures.stop(self)
+        if let session, let sessions { sessions.unbind(self, from: session) }
         web.stopLoading()
         web.navigationDelegate = nil; web.uiDelegate = nil
         web.configuration.userContentController.removeScriptMessageHandler(forName: "t3terminal")
@@ -334,12 +417,13 @@ final class T3Terminals {
         let entries = views.map { key, view -> [String: Any] in
             view.debug { [weak self] page in self?.pages[key] = page }
             let page = pages[key] ?? [:]
-            return ["terminal": view.identity, "ready": view.ready, "cols": view.cols, "rows": view.rows, "focused": view.focused,
+            return ["terminal": view.identity, "thread": view.props["thread"] ?? "", "session": view.session?.status ?? "", "ready": view.ready, "cols": view.cols, "rows": view.rows, "focused": view.focused,
                     "selection": view.selection, "error": view.lastError, "declined": view.declined, "delivery": view.agentDelivery,
                     "typed": view.dataBytes, "sent": view.sentBytes, "received": page["received"] ?? 0,
                     "text": page["text"] ?? [], "served": view.assets.served.count, "refused": view.assets.refusedURLs, "bridge": view.bridgeLog.suffix(6)]
         }
-        return ["terminals": entries.sorted { ($0["terminal"] as? String ?? "") < ($1["terminal"] as? String ?? "") }]
+        return ["terminals": entries.sorted { ($0["terminal"] as? String ?? "") < ($1["terminal"] as? String ?? "") },
+                "terminalSessions": T3TerminalSessions.all.flatMap(\.status)] // terminal-drawer: streams, buffers, acknowledgements
     }
 }
 #endif
