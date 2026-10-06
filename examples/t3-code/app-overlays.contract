@@ -31,6 +31,7 @@ use PaletteView from "./palette.contract"
 use VideoPreviewDialog from "./r4-composer.contract"
 use R8TableMenu from "./r8-keys-table-menu.contract"
 use R9CheckoutDialog from "./r9-connect.contract" // lane r9-connect
+use TerminalHarness from "./terminal.contract" // terminal-surface spike harness (⌃⌥⇧T)
 
 // The T3Code window's overlays, moved out of app.contract, which keeps the state, resources and
 // actions: each component takes the root names it reads as props of the same names.
@@ -192,3 +193,4 @@ component WindowOverlays
     // lane r8-keys: a Markdown table's Copy menu over every layer (r8-keys-table-menu.contract).
     each menu in data.tableMenu key=menu.id
       R8TableMenu(menu=menu, dark=(viewport.prefersColorScheme == "dark"), local=chatLocal)
+    TerminalHarness(dark=(data.look.mode == "dark" or (data.look.mode == "system" and viewport.prefersColorScheme == "dark")), look=data.look) // terminal-surface spike harness

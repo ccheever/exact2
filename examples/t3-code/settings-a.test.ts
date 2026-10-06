@@ -191,3 +191,27 @@ describe('add a theme', () => {
     await expect(themeImportCommand(as(client), null, 'search', 'Dracula')).rejects.toThrow('macOS app');
   });
 });
+
+
+describe('terminal appearance in the snapshot', () => {
+  test('stock, selected theme, custom roles and simple/advanced font preferences reach the bridge', () => {
+    const client = fakeClient();
+    const prefs = client.local.clientSettings as Obj;
+    let value = look(as(client));
+    expect(JSON.parse(value.terminalLight).background).toEqual({ r: 252, g: 252, b: 252 });
+    expect(JSON.parse(value.terminalDark).background).toEqual({ r: 10, g: 10, b: 10 });
+    Object.assign(prefs, { themeLight: 'grove', themeDark: 'ocean', fontFamilyCode: 'Menlo', fontSizeCode: 15 });
+    value = look(as(client));
+    expect(JSON.parse(value.terminalLight).background).toEqual({ r: 243, g: 247, b: 244 });
+    expect(JSON.parse(value.terminalDark).cursor).toEqual({ r: 112, g: 185, b: 238 });
+    expect([value.terminalFont, value.terminalSize]).toEqual(['Menlo', 15]);
+    Object.assign(prefs, { typographyAdvanced: true, fontFamilyTerminal: '', fontSizeTerminal: 12, themeDark: 'custom' });
+    Object.assign(client.local, { customThemes: [{ id: 'custom', appearance: 'dark', dark: {
+      terminalBackground: '#123456', terminalForeground: '#abcdef', terminalCursor: '#fedcba', terminalSelection: '#11223380',
+    } }] });
+    value = look(as(client));
+    expect([value.terminalFont, value.terminalSize]).toEqual(['', 12]);
+    expect(JSON.parse(value.terminalDark)).toEqual({ dark: true, background: { r: 18, g: 52, b: 86 },
+      foreground: { r: 171, g: 205, b: 239 }, cursor: { r: 254, g: 220, b: 186 }, selectionBackground: '#11223380' });
+  });
+});

@@ -1,0 +1,91 @@
+{
+  "description": "Binaries and license texts copied byte for byte from T3 Code. verify-vendor.mjs checks every entry; no build step reads the reference or rebuilds the WASM.",
+  "reference": {
+    "repository": "https://github.com/pingdotgg/t3code",
+    "commit": "1e2ecbd9758830669684b494d4398f626b0576e0"
+  },
+  "ghostty": {
+    "repository": "https://github.com/ghostty-org/ghostty",
+    "revision": "9f62873bf195e4d8a762d768a1405a5f2f7b1697",
+    "build": {
+      "script": "apps/web/scripts/build-libghostty-wasm.sh:104-110 (reference)",
+      "zig": "0.15.2",
+      "flags": [
+        "-Demit-lib-vt",
+        "-Dtarget=wasm32-freestanding",
+        "-Doptimize=ReleaseSmall",
+        "-Dstrip=true",
+        "-Dlib-version-string=0.1.0-dev+<revision>"
+      ],
+      "trampoline": {
+        "source": "vendor/ghostty-write-pty.zig",
+        "command": "zig build-exe ghostty-write-pty.zig -target wasm32-freestanding -O ReleaseSmall -fno-entry -rdynamic"
+      }
+    }
+  },
+  "nerdFonts": {
+    "release": "unknown",
+    "note": "The reference does not record the Nerd Fonts release of the symbols-only face."
+  },
+  "files": [
+    {
+      "path": "vendor/ghostty-vt.wasm",
+      "reference": "apps/web/src/terminal/ghostty/vendor/ghostty-vt.wasm",
+      "bytes": 630932,
+      "sha256": "51b016a6aa3c29ead71c7c8acf8c01d43b064bae19957a9c9f9e2bf469267629",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors",
+      "licenseFile": "vendor/LICENSE-ghostty"
+    },
+    {
+      "path": "vendor/ghostty-write-pty.wasm",
+      "reference": "apps/web/src/terminal/ghostty/vendor/ghostty-write-pty.wasm",
+      "bytes": 112,
+      "sha256": "75cb147e98ede3f85f3cd6236a30f6d12565b0b237e1d8db941f5f3e8ad3d903",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2026 T3 Tools Inc.",
+      "licenseFile": "../LICENSE-T3"
+    },
+    {
+      "path": "vendor/ghostty-write-pty.zig",
+      "reference": "apps/web/scripts/ghostty-write-pty.zig",
+      "bytes": 224,
+      "sha256": "c1155737c9d69f05b174c3ddce97b5a41670540af1f18546291a770bf93d516a",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2026 T3 Tools Inc.",
+      "licenseFile": "../LICENSE-T3"
+    },
+    {
+      "path": "vendor/SymbolsNerdFontMono-Regular.woff2",
+      "reference": "apps/web/src/terminal/ghostty/fonts/SymbolsNerdFontMono-Regular.woff2",
+      "bytes": 1177576,
+      "sha256": "a8e2fc5ae3c2525812151b95da80c5beab0befa84aca84fc33aaed94317502df",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2014 Ryan L McIntyre",
+      "licenseFile": "vendor/LICENSE-nerd-fonts"
+    },
+    {
+      "path": "vendor/VERSION",
+      "reference": "native/libghostty-vt/VERSION",
+      "bytes": 41,
+      "sha256": "3fc03e29c86b5100e6738d20cb1c97c3969ab1044debbe8a4cd7d49cdc9cf321",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors",
+      "licenseFile": "vendor/LICENSE-ghostty"
+    },
+    {
+      "path": "vendor/LICENSE-ghostty",
+      "reference": "native/libghostty-vt/LICENSE",
+      "bytes": 1097,
+      "sha256": "386211873e5b7a02f663ae4d7adf96285999f91608f8f9f31fecfd0f4095e6f1",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/LICENSE-nerd-fonts",
+      "reference": "apps/web/src/terminal/ghostty/fonts/LICENSE",
+      "bytes": 1082,
+      "sha256": "84a7a98c82140fb12c37fe42b93805baa16024cb3e5acc599b7ffe612c55d847",
+      "license": "MIT"
+    }
+  ]
+}
