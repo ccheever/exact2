@@ -78,6 +78,53 @@ final class ContextMenuTests: XCTestCase {
         XCTAssertEqual(files.first?["text"] as? String, "{\"name\":\"A\"}")
     }
 
+    /// pickThemeFiles: a 10 KB theme is read, a 300 KB one comes back unread with its size, an
+    /// unreadable one with size 0; nothing picked answers cancelled.
+    func testThemeFilesOverTheLimitOrUnreadableComeBackEmpty() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("t3-themes-\(UUID().uuidString)/imports", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let small = "{\"name\":\"Small\",\"pad\":\"" + String(repeating: "x", count: 10_000) + "\"}"
+        try small.write(to: root.appendingPathComponent("a-small.json"), atomically: true, encoding: .utf8)
+        try String(repeating: " ", count: 300 * 1024).write(to: root.appendingPathComponent("b-big.json"), atomically: true, encoding: .utf8)
+        let locked = root.appendingPathComponent("c-locked.json")
+        try "{}".write(to: locked, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: locked.path) }
+        let done = expectation(description: "read")
+        var reply: [String: Any] = [:]
+        T3ContextMenu.openText(["generation": 1], importsRoot: root) { reply = $0; done.fulfill() }
+        wait(for: [done], timeout: 2)
+        let value = reply["value"] as? [String: Any] ?? [:]
+        let files = value["files"] as? [[String: Any]] ?? []
+        XCTAssertEqual(files.map { $0["name"] as? String }, ["a-small.json", "b-big.json", "c-locked.json"])
+        XCTAssertEqual(files[0]["text"] as? String, small)
+        XCTAssertEqual(files[0]["size"] as? Int, small.utf8.count)
+        XCTAssertEqual(files[1]["size"] as? Int, 300 * 1024)
+        XCTAssertEqual(files[1]["text"] as? String, "")
+        XCTAssertEqual(files[2]["size"] as? Int, 0)
+        XCTAssertEqual(files[2]["text"] as? String, "")
+        XCTAssertEqual(value["cancelled"] as? Bool, false)
+        let empty = root.deletingLastPathComponent().appendingPathComponent("none", isDirectory: true)
+        let none = expectation(description: "none")
+        T3ContextMenu.openText(["generation": 2], importsRoot: empty) { reply = $0; none.fulfill() }
+        wait(for: [none], timeout: 2)
+        XCTAssertEqual((reply["value"] as? [String: Any])?["cancelled"] as? Bool, true)
+    }
+    /// The panel opens in ~/.vscode/extensions when it exists, and anywhere otherwise (a scratch HOME).
+    func testThemePanelStartsInTheVsCodeExtensionsFolder() throws {
+        let home = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("t3-home-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        XCTAssertNil(T3ContextMenu.themeStartDirectory(home: home.path))
+        try FileManager.default.createDirectory(at: home.appendingPathComponent(".vscode/extensions"), withIntermediateDirectories: true)
+        XCTAssertEqual(T3ContextMenu.themeStartDirectory(home: home.path)?.standardizedFileURL.path, home.appendingPathComponent(".vscode/extensions").standardizedFileURL.path)
+        let panel = T3ContextMenu.themePanel()
+        XCTAssertTrue(panel.allowsMultipleSelection)
+        XCTAssertFalse(panel.canChooseDirectories)
+        XCTAssertEqual(panel.allowedContentTypes, [.json])
+    }
+
     func testOpenVsxReadsRefuseOtherHosts() {
         let done = expectation(description: "refused")
         var reply: [String: Any] = [:]
