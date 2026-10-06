@@ -17,8 +17,10 @@ sha2 = "0.10"
 ring = { version = "0.17", optional = true }
 url = "2.5"
 serde_json = "1"
-# The normal dependency owns native link lines selected by binding-family
-# features. The build dependency below supplies headers and hermesc only.
+# The one normal dependency: it owns native link lines and the selected ICU
+# tier, and its `links` metadata gives this crate's build script headers,
+# hermesc and the bytecode version. There is deliberately no build-dependency
+# on it, so no second instance can select or report an ICU tier (R-e).
 hermes-lean-sys = { path = "../hermes-lean-sys", optional = true, default-features = false }
 
 [dev-dependencies]
@@ -34,7 +36,6 @@ sha2 = "0.10"
 
 [build-dependencies]
 cc = "1"
-hermes-lean-sys = { path = "../hermes-lean-sys", optional = true, default-features = false }
 
 # The transport off Apple platforms (LLP 0057 §3; OQ2 of LLP 0068, resolved
 # 2026-08-30): HTTP/1.1 over rustls with the webpki roots — pure Rust, no
@@ -64,10 +65,12 @@ windows-sys = { version = "0.61.2", features = ["Win32_Security_Authorization"] 
 [features]
 default = ["crypto", "websocket"]
 bindings = ["dep:hermes-lean-sys"]
-# Linux's JSI Intl shims and full locale data exceed LLP 0057.000 D5's
-# default-on budget. Selecting Intl also selects the bindings door; ICU link
-# lines and the trimmed/full data swap still come from hermes-lean-sys alone.
-intl = ["bindings", "hermes-lean-sys/icu-full-data"]
+# Linux's JSI Intl shims exceed LLP 0057.000 D5's default-on budget. The
+# ordinary Intl door selects the English ICU tier; callers that need every ICU
+# locale select the separate all-locales door. hermes-lean-sys alone owns link
+# lines and the selected data.
+intl = ["bindings", "hermes-lean-sys/icu-en-data"]
+intl-all-locales = ["intl", "hermes-lean-sys/icu-full-data"]
 # Symmetric WebCrypto algorithms backed by the workspace's unmodified,
 # vendored ring. Randomness remains available without this feature.
 crypto = ["dep:ring"]

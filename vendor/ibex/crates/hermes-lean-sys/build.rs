@@ -2,12 +2,16 @@
 
 mod build_support;
 
-use build_support::{digest_file, hermesc_bytecode_version, rerun_paths, resolve_engine_directory};
-use std::path::Path;
+use build_support::{
+    digest_file, hermesc_bytecode_version, prepare_apple_simulator_link_archives, rerun_paths,
+    resolve_engine_directory, LinkArchive, PreparedLinkArchive,
+};
+use std::path::{Path, PathBuf};
 
 const LINUX_ICU_I18N: &str = "icui18n";
 const LINUX_ICU_UC: &str = "icuuc";
 const LINUX_ICU_DATA: &str = "icudata";
+const LINUX_ICU_EN_DATA: &str = "icudata-en";
 const LINUX_ICU_FULL_DATA: &str = "icudata-full";
 /// The Windows SDK's frozen ICU import libraries (`icuuc.dll`/`icuin.dll`,
 /// forwarders into the OS `icu.dll`) and the OS ICU DLL itself.
@@ -62,9 +66,11 @@ fn main() {
     let host = std::env::var("HOST").expect("Cargo supplies HOST");
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_vendor = std::env::var("CARGO_CFG_TARGET_VENDOR").unwrap_or_default();
+    warn_on_low_tvos_deployment_target(&target_os);
     let links_full_runtime = std::env::var_os("CARGO_FEATURE_LINK").is_some();
     let links_lean_runtime = std::env::var_os("CARGO_FEATURE_LINK_LEAN").is_some();
     let links_icu = std::env::var_os("CARGO_FEATURE_ICU").is_some();
+    let links_en_icu_data = std::env::var_os("CARGO_FEATURE_ICU_EN_DATA").is_some();
     let links_full_icu_data = std::env::var_os("CARGO_FEATURE_ICU_FULL_DATA").is_some();
 
     // @ref LLP 0057.000#l1--the-bindings-door — R-e permits exactly one
@@ -88,7 +94,11 @@ fn main() {
     });
     let icu_data_digest = install.icu_data_archive.as_ref().map(|archive| {
         digest_file(archive)
-            .unwrap_or_else(|error| panic!("cannot hash trimmed ICU data archive: {error}"))
+            .unwrap_or_else(|error| panic!("cannot hash base ICU data archive: {error}"))
+    });
+    let icu_en_data_digest = install.icu_en_data_archive.as_ref().map(|archive| {
+        digest_file(archive)
+            .unwrap_or_else(|error| panic!("cannot hash English-Intl ICU data archive: {error}"))
     });
     let icu_full_data_digest = install.icu_full_data_archive.as_ref().map(|archive| {
         digest_file(archive)
@@ -122,6 +132,15 @@ fn main() {
             archive.display()
         );
         println!("cargo:rustc-env=HERMES_LEAN_ICU_DATA_DIGEST={digest}");
+    }
+    if let (Some(archive), Some(digest)) = (&install.icu_en_data_archive, &icu_en_data_digest) {
+        metadata("icu_en_data_archive", &archive.display().to_string());
+        metadata("icu_en_data_digest", digest);
+        println!(
+            "cargo:rustc-env=HERMES_LEAN_ICU_EN_DATA_ARCHIVE={}",
+            archive.display()
+        );
+        println!("cargo:rustc-env=HERMES_LEAN_ICU_EN_DATA_DIGEST={digest}");
     }
     if let (Some(archive), Some(digest)) = (&install.icu_full_data_archive, &icu_full_data_digest) {
         metadata("icu_full_data_archive", &archive.display().to_string());
@@ -169,14 +188,41 @@ fn main() {
         None
     };
     if let Some((archive, digest)) = linked {
+        let link_archives = static_link_archives(&target_os, &install.lib_root, archive);
+        let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo supplies OUT_DIR"));
+        let prepared =
+            prepare_apple_simulator_link_archives(&install, &target, &out_dir, &link_archives)
+                .unwrap_or_else(|error| panic!("cannot prepare Hermes link archives: {error}"));
+        let linked_vm = prepared
+            .iter()
+            .find(|candidate| candidate.source.as_path() == archive.as_path())
+            .expect("prepared link closure contains the selected VM");
+        // Simulator preparation captures this digest from the same open
+        // handle that populated the private snapshot rustc ultimately links.
+        // Other targets retain the digest computed directly above.
+        let linked_source_digest = linked_vm.source_digest.as_deref().unwrap_or(digest);
         metadata("linked_archive", &archive.display().to_string());
-        metadata("linked_engine_digest", digest);
+        metadata("linked_engine_digest", linked_source_digest);
         println!(
             "cargo:rustc-env=HERMES_LEAN_LINKED_ARCHIVE={}",
             archive.display()
         );
-        println!("cargo:rustc-env=HERMES_LEAN_LINKED_ENGINE_DIGEST={digest}");
-        emit_link_lines(&target_os, &target_vendor, &install.lib_root, archive);
+        println!("cargo:rustc-env=HERMES_LEAN_LINKED_ENGINE_DIGEST={linked_source_digest}");
+        if let Some(derivative_digest) = &linked_vm.derivative_digest {
+            metadata(
+                "linked_engine_derivative_archive",
+                &linked_vm.linked.display().to_string(),
+            );
+            metadata("linked_engine_derivative_digest", derivative_digest);
+            println!(
+                "cargo:rustc-env=HERMES_LEAN_LINKED_ENGINE_DERIVATIVE_ARCHIVE={}",
+                linked_vm.linked.display()
+            );
+            println!(
+                "cargo:rustc-env=HERMES_LEAN_LINKED_ENGINE_DERIVATIVE_DIGEST={derivative_digest}"
+            );
+        }
+        emit_link_lines(&target_os, &target_vendor, &prepared);
     }
     if links_icu && target_os == "linux" {
         // @ref LLP 0057.000#l1--the-bindings-door — the ICU-data identity is
@@ -193,15 +239,26 @@ fn main() {
                     .expect("Linux install has a full ICU data digest"),
                 LINUX_ICU_FULL_DATA,
             )
+        } else if links_en_icu_data {
+            (
+                install
+                    .icu_en_data_archive
+                    .as_ref()
+                    .expect("Linux install has English-Intl ICU data"),
+                icu_en_data_digest
+                    .as_deref()
+                    .expect("Linux install has an English-Intl ICU data digest"),
+                LINUX_ICU_EN_DATA,
+            )
         } else {
             (
                 install
                     .icu_data_archive
                     .as_ref()
-                    .expect("Linux install has trimmed ICU data"),
+                    .expect("Linux install has base ICU data"),
                 icu_data_digest
                     .as_deref()
-                    .expect("Linux install has a trimmed ICU data digest"),
+                    .expect("Linux install has a base ICU data digest"),
                 LINUX_ICU_DATA,
             )
         };
@@ -235,16 +292,76 @@ fn metadata(key: &str, value: &str) {
     println!("cargo::metadata={key}={value}");
 }
 
-fn emit_link_lines(target_os: &str, target_vendor: &str, lib_root: &Path, vm_archive: &Path) {
-    println!("cargo:rustc-link-search=native={}", lib_root.display());
+fn static_link_archives(target_os: &str, lib_root: &Path, vm_archive: &Path) -> Vec<LinkArchive> {
     let vm = vm_archive
         .file_stem()
         .and_then(|name| name.to_str())
         .expect("Hermes archive has a UTF-8 stem")
-        .trim_start_matches("lib");
-    println!("cargo:rustc-link-lib=static={vm}");
-    println!("cargo:rustc-link-lib=static=jsi");
-    println!("cargo:rustc-link-lib=static=boost_context");
+        .trim_start_matches("lib")
+        .to_owned();
+    let archive_path = |library: &str| {
+        if target_os == "windows" {
+            lib_root.join(format!("{library}.lib"))
+        } else {
+            lib_root.join(format!("lib{library}.a"))
+        }
+    };
+    vec![
+        LinkArchive {
+            library: vm,
+            source: vm_archive.to_path_buf(),
+        },
+        LinkArchive {
+            library: "jsi".to_owned(),
+            source: archive_path("jsi"),
+        },
+        LinkArchive {
+            library: "boost_context".to_owned(),
+            source: archive_path("boost_context"),
+        },
+    ]
+}
+
+/// The tvOS bundles are built with deployment target 15.0. rustc's default for
+/// tvOS (10.0) links against a libSystem without `___chkstk_darwin`, so the final
+/// link fails far from the cause; say so here instead.
+fn warn_on_low_tvos_deployment_target(target_os: &str) {
+    const BUNDLE_TVOS_MINIMUM: u32 = 15;
+    if target_os != "tvos" {
+        return;
+    }
+    println!("cargo:rerun-if-env-changed=TVOS_DEPLOYMENT_TARGET");
+    let major = std::env::var("TVOS_DEPLOYMENT_TARGET")
+        .ok()
+        .and_then(|value| value.split('.').next()?.parse::<u32>().ok());
+    if major.is_none_or(|major| major < BUNDLE_TVOS_MINIMUM) {
+        println!(
+            "cargo:warning=hermes-lean-sys: the tvOS Hermes bundles target tvOS {BUNDLE_TVOS_MINIMUM}.0; set TVOS_DEPLOYMENT_TARGET={BUNDLE_TVOS_MINIMUM}.0 or later, or the final link fails (___chkstk_darwin undefined)"
+        );
+    }
+}
+
+fn emit_link_lines(target_os: &str, target_vendor: &str, archives: &[PreparedLinkArchive]) {
+    let mut search_paths = Vec::new();
+    // Apple Simulator preparation places the complete current closure in one
+    // fresh content-addressed directory, so no stale derivative can shadow a
+    // member that changed from fat to thin.
+    for archive in archives {
+        let parent = archive
+            .linked
+            .parent()
+            .expect("native link archive has a parent directory");
+        if !search_paths.contains(&parent) {
+            search_paths.push(parent);
+            println!("cargo:rustc-link-search=native={}", parent.display());
+        }
+    }
+    // Do not use `static:-bundle`: exact2's Xcode-facing product is itself a
+    // Rust staticlib, so these native archives must remain bundled through the
+    // intermediate rlibs. Universal archives are made rustc-readable instead.
+    for archive in archives {
+        println!("cargo:rustc-link-lib=static={}", archive.library);
+    }
     if target_vendor == "apple" {
         println!("cargo:rustc-link-lib=c++");
         println!("cargo:rustc-link-lib=framework=CoreFoundation");

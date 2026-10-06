@@ -861,6 +861,10 @@ impl RuntimeState {
             .lock()
             .expect("crypto key registry poisoned")
             .clear();
+        self.headers
+            .lock()
+            .expect("header registry poisoned")
+            .clear();
     }
 
     pub(crate) fn is_shutdown(&self) -> bool {
@@ -1641,6 +1645,53 @@ pub unsafe extern "C" fn ibex2_response_owner_destroy(owner: *mut std::ffi::c_vo
     }
 }
 
+struct HeadersOwner {
+    state: std::sync::Weak<RuntimeState>,
+    handle: u64,
+}
+
+/// Attach one Rust header-list handle to one engine-owned `Headers` object.
+/// The weak state makes collection after adapter detach or runtime teardown a
+/// no-op instead of retaining or dereferencing the runtime.
+/// # Safety
+/// `queue` must be a live pointer returned by `ibex2_queue_create`.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_headers_owner_create(
+    queue: *const RuntimeState,
+    handle: f64,
+) -> *mut std::ffi::c_void {
+    let Some(state) = clone_queue(queue) else {
+        return std::ptr::null_mut();
+    };
+    if handle.fract() != 0.0 || !(1.0..=9_007_199_254_740_991.0).contains(&handle) {
+        return std::ptr::null_mut();
+    }
+    let handle = handle as u64;
+    if state.with_headers(handle, |_| ()).is_none() {
+        return std::ptr::null_mut();
+    }
+    Box::into_raw(Box::new(HeadersOwner {
+        state: Arc::downgrade(&state),
+        handle,
+    }))
+    .cast()
+}
+
+/// Release a header list when its JavaScript `Headers` object is collected.
+/// An explicit op 51 release removes the same row first, making this idempotent.
+/// # Safety
+/// `owner` must be null or an unfreed pointer from `ibex2_headers_owner_create`.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_headers_owner_destroy(owner: *mut std::ffi::c_void) {
+    if owner.is_null() {
+        return;
+    }
+    let owner = Box::from_raw(owner.cast::<HeadersOwner>());
+    if let Some(state) = owner.state.upgrade() {
+        state.drop_headers(owner.handle);
+    }
+}
+
 struct CryptoKeyOwner {
     state: std::sync::Weak<RuntimeState>,
     handle: u64,
@@ -1774,6 +1825,17 @@ mod tests {
         assert_eq!(state.crypto_key_count(), 1);
         state.shutdown();
         assert_eq!(state.crypto_key_count(), 0);
+    }
+
+    #[test]
+    fn runtime_shutdown_releases_every_header_list() {
+        let state = RuntimeState::new(crate::transport::default_transport());
+        for _ in 0..1000 {
+            state.store_headers(crate::stdlib::fetch::Headers::new());
+        }
+        assert_eq!(state.live_headers(), 1000);
+        state.shutdown();
+        assert_eq!(state.live_headers(), 0);
     }
 
     #[test]

@@ -83,23 +83,27 @@
   }
 
   function Headers(init) {
-    if (!(this instanceof Headers)) {
+    if (!new.target) {
       throw new TypeError("Headers must be constructed with new");
     }
     // `null` is not an absent init: the spec dictionary conversion throws.
     if (init === null || (init !== undefined && typeof init !== "object")) {
       throw new TypeError("Headers init must be an object");
     }
-    Object.defineProperty(this, "_handle", {
-      value: h.create(),
-      enumerable: false,
-      writable: false,
-    });
-    brand(this, "Headers");
+    var handle = h.create();
     try {
+      Object.defineProperty(this, "_handle", {
+        value: handle,
+        enumerable: false,
+        writable: false,
+      });
+      // NativeState is private engine storage: collecting this wrapper drops
+      // its Rust registry row without exposing another handle operation.
+      h.own(handle, this);
+      brand(this, "Headers");
       fill(this, init);
     } catch (e) {
-      h.free(this._handle);
+      h.free(handle);
       throw e;
     }
   }

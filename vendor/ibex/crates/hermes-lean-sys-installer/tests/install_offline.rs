@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v3";
+const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v4";
 const HERMES_SOURCE_COMMIT: &str = "d412d3bd851278712c20cca25d094e32641a0465";
 
 #[test]
@@ -205,12 +205,45 @@ fn write_test_bundle(path: &Path, target: &str) {
 }
 
 fn write_test_bundle_with_source_commit(path: &Path, target: &str, source_commit: &str) {
+    let linux = target.ends_with("-unknown-linux-gnu");
     let compiler = b"#!/bin/sh\necho 'HBC bytecode version: 99'\n";
     let full = b"test full VM archive";
     let lean = b"test lean VM archive";
+    let icu_full_data = b"test full ICU data archive";
+    let icu_en_data = b"test English-Intl ICU data archive";
+    let icu_trimmed_data = b"test trimmed ICU data archive";
+    let icu_i18n = b"test ICU i18n code archive";
+    let icu_uc = b"test ICU Unicode code archive";
+    let icu_filter = include_bytes!("../../../scripts/icu74-filter-root-en.json");
+    let icu_en_filter = include_bytes!("../../../scripts/icu74-filter-en-intl.json");
     let jsi = b"test JSI archive";
     let header = b"// test JSI header";
-    let receipt = serde_json::to_vec_pretty(&json!({
+    let mut build_flags = vec![json!("-DHERMES_ENABLE_DEBUGGER=false")];
+    let mut archive_entries = vec![
+        json!({ "path": "lib/libhermesvm_a.a", "digest": format!("sha256-{}", sha256(full)) }),
+        json!({ "path": "lib/libhermesvmlean_a.a", "digest": format!("sha256-{}", sha256(lean)) }),
+        json!({ "path": "lib/libjsi.a", "digest": format!("sha256-{}", sha256(jsi)) }),
+    ];
+    if linux {
+        build_flags.extend([
+            json!("-DHERMES_ENABLE_INTL=false"),
+            json!("-DHERMES_UNICODE_LITE=false"),
+        ]);
+        archive_entries.extend([
+            json!({ "path": "lib/libicudata-en.a", "digest": format!("sha256-{}", sha256(icu_en_data)) }),
+            json!({ "path": "lib/libicudata-full.a", "digest": format!("sha256-{}", sha256(icu_full_data)) }),
+            json!({ "path": "lib/libicudata.a", "digest": format!("sha256-{}", sha256(icu_trimmed_data)) }),
+            json!({ "path": "lib/libicui18n.a", "digest": format!("sha256-{}", sha256(icu_i18n)) }),
+            json!({ "path": "lib/libicuuc.a", "digest": format!("sha256-{}", sha256(icu_uc)) }),
+        ]);
+    }
+    archive_entries.sort_by(|left, right| {
+        left["path"]
+            .as_str()
+            .expect("archive path")
+            .cmp(right["path"].as_str().expect("archive path"))
+    });
+    let mut receipt = json!({
         "schema": "ibex/hermes-upstream-pinned-receipt/2",
         "upstream": {
             "artifact": "facebook/hermes",
@@ -224,7 +257,7 @@ fn write_test_bundle_with_source_commit(path: &Path, target: &str, source_commit
         },
         "target": target,
         "profile": "release",
-        "build": { "flags": ["-DHERMES_ENABLE_DEBUGGER=false"] },
+        "build": { "flags": build_flags },
         "bytecode": { "version": 99 },
         "compiler": {
             "binary": "bin/hermesc",
@@ -235,11 +268,7 @@ fn write_test_bundle_with_source_commit(path: &Path, target: &str, source_commit
             "binaryDigest": format!("sha256-{}", sha256(full)),
             "variant": "release"
         },
-        "archives": [
-            { "path": "lib/libhermesvm_a.a", "digest": format!("sha256-{}", sha256(full)) },
-            { "path": "lib/libhermesvmlean_a.a", "digest": format!("sha256-{}", sha256(lean)) },
-            { "path": "lib/libjsi.a", "digest": format!("sha256-{}", sha256(jsi)) }
-        ],
+        "archives": archive_entries,
         "headers": [
             { "path": "include/jsi/jsi.h", "digest": format!("sha256-{}", sha256(header)) }
         ],
@@ -247,8 +276,43 @@ fn write_test_bundle_with_source_commit(path: &Path, target: &str, source_commit
             "rustc-link-search=native=lib",
             "rustc-link-lib=static=hermesvm_a"
         ]
-    }))
-    .expect("receipt JSON");
+    });
+    if linux {
+        receipt["icu"] = json!({
+            "upstream": {
+                "artifact": "unicode-org/icu",
+                "sourceCommit": "2d029329c82c7792b985024b2bdab5fc7278fbc8",
+                "sourceRef": "release-74-2",
+                "sourceVersion": "74.2"
+            },
+            "codeArchives": ["lib/libicui18n.a", "lib/libicuuc.a"],
+            "data": {
+                "trimmed": {
+                    "archive": "lib/libicudata.a",
+                    "filter": {
+                        "path": "share/icu/filters-root-en.json",
+                        "digest": format!("sha256-{}", sha256(icu_filter))
+                    }
+                },
+                "en": {
+                    "archive": "lib/libicudata-en.a",
+                    "filter": {
+                        "path": "share/icu/filters-en-intl.json",
+                        "digest": format!("sha256-{}", sha256(icu_en_filter))
+                    }
+                },
+                "full": { "archive": "lib/libicudata-full.a" }
+            }
+        });
+        receipt["linkDirectives"] = json!([
+            "rustc-link-search=native=lib",
+            "rustc-link-lib=static=hermesvm_a",
+            "rustc-link-lib=static=icui18n",
+            "rustc-link-lib=static=icuuc",
+            "rustc-link-lib=static=icudata"
+        ]);
+    }
+    let receipt = serde_json::to_vec_pretty(&receipt).expect("receipt JSON");
 
     let file = fs::File::create(path).expect("test bundle file");
     let encoder = GzEncoder::new(file, Compression::default());
@@ -258,6 +322,25 @@ fn write_test_bundle_with_source_commit(path: &Path, target: &str, source_commit
     append(&mut archive, "lib/libhermesvm_a.a", full, 0o644);
     append(&mut archive, "lib/libhermesvmlean_a.a", lean, 0o644);
     append(&mut archive, "lib/libjsi.a", jsi, 0o644);
+    if linux {
+        append(&mut archive, "lib/libicudata-en.a", icu_en_data, 0o644);
+        append(&mut archive, "lib/libicudata-full.a", icu_full_data, 0o644);
+        append(&mut archive, "lib/libicudata.a", icu_trimmed_data, 0o644);
+        append(&mut archive, "lib/libicui18n.a", icu_i18n, 0o644);
+        append(&mut archive, "lib/libicuuc.a", icu_uc, 0o644);
+        append(
+            &mut archive,
+            "share/icu/filters-root-en.json",
+            icu_filter,
+            0o644,
+        );
+        append(
+            &mut archive,
+            "share/icu/filters-en-intl.json",
+            icu_en_filter,
+            0o644,
+        );
+    }
     append(&mut archive, "hermes-input-receipt.json", &receipt, 0o644);
     let encoder = archive.into_inner().expect("finish tar");
     encoder.finish().expect("finish gzip");
@@ -348,6 +431,7 @@ build = "build.rs"
 
 [build-dependencies]
 flate2 = "1"
+libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

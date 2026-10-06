@@ -892,6 +892,14 @@ pub unsafe extern "C" fn ibex2_async_begin(
     let Some(op) = AsyncOp::from_u32(op) else {
         return 1;
     };
+    // A JS wrapper may become unreachable as soon as this host call returns.
+    // Snapshot handle-backed inputs while its native owner must still be live;
+    // no worker may resolve a Headers registry id later.
+    let fetch_headers = if op == AsyncOp::Fetch {
+        snapshot_fetch_headers(&owned, &state)
+    } else {
+        Ok(None)
+    };
 
     // The binding's own grants, captured at install time and handed back on
     // every call. Nothing here consults ambient state.
@@ -901,7 +909,10 @@ pub unsafe extern "C" fn ibex2_async_begin(
     // between "started" and "running".
     state.task_started();
     let work = move || {
-        let result = run_async(op, &owned, &state, &grants);
+        let result = match fetch_headers {
+            Ok(headers) => run_async(op, &owned, headers, &state, &grants),
+            Err(error) => Err(error),
+        };
         if !state.is_shutdown() {
             state.queue.complete(task_id, result);
         }
@@ -990,9 +1001,41 @@ fn valid_handle(n: f64) -> Result<u64, HostError> {
     }
 }
 
+fn snapshot_fetch_headers(
+    args: &[HostValue],
+    state: &crate::task::RuntimeState,
+) -> Result<Option<crate::stdlib::fetch::Headers>, HostError> {
+    use crate::stdlib::fetch::{is_valid_name, is_valid_value};
+
+    match args.get(4) {
+        None | Some(HostValue::Undefined) => Ok(None),
+        Some(HostValue::Number(handle)) => {
+            let handle = valid_handle(*handle)
+                .map_err(|_| HostError::InvalidArgument("fetch expects a headers handle".into()))?;
+            state
+                .with_headers(handle, |headers| {
+                    for (name, value) in headers.entries() {
+                        if !is_valid_name(name) || !is_valid_value(value) {
+                            return Err(HostError::InvalidArgument(
+                                "fetch headers contain an invalid name or value".into(),
+                            ));
+                        }
+                    }
+                    Ok(headers.clone())
+                })
+                .ok_or_else(|| HostError::InvalidArgument("unknown fetch headers handle".into()))?
+                .map(Some)
+        }
+        _ => Err(HostError::InvalidArgument(
+            "fetch expects a headers handle".into(),
+        )),
+    }
+}
+
 fn run_async(
     op: AsyncOp,
     args: &[HostValue],
+    fetch_headers: Option<crate::stdlib::fetch::Headers>,
     state: &crate::task::RuntimeState,
     grants: &GrantSet,
 ) -> Result<HostValue, HostError> {
@@ -1006,7 +1049,7 @@ fn run_async(
     }
     match op {
         AsyncOp::Fetch => {
-            use crate::stdlib::fetch::{is_valid_name, is_valid_value, RedirectMode, Request};
+            use crate::stdlib::fetch::{RedirectMode, Request};
             let url = match args.first() {
                 Some(HostValue::Str(url)) => url.clone(),
                 _ => return Err(HostError::InvalidArgument("fetch expects a URL".into())),
@@ -1027,33 +1070,9 @@ fn run_async(
                     _ => RedirectMode::Follow,
                 };
             }
-            // @ref LLP 0059.000#35-fetch--delegating-capability-bearing — request headers cross by handle, validated before transport
-            match args.get(4) {
-                None | Some(HostValue::Undefined) => {}
-                Some(HostValue::Number(handle))
-                    if handle.fract() == 0.0
-                        && (1.0..=9_007_199_254_740_991.0).contains(handle) =>
-                {
-                    request.headers = state
-                        .with_headers(*handle as u64, |headers| {
-                            for (name, value) in headers.entries() {
-                                if !is_valid_name(name) || !is_valid_value(value) {
-                                    return Err(HostError::InvalidArgument(
-                                        "fetch headers contain an invalid name or value".into(),
-                                    ));
-                                }
-                            }
-                            Ok(headers.clone())
-                        })
-                        .ok_or_else(|| {
-                            HostError::InvalidArgument("unknown fetch headers handle".into())
-                        })??;
-                }
-                _ => {
-                    return Err(HostError::InvalidArgument(
-                        "fetch expects a headers handle".into(),
-                    ));
-                }
+            // @ref LLP 0059.000#35-fetch--delegating-capability-bearing — the JS-thread boundary snapshots handle-backed headers before scheduling
+            if let Some(headers) = fetch_headers {
+                request.headers = headers;
             }
             let control = match args.get(5) {
                 None | Some(HostValue::Undefined) => crate::stdlib::abort::AbortController::new(),
@@ -1468,7 +1487,6 @@ mod fetch_header_tests {
         // The engine normally validates on append. Native embedders can
         // populate the same registry, so a known handle is not validation.
         let state = RuntimeState::new(Box::new(NoRequests));
-        let grants = GrantSet::parse("net.fetch http://127.0.0.1:80").unwrap();
         let mut failures = Vec::new();
         for (name, value) in [
             ("", "value"),
@@ -1489,7 +1507,7 @@ mod fetch_header_tests {
                 HostValue::Undefined,
                 HostValue::Number(state.store_headers(headers) as f64),
             ];
-            let result = run_async(AsyncOp::Fetch, &args, &state, &grants);
+            let result = snapshot_fetch_headers(&args, &state);
             if !matches!(result, Err(HostError::InvalidArgument(_))) {
                 failures.push(format!("{name:?}: {value:?}: {result:?}"));
             }

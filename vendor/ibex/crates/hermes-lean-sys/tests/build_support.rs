@@ -3,9 +3,11 @@
 mod build_support;
 
 use build_support::{
-    acquire_bundle, download_options_from_env, installer_command, parse_pin_sha256, pin_for_target,
-    repository_install_root, rerun_paths, verify_and_extract_archive, watched_inputs, BundlePin,
-    DownloadOptions, EngineInstall, RELEASE_TAG,
+    acquire_bundle, apple_simulator_arch, digest_file, download_options_from_env,
+    installer_command, parse_pin_sha256, pin_for_target,
+    prepare_apple_simulator_link_archives_with_lipo, repository_install_root, rerun_paths,
+    verify_and_extract_archive, watched_inputs, BundlePin, DownloadOptions, EngineInstall,
+    LinkArchive, RELEASE_TAG,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -15,13 +17,17 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::Path;
+#[cfg(target_os = "macos")]
+use std::path::PathBuf;
+#[cfg(target_os = "macos")]
+use std::process::Command;
 use std::thread;
 
 const ASSET: &str = "hermes-vanilla-test-target.tar.gz";
 const CACHE_ARCHIVE: &str = ".hermes-lean-sys-bundle.tar.gz";
 
 #[test]
-fn target_to_asset_mapping_includes_ios_simulator_aliases() {
+fn target_to_asset_mapping_includes_apple_simulator_aliases() {
     assert_eq!(
         pin_for_target("aarch64-apple-ios-sim")
             .expect("arm simulator pin")
@@ -34,8 +40,589 @@ fn target_to_asset_mapping_includes_ios_simulator_aliases() {
             .asset,
         "hermes-vanilla-universal-apple-ios-simulator.tar.gz"
     );
+    assert_eq!(
+        pin_for_target("aarch64-apple-tvos")
+            .expect("tvOS device pin")
+            .asset,
+        "hermes-vanilla-aarch64-apple-tvos.tar.gz"
+    );
+    assert_eq!(
+        pin_for_target("aarch64-apple-tvos-sim")
+            .expect("tvOS simulator pin")
+            .asset,
+        "hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz"
+    );
     let error = pin_for_target("riscv64-unknown-linux-gnu").expect_err("unsupported target");
     assert!(error.contains("HERMES_LEAN_SYS_DIR"), "{error}");
+    // The Intel tvOS Simulator exists in Rust but has no bundle; it must never
+    // fall through to the arm64 Simulator archive.
+    let error = pin_for_target("x86_64-apple-tvos").expect_err("Intel tvOS Simulator");
+    assert!(error.contains("HERMES_LEAN_SYS_DIR"), "{error}");
+}
+
+#[test]
+fn repository_installs_keep_macos_and_tvos_targets_separate() {
+    let temporary = tempfile::tempdir().expect("temporary repository");
+    for relative in [
+        "ios/Frameworks-vanilla",
+        "tvos/Frameworks-vanilla",
+        "tvos-simulator/Frameworks-vanilla",
+    ] {
+        fs::create_dir_all(temporary.path().join(relative)).expect("repository install");
+    }
+    assert_eq!(
+        repository_install_root(temporary.path(), "aarch64-apple-darwin"),
+        Some(temporary.path().join("ios/Frameworks-vanilla"))
+    );
+    assert_eq!(
+        repository_install_root(temporary.path(), "aarch64-apple-tvos"),
+        Some(temporary.path().join("tvos/Frameworks-vanilla"))
+    );
+    assert_eq!(
+        repository_install_root(temporary.path(), "aarch64-apple-tvos-sim"),
+        Some(temporary.path().join("tvos-simulator/Frameworks-vanilla"))
+    );
+}
+
+#[test]
+fn apple_simulator_targets_map_to_lipo_architectures() {
+    assert_eq!(apple_simulator_arch("aarch64-apple-ios-sim"), Some("arm64"));
+    assert_eq!(apple_simulator_arch("x86_64-apple-ios"), Some("x86_64"));
+    assert_eq!(
+        apple_simulator_arch("aarch64-apple-tvos-sim"),
+        Some("arm64")
+    );
+    assert_eq!(apple_simulator_arch("aarch64-apple-ios"), None);
+    assert_eq!(apple_simulator_arch("aarch64-apple-darwin"), None);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn real_universal_archive_is_thinned_and_rustc_links_both_simulator_architectures() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let root = temporary.path().join("bundle");
+    let lib = root.join("lib");
+    fs::create_dir_all(&lib).expect("library directory");
+    let universal = make_universal_archive(&lib, "tiny", "tiny_answer", 42);
+    let archive = LinkArchive {
+        library: "tiny".to_owned(),
+        source: universal,
+    };
+    let install = test_install(&root, std::slice::from_ref(&archive), true);
+
+    for (target, arch) in [
+        ("aarch64-apple-ios-sim", "arm64"),
+        ("x86_64-apple-ios", "x86_64"),
+    ] {
+        let out = temporary.path().join(format!("out-{arch}"));
+        let first = prepare_apple_simulator_link_archives_with_lipo(
+            &install,
+            target,
+            &out,
+            std::slice::from_ref(&archive),
+            Path::new("lipo"),
+        )
+        .expect("thin real universal archive");
+        let second = prepare_apple_simulator_link_archives_with_lipo(
+            &install,
+            target,
+            &out,
+            std::slice::from_ref(&archive),
+            Path::new("lipo"),
+        )
+        .expect("repeat real thinning");
+        assert_eq!(first, second, "fixed inputs produce the same closure");
+        assert_eq!(lipo_archs(&first[0].linked), vec![arch]);
+        assert_eq!(
+            digest_file(&first[0].linked).expect("derivative digest"),
+            first[0].derivative_digest.as_deref().unwrap()
+        );
+        // The derivative must define the native symbol, not merely mention it:
+        // a staticlib may legally leave an extern unresolved.
+        let symbols = Command::new("nm")
+            .arg("-g")
+            .arg(&first[0].linked)
+            .output()
+            .expect("run nm");
+        assert!(symbols.status.success(), "nm failed");
+        assert!(
+            String::from_utf8_lossy(&symbols.stdout).contains("T _tiny_answer"),
+            "derivative does not define tiny_answer: {}",
+            String::from_utf8_lossy(&symbols.stdout)
+        );
+        // Only the current closure is left under OUT_DIR, so nothing else can
+        // satisfy `-l tiny`; the unpublished snapshot is gone.
+        let staging: Vec<_> = fs::read_dir(&out)
+            .expect("staging parent")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .into_string()
+                    .expect("utf8")
+            })
+            .collect();
+        assert_eq!(staging.len(), 1, "only the closure remains: {staging:?}");
+        rustc_links_staticlib(target, &first[0].linked, "tiny", "tiny_answer");
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn fat_member_becoming_thin_cannot_select_the_stale_derivative() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let root = temporary.path().join("bundle");
+    let lib = root.join("lib");
+    fs::create_dir_all(&lib).expect("library directory");
+    let vm = LinkArchive {
+        library: "vm".to_owned(),
+        source: make_universal_archive(&lib, "vm", "vm_answer", 1),
+    };
+    let member = LinkArchive {
+        library: "member".to_owned(),
+        source: make_universal_archive(&lib, "member", "member_answer", 2),
+    };
+    let archives = vec![vm, member];
+    let mut install = test_install(&root, &archives, true);
+    let out = temporary.path().join("out");
+    let first = prepare_apple_simulator_link_archives_with_lipo(
+        &install,
+        "aarch64-apple-ios-sim",
+        &out,
+        &archives,
+        Path::new("lipo"),
+    )
+    .expect("first fat closure");
+    let first_derivative = fs::read(&first[1].linked).expect("old derivative");
+
+    let replacement = make_thin_archive(&lib, "replacement", "member_answer", 99, "arm64");
+    fs::copy(&replacement, &archives[1].source).expect("replace member with thin archive");
+    install.authenticated_archive_digests.insert(
+        archives[1].source.clone(),
+        digest_file(&archives[1].source).expect("replacement digest"),
+    );
+    let second = prepare_apple_simulator_link_archives_with_lipo(
+        &install,
+        "aarch64-apple-ios-sim",
+        &out,
+        &archives,
+        Path::new("lipo"),
+    )
+    .expect("fat plus thin closure");
+
+    let first_dir = first[0].linked.parent().expect("first closure directory");
+    let second_dir = second[0].linked.parent().expect("second closure directory");
+    assert_ne!(first_dir, second_dir, "closure identity must change");
+    assert!(second
+        .iter()
+        .all(|archive| archive.linked.parent() == Some(second_dir)));
+    assert!(first[1].derivative_digest.is_some());
+    assert_eq!(second[1].derivative_digest, None);
+    assert_eq!(lipo_archs(&second[1].linked), vec!["arm64"]);
+    assert_eq!(
+        fs::read(&second[1].linked).expect("new linked member"),
+        fs::read(&archives[1].source).expect("new source member")
+    );
+    assert_ne!(
+        first_derivative,
+        fs::read(&second[1].linked).expect("new thin member")
+    );
+    // Earlier closures and every snapshot are pruned; what links is read-only.
+    assert!(!first_dir.exists(), "stale closure must be pruned");
+    let staging: Vec<_> = fs::read_dir(&out)
+        .expect("staging parent")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .into_string()
+                .expect("utf8")
+        })
+        .filter(|name| name.starts_with("hermes-lean-sys-"))
+        .collect();
+    assert_eq!(staging.len(), 1, "one closure remains: {staging:?}");
+    assert!(second.iter().all(|archive| fs::metadata(&archive.linked)
+        .expect("linked metadata")
+        .permissions()
+        .readonly()));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn symlinked_and_non_regular_simulator_members_are_refused() {
+    use std::os::unix::fs::symlink;
+
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let root = temporary.path().join("bundle");
+    let lib = root.join("lib");
+    fs::create_dir_all(&lib).expect("library directory");
+    let regular = make_thin_archive(&lib, "real", "tiny_answer", 42, "arm64");
+    let symlink_path = lib.join("libsymlink.a");
+    symlink(&regular, &symlink_path).expect("archive symlink");
+    let symlink_archive = LinkArchive {
+        library: "symlink".to_owned(),
+        source: symlink_path,
+    };
+    let symlink_install = test_install(&root, std::slice::from_ref(&symlink_archive), true);
+    let error = prepare_apple_simulator_link_archives_with_lipo(
+        &symlink_install,
+        "aarch64-apple-ios-sim",
+        &temporary.path().join("symlink-out"),
+        std::slice::from_ref(&symlink_archive),
+        Path::new("lipo"),
+    )
+    .expect_err("symlinked archive must fail");
+    assert!(error.contains("symlink"), "{error}");
+
+    let directory_path = lib.join("libdirectory.a");
+    fs::create_dir(&directory_path).expect("non-regular archive fixture");
+    let directory_archive = LinkArchive {
+        library: "directory".to_owned(),
+        source: directory_path,
+    };
+    let directory_install = test_install(&root, std::slice::from_ref(&directory_archive), false);
+    let error = prepare_apple_simulator_link_archives_with_lipo(
+        &directory_install,
+        "aarch64-apple-ios-sim",
+        &temporary.path().join("directory-out"),
+        std::slice::from_ref(&directory_archive),
+        Path::new("lipo"),
+    )
+    .expect_err("non-regular archive must fail");
+    assert!(error.contains("not a regular file"), "{error}");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn receipt_free_thin_simulator_override_still_links() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let root = temporary.path().join("override");
+    let lib = root.join("lib");
+    fs::create_dir_all(&lib).expect("library directory");
+    let thin = make_thin_archive(&lib, "tiny-slice", "tiny_answer", 42, "arm64");
+    let source = lib.join("libtiny.a");
+    fs::copy(thin, &source).expect("legacy thin archive");
+    let archive = LinkArchive {
+        library: "tiny".to_owned(),
+        source,
+    };
+    let install = test_install(&root, std::slice::from_ref(&archive), false);
+    let prepared = prepare_apple_simulator_link_archives_with_lipo(
+        &install,
+        "aarch64-apple-ios-sim",
+        &temporary.path().join("out"),
+        std::slice::from_ref(&archive),
+        Path::new("lipo"),
+    )
+    .expect("receipt-free thin override");
+
+    assert_eq!(prepared[0].derivative_digest, None);
+    assert_ne!(prepared[0].linked, archive.source);
+    assert_eq!(lipo_archs(&prepared[0].linked), vec!["arm64"]);
+    rustc_links_staticlib(
+        "aarch64-apple-ios-sim",
+        &prepared[0].linked,
+        "tiny",
+        "tiny_answer",
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn make_universal_archive(directory: &Path, library: &str, symbol: &str, answer: i32) -> PathBuf {
+    let arm64 = make_thin_archive(directory, library, symbol, answer, "arm64");
+    let x86_64 = make_thin_archive(directory, library, symbol, answer, "x86_64");
+    let universal = directory.join(format!("lib{library}.a"));
+    checked_command(
+        Command::new("lipo")
+            .arg("-create")
+            .arg(arm64)
+            .arg(x86_64)
+            .arg("-output")
+            .arg(&universal),
+        "create universal static archive",
+    );
+    assert_eq!(lipo_archs(&universal), vec!["x86_64", "arm64"]);
+    universal
+}
+
+#[cfg(target_os = "macos")]
+fn make_thin_archive(
+    directory: &Path,
+    library: &str,
+    symbol: &str,
+    answer: i32,
+    arch: &str,
+) -> PathBuf {
+    let source = directory.join(format!("{library}-{arch}-{answer}.c"));
+    let object = directory.join(format!("{library}-{arch}-{answer}.o"));
+    let archive = directory.join(format!("lib{library}-{arch}-{answer}.a"));
+    fs::write(
+        &source,
+        format!("int {symbol}(void) {{ return {answer}; }}\n"),
+    )
+    .expect("tiny C source");
+    checked_command(
+        Command::new("cc")
+            .arg("-arch")
+            .arg(arch)
+            .arg("-c")
+            .arg(&source)
+            .arg("-o")
+            .arg(&object),
+        "compile thin C object",
+    );
+    checked_command(
+        Command::new("ar").arg("rcs").arg(&archive).arg(&object),
+        "create thin static archive",
+    );
+    assert_eq!(lipo_archs(&archive), vec![arch]);
+    archive
+}
+
+#[cfg(target_os = "macos")]
+fn test_install(root: &Path, archives: &[LinkArchive], authenticate: bool) -> EngineInstall {
+    let authenticated_archive_digests = if authenticate {
+        archives
+            .iter()
+            .map(|archive| {
+                (
+                    archive.source.clone(),
+                    digest_file(&archive.source).expect("source digest"),
+                )
+            })
+            .collect()
+    } else {
+        Default::default()
+    };
+    EngineInstall {
+        root: root.to_path_buf(),
+        include_dir: root.join("include"),
+        lib_root: root.join("lib"),
+        vm_archive: archives[0].source.clone(),
+        lean_vm_archive: None,
+        icu_i18n_archive: None,
+        icu_uc_archive: None,
+        icu_data_archive: None,
+        icu_full_data_archive: None,
+        icu_en_data_archive: None,
+        icu_en_filter: None,
+        icu_trimmed_filter: None,
+        hermesc: root.join("bin/hermesc"),
+        authenticated_archive_digests,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn lipo_archs(archive: &Path) -> Vec<&str> {
+    let output = checked_command(
+        Command::new("lipo").arg("-archs").arg(archive),
+        "inspect static archive architectures",
+    );
+    let stdout = String::from_utf8(output.stdout).expect("lipo output is UTF-8");
+    stdout
+        .split_whitespace()
+        .map(|arch| match arch {
+            "arm64" => "arm64",
+            "x86_64" => "x86_64",
+            other => panic!("unexpected lipo architecture {other}"),
+        })
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn rustc_links_staticlib(target: &str, archive: &Path, library: &str, symbol: &str) {
+    let temporary = tempfile::tempdir().expect("rustc proof directory");
+    let source = temporary.path().join("proof.rs");
+    let output = temporary.path().join("libproof.a");
+    fs::write(
+        &source,
+        format!(
+            "extern \"C\" {{ fn {symbol}() -> i32; }}\n#[no_mangle]\npub extern \"C\" fn call_native() -> i32 {{ unsafe {{ {symbol}() }} }}\n"
+        ),
+    )
+    .expect("Rust staticlib proof source");
+    let link_dir = archive.parent().expect("prepared archive parent");
+    checked_command(
+        Command::new("rustc")
+            .arg("--edition=2021")
+            .arg("--crate-name=simulator_link_proof")
+            .arg("--crate-type=staticlib")
+            .arg("--target")
+            .arg(target)
+            .arg(&source)
+            .arg("-L")
+            .arg(format!("native={}", link_dir.display()))
+            .arg("-l")
+            .arg(format!("static={library}"))
+            .arg("-o")
+            .arg(&output),
+        "link Rust staticlib for iOS Simulator",
+    );
+    let staticlib = fs::read(&output).expect("Rust staticlib output");
+    assert!(
+        staticlib
+            .windows(symbol.len())
+            .any(|candidate| candidate == symbol.as_bytes()),
+        "Rust staticlib did not bundle {symbol}"
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn checked_command(command: &mut Command, purpose: &str) -> std::process::Output {
+    let output = command.output().unwrap_or_else(|error| {
+        panic!("cannot {purpose} with {command:?}: {error}");
+    });
+    assert!(
+        output.status.success(),
+        "failed to {purpose} with {command:?}: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output
+}
+
+#[cfg(unix)]
+#[test]
+fn arm64_only_tvos_simulator_archive_is_not_thinned() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let source = temporary.path().join("libhermesvm_a.a");
+    fs::write(&source, b"thin-arm64").expect("archive");
+    let digest = digest_file(&source).expect("archive digest");
+    let install = EngineInstall {
+        root: temporary.path().to_path_buf(),
+        include_dir: temporary.path().join("include"),
+        lib_root: temporary.path().to_path_buf(),
+        vm_archive: source.clone(),
+        lean_vm_archive: None,
+        icu_i18n_archive: None,
+        icu_uc_archive: None,
+        icu_data_archive: None,
+        icu_full_data_archive: None,
+        icu_en_data_archive: None,
+        icu_en_filter: None,
+        icu_trimmed_filter: None,
+        hermesc: temporary.path().join("hermesc"),
+        authenticated_archive_digests: [(source.clone(), digest.clone())].into_iter().collect(),
+    };
+    let fake_lipo = temporary.path().join("lipo");
+    fs::write(
+        &fake_lipo,
+        "#!/bin/sh\n[ \"$1\" = \"-archs\" ] && printf 'arm64\\n' && exit 0\nexit 99\n",
+    )
+    .expect("fake lipo");
+    let mut permissions = fs::metadata(&fake_lipo)
+        .expect("fake lipo metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&fake_lipo, permissions).expect("make fake lipo executable");
+
+    let prepared = prepare_apple_simulator_link_archives_with_lipo(
+        &install,
+        "aarch64-apple-tvos-sim",
+        &temporary.path().join("out"),
+        &[LinkArchive {
+            library: "hermesvm_a".to_owned(),
+            source: source.clone(),
+        }],
+        &fake_lipo,
+    )
+    .expect("inspect thin archive");
+    assert_ne!(prepared[0].linked, source);
+    assert_eq!(
+        fs::read(&prepared[0].linked).expect("staged thin archive"),
+        b"thin-arm64"
+    );
+    assert_eq!(prepared[0].source_digest.as_deref(), Some(digest.as_str()));
+    assert_eq!(prepared[0].derivative_digest, None);
+}
+
+#[cfg(unix)]
+#[test]
+fn simulator_thinning_refuses_an_unauthenticated_input_before_lipo() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let source = temporary.path().join("libhermesvm_a.a");
+    fs::write(&source, b"archive").expect("archive");
+    let install = EngineInstall {
+        root: temporary.path().to_path_buf(),
+        include_dir: temporary.path().join("include"),
+        lib_root: temporary.path().to_path_buf(),
+        vm_archive: source.clone(),
+        lean_vm_archive: None,
+        icu_i18n_archive: None,
+        icu_uc_archive: None,
+        icu_data_archive: None,
+        icu_full_data_archive: None,
+        icu_en_data_archive: None,
+        icu_en_filter: None,
+        icu_trimmed_filter: None,
+        hermesc: temporary.path().join("hermesc"),
+        authenticated_archive_digests: Default::default(),
+    };
+    let fake_lipo = temporary.path().join("lipo");
+    fs::write(
+        &fake_lipo,
+        "#!/bin/sh\n[ \"$1\" = \"-archs\" ] && printf 'x86_64 arm64\\n' && exit 0\nexit 99\n",
+    )
+    .expect("fake lipo");
+    let mut permissions = fs::metadata(&fake_lipo)
+        .expect("fake lipo metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&fake_lipo, permissions).expect("make fake lipo executable");
+    let error = prepare_apple_simulator_link_archives_with_lipo(
+        &install,
+        "aarch64-apple-ios-sim",
+        &temporary.path().join("out"),
+        &[LinkArchive {
+            library: "hermesvm_a".to_owned(),
+            source,
+        }],
+        &fake_lipo,
+    )
+    .expect_err("receipt omission must fail first");
+    assert!(error.contains("canonical receipt"), "{error}");
+    assert!(error.contains("libhermesvm_a.a"), "{error}");
+}
+
+#[test]
+fn missing_lipo_names_xcode_command_line_tools() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let source = temporary.path().join("libhermesvm_a.a");
+    fs::write(&source, b"archive").expect("archive");
+    let digest = digest_file(&source).expect("archive digest");
+    let install = EngineInstall {
+        root: temporary.path().to_path_buf(),
+        include_dir: temporary.path().join("include"),
+        lib_root: temporary.path().to_path_buf(),
+        vm_archive: source.clone(),
+        lean_vm_archive: None,
+        icu_i18n_archive: None,
+        icu_uc_archive: None,
+        icu_data_archive: None,
+        icu_full_data_archive: None,
+        icu_en_data_archive: None,
+        icu_en_filter: None,
+        icu_trimmed_filter: None,
+        hermesc: temporary.path().join("hermesc"),
+        authenticated_archive_digests: [(source.clone(), digest)].into_iter().collect(),
+    };
+    let error = prepare_apple_simulator_link_archives_with_lipo(
+        &install,
+        "aarch64-apple-ios-sim",
+        &temporary.path().join("out"),
+        &[LinkArchive {
+            library: "hermesvm_a".to_owned(),
+            source,
+        }],
+        &temporary.path().join("missing-lipo"),
+    )
+    .expect_err("missing lipo must fail clearly");
+    assert!(error.contains("Xcode command-line tools"), "{error}");
+    assert!(error.contains("xcode-select --install"), "{error}");
 }
 
 #[test]
@@ -50,9 +637,12 @@ fn rerun_inputs_cover_receipt_headers_cache_and_link_archives() {
         icu_i18n_archive: Some(root.join("lib/libicui18n.a")),
         icu_uc_archive: Some(root.join("lib/libicuuc.a")),
         icu_data_archive: Some(root.join("lib/libicudata.a")),
+        icu_en_data_archive: Some(root.join("lib/libicudata-en.a")),
         icu_full_data_archive: Some(root.join("lib/libicudata-full.a")),
         icu_trimmed_filter: Some(root.join("share/icu/filters-root-en.json")),
+        icu_en_filter: Some(root.join("share/icu/filters-en-intl.json")),
         hermesc: root.join("bin/hermesc"),
+        authenticated_archive_digests: Default::default(),
     };
     let paths = watched_inputs(&install, "x86_64-unknown-linux-gnu");
     for expected in [
@@ -68,8 +658,10 @@ fn rerun_inputs_cover_receipt_headers_cache_and_link_archives() {
         root.join("lib/libicui18n.a"),
         root.join("lib/libicuuc.a"),
         root.join("lib/libicudata.a"),
+        root.join("lib/libicudata-en.a"),
         root.join("lib/libicudata-full.a"),
         root.join("share/icu/filters-root-en.json"),
+        root.join("share/icu/filters-en-intl.json"),
         root.join("lib/libtinfo.a"),
     ] {
         assert!(
@@ -92,7 +684,7 @@ fn pin_table_digest_parser_accepts_only_sha256_hex() {
     );
     assert!(parse_pin_sha256("abc").is_err());
     assert!(parse_pin_sha256(&"g".repeat(64)).is_err());
-    let placeholder = parse_pin_sha256("TODO_L1G_SHA256_TEST").expect_err("sentinel");
+    let placeholder = parse_pin_sha256("TODO_I3_V4_SHA256_TEST").expect_err("sentinel");
     assert!(
         placeholder.contains("awaiting publication"),
         "{placeholder}"
@@ -387,9 +979,12 @@ fn rerun_paths_name_only_existing_inputs_and_the_root() {
         icu_i18n_archive: None,
         icu_uc_archive: None,
         icu_data_archive: None,
+        icu_en_data_archive: None,
         icu_full_data_archive: None,
         icu_trimmed_filter: None,
+        icu_en_filter: None,
         hermesc: root.join("bin/hermesc"),
+        authenticated_archive_digests: Default::default(),
     };
     let paths = rerun_paths(&install, "aarch64-apple-darwin");
     for expected in [

@@ -33,7 +33,7 @@ pub const ENGINE_DIGEST: &str = env!("IBEX2_BINDINGS_ENGINE_DIGEST");
 /// install has a receipt, its archive manifest is always checked before this
 /// identity is exported; an unbound lean archive fails the build.
 pub const LEAN_ENGINE_DIGEST: Option<&str> = option_env!("IBEX2_BINDINGS_LEAN_ENGINE_DIGEST");
-/// Receipt-bound trimmed root+en ICU data archive available on Linux.
+/// Receipt-bound base ICU data archive available on Linux.
 ///
 /// This is not a selected or linked identity: bindings link no ICU data. A
 /// process must use the linking `hermes-lean-sys` instance's
@@ -41,6 +41,10 @@ pub const LEAN_ENGINE_DIGEST: Option<&str> = option_env!("IBEX2_BINDINGS_LEAN_EN
 pub const ICU_DATA_ARCHIVE: Option<&str> = option_env!("IBEX2_BINDINGS_ICU_DATA_ARCHIVE");
 /// Digest of the available [`ICU_DATA_ARCHIVE`].
 pub const ICU_DATA_DIGEST: Option<&str> = option_env!("IBEX2_BINDINGS_ICU_DATA_DIGEST");
+/// Receipt-bound English Intl ICU data archive available on Linux.
+pub const ICU_EN_DATA_ARCHIVE: Option<&str> = option_env!("IBEX2_BINDINGS_ICU_EN_DATA_ARCHIVE");
+/// Digest of the available [`ICU_EN_DATA_ARCHIVE`].
+pub const ICU_EN_DATA_DIGEST: Option<&str> = option_env!("IBEX2_BINDINGS_ICU_EN_DATA_DIGEST");
 /// Receipt-bound full ICU data archive available on Linux.
 pub const ICU_FULL_DATA_ARCHIVE: Option<&str> = option_env!("IBEX2_BINDINGS_ICU_FULL_DATA_ARCHIVE");
 /// Digest of the available [`ICU_FULL_DATA_ARCHIVE`].

@@ -11,7 +11,7 @@ use std::path::{Component, Path, PathBuf};
 #[path = "receipt_schema.rs"]
 mod receipt_schema;
 
-pub(crate) const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v3";
+pub(crate) const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v4";
 const DEFAULT_RELEASE_BASE_URL: &str = "https://github.com/expo/ibex/releases/download";
 pub(crate) const CACHE_ARCHIVE: &str = ".hermes-lean-sys-bundle.tar.gz";
 
@@ -24,50 +24,60 @@ pub(crate) struct BundlePin {
 
 // @ref LLP 0057.000#l1--the-bindings-door — this table is the trust root for
 // the compiler/VM identity shared by the bindings and the owning runtime.
-// The v3 release is not published yet, so every digest is a deliberately
-// rejecting sentinel. They MUST be replaced with the v3 asset digests only
+// The v4 release is not published yet, so every digest is a deliberately
+// rejecting sentinel. They MUST be replaced with the v4 asset digests only
 // after the immutable release and its Sigstore attestations are verified; see
 // scripts/update-hermes-lean-sys-pins.mjs.
 pub(crate) const PINNED_BUNDLES: &[BundlePin] = &[
     BundlePin {
         target: "aarch64-apple-darwin",
         asset: "hermes-vanilla-aarch64-apple-darwin.tar.gz",
-        sha256: "b2789fd4aa33b711b3a86525ad562e7abb65375e8b728ead03eebc8d4c386544",
+        sha256: "457565d12cc1bdbf7a12b5ea72253742565b0a6837f44b28660049e2d9056299",
     },
     BundlePin {
         target: "x86_64-apple-darwin",
         asset: "hermes-vanilla-x86_64-apple-darwin.tar.gz",
-        sha256: "c33c595960e75569ad8f623f8f1db48cd65d0a296a0ed4e98abce0989593e175",
+        sha256: "dabf946fc63e5d53eed2b73c45961ea01786e2218c5be45254a3ab687c887d7a",
     },
     BundlePin {
         target: "aarch64-apple-ios",
         asset: "hermes-vanilla-aarch64-apple-ios.tar.gz",
-        sha256: "3f5a57f7ecd8382144a155352a63ff23b10f5e23648967487fb6ebdd62640c17",
+        sha256: "7695d42dde77aa400f849e185dd3542d57fe970bf0ba33dd547ea7bd49617a3c",
     },
     BundlePin {
         target: "aarch64-apple-ios-sim",
         asset: "hermes-vanilla-universal-apple-ios-simulator.tar.gz",
-        sha256: "d48df1a3d49b8815a55e332d39eb6a8881b1217ae2362558998d9ade41a1d9d9",
+        sha256: "aaf9efb864104deec6909e7e8e835a5900719a8b9aa4d8fe34b27497e0cd076d",
     },
     BundlePin {
         target: "x86_64-apple-ios",
         asset: "hermes-vanilla-universal-apple-ios-simulator.tar.gz",
-        sha256: "d48df1a3d49b8815a55e332d39eb6a8881b1217ae2362558998d9ade41a1d9d9",
+        sha256: "aaf9efb864104deec6909e7e8e835a5900719a8b9aa4d8fe34b27497e0cd076d",
+    },
+    BundlePin {
+        target: "aarch64-apple-tvos",
+        asset: "hermes-vanilla-aarch64-apple-tvos.tar.gz",
+        sha256: "22f5045fbe6a262b5e2ab6931230cb92c2b8bba50169f2219b13c71f64eadce0",
+    },
+    BundlePin {
+        target: "aarch64-apple-tvos-sim",
+        asset: "hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz",
+        sha256: "abb8c3d08d36d55a9ba04f94cbc9221eb8b45d619b1b1029c51696a639c3bc97",
     },
     BundlePin {
         target: "x86_64-unknown-linux-gnu",
         asset: "hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz",
-        sha256: "b566a7493ee71163d0c4aa792342407b51f2caf27017f3c010720d94d1618bb7",
+        sha256: "5000324acd01cd2cc218682e4fec114632dd3b8c703f6a8eeca546f6744e17e2",
     },
     BundlePin {
         target: "aarch64-unknown-linux-gnu",
         asset: "hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz",
-        sha256: "a5b4fe404eb606bd3e021273573c21217a0f614c808abe48ab67bc6d2315608d",
+        sha256: "f7fc2621bf2c9396c7afd5d4e5128c1dd16c96bade14ff8c13934ef6489e6eb8",
     },
     BundlePin {
         target: "x86_64-pc-windows-msvc",
         asset: "hermes-vanilla-x86_64-pc-windows-msvc.tar.gz",
-        sha256: "607f78b14ece437c6069869ff6a57cd0fc4ae0be040d91824049ce3c69f7c38b",
+        sha256: "1ae9d648aad5fa4f568288260a8a359badc3f748782752c450f7dee34b2e7522",
     },
 ];
 
@@ -88,8 +98,10 @@ struct InstallLayout {
     icu_i18n_archive: Option<PathBuf>,
     icu_uc_archive: Option<PathBuf>,
     icu_data_archive: Option<PathBuf>,
+    icu_en_data_archive: Option<PathBuf>,
     icu_full_data_archive: Option<PathBuf>,
     icu_trimmed_filter: Option<PathBuf>,
+    icu_en_filter: Option<PathBuf>,
     origin: InstallOrigin,
     requires_receipt: bool,
     target: String,
@@ -105,9 +117,35 @@ pub(crate) struct EngineInstall {
     pub icu_i18n_archive: Option<PathBuf>,
     pub icu_uc_archive: Option<PathBuf>,
     pub icu_data_archive: Option<PathBuf>,
+    pub icu_en_data_archive: Option<PathBuf>,
     pub icu_full_data_archive: Option<PathBuf>,
     pub icu_trimmed_filter: Option<PathBuf>,
+    pub icu_en_filter: Option<PathBuf>,
     pub hermesc: PathBuf,
+    pub authenticated_archive_digests: BTreeMap<PathBuf, String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LinkArchive {
+    pub library: String,
+    pub source: PathBuf,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PreparedLinkArchive {
+    pub library: String,
+    /// The receipt-authenticated bundle input. R-e continues to name this
+    /// archive and its receipt digest even when rustc links a thin derivative.
+    pub source: PathBuf,
+    /// The path placed on rustc's native-library search path. Apple Simulator
+    /// closures place every member in one freshly populated content-addressed
+    /// directory, whether the member was copied or thinned.
+    pub linked: PathBuf,
+    /// Digest captured while copying `source` through its one open handle.
+    /// Present for Apple Simulator closures.
+    pub source_digest: Option<String>,
+    /// Digest of `linked` when it is an OUT_DIR derivative of `source`.
+    pub derivative_digest: Option<String>,
 }
 
 #[derive(Debug)]
@@ -142,8 +180,10 @@ pub(crate) fn watched_inputs(install: &EngineInstall, target: &str) -> Vec<PathB
         &install.icu_i18n_archive,
         &install.icu_uc_archive,
         &install.icu_data_archive,
+        &install.icu_en_data_archive,
         &install.icu_full_data_archive,
         &install.icu_trimmed_filter,
+        &install.icu_en_filter,
     ]
     .into_iter()
     .flatten()
@@ -224,7 +264,7 @@ pub(crate) fn pin_for_target(target: &str) -> Result<&'static BundlePin, String>
 }
 
 pub(crate) fn parse_pin_sha256(value: &str) -> Result<String, String> {
-    if value.starts_with("TODO_L1G_SHA256_") {
+    if value.starts_with("TODO_I3_V4_SHA256_") {
         return Err(format!(
             "the Hermes bundle digest pin {value} is awaiting publication; set HERMES_LEAN_SYS_DIR to a complete local install"
         ));
@@ -382,6 +422,7 @@ pub(crate) fn resolve_engine_directory(
     )?;
 
     let lean_vm_archive = authenticated_lean_archive(&target_layout);
+    let authenticated_archive_digests = authenticated_archive_digests(&target_layout)?;
 
     Ok(EngineInstall {
         root: target_layout.root,
@@ -392,15 +433,22 @@ pub(crate) fn resolve_engine_directory(
         icu_i18n_archive: target_layout.icu_i18n_archive,
         icu_uc_archive: target_layout.icu_uc_archive,
         icu_data_archive: target_layout.icu_data_archive,
+        icu_en_data_archive: target_layout.icu_en_data_archive,
         icu_full_data_archive: target_layout.icu_full_data_archive,
         icu_trimmed_filter: target_layout.icu_trimmed_filter,
+        icu_en_filter: target_layout.icu_en_filter,
         hermesc,
+        authenticated_archive_digests,
     })
 }
 
 pub(crate) fn repository_install_root(repo_root: &Path, target: &str) -> Option<PathBuf> {
     let root = if matches!(target, "aarch64-apple-darwin" | "x86_64-apple-darwin") {
         repo_root.join("ios/Frameworks-vanilla")
+    } else if target == "aarch64-apple-tvos" {
+        repo_root.join("tvos/Frameworks-vanilla")
+    } else if target == "aarch64-apple-tvos-sim" {
+        repo_root.join("tvos-simulator/Frameworks-vanilla")
     } else if target.ends_with("-pc-windows-msvc") {
         let arch = if target.starts_with("x86_64-") {
             "x64"
@@ -442,9 +490,12 @@ fn install_layout(root: PathBuf, target: &str, origin: InstallOrigin) -> Install
         icu_i18n_archive: linux_icu.then(|| lib_root.join("libicui18n.a")),
         icu_uc_archive: linux_icu.then(|| lib_root.join("libicuuc.a")),
         icu_data_archive: linux_icu.then(|| lib_root.join("libicudata.a")),
+        icu_en_data_archive: linux_icu.then(|| lib_root.join("libicudata-en.a")),
         icu_full_data_archive: linux_icu.then(|| lib_root.join("libicudata-full.a")),
         icu_trimmed_filter: linux_icu
             .then(|| root.join("share").join("icu").join("filters-root-en.json")),
+        icu_en_filter: linux_icu
+            .then(|| root.join("share").join("icu").join("filters-en-intl.json")),
         root,
         include_dir,
         vm_archive: lib_root.join(archive),
@@ -508,9 +559,11 @@ fn validate_layout(layout: &InstallLayout, require_lean: bool) -> Result<(), Str
     for (label, path) in [
         ("ICU i18n code archive", &layout.icu_i18n_archive),
         ("ICU Unicode code archive", &layout.icu_uc_archive),
-        ("trimmed ICU data archive", &layout.icu_data_archive),
+        ("base ICU data archive", &layout.icu_data_archive),
+        ("English-Intl ICU data archive", &layout.icu_en_data_archive),
         ("full ICU data archive", &layout.icu_full_data_archive),
-        ("trimmed ICU data filter", &layout.icu_trimmed_filter),
+        ("base ICU data filter", &layout.icu_trimmed_filter),
+        ("English-Intl ICU data filter", &layout.icu_en_filter),
     ] {
         if let Some(path) = path {
             required.push((label, path, false));
@@ -664,6 +717,23 @@ fn authenticated_lean_archive(layout: &InstallLayout) -> Option<PathBuf> {
         .then(|| layout.lean_vm_archive.clone())
 }
 
+fn authenticated_archive_digests(
+    layout: &InstallLayout,
+) -> Result<BTreeMap<PathBuf, String>, String> {
+    let Some(receipt) = read_receipt_claims(layout)? else {
+        return Ok(BTreeMap::new());
+    };
+    let Some(archive_digests) = receipt.archive_digests else {
+        return Ok(BTreeMap::new());
+    };
+    archive_digests
+        .into_iter()
+        .map(|(relative, digest)| {
+            safe_relative_path(&layout.root, Path::new(&relative)).map(|path| (path, digest))
+        })
+        .collect()
+}
+
 fn validate_receipt(
     layout: &InstallLayout,
     compiler: &Path,
@@ -675,7 +745,7 @@ fn validate_receipt(
     let Some(receipt) = read_receipt_claims(layout)? else {
         if layout.target.ends_with("-unknown-linux-gnu") {
             return Err(format!(
-                "Linux Hermes install {} has no canonical receipt binding its ICU code and trimmed/full data archives",
+                "Linux Hermes install {} has no canonical receipt binding its ICU code and base/English-Intl/full data archives",
                 layout.root.display()
             ));
         }
@@ -811,9 +881,14 @@ fn validate_linux_icu_receipt(
             icu.code_archives.get(1),
         ),
         (
-            "trimmed ICU data archive",
+            "base ICU data archive",
             layout.icu_data_archive.as_ref(),
             Some(&icu.trimmed_data_archive),
+        ),
+        (
+            "English-Intl ICU data archive",
+            layout.icu_en_data_archive.as_ref(),
+            Some(&icu.en_data_archive),
         ),
         (
             "full ICU data archive",
@@ -852,27 +927,39 @@ fn validate_linux_icu_receipt(
         }
     }
 
-    let filter = layout
-        .icu_trimmed_filter
-        .as_ref()
-        .ok_or("Linux layout has no trimmed ICU data filter")?;
-    let relative = relative_install_path(&layout.root, filter)?;
-    if relative != icu.trimmed_filter_path {
-        return Err(format!(
-            "{} records trimmed ICU filter {}, but hermes-lean-sys selected {}",
-            receipt_path.display(),
-            icu.trimmed_filter_path,
-            relative
-        ));
-    }
-    let actual = digest_file(filter)?;
-    if actual != icu.trimmed_filter_digest {
-        return Err(format!(
-            "{} records trimmed ICU filter digest {}, but selected filter has {}",
-            receipt_path.display(),
-            icu.trimmed_filter_digest,
-            actual
-        ));
+    for (label, selected, claimed_path, claimed_digest) in [
+        (
+            "base ICU data filter",
+            layout.icu_trimmed_filter.as_ref(),
+            &icu.trimmed_filter_path,
+            &icu.trimmed_filter_digest,
+        ),
+        (
+            "English-Intl ICU data filter",
+            layout.icu_en_filter.as_ref(),
+            &icu.en_filter_path,
+            &icu.en_filter_digest,
+        ),
+    ] {
+        let selected = selected.ok_or_else(|| format!("Linux layout has no {label}"))?;
+        let relative = relative_install_path(&layout.root, selected)?;
+        if &relative != claimed_path {
+            return Err(format!(
+                "{} records {label} {}, but hermes-lean-sys selected {}",
+                receipt_path.display(),
+                claimed_path,
+                relative
+            ));
+        }
+        let actual = digest_file(selected)?;
+        if &actual != claimed_digest {
+            return Err(format!(
+                "{} records {label} digest {}, but selected filter has {}",
+                receipt_path.display(),
+                claimed_digest,
+                actual
+            ));
+        }
     }
     Ok(())
 }
@@ -1108,6 +1195,549 @@ pub(crate) fn digest_file(path: &Path) -> Result<String, String> {
     io::copy(&mut file, &mut DigestWriter(&mut digest))
         .map_err(|error| format!("cannot hash {}: {error}", path.display()))?;
     Ok(format!("sha256-{:x}", digest.finalize()))
+}
+
+pub(crate) fn apple_simulator_arch(target: &str) -> Option<&'static str> {
+    match target {
+        "aarch64-apple-ios-sim" | "aarch64-apple-tvos-sim" => Some("arm64"),
+        // Rust's x86_64 iOS/tvOS triples are simulator-only and predate the
+        // explicit `-sim` suffix used by the arm64 triples.
+        "x86_64-apple-ios" | "x86_64-apple-tvos" => Some("x86_64"),
+        _ => None,
+    }
+}
+
+/// Prepare one isolated Apple Simulator native-link closure. Every source is
+/// opened without following a final symlink, checked as a regular file, and
+/// copied into private content-addressed staging while that same handle is
+/// hashed. `lipo` only sees those snapshots. If any snapshot is fat, every
+/// member must match the selected bundle receipt before it can be derived.
+/// Receipt-free legacy overrides remain supported when every archive is
+/// already thin and matches the requested architecture.
+pub(crate) fn prepare_apple_simulator_link_archives(
+    install: &EngineInstall,
+    target: &str,
+    out_dir: &Path,
+    archives: &[LinkArchive],
+) -> Result<Vec<PreparedLinkArchive>, String> {
+    prepare_apple_simulator_link_archives_with_lipo(
+        install,
+        target,
+        out_dir,
+        archives,
+        Path::new("lipo"),
+    )
+}
+
+pub(crate) fn prepare_apple_simulator_link_archives_with_lipo(
+    install: &EngineInstall,
+    target: &str,
+    out_dir: &Path,
+    archives: &[LinkArchive],
+    lipo: &Path,
+) -> Result<Vec<PreparedLinkArchive>, String> {
+    let Some(arch) = apple_simulator_arch(target) else {
+        return Ok(archives
+            .iter()
+            .map(|archive| PreparedLinkArchive {
+                library: archive.library.clone(),
+                source: archive.source.clone(),
+                linked: archive.source.clone(),
+                source_digest: None,
+                derivative_digest: None,
+            })
+            .collect());
+    };
+
+    fs::create_dir_all(out_dir).map_err(|error| {
+        format!(
+            "cannot create Apple Simulator staging parent {}: {error}",
+            out_dir.display()
+        )
+    })?;
+    let snapshot_temp = tempfile::Builder::new()
+        .prefix(".hermes-lean-sys-snapshot-")
+        .tempdir_in(out_dir)
+        .map_err(|error| {
+            format!(
+                "cannot create private Apple Simulator staging under {}: {error}",
+                out_dir.display()
+            )
+        })?;
+    let mut snapshots = Vec::with_capacity(archives.len());
+    let mut file_names = BTreeSet::new();
+    let mut libraries = BTreeSet::new();
+    for archive in archives {
+        let file_name = archive
+            .source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                format!(
+                    "Apple Simulator link archive {} has no UTF-8 file name",
+                    archive.source.display()
+                )
+            })?
+            .to_owned();
+        if !file_names.insert(file_name.clone()) {
+            return Err(format!(
+                "Apple Simulator link closure contains duplicate archive file name {file_name}"
+            ));
+        }
+        if !libraries.insert(archive.library.clone()) {
+            return Err(format!(
+                "Apple Simulator link closure contains duplicate library name {}",
+                archive.library
+            ));
+        }
+        let staged = snapshot_temp.path().join(&file_name);
+        let actual = copy_regular_archive_while_hashing(&archive.source, &staged)?;
+        let authenticated = if let Some(expected) =
+            install.authenticated_archive_digests.get(&archive.source)
+        {
+            if &actual != expected {
+                return Err(format!(
+                    "cannot prepare Apple Simulator link archive {}: the selected bundle receipt records {}, but the archive snapshot has {}",
+                    archive.source.display(),
+                    expected,
+                    actual
+                ));
+            }
+            true
+        } else {
+            false
+        };
+        snapshots.push(SnapshotArchive {
+            archive: archive.clone(),
+            file_name,
+            source_digest: actual,
+            authenticated,
+        });
+    }
+    // The verified snapshots stay in the private (0700) temporary directory and
+    // are never published: lipo reads them there, and the directory is removed
+    // when this function returns.
+    let snapshot_dir = snapshot_temp.path();
+
+    let mut inspected = Vec::with_capacity(snapshots.len());
+    for snapshot in snapshots {
+        let staged = snapshot_dir.join(&snapshot.file_name);
+        let architectures = lipo_architectures(lipo, &staged)?;
+        if architectures.len() == 1 {
+            if architectures[0] != arch {
+                return Err(format!(
+                    "thin Apple Simulator archive {} is architecture {}, not required architecture {arch}",
+                    snapshot.archive.source.display(),
+                    architectures[0]
+                ));
+            }
+        } else if !architectures.iter().any(|candidate| candidate == arch) {
+            return Err(format!(
+                "universal Apple Simulator archive {} contains architectures {}, not required architecture {arch}",
+                snapshot.archive.source.display(),
+                architectures.join(", ")
+            ));
+        }
+        inspected.push(InspectedArchive {
+            snapshot,
+            architectures,
+        });
+    }
+
+    if inspected.iter().any(|archive| archive.is_fat()) {
+        let missing: Vec<_> = inspected
+            .iter()
+            .filter(|archive| !archive.snapshot.authenticated)
+            .map(|archive| archive.snapshot.archive.source.display().to_string())
+            .collect();
+        if !missing.is_empty() {
+            return Err(format!(
+                "cannot derive a universal Apple Simulator link closure without a canonical receipt authenticating every member; missing {}",
+                missing.join(", ")
+            ));
+        }
+    }
+
+    let link_temp = tempfile::Builder::new()
+        .prefix(".hermes-lean-sys-link-")
+        .tempdir_in(out_dir)
+        .map_err(|error| {
+            format!(
+                "cannot create private Apple Simulator link closure under {}: {error}",
+                out_dir.display()
+            )
+        })?;
+    let mut outputs = Vec::with_capacity(inspected.len());
+    let mut closure_identity = Sha256::new();
+    identity_field(&mut closure_identity, b"hermes-lean-sys-link-closure-v1");
+    identity_field(&mut closure_identity, arch.as_bytes());
+    for inspected in &inspected {
+        let staged = snapshot_dir.join(&inspected.snapshot.file_name);
+        let destination = link_temp.path().join(&inspected.snapshot.file_name);
+        let linked_digest = if inspected.is_fat() {
+            // lipo writes into the private snapshot directory; the closure gets
+            // a copy taken through one no-follow handle, hashed as it is copied.
+            let thinned = snapshot_dir.join(format!("{}.thin", inspected.snapshot.file_name));
+            let output = std::process::Command::new(lipo)
+                .arg("-thin")
+                .arg(arch)
+                .arg(&staged)
+                .arg("-output")
+                .arg(&thinned)
+                .output()
+                .map_err(|error| lipo_launch_error(&staged, error))?;
+            if !output.status.success() {
+                return Err(format!(
+                    "lipo -thin {arch} failed for verified snapshot of {} with {}: {}",
+                    inspected.snapshot.archive.source.display(),
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ));
+            }
+            let digest = copy_regular_archive_while_hashing(&thinned, &destination)?;
+            let derivative_architectures = lipo_architectures(lipo, &destination)?;
+            if derivative_architectures != [arch] {
+                return Err(format!(
+                    "lipo produced {} with architectures {}, expected only {arch}",
+                    destination.display(),
+                    derivative_architectures.join(", ")
+                ));
+            }
+            digest
+        } else {
+            copy_regular_archive_while_hashing(&staged, &destination)?
+        };
+        if !inspected.is_fat() && linked_digest != inspected.snapshot.source_digest {
+            return Err(format!(
+                "byte-preserving Apple Simulator closure copy {} has digest {}, expected {}",
+                destination.display(),
+                linked_digest,
+                inspected.snapshot.source_digest
+            ));
+        }
+        let derivative_digest = inspected.is_fat().then(|| linked_digest.clone());
+        identity_field(
+            &mut closure_identity,
+            inspected.snapshot.archive.library.as_bytes(),
+        );
+        identity_field(
+            &mut closure_identity,
+            inspected.snapshot.file_name.as_bytes(),
+        );
+        identity_field(&mut closure_identity, linked_digest.as_bytes());
+        outputs.push(derivative_digest);
+    }
+    let closure_dir = out_dir.join(format!(
+        "hermes-lean-sys-link-{arch}-{:x}",
+        closure_identity.finalize()
+    ));
+    seal_read_only(link_temp.path())?;
+    publish_private_directory(link_temp, &closure_dir)?;
+    // Only the published closure is linked. Earlier snapshots and closures
+    // (a mutable local override can produce a new one on every rebuild) are
+    // pruned so OUT_DIR holds one closure per architecture.
+    prune_simulator_staging(out_dir, arch, &closure_dir)?;
+
+    let prepared = inspected
+        .into_iter()
+        .zip(outputs)
+        .map(|(inspected, derivative_digest)| PreparedLinkArchive {
+            library: inspected.snapshot.archive.library,
+            source: inspected.snapshot.archive.source,
+            linked: closure_dir.join(inspected.snapshot.file_name),
+            source_digest: Some(inspected.snapshot.source_digest),
+            derivative_digest,
+        })
+        .collect();
+    Ok(prepared)
+}
+
+struct SnapshotArchive {
+    archive: LinkArchive,
+    file_name: String,
+    source_digest: String,
+    authenticated: bool,
+}
+
+struct InspectedArchive {
+    snapshot: SnapshotArchive,
+    architectures: Vec<String>,
+}
+
+impl InspectedArchive {
+    fn is_fat(&self) -> bool {
+        self.architectures.len() > 1
+    }
+}
+
+fn identity_field(identity: &mut Sha256, field: &[u8]) {
+    identity.update((field.len() as u64).to_be_bytes());
+    identity.update(field);
+}
+
+fn copy_regular_archive_while_hashing(source: &Path, destination: &Path) -> Result<String, String> {
+    let path_metadata = fs::symlink_metadata(source)
+        .map_err(|error| format!("cannot inspect link archive {}: {error}", source.display()))?;
+    if path_metadata.file_type().is_symlink() {
+        return Err(format!(
+            "Apple Simulator link archive {} is a symlink; only regular files are accepted",
+            source.display()
+        ));
+    }
+    if !path_metadata.is_file() {
+        return Err(format!(
+            "Apple Simulator link archive {} is not a regular file",
+            source.display()
+        ));
+    }
+
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let mut input = options.open(source).map_err(|error| {
+        format!(
+            "cannot open regular Apple Simulator link archive {} without following symlinks: {error}",
+            source.display()
+        )
+    })?;
+    let opened_metadata = input.metadata().map_err(|error| {
+        format!(
+            "cannot inspect opened Apple Simulator link archive {}: {error}",
+            source.display()
+        )
+    })?;
+    if !opened_metadata.is_file() {
+        return Err(format!(
+            "Apple Simulator link archive {} changed to a non-regular file while opening",
+            source.display()
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if path_metadata.dev() != opened_metadata.dev()
+            || path_metadata.ino() != opened_metadata.ino()
+        {
+            return Err(format!(
+                "Apple Simulator link archive {} changed while it was being opened",
+                source.display()
+            ));
+        }
+    }
+
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)
+        .map_err(|error| {
+            format!(
+                "cannot create private Apple Simulator snapshot {}: {error}",
+                destination.display()
+            )
+        })?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let count = input.read(&mut buffer).map_err(|error| {
+            format!(
+                "cannot read Apple Simulator link archive {}: {error}",
+                source.display()
+            )
+        })?;
+        if count == 0 {
+            break;
+        }
+        digest.update(&buffer[..count]);
+        output.write_all(&buffer[..count]).map_err(|error| {
+            format!(
+                "cannot write private Apple Simulator snapshot {}: {error}",
+                destination.display()
+            )
+        })?;
+    }
+    output.flush().map_err(|error| {
+        format!(
+            "cannot flush private Apple Simulator snapshot {}: {error}",
+            destination.display()
+        )
+    })?;
+    Ok(format!("sha256-{:x}", digest.finalize()))
+}
+
+/// Make every file in a private staging directory read-only before it is
+/// published. The directory itself is `tempfile`'s owner-only (0700) directory,
+/// so other accounts cannot reach it; a process running as the same account can
+/// already replace the toolchain, Cargo home and target directory, and is outside
+/// this crate's threat model. Read-only files only stop accidental rewrites.
+fn seal_read_only(directory: &Path) -> Result<(), String> {
+    let entries = fs::read_dir(directory).map_err(|error| {
+        format!(
+            "cannot list Apple Simulator staging {}: {error}",
+            directory.display()
+        )
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            format!(
+                "cannot list Apple Simulator staging {}: {error}",
+                directory.display()
+            )
+        })?;
+        let metadata = fs::symlink_metadata(entry.path()).map_err(|error| {
+            format!(
+                "cannot inspect staged archive {}: {error}",
+                entry.path().display()
+            )
+        })?;
+        if !metadata.is_file() {
+            return Err(format!(
+                "Apple Simulator staging {} contains a non-regular entry {}",
+                directory.display(),
+                entry.path().display()
+            ));
+        }
+        let mut permissions = metadata.permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(entry.path(), permissions).map_err(|error| {
+            format!(
+                "cannot seal staged archive {}: {error}",
+                entry.path().display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
+/// Remove this crate's earlier snapshot and link-closure directories for
+/// `arch`, keeping only `keep`. Snapshots are not needed once the closure is
+/// published. Read-only files inside are removable because removal depends on
+/// the (owner-writable) parent directory.
+fn prune_simulator_staging(out_dir: &Path, arch: &str, keep: &Path) -> Result<(), String> {
+    let snapshot_prefix = format!("hermes-lean-sys-snapshot-{arch}-");
+    let link_prefix = format!("hermes-lean-sys-link-{arch}-");
+    let entries = fs::read_dir(out_dir).map_err(|error| {
+        format!(
+            "cannot list Apple Simulator staging parent {}: {error}",
+            out_dir.display()
+        )
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            format!(
+                "cannot list Apple Simulator staging parent {}: {error}",
+                out_dir.display()
+            )
+        })?;
+        let path = entry.path();
+        if path == keep {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !(name.starts_with(&snapshot_prefix) || name.starts_with(&link_prefix)) {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| format!("cannot inspect {}: {error}", path.display()))?;
+        let removed = if metadata.is_dir() {
+            fs::remove_dir_all(&path)
+        } else {
+            fs::remove_file(&path)
+        };
+        removed.map_err(|error| {
+            format!(
+                "cannot prune stale Apple Simulator staging {}: {error}",
+                path.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn publish_private_directory(
+    temporary: tempfile::TempDir,
+    destination: &Path,
+) -> Result<(), String> {
+    match fs::symlink_metadata(destination) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+            fs::remove_dir_all(destination).map_err(|error| {
+                format!(
+                    "cannot clear stale private Apple Simulator directory {}: {error}",
+                    destination.display()
+                )
+            })?;
+        }
+        Ok(_) => {
+            fs::remove_file(destination).map_err(|error| {
+                format!(
+                    "cannot replace stale Apple Simulator path {}: {error}",
+                    destination.display()
+                )
+            })?;
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!(
+                "cannot inspect Apple Simulator directory {}: {error}",
+                destination.display()
+            ));
+        }
+    }
+    let source = temporary.keep();
+    if let Err(error) = fs::rename(&source, destination) {
+        let _ = fs::remove_dir_all(&source);
+        return Err(format!(
+            "cannot publish private Apple Simulator directory {}: {error}",
+            destination.display()
+        ));
+    }
+    Ok(())
+}
+
+fn lipo_architectures(lipo: &Path, archive: &Path) -> Result<Vec<String>, String> {
+    let output = std::process::Command::new(lipo)
+        .arg("-archs")
+        .arg(archive)
+        .output()
+        .map_err(|error| lipo_launch_error(archive, error))?;
+    if !output.status.success() {
+        return Err(format!(
+            "lipo -archs failed for {} with {}: {}",
+            archive.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let architectures: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect();
+    if architectures.is_empty() {
+        return Err(format!(
+            "lipo -archs reported no architectures for {}",
+            archive.display()
+        ));
+    }
+    Ok(architectures)
+}
+
+fn lipo_launch_error(archive: &Path, error: io::Error) -> String {
+    if error.kind() == io::ErrorKind::NotFound {
+        format!(
+            "cannot run `lipo` for Apple Simulator archive {}; install Xcode command-line tools (run `xcode-select --install`)",
+            archive.display()
+        )
+    } else {
+        format!(
+            "cannot run `lipo` for Apple Simulator archive {}: {error}",
+            archive.display()
+        )
+    }
 }
 
 struct DigestWriter<'a>(&'a mut Sha256);
@@ -1826,6 +2456,7 @@ mod internal_tests {
         let files = [
             ("lib/libhermesvm_a.a", b"engine".as_slice()),
             ("lib/libicudata-full.a", b"full data".as_slice()),
+            ("lib/libicudata-en.a", b"English data".as_slice()),
             ("lib/libicudata.a", b"trimmed data".as_slice()),
             ("lib/libicui18n.a", b"i18n code".as_slice()),
             ("lib/libicuuc.a", b"unicode code".as_slice()),
@@ -1840,6 +2471,11 @@ mod internal_tests {
             include_bytes!("../../scripts/icu74-filter-root-en.json"),
         )
         .expect("pinned filter");
+        fs::write(
+            root.join("share/icu/filters-en-intl.json"),
+            include_bytes!("../../scripts/icu74-filter-en-intl.json"),
+        )
+        .expect("pinned English-Intl filter");
 
         let digest = |path: &str| digest_file(&root.join(path)).expect("fixture digest");
         let engine_digest = digest("lib/libhermesvm_a.a");
@@ -1873,6 +2509,7 @@ mod internal_tests {
             },
             "archives": [
                 { "path": "lib/libhermesvm_a.a", "digest": digest("lib/libhermesvm_a.a") },
+                { "path": "lib/libicudata-en.a", "digest": digest("lib/libicudata-en.a") },
                 { "path": "lib/libicudata-full.a", "digest": digest("lib/libicudata-full.a") },
                 { "path": "lib/libicudata.a", "digest": digest("lib/libicudata.a") },
                 { "path": "lib/libicui18n.a", "digest": digest("lib/libicui18n.a") },
@@ -1895,6 +2532,13 @@ mod internal_tests {
                         "filter": {
                             "path": "share/icu/filters-root-en.json",
                             "digest": receipt_schema::ICU_TRIMMED_FILTER_DIGEST
+                        }
+                    },
+                    "en": {
+                        "archive": "lib/libicudata-en.a",
+                        "filter": {
+                            "path": "share/icu/filters-en-intl.json",
+                            "digest": receipt_schema::ICU_EN_FILTER_DIGEST
                         }
                     },
                     "full": { "archive": "lib/libicudata-full.a" }
@@ -1924,7 +2568,7 @@ mod internal_tests {
     }
 
     #[test]
-    fn linux_layout_and_receipt_require_and_authenticate_both_icu_data_variants() {
+    fn linux_layout_and_receipt_require_and_authenticate_all_icu_data_variants() {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let (layout, engine_digest) = write_linux_v3_fixture(temporary.path());
         validate_layout(&layout, false).expect("complete Linux layout");
@@ -1935,7 +2579,7 @@ mod internal_tests {
             &engine_digest,
             "99",
         )
-        .expect("receipt authenticates both ICU data variants");
+        .expect("receipt authenticates all ICU data variants");
 
         fs::write(
             temporary.path().join("lib/libicudata-full.a"),
@@ -1953,8 +2597,15 @@ mod internal_tests {
         assert!(error.contains("full ICU data archive digest"), "{error}");
 
         fs::remove_file(temporary.path().join("lib/libicudata-full.a")).expect("remove full data");
-        let error = validate_layout(&layout, false).expect_err("both data variants are required");
+        let error = validate_layout(&layout, false).expect_err("all data variants are required");
         assert!(error.contains("full ICU data archive"), "{error}");
+
+        fs::write(temporary.path().join("lib/libicudata-full.a"), b"full data")
+            .expect("restore full data");
+        fs::remove_file(temporary.path().join("lib/libicudata-en.a"))
+            .expect("remove English-Intl data");
+        let error = validate_layout(&layout, false).expect_err("English tier is required");
+        assert!(error.contains("English-Intl ICU data archive"), "{error}");
     }
 
     #[test]

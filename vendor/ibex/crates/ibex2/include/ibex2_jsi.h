@@ -143,12 +143,16 @@ struct CompiledScript {
 /// rejects with "denied: net.fetch"), turning 303 and a non-GET/HEAD 301/302
 /// into a bodiless GET, and dropping authorization, cookie, and
 /// proxy-authorization on a cross-origin hop. `headersHandle` is undefined or a
-/// live Headers registry handle (a standard `Headers` object's `_handle`); it is
-/// validated first and from then on belongs to this object, so release it with
-/// `headersFree` exactly once after the returned promise settles, even when a
-/// later argument check throws. `controlToken` is undefined or a token from this
-/// object's `fetchControl(0)`. The promise resolves to a response handle owned by
-/// this object, or rejects with the host error text as message.
+/// live Headers registry handle (a standard `Headers` object's `_handle`). The
+/// complete list is validated and copied before `fetch` returns; its worker uses
+/// only that owned snapshot, so collecting the wrapper while the job is queued
+/// cannot invalidate the request. The accepted handle belongs to this object's
+/// handle domain: release it with `headersFree` exactly once after the returned
+/// promise settles, even when a later argument check throws (release remains
+/// valid when wrapper collection already removed the registry row).
+/// `controlToken` is undefined or a token from this object's `fetchControl(0)`.
+/// The promise resolves to a response handle owned by this object, or rejects
+/// with the host error text as message.
 ///
 /// `responseField` field ids: 0 status (number), 1 ok (boolean), 2 final URL
 /// (string), 3 one header value by `headerName`, a string (string, or null when
@@ -216,6 +220,12 @@ struct HostCallResult {
 };
 HostCallResult call_host_result(jsi::Runtime&, const void*, uint32_t,
                                 const jsi::Value*, size_t);
+
+// One JavaScript wrapper may own at most one native resource. JSI's raw
+// setNativeState overwrites and finalizes the old owner, so every attachment
+// goes through this refusing form instead.
+void set_native_state_once(jsi::Runtime&, const jsi::Object&,
+                           std::shared_ptr<jsi::NativeState>, const char*);
 
 // Shared by every native closure installed through Adapter. The closure asks
 // for the borrowed Rust state at call time, after checking detach, so keeping

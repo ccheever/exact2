@@ -3,14 +3,20 @@
 ## Snapshot and update recipe
 
 - Upstream: `https://github.com/expo/ibex.git` at
-  `0cd42c8cdabe7a533d6a0110ee88997f9d7b5f24` (2026-10-06).
+  `ec949fef1cf4f92a8ce09bbc357ba8b150ec25a0` (2026-10-06).
 - Vendored: `crates/{ibex2,ibex2-sqlite,hermes-lean-sys,hermes-lean-sys-installer}`.
 - Minimum external inputs: `scripts/icu74-filter-root-en.json`, embedded by
   `hermes-lean-sys`'s receipt tests, and `third_party/wpt/urltestdata.json`,
   read by `ibex2/tests/wpt_url.rs`. Repository engine-output directories are
   deliberately absent; consumer builds use the verified bundle cache.
-- Hermes pin: Ibex release `hermes-vanilla-d412d3bd8512-v3`, whose attested
+- Hermes pin: Ibex release `hermes-vanilla-d412d3bd8512-v4`, whose attested
   artifacts carry Hermes `260318099.0.4` / source `d412d3bd…`.
+
+The `ec949fe` refresh replayed the complete Exact delta below from the former
+`0cd42c8` snapshot with the same stable patch id (`9d5dc416…`). Upstream's v4
+pin adds tvOS device and arm64 Simulator bundles, thin-at-build universal Apple
+Simulator archives, three Linux ICU data tiers, Windows OS-ICU Intl, and native
+Headers lifetime ownership. None replaces an Exact-only patch.
 
 Stage an update without touching a live Ibex checkout, then review it as a
 three-way refresh against this ledger:

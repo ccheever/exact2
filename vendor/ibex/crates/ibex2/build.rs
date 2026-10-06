@@ -148,12 +148,13 @@ fn main() {
         required("DEP_HERMES_LEAN_ENGINE_DIGEST")
     );
     if target_os == "linux" {
-        // @ref LLP 0057.000#l1--the-bindings-door — this build-dependency
-        // context links no VM or ICU data, so it exports both receipt-bound
-        // available identities and never invents a selected one from `intl`.
-        // Only the normal dependency that emits link lines exports LINKED_*.
+        // @ref LLP 0057.000#l1--the-bindings-door — export all three
+        // receipt-bound available identities and never the selected one: the
+        // one hermes-lean-sys instance that links (there is no build-
+        // dependency on it) alone reports LINKED_*, so this crate ignores it.
         for (source, destination) in [
             ("DEP_HERMES_LEAN_ICU_DATA", "IBEX2_BINDINGS_ICU_DATA"),
+            ("DEP_HERMES_LEAN_ICU_EN_DATA", "IBEX2_BINDINGS_ICU_EN_DATA"),
             (
                 "DEP_HERMES_LEAN_ICU_FULL_DATA",
                 "IBEX2_BINDINGS_ICU_FULL_DATA",

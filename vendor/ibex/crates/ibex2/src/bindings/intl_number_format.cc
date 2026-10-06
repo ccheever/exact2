@@ -131,7 +131,8 @@ void install(jsi::Runtime &rt, std::shared_ptr<Lifetime> lifetime) {
                 ibex2_intl_owner_create(lifetime->require(r), handle.asNumber()));
             if (owner->value == nullptr)
               throw jsi::JSError(r, "Intl.NumberFormat could not own its native handle");
-            args[0].getObject(r).setNativeState(r, std::move(owner));
+            set_native_state_once(r, args[0].getObject(r), std::move(owner),
+                                  "Intl.NumberFormat owner");
             return jsi::Value::undefined();
           }));
 
@@ -366,7 +367,8 @@ std::vector<jsi::Value> factory_arguments(jsi::Runtime &rt,
         if (owner->value == nullptr)
           throw jsi::JSError(r, "DateTimeFormat could not own its native handle");
         jsi::Object object(r);
-        object.setNativeState(r, std::move(owner));
+        set_native_state_once(r, object, std::move(owner),
+                              "Intl.DateTimeFormat owner");
         return object;
       }));
 

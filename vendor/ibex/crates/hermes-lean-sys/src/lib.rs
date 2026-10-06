@@ -38,17 +38,39 @@ pub const HERMESC_PATH: &str = env!("HERMES_LEAN_HERMESC_PATH");
 /// present in the selected install.
 pub const LEAN_BYTECODE_VERSION: Option<&str> = option_env!("HERMES_LEAN_LEAN_BYTECODE_VERSION");
 
-/// Archive actually selected by `link` or `link-lean`, if either is enabled.
+/// Source archive selected by `link` or `link-lean`, if either is enabled. For
+/// a receipt-bearing bundle this is the authenticated input. On a universal
+/// Apple Simulator bundle, the build links a thin OUT_DIR derivative while
+/// this continues to report that selected source.
 pub const LINKED_ARCHIVE: Option<&str> = option_env!("HERMES_LEAN_LINKED_ARCHIVE");
 
-/// Digest of [`LINKED_ARCHIVE`], naming the archive this feature context links.
+/// Digest of [`LINKED_ARCHIVE`]. For a receipt-bearing bundle this is its
+/// receipt identity, preserved when the actual rustc input is a thin
+/// derivative.
 pub const LINKED_ENGINE_DIGEST: Option<&str> = option_env!("HERMES_LEAN_LINKED_ENGINE_DIGEST");
 
-/// Receipt-bound trimmed root+en ICU data archive available on Linux.
+/// Thinned OUT_DIR derivative actually passed to rustc for the selected VM.
+/// Present only when [`LINKED_ARCHIVE`] was universal.
+pub const LINKED_ENGINE_DERIVATIVE_ARCHIVE: Option<&str> =
+    option_env!("HERMES_LEAN_LINKED_ENGINE_DERIVATIVE_ARCHIVE");
+
+/// Digest of [`LINKED_ENGINE_DERIVATIVE_ARCHIVE`], recorded separately from
+/// [`LINKED_ENGINE_DIGEST`] because the derivative is not the attested bundle
+/// identity.
+pub const LINKED_ENGINE_DERIVATIVE_DIGEST: Option<&str> =
+    option_env!("HERMES_LEAN_LINKED_ENGINE_DERIVATIVE_DIGEST");
+
+/// Receipt-bound base ICU data archive available on Linux.
 pub const ICU_DATA_ARCHIVE: Option<&str> = option_env!("HERMES_LEAN_ICU_DATA_ARCHIVE");
 
 /// Digest of [`ICU_DATA_ARCHIVE`].
 pub const ICU_DATA_DIGEST: Option<&str> = option_env!("HERMES_LEAN_ICU_DATA_DIGEST");
+
+/// Receipt-bound English Intl ICU data archive available on Linux.
+pub const ICU_EN_DATA_ARCHIVE: Option<&str> = option_env!("HERMES_LEAN_ICU_EN_DATA_ARCHIVE");
+
+/// Digest of [`ICU_EN_DATA_ARCHIVE`].
+pub const ICU_EN_DATA_DIGEST: Option<&str> = option_env!("HERMES_LEAN_ICU_EN_DATA_DIGEST");
 
 /// Receipt-bound full ICU data archive available on Linux.
 pub const ICU_FULL_DATA_ARCHIVE: Option<&str> = option_env!("HERMES_LEAN_ICU_FULL_DATA_ARCHIVE");
@@ -56,7 +78,7 @@ pub const ICU_FULL_DATA_ARCHIVE: Option<&str> = option_env!("HERMES_LEAN_ICU_FUL
 /// Digest of [`ICU_FULL_DATA_ARCHIVE`].
 pub const ICU_FULL_DATA_DIGEST: Option<&str> = option_env!("HERMES_LEAN_ICU_FULL_DATA_DIGEST");
 
-/// ICU data archive selected by `icu` or `icu-full-data` on Linux.
+/// ICU data archive selected by `icu`, `icu-en-data`, or `icu-full-data` on Linux.
 pub const LINKED_ICU_DATA_ARCHIVE: Option<&str> =
     option_env!("HERMES_LEAN_LINKED_ICU_DATA_ARCHIVE");
 

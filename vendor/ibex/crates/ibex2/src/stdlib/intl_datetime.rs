@@ -620,11 +620,14 @@ fn resolve_data_locale(requested: &str) -> Result<(String, LocaleExtensions), Ho
             return Ok((available, extensions));
         }
     }
-    let default = owned_icu_string(unsafe { ibex2_icu_default_locale() })
-        .ok_or_else(|| HostError::Failed("ICU has no default locale".into()))?;
-    let (base, _) = locale_base_and_extensions(&default);
-    let available = best_available_locale(&base)?
-        .ok_or_else(|| HostError::Failed("ICU default locale is unavailable".into()))?;
+    if let Some(default) = owned_icu_string(unsafe { ibex2_icu_default_locale() }) {
+        let (base, _) = locale_base_and_extensions(&default);
+        if let Some(available) = best_available_locale(&base)? {
+            return Ok((available, LocaleExtensions::default()));
+        }
+    }
+    let available = best_available_locale("en-US")?
+        .ok_or_else(|| HostError::Failed("guaranteed English ICU locale is unavailable".into()))?;
     Ok((available, LocaleExtensions::default()))
 }
 
