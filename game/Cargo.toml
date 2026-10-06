@@ -68,8 +68,9 @@ opt-level = 3
 
 [patch.crates-io]
 taffy = { path = "../vendor/taffy" }
-# The Linux host uses Exact’s base-direction shaping entry point.
-cosmic-text = { path = "../vendor/cosmic-text" }
+# The Linux host lays out text with Exact's patched Parley and fontique.
+parley = { path = "../vendor/parley" }
+fontique = { path = "../vendor/fontique" }
 # exact-gpu presents through the patched Metal backend (vendor/wgpu-hal/EXACT-PATCHES.md).
 wgpu-hal = { path = "../vendor/wgpu-hal" }
 

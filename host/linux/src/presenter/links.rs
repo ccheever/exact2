@@ -50,7 +50,7 @@ impl<D: DataSource> Presenter<D> {
                     && (baseline - g.font_size * 1.05..baseline + g.font_size * 0.35).contains(&py)
             })?
             .0
-            .metadata;
+            .run();
         let shown = paragraph.runs().get(run)?;
         if node.props.str(PropId::Markup) == Some("markdown") {
             return Some(shown.href.clone()).filter(|h| !h.is_empty());
@@ -163,7 +163,7 @@ component App
         let g = line
             .glyphs
             .iter()
-            .find(|g| paragraph.runs()[g.metadata].href == href)
+            .find(|g| paragraph.runs()[g.run()].href == href)
             .unwrap();
         (
             rect.0 + content.0 + g.x + g.w / 2.0,
