@@ -102,7 +102,30 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, reference oracle build,
 
 ## Progress
 
-Planned. No branch.
+On hold (2026-10-06): the user paused every task that needs a sign-in. Work stopped during
+design; no source file was changed. Branch `feat(example)/t3-code-provider-sign-in-and-install`
+(local only, not pushed).
+
+Findings to resume from (observed in this worktree):
+- Base: `bun test examples/t3-code` 1200 pass, 0 fail; the macOS bundle builds
+  (`EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos`, exit 0).
+- No `target/t3-ui-parity/` lane kit exists in any checkout; the provider-setup fixture
+  (decision U2/U23) is still unapproved apparatus. Bun tests with a fake native
+  (`composer-controls-fixture.ts` style) can script the auth/install streams instead.
+- Planned registration points: stream events in `client.ts` drain (one `provider-auth:` /
+  `provider-install:` key line, as `DEVICE_STATE_KEY`), a local `setup:` op prefix in
+  `client.ts` `command()` (local ops do not set `commandPending`, so a waiting flow does
+  not disable the page), one `providerSetup` action in `app.contract` sending
+  `localChanged`, subscriptions started from the `providerPage`/`providerWizard` sources
+  in `app.ts` (subscribe when the editor or wizard step shows, unsubscribe otherwise), one
+  `providerOpenUrl` branch in `T3Module.swift` (agent mode records the URL).
+- `presentation.ts` `providerBanner` has its own message logic; replace it with a port of
+  `getProviderStatusMessage` / `hasProviderSetup`. The banner (`chat.contract` AlertStack)
+  and the model picker (`model-picker.contract`) need an open-setup action prop.
+- X42 is supported on main (issues/README.md), so `RedactedText` can use
+  `filter="blur(4px)"`. X35 is #134 (agent tree prints a password input's value).
+- The reference's generic Account row does not call `server.refreshProviders` after
+  success; only `CodexSetupSection.tsx:295-296` does.
 
 ## Attempts and evidence
 
