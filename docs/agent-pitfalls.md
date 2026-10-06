@@ -568,6 +568,14 @@ guide's rules don't make obvious.
   <term> llp`). Name the LLP that lacks it when you report the gap. (Signal
   Clone, 2026-10-04.)
 
+- **`build.mjs --test --ios` never returns after the tests pass.** Cause:
+  `xcodebuild test` can sit for ten minutes or more after `Test Suite 'Selected
+  tests' passed` and its `Executed N tests` line, with or without your change
+  (seen on 2026-10-05 on an iPhone 17 Pro simulator, Xcode 27). Fix: run it in
+  the background with its log in a file, wait for the `Executed N tests …
+  seconds` line of the whole run, read the verdict from it, then kill the
+  `xcodebuild test` PID whose `-derivedDataPath` is under your own checkout.
+  `build.mjs` then reports `BUILD INTERRUPTED`, which is not a test failure.
 - **Conformance fails on apps you didn't touch.** Cause: `host/web-js/conform.mjs`
   compares against wasm dists under `--wasm-root` (default `/tmp/e3-wasm`, shared by
   every checkout), and without `--build` it uses whatever another checkout or an
