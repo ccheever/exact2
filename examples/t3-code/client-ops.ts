@@ -14,12 +14,13 @@ import { composerOps, composerWrites } from './client-ops-composer';
 import { threadOps, threadWrites } from './client-ops-threads';
 import { sidebarOps, sidebarWrites } from './client-ops-sidebar';
 import { diffOps } from './client-ops-diff';
+import { laneOps, laneWrites } from './client-ops-lanes';
 
 export type OpOut = { message: string; id: string; value: string };
 export type OpGroup = (this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut) => Promise<boolean>;
 
-export const READ_OPS: OpGroup[] = [connectionOps, snapshotOps, settingsOps, composerOps, threadOps, sidebarOps, diffOps];
-export const WRITE_OPS: OpGroup[] = [settingsWrites, composerWrites, threadWrites, sidebarWrites];
+export const READ_OPS: OpGroup[] = [connectionOps, snapshotOps, settingsOps, composerOps, threadOps, sidebarOps, diffOps, laneOps];
+export const WRITE_OPS: OpGroup[] = [settingsWrites, composerWrites, threadWrites, sidebarWrites, laneWrites];
 
 /** Runs `op` in the first group that owns it; false when none does. */
 export async function runOps(client: T3Client, groups: OpGroup[], op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
