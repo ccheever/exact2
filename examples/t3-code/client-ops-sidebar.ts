@@ -8,6 +8,7 @@ import { startThreadSearch } from './sidebar-presentation';
 import { storeSidebarWidth } from './r4-polish-sidebar-width';
 import { str, initialShell, applyShell } from './domain';
 import { ClientError, type Native, type Files } from './protocol';
+import { letGo } from './let-go';
 
 /** Thread search, the sidebar's open state and width, and project grouping. */
 export async function sidebarOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
@@ -68,7 +69,7 @@ async function manageGroup(this: T3Client, native: Native, storage: Files, op: s
       throw new ClientError('Project group membership changed. Reopen its settings.');
     }
     try { await manageProject.call(this, native, storage, op === 'rename-group' ? 'rename-project' : 'remove-project', str(member.id), title); }
-    catch (error) { throw new ClientError(`Could not ${op === 'rename-group' ? 'rename' : 'remove'} checkout ${str(member.workspaceRoot)}: ${message(error)}`); }
+    catch (error) { if (letGo(error)) throw error; throw new ClientError(`Could not ${op === 'rename-group' ? 'rename' : 'remove'} checkout ${str(member.workspaceRoot)}: ${message(error)}`); }
   }
 }
 async function manageProject(this: T3Client, native: Native, storage: Files, op: string, id: string, title: string): Promise<void> {

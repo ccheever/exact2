@@ -19,6 +19,7 @@ import type { T3Client } from './client';
 import { allJobs, readJobs, startUpdateJob, type OutdatedJob } from './settings-b-outdated';
 import { manualUpdateCopy, configInstallation, type ServerInstallation } from './server-installation';
 import { CLIENT_VERSION, supportsDesktopAppUpdate, supportsServerUpdateThreadContinuation, resolveServerSelfUpdateCapability } from './version-skew';
+import { letGo } from './let-go';
 
 export type ServerUpdateStage = 'downloading' | 'installing' | 'resuming';
 export type ServerUpdateState =
@@ -178,7 +179,7 @@ export async function updateEnvironment(target: ServerUpdateTarget, deps: Update
   if (target.selfUpdate === null) {
     const manual = manualUpdateCopy(target.targetVersion, target.installation, target.serverLabel);
     try { await deps.copy(manual.command); }
-    catch { deps.toast({ kind: 'error', title: manual.failureTitle, description: manual.failureMessage }); return 'failed'; }
+    catch (error) { if (letGo(error)) throw error; deps.toast({ kind: 'error', title: manual.failureTitle, description: manual.failureMessage }); return 'failed'; }
     deps.toast({ kind: 'success', title: manual.title, description: manual.description });
     return 'copied';
   }
@@ -196,6 +197,7 @@ export async function updateEnvironment(target: ServerUpdateTarget, deps: Update
     attempts.set(str(reply.attempt), { serverLabel: target.serverLabel, selfUpdate: target.selfUpdate, failureTitle });
     return 'started';
   } catch (error) {
+    if (letGo(error)) throw error;
     deps.toast({ kind: 'error', title: failureTitle, description: serverUpdateFailureMessage(error), stacked: true });
     return 'failed';
   } finally { pendingUpdateEnvironmentIds.delete(target.environmentId); }

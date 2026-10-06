@@ -46,6 +46,7 @@ import { getTerminalLabel, nextTerminalId, resolveTerminalSessionLabel } from '.
 import { applyTerminalMetadataStreamEvent, type TerminalMetadataStreamEvent, type TerminalSummary } from './terminal-session';
 import { selectKnownTerminalSessions } from './terminal-sessions';
 import { parseScopedThreadKey, scopedThreadKey, selectThreadTerminalUiState, terminalUiStore, type ScopedThreadRef } from './terminal-ui-state';
+import { letGo } from './let-go';
 
 export const TERMINAL_METADATA_KEY = 'terminal-metadata';
 const METADATA_RETRY_MS = 3000;
@@ -194,7 +195,7 @@ async function watchMetadata(client: T3Client, native: Native, now: number): Pro
     const id = str(reply.id), serial = subscriptionSerial(id);
     state.maxSeen = Math.max(state.maxSeen, serial);
     if (serial > state.floor && (!state.id || serial > subscriptionSerial(state.id))) state.id = id;
-  } catch (error) { state.error = error instanceof Error ? error.message : 'Terminal metadata is unavailable.'; }
+  } catch (error) { if (!letGo(error)) state.error = error instanceof Error ? error.message : 'Terminal metadata is unavailable.'; }
 }
 
 /** One `terminal-metadata` inbox entry (client.ts drain): the newest stream since the latest subscribe. */
@@ -288,6 +289,7 @@ export async function terminalDrawerView(client: T3Client, native: Native | null
 // ── Commands (client.command `terminallocal:*`) ──────────────────────────────────────────────────
 
 function failed(client: T3Client, label: string, error: unknown): void {
+  if (letGo(error)) throw error; // let-go.ts: not a failure
   drawerState(client).failure = `${label}: ${error instanceof Error ? error.message : String(error)}`;
 }
 
@@ -329,7 +331,7 @@ export async function runTerminalCommand(client: T3Client, native: Native, stora
   store.getState().ensureTerminal(ref, terminalId, { open: true });
   drawerState(client).focusRequest++;
   try { await client.request(native, 'terminal.write', { threadId: ref.threadId, terminalId, data: `${command}\r` }); }
-  catch (error) { throw new ClientError(error instanceof Error ? error.message : scriptName ? `Failed to run script "${scriptName}".` : 'Failed to run command.'); }
+  catch (error) { if (letGo(error)) throw error; throw new ClientError(error instanceof Error ? error.message : scriptName ? `Failed to run script "${scriptName}".` : 'Failed to run command.'); }
 }
 
 export async function handleTerminalMessage(client: T3Client, native: Native, message: Obj): Promise<boolean> {

@@ -8,6 +8,7 @@ import type { T3Client } from './client';
 import { arr, obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { pushToast } from './toast';
+import { letGo } from './let-go';
 
 export type HostConfig = { id: string; label: string; target: string; identityFile?: string; port?: number };
 type Check = { status: 'pending' | 'local' | 'connected' | 'failed'; platforms: Obj[]; tools: Obj | null; error: string };
@@ -109,7 +110,7 @@ async function test(client: T3Client, native: Native, host: HostConfig): Promise
     if (!client.ready) throw new Error('Environment disconnected');
     const result = await client.restAccess(native).request('device.testHost', host as unknown as Obj);
     check = str(result.kind) === 'local' ? { status: 'local', platforms: [], tools: null, error: '' } : { status: 'connected', platforms: arr(result.platforms), tools: result.tools ? obj(result.tools) : null, error: '' };
-  } catch (error) { check = { status: 'failed', platforms: [], tools: null, error: error instanceof Error ? error.message : String(error) }; }
+  } catch (error) { if (letGo(error)) throw error; check = { status: 'failed', platforms: [], tools: null, error: error instanceof Error ? error.message : String(error) }; }
   state.checks.set(key, check);
   return check;
 }
@@ -161,7 +162,8 @@ export async function deviceHostsCommand(client: T3Client, native: Native, op: s
     try {
       const updated = await access.request('server.updateSettings', { patch: { deviceHosts: next } }, true);
       client.config = { ...client.config, settings: updated };
-    } catch {
+    } catch (error) {
+      if (letGo(error)) throw error;
       pushToast(client, { kind: 'error', title: 'Device hosts not saved on all environments', description: `Could not update ${envLabel(client)}.` });
       return '';
     }

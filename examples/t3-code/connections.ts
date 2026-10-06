@@ -23,6 +23,7 @@ import { confirms } from './server-update-notices';
 import { configInstallation, desktopManagedOnly, manualUpdateCopy, serverUpdateActionLabel, DESKTOP_MANAGED_NOTE } from './server-installation';
 import { gitHubRoutingConnectionKey, savedRoutes, singleRouteKey, type ConnectionRoute } from './connection-routes';
 import { moveSavedRoute, placeRoute, removeSavedRoute, routeCountLabel, routeRows, routesTransportLabel, savedEntry, savedList } from './connection-routes-ops';
+import { letGo } from './let-go';
 
 export interface ConnectionHost {
   connection: string; origin: string; environmentId: string; statusMessage: string; scopes: string[]; config: Obj;
@@ -221,7 +222,9 @@ async function call(native: Native, request: Obj) {
 }
 const focusOf = (client: Pick<T3Client, 'origin' | 'environmentId' | 'connection'> | undefined) =>
   client ? { origin: client.origin, environmentId: client.environmentId, connection: client.connection } : { origin: '', environmentId: '', connection: 'disconnected' };
+// A let-go request is rethrown, never toasted (let-go.ts).
 const failed = (client: T3Client | undefined, title: string, error: unknown) => {
+  if (letGo(error)) throw error;
   if (client) pushToast(client, { kind: 'error', title, description: error instanceof Error ? error.message : String(error), stacked: true });
 };
 
@@ -310,7 +313,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
         // closes over Settings › Connections and the toast says so (app.contract keeps Settings open).
         if (client) pushToast(client, { kind: 'success', title: 'Backend added', description: 'The environment is saved and will reconnect on app startup.' });
         return { status: obj(reply.value), generation: reply.generation };
-      } catch (error) { await abandonPairing(native, before, client); throw error; }
+      } catch (error) { if (!letGo(error)) await abandonPairing(native, before, client); throw error; }
     } catch (error) { failed(client, 'Could not add backend', error); throw error; }
   }
   if (op === 'environment-route-add') {
@@ -425,7 +428,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
         // ServerUpdateAction's manual path: copy the command that matches the install; no remote call.
         const manual = manualUpdateCopy(CLIENT_VERSION, configInstallation(config), label);
         try { await call(native, { op: 'copyText', text: manual.command }); }
-        catch { throw new ClientError(manual.failureMessage); }
+        catch (error) { if (letGo(error)) throw error; throw new ClientError(manual.failureMessage); }
         if (client) pushToast(client, { kind: 'success', title: manual.title, description: manual.description });
         return { status: null, generation: -1 };
       }
@@ -480,7 +483,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
         if (value === 'off') delete next[key]; else next[key] = value;
         prefs.githubRouting = next;
       });
-    } catch (error) { if (client) pushToast(client, { kind: 'error', title: 'Could not save GitHub routing permission' }); throw error; }
+    } catch (error) { if (client && !letGo(error)) pushToast(client, { kind: 'error', title: 'Could not save GitHub routing permission' }); throw error; }
     return { status: null, generation: -1 };
   }
   throw new ClientError(`Unknown action: ${op}`);

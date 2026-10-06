@@ -10,6 +10,7 @@ import { ClientError, type Native } from './protocol';
 import { pushToast } from './toast';
 import { relativeLabel, stateKey, conflictLabel, labelChip } from './pages-prs';
 import type { T3Client } from './client';
+import { letGo } from './let-go';
 
 export type PrSelection = { projectId: string; host: string; repository: string; number: number };
 /** The row key the list wears, parsed back into the reference a read needs. */
@@ -89,6 +90,7 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
       cached.detail = await client.rpc(native, 'pullRequests.detail', ref);
       cached.activity = await client.rpc(native, 'pullRequests.activity', ref).catch(() => null);
     } catch (error) {
+      if (letGo(error)) throw error;
       cached.error = error instanceof Error && error.message.trim() ? error.message : 'The environment request failed.';
       // 7bc161f869: a link to an issue (or a PR this account cannot see) reads as not found.
       cached.notFound = isPullRequestNotFound(error);
@@ -212,6 +214,7 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
       pushToast(client, { kind: 'success', title: 'Comment posted', description: label });
     } else throw new ClientError(`Unknown pull request action: ${op}`);
   } catch (error) {
+    if (letGo(error)) throw error;
     const message = error instanceof Error ? error.message : 'The host refused it.';
     pushToast(client, { kind: 'error', title: op === 'action' ? ACTION_FAILED[value] ?? 'Could not update this pull request' : 'Could not update this pull request', description: message });
     return message;
@@ -234,7 +237,7 @@ export async function prCandidates(client: T3Client, native: Native | null | und
     try {
       if (which === 'reviewers') cached.reviewers = arr((await client.rpc(native, 'pullRequests.reviewerCandidates', selectionRef(selection))).candidates);
       else cached.labels = arr((await client.rpc(native, 'pullRequests.labelCandidates', selectionRef(selection))).candidates);
-    } catch (error) { cached.error = error instanceof Error ? error.message : 'Could not read the candidates.'; }
+    } catch (error) { if (letGo(error)) throw error; cached.error = error instanceof Error ? error.message : 'Could not read the candidates.'; }
     candidates.set(client, cached);
   }
   empty.error = cached.error;
