@@ -2,7 +2,7 @@
 // closeSurface maps to closeSurfaceIn; files/diff/devices replace Browser/terminal.
 // Host/device test port is complete; Zustand/refA plumbing becomes PanelState.
 import { describe, expect, test } from 'bun:test';
-import { closeSurface, closeOtherSurfaces, closeSurfacesToRight, closeAllSurfaces, openDeviceSurface, renameDevice, tabContextMenuItems, registerSurfaceClose, closePanelSurfaces, editTabName, tabRename, copyTabPath, showTabMenu } from './right-panel-tabs';
+import { closeSurface, closeOtherSurfaces, closeSurfacesToRight, closeAllSurfaces, openDeviceSurface, renameDevice, tabContextMenuItems, registerSurfaceClose, closePanelSurfaces, editTabName, tabRename, copyTabPath, showTabMenu, tabMenuRows } from './right-panel-tabs';
 import { panelState, surfaceLocal, type PanelState, type Surface } from './r4-surfaces-panel';
 import { savedPanel, adoptRightPanels, restoreRightPanel } from './r10-device-panels';
 import { deviceTargetOf } from './r6-media-device';
@@ -41,7 +41,7 @@ describe('rightPanelStore', () => {
 });
 describe('tab menu and rename editor', () => {
   test('menu order, kinds and disabled flags', () => { const state = panel(); expect(tabContextMenuItems(state.surfaces[0]!, state.surfaces).map(item => item.id)).toEqual(['copy-path', 'close', 'close-others', 'close-to-right', 'close-all']); const device = openDeviceSurface(state, android); expect(tabContextMenuItems(device, state.surfaces).map(item => item.id)).toEqual(['rename', 'close', 'close-others', 'close-to-right', 'close-all']); expect(tabContextMenuItems(device, state.surfaces).find(item => item.id === 'close-to-right')?.disabled).toBe(true); const diff = surface('diff', 'diff'); expect(tabContextMenuItems(diff, [diff])).toEqual([{ id: 'close', label: 'Close' }, { id: 'close-others', label: 'Close others', disabled: true }, { id: 'close-to-right', label: 'Close to the right', disabled: true }, { id: 'close-all', label: 'Close all', disabled: false }]); expect(tabContextMenuItems(diff, [])).toEqual([]); const attachment = { ...surface('attached'), attachment: { id: 'a', name: 'a', mimeType: '', sizeBytes: 0 } }; expect(tabContextMenuItems(attachment, [attachment]).some(item => item.id === 'copy-path')).toBe(false); });
-  test('Enter/blur commit; Escape cancels even if blur follows', () => { const state = panel(), device = openDeviceSurface(state, android); editTabName(state, 'rename', device.id, ''); expect(tabRename(state)).toEqual({ id: device.id, value: 'Pixel' }); editTabName(state, 'rename-edit', device.id, 'Changed'); editTabName(state, 'rename-cancel', device.id, ''); editTabName(state, 'rename-commit', device.id, ''); expect(device.title).toBeUndefined(); editTabName(state, 'rename', device.id, ''); editTabName(state, 'rename-edit', device.id, ' New '); editTabName(state, 'rename-commit', device.id, ''); expect(device.title).toBe('New'); expect(tabRename(state).id).toBe(''); });
+  test('Enter/blur commit; Escape cancels even if blur follows', () => { const state = panel(), device = openDeviceSurface(state, android); editTabName(state, 'rename', device.id, ''); expect(tabRename(state)).toEqual({ id: device.id, value: 'Pixel' }); editTabName(state, 'rename-cancel', device.id, ''); editTabName(state, 'rename-commit', device.id, 'Changed'); expect(device.title).toBeUndefined(); editTabName(state, 'rename', device.id, ''); editTabName(state, 'rename-commit', device.id, ' New '); expect(device.title).toBe('New'); expect(tabRename(state).id).toBe(''); editTabName(state, 'rename-commit', device.id, 'After blur'); expect(device.title).toBe('New'); editTabName(state, 'rename', device.id, ''); editTabName(state, 'rename-commit', device.id, ''); expect(device.title).toBe('Pixel'); });
   test('menu ignores disabled, unknown and dismissed responses', async () => { const state = panel(); for (const clicked of ['close-to-right', 'toggle-mute', '', null]) expect(await showTabMenu(client(async () => ({ clicked })), native, state, 'c')).toBe(''); });
 });
 describe('close hooks and integration', () => {
@@ -77,4 +77,37 @@ describe('close hooks and integration', () => {
 describe('Copy path', () => {
   test('copies relative path and reports success', async () => { const requests: unknown[] = [], c = client(async request => { requests.push(request); return { copied: true }; }); await copyTabPath(c, native, surface('src/app.ts')); expect(requests).toEqual([{ op: 'copyText', text: 'src/app.ts' }]); expect(toasts(c)[0]).toMatchObject({ title: 'Path copied', description: 'src/app.ts' }); });
   test('reports clipboard failures and unavailable API', async () => { for (const failure of [new Error('Denied'), null]) { const c = client(async () => { throw failure; }); await copyTabPath(c, native, surface('a')); expect(toasts(c)[0]).toMatchObject({ title: 'Failed to copy path', description: failure?.message ?? 'Clipboard API unavailable.' }); } });
+});
+describe('tab context popover (r4-tab-menu)', () => {
+  test('rows spell out every disabled flag in the menu order', () => {
+    const state = panel();
+    expect(tabMenuRows(state.surfaces[2]!, state.surfaces)).toEqual([{ id: 'copy-path', label: 'Copy path', disabled: false }, { id: 'close', label: 'Close', disabled: false }, { id: 'close-others', label: 'Close others', disabled: false }, { id: 'close-to-right', label: 'Close to the right', disabled: true }, { id: 'close-all', label: 'Close all', disabled: false }]);
+    const device = openDeviceSurface(state, android);
+    expect(tabMenuRows(device, state.surfaces).map(row => row.id)).toEqual(['rename', 'close', 'close-others', 'close-to-right', 'close-all']);
+  });
+  test('each row runs its surface op directly, with no native menu request', async () => {
+    const requests: Record<string, unknown>[] = [], c = client(async request => { requests.push(request); return { copied: true }; }), state = panelState(c);
+    state.surfaces = [surface('src/a.ts'), surface('src/b.ts'), surface('src/c.ts'), surface('src/d.ts')]; state.active = 'src/d.ts'; state.visible = true;
+    await surfaceLocal(c, native, 'copy-path', 'src/b.ts', '');
+    expect(requests).toEqual([{ op: 'copyText', text: 'src/b.ts' }]);
+    expect(toasts(c)[0]).toMatchObject({ title: 'Path copied', description: 'src/b.ts' });
+    await surfaceLocal(c, native, 'close-to-right', 'src/c.ts', '');
+    expect(state).toMatchObject({ active: 'src/c.ts', visible: true }); expect(state.surfaces.map(entry => entry.id)).toEqual(['src/a.ts', 'src/b.ts', 'src/c.ts']);
+    await surfaceLocal(c, native, 'close', 'src/c.ts', '');
+    expect(state.active).toBe('src/b.ts');
+    await surfaceLocal(c, native, 'close-others', 'src/a.ts', '');
+    expect(state).toMatchObject({ active: 'src/a.ts', visible: true }); expect(state.surfaces.map(entry => entry.id)).toEqual(['src/a.ts']);
+    await surfaceLocal(c, native, 'close-all', 'src/a.ts', '');
+    expect(state).toMatchObject({ surfaces: [], active: '', visible: false });
+    expect(requests.some(request => request.op === 'contextMenu')).toBe(false);
+  });
+  test('Rename from the popover or a double-click opens the editor on device tabs only', async () => {
+    const c = client(), state = panelState(c), device = openDeviceSurface(state, android); state.surfaces.push(surface('src/a.ts'));
+    await surfaceLocal(c, native, 'rename', 'src/a.ts', '');
+    expect(tabRename(state).id).toBe('');
+    await surfaceLocal(c, native, 'rename', device.id, '');
+    expect(tabRename(state)).toEqual({ id: device.id, value: 'Pixel' });
+    await surfaceLocal(c, native, 'rename-commit', device.id, 'Bench phone');
+    expect(device.title).toBe('Bench phone'); expect(tabRename(state).id).toBe('');
+  });
 });
