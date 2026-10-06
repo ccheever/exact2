@@ -140,9 +140,10 @@ guide's rules don't make obvious.
   refusal, and the agent's `drag to` reply reads like a success. A board whose drop
   sends a mutation that `refreshes` its cards holds until storage answers, so a quick
   second drag is easy to lose (a person's, or a test's: two `drag to` steps in a row).
-  Fix: show the move in the drop's own commit (keep the board in state the action
-  writes, and save it through the mutation), which removes the wait for storage; and in
-  a test or drive put `clock settle` between drags either way. (Authoring bench, LLP
+  Fix: in a test or drive put `clock settle` between drags; it is needed even when the
+  move shows at once, since the landing still holds the session. Showing the move in
+  the drop's own commit (the board in state the action writes, saved through the
+  mutation) only removes the wait for storage, which shortens what a person meets. (Authoring bench, LLP
   1087, r26 and r29 t4-kanban, 2026-10-05.)
 
 ## Native presentation and navigation (iOS)
