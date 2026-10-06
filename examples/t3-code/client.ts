@@ -16,13 +16,13 @@ import { chatLocal } from './timeline-presentation';
 import { editorLocal } from './composer-editor';
 import { adoptStash } from './composer-editor-stash';
 import { adoptComposerFiles } from './composer-editor-files';
-import { startThreadSearch } from './sidebar-presentation';
 import { sidebarCommand, sidebarLocal, sidebarOpened, sidebarRefreshed } from './sidebar-commands';
 import { reconnectOnLaunch, launchFocus } from './r8-pointer-reconnect';
 import { adoptSidebarPrefs } from './sidebar-state';
 import { PROVIDER_OPS } from './providers';
 import { CONNECTION_OPS } from './connections';
 import { READ_OPS, WRITE_OPS, runOps, type OpOut } from './client-ops';
+import { groupingModes, message, projectPath } from './client-shared';
 import { fleet } from './settings-b-fleet';
 import { groupLabel } from './r6-polish-groups';
 import { adoptModelPrefs } from './settings-b-models';
@@ -37,7 +37,7 @@ import { adoptPagesPrefs } from './pages-prefs';
 import { adoptShellPrefs } from './shell-prefs';
 import { adoptFilesPrefs } from './r5-panels-prefs';
 import { requestDiff } from './r11-device-diff';
-import { adoptSidebarWidth, storeSidebarWidth } from './r4-polish-sidebar-width'; // r4-polish: the stored sidebar width
+import { adoptSidebarWidth } from './r4-polish-sidebar-width'; // r4-polish: the stored sidebar width
 import { VCS_STATUS_KEY, vcsStatusEvent } from './shell-vcs';
 import { DEVICE_STATE_KEY, deviceStateEvent } from './r4-surfaces-device';
 import { WORKTREE_SETUP_KEY, worktreeSetupEvent } from './timeline-worktree';
@@ -51,10 +51,7 @@ type Selection = { projectId: string; threadId: string };
 export type Pending = { method: string; payload: Obj; description: string; threadId: string; text: string; uncertain: boolean };
 const uncertainError = (pending: Pending) => `${pending.description} may have reached T3. Check the synchronized thread, then retry only if needed.`;
 type Preferences = { selections: Record<string, Selection>; drafts: Record<string, string>; snapshotDrafts: Record<string, Obj[]>; snapshotReleases: string[]; sidebarWidth: number; sidebarOpen: boolean; pending: Record<string, Pending>; favoriteModels: string[]; groupingMode: string; lastGroupingMode?: string; clientSettings: ClientPrefs; customThemes: CustomTheme[]; groupingOverrides: Record<string, string>; composerControls: ComposerControlsPrefs; deviceSettings: { composerCollapseOnScroll: boolean; planModeEnabled: boolean; timestampFormat: string; appearanceMode: string; sendShortcut: string; snapShotShortcut: string; snapShotEnabled: boolean; snapShotIncludeAccessibility: boolean; snapShotPlaySound: boolean; snapShotSound: string; snapShotFlash: boolean; snapShotAnimations: boolean } };
-const groupingModes = ['repository', 'repository_path', 'separate'];
-const projectPath = (value: unknown) => str(value).trim().replace(/\\/g, '/').replace(/\/+$/, '');
 const preferences = (): Preferences => ({ selections: {}, drafts: {}, snapshotDrafts: {}, snapshotReleases: [], sidebarWidth: 256, sidebarOpen: true, pending: {}, favoriteModels: [], groupingMode: 'repository', clientSettings: decodeClientPrefs({}), customThemes: [], groupingOverrides: {}, composerControls: emptyComposerControls(), deviceSettings: { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter', snapShotShortcut: 'shift+shift', snapShotEnabled: false, snapShotIncludeAccessibility: true, snapShotPlaySound: true, snapShotSound: 'soft-pop', snapShotFlash: true, snapShotAnimations: true } });
-const message = (error: unknown) => error instanceof Error ? error.message : 'The operation failed.';
 const scopeStrings = (value: unknown): string[] => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
 
 const DEFAULT_ORIGIN = 'http://127.0.0.1:3773'; // T3's default server address (README)
@@ -396,7 +393,7 @@ export class T3Client {
     this.streamError = '';
   }
 
-  private ensureSelection(): void {
+  ensureSelection(): void {
     const selected = this.shell.threads.find(thread => thread.id === this.threadId);
     if (selected) this.projectId = str(selected.projectId);
     if (!this.shell.projects.some(project => project.id === this.projectId)) this.projectId = mostRecentProjectId(this.shell);
@@ -625,28 +622,13 @@ export class T3Client {
       await this.load(storage);
       await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, confirmQuit: quitMode(this.local) });
       if (await runOps(this, READ_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
-      else if (op === 'grouping-mode') {
-        if (!groupingModes.includes(value)) throw new ClientError('Unsupported grouping mode.');
-        this.local.groupingMode = value;
-      } else if (op === 'grouping-override') {
-        const project = this.shell.projects.find(project => project.id === id);
-        if (!project) throw new ClientError('That project is no longer available.');
-        if (!groupingModes.includes(value) && value !== 'inherit') throw new ClientError('Unsupported grouping mode.');
-        const key = `${this.environmentId}:${projectPath(project.workspaceRoot)}`;
-        if (value === 'inherit') delete this.local.groupingOverrides[key];
-        else this.local.groupingOverrides[key] = value;
-      } else if (op.startsWith('restlocal:')) { resultMessage = await restLocal(this, native, storage, op.slice(10), id, value);
+      else if (op.startsWith('restlocal:')) { resultMessage = await restLocal(this, native, storage, op.slice(10), id, value);
       } else if (op.startsWith('chatlocal:')) { resultMessage = await chatLocal(this, native, op.slice(10), id, value, storage);
       } else if (op.startsWith('pageslocal:')) { resultMessage = await pagesLocal(this, native, storage, op.slice(11), id, value);
       } else if (op.startsWith('editorlocal:')) { resultMessage = await editorLocal(this, native, op.slice(12), id, value, n);
       } else if (op.startsWith('shelllocal:')) { resultMessage = await shellLocal(this, native, op.slice(11), id, value);
       } else if (op.startsWith('cclocal:')) { resultMessage = await composerLocal(this, native, storage, op.slice(8), id, value);
       } else if (op.startsWith('sidebarlocal:')) { resultMessage = await sidebarLocal(this, native, op.slice(13), id, value);
-      } else if (op === 'search') { this.query = value; startThreadSearch(this, native, value); }
-      else if (op === 'sidebar') {
-        if (n) { this.local.sidebarWidth = Math.min(4096, Math.max(208, n)); storeSidebarWidth(this); } // a drag ended (the toggle sends 0)
-        if (value === 'open' || value === 'closed') this.local.sidebarOpen = value === 'open';
-        else if (!n) this.local.sidebarOpen = !this.local.sidebarOpen;
       } else if (op === 'close-diff') { this.diffOpen = false; this.diffLoading = false; }
       else if (op === 'diff-view' && id === 'copy') { await this.call(native, { op: 'copyText', text: value }); resultMessage = 'Copied file path'; }
       else if (op === 'diff-view') { diffView(this, id, value, diffPaths(this)); if (id === 'layout') rememberDiffLayout(this, value); }
@@ -654,14 +636,6 @@ export class T3Client {
       else {
         this.requireWrite();
         if (await runOps(this, WRITE_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
-        else if (op === 'add-project') await this.addProject(native, storage, id, value);
-        else if (op === 'rename-project' || op === 'remove-project') await this.manageProject(native, storage, op, id, value);
-        else if (op === 'rename-group' || op === 'remove-group') await this.manageGroup(native, storage, op, id, value);
-        else if (op === 'remove-group-member') {
-          this.shell = applyShell(this.shell, await this.http(native, '/api/orchestration/shell'));
-          if (!this.projectGroups().some(group => group.key === value && group.members.some(member => member.id === id))) throw new ClientError('Project group membership changed. Reopen its settings.');
-          await this.manageProject(native, storage, 'remove-project', id, '');
-        }
         else if (op.startsWith('rest:')) resultMessage = await restCommand(this, native, storage, op.slice(5), id, value);
         else if (op.startsWith('chat:')) resultMessage = await chatCommand(this, native, storage, op.slice(5), id, value);
         else if (op.startsWith('shell:')) resultMessage = await shellCommand(this, native, storage, op.slice(6), id, value);
@@ -697,15 +671,6 @@ export class T3Client {
     this.threadLive = true; this.diffOpen = false; this.answers = {}; this.chooseDefaults();
     if (this.connection === 'connected') await this.call(native, { op: 'unsubscribe', key: 'thread' });
   }
-  private async addProject(native: Native, storage: Files, path: string, title: string): Promise<void> {
-    if (!path.trim()) throw new ClientError('Enter the project folder on the T3 server.');
-    const [commandId, projectId] = await this.ids(native, 2);
-    await this.write(native, storage, { method: 'projects.mutate', description: 'Add project', threadId: '', text: '', uncertain: false,
-      payload: { type: 'project.create', commandId, projectId, title: title.trim() || path.trim().replace(/\/$/, '').split('/').pop() || 'Project', workspaceRoot: path.trim(), createWorkspaceRootIfMissing: false } });
-    this.shell = applyShell(initialShell(), await this.http(native, '/api/orchestration/shell'));
-    if (!this.shell.projects.some(project => project.id === projectId)) throw new ClientError('The project was created but is not yet available. Refresh before selecting it.');
-    this.projectId = projectId; this.threadId = ''; this.thread = null; this.threadLive = true; this.chooseDefaults();
-  }
   configuredProviders() {
     return Object.entries(obj(obj(this.config.settings).providerInstances)).map(([id, entry]) => {
       const instance = obj(entry);
@@ -739,20 +704,6 @@ export class T3Client {
       const name = groupLabel(members); // r6-polish: deriveProjectGroupLabel (r6-polish-groups.ts)
       return { key, name, members };
     });
-  }
-  private async manageGroup(native: Native, storage: Files, op: string, key: string, title: string): Promise<void> {
-    // Resolve the current server members, never a cached list from a dialog.
-    this.shell = applyShell(this.shell, await this.http(native, '/api/orchestration/shell'));
-    const group = this.projectGroups().find(group => group.key === key);
-    if (!group) throw new ClientError('That project group is no longer available.');
-    if (op === 'rename-group' && !title.trim()) throw new ClientError('Project title cannot be empty');
-    for (const member of group.members) {
-      if (!this.projectGroups().some(group => group.key === key && group.members.some(current => current.id === member.id))) {
-        throw new ClientError('Project group membership changed. Reopen its settings.');
-      }
-      try { await this.manageProject(native, storage, op === 'rename-group' ? 'rename-project' : 'remove-project', str(member.id), title); }
-      catch (error) { throw new ClientError(`Could not ${op === 'rename-group' ? 'rename' : 'remove'} checkout ${str(member.workspaceRoot)}: ${message(error)}`); }
-    }
   }
   /** Lane settings-core: settings reads/writes and the scope's t3.json, never other methods. */
   async settingsCoreRequest(native: Native, method: string, payload: Obj, write = false): Promise<Obj> {
@@ -927,36 +878,6 @@ export class T3Client {
       delete this.subscriptions.thread;
     }
     if (op === 'delete-archived-thread') delete this.local.drafts[`${this.environmentId}:${id}`];
-  }
-  private async manageProject(native: Native, storage: Files, op: string, id: string, title: string): Promise<void> {
-    const project = this.shell.projects.find(project => project.id === id);
-    if (!project) throw new ClientError('That project is no longer available.');
-    if (op === 'rename-project' && !title.trim()) throw new ClientError('Project title cannot be empty');
-    const removedThreads = this.shell.threads.filter(thread => thread.projectId === id);
-    const [commandId] = await this.ids(native, 1);
-    await this.write(native, storage, { method: 'projects.mutate', description: op === 'rename-project' ? 'Rename project' : 'Remove project',
-      threadId: '', text: '', uncertain: false, payload: op === 'rename-project'
-        ? { type: 'project.update', commandId, projectId: id, title: title.trim() }
-        : { type: 'project.delete', commandId, projectId: id, force: true } });
-    // Refresh canonical records before selection/default resolution. The live
-    // event can arrive after the mutation acknowledgment.
-    this.shell = applyShell(initialShell(), await this.http(native, '/api/orchestration/shell'));
-    if (op === 'remove-project') {
-      for (const [key, selection] of Object.entries(this.local.selections)) {
-        if (key === this.environmentId && selection.projectId === id) delete this.local.selections[key];
-      }
-      for (const thread of removedThreads) {
-        if (thread.projectId === id) delete this.local.drafts[`${this.environmentId}:${thread.id}`];
-      }
-      delete this.local.drafts[`${this.environmentId}:new:${id}`];
-      if (this.projectId === id) {
-        this.threadId = ''; this.thread = null; this.threadSubscription = ''; this.threadEpoch++;
-        delete this.subscriptions.thread;
-        await this.call(native, { op: 'unsubscribe', key: 'thread' });
-        this.projectId = str(this.shell.projects[0]?.id); this.threadLive = true; this.chooseDefaults();
-      }
-    }
-    this.ensureSelection(); this.error = '';
   }
 
   async history(native: Native): Promise<void> {
