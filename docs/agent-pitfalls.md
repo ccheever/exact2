@@ -367,6 +367,14 @@ guide's rules don't make obvious.
 
 ## Driving and testing
 
+- **A test passes on the web and fails on iOS right after an input that saves.** An
+  `expect` straight after `type` or `tap` reads what the input's mutation answered;
+  an input step ends with the answers given in its own turn ([authored
+  tests](contract-grammar.md#authored-tests)), and a source that awaits a storage
+  write answers in that turn on the web but later on a native host. Fix: put
+  `clock data` after the input, before the `expect` that reads what its reply sets.
+  (Authoring bench, LLP 1087, ios23 t5-pomodoro, 2026-10-05; iOS round 6.)
+
 - **A drive script kept in the app folder makes the build stale.** Editing
   `verify.mjs` beside `app.contract` made the driver refuse the next drive until
   `bun exact.mjs web-build`. Cause: a file in the app folder counts as a build input
