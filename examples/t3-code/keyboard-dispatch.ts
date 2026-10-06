@@ -17,6 +17,7 @@ import { closeChordTarget } from './r9-input-panel'; // lane r9-input: ⌘W clos
 import { legacyTraversal } from './legacy-sidebar-view'; // legacy-sidebar: ⌘1-9 and ⇧⌘[ / ⇧⌘] follow its visible order
 import { resolveAdjacentThreadId } from './legacy-sidebar-model';
 import { threadCommandRows } from './thread-keys'; // thread-commands-and-keys: queue and host keys
+import { terminalRows } from './terminal-drawer-view'; // terminal-drawer: ⌘J
 
 export type DispatchContext = { composerFocus: boolean; editableFocus: boolean; turnRunning: boolean; modelPickerOpen: boolean; draftThreadRoute: boolean; modalOpen: boolean; settingsOpen: boolean; diffOpen: boolean;
   paletteOpen?: boolean; paletteMode?: string; prNumber?: string; undoShown?: boolean; settingsRoute?: string; page?: string };
@@ -135,7 +136,7 @@ export type DispatchRow = (add: DispatchAdd, client: T3Client, threads: Obj[], b
 // order (the host files a button's first ⌘ chord as its menu key equivalent,
 // so order is kept). A feature adds a row function, here or in its own file,
 // and one entry below; no row reads another's locals.
-const MAIN_ROWS: DispatchRow[] = [paletteRows, appearanceRow, threadOrderRows, navigationRows, scratchRow, threadRows, panelRows, turnRows, modelPickerRows, threadCommandRows];
+const MAIN_ROWS: DispatchRow[] = [paletteRows, appearanceRow, threadOrderRows, navigationRows, scratchRow, threadRows, panelRows, terminalRows, turnRows, modelPickerRows, threadCommandRows];
 /** The palette, usage, theme editor and new-thread commands. */
 function paletteRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   // theme.select opens the palette on Change theme; usage.open and themeEditor.toggle run the palette's rows.

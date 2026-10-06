@@ -17,6 +17,7 @@
 //   `[terminal] <message>`.
 import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
+import type { DispatchAdd } from './keyboard-dispatch';
 import { obj, str, type Obj } from './domain';
 import type { Files, Native } from './protocol';
 import { subscriptionSerial } from './shell-vcs';
@@ -98,6 +99,11 @@ function knownSessions(client: T3Client, ref: ScopedThreadRef) {
 function allocatableIds(client: T3Client, ref: ScopedThreadRef): string[] {
   const ui = selectThreadTerminalUiState(terminalUiStore(client).getState().terminalUiStateByThreadKey, ref);
   return [...new Set([...knownSessions(client, ref).map(session => session.target.terminalId), ...ui.terminalIds])];
+}
+
+/** keyboard-dispatch MAIN_ROWS: terminal.toggle (⌘J by default) wherever the drawer can open. */
+export function terminalRows(add: DispatchAdd, client: T3Client): void {
+  if (terminalAvailable(client)) add('terminal.toggle', 'command', 'terminallocal:toggle', 'Toggle Terminal');
 }
 
 // ── The metadata stream (subscribeTerminalMetadata) ─────────────────────────────────────────────
