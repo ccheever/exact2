@@ -105,7 +105,7 @@ component ThemeEditorPanel
     rh = boxH
     mh = boxH
   view
-    column position="absolute" left=(placed ? left : "auto") top=(placed ? top : "auto") right=(placed ? "auto" : 16) bottom=(placed ? "auto" : 16) width=boxW height=(sized and not minimized ? boxH : "auto") max-height=(minimized ? vh : (sized ? vh - 16 : capH)) border-radius=14 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.canvas box-shadow="0 20px 25px -5px #0000001a, 0 8px 10px -6px #0000001a" box-sizing="border-box" overflow="hidden" z-index=110 role="dialog" aria-label=editor.title testId="theme-editor"
+    column position="absolute" left=(placed ? left : "auto") top=(placed ? top : "auto") right=(placed ? "auto" : 16) bottom=(placed ? "auto" : 16) width=boxW height=(sized and not minimized ? boxH : "auto") max-height=(minimized ? vh : (sized ? vh - 16 : capH)) border-radius=14 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.canvas box-shadow="0 20px 25px -5px #0000001a, 0 8px 10px -6px #0000001a" box-sizing="border-box" overflow="hidden" z-index=110 role="dialog" aria-label=editor.title id="theme-editor" testId="theme-editor"
       row flex-shrink=0 align-items="center" gap=4 padding-top=8 padding-bottom=8 padding-left=12 padding-right=12 border-bottom-width=(minimized ? 0 : 1) border-bottom-style="solid" border-color=pal.divider box-sizing="border-box" touch-action="none" cursor=(dragging ? "grabbing" : "grab") pan=drag panrelease=dropDrag testId="theme-editor-header"
         row flex=1 min-width=0 gap=8 align-items="baseline"
           text editor.title font-size=14 font-weight=500 line-height="20px" color=pal.text role="heading" aria-level=2 flex-shrink=0
