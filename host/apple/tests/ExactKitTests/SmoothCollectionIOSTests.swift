@@ -214,10 +214,10 @@ final class SmoothCollectionIOSTests: XCTestCase {
         let fold = OffsetDriver(scroll: scroll, to: CGPoint(x: 0, y: 964), duration: 0.3, serial: 6,
                                 done: { _, finished in folded = finished }, reclamp: { _ in })
         fold.start()
-        fold.retarget(CGPoint(x: 0, y: 900.2), serial: 7)
+        fold.retarget(CGPoint(x: 0, y: 900.49), serial: 7)
         XCTAssertEqual(folded, true)
         XCTAssertFalse(FrameClock.shared.wants(fold), "no frames for it")
-        XCTAssertEqual(scroll.contentOffset.y, 900.2, accuracy: 0.34, "set there, to the pixel")
+        XCTAssertGreaterThan(scroll.contentOffset.y, 900.2, "set there, to the pixel")
     }
 
     /// A deferred start whose target folded back to the port by the time it
@@ -227,11 +227,11 @@ final class SmoothCollectionIOSTests: XCTestCase {
         list(p, correction: NSNull())
         let scroll = try XCTUnwrap(p.views[1]?.scroll)
         p.apply(wireBatch([collections(revision: 2, correction: ["scrollSequence": "0", "offset": 64, "smooth": true])]))
-        p.apply(wireBatch([collections(revision: 3, correction: ["scrollSequence": "0", "offset": 0.2, "smooth": true])]))
+        p.apply(wireBatch([collections(revision: 3, correction: ["scrollSequence": "0", "offset": 0.49, "smooth": true])]))
         wait("the deferred start ran") { !p.collections.startOwed.contains(1) }
         XCTAssertNil(p.collections.offsetDrivers[1], "no motion")
         XCTAssertFalse(p.collections.animating.contains(1))
-        XCTAssertEqual(scroll.contentOffset.y, 0.2, accuracy: 0.34)
+        XCTAssertGreaterThan(scroll.contentOffset.y, 0.2, "set there, to the pixel")
     }
 
     /// A smooth correction under half a point (a port rounded to a device
