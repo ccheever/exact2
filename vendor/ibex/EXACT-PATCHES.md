@@ -5,6 +5,8 @@
 - Upstream: `https://github.com/expo/ibex.git` at
   `7f77c82a12f20a4cd3ebbe01fdaa7f22deb7c985` (2026-10-06).
 - Vendored: `crates/{ibex2,ibex2-sqlite,hermes-lean-sys,hermes-lean-sys-installer}`.
+- Exact also commits `crates/hermes-lean-sys-installer/Cargo.lock`: the
+  installer is a standalone runnable tool here, not an Ibex workspace member.
 - Minimum external inputs: `scripts/icu74-filter-{root-en,en-intl}.json`,
   embedded by `hermes-lean-sys`'s receipt tests, and
   `third_party/wpt/urltestdata.json`,
@@ -39,9 +41,27 @@ git archive origin/main "$old_vendor" | tar -x -C "$exact"
 diff -ru "$base/crates/ibex2" "$exact/$old_vendor" # recover the old Exact delta
 ```
 
-Replace only the four snapshot crate trees and two named data files, update
-the hash above, then reapply every carried patch below and run both the Ibex
-crate tests and Exact's consumers. Do not import repository build outputs.
+Replace only the four snapshot crate trees and two named data files and update
+the hash above. Then regenerate the standalone installer's lock and align every
+dependency version it shares with exact2's root lock. Update this reviewed pin
+list when the root lock advances; the check refuses a missed overlap.
+
+```sh
+installer_manifest=vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml
+cargo generate-lockfile --manifest-path "$installer_manifest" --offline
+for pinned in bitflags:2.13.1 cc:1.4.4 cfg-if:1.0.4 crc32fast:1.5.1 \
+  find-msvc-tools:0.1.11 libc:0.2.189 rustix:1.1.4 syn:3.0.4 \
+  unicode-ident:1.0.24 zlib-rs:0.6.7; do
+  cargo update --manifest-path "$installer_manifest" \
+    -p "${pinned%%:*}" --precise "${pinned#*:}" --offline
+done
+bun -e 'const fs=require("node:fs"),read=p=>Bun.TOML.parse(fs.readFileSync(p,"utf8")).package,root=new Map; for(const p of read("Cargo.lock")){const v=root.get(p.name)||[];v.push(p.version);root.set(p.name,v)} const bad=read("vendor/ibex/crates/hermes-lean-sys-installer/Cargo.lock").filter(p=>root.has(p.name)&&!root.get(p.name).includes(p.version));if(bad.length)throw new Error(`installer/root lock mismatch: ${bad.map(p=>`${p.name}@${p.version}`).join(", ")}`)'
+cargo metadata --manifest-path "$installer_manifest" --locked --offline \
+  --format-version 1 --no-deps >/dev/null
+```
+
+Reapply every carried patch below and run both the Ibex crate tests and Exact's
+consumers. Do not import repository build outputs.
 
 ## Delta classification from the pre-split snapshot
 
