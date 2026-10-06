@@ -594,7 +594,10 @@ has a complete `app.ts`: synchronous, `fetch` and SQLite sources, the grants
 each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https://…'].join('\n')`;
 `net.fetch` takes an `http` or `https` origin, `http://127.0.0.1:8080` too; on iOS
 cleartext `http` reaches only a local host, and only with `app.json`'s
-`host.ios.localNetworking` set),
+`host.ios.localNetworking` set; an `iframe` of `http://` from a named host needs
+`host.macos.appTransportSecurity` or `host.ios.appTransportSecurity` set to
+`{ "allowsArbitraryLoadsInWebContent": true }`, which relaxes web views only and
+not an `http:` sub-resource of the app's own `assets/` page),
 and how to drive it with storage.
 A token, a password or a key the module keeps is a secret, not a file: grant
 `secret.keep <name>` (one line per name, `secret.keep signal.token`) and use
@@ -731,6 +734,21 @@ nothing (the web and Apple journal `image refused`). Keep a picked photo by copy
 `app:/data` and answering that path; never tell hosts apart in the data module
 (`HermesInternal`) to choose a source
 ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
+
+An `image` hears HTML `<img>`'s two events, once per source, on the web, macOS and
+iOS: `load=` when the picture is ready (no payload), and `error=` when it does not
+load, with a `message` that says why (`error=failed` runs `action failed(message:
+string)`; `error=failed("icon")` passes `"icon"` before it). On macOS and iOS the
+message is the reason (`HTTP 404`, `Could not connect to the server.`, `not an image
+format this host decodes`); the browser gives none, so the web says `the image did
+not load`. A symbol fires neither. What each host's fetch of an `http(s)` source
+sends, follows and accepts is LLP 1011's: macOS and iOS send no cookie and no
+`Referer`, follow redirects to any host (within App Transport Security), take any
+2xx body up to 64 MiB whatever its `Content-Type`, and keep an HTTP cache on disk;
+the web is the browser's `<img>` (its cookies and `Referer` rules, no size cap). SVG
+draws on the web only; on Apple it is an `error`. A tinted remote image on the web
+needs CORS headers, or it is an `error` too. A drive sees both after `clock +<ms>
+real`; `clock settle` can return just before them.
 
 A sound effect is a declared WAV that an action plays ([LLP
 1096](../llp/1096-sounds-an-app-can-schedule.rfc.md)): `sound "assets/…wav"` at the

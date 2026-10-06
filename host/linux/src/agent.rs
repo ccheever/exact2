@@ -80,6 +80,8 @@ pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> Stri
     // may activate a generation after the initial boot's frame was counted.
     if p.dirty() {
         let _ = p.frame();
+        // What that frame moved under the resting pointer is hovered (#139).
+        p.follow_pointer();
     }
     p.first_pixel();
     tagged(p, line, reply)

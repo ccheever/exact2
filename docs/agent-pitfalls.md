@@ -472,6 +472,23 @@ guide's rules don't make obvious.
   `expect` that reads what its reply sets.
   (Authoring bench, LLP 1087, ios23 t5-pomodoro, 2026-10-05; iOS round 6.)
 
+- **An `iframe` of `http://` from a named host loads under the agent and shows an
+  App Transport Security error in the macOS app.** `http://localtest.me:5173/` or
+  `http://example.com/` read "The resource could not be loaded because the App
+  Transport Security policy requires the use of a secure connection" in the `.app`
+  (an IP literal such as `http://127.0.0.1` loads). Cause: ATS reads the bundle's
+  `Info.plist`, and `agent macos` runs the bare executable, which has none. Fix: set
+  `host.macos.appTransportSecurity` (and `host.ios.…` for iOS) to
+  `{ "allowsArbitraryLoadsInWebContent": true }` in `app.json`; it relaxes web views
+  only. On iOS, the host's wrapper for a remote HTTP page also uses HTTP:
+  an HTTPS wrapper would still block that page as mixed content after the ATS
+  opt-in. The inner iframe keeps its sandbox and its authored dimensions.
+  To drive what a user sees on macOS, build with `bun exact.mjs mac --bundle` and set
+  `EXACT_MAC_BIN` to the `.app`'s `Contents/MacOS/ExactMac`; the driver then skips its
+  stale-build check, so rebuild the bundle before each drive. Not covered: an app's
+  own page (`src="assets/…"`) that links an `http:` sub-resource (#135).
+  (Issue #106, 2026-10-06.)
+
 - **A drive script kept in the app folder makes the build stale.** Editing
   `verify.mjs` beside `app.contract` made the driver refuse the next drive until
   `bun exact.mjs web-build`. Cause: a file in the app folder counts as a build input
@@ -603,6 +620,13 @@ guide's rules don't make obvious.
   (LLP 1097 D4.)
 
 ## Working on exact2 itself
+
+- **A bisect that shares another worktree's Cargo target directory builds
+  stale code.** `CARGO_TARGET_DIR` pointed at one worktree while checking out
+  older commits in another left generated enums (`PropId`, `Stdlib`) from the
+  wrong commit, and the build failed for no reason in either tree until a
+  full `cargo clean` (65 GiB). Give a bisect or a second worktree its own
+  target directory. (2026-10-06.)
 
 - **A platform feature looks missing, and you start building it.** Cause: the
   feature already exists under a name you did not search for. Haptics

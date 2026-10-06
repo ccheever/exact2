@@ -160,7 +160,7 @@ private final class RasterBackend: @unchecked Sendable {
             guard let resolver = source.resolver else { throw RasterFailure.decode }
             input = try RasterInput.open(source.name, resolver: resolver, cancellation: cancellation)
             metadata = try input!.metadata()
-        } catch { failure = String(describing: error) }
+        } catch { failure = error is RasterFailure || error is RasterHTTPStatus ? String(describing: error) : error.localizedDescription }
         lock.lock()
         if cancellation.isCancelled {
             source.cancellation = RasterCancellation()
@@ -346,6 +346,8 @@ final class RasterLoader {
         var offeredPixel = 0
         var failure: String?
         var delivered = false
+        /// Its `load` or `error` went out: once per source, as `<img>`'s.
+        var announced = false
         /// The core's request queue was full: asked again on the next pass.
         var admissionDeferred = false
     }
@@ -364,6 +366,9 @@ final class RasterLoader {
     private let backend: RasterBackend
     private var interests: [UInt32: Interest] = [:]
     private var deferred: [UInt32: DeferredInterest] = [:]
+    /// The source each view's last refusal before a fetch named: its `error`
+    /// goes out once, though every props op asks for that source again.
+    private var refused: [UInt32: String] = [:]
     private var deferredCursor: UInt32 = 0
     private var paused = false
     private var destroyed = false
@@ -405,12 +410,17 @@ final class RasterLoader {
         if Self.wantsHDR(view, metadata) != (interest.variant == RasterVariant.hdr) { retry(view.id) }
     }
     @discardableResult func load(_ view: NodeView, source: String, resolver: AssetResolver) -> Bool {
+        func refuse(_ reason: String) {
+            if refused[view.id] != source { refused[view.id] = source; Self.announce([(view, nil, reason)]) }
+        }
         if source.hasPrefix("data:"), source.utf8.count > RasterInput.dataLimit {
-            view.presenter?.session?.log("image refused: a data: source is over \(RasterInput.dataLimit) bytes (LLP 1011 §2)"); return false
+            view.presenter?.session?.log("image refused: a data: source is over \(RasterInput.dataLimit) bytes (LLP 1011 §2)")
+            refuse("a data: source over \(RasterInput.dataLimit) bytes"); return false
         }
         let retained = interests[view.id] != nil || deferred[view.id] != nil
         guard !destroyed, retained || interests.count + deferred.count < 1024 else {
-            view.presenter?.session?.log("image deferred: raster subscriber limit"); return false
+            view.presenter?.session?.log("image deferred: raster subscriber limit")
+            refuse("raster subscriber limit"); return false
         }
         switch backend.acquire(source, resolver: resolver) {
         case .source(let record):
@@ -423,8 +433,10 @@ final class RasterLoader {
             deferred[view.id] = DeferredInterest(view: view, resolver: resolver, source: source)
             view.presenter?.session?.log("image queued: raster metadata/source admission")
         case .refused:
-            view.presenter?.session?.log("image deferred: invalid raster source or stopped loader"); return false
+            view.presenter?.session?.log("image deferred: invalid raster source or stopped loader")
+            refuse("invalid raster source"); return false
         }
+        refused.removeValue(forKey: view.id)
         // Initial props run before Presenter registers the new view. Reconcile
         // after the batch, when identity checks can distinguish it from removal.
         if !paused { backend.wake() }
@@ -432,6 +444,7 @@ final class RasterLoader {
     }
     func cancel(_ view: UInt32) {
         deferred.removeValue(forKey: view)
+        refused.removeValue(forKey: view)
         guard let interest = interests.removeValue(forKey: view) else { return }
         if interest.request != 0 { exact_raster_cancel(id, interest.request) }
         backend.release(interest.source.id)
@@ -516,7 +529,12 @@ final class RasterLoader {
         // Every image this turn lands reports its natural size together,
         // after the loop: one layout for them all, not one each.
         var landed: [(view: NodeView, generation: Int, size: CGSize)] = []
-        defer { report(landed) }
+        var settled: [(view: NodeView, generation: Int?, failure: String?)] = []
+        defer { report(landed); Self.announce(settled) }
+        // Each source's first outcome, its `load` or its `error`.
+        func settle(_ item: inout Interest, _ view: NodeView) {
+            if !item.announced { item.announced = true; settled.append((view, item.generation, item.failure)) }
+        }
         for viewID in Array(interests.keys) {
             guard var item = interests[viewID], let view = item.view,
                   view.loadGeneration == item.generation, view.presenter?.views[viewID] === view else { cancel(viewID); continue }
@@ -524,10 +542,11 @@ final class RasterLoader {
             if item.request != 0 {
                 let state = exact_raster_status(id, item.request)
                 if state == 4, let lease = NativeRasterLease(exact_raster_take_ready(id, item.request)) {
-                    item.delivered = true; interests[viewID] = item
-                    if let size = view.acceptRaster(lease, generation: item.generation) { landed.append((view, item.generation, size)) }
+                    item.delivered = true
+                    if let size = view.acceptRaster(lease, generation: item.generation) { landed.append((view, item.generation, size)); settle(&item, view) }
+                    interests[viewID] = item
                 } else if state >= 100 {
-                    item.failure = Self.refusal(UInt64(state - 100)); interests[viewID] = item
+                    item.failure = Self.refusal(UInt64(state - 100)); settle(&item, view); interests[viewID] = item
                     view.presenter?.session?.log("image deferred: \(item.failure!)")
                 }
                 if state != 2 || item.requestedPixel <= 1 { continue }
@@ -545,7 +564,7 @@ final class RasterLoader {
             }
             let (metadata, failure) = backend.metadata(item.source)
             if let failure {
-                item.failure = failure; interests[viewID] = item
+                item.failure = failure; settle(&item, view); interests[viewID] = item
                 view.presenter?.session?.log("image deferred: \(failure)"); continue
             }
             guard let metadata else { continue }
@@ -557,7 +576,7 @@ final class RasterLoader {
             while pixel > 1 && (plan == nil || plan!.peakBytes > available) {
                 pixel = max(1, pixel / 2); plan = Self.fit(metadata, pixel: pixel, available: available, hdr: hdr)
             }
-            guard let plan else { item.failure = "decode plan too large"; interests[viewID] = item; continue }
+            guard let plan else { item.failure = "decode plan too large"; settle(&item, view); interests[viewID] = item; continue }
             var demand = ExactRasterDemand()
             demand.view = UInt64(viewID); demand.view_generation = UInt64(item.generation)
             demand.source = item.source.id; demand.generation = item.source.id
@@ -589,7 +608,7 @@ final class RasterLoader {
                     if !item.admissionDeferred { view.presenter?.session?.log("image queued: raster request admission") }
                     item.admissionDeferred = true
                 } else {
-                    item.failure = Self.refusal(refusal)
+                    item.failure = Self.refusal(refusal); settle(&item, view)
                     view.presenter?.session?.log("image deferred: \(item.failure!)")
                 }
             } else {
@@ -634,6 +653,7 @@ final class RasterLoader {
             case .refused:
                 deferred.removeValue(forKey: viewID)
                 view.presenter?.session?.log("image deferred: invalid raster source or stopped loader")
+                Self.announce([(view, item.generation, "invalid raster source")])
             }
         }
     }
@@ -646,6 +666,22 @@ final class RasterLoader {
         let used = exact_raster_stats(id)
         let held = used.resident_bytes - min(used.resident_bytes, used.cold_bytes)
         return Int(budget - min(budget, held))
+    }
+    /// HTML `<img>`'s `load`, or its `error` with the reason (LLP 1011 §4),
+    /// to a node that hears it: on the next main turn, after the sizes this
+    /// turn reported and the batch that set the source, and only while the
+    /// view still shows that load (`generation`; nil for a source refused
+    /// before it had one).
+    private static func announce(_ events: [(view: NodeView, generation: Int?, failure: String?)]) {
+        for (view, generation, failure) in events {
+            DispatchQueue.main.async { [weak view] in
+                guard let view, generation.map({ $0 == view.loadGeneration }) ?? true,
+                      let session = view.presenter?.session, view.presenter?.views[view.id] === view,
+                      view.handlers.contains(failure == nil ? "load" : "error") else { return }
+                session.apply(failure.map { session.runtime.media(view.id, event: "error", payload: $0, now: session.now()) }
+                              ?? session.runtime.load(view.id, now: session.now()))
+            }
+        }
     }
     private func report(_ landed: [(view: NodeView, generation: Int, size: CGSize)]) {
         guard let presenter = landed.first?.view.presenter else { return }
@@ -666,7 +702,7 @@ final class RasterLoader {
         if !paused { reconcile() }
     }
     func reset() {
-        interests.removeAll(); deferred.removeAll(); deferredCursor = 0
+        interests.removeAll(); deferred.removeAll(); refused.removeAll(); deferredCursor = 0
         backend.reset(stop: false); exact_raster_session_control(id, 0)
     }
     func shutdown() {

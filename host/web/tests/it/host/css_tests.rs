@@ -266,3 +266,52 @@ fn dynamic_unavailable_colors_take_the_initial_value() {
         );
     }
 }
+
+/// LLP 1069.000 D3 (#136): the live page writes the pixels the kernel
+/// resolves a `rem`/`em` row to, and re-resolves them; a page that keeps no
+/// kernel (the JS target's stylesheet) writes the units, for the browser.
+#[test]
+fn relative_lengths_are_pixels_live_and_units_ahead_of_time() {
+    use exact_kernel::{StyleId, StyleProps, StyleValue};
+    let mut s = StyleProps::default();
+    for (id, value) in [
+        (StyleId::Width, "10rem"),
+        (StyleId::Height, "48px"),
+        (StyleId::MarginLeft, "-0.5em"),
+        (StyleId::FontSize, "1.5em"),
+        (StyleId::LineHeight, "1.25em"),
+        (StyleId::LetterSpacing, "0.1em"),
+        (StyleId::BorderRadiusTopLeft, "0.5rem"),
+        (StyleId::BorderRadiusBottomLeft, "0.5rem"),
+        (StyleId::CornerShape, "-apple-continuous round round round"),
+    ] {
+        s.set_dynamic(id, &StyleValue::Text(value.into())).unwrap();
+    }
+    let (live, skipped) = css_text(&s, &[]);
+    assert!(skipped.is_empty(), "{skipped:?}");
+    let (ahead, skipped) = exact_web::css::css_text_relative(&s, &[]);
+    assert!(skipped.is_empty(), "{skipped:?}");
+    let k = exact_num::Shortest32(exact_kernel::corner::APPLE_ON_THE_WEB.1);
+    for (live_decl, ahead_decl) in [
+        ("width:160px;".to_string(), "width:10rem;".to_string()),
+        ("height:48px;".into(), "height:48px;".into()),
+        ("margin-left:-8px;".into(), "margin-left:-0.5em;".into()),
+        ("font-size:24px;".into(), "font-size:1.5em;".into()),
+        ("line-height:20px;".into(), "line-height:1.25em;".into()),
+        (
+            "letter-spacing:1.6px;".into(),
+            "letter-spacing:0.1em;".into(),
+        ),
+        (
+            format!("border-top-left-radius:calc(8px * {k});"),
+            format!("border-top-left-radius:calc(0.5rem * {k});"),
+        ),
+        (
+            "border-bottom-left-radius:8px;".into(),
+            "border-bottom-left-radius:0.5rem;".into(),
+        ),
+    ] {
+        assert!(live.contains(&live_decl), "{live_decl} in {live}");
+        assert!(ahead.contains(&ahead_decl), "{ahead_decl} in {ahead}");
+    }
+}

@@ -4,9 +4,12 @@ members = ["apps/windows-desk", "examples/calendar/data", "examples/calendar/ios
 # GPU, Hermes, platform shells and stress fixtures run in the async lane,
 # which adds `--workspace` to the same commands. The web host is here (Charlie,
 # 2026-10-05): warm, its tests add about 5 s at load ~30 (20–35 s under heavy
-# load); its Bun-launching test is the async lane's.
+# load); its Bun-launching test is the async lane's. So is the Apple host's Rust
+# (Charlie, 2026-10-06), its real-socket, wall-clock and toolchain-launching
+# (Bun, Swift, nested cargo) tests the async lane's.
 default-members = [
     "host/web",
+    "host/apple",
     "examples/calendar/data",
     "grants",
     "kernel", "motion", "num", "svg-filter", "plan", "runner", "route",

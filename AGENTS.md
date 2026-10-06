@@ -92,8 +92,11 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   takes about 10 s warm, and is advice, not a check (`semantics/README.md`, "Using it day to
   day"; `contract verify <app>` is the app author's version).
 - The gate tests only `default-members`. Of the hosts it holds the web host
-  (`exact-web`). The others (`exact-web-js`, `exact-web-capabilities`, `exact-linux`,
-  `exact-apple`, `exact-windows`, `exact-render`, …), `js/`, `gpu/` and most apps are
+  (`exact-web`) and the Apple host's Rust (`exact-apple`; its tests that drive a real
+  socket through URLSession, wait on the wall clock or launch Bun, Swift or a nested
+  cargo build are `async lane:`, and its Swift is the XCTests). The
+  others (`exact-web-js`, `exact-web-capabilities`, `exact-linux`, `exact-windows`,
+  `exact-render`, …), `js/`, `gpu/` and most apps are
   not tested by it (one is compiled when a member depends on it, and its tests still do
   not run), and the async lane reports them only after the push. When you touch one, or
   what its tests read, run its tests before landing: `cargo test -p exact-linux --lib
