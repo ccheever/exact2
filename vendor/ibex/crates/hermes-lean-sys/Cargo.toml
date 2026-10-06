@@ -1,0 +1,47 @@
+[package]
+name = "hermes-lean-sys"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+links = "hermes_lean"
+publish = false
+
+[features]
+default = []
+# Archive selection is invariant across feature contexts. `link` controls only
+# whether this crate emits the selected full VM's native link lines. Every
+# Linux VM needs ICU's code and trimmed root+en data for basic JavaScript.
+link = ["icu"]
+# Link the precompiled-bytecode-only VM instead of the full source-capable VM.
+# This is mutually exclusive with `link`.
+link-lean = ["icu"]
+# On Windows, `icu` links the SDK's frozen `icuuc`/`icuin` import libraries for
+# the operating system's ICU (never `icu.lib`); there is no data archive, so
+# `icu-full-data` is a no-op (LLP 0057.000 §5.1.1).
+# The sole owner of Linux ICU link lines. By default this selects the trimmed
+# root+en data archive required by Hermes's platform_unicode backend. The JSI
+# Intl shims also enable it when they are used without a VM in this graph.
+icu = []
+# @ref LLP 0057.000#l1--the-bindings-door — D5 keeps Ibex's Intl shims behind
+# their existing opt-in, while a Hermes embedder may independently select full
+# data for the basic-Unicode backend. This swaps data archives; ICU code
+# archives are shared.
+icu-full-data = ["icu"]
+
+[build-dependencies]
+flate2 = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tar = "0.4"
+tempfile = "3"
+ureq = { version = "=3.4.0", default-features = false, features = ["rustls"] }
+
+[dev-dependencies]
+flate2 = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tar = "0.4"
+tempfile = "3"
+ureq = { version = "=3.4.0", default-features = false, features = ["rustls"] }
