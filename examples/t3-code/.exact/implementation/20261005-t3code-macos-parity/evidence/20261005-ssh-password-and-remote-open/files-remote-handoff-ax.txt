@@ -1,0 +1,10 @@
+Captured 2026-10-06T09:49:02Z after choosing VS Code in the native Files editor menu.
+App=com.microsoft.VSCode (pid 16116)
+0 dialog alert
+  1 image Code critical alert
+  2 text An external application wants to open 'vscode-remote://ssh-remote+t3-key157/home/tester/project/README.md' in Code. Do you want to open this folder?
+  3 text If you did not initiate this request, it may represent an attempted attack on your system. Unless you took an explicit action to initiate this request, you should press 'No'
+  4 checkbox Allow opening remote paths without asking, Value: 0
+  5 button No
+  6 button Yes
+The focused UI element is 0 dialog alert.

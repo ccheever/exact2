@@ -70,8 +70,8 @@ Port changes for headers: `Effect` services become plain functions; the prompt s
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | [#147](https://github.com/ccheever/exact2/pull/147) | Merged into feature integration | Merged 2026-10-06, `7f692c9a1`; split sources present in this checkout |
-| merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | none | Merged | Still planned/unverified; no oracle or trace-diff tools in this checkout |
+| merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | none | Merged | Task remains planned/unverified; direct native builds and app checks are recorded below, without claiming this prerequisite merged |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | none | Merged | Still planned/unverified as reusable tooling; this task now has a direct pinned Electron oracle for SSH prompt/input evidence (linked below) |
 | scheduling preference | After `20261005-environment-routes` | [#148](https://github.com/ccheever/exact2/pull/148) | Shared route call sites | Merged 2026-10-06, `01f4cbb0a`; route code present, both merges are included after the final feature-base merge |
 
 ## Issue assessment at preparation
@@ -135,7 +135,7 @@ On `ea407aa162d883e5a1c6583f7d4edc3f9935bc4c`, the follow-up audit reran
 36 passed, 0 failed. This is unit-test evidence only; the larger check counts below
 are historical reports, not a fresh end-to-end verification.
 
-Next agent checklist:
+Next agent checklist (historical composite rows; current follow-up below):
 
 - [ ] Reconcile the current feature-branch base and the dependency table with merged PRs;
   record the exact app/reference commits and actual oracle availability before testing.
@@ -247,10 +247,9 @@ The repository build/test/clippy/fmt/boot checks passed during this follow-up (u
 Bun 1.4.2; system Bun 1.3.14 causes an unrelated grammar test failure). Final Rust app tests passed (10 tests); staged caps and final diff checks are recorded at close-out. Screenshot/log paths above
 are local ignored artifacts, not committed attachments or durable remote evidence.
 
-Still open: the exact pinned desktop oracle and trace comparison; Korean input-source
-behavior against that oracle; simultaneous live FIFO and full loading/error transition
-coverage; actual local Open and missing-route UI outcomes; native Files/Markdown
-context-menu interactions; dependency pin reconciliation. Unit tests cover routing and
+At that checkpoint, the oracle/IME comparison, concurrent prompt transitions, local
+and missing-route Open, Files/Markdown interactions, and dependency reconciliation
+were still open. See the current follow-up below for rows now evidenced. Unit tests cover routing and
 menu gating but do not close those runtime rows. Keep PR #157 draft. The earlier
 unchecked checklist remains the full acceptance contract; this table records partial
 progress without treating composite rows as passed.
@@ -288,3 +287,53 @@ Closing that app ended its three SSH children (`final-cleanup-before.json`,
 suite remains 1,848 pass / 1 skip; staged caps and PR-diff whitespace pass. This closes
 Files menu rendering/dismissal evidence, not the remaining local/remote editor-action,
 Markdown context-menu, oracle/IME and full concurrent prompt acceptance rows.
+
+
+## Current native follow-up, 2026-10-06
+
+[Durable fixture evidence](../evidence/20261005-ssh-password-and-remote-open/README.md)
+records the later native drive. These items narrow the historical composite
+checklist above; implementation and verification status remain unchanged.
+
+- [x] Observe simultaneous password requests in FIFO order: first target with one
+  queued request, then second target with none queued and an empty secure field.
+- [x] Observe Continue disabled while responding: both visible loading samples
+  were disabled. The sample summary records the polling limits.
+- [x] Drive the remote Markdown context menu and copy relative path. The menu
+  exposes only copy actions, and the clipboard assertion matches `README.md`.
+- [x] Drive the local Markdown context menu and Reveal in Finder. The menu exposes
+  editor/reveal actions, and Finder selects the fixture `README.md`.
+- [x] Rebuild and drive the SSH-alias follow-up change on `762f501cb`: the saved
+  SSH conversation now offers enabled Open and local remote-capable editors.
+- [x] Verify actual remote project Open in VS Code and the Files remote OS handoff
+  with the requested alias/path; no Files document-content outcome is inferred.
+- [x] Verify local Open using the offered Finder entry and successful backend RPC;
+  the fixture README is selected in Finder.
+- [ ] Verify missing-route UI.
+- [x] Compare Korean input-source behavior with the pinned desktop oracle: both
+  secure fields select ABC when focused. Preserve the first-to-second FIFO comparison.
+- [x] Reconcile dependency status: #142 is merged and included; direct feature oracle
+  evidence exists, while the generic oracle/trace and clone-on-main tasks remain
+  planned/unverified. This does not waive their broader acceptance requirements.
+- [ ] Record remaining acceptance outcomes and update final delivery status together.
+
+The recorded FIFO `afterCancel` sample still has the second prompt open; no claim
+of a drained queue is made. A local editor menu item is not evidence of an editor
+launch. Existing successful checks need rerunning only for later affected changes.
+
+
+### Durable historical evidence and scope reconciliation
+
+The [evidence record](../evidence/20261005-ssh-password-and-remote-open/README.md#pinned-oracle-and-earlier-acceptance-evidence)
+now retains the already performed pinned Electron IME/FIFO comparison, native
+three-minute expiry and actual VS Code remote-project README, rather than rerunning
+those checks. Oracle `remainingDialogs: 1` is retained without a drained-queue claim.
+The alias fix has 40 passing focused tests, strict TypeScript and caps, plus its
+rebuilt native drive. These supersede the earlier statements that IME and all oracle
+work were unperformed; the old attempts remain historical records.
+
+Merge `bd59d77d7` incorporates #142's `9670b0723` while preserving both the SSH
+alias and standard-scope imports. #142's [acceptance record](../evidence/20261005-remote-scopes-and-update-commands/20261006-repair-and-trace/README.md)
+distinguishes feature acceptance from full T0/RPC equality. This task likewise
+records only its observed SSH/remote-open behavior; no full parent trace or reusable
+oracle-tooling completion is claimed. The dependency table retains that distinction.

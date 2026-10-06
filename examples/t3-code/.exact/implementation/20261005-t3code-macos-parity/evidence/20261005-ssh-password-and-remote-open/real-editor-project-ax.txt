@@ -1,0 +1,144 @@
+App=com.microsoft.VSCode (pid 66499)
+Window: "README.md — project [SSH: t3-ssh157]", App: Code.
+
+0 standard window README.md — project [SSH: t3-ssh157]
+	1 container README.md — project [SSH: t3-ssh157]
+		2 HTML content README.md — project [SSH: t3-ssh157]
+			3 container
+				4 container
+					5 container
+					6 container
+						7 container
+							8 toolbar
+								9 button Go Back (⌃-)
+								10 button (disabled) Go Forward (⌃⇧-)
+								11 toolbar Agent Status
+									12 button Open Quick Access
+									13 container
+										14 button Toggle Chat
+										15 pop up button More Actions
+							16 toolbar
+								17 button Open in Agents Window (⇧⌘A)
+								18 button Sign In
+							19 toolbar Title actions
+								20 button Customize Layout...
+								21 toggle button Toggle Primary Side Bar (⌘B)
+								22 toggle button Toggle Panel (⌘J)
+								23 toggle button Toggle Secondary Side Bar (⌥⌘B)
+						24 container
+							25 container
+							26 container
+								27 container
+									28 tab group Active View Switcher
+										29 tab (selected, expanded) Explorer (⇧⌘E), Value: 1
+										30 tab (settable) Search (⇧⌘F), Value: 0
+										31 tab (settable) Source Control (⌃⇧G), Value: 0
+										32 tab (settable) Run and Debug (⇧⌘D), Value: 0
+										33 tab (settable) Remote Explorer, Value: 0
+										34 tab (settable) Extensions (⇧⌘X), Value: 0
+									35 toolbar Manage
+										36 pop up button Accounts
+										37 pop up button Manage
+								38 container
+									39 heading Explorer
+									40 toolbar Explorer actions
+										41 pop up button Views and More Actions...
+									42 toolbar
+									43 container
+										44 container
+										45 container
+											46 container
+												47 button (expanded) Explorer Section: project [SSH: t3-ssh157]
+												48 outline Files Explorer
+													49 outline row (selected), Description: README.md
+														50 container, Text:  README.md
+											51 button Outline Section
+											52 button Timeline Section
+								53 container
+									54 container
+									55 container
+										56 container
+											57 container
+												58 container
+													59 tab group
+														60 tab (settable) Welcome, preview, Value: 0
+														61 tab (selected) README.md, Value: 1
+													62 toolbar Editor actions
+														63 button Open Preview to the Side (⌘K V) [⌥] Open Preview
+														64 button Open as Preview
+														65 button Split Editor Right (⌘\) [⌥] Split Editor Down
+														66 pop up button More Actions...
+												67 content list
+													68 container, Text:  README.md 
+													69 container, Text:  # SSH acceptance project
+												70 button Text Editor 
+											71 container README.md
+												72 container
+													73 editor (settable) The editor is not accessible at this time. To enable screen reader optimized mode, use Shift+Option+F1
+								74 container
+									75 tab group Active View Switcher
+										76 tab (selected, expanded) Chat (⌃⌘I), Value: 1
+									77 toolbar Chat actions
+										78 button New Chat (⌘N)
+										79 pop up button New Chat
+										80 button Open Customizations
+										81 pop up button Views and More Actions...
+										82 container (disabled)
+									83 toolbar
+										84 toggle button Maximize Secondary Side Bar
+										85 button Hide Secondary Side Bar (⌥⌘B)
+									86 container
+										87 container
+											88 container, Text:  Build with Agent AI responses may be inaccurate Generate Agent Instructions to onboard AI onto your codebase.
+											89 container
+												90 container
+													91 container Suggested context, file, README.md vscode-remote://ssh-remote%2Bt3-ssh157/home/tester/project
+														92 button Add file:README.md to context
+														93 container Enable current file context README.md
+															94 text 
+															95 text README.md
+													96 container
+														97 editor (settable) The editor is not accessible at this time. To enable screen reader optimized mode, use Shift+Option+F1
+													98 container
+														99 toolbar
+															100 button Add Context... (⌘/)
+															101 pop up button Set Agent (⌘.) - Agent
+															102 container Models, sign in to use Copilot
+																103 pop up button Models, sign in to use Copilot
+															104 button Configure Tools...
+														105 toolbar
+															106 toggle button Dictate (Speech to Text) (⌘I)
+															107 button (disabled) Send [⌥] Send to New Chat (⇧⌘Enter)
+												108 toolbar
+													109 pop up button Set Session Target - Local
+													110 pop up button Permission picker, Default permissions
+						111 container
+							112 container remote SSH: t3-ssh157
+								113 button remote SSH: t3-ssh157
+							114 container No Problems
+								115 button No Problems
+							116 container No Ports Forwarded
+								117 button No Ports Forwarded
+							118 container Notifications
+								119 button Notifications
+							120 container Copilot status
+								121 button Copilot status
+							122 container Markdown
+								123 button Markdown
+							124 container Editor Language Status: Markdown link validation disabled, next: $(copilot) No inline suggestion available, Inline suggestions
+								125 button Editor Language Status: Markdown link validation disabled, next: $(copilot) No inline suggestion available, Inline suggestions
+							126 container LF
+								127 button LF
+							128 container UTF-8
+								129 button UTF-8
+							130 container Spaces: 4
+								131 button Spaces: 4
+							132 container Ln 1, Col 1
+								133 button Ln 1, Col 1
+				134 container
+					135 text Info: Downloading VS Code Server...
+	136 close button
+	137 full screen button, Secondary Actions: zoom the window
+	138 minimize button
+
+The focused UI element is 73 editor (settable) The editor is not accessible at this time. To enable screen reader optimized mode, use Shift+Option+F1.
