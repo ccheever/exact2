@@ -44,3 +44,32 @@ fn a_smooth_list_following_its_end_asks_for_an_animated_correction() {
     h.update().unwrap();
     assert!(!h.snapshot().correction.unwrap().smooth);
 }
+
+/// A host rounds its port to device pixels: one a sixth of a point short of
+/// a followed end (4405.1667 shows as 4405.333 at 3x) is at it. A commit
+/// that changes nothing asks for no correction there, so none stays owed
+/// and a later message's follow is still the smooth one.
+#[test]
+fn a_port_rounded_to_a_device_pixel_is_at_its_followed_end() {
+    let plan = plan_with(100, false, true, true);
+    let slots = vec![
+        values(100),
+        Value::Number(0.0),
+        Value::Number(0.0),
+        Value::Number(16.0),
+        Value::Unit,
+    ];
+    let mut h = Harness::from_parts(plan, slots);
+    h.send(h.feedback(2880.0 - 1.0 / 6.0));
+    h.slots[1] = Value::Number(1.0);
+    h.update().unwrap();
+    assert!(
+        h.snapshot().correction.is_none(),
+        "no correction for a sixth of a point"
+    );
+    h.slots[0] = values(101);
+    h.update().unwrap();
+    let c = h.snapshot().correction.unwrap();
+    assert_eq!(c.offset, 2912.0);
+    assert!(c.smooth);
+}

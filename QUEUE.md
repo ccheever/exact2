@@ -724,6 +724,18 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 
 ## Later
 
+- **A followed end resolved by the host (deferred, 2026-10-05).** The
+  proposal on `ide/doc/followed-end-one-target`
+  (`issues/20261005-one-target-for-a-followed-end.md`): the correction names
+  the end, and the host fits the extent with its own laid-out rows. LLP 1010
+  §6.8's 2026-10-05 note does the cheap half instead: the measured row
+  arrives 0.5 to 4 ms after the estimate, so a target before the motion's
+  first frame is its one target. Take this up only if a measured report
+  round trip is ever longer than a frame. Against it: a wire change on every
+  host, and the extent with two sources of truth, so a later runner extent
+  that disagrees (f32 rounding, a row whose measurement a cross-size check
+  skipped) moves `contentSize` again at the end.
+
 - **Windows, Android** — `rules/DEFERRED.md` §Surfaces; after the loop is proven.
 - **ibex2** (`~/projects/ibex/crates/ibex2`; ibex LLP 0057 §5.2 targets Exact 2). Two
   things, two triggers (Charlie, 2026-08-29). `ibex2::host` — the Rust standard library

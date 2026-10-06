@@ -41,6 +41,12 @@ pub(super) fn collections_json(tree: &Tree) -> String {
 
 const BOOTSTRAP_ROWS: usize = 16;
 const ESTIMATED_HEIGHT: f64 = 32.0;
+/// How far a host's port may sit from where the runner places it and still
+/// be there: a host rounds its offset to device pixels (UIKit's
+/// `contentOffset`, a browser's `scrollTop`), so 4405.1667 shows as
+/// 4405.333 at 3x. A tighter test re-sent the same unreachable correction
+/// with every commit, and the opening never settled (`settle_start`).
+const AT_OFFSET: f64 = 0.5;
 /// Travel the window leads by, past its viewport of overscan.
 const LEAD_SECONDS: f64 = 0.25;
 /// A mounted row farther than this many viewports from what shows retires
@@ -729,7 +735,7 @@ impl Collection {
                 .index
                 .restore_anchor(&anchor, g.port_main)
                 .map_err(index_error)?;
-            if (corrected - g.offset).abs() > 0.01 {
+            if (corrected - g.offset).abs() > AT_OFFSET {
                 // Relative only where the anchor's row stayed put (an end
                 // followed or clamped is absolute: the host's own clamp has
                 // moved it). One not yet acknowledged by a report is still
@@ -1428,7 +1434,7 @@ impl Collection {
             .index
             .restore_anchor(&anchor, g.port_main)
             .map_err(index_error)?;
-        if (corrected - feedback.offset).abs() > 0.01 {
+        if (corrected - feedback.offset).abs() > AT_OFFSET {
             return Ok(None);
         }
         let pins = self.pins();

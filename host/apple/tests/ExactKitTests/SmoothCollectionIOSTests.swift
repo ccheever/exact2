@@ -164,5 +164,42 @@ final class SmoothCollectionIOSTests: XCTestCase {
         XCTAssertFalse(p.collections.animating.contains(1))
         XCTAssertEqual(scroll.contentOffset.y, 900, accuracy: 0.5)
     }
+
+    /// A followed end's measured row comes a report after its estimate,
+    /// well inside a frame: a target that arrives before the motion's first
+    /// frame is still its one target, begun when it began (LLP 1010 §6.8).
+    /// After a frame has shown, a retarget is a fresh ease from there.
+    func testATargetBeforeTheFirstFrameIsTheMotionsOneTarget() throws {
+        let p = presenter()
+        list(p, correction: NSNull())
+        p.apply(wireBatch([collections(revision: 2, correction: ["scrollSequence": "0", "offset": 1700, "smooth": true])]))
+        wait("the motion begins") { self.moving(p) }
+        let driver = try XCTUnwrap(p.collections.offsetDrivers[1])
+        if !driver.drawn {
+            let began = driver.began
+            p.apply(wireBatch([collections(revision: 3, correction: ["scrollSequence": "0", "offset": 1690, "smooth": true])]))
+            XCTAssertTrue(p.collections.offsetDrivers[1] === driver)
+            XCTAssertEqual(driver.to.y, 1690, accuracy: 0.5)
+            XCTAssertEqual(driver.began, began, "the same motion, not a second one")
+        }
+        wait("a frame shows") { driver.drawn }
+        let began = driver.began
+        p.apply(wireBatch([collections(revision: 4, correction: ["scrollSequence": "0", "offset": 1680, "smooth": true])]))
+        XCTAssertGreaterThan(driver.began, began, "after a frame, a fresh ease from what shows")
+        wait("the animation ended") { !p.collections.animating.contains(1) }
+        XCTAssertEqual(try XCTUnwrap(p.views[1]?.scroll).contentOffset.y, 1680, accuracy: 0.5)
+    }
+
+    /// A smooth correction under half a point (a port rounded to a device
+    /// pixel) is set, not eased: 0.3 s of frames for it moved nothing.
+    func testASmoothCorrectionUnderHalfAPointIsSet() throws {
+        let p = presenter()
+        list(p, correction: NSNull())
+        let scroll = try XCTUnwrap(p.views[1]?.scroll)
+        p.apply(wireBatch([collections(revision: 2, correction: ["scrollSequence": "0", "offset": 0.3, "smooth": true])]))
+        XCTAssertFalse(p.collections.animating.contains(1))
+        XCTAssertNil(p.collections.offsetDrivers[1])
+        XCTAssertEqual(scroll.contentOffset.y, 0.3, accuracy: 0.34, "set at once, to the pixel")
+    }
 }
 #endif

@@ -956,3 +956,32 @@ whole flight.) `CollectionIOS.swift` `animateOffset`, `OffsetDriver`;
 `SmoothCollectionIOSTests`; measured with `scripts/motion-trace.mjs` on
 Signal Clone's send: one motion, max deviation 0.014 from a 0.3 s
 ease-in-out (before: 0.27, and a 12-pt jump).
+
+**One target before the first frame, and a port at a device pixel
+(2026-10-05).** Measured on Signal Clone in the simulator, a send's measured
+row (−1 pt) and a reply's (−16 pt) arrive 0.5 to 4 ms after the estimated
+one (+64 pt), inside the frame the motion starts on. So:
+- A target that arrives before the motion's first frame (`OffsetDriver.drawn`)
+  replaces its target and keeps its start: one ease, not a retarget. After a
+  frame has shown, a retarget is a fresh ease from what shows, as before.
+- A start whose target has folded back to within half a point of the port,
+  and a smooth correction under half a point, set the offset and run no
+  frames. (Each was 0.3 s of the display link moving 0.17 pt.)
+- A host rounds its offset to device pixels (UIKit's `contentOffset`, a
+  browser's `scrollTop`): an end at 4405.1667 pt shows as 4405.333 at 3x.
+  The runner took any port more than 0.01 pt from its target as off it,
+  so it sent the same correction with every commit (four a second under a
+  250 ms poll), an opening list never settled (`settle_start` needs no
+  correction owed), and with its opening unsettled no follow was smooth:
+  in such a session every sent message snapped. The runner now takes a port
+  within half a point as there (`AT_OFFSET`, `collection/mod.rs`).
+- Not done: the host resolving a followed end from its own layout, a
+  correction that names the end, not an offset (proposal on
+  `ide/doc/followed-end-one-target`). With the second target inside the
+  first frame it buys no visible change and adds a second source of truth
+  for the extent; `QUEUE.md` keeps it.
+
+Tests: `SmoothCollectionIOSTests`
+(`testATargetBeforeTheFirstFrameIsTheMotionsOneTarget`,
+`testASmoothCorrectionUnderHalfAPointIsSet`), the runner's
+`a_port_rounded_to_a_device_pixel_is_at_its_followed_end`.
