@@ -556,6 +556,12 @@ impl<D: DataSource> Presenter<D> {
     /// value and the web build writes `value` only when the bound value
     /// changes (LLP 1069.001 D4: an unbound field holds its own text).
     fn keep_typed(&mut self, id: ViewId, typed: String, before: String) {
+        // No handler need hear an edit for it to show.
+        self.dirty = true;
+        if self.host.kernel().node(id).is_none() {
+            self.chosen.remove(&id);
+            return;
+        }
         let bound = self.bound_text(id);
         if bound == before && bound != typed {
             self.chosen.insert(id, (typed, bound));

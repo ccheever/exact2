@@ -643,9 +643,14 @@ fn tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 continue;
             };
             row["focused"] = (p.focus() == Some(id)).into();
-            // What a control shows: a field's typed text or a choice its
-            // bound value has not replaced (LLP 1069.001 D4).
-            if p.chosen.contains_key(&id) {
+            // What a field shows: typed text its bound value has not
+            // replaced (LLP 1069.001 D4).
+            if p.chosen.contains_key(&id)
+                && p.host()
+                    .kernel()
+                    .node(id)
+                    .is_some_and(|n| n.node_type == exact_kernel::NodeType::TextInput)
+            {
                 row["props"]["value"] = p.field_text(id).into();
             }
             if row["type"] == "WebView" || row["type"] == "Video" {

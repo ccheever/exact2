@@ -661,6 +661,15 @@ impl<D: DataSource> Presenter<D> {
             self.executor.resume_ordered();
         }
         self.cancel_removed_controls();
+        // A choice or typed text whose bound value has changed since is gone,
+        // as the web build's write of `value` replaces it (LLP 1069.001 D4):
+        // the value coming back does not bring it back.
+        let kernel = self.host.kernel();
+        self.chosen.retain(|id, (_, at)| {
+            kernel
+                .node(*id)
+                .is_some_and(|n| n.props.str(PropId::Value).unwrap_or("") == at)
+        });
         let admitted = self.host.grants();
         for r in self.host.take_requests() {
             if r.request.surface.is_some() {

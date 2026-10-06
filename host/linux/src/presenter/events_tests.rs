@@ -633,9 +633,13 @@ fn an_unbound_field_holds_its_typed_text_until_its_bound_value_changes() {
     saved = saved
   action shout(next: string)
     loud = next + "!"
+  action swap()
+    kept = kept == "kept" ? "other" : "kept"
   view
     column
       input change=save testId="free"
+      input value="x" change=save testId="literal"
+      button "swap" press=swap testId="swap"
       input value=kept input=refuse testId="refused"
       input value=loud input=shout testId="loud"
 "#,
@@ -654,8 +658,11 @@ fn an_unbound_field_holds_its_typed_text_until_its_bound_value_changes() {
     let free = id(&p, "free");
     let reply = p.type_text(free, "ab").unwrap();
     assert!(reply.contains("\"value\":\"ab\""), "{reply}");
-    // Hardware keys edit the typed text, not the empty prop.
+    // Hardware keys edit the typed text, not the empty prop, and show it
+    // with no handler to hear them.
+    p.dirty = false;
     p.key(Some('c'), false, 0.);
+    assert!(p.dirty);
     assert_eq!(p.field_text(free), "abc");
     p.key(None, true, 0.);
     assert_eq!(p.field_text(free), "ab");
@@ -676,6 +683,16 @@ fn an_unbound_field_holds_its_typed_text_until_its_bound_value_changes() {
     let refused = id(&p, "refused");
     p.type_text(refused, "mine").unwrap();
     assert_eq!(p.field_text(refused), "mine");
+    // Its bound value changing replaces it, and coming back does not bring it back.
+    p.tap(id(&p, "swap")).unwrap();
+    assert_eq!(p.field_text(refused), "other");
+    p.tap(id(&p, "swap")).unwrap();
+    assert_eq!(p.field_text(refused), "kept");
+    let literal = id(&p, "literal");
+    p.type_text(literal, "y").unwrap();
+    assert_eq!(p.field_text(literal), "y", "a literal value is a default");
+    p.type_key(literal, "Enter", "Enter", true, false).unwrap();
+    assert_eq!(saved(&p), Some(Value::str("y")));
     let loud = id(&p, "loud");
     p.type_text(loud, "hi").unwrap();
     assert_eq!(p.field_text(loud), "hi!");
