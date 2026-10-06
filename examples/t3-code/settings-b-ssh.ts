@@ -7,6 +7,7 @@ import { ClientError, bridgeReply, type Native } from './protocol';
 import { commandShortcut } from './palette';
 import { pushToast } from './toast';
 import type { T3Client } from './client';
+import { withStandardScope } from './remote-scopes';
 
 export type SshTarget = { alias: string; hostname: string; username: string | null; port: number | null };
 export type SshHost = SshTarget & { source: string };
@@ -129,8 +130,8 @@ export async function runSshOp(native: Native, op: string, id: string, value: st
     if (!origin || !credential) throw new ClientError('SSH pairing did not return a credential.');
     discovery = null;
     let result: Result = { status: null, generation: -1 };
-    if (connected) await call(native, { op: 'pairEnvironment', origin, credential });
-    else { const reply = await call(native, { op: 'connect', origin, credential }); result = { status: obj(reply.value), generation: reply.generation }; }
+    if (connected) await call(native, { op: 'pairEnvironment', ...withStandardScope({ origin, credential }) });
+    else { const reply = await call(native, { op: 'connect', ...withStandardScope({ origin, credential }) }); result = { status: obj(reply.value), generation: reply.generation }; }
     if (client) pushToast(client, { kind: 'success', title: 'Environment connected', description: `${target.alias} is ready over an SSH-managed tunnel.` });
     return result;
   } catch (error) {
