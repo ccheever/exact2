@@ -852,9 +852,19 @@ fn the_insets_re_send_the_styles_that_read_them_and_move_what_they_pad() {
     // A non-finite inset is refused by the kernel, as an error on the batch.
     let bad = host.set_insets(f32::NAN, 0.0, 0.0, 0.0);
     assert!(bad.contains("\"error\":\"insets: "), "{bad}");
-    // An app that reads no inset (Caltrain) gets an empty batch.
-    let (mut caltrain, _) = boot();
-    let none = caltrain.set_insets(62.0, 0.0, 34.0, 0.0);
+    // An app that reads no inset gets an empty batch. (Not Caltrain: its
+    // full-screen sky pads by the insets since cf992c8ee.)
+    let plain =
+        contract::compile("component App\n  view\n    column\n      text \"no insets\"\n").unwrap();
+    let (mut plain, _) = Host::boot(
+        &plain.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let none = plain.set_insets(62.0, 0.0, 34.0, 0.0);
     assert_eq!(count(&none, "style") + count(&none, "frame"), 0, "{none}");
 }
 
