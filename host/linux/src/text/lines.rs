@@ -67,6 +67,11 @@ pub struct Face {
     pub coords: Arc<[i16]>,
     /// An oblique Parley synthesized: the face has no italic.
     pub skew: bool,
+    /// What fontique set to match the style: its variation settings in the
+    /// axes' own units (`wght` 700, `ital` 1, `slnt` 14, `wdth` 75; `coords`
+    /// normalized from them) and the skew. A presenter that draws from the
+    /// font file sets these on its own font (Android's `Font`).
+    pub synthesis: fontique::Synthesis,
     /// The CSS weight shaped with.
     pub weight: u16,
 }
@@ -168,6 +173,7 @@ pub(super) fn extract(
             font: run.font().clone(),
             coords: Arc::from(run.normalized_coords()),
             skew: synthesis.skew().is_some(),
+            synthesis,
             weight: run.font_attrs().weight.value().round().clamp(1.0, 1000.0) as u16,
         });
         let size = run.font_size();

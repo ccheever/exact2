@@ -496,6 +496,10 @@ pub struct GlyphRun {
     pub paint: RunPaint,
     /// Parley's synthesized oblique when the family has no italic face.
     pub synthetic_italic: bool,
+    /// The face's variation settings in the axes' own units, as fontique
+    /// chose them (`coords` normalized): `ital` 1 for an italic drawn from
+    /// a face's axis rather than synthesized.
+    pub synthesis: fontique::Synthesis,
     /// (glyph id, x, y) — y is the baseline.
     pub glyphs: Vec<(u32, f32, f32)>,
 }
@@ -956,6 +960,7 @@ impl TextEngine {
                     run_index,
                     paint: palette[run_index],
                     synthetic_italic: face.skew,
+                    synthesis: face.synthesis,
                     glyphs,
                 })
             })

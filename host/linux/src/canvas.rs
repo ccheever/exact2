@@ -23,6 +23,13 @@
 //! - `8 IMAGE id x y w h`
 //! - `9 GLYPHS font size color skew n (glyph x y)×n`
 //! - `10 FONT key index weight len utf8-path(padded to 4)` — once per face
+//! - `41 FONT_AXES key index weight n (tag value)×n len utf8-path(padded to 4)` — `FONT` for a
+//!   face drawn at variation settings fontique chose (`tag` an OpenType axis tag as a big-endian
+//!   `u32`, `value` in the axis's units: `ital` 1 for Roboto's italic, `wght`, `slnt`, `wdth`).
+//!   The reader sets them on its `Font`; `wght`, when absent, is `weight` as for `FONT`. In
+//!   place of `FONT` for such a face, so a reader that predates it stops rather than drawing
+//!   the default instance at the instance's advances. GLYPHS' `skew` stays for an oblique
+//!   fontique synthesized (a face with neither axis)
 //! - `11 IMAGE_DEF id w h` — fetch its pixels with [`CanvasHost::image`]
 //! - `12 IMAGE_FREE id`
 //! - `13 STROKE color width cap join n (tag coords…)×n` — caps/joins as SVG (0 butt/miter, 1 round, 2 square/bevel)
@@ -67,6 +74,9 @@ const LAYER: u32 = 7;
 const IMAGE: u32 = 8;
 const GLYPHS: u32 = 9;
 const FONT: u32 = 10;
+/// `FONT` with variation settings: key, index, weight, count and (tag
+/// value) pairs, then the path.
+const FONT_AXES: u32 = 41;
 const IMAGE_DEF: u32 = 11;
 const IMAGE_FREE: u32 = 12;
 const STROKE: u32 = 13;
@@ -166,8 +176,8 @@ pub struct Recorder {
     ops: Vec<u32>,
     /// The matrix last written into `ops` (points → device pixels).
     matrix: Option<[f32; 6]>,
-    /// Faces announced to the reader, by (file, index, weight).
-    fonts: HashMap<(Arc<str>, u32, u16), u32>,
+    /// Faces announced to the reader, by (file, index, weight, axes).
+    fonts: HashMap<FontKey, u32>,
     /// Files standing in for faces loaded from bytes, by blob id.
     face_files: HashMap<u64, Option<Arc<str>>>,
     /// Pictures announced to the reader, by allocation, with a weak handle
@@ -208,6 +218,10 @@ pub struct Recorder {
 /// A picture slot recording: its id, the row's ops so far, the row's matrix,
 /// and which clips were written when it began.
 type SlotRecording = (u32, Vec<u32>, Option<[f32; 6]>, Vec<bool>);
+
+/// A face as the reader makes it: file, collection index, weight, and up to
+/// three axes as (tag, value bits), unused ones zero.
+type FontKey = (Arc<str>, u32, u16, [(u32, u32); 3]);
 
 struct RowRecording {
     clips: Vec<clip::Clip>,
@@ -338,14 +352,34 @@ impl Recorder {
         path.map(|p| (p, font.index))
     }
 
-    fn font(&mut self, file: &(Arc<str>, u32), weight: u16) -> u32 {
-        let key = (file.0.clone(), file.1, weight);
+    fn font(
+        &mut self,
+        file: &(Arc<str>, u32),
+        weight: u16,
+        synthesis: &fontique::Synthesis,
+    ) -> u32 {
+        // Fontique sets at most three axes (`wdth`, `wght`, `ital` or `slnt`).
+        let mut axes = [(0u32, 0u32); 3];
+        let vars = synthesis.variation_settings();
+        for (slot, (tag, value)) in axes.iter_mut().zip(vars) {
+            *slot = (u32::from_be_bytes(tag.to_be_bytes()), value.to_bits());
+        }
+        let n = vars.len().min(axes.len());
+        let key = (file.0.clone(), file.1, weight, axes);
         if let Some(k) = self.fonts.get(&key) {
             return *k;
         }
         let k = self.fonts.len() as u32 + 1;
         self.fonts.insert(key, k);
-        self.ops.extend([FONT, k, file.1, u32::from(weight)]);
+        if n == 0 {
+            self.ops.extend([FONT, k, file.1, u32::from(weight)]);
+        } else {
+            self.ops
+                .extend([FONT_AXES, k, file.1, u32::from(weight), n as u32]);
+            for (tag, value) in &axes[..n] {
+                self.ops.extend([*tag, *value]);
+            }
+        }
         self.string(&file.0);
         k
     }
@@ -604,7 +638,7 @@ impl Backend for Recorder {
             let Some(file) = run.file.clone().or_else(|| self.face_file(&run.font)) else {
                 continue;
             };
-            let font = self.font(&file, run.weight);
+            let font = self.font(&file, run.weight, &run.synthesis);
             self.ops.extend([GLYPHS, font]);
             self.f(run.size);
             self.ops.push(Self::color(run.paint.color));
