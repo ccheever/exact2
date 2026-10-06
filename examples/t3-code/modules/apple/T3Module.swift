@@ -68,7 +68,6 @@ final class T3Module: ExactModule {
         super.init(context: context)
         composer.launcher = launcher
         chrome.changed = gated // desktop-shell-details: full screen publishes t3.status (T3FullScreen.swift)
-        if !context.agent { chrome.frame = R8WindowFrame() } // r8-pointer D14: the window keeps its frame across launches
         DispatchQueue.main.async { [sidebar] in sidebar.install() }
     }
     override func later(_ request: [String: Any], reply: ExactReply) {
@@ -118,7 +117,7 @@ final class T3Module: ExactModule {
         T3TerminalCommandKey.remove(element)
         panelTabs.remove(element); toolIcons.remove(element); timelineTips.remove(element)
         frames.remove(element); scrollEnds.remove(element)
-        composer.remove(element); launcher.remove(element); measure.remove(element); r9.remove(element); r10.remove(element); timeline.remove(element); turns.remove(element); video.remove(element); media.remove(element); devices.remove(element)
+        composer.remove(element); launcher.remove(element); measure.remove(element); r9.remove(element); timeline.remove(element); turns.remove(element); video.remove(element); media.remove(element); devices.remove(element)
         if element.hook == .t3SnapshotTile, let view = element.view { snapShot.removeTile(view: view) }
         if element.hook == .t3Composer { snapShot.removeComposer(key: ObjectIdentifier(element)) }
     }
