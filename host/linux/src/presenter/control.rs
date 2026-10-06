@@ -171,9 +171,11 @@ impl<D: DataSource> Presenter<D> {
         // 1069.001 D4, amended 2026-10-04; kanban2 #5).
         self.forget_replaced_choices();
         if shown != value {
+            self.host.values.watch(id, Some(shown.clone()));
             self.chosen.insert(id, (value.to_owned(), shown.clone()));
             shown = value.to_owned();
         } else {
+            self.host.values.watch(id, None);
             self.chosen.remove(&id);
         }
         Ok(format!(

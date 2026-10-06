@@ -697,6 +697,12 @@ fn an_unbound_field_holds_its_typed_text_until_its_bound_value_changes() {
         .dispatch_at(swap, exact_runner::Event::Press, 0.);
     p.after_commit();
     assert_eq!(p.field_text(refused), "kept");
+    // A key after a commit that replaced the typed text edits what shows.
+    p.type_text(refused, "mine").unwrap();
+    p.host_mut()
+        .dispatch_at(swap, exact_runner::Event::Press, 0.);
+    p.key(Some('q'), false, 0.);
+    assert_eq!(p.field_text(refused), "otherq");
     let literal = id(&p, "literal");
     p.type_text(literal, "y").unwrap();
     assert_eq!(p.field_text(literal), "y", "a literal value is a default");

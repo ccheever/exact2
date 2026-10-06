@@ -55,7 +55,9 @@ impl<D: DataSource> Presenter<D> {
         // or blur (`commit_text`), as hardware typing does.
         self.edited = Some(id);
         self.selected = None;
+        self.forget_replaced_choices();
         let bound = self.bound_text(id);
+        self.host.values.watch(id, Some(bound.clone()));
         let error = if self
             .host
             .runner()
@@ -450,6 +452,11 @@ impl<D: DataSource> Presenter<D> {
         }
         let textarea = node.props.str(PropId::SemanticTag) == Some("textarea");
         let bound = node.props.str(PropId::Value).unwrap_or("").to_string();
+        // What earlier commits replaced goes first: this edit starts from what shows.
+        self.forget_replaced_choices();
+        let Some(node) = self.host.kernel().node(id) else {
+            return;
+        };
         let shown = crate::paint::control::choice(&node, self.chosen.get(&id)).map(str::to_string);
         let before = shown.unwrap_or_else(|| bound.clone());
         let mut value = before.clone();
@@ -489,6 +496,7 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         self.edited = Some(id);
+        self.host.values.watch(id, Some(bound.clone()));
         if self
             .host
             .runner()
@@ -534,16 +542,12 @@ impl<D: DataSource> Presenter<D> {
     /// A choice or typed text whose bound value any commit since changed is
     /// gone, as the web build's write of `value` replaces it (LLP 1069.001
     /// D4): the value coming back does not bring it back.
-    pub(crate) fn forget_replaced_choices(&mut self) {
-        for (id, value) in self.host.take_bound_values() {
-            if self
-                .chosen
-                .get(&id)
-                .is_some_and(|(_, at)| value.as_ref() != Some(at))
-            {
-                self.chosen.remove(&id);
-            }
+    pub(crate) fn forget_replaced_choices(&mut self) -> std::collections::BTreeSet<ViewId> {
+        let replaced = self.host.values.take_replaced();
+        for id in &replaced {
+            self.chosen.remove(id);
         }
+        replaced
     }
 
     /// A field's committed `value`.
@@ -573,14 +577,15 @@ impl<D: DataSource> Presenter<D> {
     fn keep_typed(&mut self, id: ViewId, typed: String, before: String) {
         // No handler need hear an edit for it to show.
         self.dirty = true;
-        self.forget_replaced_choices();
-        if self.host.kernel().node(id).is_none() {
-            return;
-        }
+        // A commit since the edit began (the watch set before its dispatch) that changed the
+        // value replaces the typed text, whatever it reads now.
+        let written = self.forget_replaced_choices().contains(&id);
         let bound = self.bound_text(id);
-        if bound == before && bound != typed {
+        if !written && self.host.kernel().node(id).is_some() && bound == before && bound != typed {
+            self.host.values.watch(id, Some(bound.clone()));
             self.chosen.insert(id, (typed, bound));
         } else {
+            self.host.values.watch(id, None);
             self.chosen.remove(&id);
         }
     }

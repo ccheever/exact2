@@ -39,6 +39,8 @@ mod presence;
 mod press;
 #[path = "transform_binding.rs"]
 mod transform_binding;
+#[path = "value_watch.rs"]
+mod value_watch;
 
 /// Why the host refused to boot.
 #[allow(missing_docs)]
@@ -117,9 +119,8 @@ pub struct Host<D: DataSource> {
     canvas2d: crate::canvas2d::Canvases,
     /// Views commits renewed (LLP 1078) the presenter has yet to reset.
     renewed: Vec<ViewId>,
-    /// Each commit's controls' `value`s, `None` for one gone or renewed
-    /// (`take_bound_values`).
-    bound_values: Vec<(ViewId, Option<String>)>,
+    /// The `value`s the presenter keeps typed text against (LLP 1069.001 D4).
+    pub(crate) values: value_watch::ValueWatch,
 }
 
 impl<D: DataSource> Host<D> {
@@ -265,7 +266,7 @@ impl<D: DataSource> Host<D> {
             presses: Default::default(),
             canvas2d: Default::default(),
             renewed: Vec::new(),
-            bound_values: Vec::new(),
+            values: Default::default(),
         };
         host.runner
             .set_canvas_limits(exact_runner::Limits::native(physical_memory(), false));
@@ -993,13 +994,6 @@ impl<D: DataSource> Host<D> {
         std::mem::take(&mut self.renewed)
     }
 
-    /// Fields' and controls' `value`s as each commit since the last call
-    /// left them, in order: a typed text or choice any of them replaced is
-    /// gone (LLP 1069.001 D4), even if a later one wrote the old value back.
-    pub(crate) fn take_bound_values(&mut self) -> Vec<(ViewId, Option<String>)> {
-        std::mem::take(&mut self.bound_values)
-    }
-
     /// Several nodes' natural sizes (pictures a sync decoded), then one
     /// layout, when any of them changed: not a layout per picture.
     pub fn set_intrinsics(
@@ -1215,7 +1209,7 @@ impl<D: DataSource> Host<D> {
                 self.forget_transform_handle(*key);
                 if let Some(id) = self.keys.remove(key) {
                     self.presented.remove(&id);
-                    self.bound_values.push((id, None));
+                    self.values.committed(id, None);
                 }
             }
             for node in r
@@ -1223,13 +1217,8 @@ impl<D: DataSource> Host<D> {
                 .iter()
                 .filter_map(|k| self.runner.kernel().node_by_key(*k))
             {
-                if matches!(
-                    node.node_type,
-                    exact_kernel::NodeType::TextInput | exact_kernel::NodeType::Control
-                ) {
-                    let value = node.props.str(exact_kernel::PropId::Value).unwrap_or("");
-                    self.bound_values.push((node.id, Some(value.to_owned())));
-                }
+                let value = node.props.str(exact_kernel::PropId::Value).unwrap_or("");
+                self.values.committed(node.id, Some(value));
             }
             for key in &r.created {
                 if let Some(node) = self.runner.kernel().node_by_key(*key) {
@@ -1243,7 +1232,7 @@ impl<D: DataSource> Host<D> {
                 if let Some(id) = self.keys.get(key).copied() {
                     self.presented.remove(&id);
                     self.renewed.push(id);
-                    self.bound_values.push((id, None));
+                    self.values.committed(id, None);
                 }
             }
         }
