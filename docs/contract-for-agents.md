@@ -526,7 +526,8 @@ Choose the mechanism from its lifetime:
 | Refresh reads around a mutation | `mutation … refreshes resourceA, resourceB` |
 | React once to a settled mutation | `mutation … then actionName` |
 | Writes that must all land, in order | `mutation … queue`: one in flight, later sends wait their turn |
-| A timer while something shows | `task … when cond`, restarted by `key=` |
+| Run once after a delay, while a condition holds (a toast, a debounce) | `task … when cond` with `after(ms, action)` |
+| Repeat while a condition holds (a game tick, a pulse) | `task … when cond` with `every(ms, action)` |
 | Pending indicator | `pending(resourceOrMutationName)` |
 | Resource request failed without an answer | `failed(resourceName)` (a resource only: a mutation answers its failure as a domain result, such as `ok: false`) |
 | Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
@@ -571,7 +572,8 @@ async read is asked again, not dropped). `then` is parameterless,
 runs once at the host's next clock advance as a new commit (under the driver, an
 input's own answer's `then` before the input's reply), reads the latest
 answer, does not run for a failure that brought no answer, and cannot send its
-own mutation. Do not mistake the scheduling boundary
+own mutation; to repeat, use a task (see "Repeating while a condition holds").
+Do not mistake the scheduling boundary
 for a general async workflow or a per-reply event log.
 
 A failed resource retains its value or placeholder, with `pending=false` and
@@ -1036,7 +1038,8 @@ and `then`s (`TIMER_FIRE_LIMIT`), those that change nothing included; the rest i
 refused, what committed is kept, and the clock stays at the last one's time. A
 fast `every` under a long `clock +N` can reach it: tick slower or move the clock in steps.
 
-`task hide when toast != "" key=toastUntil` with `after(5000, expire)` has its
+A task with `when` (a gated task), such as
+`task hide when toast != "" key=toastUntil` with `after(5000, expire)`, has its
 timer only while the gate holds, as a `when` arm has its nodes, and a new key
 restarts it, as a new `each` key makes a new row
 ([LLP 1092](../llp/1092-sends-that-queue-and-timers-that-wait.rfc.md)). Nothing
@@ -1050,6 +1053,30 @@ gate is a bool and the key a string, number or bool; neither may read `now()`
 toast, a debounce (`when draft != saved key=draft` with `after(800, save)`), a
 round's tick (`when screen == "play"`) and a flight's frames
 (`when flying` with `every(frame, step)`) are each one gated task.
+
+**Repeating while a condition holds.** Use a task with `when` and `every`. The
+timer runs only while the condition is true. Any action that makes it false
+stops the timer.
+
+```text
+  state pulsing = false
+  state dim = false
+  task pulse when pulsing
+    every(1200, step)
+  action step
+    if dim
+      dim = false
+    else
+      if busy
+        dim = true
+      else
+        pulsing = false
+```
+
+The first `step` runs one interval after the condition turns true. Do not build
+a loop from mutations: a `then` cannot send its own mutation
+(`analyze-then-self-send`). For a purely visual loop, use a CSS `animation`
+instead.
 
 `now()` is the runner's clock in milliseconds since boot (the driver's clock under
 the agent), not a date. For the date, read the reserved `exactTime` source and add

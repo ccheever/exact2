@@ -296,6 +296,11 @@ guide's rules don't make obvious.
   ends the page first. Fix: navigate in the mutation's `then`, which runs once the
   write has answered. (Authoring bench, LLP 1087, a2-contacts and t2-todo, 2026-10-05.)
 
+- **Repeating with `pause` mutations.** A `then` cannot send its own mutation
+  (`analyze-then-self-send`), and two mutations whose `then`s send each other
+  are the same loop. To repeat while a condition holds, use a task with `when`
+  and `every`. See "Repeating while a condition holds" in the guide.
+
 ## Sound
 
 - **A scheduled sound plays after Stop.** A sequencer that schedules each step

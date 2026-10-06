@@ -282,7 +282,7 @@ fn check_mutation_then(c: &Component) -> Result<(), AnalyzeError> {
             return err(
                 "analyze-then-self-send",
                 format!(
-                    "`{}` cannot send `{}`{through}: it runs when that mutation answers",
+                    "`{}` cannot send `{}`{through}: it runs when that mutation answers. To repeat while a condition holds, declare a root task: `task NAME when COND`, with `every(ms, action)` on the next indented line",
                     a.name, m.name
                 ),
                 send.span,
