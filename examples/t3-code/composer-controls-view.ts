@@ -17,6 +17,7 @@ import { commandChords } from './composer-presentation';
 import { threadWorktreeSetup } from './timeline-worktree';
 import { machineChanging } from './r12-threads-scratch'; // r12-threads: isEnvironmentChanging (c47f4263f9)
 import { labelWidth, type Measure, type ProbeKind } from './r5-composer-measure';
+import { resolveRestingComposerControlsLayout } from './composer-resting-layout'; // composer-fidelity G11
 
 // SF Pro advances (AppKit, ASCII 32–126) for the toolbar's two label styles:
 // 14pt medium ("sm" controls) and 12pt regular (the resting "xs" controls).
@@ -31,11 +32,16 @@ export function textWidth(text: string, small = false): number {
 }
 
 /**
- * resolveRestingComposerControlsLayout without the overflow menu: trailing
- * blocks lose their labels first (mode, then traits); only then does the model
- * label shrink. Labels are measured (r5-composer-measure.ts); the rest is the toolbar's geometry.
+ * resolveRestingComposerControlsLayout (composer-resting-layout.ts): trailing
+ * blocks lose their labels first (mode, then traits), then move into the "More
+ * composer controls" menu (mode, then traits); only then does the model picker
+ * shrink, and below its minimum the cluster hides. Labels are measured
+ * (r5-composer-measure.ts); the rest is the toolbar's geometry. `previous` holds
+ * each size's last step (icon-only blocks plus hidden blocks) and whether the
+ * cluster showed, for the promotion slack.
  */
-export function footerLayout(input: { model: string; traits: string; traitsIcon: boolean; runtime: string; plan: string; host: number; measure?: Measure; previous?: { sm: number; xs: number } }) {
+export type FooterSteps = { sm: number; xs: number; smHidden?: boolean; xsHidden?: boolean };
+export function footerLayout(input: { model: string; traits: string; traitsIcon: boolean; runtime: string; plan: string; host: number; measure?: Measure; previous?: FooterSteps }) {
   // r5-composer: label widths come from laid-out probes (r5-composer-measure.ts); the estimate stands in until then.
   const width = (text: string, small: boolean, kind: ProbeKind) => labelWidth(text, small, kind, input.measure, textWidth);
   const steps = (small: boolean) => {
@@ -43,7 +49,8 @@ export function footerLayout(input: { model: string; traits: string; traitsIcon:
     // reference's measured blocks: a block is its separator (1pt + 2pt margins, then the row gap: 9 at "sm",
     // 5 in the resting row, which has no gap) and its trigger. "sm" triggers pad 11+11 with 6pt gaps, 16pt
     // icons and a 10pt chevron; "xs" ones pad 7+7 with 4pt gaps, 12pt icons and an 8pt chevron.
-    // The picker sits at margin-left -10 and, resting, at most 168pt wide (ProviderModelPicker max-w-42).
+    // The picker sits at margin-left -10 and, resting, at most 168pt wide (ProviderModelPicker max-w-42);
+    // its minimum is the trigger's min-width (48 / 40) less that margin.
     const picker = small ? Math.min(158, 34 + width(input.model, true, 'model')) : 50 + width(input.model, false, 'model');
     const separator = small ? 5 : 9;
     const traits = !input.traits && !input.traitsIcon ? 0
@@ -54,21 +61,25 @@ export function footerLayout(input: { model: string; traits: string; traitsIcon:
     const plan = input.plan ? separator + (small ? 14 : 22) + planGlyph + (small ? 4 : 6) + width(input.plan, small, 'plan') : 0;
     const mode = separator + (small ? 42 : 60) + width(input.runtime, small, 'runtime') + plan;
     const modeIcon = separator + (small ? 38 : 54) + (input.plan ? separator + (small ? 14 : 22) + planGlyph : 0);
-    const gap = small ? 0 : 4;
-    const total = (iconMode: boolean, iconTraits: boolean) => picker + (traits ? gap + (iconTraits ? traitsIcon : traits) : 0) + gap + (iconMode ? modeIcon : mode);
     // The reference's expanded footer has no gap before its actions (gap-2 sm:gap-0), so its controls
     // host is 8pt wider than this footer's controls row (gap=8); the resting row is measured as it is.
     const host = input.host > 0 ? input.host + (small ? 0 : 8) : 0;
-    // resolveRestingComposerControlsLayout: trailing blocks drop their labels one step at a time; a
-    // promotion back to labels needs a point of slack (RESTING_CONTROLS_SLACK_PX) over the last layout.
-    const previous = (small ? input.previous?.xs : input.previous?.sm) ?? 0;
-    const limit = (step: number) => host - (step < previous ? 1 : 0);
-    const iconMode = host > 0 && total(false, false) > limit(0);
-    const iconTraits = iconMode && !!traits && total(true, false) > limit(1);
-    return { iconMode, iconTraits };
+    const blocks = traits ? [traits, mode] : [mode], icons = traits ? [traitsIcon, modeIcon] : [modeIcon];
+    const previousStep = (small ? input.previous?.xs : input.previous?.sm) ?? 0;
+    const previous = { hiddenCount: Math.max(0, previousStep - blocks.length), iconOnlyCount: Math.min(previousStep, blocks.length),
+      visible: !(small ? input.previous?.xsHidden : input.previous?.smHidden) };
+    // The "…" trigger: an icon-only control (16pt glyph padded 11+11, resting 12pt padded 7+7).
+    const layout = host > 0 ? resolveRestingComposerControlsLayout({ gap: small ? 0 : 4, naturalFixedWidth: picker, minimumFixedWidth: small ? 30 : 38,
+      blockWidths: blocks, iconOnlyBlockWidths: icons, overflowWidth: small ? 26 : 38, hostWidth: host, previous }) : { hiddenCount: 0, iconOnlyCount: 0, visible: true };
+    const iconOnly = layout.iconOnlyCount ?? 0, hidden = layout.hiddenCount;
+    return { iconMode: iconOnly >= 1, iconTraits: !!traits && iconOnly >= 2, modeHidden: hidden >= 1, traitsHidden: !!traits && hidden >= 2,
+      hidden: !layout.visible, step: iconOnly + hidden };
   };
   const sm = steps(false), xs = steps(true);
-  return { runtimeIconOnly: sm.iconMode, traitsIconOnly: sm.iconTraits, restingRuntimeIconOnly: xs.iconMode, restingTraitsIconOnly: xs.iconTraits };
+  return { runtimeIconOnly: sm.iconMode, traitsIconOnly: sm.iconTraits, restingRuntimeIconOnly: xs.iconMode, restingTraitsIconOnly: xs.iconTraits,
+    // composer-fidelity G11: blocks in the overflow menu, and the cluster hidden below the picker's minimum.
+    modeOverflow: sm.modeHidden, traitsOverflow: sm.traitsHidden, restingModeOverflow: xs.modeHidden, restingTraitsOverflow: xs.traitsHidden,
+    controlsHidden: sm.hidden, restingControlsHidden: xs.hidden, steps: { sm: sm.step, xs: xs.step, smHidden: sm.hidden, xsHidden: xs.hidden } as FooterSteps };
 }
 
 /** buildTraitsTriggerDisplay: speed traits become a bolt (two for Ultrafast); booleans read "<label> On|Off". */

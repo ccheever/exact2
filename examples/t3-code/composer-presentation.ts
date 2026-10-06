@@ -13,10 +13,12 @@ import { fanoutView } from './r3-composer-controls-fanout';
 import { chordGlyphs, optionValue, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './r3-composer-controls-model';
 import { sendChords } from './composer-editor-intent';
 import { measuredLabels } from './r5-composer-measure';
-import { composerMenus, measured, probe } from './r5-composer-menus';
+import { composerMenus, effortMenuWidth, measured, probe } from './r5-composer-menus';
 import { environmentView } from './r4-git-env';
 import { ULTRATHINK_LOCKED_MESSAGE, ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state'; // composer-fidelity G9
 import { ultrathinkFrame } from './composer-ultrathink';
+import { overflowMenu } from './composer-overflow'; // composer-fidelity G11
+import type { FooterSteps } from './composer-controls-view';
 
 /** runtimeModeConfig.ts: label, description and lucide icon per mode. */
 export const runtimeModes = [
@@ -135,11 +137,11 @@ export function commandChords(config: Obj, command: string, fallback: string, mo
 export function anchorsFrom(presentation: Obj) {
   const anchors = obj(presentation.anchors);
   const box = (name: string) => { const value = Array.isArray(anchors[name]) ? anchors[name] as unknown[] : []; return { x: Number(value[0]) || 0, width: Number(value[1]) || 0 }; };
-  return { traits: box('traits'), runtime: box('runtime'), controls: box('controls'), implement: box('implement'), meter: box('meter'), actions: box('actions') };
+  return { traits: box('traits'), runtime: box('runtime'), controls: box('controls'), implement: box('implement'), meter: box('meter'), actions: box('actions'), more: box('more') };
 }
 
 // r5-composer: the last footer layout per client, for resolveRestingComposerControlsLayout's promotion slack.
-const footerSteps = new WeakMap<object, { sm: number; xs: number }>();
+const footerSteps = new WeakMap<object, FooterSteps>();
 export function composerView(client: ComposerSource, requests: { approval: boolean; question: boolean; choiceOnly: boolean; planReady?: boolean }) {
   const providers = arr(client.config.providers);
   const provider = providers.find(entry => entry.instanceId === client.providerId);
@@ -160,10 +162,14 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   const display = traitsDisplay(str(provider?.driver), descriptors, shown, selection, reported, ultra);
   // getTriggerDisplayModelName; the tooltip adds the picker's shortcut (ProviderModelPicker triggerTooltipContent).
   const modelTitle = model ? triggerModelName(model) : client.modelId || 'Choose model', modelShortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M').split(' ')[0] ?? '');
-  const layout = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: !!display.speed,
+  const { steps, ...layout } = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: !!display.speed,
     runtime: runtime.label, plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: Math.max(0, anchors.controls.width - 10), // r5-integrate: minus the row's 10pt hit padding (composer-controls.contract)
     measure: measuredLabels(client.presentation), previous: footerSteps.get(client) });
-  footerSteps.set(client, { sm: layout.traitsIconOnly ? 2 : layout.runtimeIconOnly ? 1 : 0, xs: layout.restingTraitsIconOnly ? 2 : layout.restingRuntimeIconOnly ? 1 : 0 });
+  footerSteps.set(client, steps);
+  // composer-fidelity G11: the "More composer controls" rows for the expanded and the resting footer.
+  const runtimeRows = runtimes.map(option => ({ mode: option.mode, label: option.label, selected: option === runtime }));
+  const more = overflowMenu({ traits: traits.items, traitsHidden: layout.traitsOverflow, modeHidden: layout.modeOverflow, planVisible, interactionMode: client.interactionMode, runtimes: runtimeRows });
+  const restingMore = overflowMenu({ traits: traits.items, traitsHidden: layout.restingTraitsOverflow, modeHidden: layout.restingModeOverflow, planVisible, interactionMode: client.interactionMode, runtimes: runtimeRows });
   return {
     placeholder: composerPlaceholder({ connected: client.connection === 'connected', ...requests, planReady: !!requests.planReady,
       projectRequired: !client.projectId, providerUnavailable: !providers.some(entry => entry.enabled === true && entry.status !== 'disabled'),
@@ -175,8 +181,10 @@ export function composerView(client: ComposerSource, requests: { approval: boole
     runtimeSelected: Math.max(0, runtimes.indexOf(runtime)), runtimeCount: runtimes.length,
     runtimes: runtimes.map((option, index) => ({ ...option, selected: option === runtime, index })),
     planVisible, planActive: planVisible && client.interactionMode === 'plan',
-    ultrathink: ultrathinkFrame(client, prompt), // composer-fidelity G9: the spectrum ring and the model icon's chroma
-    traitsX: anchors.traits.x, traitsWidth: anchors.traits.width, runtimeX: anchors.runtime.x, runtimeWidth: anchors.runtime.width,
+    ultrathink: ultrathinkFrame(client, prompt),
+    more: more.items, moreCount: more.count, restingMore: restingMore.items, restingMoreCount: restingMore.count,
+    moreMenuWidth: effortMenuWidth(client.presentation, more.items), restingMoreMenuWidth: effortMenuWidth(client.presentation, restingMore.items), // composer-fidelity G9: the spectrum ring and the model icon's chroma
+    traitsX: anchors.traits.x, traitsWidth: anchors.traits.width, runtimeX: anchors.runtime.x, runtimeWidth: anchors.runtime.width, moreX: anchors.more.x, moreWidth: anchors.more.width,
     keyEffort: commandChords(client.config, 'composer.effort', 'Meta+Shift+E'), keyMode: commandChords(client.config, 'composer.mode', 'Meta+Shift+A'),
   };
 }
