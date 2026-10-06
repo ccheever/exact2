@@ -1,7 +1,7 @@
 // The dev menu (host apparatus, not app content): native UIKit above the
 // presenter, so it is alive even when the plan is broken — the moment a
-// reload matters most. Four fingers tapped once open the sheet; tapped
-// twice, reload. With a hardware keyboard (a simulator, an iPad): ⌘D for
+// reload matters most. Four fingers tapped once, or held, open the sheet;
+// tapped twice, reload. Each journals a line, so a trace shows it fired. With a hardware keyboard (a simulator, an iPad): ⌘D for
 // the sheet, ⌘R or ⇧⌘R to reload — the commands sit on the adapter's
 // `AppDelegate`, the responder every chain ends at, so they fire whatever
 // has focus (the Simulator's own File menu claims plain ⌘R for Record
@@ -12,8 +12,25 @@
 import UIKit
 
 final class DevMenuTarget: NSObject, UIGestureRecognizerDelegate {
-    @objc func menuTap(_ g: UIGestureRecognizer) { DevMenu.toggle() }
-    @objc func reloadTap(_ g: UIGestureRecognizer) { DevMenu.reload() }
+    @objc func menuTap(_ g: UIGestureRecognizer) {
+        DevMenu.note("dev menu: four-finger tap")
+        DevMenu.toggle()
+    }
+    @objc func menuPress(_ g: UIGestureRecognizer) {
+        guard g.state == .began else { return }
+        DevMenu.note("dev menu: four-finger press")
+        DevMenu.toggle()
+    }
+    @objc func reloadTap(_ g: UIGestureRecognizer) {
+        DevMenu.note("dev menu: four-finger double tap")
+        DevMenu.reload()
+    }
+    /// Beside whatever the app's views recognize: a row's swipe, a list's
+    /// pan, a context menu's press would otherwise win four fingers that
+    /// drift a few points on glass, and the menu never opened on a phone.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        true
+    }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive event: UIEvent) -> Bool {
         // Four fingers means direct touches, never hover/press events. A window
         // recognizer otherwise participates in UIKit's delayed-event queue even
@@ -55,21 +72,52 @@ public enum DevMenu {
         #endif
         menu.delaysTouchesEnded = false
         menu.require(toFail: reload)
-        for recognizer in [reload, menu] {
+        // Four fingers held: the trigger that survives fingers that drift
+        // past a tap's slop, or a tap another recognizer took.
+        let press = UILongPressGestureRecognizer(target: target, action: #selector(DevMenuTarget.menuPress(_:)))
+        #if !os(tvOS)
+        press.numberOfTouchesRequired = 4
+        #endif
+        press.minimumPressDuration = 0.6
+        press.allowableMovement = 40
+        press.delaysTouchesEnded = false
+        press.cancelsTouchesInView = false
+        for recognizer in [reload, menu, press] {
             recognizer.delegate = target
             recognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
             recognizer.allowedPressTypes = []
         }
         window.addGestureRecognizer(reload)
         window.addGestureRecognizer(menu)
+        window.addGestureRecognizer(press)
+    }
+
+    /// A line in the session's journal, so a trace shows the gesture fired.
+    static func note(_ line: String) { session?.log(line) }
+
+    /// Where the menu and its alerts present: over whatever the root
+    /// controller has presented (a route's sheet, a UIKit sheet), never
+    /// refused for it.
+    static var presenter: UIViewController? {
+        guard var top = controller else { return nil }
+        while let next = top.presentedViewController, !next.isBeingDismissed { top = next }
+        return top
     }
 
     public static func toggle() {
-        if let s = sheet { s.dismiss(animated: true) } else { show() }
+        // A sheet still held but no longer shown (dismissed by its own
+        // action) is not open: show a new one.
+        if let s = sheet, s.presentingViewController != nil { s.dismiss(animated: true) } else { show() }
     }
 
     static func show() {
-        guard let c = controller, c.presentedViewController == nil else { return }
+        guard let c = presenter else { return }
+        // Mid-presentation UIKit refuses another: once it lands.
+        if c.isBeingPresented || c.isBeingDismissed {
+            note("dev menu: waiting for a presentation to finish")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { if sheet?.presentingViewController == nil { show() } }
+            return
+        }
         let text = info()
         let a = UIAlertController(title: "Exact", message: text, preferredStyle: .actionSheet)
         a.addAction(UIAlertAction(title: "Reload", style: .default) { _ in reload() })
@@ -92,7 +140,7 @@ public enum DevMenu {
 
     /// Save Trace (LLP 1079 D5): where it went, or why not, as an alert.
     static func saveTrace() {
-        guard let c = controller, let session else { return }
+        guard let c = presenter, let session else { return }
         let message: String, saved: URL?
         switch session.saveTrace() {
         case .success(let url): message = url.path; saved = url
@@ -113,7 +161,7 @@ public enum DevMenu {
     #if !os(tvOS)
     /// The share sheet for a saved trace, anchored mid-screen on an iPad.
     static func share(_ url: URL) {
-        guard let c = controller else { return }
+        guard let c = presenter else { return }
         let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         if let pop = sheet.popoverPresentationController {
             pop.sourceView = c.view
@@ -128,7 +176,7 @@ public enum DevMenu {
     /// Stage 1: a device launch carries no environment): seeded with the
     /// last value, kept in defaults.
     static func openProject() {
-        guard let c = controller else { return }
+        guard let c = presenter else { return }
         let a = UIAlertController(title: "Open Project", message: "The app URL the dev server printed.", preferredStyle: .alert)
         a.addTextField { f in
             f.text = UserDefaults.standard.string(forKey: "exact.dev.url")
