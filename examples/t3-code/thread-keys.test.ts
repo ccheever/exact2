@@ -123,6 +123,12 @@ describe('G5: Delete the worktree too?', () => {
     await sidebarCommand(refresh.client, native, files, 'dialog-confirm', '', '');
     expect(toasts(refresh.client).map(toast => [toast.title, toast.description])).toEqual([['Worktree deleted, but Git status refresh failed', 'status failed']]);
   });
+  test("deleting a project's last open thread goes home: a draft in the most recently active project", async () => {
+    const { client, opened, drafts } = fake([shell('a', { createdAt: iso(-9_000_000), updatedAt: iso(-9_000_000) }), shell('z', { projectId: 'p2', createdAt: iso(-1_000_000), updatedAt: iso(-1_000_000) })], { threadId: 'a' });
+    await del(client, 'a');
+    expect(opened).toEqual([]);
+    expect(drafts).toEqual(['p2']);
+  });
   test('the open thread falls back to the top remaining thread of its project in the thread sort', async () => {
     const { client, opened } = fake([shell('old', { createdAt: iso(-9_000_000) }), shell('a', { createdAt: iso(-5_000_000) }), shell('new', { createdAt: iso(-1_000_000) })], { threadId: 'a' });
     await del(client, 'a');
