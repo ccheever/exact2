@@ -158,6 +158,16 @@ a configured app's frame under its bundle identity. Bare development executables
 read the existing adjacent Info.plist. Agent/smoke runs skip restoration and use
 the existing viewport unless `EXACT_WINDOW_WIDTH`/`EXACT_WINDOW_HEIGHT` overrides it.
 
+**App Transport Security (2026-10-06, issue #106):** `host.macos.appTransportSecurity`
+and `host.ios.appTransportSecurity` are typed, not a pass-through: one key,
+`allowsArbitraryLoadsInWebContent`, baked as `NSAppTransportSecurity ›
+NSAllowsArbitraryLoadsInWebContent`, so an `iframe` loads `http://` from a named
+host as a browser does while a module's `URLSession` stays under ATS. Absent, no
+key; iOS merges it with `localNetworking`'s `NSAllowsLocalNetworking`. ATS reads
+only a bundle's `Info.plist`, so the agent's bare executable is not under it either
+way: a drive loads such a frame with or without the field, and one with
+`EXACT_MAC_BIN` naming the `.app`'s `Contents/MacOS/ExactMac` shows what a user sees.
+
 **The macOS design (2026-10-02):** AppKit draws its macOS 26 design (Liquid
 Glass bezels, new control metrics) by the SDK the executable records in
 `LC_BUILD_VERSION`, not the SDK it compiled against. SwiftPM's link drives clang
