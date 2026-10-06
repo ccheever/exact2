@@ -5,8 +5,8 @@
 //! turn's entries from the caller's thread; this thread then finds its turn
 //! is no longer current and leaves without touching anything.
 
-use crate::markdown;
 use crate::providers::{self, Ask, Route};
+use crate::settle::Reply;
 use crate::sse::Event;
 use crate::state::{Block, Choice, Entry, Line, Msg, Part, Role, Run, Shared, State, Turn};
 use crate::tools;
@@ -17,7 +17,8 @@ use std::time::Duration;
 /// A turn never runs more model rounds than this.
 const MAX_ROUNDS: usize = 40;
 
-/// Start a turn for `prompt`. The caller has checked nothing else runs.
+/// Start a turn for `prompt`. The caller has checked nothing else runs;
+/// a prompt sent while one does is queued and [`pump`] starts it.
 pub fn start(shared: &Arc<Shared>, prompt: &str) {
     let route = {
         let mut s = shared.lock();
@@ -80,6 +81,24 @@ fn run(shared: &Arc<Shared>, turn: &Turn, route: &Route) {
         end(&mut s);
         drop(s);
         shared.changed();
+        pump(shared);
+    }
+}
+
+/// Start the queued prompts, oldest first, while no turn runs (P16).
+pub fn pump(shared: &Arc<Shared>) {
+    loop {
+        let next = {
+            let mut s = shared.lock();
+            if s.busy() {
+                return;
+            }
+            match s.queue.pop_front() {
+                Some(prompt) => prompt,
+                None => return,
+            }
+        };
+        start(shared, &next);
     }
 }
 
@@ -89,7 +108,12 @@ fn end(s: &mut State) {
     s.phase = "idle".into();
     s.approval = Default::default();
     s.decision = None;
-    if let Some((assistant, results)) = s.round.take() {
+    if let Some((mut assistant, results)) = s.round.take() {
+        if assistant.parts.is_empty() && !s.round_text.is_empty() {
+            assistant
+                .parts
+                .push(Part::Text(std::mem::take(&mut s.round_text)));
+        }
         finish_round(s, assistant, results);
     }
 }
@@ -147,6 +171,7 @@ pub fn interrupt(shared: &Arc<Shared>) -> bool {
     drop(s);
     shared.wake.notify_all();
     shared.changed();
+    pump(shared);
     true
 }
 
@@ -159,6 +184,7 @@ fn round(shared: &Arc<Shared>, turn: &Turn, route: &Route) -> Option<bool> {
             return None;
         }
         s.phase = "thinking".into();
+        s.round_text.clear();
         s.round = Some((
             Msg {
                 role: Role::Assistant,
@@ -174,8 +200,9 @@ fn round(shared: &Arc<Shared>, turn: &Turn, route: &Route) -> Option<bool> {
         )
     };
     shared.changed();
-    let mut text = String::new();
-    let mut entry: Option<String> = None;
+    let mut reply = Reply::default();
+    let mut tail: Option<String> = None;
+    let mut settled = 0usize;
     let mut calls: Vec<(String, String, serde_json::Value)> = Vec::new();
     let mut stale = false;
     let ask = Ask {
@@ -189,31 +216,17 @@ fn round(shared: &Arc<Shared>, turn: &Turn, route: &Route) -> Option<bool> {
         }
         match event {
             Event::Text(t) => {
-                text.push_str(&t);
-                let blocks = markdown::blocks(&text);
+                let step = reply.push(&t);
                 let mut s = shared.lock();
                 if !s.current(turn) {
                     stale = true;
                     return;
                 }
-                let id = match &entry {
-                    Some(id) => id.clone(),
-                    None => {
-                        let id = s.push(Entry {
-                            kind: "assistant".into(),
-                            busy: true,
-                            ..Entry::default()
-                        });
-                        entry = Some(id.clone());
-                        id
-                    }
-                };
-                if let Some(e) = s.busy_entry(&id) {
-                    e.blocks = blocks;
+                s.round_text.push_str(&t);
+                for blocks in step.finished {
+                    settle(&mut s, &mut tail, &mut settled, blocks);
                 }
-                if let Some((msg, _)) = s.round.as_mut() {
-                    msg.parts = vec![Part::Text(text.clone())];
-                }
+                show_tail(&mut s, &mut tail, settled, step.tail);
                 s.phase = "streaming".into();
                 drop(s);
                 shared.changed();
@@ -242,16 +255,25 @@ fn round(shared: &Arc<Shared>, turn: &Turn, route: &Route) -> Option<bool> {
     if !s.current(turn) {
         return None;
     }
-    if let Some(e) = entry.as_deref().and_then(|id| s.busy_entry(id)) {
-        e.busy = false;
+    // The tail settles as the reply's last block, or goes if it is empty.
+    let last = reply.finish();
+    if let Some(id) = tail.take() {
+        if last.is_empty() {
+            s.entries.retain(|e| e.id != id || !e.busy);
+        } else if let Some(e) = s.busy_entry(&id) {
+            e.blocks = last;
+            e.busy = false;
+        }
     }
     if let Err(e) = result {
         s.error_scrubbed(&e);
         end(&mut s);
         drop(s);
         shared.changed();
+        pump(shared);
         return None;
     }
+    let text = reply.text().to_string();
     let parts: Vec<Part> = (!text.is_empty())
         .then(|| Part::Text(text.clone()))
         .into_iter()
@@ -289,6 +311,38 @@ fn round(shared: &Arc<Shared>, turn: &Turn, route: &Route) -> Option<bool> {
     Some(true)
 }
 
+/// Settle one finished group: the busy tail becomes it, or it is pushed
+/// settled. The reply's first block is "assistant", every later one "more".
+fn settle(s: &mut State, tail: &mut Option<String>, settled: &mut usize, blocks: Vec<Block>) {
+    let kind = if *settled == 0 { "assistant" } else { "more" };
+    *settled += 1;
+    if let Some(e) = tail.take().as_deref().and_then(|id| s.busy_entry(id)) {
+        e.blocks = blocks;
+        e.busy = false;
+        return;
+    }
+    s.push(Entry {
+        kind: kind.into(),
+        blocks,
+        ..Entry::default()
+    });
+}
+
+/// Show the unfinished blocks in the one busy tail entry.
+fn show_tail(s: &mut State, tail: &mut Option<String>, settled: usize, blocks: Vec<Block>) {
+    if let Some(e) = tail.as_deref().and_then(|id| s.busy_entry(id)) {
+        e.blocks = blocks;
+        return;
+    }
+    let id = s.push(Entry {
+        kind: if settled == 0 { "assistant" } else { "more" }.into(),
+        busy: true,
+        blocks,
+        ..Entry::default()
+    });
+    *tail = Some(id);
+}
+
 fn body(lines: Vec<Line>) -> (Vec<Block>, f64) {
     let more = lines.len().saturating_sub(tools::SHOWN);
     let shown = lines.into_iter().take(tools::SHOWN).collect();
@@ -318,6 +372,7 @@ fn tool(
             busy: true,
             title,
             status: if ask { "waiting" } else { "running" }.into(),
+            link: tools::file_link(name, input),
             ..Entry::default()
         });
         if ask {

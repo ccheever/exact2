@@ -49,6 +49,8 @@ pub struct Scene<'a> {
     pub images: &'a crate::image::Images,
     /// Centre a dialog with no insets in the grid (full screen).
     pub center: bool,
+    /// The kernel's environment: its border rule among it.
+    pub env: exact_kernel::Env,
 }
 
 /// Paint document rows `top..top + rows` of the roots into a grid of
@@ -160,7 +162,7 @@ fn node(
         }
         border(scene, out, &n, rect, clip, current);
     }
-    let [bt, br, bb, bl] = n.style.border_widths();
+    let [bt, br, bb, bl] = n.style.border_widths_in(&scene.env);
     let (pl, pt, pr, pb) = kernel.resolved_padding(n.key).unwrap_or_default();
     let content = cells(
         f.x - dx + bl + pl,
@@ -176,7 +178,12 @@ fn node(
     }
     if visible {
         match n.node_type {
-            NodeType::Text => text(scene, out, &n, content, clip, current),
+            NodeType::Text => {
+                // Wrap at the columns the measurer was offered (the content width
+                // before snapping), so the lines drawn are the lines measured.
+                let px = f.width - bl - br - pl - pr;
+                text(scene, out, &n, content, columns(px), clip, current)
+            }
             NodeType::TextInput => field(scene, out, &n, content, clip, current),
             NodeType::Image => image(scene, out, &n, content, clip),
             _ => {}
@@ -248,7 +255,7 @@ fn border(
     clip: CellRect,
     current: ColorValue,
 ) {
-    let widths = n.style.border_widths();
+    let widths = n.style.border_widths_in(&scene.env);
     if widths.iter().all(|w| *w <= 0.0) || r.w < 1 || r.h < 1 {
         return;
     }
@@ -419,16 +426,31 @@ fn text(
     out: &mut Painted,
     n: &NodeRef<'_>,
     content: CellRect,
+    width: usize,
     clip: CellRect,
     current: ColorValue,
 ) {
     let computed = n.computed_style(StyleMask::INHERITED);
     let paragraph = Paragraph::from_style(&computed);
     let runs = n.text_runs();
-    let width = content.w.max(0) as usize;
     let mut lines = wrap(&runs, &paragraph, Some(width), false);
     let ellipsis = n.style.text_overflow == TextOverflow::Ellipsis;
-    let styles = run_styles(scene, n, &runs, base_style(scene, n, current));
+    let mut styles = run_styles(scene, n, &runs, base_style(scene, n, current));
+    // Each run's link, from its leaf's `href` (or the paragraph's own).
+    let mut ids = Vec::new();
+    leaves(scene.kernel, n.id, &mut ids);
+    let own = n.props.str(PropId::Href).filter(|h| !h.is_empty());
+    for (i, style) in styles.iter_mut().enumerate() {
+        let href = ids
+            .get(i)
+            .filter(|_| ids.len() == runs.len())
+            .and_then(|id| scene.kernel.node(*id))
+            .and_then(|l| l.props.str(PropId::Href).filter(|h| !h.is_empty()))
+            .or(own);
+        if let Some(url) = href.filter(|u| !u.chars().any(|c| c.is_control())) {
+            style.link = out.grid.link(url);
+        }
+    }
     let inner = clip.intersect(content);
     for (row, line) in lines.iter_mut().enumerate() {
         let y = content.y + row as i32;

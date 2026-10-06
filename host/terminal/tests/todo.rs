@@ -7,7 +7,10 @@ fn boot() -> Host<()> {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/todo/terminal.contract");
     let plan =
         contract::compile_path_terminal(&path).expect("the todo entry passes the terminal profile");
-    Host::boot(plan, (), Mode::Fullscreen, 60, 16).expect("boots")
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 60, 16).expect("boots");
+    // Keys arm at once: the test presses them without waiting.
+    host.arm = false;
+    host
 }
 
 fn screen(host: &mut Host<()>) -> String {

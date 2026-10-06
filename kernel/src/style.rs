@@ -1268,7 +1268,7 @@ impl StyleProps {
             bottom: self.padding_bottom.to_lp(env),
             left: self.padding_left.to_lp(env),
         };
-        let [top, right, bottom, left] = self.border_widths();
+        let [top, right, bottom, left] = self.border_widths_in(env);
         s.border = taffy::geometry::Rect {
             top: length(top),
             right: length(right),

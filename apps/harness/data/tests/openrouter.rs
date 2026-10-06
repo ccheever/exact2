@@ -246,6 +246,17 @@ fn an_interrupt_stops_a_stalled_stream_at_once() {
     assert_eq!(record(&s)[4], Value::Bool(false));
     let entries = list(&record(&s)[9]);
     assert_eq!(texts(entries.last().unwrap()), "Start[interrupted]");
+    // The work stopped, not only the entry: the body reader's thread ends
+    // within a read slice though the server never sends another byte.
+    let stopped = Instant::now();
+    while harness_data::providers::HTTP_READERS.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+        assert!(
+            stopped.elapsed() < Duration::from_secs(1),
+            "the reader outlived its cancel"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    eprintln!("reader gone {:?} after the interrupt", stopped.elapsed());
     // A new turn starts at once, though the old reader is still blocked.
     assert!(ack(&mut h, "submit", &["again"]));
     assert!(ack(&mut h, "interrupt", &[]));

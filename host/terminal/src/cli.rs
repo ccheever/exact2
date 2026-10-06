@@ -190,7 +190,14 @@ pub fn run<D: DataSource>(
             }
         };
     }
-    // Headless: announcements land at the next wait.
+    // Headless: the agent's verbs wait explicitly, so keys arm at once.
+    host.arm = false;
+    host.publish(&crate::term::record(
+        host.mode,
+        crate::image::Protocol::detect(),
+        "",
+    ));
+    // Announcements land at the next wait.
     let woken = Arc::new(AtomicBool::new(true));
     let flag = woken.clone();
     host.listen(Arc::new(move || flag.store(true, Ordering::SeqCst)));

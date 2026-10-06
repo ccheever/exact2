@@ -59,13 +59,18 @@ impl<D: DataSource> Host<D> {
     /// focusable (and so displayed, enabled, in the open layer) nodes.
     fn shortcut(&self, chord: &str) -> Option<ViewId> {
         let kernel = self.kernel();
-        self.focusables().into_iter().find(|id| {
-            kernel.node(*id).is_some_and(|n| {
-                n.props
-                    .str(PropId::AccessibilityKeyShortcuts)
-                    .is_some_and(|s| s.split_whitespace().any(|k| k.eq_ignore_ascii_case(chord)))
+        self.focusables()
+            .into_iter()
+            .filter(|id| self.armed(*id))
+            .find(|id| {
+                kernel.node(*id).is_some_and(|n| {
+                    n.props
+                        .str(PropId::AccessibilityKeyShortcuts)
+                        .is_some_and(|s| {
+                            s.split_whitespace().any(|k| k.eq_ignore_ascii_case(chord))
+                        })
+                })
             })
-        })
     }
 
     /// Field editing; `true` when the key was the field's.
@@ -110,6 +115,31 @@ impl<D: DataSource> Host<D> {
             Key::Named("ArrowRight") | Key::Ctrl('f') => {
                 self.caret = (self.caret + 1).min(count(self));
                 self.changed();
+            }
+            Key::Named(dir @ ("ArrowUp" | "ArrowDown")) if self.is_textarea(f) => {
+                // By visual line, keeping the column; at the first or last
+                // line the caret stays (LLP 1101.001 P15): the arrows never
+                // leave the field.
+                let up = *dir == "ArrowUp";
+                let width = self.cells_of(f).map_or(1, |r| r.w.max(1) as usize);
+                let value = self.value(f);
+                let lines = visual_lines(&value, width);
+                let caret = self.caret.min(lines.last().map_or(0, |l| l.1));
+                let at = lines
+                    .iter()
+                    .rposition(|(start, _)| *start <= caret)
+                    .unwrap_or(0);
+                let column = caret - lines[at].0;
+                let target = if up {
+                    at.checked_sub(1)
+                } else {
+                    (at + 1 < lines.len()).then_some(at + 1)
+                };
+                if let Some(t) = target {
+                    let (start, end) = lines[t];
+                    self.caret = (start + column).min(end);
+                    self.changed();
+                }
             }
             Key::Named("Home") | Key::Ctrl('a') => {
                 self.caret = 0;
@@ -180,7 +210,7 @@ impl<D: DataSource> Host<D> {
             Key::Named("Tab") | Key::Named("ArrowDown") => self.step_focus(false),
             Key::BackTab | Key::Named("ArrowUp") => self.step_focus(true),
             Key::Named("Enter") | Key::Char(' ') => {
-                if let Some(f) = focus {
+                if let Some(f) = focus.filter(|f| self.armed(*f)) {
                     self.press(f);
                 }
             }
@@ -196,5 +226,40 @@ impl<D: DataSource> Host<D> {
             _ => {}
         }
         After::Continue
+    }
+}
+
+/// A textarea's visual lines as (first cluster, end cluster) pairs, broken
+/// at newlines and at `width` columns, as the painter lays them out.
+fn visual_lines(value: &str, width: usize) -> Vec<(usize, usize)> {
+    use unicode_width::UnicodeWidthStr;
+    let mut lines = vec![(0, 0)];
+    let mut col = 0;
+    for (i, g) in value.graphemes(true).enumerate() {
+        if g == "\n" || g == "\r\n" {
+            lines.last_mut().expect("a line").1 = i;
+            lines.push((i + 1, i + 1));
+            col = 0;
+            continue;
+        }
+        let w = g.width().max(1);
+        if col + w > width && col > 0 {
+            lines.last_mut().expect("a line").1 = i;
+            lines.push((i, i));
+            col = 0;
+        }
+        col += w;
+        lines.last_mut().expect("a line").1 = i + 1;
+    }
+    lines
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn visual_lines_break_at_newlines_and_width() {
+        assert_eq!(super::visual_lines("ab\ncd", 10), vec![(0, 2), (3, 5)]);
+        assert_eq!(super::visual_lines("abcdef", 4), vec![(0, 4), (4, 6)]);
+        assert_eq!(super::visual_lines("", 4), vec![(0, 0)]);
     }
 }

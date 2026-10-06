@@ -24,6 +24,19 @@ pub fn clean(text: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
+/// A link a terminal may open: http(s) or file, with no control or space
+/// characters; anything else is no link.
+fn link(href: &str) -> String {
+    let scheme = ["https://", "http://", "file://"]
+        .iter()
+        .any(|p| href.starts_with(p));
+    if scheme && !href.chars().any(|c| c.is_control() || c == ' ') {
+        href.to_string()
+    } else {
+        String::new()
+    }
+}
+
 fn s(text: &str) -> Value {
     Value::str(&clean(text))
 }
@@ -39,6 +52,7 @@ pub fn run(r: &Run) -> Value {
         Value::Bool(r.dim),
         Value::Bool(r.under),
         Value::Bool(r.strike),
+        Value::str(&link(&r.href)),
     ])
 }
 
@@ -81,6 +95,7 @@ pub fn entry(e: &Entry) -> Value {
         s(&e.image),
         Value::Number(e.cols),
         Value::Number(e.rows),
+        Value::str(&link(&e.link)),
     ])
 }
 
@@ -127,6 +142,8 @@ pub fn session(st: &State) -> Value {
         approval(&st.approval),
         s(&st.toast),
         Value::list(st.models.iter().map(model).collect()),
+        Value::Number(st.retired),
+        Value::list(st.queue.iter().map(|q| s(q)).collect()),
     ])
 }
 

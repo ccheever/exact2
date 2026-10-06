@@ -8,7 +8,7 @@ use crate::generated::{BorderStyle, StyleProps};
 impl StyleProps {
     /// CSS effective border widths: none and hidden occupy no border area.
     pub fn border_widths(&self) -> [f32; 4] {
-        let widths = [
+        [
             (self.border_style_top, self.border_width_top),
             (self.border_style_right, self.border_width_right),
             (self.border_style_bottom, self.border_width_bottom),
@@ -17,8 +17,18 @@ impl StyleProps {
         .map(|(style, width)| match style {
             BorderStyle::Solid | BorderStyle::Inset => width.max(0.0),
             BorderStyle::None | BorderStyle::Hidden => 0.0,
-        });
-        super::cells::border(widths)
+        })
+    }
+
+    /// The widths as they occupy space under `env`: a terminal's border
+    /// rule makes each drawn side one cell (LLP 1101.001 P13).
+    pub fn border_widths_in(&self, env: &super::Env) -> [f32; 4] {
+        let widths = self.border_widths();
+        if env.cell_borders {
+            super::cells::border(widths)
+        } else {
+            widths
+        }
     }
 
     /// Border colours after resolving currentColor against this node's

@@ -33,7 +33,7 @@ const ENTER_INLINE: &str = "\x1b[?25l\x1b[?2004h\x1b[>1u";
 /// Each mode undone, in reverse.
 const LEAVE_FULL: &str =
     "\x1b[<u\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[0m\x1b[0 q\x1b[?25h\x1b[?1049l";
-const LEAVE_INLINE: &str = "\x1b[<u\x1b[?2004l\x1b[0m\x1b[0 q\x1b[?25h";
+const LEAVE_INLINE: &str = "\x1b[<u\x1b[?2004l\x1b[?1006l\x1b[?1000l\x1b[0m\x1b[0 q\x1b[?25h";
 
 fn restore() {
     let saved = SAVED.lock().ok().and_then(|mut s| s.take());
@@ -73,6 +73,8 @@ pub enum Input {
     Wheel(i32, i32, i32),
     /// A bracketed paste, whole.
     Paste(String),
+    /// The terminal's answer to a cursor position query: row, column (1-based).
+    CursorAt(usize, usize),
 }
 
 /// The input decoder: its state (a paste in progress) outlives a read.
@@ -80,6 +82,8 @@ pub enum Input {
 pub struct Decoder {
     out: Vec<Input>,
     paste: Option<String>,
+    /// A lone ESC ended the last read.
+    escape: bool,
 }
 
 impl Decoder {
@@ -185,6 +189,9 @@ impl Perform for Decoder {
             (_, 'H') => self.key(with_mods("Home", mods)),
             (_, 'F') => self.key(with_mods("End", mods)),
             (_, 'Z') => self.key(Key::BackTab),
+            (b"", 'R') if p.len() == 2 => {
+                self.out.push(Input::CursorAt(p[0] as usize, p[1] as usize))
+            }
             (_, '~') => match first {
                 1 | 7 => self.key(with_mods("Home", mods)),
                 4 | 8 => self.key(with_mods("End", mods)),
@@ -219,9 +226,19 @@ impl Perform for Decoder {
     }
 }
 
-/// Decode a read: DEL and a lone ESC by hand (a terminal parser ignores the
-/// one and waits on the other), everything else through vte.
+/// Decode a read: DEL by hand (a terminal parser ignores it), everything
+/// else through vte. A read ending in a lone ESC is held: it is the Escape
+/// key only if nothing follows within [`ESC_WAIT_MS`] (`flush_escape`), and
+/// otherwise the start of a sequence split across reads.
 pub fn decode(parser: &mut Parser, decoder: &mut Decoder, bytes: &[u8]) -> Vec<Input> {
+    let held = std::mem::take(&mut decoder.escape);
+    let joined;
+    let bytes = if held {
+        joined = [&[0x1b][..], bytes].concat();
+        &joined[..]
+    } else {
+        bytes
+    };
     let mut start = 0;
     for (i, b) in bytes.iter().enumerate() {
         if *b == 0x7f {
@@ -233,24 +250,48 @@ pub fn decode(parser: &mut Parser, decoder: &mut Decoder, bytes: &[u8]) -> Vec<I
         }
     }
     let rest = &bytes[start..];
-    if rest == [0x1b] && decoder.paste.is_none() {
-        decoder.key(Key::Named("Escape"));
+    if rest.last() == Some(&0x1b) && decoder.paste.is_none() {
+        parser.advance(decoder, &rest[..rest.len() - 1]);
+        decoder.escape = true;
     } else {
         parser.advance(decoder, rest);
     }
     std::mem::take(&mut decoder.out)
 }
 
+/// How long a lone ESC waits for the rest of a sequence.
+pub const ESC_WAIT_MS: f64 = 25.0;
+
+/// The held ESC, now that nothing followed it: the Escape key.
+pub fn flush_escape(decoder: &mut Decoder) -> Vec<Input> {
+    if std::mem::take(&mut decoder.escape) {
+        vec![Input::Key(Key::Named("Escape"))]
+    } else {
+        Vec::new()
+    }
+}
+
 /// The inline writer's memory of what it already put on the screen.
 struct Inline {
-    /// Transcript children already printed into scrollback.
-    printed: usize,
+    /// Transcript children already printed into scrollback, by identity,
+    /// and the `id` of the last one, which the app reads to retire them.
+    printed: std::collections::HashSet<exact_kernel::NodeKey>,
+    through: String,
     /// The live region's height and the cursor's row inside it.
     live: usize,
     cursor_row: usize,
     /// What the last frame showed: generation, size.
     shown: Option<(u64, usize, usize)>,
     protocol: Protocol,
+    /// The live region as last written, and its boxes for hit-testing.
+    last: Option<crate::grid::Grid>,
+    hits: Vec<(exact_kernel::ViewId, crate::grid::CellRect)>,
+    /// Mouse reporting is on (only while a dialog is open, LLP 1101.001):
+    /// the cursor row inside the region at each position query still
+    /// unanswered, and the region's top screen row from the last answer.
+    mouse: bool,
+    queries: std::collections::VecDeque<usize>,
+    top: Option<usize>,
 }
 
 impl Inline {
@@ -259,55 +300,117 @@ impl Inline {
         if self.shown == Some((host.generation, cols, rows)) {
             return;
         }
+        let resized = self.shown.is_some_and(|(_, c, r)| (c, r) != (cols, rows));
         self.shown = Some((host.generation, cols, rows));
         let total = host.document_rows();
-        let (bottoms, settled) = host.transcript();
+        let children = host.transcript();
+        // Printed children are known by identity (LLP 1101.001 P1): those the
+        // app has since retired, or cleared, are forgotten.
+        self.printed
+            .retain(|k| children.iter().any(|c| c.key == *k));
+        let settled = children
+            .iter()
+            .position(|c| c.busy)
+            .unwrap_or(children.len());
+        let lead = children
+            .iter()
+            .take_while(|c| self.printed.contains(&c.key))
+            .count();
+        let bottom_of = |n: usize| if n == 0 { 0 } else { children[n - 1].bottom };
         out.push_str("\x1b[?2026h\x1b[?25l");
+        // Back to the live region's top-left.
         if self.cursor_row > 0 {
             out.push_str(&format!("\x1b[{}A", self.cursor_row));
         }
-        out.push_str("\r\x1b[J");
-        if settled < self.printed {
-            // The transcript was cleared: start a fresh screen; what was
-            // printed stays in the scrollback above.
-            out.push_str("\x1b[H\x1b[2J");
-            self.printed = 0;
-        }
-        let printed_rows = |n: usize| if n == 0 { 0 } else { bottoms[n - 1] };
-        if settled > self.printed {
-            let (from, to) = (printed_rows(self.printed), printed_rows(settled));
+        out.push('\r');
+        let mut fresh = resized;
+        let mut through = lead;
+        if settled > lead {
+            fresh = true;
+            out.push_str("\x1b[J");
+            let (from, to) = (bottom_of(lead), bottom_of(settled));
             if to > from {
                 let painted = host.render(from, to - from);
                 self.print_rows(&painted, &host.images, out);
             }
-            self.printed = settled;
+            self.printed
+                .extend(children[lead..settled].iter().map(|c| c.key));
+            through = settled;
+            self.through = children[settled - 1].id.clone();
         }
-        let top = printed_rows(self.printed);
+        let top = bottom_of(through);
         let live_total = total.saturating_sub(top);
         let show = live_total.min(rows.saturating_sub(1)).max(1);
         let painted = host.render(total.saturating_sub(show).max(top), show);
-        for y in 0..show {
-            out.push_str(&painted.grid.row_sgr(y));
-            if y + 1 < show {
-                out.push_str("\r\n");
-            }
-        }
-        self.live = show;
-        match painted.grid.cursor {
-            Some((cx, cy)) => {
-                let up = show - 1 - cy.min(show - 1);
-                if up > 0 {
-                    out.push_str(&format!("\x1b[{up}A"));
-                }
-                out.push_str(&format!("\x1b[{}G\x1b[5 q\x1b[?25h", cx + 1));
-                self.cursor_row = cy.min(show - 1);
-            }
+        // The same region as last time: write only the cells that changed
+        // (a spinner's tick is a few bytes). Otherwise repaint it whole.
+        let row = match self
+            .last
+            .as_ref()
+            .filter(|last| !fresh && last.rows == show && last.cols == cols)
+        {
+            Some(last) => painted.grid.diff_relative(last, out),
             None => {
+                out.push_str("\x1b[J");
+                for y in 0..show {
+                    out.push_str(&painted.grid.row_sgr(y));
+                    if y + 1 < show {
+                        out.push_str("\r\n");
+                    }
+                }
                 out.push('\r');
-                self.cursor_row = show - 1;
+                show - 1
             }
+        };
+        self.live = show;
+        // The cursor from `row` to the caret, or to the region's last row.
+        let (target_row, col) = match painted.grid.cursor {
+            Some((cx, cy)) => (cy.min(show - 1), Some(cx)),
+            None => (show - 1, None),
+        };
+        if target_row > row {
+            out.push_str(&format!("\x1b[{}B", target_row - row));
+        } else if row > target_row {
+            out.push_str(&format!("\x1b[{}A", row - target_row));
+        }
+        if let Some(cx) = col {
+            out.push_str(&format!("\x1b[{}G\x1b[5 q\x1b[?25h", cx + 1));
+        }
+        self.cursor_row = target_row;
+        self.last = Some(painted.grid);
+        self.hits = painted.hits;
+        // Clicks only while a dialog is open; scroll and selection are the
+        // terminal's the rest of the time.
+        let want = host.has_layer();
+        if want != self.mouse {
+            out.push_str(if want {
+                "\x1b[?1000h\x1b[?1006h"
+            } else {
+                "\x1b[?1006l\x1b[?1000l"
+            });
+            self.mouse = want;
+            self.top = None;
+        }
+        if self.mouse {
+            out.push_str("\x1b[6n");
+            self.queries.push_back(self.cursor_row);
         }
         out.push_str("\x1b[?2026l");
+    }
+
+    /// A position answer: the region's top is the answered row less the
+    /// cursor's row in the region when it was asked.
+    fn answered(&mut self, row: usize) {
+        if let Some(in_region) = self.queries.pop_front() {
+            self.top = Some((row - 1).saturating_sub(in_region));
+        }
+    }
+
+    /// A click at a screen cell, if it lands in the live region.
+    fn click<D: DataSource>(&self, host: &mut Host<D>, x: i32, y: i32) {
+        if let Some(top) = self.top {
+            host.click_in(&self.hits, x, y - top as i32);
+        }
     }
 
     /// Print settled rows into the scrollback, an image protocol's picture
@@ -350,6 +453,27 @@ impl Inline {
         }
         out.push_str("\r\n");
     }
+}
+
+/// The terminal's record for the app, `exactSurface("terminal")`.
+pub(crate) fn record(mode: Mode, images: Protocol, printed: &str) -> String {
+    let mode = if mode == Mode::Inline {
+        "inline"
+    } else {
+        "fullscreen"
+    };
+    let images = match images {
+        Protocol::Kitty => "kitty",
+        Protocol::Iterm => "iterm",
+        Protocol::Blocks => "blocks",
+    };
+    let printed: String = printed
+        .chars()
+        .filter(|c| !c.is_control() && *c != '"' && *c != '\\')
+        .collect();
+    format!(
+        "{{\"mode\":\"{mode}\",\"images\":\"{images}\",\"colors\":24,\"printed\":\"{printed}\"}}"
+    )
 }
 
 /// Run the host in this terminal until the app or the user quits.
@@ -401,13 +525,21 @@ fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
     let mut decoder = Decoder::default();
     let mut shown: Option<crate::grid::Grid> = None;
     let mut inline = Inline {
-        printed: 0,
+        printed: std::collections::HashSet::new(),
+        through: String::new(),
         live: 0,
         cursor_row: 0,
         shown: None,
         protocol: Protocol::detect(),
+        last: None,
+        hits: Vec::new(),
+        mouse: false,
+        queries: std::collections::VecDeque::new(),
+        top: None,
     };
     let mut buf = [0u8; 8192];
+    let mut published = String::new();
+    host.publish(&record(mode, inline.protocol, ""));
     loop {
         if let Some((cols, rows)) = size() {
             host.resize(cols, rows);
@@ -422,7 +554,14 @@ fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
                     shown = Some(grid.clone());
                 }
             }
-            Mode::Inline => inline.frame(host, &mut out),
+            Mode::Inline => {
+                inline.frame(host, &mut out);
+                // Tell the app what is in scrollback now, so it can let go.
+                if inline.through != published {
+                    published = inline.through.clone();
+                    host.publish(&record(mode, inline.protocol, &published));
+                }
+            }
         }
         if host.quitting() {
             if mode == Mode::Inline {
@@ -435,12 +574,18 @@ fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
         if !out.is_empty() {
             stdout.write_all(out.as_bytes())?;
             stdout.flush()?;
+            host.frames += 1;
         }
         // Sleep until input, a wake, the next timer, or a size check.
         let wait = host
             .timer_due_ms()
             .map(|due| (due - now()).clamp(0.0, 250.0))
             .unwrap_or(250.0);
+        let wait = if decoder.escape {
+            wait.min(ESC_WAIT_MS)
+        } else {
+            wait
+        };
         let timeout = Timespec {
             tv_sec: 0,
             tv_nsec: (wait * 1_000_000.0) as i64,
@@ -451,6 +596,13 @@ fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
             PollFd::new(&wake_rx, PollFlags::IN),
         ];
         if poll(&mut fds, Some(&timeout))? == 0 {
+            for input in flush_escape(&mut decoder) {
+                if let Input::Key(k) = input {
+                    if host.key(k) == After::Quit {
+                        return Ok(());
+                    }
+                }
+            }
             continue;
         }
         let (input_ready, woken) = (!fds[0].revents().is_empty(), !fds[1].revents().is_empty());
@@ -466,6 +618,8 @@ fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
         if n == 0 {
             return Ok(());
         }
+        // These keys were typed against what the terminal showed by now.
+        host.read_at = host.frames;
         for input in decode(&mut parser, &mut decoder, &buf[..n]) {
             match input {
                 Input::Key(k) => {
@@ -479,7 +633,9 @@ fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
                         return Ok(());
                     }
                 }
+                Input::Click(x, y) if mode == Mode::Inline => inline.click(host, x, y),
                 Input::Click(x, y) => host.click(x, y),
+                Input::CursorAt(row, _) => inline.answered(row),
                 Input::Wheel(x, y, rows) => host.wheel(x, y, rows),
                 Input::Paste(text) => host.paste(&text),
             }
@@ -519,7 +675,15 @@ mod tests {
             keys(b"\x1b[1;5A"),
             vec![Input::Key(Key::Chord("Control+ArrowUp".into()))]
         );
-        assert_eq!(keys(b"\x1b"), vec![Input::Key(Key::Named("Escape"))]);
+        let (mut p, mut d) = (Parser::new(), Decoder::default());
+        assert_eq!(decode(&mut p, &mut d, b"\x1b"), vec![]);
+        assert_eq!(flush_escape(&mut d), vec![Input::Key(Key::Named("Escape"))]);
+        // An arrow split across reads stays an arrow.
+        assert_eq!(decode(&mut p, &mut d, b"\x1b"), vec![]);
+        assert_eq!(
+            decode(&mut p, &mut d, b"[A"),
+            vec![Input::Key(Key::Named("ArrowUp"))]
+        );
         assert_eq!(
             keys(b"\x1b[200~x\ny\x1b[201~"),
             vec![Input::Paste("x\ny".into())]
@@ -534,5 +698,105 @@ mod tests {
             decode(&mut p, &mut d, b"q\x7fline two\x1b[201~"),
             vec![Input::Paste("line one\nqline two".into())]
         );
+    }
+
+    /// The inline writer through a VT emulator (LLP 1101.001 P14): what
+    /// a terminal shows, not what the headless `print` draws.
+    mod writer {
+        use super::super::*;
+
+        const APP: &str = "component App\n  state items = [\"one\", \"two\"]\n  state busy = true\n  state tick = 0\n  action add\n    items = concat(items, [`item ${length(items)}`])\n  action spin\n    tick = tick + 1\n  action settle\n    busy = false\n  view\n    column\n      column role=\"log\"\n        each it, i in items key=i\n          text it id=`e${i}`\n        when busy\n          text `working ${tick}` aria-busy=true id=\"tail\"\n      text \"prompt\"\n";
+
+        struct Screen {
+            vt: vt100::Parser,
+            scrolled: Vec<String>,
+        }
+
+        impl Screen {
+            fn feed(&mut self, bytes: &str) {
+                for chunk in bytes.as_bytes().chunks(16) {
+                    self.vt.process(chunk);
+                    self.vt.set_scrollback(usize::MAX);
+                    let len = self.vt.screen().scrollback();
+                    self.vt.set_scrollback(0);
+                    let new = len.saturating_sub(self.scrolled.len());
+                    if new > 0 {
+                        self.vt.set_scrollback(new);
+                        let text = self.vt.screen().contents();
+                        self.scrolled
+                            .extend(text.lines().take(new).map(str::to_string));
+                        self.vt.set_scrollback(0);
+                    }
+                }
+            }
+            fn all(&self) -> String {
+                format!(
+                    "{}\n{}",
+                    self.scrolled.join("\n"),
+                    self.vt.screen().contents()
+                )
+            }
+        }
+
+        fn writer() -> Inline {
+            Inline {
+                printed: std::collections::HashSet::new(),
+                through: String::new(),
+                live: 0,
+                cursor_row: 0,
+                shown: None,
+                protocol: Protocol::Blocks,
+                last: None,
+                hits: Vec::new(),
+                mouse: false,
+                queries: std::collections::VecDeque::new(),
+                top: None,
+            }
+        }
+
+        #[test]
+        fn settled_rows_are_written_once_and_a_tick_costs_bytes() {
+            let plan = contract::compile(APP).expect("compiles");
+            let mut host = Host::boot(plan, (), Mode::Inline, 30, 4).expect("boots");
+            let mut screen = Screen {
+                vt: vt100::Parser::new(4, 30, 1000),
+                scrolled: Vec::new(),
+            };
+            let mut inline = writer();
+            let mut frame = |host: &mut Host<()>, screen: &mut Screen| {
+                let mut out = String::new();
+                inline.frame(host, &mut out);
+                screen.feed(&out);
+                out
+            };
+            frame(&mut host, &mut screen);
+            for _ in 0..6 {
+                host.act("add");
+                frame(&mut host, &mut screen);
+            }
+            // A spinner tick changes one cell of the live region.
+            host.act("spin");
+            let tick = frame(&mut host, &mut screen);
+            assert!(
+                tick.len() < 120,
+                "a tick wrote {} bytes: {tick:?}",
+                tick.len()
+            );
+            assert!(
+                !tick.contains("item"),
+                "a tick re-sent settled rows: {tick:?}"
+            );
+            host.act("settle");
+            frame(&mut host, &mut screen);
+            let all = screen.all();
+            for item in ["one", "two", "item 2", "item 3", "item 7"] {
+                let count = all.lines().filter(|l| l.trim() == item).count();
+                assert_eq!(count, 1, "{item:?} appears {count} times in:\n{all}");
+            }
+            assert!(
+                !all.contains("working"),
+                "the busy tail went away when it settled:\n{all}"
+            );
+        }
     }
 }

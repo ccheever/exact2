@@ -12,29 +12,17 @@ use crate::error::StyleValueError;
 use crate::generated::{StyleCodec, StyleId};
 use crate::style::relative::admits_relative;
 use crate::style::StyleValue;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 /// One column, in layout pixels.
 pub const COLUMN: f32 = 8.0;
 /// One row, in layout pixels.
 pub const ROW: f32 = 16.0;
 
-/// Whether this process lays out for a terminal: set once by the terminal
-/// host before it boots, never by any other.
-static TERMINAL: AtomicBool = AtomicBool::new(false);
-
-/// Lay out for a terminal from now on (LLP 1101 §4: a border is one cell).
-pub fn set_terminal() {
-    TERMINAL.store(true, Ordering::Relaxed);
-}
-
-/// Each side's border as it occupies space: in a terminal, a drawn side is
+/// Each side's border as it occupies space in a terminal: a drawn side is
 /// one cell — a row on top and bottom, a column on the sides — whatever
-/// width was written (LLP 1101 §4, a declared deviation).
+/// width was written (LLP 1101 §4, a declared deviation). Applied only
+/// under a kernel's terminal border rule ([`crate::Env::cell_borders`]).
 pub fn border(widths: [f32; 4]) -> [f32; 4] {
-    if !TERMINAL.load(Ordering::Relaxed) {
-        return widths;
-    }
     let cell = [ROW, COLUMN, ROW, COLUMN];
     std::array::from_fn(|i| if widths[i] > 0.0 { cell[i] } else { 0.0 })
 }

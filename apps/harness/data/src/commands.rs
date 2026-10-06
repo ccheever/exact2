@@ -1,5 +1,5 @@
 //! The sends: `submit` (a prompt or a slash command), `approve`,
-//! `interrupt`, `setModel`. Each returns whether it was taken; the work a
+//! `interrupt`, `setModel`, `setKey`, `retire`. Each returns whether it was taken; the work a
 //! prompt starts runs on the agent's thread.
 
 use crate::agent;
@@ -18,11 +18,18 @@ pub fn submit(shared: &Arc<Shared>, text: &str) -> bool {
         return false;
     }
     let Some(command) = text.trim_start().strip_prefix('/') else {
-        if shared.lock().busy() {
-            shared.toast("Still working — esc to interrupt");
-            return false;
+        // A prompt waits its turn (P16): queued, shown, started when the
+        // running turn ends however it ends.
+        let queued = {
+            let mut s = shared.lock();
+            s.queue.push_back(text.to_string());
+            s.busy()
+        };
+        if queued {
+            shared.changed();
+        } else {
+            agent::pump(shared);
         }
-        agent::start(shared, text);
         return true;
     };
     let (name, rest) = command
@@ -32,8 +39,9 @@ pub fn submit(shared: &Arc<Shared>, text: &str) -> bool {
     if name == "model" {
         return set_model(shared, rest);
     }
-    if shared.lock().busy() {
-        shared.toast("Still working — esc to interrupt");
+    // Commands run at once, even during a turn; only /clear waits.
+    if name == "clear" && shared.lock().busy() {
+        shared.toast("Can't clear while a turn runs — esc to interrupt");
         return false;
     }
     let ok = run(shared, name, rest);

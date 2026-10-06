@@ -53,6 +53,26 @@ pub enum After {
     Quit,
 }
 
+/// One child of the transcript's `role="log"` node.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogChild {
+    /// Its identity in the kernel.
+    pub key: exact_kernel::NodeKey,
+    /// Its `id`, which the app knows it by ("" when it has none).
+    pub id: String,
+    /// Its bottom, in document rows.
+    pub bottom: usize,
+    /// Whether it may still change.
+    pub busy: bool,
+}
+
+/// A host command that names a node by its `id`.
+enum ById {
+    ShowModal(String),
+    Close(String),
+    Focus(String),
+}
+
 /// How the app occupies the terminal (LLP 1101 D10).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -86,6 +106,17 @@ pub struct Host<D: DataSource> {
     pub(crate) prevented: bool,
     /// Decoded images by source.
     pub images: crate::image::Images,
+    /// Frames written to the terminal so far. With the count when each
+    /// interactive node appeared, and the count when the keys being handled
+    /// were read (LLP 1101.001 P11): a key can press only a node that a
+    /// frame written before the key was read had shown. No timer.
+    pub frames: u64,
+    pub(crate) born: HashMap<ViewId, u64>,
+    /// The frame count when the keys being handled were read.
+    pub read_at: u64,
+    /// Whether keys arm only on shown nodes; off headless, where the
+    /// agent's verbs act on the tree directly.
+    pub arm: bool,
 }
 
 impl<D: DataSource> Host<D> {
@@ -97,10 +128,10 @@ impl<D: DataSource> Host<D> {
         cols: usize,
         rows: usize,
     ) -> Result<Host<D>, String> {
-        exact_kernel::style::cells::set_terminal();
         exact_kernel::style::link_segments();
         exact_kernel::timeline::link();
-        let kernel = Kernel::new(Box::new(crate::measure::CellMeasurer));
+        let mut kernel = Kernel::new(Box::new(crate::measure::CellMeasurer));
+        kernel.set_cell_borders(true);
         let viewport = Viewport::sized(cols as f64 * COLUMN as f64, rows as f64 * ROW as f64);
         let runner =
             Runner::boot(plan, data, kernel, viewport, "/").map_err(|e| format!("{e:?}"))?;
@@ -119,6 +150,10 @@ impl<D: DataSource> Host<D> {
             quit: false,
             prevented: false,
             images: crate::image::Images::default(),
+            frames: 0,
+            born: HashMap::new(),
+            read_at: 0,
+            arm: true,
         };
         host.after_commit();
         Ok(host)
@@ -171,10 +206,20 @@ impl<D: DataSource> Host<D> {
             let _ = self.runner.kernel_mut().compute_layout(root, offer);
         }
         let t_layout = t0.elapsed();
+        let mut layer_ops = Vec::new();
         for command in self.runner.take_commands() {
-            match command.name.as_str() {
-                "close" => self.quit = true,
-                "preventDefault" => self.prevented = true,
+            let id = command
+                .args
+                .first()
+                .filter(|v| v.is_str())
+                .map(|v| v.text().to_string());
+            match (command.name.as_str(), id) {
+                // Bare `close()` is the window's; `close(id)` a dialog's.
+                ("close", None) => self.quit = true,
+                ("close", Some(id)) => layer_ops.push(ById::Close(id)),
+                ("showModal", Some(id)) => layer_ops.push(ById::ShowModal(id)),
+                ("focus", Some(id)) => layer_ops.push(ById::Focus(id)),
+                ("preventDefault", _) => self.prevented = true,
                 _ => {}
             }
         }
@@ -189,16 +234,37 @@ impl<D: DataSource> Host<D> {
                 self.caret = self.value(f).graphemes(true).count();
             }
         }
+        let live = self.focusables();
+        self.born.retain(|id, _| live.contains(id));
+        for id in live {
+            self.born.entry(id).or_insert(self.frames);
+        }
         let t_focus = t0.elapsed();
         self.follow_ends();
         self.images.load(self.runner.kernel());
         self.changed();
+        // Dialogs an action opened or closed, and focus it moved (LLP
+        // 1101.001 P5), after the commit that asked for them.
+        for op in layer_ops {
+            let (ById::ShowModal(id) | ById::Close(id) | ById::Focus(id)) = &op;
+            let Some(node) = self.find(|n| n.props.str(PropId::Id) == Some(id.as_str())) else {
+                continue;
+            };
+            let is_open = self.layers.iter().any(|(l, _)| *l == node);
+            match op {
+                ById::ShowModal(_) if !is_open => self.open_layer(node),
+                ById::Close(_) if is_open => self.close_layer(node),
+                ById::Focus(_) => self.focus(Some(node)),
+                _ => {}
+            }
+        }
         if trace {
             eprintln!(
-                "commit: layout {:?}, focus {:?}, walks {:?}",
+                "commit: layout {:?}, focus {:?}, walks {:?}, nodes {}",
                 t_layout,
                 t_focus - t_layout,
-                t0.elapsed() - t_focus
+                t0.elapsed() - t_focus,
+                self.runner.kernel().live_count()
             );
         }
     }
@@ -230,6 +296,7 @@ impl<D: DataSource> Host<D> {
             layers: self.layers.iter().map(|(id, _)| *id).collect(),
             images: &self.images,
             center: self.mode == Mode::Fullscreen,
+            env: self.runner.kernel().env(),
         }
     }
 
@@ -262,35 +329,38 @@ impl<D: DataSource> Host<D> {
             .unwrap_or(0)
     }
 
-    /// The settled transcript (LLP 1101 D10): the bottom row of each child
-    /// of the `role="log"` node, in order, and how many lead children are
-    /// settled — those before the first `aria-busy` one. Settled children
-    /// never change again, so an inline terminal prints them once into its
-    /// scrollback.
-    pub fn transcript(&self) -> (Vec<usize>, usize) {
+    /// The transcript (LLP 1101 D10): each child of the `role="log"` node,
+    /// in order — its identity, its `id`, its bottom row, and whether it is
+    /// `aria-busy`. A child before the first busy one is settled: in inline
+    /// mode it is final (Exact's policy, LLP 1101.001 P1), printed once
+    /// into the terminal's scrollback and never laid out for it again.
+    pub fn transcript(&self) -> Vec<LogChild> {
         let kernel = self.runner.kernel();
         let Some(log) = self.find(|n| n.props.str(PropId::AccessibilityRole) == Some("log")) else {
-            return (Vec::new(), 0);
+            return Vec::new();
         };
         let Some(node) = kernel.node(log) else {
-            return (Vec::new(), 0);
+            return Vec::new();
         };
-        let mut bottoms = Vec::new();
-        let mut settled = None;
-        for child in node.children() {
-            let Some(c) = kernel.node(child) else {
-                continue;
-            };
-            if c.style.display == exact_kernel::Display::None {
-                continue;
-            }
-            if settled.is_none() && c.props.bool(PropId::AccessibilityBusy) == Some(true) {
-                settled = Some(bottoms.len());
-            }
-            bottoms.push(((c.frame.y + c.frame.height) / ROW).round().max(0.0) as usize);
+        node.children()
+            .into_iter()
+            .filter_map(|child| kernel.node(child))
+            .filter(|c| c.style.display != exact_kernel::Display::None)
+            .map(|c| LogChild {
+                key: c.key,
+                id: c.props.str(PropId::Id).unwrap_or("").to_string(),
+                bottom: ((c.frame.y + c.frame.height) / ROW).round().max(0.0) as usize,
+                busy: c.props.bool(PropId::AccessibilityBusy) == Some(true),
+            })
+            .collect()
+    }
+
+    /// Publish the terminal's record to the app, `exactSurface("terminal")`
+    /// (LLP 1101.001 P1, P10): a host record, not a media feature.
+    pub fn publish(&mut self, json: &str) {
+        if let Ok(Some(_)) = self.runner.set_surface_record("terminal", Some(json)) {
+            self.after_commit();
         }
-        let settled = settled.unwrap_or(bottoms.len());
-        (bottoms, settled)
     }
 
     /// The first node in document order that `pred` accepts.
@@ -309,6 +379,12 @@ impl<D: DataSource> Host<D> {
         None
     }
 
+    /// Run an action by name, as the agent and tests do.
+    pub fn act(&mut self, name: &str) {
+        let _ = self.runner.act(name, Vec::new());
+        self.after_commit();
+    }
+
     /// Advance the app's clock: timers fire.
     pub fn tick(&mut self, now_ms: f64) {
         if !self.runner.advance_timed(now_ms).receipts.is_empty() {
@@ -321,14 +397,17 @@ impl<D: DataSource> Host<D> {
         self.runner.timer_due_ms()
     }
 
-    /// Dispatch, then lay out; whether the commit changed the tree.
-    pub(crate) fn dispatch(&mut self, view: ViewId, event: Event) -> bool {
-        let changed = match self.runner.dispatch(view, event) {
-            Ok(r) => !(r.created.is_empty() && r.destroyed.is_empty() && r.touched.is_empty()),
-            Err(_) => false,
-        };
+    /// Dispatch, then lay out. Whether a handler prevented the default is
+    /// `prevented`, from the commands the dispatch emitted.
+    pub(crate) fn dispatch(&mut self, view: ViewId, event: Event) {
+        let _ = self.runner.dispatch(view, event);
         self.after_commit();
-        changed
+    }
+
+    /// Whether a key may press `id` yet: a frame written before the key
+    /// was read showed it (LLP 1101.001 P11).
+    pub(crate) fn armed(&self, id: ViewId) -> bool {
+        !self.arm || self.born.get(&id).is_none_or(|born| *born < self.read_at)
     }
 
     /// The nearest node at or above `view` with a handler for `kind`.
@@ -456,6 +535,7 @@ impl<D: DataSource> Host<D> {
     /// Scroll every scroller above `id` so its frame is in view.
     fn reveal(&mut self, id: ViewId) {
         let kernel = self.runner.kernel();
+        let env = kernel.env();
         let Some(target) = kernel.node(id).map(|n| n.frame) else {
             return;
         };
@@ -464,7 +544,7 @@ impl<D: DataSource> Host<D> {
         while let Some(p) = at {
             let Some(n) = kernel.node(p) else { break };
             if Self::is_scroller(&n) {
-                let [bt, _, bb, _] = n.style.border_widths();
+                let [bt, _, bb, _] = n.style.border_widths_in(&env);
                 let top = n.frame.y + bt;
                 let height = n.frame.height - bt - bb;
                 let offset = self.scroll.get(&p).copied().unwrap_or(0.0);
@@ -486,12 +566,13 @@ impl<D: DataSource> Host<D> {
     /// Keep a `scrollFollowEnd` scroller at its end while it was there.
     fn follow_ends(&mut self) {
         let kernel = self.runner.kernel();
+        let env = kernel.env();
         let mut stack: Vec<ViewId> = self.runner.roots();
         let mut ends = Vec::new();
         while let Some(id) = stack.pop() {
             let Some(n) = kernel.node(id) else { continue };
             if Self::is_scroller(&n) && n.props.bool(PropId::ScrollFollowEnd) == Some(true) {
-                let [bt, _, bb, _] = n.style.border_widths();
+                let [bt, _, bb, _] = n.style.border_widths_in(&env);
                 let reach = (n.content.1 - (n.frame.height - bt - bb)).max(0.0);
                 ends.push((id, reach));
             }
@@ -601,6 +682,26 @@ impl<D: DataSource> Host<D> {
     /// closes it only when `closedby="any"`.
     pub fn click(&mut self, x: i32, y: i32) {
         let hit = self.hit(x, y);
+        self.click_hit(hit);
+    }
+
+    /// A press at a cell of a region painted apart (inline's live region),
+    /// hit-tested against that painting's boxes.
+    pub fn click_in(&mut self, hits: &[(ViewId, CellRect)], x: i32, y: i32) {
+        let hit = hits
+            .iter()
+            .rev()
+            .find(|(_, r)| r.contains(x, y))
+            .map(|(id, _)| *id);
+        self.click_hit(hit);
+    }
+
+    /// Whether a dialog or popover is open.
+    pub fn has_layer(&self) -> bool {
+        !self.layers.is_empty()
+    }
+
+    fn click_hit(&mut self, hit: Option<ViewId>) {
         if let Some((top, _)) = self.layers.last().copied() {
             let inside = hit.is_some_and(|h| self.focusables().contains(&h));
             if !inside {

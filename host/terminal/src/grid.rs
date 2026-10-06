@@ -29,6 +29,10 @@ pub struct Style {
     pub strike: bool,
     /// SGR 7: the UA focus indicator (LLP 1101 D6).
     pub reverse: bool,
+    /// A hyperlink, by its index in the grid's links (0: none): written as
+    /// OSC 8, which a terminal opens on Cmd- or Ctrl-click with no mouse
+    /// reporting, so selection and scroll stay the terminal's.
+    pub link: u16,
 }
 
 /// One cell.
@@ -91,6 +95,7 @@ pub struct Grid {
     /// Rows.
     pub rows: usize,
     cells: Vec<Cell>,
+    links: Vec<String>,
     /// Where the terminal's cursor goes (a focused field's caret), if shown.
     pub cursor: Option<(usize, usize)>,
 }
@@ -102,6 +107,7 @@ impl Grid {
             cols,
             rows,
             cells: vec![Cell::default(); cols * rows],
+            links: Vec::new(),
             cursor: None,
         }
     }
@@ -164,6 +170,28 @@ impl Grid {
         }
     }
 
+    /// The link index for `url`, interned.
+    pub fn link(&mut self, url: &str) -> u16 {
+        if let Some(i) = self.links.iter().position(|l| l == url) {
+            return i as u16 + 1;
+        }
+        self.links.push(url.to_string());
+        self.links.len() as u16
+    }
+
+    /// Switch the open hyperlink from `from` to `to` (OSC 8; 0 closes).
+    fn link_to(&self, out: &mut String, from: u16, to: u16) {
+        if from == to {
+            return;
+        }
+        match self.links.get((to as usize).wrapping_sub(1)) {
+            Some(url) => {
+                let _ = write!(out, "\x1b]8;;{url}\x1b\\");
+            }
+            None => out.push_str("\x1b]8;;\x1b\\"),
+        }
+    }
+
     /// Fade everything painted so far: the backdrop under an open dialog.
     pub fn dim(&mut self) {
         for c in &mut self.cells {
@@ -216,12 +244,14 @@ impl Grid {
         for x in 0..end {
             let cell = self.cell(x, y);
             if current != Some(cell.style) {
+                self.link_to(&mut out, current.map_or(0, |c| c.link), cell.style.link);
                 sgr(&mut out, cell.style);
                 current = Some(cell.style);
             }
             out.push_str(&cell.text);
         }
-        if current.is_some() {
+        if let Some(c) = current {
+            self.link_to(&mut out, c.link, 0);
             out.push_str("\x1b[0m");
         }
         out
@@ -235,14 +265,62 @@ impl Grid {
             for x in 0..self.cols {
                 let cell = self.cell(x, y);
                 if current != Some(cell.style) {
+                    self.link_to(&mut out, current.map_or(0, |c| c.link), cell.style.link);
                     sgr(&mut out, cell.style);
                     current = Some(cell.style);
                 }
                 out.push_str(&cell.text);
             }
+            self.link_to(&mut out, current.map_or(0, |c| c.link), 0);
             out.push_str("\x1b[0m\n");
         }
         out
+    }
+
+    /// The changed runs of cells from `before` to this grid (the same size),
+    /// for a region of the normal screen whose top-left the cursor is at:
+    /// moves are relative (down by rows, to a column), never absolute. Ends
+    /// with the cursor at the start of the returned row.
+    pub fn diff_relative(&self, before: &Grid, out: &mut String) -> usize {
+        let mut at_row = 0;
+        let mut current: Option<Style> = None;
+        for y in 0..self.rows {
+            let mut x = 0;
+            while x < self.cols {
+                if before.cell(x, y) == self.cell(x, y) {
+                    x += 1;
+                    continue;
+                }
+                let mut start = x;
+                while start > 0 && self.cell(start, y).text.is_empty() {
+                    start -= 1;
+                }
+                if y > at_row {
+                    let _ = write!(out, "\x1b[{}B", y - at_row);
+                    at_row = y;
+                }
+                let _ = write!(out, "\x1b[{}G", start + 1);
+                let mut end = start;
+                while end < self.cols {
+                    let differs = before.cell(end, y) != self.cell(end, y);
+                    if end > x && !differs && !self.cell(end, y).text.is_empty() {
+                        break;
+                    }
+                    let cell = self.cell(end, y);
+                    if current != Some(cell.style) {
+                        self.link_to(out, current.map_or(0, |c| c.link), cell.style.link);
+                        sgr(out, cell.style);
+                        current = Some(cell.style);
+                    }
+                    out.push_str(&cell.text);
+                    end += 1;
+                }
+                x = end;
+            }
+        }
+        self.link_to(out, current.map_or(0, |c| c.link), 0);
+        out.push_str("\x1b[0m\r");
+        at_row
     }
 
     /// The bytes that turn `before` into this grid: every changed run of
@@ -277,6 +355,7 @@ impl Grid {
                     }
                     let cell = self.cell(at, y);
                     if current != Some(cell.style) {
+                        self.link_to(&mut out, current.map_or(0, |c| c.link), cell.style.link);
                         sgr(&mut out, cell.style);
                         current = Some(cell.style);
                     }
@@ -286,6 +365,7 @@ impl Grid {
                 x = at;
             }
         }
+        self.link_to(&mut out, current.map_or(0, |c| c.link), 0);
         out.push_str("\x1b[0m");
         if let Some((cx, cy)) = self.cursor {
             let _ = write!(out, "\x1b[{};{}H\x1b[5 q\x1b[?25h", cy + 1, cx + 1);

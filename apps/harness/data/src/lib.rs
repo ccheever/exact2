@@ -12,7 +12,7 @@
 //! - `session()` → `Session` (topic "session")
 //! - `animation(name, tick, cols, rows)` → `Frame`
 //! - `submit(text)`, `approve(id, choice)`, `interrupt()`, `setModel(id)`,
-//!   `setKey(provider, key)` → `Ack`
+//!   `setKey(provider, key)`, `retire(id)` → `Ack`
 //!
 //! @ref LLP 1101 (terminal apps)
 
@@ -28,6 +28,8 @@ mod highlight;
 mod keys;
 mod markdown;
 pub mod providers;
+mod settle;
+mod shell;
 pub mod sse;
 mod state;
 mod tools;
@@ -214,6 +216,13 @@ impl Harness {
             "submit" => commands::submit(&self.shared, text(0)?),
             "approve" => commands::approve(&self.shared, text(0)?, text(1)?),
             "interrupt" => agent::interrupt(&self.shared),
+            "retire" => {
+                let retired = self.shared.lock().retire(text(0)?);
+                if retired {
+                    self.shared.changed();
+                }
+                retired
+            }
             "setModel" => commands::set_model(&self.shared, text(0)?),
             "setKey" => {
                 let saved = commands::set_key(&self.shared, text(0)?, text(1)?);

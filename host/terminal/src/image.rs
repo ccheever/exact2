@@ -123,9 +123,10 @@ impl Protocol {
         if env("TERM") == "xterm-kitty"
             || !env("KITTY_WINDOW_ID").is_empty()
             || program == "ghostty"
+            || program == "WezTerm"
         {
             Protocol::Kitty
-        } else if program == "iTerm.app" || program == "WezTerm" {
+        } else if program == "iTerm.app" {
             Protocol::Iterm
         } else {
             Protocol::Blocks

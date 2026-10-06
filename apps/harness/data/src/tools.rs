@@ -5,16 +5,14 @@
 use crate::highlight::expand_tabs;
 use crate::state::{Line, Run};
 use serde_json::{json, Value as Json};
-use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 /// Lines of output a tool entry shows; the rest are counted in `more`.
 pub const SHOWN: usize = 10;
 /// The most a tool result sends back to the model, in bytes.
-const RESULT_CAP: usize = 60_000;
+const RESULT_CAP: usize = 100_000;
 /// A command's time limit.
 const BASH_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -82,6 +80,29 @@ pub fn title(name: &str, input: &Json) -> String {
         "edit_file" => format!("Edit({})", arg(input, "path")),
         other => format!("{other}({})", short(&input.to_string(), 40)),
     }
+}
+
+/// A `file://` link to the file or directory a call names, for a title a
+/// terminal can open (Cmd-click), or empty for a call that names none.
+pub fn file_link(name: &str, input: &Json) -> String {
+    if !matches!(name, "read_file" | "list_dir" | "write_file" | "edit_file") {
+        return String::new();
+    }
+    let path = std::path::Path::new(arg(input, "path"));
+    let full = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap_or_default().join(path)
+    };
+    let mut url = String::from("file://");
+    for c in full.to_string_lossy().chars() {
+        match c {
+            ' ' => url.push_str("%20"),
+            '%' => url.push_str("%25"),
+            c => url.push(c),
+        }
+    }
+    url
 }
 
 /// Whether a call waits for the person.
@@ -367,60 +388,24 @@ fn bash(command: &str, cancel: &AtomicBool) -> Done {
     if command.trim().is_empty() {
         return Done::err("empty command");
     }
-    let script = format!("{{\n{command}\n}} 2>&1");
-    let child = Command::new("sh")
-        .arg("-c")
-        .arg(script)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn();
-    let mut child = match child {
-        Ok(c) => c,
-        Err(e) => return Done::err(format!("cannot run sh: {e}")),
+    let ran = match crate::shell::run(command, cancel, BASH_TIMEOUT, &mut |_| {}) {
+        Ok(ran) => ran,
+        Err(e) => return Done::err(e),
     };
-    let mut stdout = child.stdout.take().expect("piped");
-    let reader = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = stdout.read_to_end(&mut buf);
-        buf
-    });
-    let start = Instant::now();
-    let mut killed = None;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) => {}
-            Err(_) => break None,
-        }
-        if cancel.load(Ordering::SeqCst) {
-            killed = Some("interrupted");
-        } else if start.elapsed() > BASH_TIMEOUT {
-            killed = Some("timed out after 120 s");
-        }
-        if killed.is_some() {
-            let _ = child.kill();
-            let _ = child.wait();
-            break None;
-        }
-        std::thread::sleep(Duration::from_millis(15));
-    };
-    // A background grandchild may hold the pipe open; don't wait for it then.
-    let out = if killed.is_some() {
-        Vec::new()
-    } else {
-        reader.join().unwrap_or_default()
-    };
-    let mut text = String::from_utf8_lossy(&out).into_owned();
-    if let Some(why) = killed {
+    let mut text = ran.text;
+    if let Some(why) = ran.killed {
+        let why = if why == "timed out" {
+            format!("timed out after {} s", BASH_TIMEOUT.as_secs())
+        } else {
+            why.to_string()
+        };
         text.push_str(&format!("\n[{why}]"));
         return Done::err(text);
     }
-    let code = status.and_then(|s| s.code());
     if text.trim().is_empty() {
         text = "(no output)".into();
     }
-    match code {
+    match ran.code {
         Some(0) => Done::ok(text),
         Some(c) => {
             let mut d = Done::ok(format!("{text}\n[exit {c}]"));

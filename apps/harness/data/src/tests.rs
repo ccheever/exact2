@@ -1,6 +1,7 @@
 //! The session driven through the `DataSource` API, with the mock model.
 
 use super::*;
+use crate::state::Block;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -66,6 +67,10 @@ fn a_mock_turn_streams_runs_tools_and_settles() {
             "banner",
             "user",
             "assistant",
+            "more",
+            "more",
+            "more",
+            "more",
             "tool",
             "assistant",
             "tool",
@@ -88,10 +93,17 @@ fn a_mock_turn_streams_runs_tools_and_settles() {
         ]
     );
     assert!(entries.iter().all(|e| !e.busy));
-    let first = &entries[2].blocks;
+    // The first reply is five entries, one per block (the lists are one),
+    // and together they are exactly the whole reply parsed at once.
+    let first: Vec<Block> = entries[2..7]
+        .iter()
+        .flat_map(|e| e.blocks.clone())
+        .collect();
     for kind in ["h2", "p", "li", "code", "quote"] {
         assert!(first.iter().any(|b| b.kind == kind), "no {kind}");
     }
+    let reply = h.shared.lock().history[1].text();
+    assert_eq!(first, crate::markdown::blocks(&reply));
     let read = entries
         .iter()
         .find(|e| e.title.starts_with("Read"))
@@ -316,4 +328,175 @@ fn a_saved_key_switches_the_model_and_never_shows() {
     );
     assert_eq!(h.shared.lock().model, "mock");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn ids(entries: &[Entry]) -> Vec<u64> {
+    entries.iter().map(|e| e.id.parse().unwrap()).collect()
+}
+
+#[test]
+fn a_huge_reply_settles_while_it_streams() {
+    let mut h = mock();
+    assert!(send(&mut h, "submit", &["something huge"]));
+    let start = Instant::now();
+    let mut settled_while_busy = 0;
+    let mut tails = 0;
+    loop {
+        let s = h.shared.lock();
+        if !s.busy() {
+            break;
+        }
+        settled_while_busy = settled_while_busy.max(
+            s.entries
+                .iter()
+                .filter(|e| e.kind == "more" && !e.busy)
+                .count(),
+        );
+        tails = tails.max(s.entries.iter().filter(|e| e.busy).count());
+        drop(s);
+        assert!(start.elapsed() < Duration::from_secs(60));
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(
+        settled_while_busy > 20,
+        "only {settled_while_busy} settled before the end"
+    );
+    assert!(tails <= 1, "one busy tail at most");
+    let s = h.shared.lock();
+    let reply: Vec<&Entry> = s.entries.iter().skip(2).collect();
+    assert_eq!(reply[0].kind, "assistant");
+    assert!(reply[1..].iter().all(|e| e.kind == "more"));
+    assert!(reply.len() > 300, "{}", reply.len());
+    let joined: Vec<Block> = reply.iter().flat_map(|e| e.blocks.clone()).collect();
+    assert_eq!(joined, crate::markdown::blocks(&s.history[1].text()));
+    let code = reply
+        .iter()
+        .find(|e| e.blocks.iter().any(|b| b.kind == "code"))
+        .unwrap();
+    assert_eq!(code.blocks[0].lines.len(), 300, "the fence settled whole");
+    let ids = ids(&s.entries);
+    assert!(ids.windows(2).all(|w| w[0] < w[1]), "ids increase");
+}
+
+#[test]
+fn retire_drops_printed_entries_from_the_session() {
+    let mut h = mock();
+    for cmd in ["/help", "/tools", "/unicode"] {
+        assert!(send(&mut h, "submit", &[cmd]));
+    }
+    let (second, last) = {
+        let s = h.shared.lock();
+        (s.entries[1].id.clone(), s.entries[3].id.clone())
+    };
+    assert!(send(&mut h, "retire", &[&second]));
+    assert_eq!(h.shared.lock().entries.len(), 2);
+    assert_eq!(h.shared.lock().retired, 2.0);
+    // Idempotent; an older or unknown id changes nothing.
+    assert!(send(&mut h, "retire", &[&second]));
+    assert!(send(&mut h, "retire", &["1"]));
+    assert!(!send(&mut h, "retire", &["nope"]));
+    assert_eq!(h.shared.lock().retired, 2.0);
+    // The snapshot answers what is left, and says how many went.
+    let Value::Record(fields) = h.session() else {
+        panic!()
+    };
+    let Value::List(entries) = &fields[9] else {
+        panic!()
+    };
+    assert_eq!(entries.len(), 2);
+    assert_eq!(fields[13], Value::Number(2.0));
+    // New entries still append, with larger ids; /clear still works.
+    assert!(send(&mut h, "submit", &["/diff"]));
+    let after = ids(&h.shared.lock().entries);
+    assert!(after.windows(2).all(|w| w[0] < w[1]));
+    assert!(after[0] > second.parse::<u64>().unwrap());
+    assert!(send(&mut h, "retire", &[&last]));
+    assert_eq!(h.shared.lock().entries.len(), 1);
+    assert!(send(&mut h, "submit", &["/clear"]));
+    assert!(h.shared.lock().entries.is_empty());
+    assert!(send(&mut h, "submit", &["/help"]));
+    let id: u64 = h.shared.lock().entries[0].id.parse().unwrap();
+    assert!(id > *after.last().unwrap(), "ids are never reused");
+    // A busy entry is never retired.
+    assert!(send(&mut h, "submit", &["hi"]));
+    let start = Instant::now();
+    while h.shared.lock().approval.tool != "bash" {
+        assert!(start.elapsed() < Duration::from_secs(30));
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let busy = h.shared.lock().entries.last().unwrap().id.clone();
+    assert!(send(&mut h, "retire", &[&busy]));
+    let s = h.shared.lock();
+    assert_eq!(s.entries.len(), 1);
+    assert!(s.entries[0].busy);
+}
+
+#[test]
+fn prompts_queue_while_a_turn_runs() {
+    let mut h = mock();
+    assert!(send(&mut h, "submit", &["first"]));
+    assert!(send(&mut h, "submit", &["second"]));
+    assert!(send(&mut h, "submit", &["third"]));
+    {
+        let s = h.shared.lock();
+        assert!(s.busy());
+        assert_eq!(Vec::from(s.queue.clone()), ["second", "third"]);
+    }
+    let Value::Record(fields) = h.session() else {
+        panic!()
+    };
+    assert_eq!(
+        fields[14],
+        Value::list(vec![Value::str("second"), Value::str("third")])
+    );
+    // Commands run at once during a turn; /clear waits.
+    let before = h.shared.lock().entries.len();
+    assert!(send(&mut h, "submit", &["/help"]));
+    assert!(h.shared.lock().entries.len() > before);
+    assert!(!send(&mut h, "submit", &["/clear"]));
+    assert!(h.shared.lock().toast.contains("clear"));
+    // An interrupt stops the turn and keeps the queue: the next one starts.
+    while h.shared.lock().approval.tool != "bash" {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(send(&mut h, "interrupt", &[]));
+    {
+        let s = h.shared.lock();
+        assert!(s.busy(), "the queued prompt started");
+        assert_eq!(Vec::from(s.queue.clone()), ["third"]);
+    }
+    let entries = drive(&mut h, "yes");
+    let users: Vec<String> = entries
+        .iter()
+        .filter(|e| e.kind == "user")
+        .map(|e| e.blocks[0].lines[0].text())
+        .collect();
+    assert_eq!(users, ["first", "second", "third"]);
+    assert!(h.shared.lock().queue.is_empty());
+}
+
+#[test]
+fn the_chaos_run_ends_bounded() {
+    let mut h = mock();
+    assert!(send(&mut h, "submit", &["chaos"]));
+    let entries = drive(&mut h, "yes");
+    let tool = entries.iter().find(|e| e.kind == "tool").unwrap();
+    assert_eq!(tool.status, "ok");
+    let s = h.shared.lock();
+    let result = s
+        .history
+        .iter()
+        .flat_map(|m| &m.parts)
+        .find_map(|p| match p {
+            state::Part::ToolResult { content, .. } => Some(content.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(result.len() < 100_000, "{}", result.len());
+    assert!(
+        result.contains("bytes omitted"),
+        "the flood was bounded while read"
+    );
+    assert!(entries.last().unwrap().kind == "assistant");
+    assert!(entries.iter().filter(|e| e.kind == "more").count() > 300);
 }

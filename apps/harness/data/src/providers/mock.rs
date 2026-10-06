@@ -78,6 +78,98 @@ fn long_answer() -> String {
     s
 }
 
+/// A reply of about `lines` lines: headings, paragraphs, nested lists,
+/// quotes, and one long fenced code block in the middle.
+pub fn huge_reply(lines: usize) -> String {
+    let mut s = String::from("# A very long reply\n\n");
+    let mut n = 0;
+    let mut section = 0;
+    while s.lines().count() < lines {
+        section += 1;
+        s.push_str(&format!("## Section {section}\n\n"));
+        for _ in 0..3 {
+            n += 1;
+            s.push_str(&format!(
+                "Paragraph {n} has **bold**, *italic* and `code {n}` in it,\nand wraps \
+                 onto a second source line that keeps going for a while.\n\n"
+            ));
+        }
+        for i in 0..4 {
+            s.push_str(&format!(
+                "- item {section}.{i} with a [link](https://example.com/{i})\n"
+            ));
+            s.push_str(&format!("  - nested {section}.{i}\n"));
+        }
+        s.push_str("\n> A quote in section ");
+        s.push_str(&format!("{section}, to break the lists up.\n\n"));
+        if section == 40 {
+            s.push_str("```rust\n");
+            for i in 0..300 {
+                s.push_str(&format!(
+                    "fn step_{i}(x: u64) -> u64 {{ x.wrapping_mul({i}) + 1 }}\n"
+                ));
+            }
+            s.push_str("```\n\n");
+        }
+    }
+    s
+}
+
+/// The adversarial script (LLP 1101.001 P17): "huge" streams a
+/// 3,000-line reply as fast as it can; "chaos" streams it with a 3 s stall
+/// in the middle, then asks to run a command that prints 5 MB, then closes.
+fn adversarial(
+    chaos: bool,
+    round: usize,
+    ask: &Ask<'_>,
+    sink: &mut dyn FnMut(Event),
+    context: usize,
+) -> Result<(), String> {
+    let cancel = ask.cancel;
+    if round > 0 {
+        let text =
+            "That was the chaos run: a long reply, a stall, an approval and a flood of output.";
+        for c in chunks(text) {
+            if pause(CHUNK, cancel) {
+                return Ok(());
+            }
+            sink(Event::Text(c));
+        }
+        sink(Event::Done);
+        return Ok(());
+    }
+    let text = huge_reply(3000);
+    let pieces: Vec<&str> = text.split_inclusive(['\n', ' ']).collect();
+    let middle = pieces.len() / 2;
+    let mut out = 0;
+    for (i, piece) in pieces.iter().enumerate() {
+        if chaos && i == middle && pause(Duration::from_secs(3), cancel) {
+            return Ok(());
+        }
+        if chaos && i % 8 == 0 && pause(Duration::from_millis(1), cancel) {
+            return Ok(());
+        }
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        out += piece.len();
+        sink(Event::Text(piece.to_string()));
+    }
+    if chaos {
+        sink(Event::ToolCall {
+            id: "mock_chaos_bash".into(),
+            name: "bash".into(),
+            input: json!({"command": "yes 'chaos: one line of a five megabyte flood of output' | head -c 5000000"}),
+        });
+    }
+    sink(Event::Usage {
+        input: Some(tokens(context)),
+        output: Some(tokens(out)),
+    });
+    sink(Event::Done);
+    Ok(())
+}
+
 /// The prompt this turn answers, and how many tool rounds it has had.
 fn progress(history: &[Msg]) -> (String, usize) {
     let start = history
@@ -171,6 +263,9 @@ pub fn stream(ask: &Ask<'_>, sink: &mut dyn FnMut(Event)) -> Result<(), String> 
     });
     if pause(THINK, cancel) {
         return Ok(());
+    }
+    if prompt.contains("chaos") || prompt.contains("huge") {
+        return adversarial(prompt.contains("chaos"), round, ask, sink, context);
     }
     let edit = prompt.contains("edit");
     let (text, call): (String, Option<(&str, serde_json::Value)>) = if prompt.contains("long") {

@@ -27,6 +27,7 @@ fn runs(rs: &[markdown_parse::Run]) -> Vec<Run> {
         if !r.href.is_empty() {
             run.fg = LINK.into();
             run.under = true;
+            run.href = r.href.clone();
         }
         line.push(run);
     }

@@ -2128,6 +2128,7 @@ dependencies = [
  "exact-runner",
  "markdown-parse",
  "png",
+ "rustix 1.1.4",
  "serde_json",
  "unicode-width 0.2.2",
  "ureq",

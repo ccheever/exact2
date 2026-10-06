@@ -11,9 +11,14 @@ use crate::keys::{self, Keys};
 use crate::sse::{Event, Parser, Sse};
 use crate::state::{ModelChoice, Msg};
 use std::io::BufRead;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
+use ureq::unversioned::resolver::DefaultResolver;
+use ureq::unversioned::transport::{
+    Buffers, ConnectionDetails, Connector, DefaultConnector, NextTimeout, Transport,
+};
 
 /// The Anthropic models offered.
 pub const CLAUDE: [(&str, &str); 3] = [
@@ -26,6 +31,90 @@ pub const CLAUDE: [(&str, &str); 3] = [
 pub const OPENROUTER: &str = "https://openrouter.ai/api/v1";
 
 const CONNECT: Duration = Duration::from_secs(30);
+/// The longest one socket read waits before looking at the cancel flag.
+const SLICE: Duration = Duration::from_millis(200);
+
+/// HTTP body readers alive now (tests watch it).
+pub static HTTP_READERS: AtomicUsize = AtomicUsize::new(0);
+
+struct Alive;
+
+impl Drop for Alive {
+    fn drop(&mut self) {
+        HTTP_READERS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// The last link of the connector chain: wraps the connection (TLS or
+/// plain) so every read waits at most [`SLICE`] at a time and checks the
+/// cancel flag between slices. A cancelled read fails, so the body reader
+/// and its thread end within a slice of an interrupt, even when the server
+/// has gone silent.
+#[derive(Debug)]
+struct CancelConnector(Arc<AtomicBool>);
+
+impl Connector<Box<dyn Transport>> for CancelConnector {
+    type Out = CancelTransport;
+
+    fn connect(
+        &self,
+        _: &ConnectionDetails,
+        chained: Option<Box<dyn Transport>>,
+    ) -> Result<Option<CancelTransport>, ureq::Error> {
+        Ok(chained.map(|inner| CancelTransport {
+            inner,
+            cancel: self.0.clone(),
+        }))
+    }
+}
+
+#[derive(Debug)]
+struct CancelTransport {
+    inner: Box<dyn Transport>,
+    cancel: Arc<AtomicBool>,
+}
+
+impl Transport for CancelTransport {
+    fn buffers(&mut self) -> &mut dyn Buffers {
+        self.inner.buffers()
+    }
+
+    fn transmit_output(&mut self, amount: usize, timeout: NextTimeout) -> Result<(), ureq::Error> {
+        self.inner.transmit_output(amount, timeout)
+    }
+
+    fn await_input(&mut self, timeout: NextTimeout) -> Result<bool, ureq::Error> {
+        let deadline = (!timeout.after.is_not_happening()).then(|| Instant::now() + *timeout.after);
+        loop {
+            if self.cancel.load(Ordering::SeqCst) {
+                // Not `Interrupted`, which `read_line` would retry.
+                return Err(ureq::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionAborted,
+                    "cancelled",
+                )));
+            }
+            let left = deadline.map(|d| d.saturating_duration_since(Instant::now()));
+            let slice = left.map_or(SLICE, |l| l.min(SLICE));
+            let last = left.is_some_and(|l| l <= SLICE);
+            let next = NextTimeout {
+                after: slice.into(),
+                reason: timeout.reason,
+            };
+            match self.inner.await_input(next) {
+                Err(ureq::Error::Timeout(_)) if !last => continue,
+                other => return other,
+            }
+        }
+    }
+
+    fn is_open(&mut self) -> bool {
+        self.inner.is_open()
+    }
+
+    fn is_tls(&self) -> bool {
+        self.inner.is_tls()
+    }
+}
 /// The longest a stream may go without a line.
 const IDLE: Duration = Duration::from_secs(120);
 
@@ -218,7 +307,7 @@ pub fn route(id: &str, provider: &str, src: &Sources<'_>) -> Result<Route, Strin
 pub struct Ask<'a> {
     pub system: &'a str,
     pub history: &'a [Msg],
-    pub cancel: &'a AtomicBool,
+    pub cancel: &'a Arc<AtomicBool>,
 }
 
 /// Stream one reply from `route`, handing each event to `sink`.
@@ -263,7 +352,7 @@ pub fn post_sse(
     url: &str,
     headers: &[(&str, String)],
     body: &serde_json::Value,
-    cancel: &AtomicBool,
+    cancel: &Arc<AtomicBool>,
     each: &mut dyn FnMut(Sse) -> bool,
 ) -> Result<(), String> {
     let secrets: Vec<String> = headers
@@ -278,15 +367,16 @@ fn post(
     url: &str,
     headers: &[(&str, String)],
     body: &serde_json::Value,
-    cancel: &AtomicBool,
+    cancel: &Arc<AtomicBool>,
     each: &mut dyn FnMut(Sse) -> bool,
 ) -> Result<(), String> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
+    let config = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .timeout_connect(Some(CONNECT))
         .timeout_recv_response(Some(IDLE))
-        .build()
-        .into();
+        .build();
+    let connector = DefaultConnector::new().chain(CancelConnector(cancel.clone()));
+    let agent = ureq::Agent::with_parts(config, connector, DefaultResolver::default());
     let mut request = agent.post(url).header("content-type", "application/json");
     for (k, v) in headers {
         request = request.header(*k, v.as_str());
@@ -304,7 +394,9 @@ fn post(
     // keep an interrupt or the idle limit from being seen.
     let (tx, rx) = mpsc::sync_channel::<Result<String, String>>(64);
     let reader = body.into_reader();
+    HTTP_READERS.fetch_add(1, Ordering::SeqCst);
     std::thread::spawn(move || {
+        let _alive = Alive;
         let mut reader = std::io::BufReader::new(reader);
         loop {
             let mut line = String::new();

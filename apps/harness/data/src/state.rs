@@ -20,6 +20,8 @@ pub struct Run {
     pub dim: bool,
     pub under: bool,
     pub strike: bool,
+    /// A link target, or empty.
+    pub href: String,
 }
 
 impl Run {
@@ -140,6 +142,8 @@ pub struct Entry {
     pub image: String,
     pub cols: f64,
     pub rows: f64,
+    /// What the title links to, or empty.
+    pub link: String,
 }
 
 /// `shape Approval`; `id` empty when nothing waits.
@@ -274,13 +278,35 @@ pub struct State {
     pub config_dir: Option<std::path::PathBuf>,
     /// Whether background requests (the catalog, the Ollama probe) run.
     pub network: bool,
+    /// The streaming round's text so far, for an interrupt to keep.
+    pub round_text: String,
+    /// Prompts sent while a turn ran, oldest first (P16).
+    pub queue: std::collections::VecDeque<String>,
+    /// Entries retired so far: the host printed them, the session no
+    /// longer answers them (P1).
+    pub retired: f64,
 }
 
 impl State {
-    /// A fresh entry id.
+    /// A fresh entry id: a decimal number, strictly increasing, never
+    /// reused (not even across `/clear`).
     pub fn id(&mut self) -> String {
         self.next_entry += 1;
-        format!("e{}", self.next_entry)
+        self.next_entry.to_string()
+    }
+
+    /// Stop answering every settled entry whose id is at most `id` (they
+    /// stay in the model's history). Idempotent; an older id or one that
+    /// is not a number does nothing. A busy entry is never retired.
+    pub fn retire(&mut self, id: &str) -> bool {
+        let Ok(through) = id.trim().parse::<u64>() else {
+            return false;
+        };
+        let before = self.entries.len();
+        self.entries
+            .retain(|e| e.busy || e.id.parse::<u64>().map_or(true, |n| n > through));
+        self.retired += (before - self.entries.len()) as f64;
+        true
     }
 
     /// Append an entry and return its id.
