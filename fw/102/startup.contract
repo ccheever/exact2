@@ -1,0 +1,23 @@
+// X03b: an app sets its stored root font size at launch; a bad size is refused.
+component X03Startup
+  state size = 20
+  task restore mount
+    after(1, applySaved)
+  action applySaved
+    setRootFontSize(size)
+  action pick(v: number)
+    size = v
+    setRootFontSize(v)
+  action reset
+    setRootFontSize("medium")
+  view
+    main testId="root" padding=16
+      row gap=8 margin-bottom=8
+        button press=pick(0) testId="zero"
+          text "0"
+        button press=pick(0 - 4) testId="neg"
+          text "-4"
+        button press=reset testId="medium"
+          text "medium"
+      view testId="box" width="10rem" height="2rem" background-color="#ddd"
+        text "rem text" testId="label" font-size="1.5rem"

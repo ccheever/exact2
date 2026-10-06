@@ -1,0 +1,9 @@
+<!doctype html><html style="font-size:20px"><head><meta charset="utf-8"><style>body{margin:0;font-family:system-ui} main{display:block;width:388px}</style></head>
+<body><main style="font-size:20px;padding:16px">
+<input type="range" min="12" max="20" step="1" value="20" style="display:block;margin:0"><div style="display:flex;gap:8px;margin-bottom:8px"><span>12</span><span>16</span><span>20</span></div>
+<div id="box" style="width:10rem;height:2rem;background:#ddd"><div id="label" style="font-size:1.5rem">rem text</div></div>
+<div id="em" style="font-size:1.5em">em text</div>
+<div id="px" style="font-size:24px">px text</div>
+<pre id="out"></pre></main>
+<script>const g=(id)=>{const e=document.getElementById(id),r=e.getBoundingClientRect();return id+": "+r.width+"x"+r.height+" font-size "+getComputedStyle(e).fontSize};
+document.getElementById('out').textContent=['box','label','em','px'].map(g).join('\n');</script></body></html>

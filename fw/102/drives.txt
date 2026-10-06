@@ -1,0 +1,153 @@
+== mac-before
+{'id': 'box', 'font': '12', 'size': '160x32'}
+{'id': 'label', 'font': '24', 'size': '160x28'}
+{'id': 'em', 'font': '18', 'size': '388x21'}
+{'id': 'px', 'font': '24', 'size': '388x28'}
+{'id': 'box', 'font': '16', 'size': '160x32'}
+{'id': 'label', 'font': '24', 'size': '160x28'}
+{'id': 'em', 'font': '24', 'size': '388x28'}
+{'id': 'px', 'font': '24', 'size': '388x28'}
+{'id': 'box', 'font': '20', 'size': '160x32'}
+{'id': 'label', 'font': '24', 'size': '160x28'}
+{'id': 'em', 'font': '30', 'size': '388x35'}
+{'id': 'px', 'font': '24', 'size': '388x28'}
+t=0 boot: 13 nodes, epoch 1
+t=0 press view 4 (pick) → epoch 2 (+0 −0 ~11)
+t=0 press view 6 (pick) → epoch 3 (+0 −0 ~11)
+t=0 press view 8 (pick) → epoch 4 (+0 −0 ~11)
+== web-before
+{'id': 'box', 'font': '12', 'size': '160x32'}
+{'id': 'label', 'font': '24', 'size': '160x28'}
+{'id': 'em', 'font': '18', 'size': '388x21'}
+{'id': 'px', 'font': '24', 'size': '388x28'}
+{'id': 'box', 'font': '16', 'size': '160x32'}
+{'id': 'label', 'font': '24', 'size': '160x28'}
+{'id': 'em', 'font': '24', 'size': '388x28'}
+{'id': 'px', 'font': '24', 'size': '388x28'}
+{'id': 'box', 'font': '20', 'size': '160x32'}
+{'id': 'label', 'font': '24', 'size': '160x28'}
+{'id': 'em', 'font': '30', 'size': '388x35'}
+{'id': 'px', 'font': '24', 'size': '388x28'}
+t=0 boot: 13 nodes, epoch 1
+== mac-after
+{'id': 'box', 'font': '12', 'size': '120x24'}
+{'id': 'label', 'font': '18', 'size': '120x21'}
+{'id': 'em', 'font': '18', 'size': '388x21'}
+{'id': 'px', 'font': '24', 'size': '388x28'}
+{'id': 'box', 'font': '16', 'size': '160x32'}
+{'id': 'label', 'font': '24', 'size': '160x28'}
+{'id': 'em', 'font': '24', 'size': '388x28'}
+{'id': 'px', 'font': '24', 'size': '388x28'}
+{'id': 'box', 'font': '20', 'size': '200x40'}
+{'id': 'label', 'font': '30', 'size': '200x35'}
+{'id': 'em', 'font': '30', 'size': '388x35'}
+{'id': 'px', 'font': '24', 'size': '388x28'}
+{'id': 'label', 'font': '30', 'size': '200x35'}
+{'id': 'box', 'font': '13', 'size': '130x26'}
+t=0 boot: 13 nodes, epoch 1
+t=0 command setRootFontSize(12)
+t=0 press view 4 (pick) → epoch 2 (+0 −0 ~12)
+t=0 command setRootFontSize(16)
+t=0 press view 6 (pick) → epoch 3 (+0 −0 ~12)
+t=0 command setRootFontSize(20)
+t=0 press view 8 (pick) → epoch 4 (+0 −0 ~12)
+t=0 command setRootFontSize(13)
+t=0 input view 2 (pick) → epoch 5 (+0 −0 ~12)
+== web-after
+{'id': 'box', 'font': '12', 'size': '120x24'}
+{'id': 'label', 'font': '18', 'size': '120x21'}
+{'id': 'em', 'font': '18', 'size': '388x21'}
+{'id': 'px', 'font': '24', 'size': '388x28'}
+{'id': 'box', 'font': '16', 'size': '160x32'}
+{'id': 'label', 'font': '24', 'size': '160x28'}
+{'id': 'em', 'font': '24', 'size': '388x28'}
+{'id': 'px', 'font': '24', 'size': '388x28'}
+{'id': 'box', 'font': '20', 'size': '200x40'}
+{'id': 'label', 'font': '30', 'size': '200x35'}
+{'id': 'em', 'font': '30', 'size': '388x35'}
+{'id': 'px', 'font': '24', 'size': '388x28'}
+{'id': 'label', 'font': '30', 'size': '200x35'}
+{'id': 'box', 'font': '13', 'size': '130x26'}
+t=0 boot: 13 nodes, epoch 1
+t=0 command setRootFontSize
+t=0 command setRootFontSize
+t=0 command setRootFontSize
+t=0 command setRootFontSize
+== wasm-after
+{'id': 'box', 'font': '12', 'size': '120x24'}
+{'id': 'label', 'font': '18', 'size': '120x21'}
+{'id': 'em', 'font': '18', 'size': '388x21'}
+{'id': 'px', 'font': '24', 'size': '388x28'}
+{'id': 'box', 'font': '16', 'size': '160x32'}
+{'id': 'label', 'font': '24', 'size': '160x28'}
+{'id': 'em', 'font': '24', 'size': '388x28'}
+{'id': 'px', 'font': '24', 'size': '388x28'}
+{'id': 'box', 'font': '20', 'size': '200x40'}
+{'id': 'label', 'font': '30', 'size': '200x35'}
+{'id': 'em', 'font': '30', 'size': '388x35'}
+{'id': 'px', 'font': '24', 'size': '388x28'}
+{'id': 'label', 'font': '30', 'size': '200x35'}
+{'id': 'box', 'font': '13', 'size': '130x26'}
+{'id': 'px', 'font': '24', 'size': '388x28'}
+t=0 boot: 13 nodes, epoch 1
+t=0 command setRootFontSize(12)
+t=0 press view 4 (pick) → epoch 2 (+0 −0 ~12)
+t=0 command setRootFontSize(16)
+t=0 press view 6 (pick) → epoch 3 (+0 −0 ~12)
+t=0 command setRootFontSize(20)
+t=0 press view 8 (pick) → epoch 4 (+0 −0 ~12)
+t=0 command setRootFontSize(13)
+t=0 input view 2 (pick) → epoch 5 (+0 −0 ~12)
+== ios-after
+{'id': 'box', 'font': '12', 'size': '120x24'}
+{'id': 'label', 'font': '18', 'size': '120x22'}
+{'id': 'box', 'font': '20', 'size': '200x40'}
+{'id': 'label', 'font': '30', 'size': '200x36'}
+{'id': 'em', 'font': '30', 'size': '370x36'}
+{'id': 'px', 'font': '24', 'size': '370x29'}
+{'id': 'box', 'font': '20', 'size': '200x40'}
+{'id': 'box', 'font': '13', 'size': '130x26'}
+t=0 boot: 13 nodes, epoch 1
+t=0 command setRootFontSize(12)
+t=0 press view 4 (pick) → epoch 2 (+0 −0 ~12)
+t=0 command setRootFontSize(20)
+t=0 press view 8 (pick) → epoch 3 (+0 −0 ~12)
+t=0 command setRootFontSize(13)
+t=0 input view 2 (pick) → epoch 4 (+0 −0 ~12)
+== Chrome 154 headless, html { font-size: N }
+html 12: box: 120x24 font-size 12px | label: 120x21 font-size 18px | em: 388x21 font-size 18px | px: 388x28 font-size 24px
+html 16: box: 160x32 font-size 16px | label: 160x28 font-size 24px | em: 388x28 font-size 24px | px: 388x28 font-size 24px
+html 20: box: 200x40 font-size 20px | label: 200x35 font-size 30px | em: 388x35 font-size 30px | px: 388x28 font-size 24px
+== startup web (launch, clock +10, tap zero, tap neg, tap medium)
+{'id': 'box', 'font': '16', 'size': '160x32'}
+{'id': 'box', 'font': '20', 'size': '200x40'}
+{'id': 'label', 'font': '30', 'size': '200x35'}
+{'id': 'box', 'font': '20', 'size': '200x40'}
+{'id': 'box', 'font': '16', 'size': '160x32'}
+t=0 boot: 10 nodes, epoch 1
+t=1 command setRootFontSize
+t=10 advance → 1 timer fired, epoch 2
+t=10 command setRootFontSize
+t=10 setRootFontSize(0) refused: the root font size is a number of px above 0, or "medium"
+t=10 command setRootFontSize
+t=10 setRootFontSize(-4) refused: the root font size is a number of px above 0, or "medium"
+t=10 command setRootFontSize
+-- relaunch, clock +10
+{'id': 'box', 'font': '20', 'size': '200x40'}
+== startup macos (launch, clock +10, tap zero, tap neg, tap medium)
+{'id': 'box', 'font': '16', 'size': '160x32'}
+{'id': 'box', 'font': '20', 'size': '200x40'}
+{'id': 'label', 'font': '30', 'size': '200x35'}
+{'id': 'box', 'font': '20', 'size': '200x40'}
+{'id': 'box', 'font': '16', 'size': '160x32'}
+t=0 boot: 10 nodes, epoch 1
+t=1 command setRootFontSize(20)
+t=10 advance → 1 timer fired, epoch 2
+t=10 setRootFontSize(0) refused: the root font size is a number of px above 0, or "medium"
+t=10 press view 3 (pick) → epoch 2 (+0 −0 ~0)
+t=10 setRootFontSize(-4) refused: the root font size is a number of px above 0, or "medium"
+t=10 press view 5 (pick) → epoch 2 (+0 −0 ~0)
+t=10 command setRootFontSize("medium")
+t=10 press view 7 (reset) → epoch 3 (+0 −0 ~10)
+-- relaunch, clock +10
+{'id': 'box', 'font': '20', 'size': '200x40'}
