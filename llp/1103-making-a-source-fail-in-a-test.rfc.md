@@ -1,7 +1,7 @@
 # LLP 1103: Making a fetch fail in a test or a drive
 
 **Type:** RFC
-**Status:** Draft r2, 2026-10-06. Charlie accepted the direction (LLP 1102 §0, §3.3). r1 was reviewed blind by Astra (`gpt-6-astra`, xhigh) and Grok 4.7 (xhigh); both found it not ready (§6). r2 narrows the first version to what every executor can do exactly.
+**Status:** Draft r3, 2026-10-06. Charlie accepted the direction (LLP 1102 §0, §3.3). r1 was reviewed blind by Astra (`gpt-6-astra`, xhigh) and Grok 4.7 (xhigh); both found it not ready (§6). r2 narrowed the first version to what every executor can do exactly. r3 folds Astra's pass on r2 (NOT READY on five specification gaps, all answered here).
 **Systems:** the grant check every fetch passes (`grants/` and each executor's fetch path: `js/src/prelude.js` on Hermes, `host/web-js/ts-fetch.js` and `rt.js` `data.fetch` on the JS target, the native HTTP executor for a Rust source's declarative request), the authored-test grammar and runner (`contract/syntax/src/parser/steps.rs`, `scripts/agent-test.mjs`), the agent's open options and operations (`scripts/agent.mjs`, the web, Apple and Linux carriers), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-06
@@ -34,7 +34,12 @@ A matching fetch fails exactly as a real network failure does on that executor. 
 - a Rust request carries its resource or mutation, not its source;
 - a module worker answers off the runner's thread.
 
-**Where.** Every fetch on every executor already passes one choke point that knows its URL: the grant check (LLP 1016 D6). That is where the fault table lives. A fetch whose URL starts with an armed prefix does not go out; it fails at that point.
+**Where.** The table is consulted at the one point on each path that holds the full URL before anything goes out. That is not always the grant check itself: native admission happens in ibex and sees only an origin. The points are:
+- **Hermes and native Rust requests:** the host side of the request, where the runner's host request is turned into a transport call (the caller of ibex's admission, which still holds the URL). A module worker's requests return through this same path.
+- **The JS target:** `fetchWith` (`host/web-js/admission.js`), before `admitsNetwork`. Web workers yield their requests to the page, so they reach it too.
+- **The wasm web host:** `fetchEarly` (`host/web/module-glue.js`) as well as the later host request. `fetchEarly` starts a permitted GET before the runner's request claims it. So the early start consults the table, and a matched GET is not started early. The later request is then the one that consumes the fault and fails. A request is counted once, at whichever point decides it.
+
+A fetch whose URL starts with an armed prefix does not go out; it fails at that point.
 
 Matching by URL is also what the builders reached for (CDP's `setBlockedURLs` is URL-shaped), and it is executor-agnostic.
 
@@ -42,7 +47,7 @@ Matching by URL is also what the builders reached for (CDP's `setBlockedURLs` is
 
 A matched fetch fails through the same path a refused connection takes on that executor:
 - **Hermes:** the `fetch` promise rejects with the prelude's `FetchError`;
-- **the JS target:** `fetch` rejects as the browser's does (`TypeError: Failed to fetch`);
+- **the JS target:** `fetch` rejects with `FetchError('Network', …)`, as `fetchWith` wraps a real browser failure (`host/web-js/admission.js`);
 - **a Rust source's declarative request:** its outcome is `Outcome::Failed { kind: Network }`.
 
 No new error shape is invented. A source that catches the failure and returns a record lands as it would after a real failure. One that throws sets `failed(resource)` as it would.
@@ -57,7 +62,25 @@ The journal records each injected failure ("fetch failed (driver fault): https:/
 
 An armed fault lasts until `pass`, its count runs out, or the test or drive ends. A fault with a count that never fired is a test failure ("fail fetch … times 1 matched no fetch"), so a test cannot pass by testing nothing.
 
-`fail` and `pass` are new step words. `hold` stays the drag modifier it already is.
+**The table.** There is one table per session (one app instance under the driver). It is shared by every source, placement and request lane. Its rules:
+- each actual request consumes at most one count;
+- when prefixes overlap, the longest matching prefix decides;
+- arming a prefix again replaces its entry;
+- `pass` removes an entry's matching but keeps its hit count.
+
+The driver reads the table (entries, counts left, hits) from `state.faults`. That is how the unfired-fault check is made at the end of a test.
+
+**Reload.** `reload` relaunches with the table as it is now, not as it was at launch. Today `scripts/agent-test.mjs` replays the original launch facts. With faults, that would bring back a fault that was cleared or used up. So the driver reads `state.faults` before relaunching and sends the current table as the launch facts.
+
+**Grammar.** `fail` and `pass` are new step words. `hold` stays the drag modifier it already is.
+- `fail fetch` lines that come before the first ordinary step are launch facts.
+- The same line later in the test is a step. `launch_word` (`contract/syntax/src/parser/steps.rs`) classifies by position for this word, not unconditionally.
+- Several prefixes may be armed.
+- `times N` takes a positive integer.
+- File-level launch inheritance (`contract/cli/src/lib.rs`) merges `fail fetch` facts by prefix, not by variant.
+- The AST and its JSON form carry the prefix and the count.
+
+**Transport.** Web launch facts go in the page URL before navigation, so they are added to the navigation parameter allowlist (`host/web/navigation.js`). Native facts go in the launch environment, on a simulator and a device too. Faults are installed before data activation. A release build ignores them: the facts are development-only, like the agent socket.
 
 ### D4 — Interaction with the runner's request handling
 
@@ -72,6 +95,7 @@ There are no tickets to manage and no held state to retire. That is the reason r
 
 - **`hold`** (a request that stays in flight until released) would make a timeout testable, but the reviews found it interacts with deduplication, `forced` refreshes, `clock settle`'s device-hold rule and session teardown in ways that need their own design. Until then, a timeout is tested against a stand-in that never answers, as the bench's t8-library does.
 - **Storage faults** on Hermes start the adapter operation before the runner sees the continuation, so they need a separate interception point. Storage failures are rarer in the bench.
+- **Streams.** A WebSocket or `exactStream` open has its own admission and transport, and its failure reaches the stream's event mapper as `{type: 'error', kind: 'Network'}`, not a rejected fetch. It needs its own interception and tests, so it is deferred.
 - **A staged status** (`fail fetch "…" with 500`, a response instead of a network failure) is a small extension of D2 if a test needs to exercise HTTP-status handling.
 
 ## 3. What it enables
@@ -92,17 +116,17 @@ The same test runs on the web, iOS, macOS and Linux.
 
 | Part | Estimate |
 |---|---|
-| The fault table beside the grant check on each fetch path (Hermes prelude, the JS target's fetch and `data.fetch`, the native HTTP executor), with the executor's real failure | about a lane-day |
-| The launch option through each carrier's launch facts, the drive operations, journal lines | half a lane-day |
-| Test grammar (launch line and steps), the test runner, the unfired-fault failure | half a lane-day |
+| The session's fault table and its consultation on each path (the native host request, `fetchWith`, the wasm host's `fetchEarly` and later request), with the executor's real failure, counted once per request | a lane-day and a half |
+| Launch facts on each carrier (the URL allowlist, the native launch environment, development-only), `state.faults`, the drive operations, journal lines, reload carrying the current table | a lane-day |
+| Test grammar (positional launch lines and steps, several prefixes, counts, inheritance by prefix, AST and JSON), the test runner, the unfired-fault failure | half a lane-day |
 | Tests on each executor; docs (the guide's testing section, the grammar, an error-state recipe) | half a lane-day |
 
-About two and a half lane-days.
+About three and a half lane-days.
 
 ## 5. Open questions
 
 1. Prefix or glob? A prefix is enough for the bench's apps. CDP's patterns allow `*`. Proposed: prefix now, `*` later if asked.
-2. Should a fault also match a WebSocket or SSE open (`exactStream`)? Proposed: yes for the open, which is a fetch; a stream's later messages are out of scope.
+2. Streams are deferred (D5): their opens go through separate admission and transport.
 
 ## 6. Revisions
 
@@ -115,3 +139,14 @@ About two and a half lane-days.
   - a fault could not be armed before the first data load.
 
   r2 matches by URL prefix at the grant check, uses each executor's real failure, arms on a launch line, and defers `hold` and storage faults.
+- r3, 2026-10-06: Astra's pass on r2 (NOT READY) found these gaps, and r3 fills them:
+  - the JS target's failure is `FetchError('Network')`, not a bare `TypeError`;
+  - native admission sees only an origin, so the table sits where the URL is still held;
+  - the wasm host's `fetchEarly` must consult the table, counting each request once;
+  - one session table, with overlap, re-arm, `pass` and hit rules, read through `state.faults`;
+  - `reload` relaunches with the current table;
+  - the grammar is positional, takes several prefixes, merges by prefix, and needs AST and JSON support;
+  - launch facts need the URL allowlist and are development-only;
+  - streams are deferred.
+
+  The cost is raised.
