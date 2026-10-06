@@ -1199,7 +1199,7 @@
       "name": "formatDate",
       "params": ["number", "number", "\"medium\" | \"month-year\" | \"iso\""],
       "returns": "string",
-      "_comment": "@ref LLP 1054.000.003 D2/D7/D8: the calendar date of (epochMs, utcOffset), as Intl.DateTimeFormat(\"en-US\") prints it: `medium` is { dateStyle: \"medium\" }, `month-year` is { month: \"long\", year: \"numeric\" }. @ref LLP 1102 §3.4: `iso` is `YYYY-MM-DD`, the date part of `Date.prototype.toISOString` at that wall time; outside years 1–9999 it prints `\"\"`, as every style does (D7). The linked capability `format`."
+      "_comment": "@ref LLP 1054.000.003 D2/D7/D8: the calendar date of (epochMs, utcOffset), as Intl.DateTimeFormat(\"en-US\") prints it: `medium` is { dateStyle: \"medium\" }, `month-year` is { month: \"long\", year: \"numeric\" }. @ref LLP 1102 §3.4: `iso` is `YYYY-MM-DD`, the date at that wall time: `Date.prototype.toISOString`'s date part at a whole-minute offset (a fractional offset's wall time is not clipped to a millisecond again, as no style's is); outside years 1–9999 it prints `\"\"`, as every style does (D7). The linked capability `format`."
     },
     {
       "name": "formatNumber",
