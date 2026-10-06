@@ -1,6 +1,6 @@
 use R4Glyph from "./r4-git.contract"
 use CnMachineIcon from "./settings-b-kit.contract"
-use Snapshot from "./shapes.contract"
+use Snapshot, Control from "./shapes.contract"
 use R5ComposerLabelProbes from "./r5-composer.contract"
 use R5TextProbes from "./r5-composer.contract"
 use Viewport from "./shapes.contract"

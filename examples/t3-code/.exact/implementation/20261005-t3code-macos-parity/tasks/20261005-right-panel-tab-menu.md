@@ -123,7 +123,7 @@ Checked sources and time: plan issue drafts in [issues](../issues/README.md), 20
 | Device tabs per host and device (TN8) | Device fixture with two devices on one host and one on a second host | Open each device; rename one; close one; relaunch | One tab per host+device; the rename stays on its tab only; closing one leaves the others; tabs restored after relaunch as the reference does | macOS 1280×840 | `--json` state + shots beside the oracle; ported `rightPanelStore.test.ts` case |
 
 Task-owned source paths: `r4-surfaces-panel.ts`, `r4-surfaces.contract`, `r12-threads-tabs.ts`, `r12-threads.contract`, `shell.ts`, `modules/apple/T3ContextMenu.swift`,
-a new `right-panel-tabs.ts` with its test, `apple/tests/contextmenu/**`, `AGENT-HANDOFF.md`.
+a new `right-panel-tabs.ts` with its test, `macos/tests/contextmenu/**`, `AGENT-HANDOFF.md`.
 Required environment: lane backend with the device fixture hub, oracle build, Xcode 27.0, Bun 1.4.2; lane builds set `T3_LOCAL_HOME=<lane>/t3-home` and
 `T3_LOCAL_PORT=<lane port 16xxx>` (dev and lane builds refuse the real `~/.t3` and port 3773).
 

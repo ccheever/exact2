@@ -4,6 +4,7 @@ use TimelineIcon from "./timeline-icons.contract"
 use Tip from "./shell-tip.contract"
 use AttachmentUrl from "./timeline-attachments.contract"
 use CodeTip from "./r4-timeline-tips.contract"
+use Icon from "./icons.contract"
 shape ChatRun
   id: string
   text: string
@@ -726,14 +727,14 @@ component MarkdownTable
         column width=(fit ? "auto" : "100%") role="table"
           each tableRow in block.rows key=tableRow.id
             row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" role="row"
-              each cell in tableRow.cells key=`${cell.id}\u0000${join(map(cell.runs, (part) => part.text), "")}`
+              each cell in tableRow.cells key=`${cell.id}\t${join(map(cell.runs, (part) => part.text), "")}`
                 each column in filter(block.columns, (entry) => entry.id == cell.id) key=column.id
                   TableCell(cell=cell, column=column, header=tableRow.header, expanded=expanded, prose=prose)
       row width="100%" margin-top=2 align-items="center" justify-content="space-between"
         Tip(label=(expanded ? "Collapse table cells" : "Expand table cells"), side="top", align="start", offset=28)
           TableIconButton(label=(expanded ? "Collapse table cells" : "Expand table cells"), icon=(expanded ? "minimize" : "maximize"), pressed=expanded, press=toggleExpanded, testId=`table-expand-${block.id}`)
         Tip(label="Copy table", side="top", align="end", offset=28)
-          TableCopyButton(press=local("table-menu", block.id, `${block.markdown}\u0000${block.csv}`), copied=copied, open=false, testId=`table-copy-${block.id}`) // lane r8-keys: its popup is the window's (r8-keys-table-menu.contract)
+          TableCopyButton(press=local("table-menu", block.id, `${block.markdown}\t${block.csv}`), copied=copied, open=false, testId=`table-copy-${block.id}`) // lane r8-keys: its popup is the window's (r8-keys-table-menu.contract)
 
 // A th or td: 7.2/12 padding (8.8 in the header), the column's sizing cell
 // drawn invisibly beneath so every row's cell takes the column's width.

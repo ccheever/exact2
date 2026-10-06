@@ -43,7 +43,7 @@ Included (each row is missing or partial; line numbers are from the mc-orch tree
    match by key code (13), not characters, because a Korean 2-Set source reports Hangul ([X15](../issues/20261005-x15-non-latin-key-equivalents.md)). A single deliberate press still closes the right panel first, then the window.
 5. **Quit hold.** (a) Conceal by setting the key window's `alphaValue` to 0 and leave full screen first, keeping the window key until the keys are released (`concealPendingQuitWindow`, `DesktopWindow.ts:238-252`; test "leaves
    fullscreen before concealing a pending quit"); the clone orders every window out (`T3Menus.swift`, `quit.conceal`), so held repeats reach the next app. (b) Port the rest of `QuitHold.test.ts` (28 cases, by name, e.g. "conceals a
-   completed hold, then quits after release", "waits for slow repeats to stop before quitting", "honors direct mode when the key is released before its mode read settles"); the clone's `apple/tests/menus/main.swift` covers
+   completed hold, then quits after release", "waits for slow repeats to stop before quitting", "honors direct mode when the key is released before its mode read settles"); the clone's `macos/tests/menus/main.swift` covers
    about five. They run against `T3QuitHold` (`T3Menus.swift`), which already takes `now` and `schedule`. (c) The reference reads the mode when the key goes down (asynchronously; a failed read quits at once; a stale read is discarded:
    "discards a stale mode resolution from a superseded press"); the clone reads a value set by the `devicePresentation` op (`T3Module.swift`). Keep the synchronous read if every ported case passes; otherwise add the read.
    The reference hint (`QuitHoldOverlay.tsx`) has no animation, so reduced motion changes nothing.
@@ -94,7 +94,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 
 | Criterion | Setup/reset and fixture | Action or command | Expected result | Required platform | Proof |
 | --- | --- | --- | --- | --- | --- |
-| Ported tests | — | bun: `timestampFormat` (6 locale cases), theme size cases; Swift: the 28 `QuitHold` cases in `apple/tests/menus` | Original names pass | macOS | logs |
+| Ported tests | — | bun: `timestampFormat` (6 locale cases), theme size cases; Swift: the 28 `QuitHold` cases in `macos/tests/menus` | Original names pass | macOS | logs |
 | Icon picker | Lane project; fixture backend | Open the picker, press the footer action, pick an image; force a panel failure | Panel starts at the project folder; selection applied and dialog closed; the failure toast; action disabled while the panel is open | macOS 1280×840 and 840×620, light and dark | transcript; png pairs vs `target/t3-ui-parity/electron-oracle.mjs` |
 | Icon picker keyboard and Escape | Same | Tab to the footer action; Space; with the dialog open press Escape | Focus ring on the action; Escape closes the dialog (and the panel if open) and returns focus to the control that opened the dialog; no animation to reduce | macOS | `tree --ax`, screenshots |
 | Theme files | Folder with a 10 KB, a 300 KB and an unreadable file; `~/.vscode/extensions` present or absent (use a scratch `HOME`) | Choose files | Start folder; the oversized one reports "too large" with the reference text, others import; none on cancel | macOS | state, screenshot |
@@ -105,7 +105,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | Quit hold, double-click and direct modes | Same | Press ⌘Q twice; set direct mode and press once | Quits as the ported cases state | macOS | AppKit log |
 | Full screen | Windowed, then full screen (menu or the agent `key`) | Enter and leave | Inset gone then back; sidebar minimum width matches the oracle in both states | macOS | `layout`, png pairs |
 
-Task-owned source paths: `modules/apple/{T3Menus,T3ContextMenu,T3WindowChrome,T3Locale,T3FullScreen}.swift`, `settings-b-icons.contract`, `settings-appearance-import.ts`, `timestamp-format.ts` (+ tests), `r12-sidebar-width.ts`, `apple/tests/menus`.
+Task-owned source paths: `modules/apple/{T3Menus,T3ContextMenu,T3WindowChrome,T3Locale,T3FullScreen}.swift`, `settings-b-icons.contract`, `settings-appearance-import.ts`, `timestamp-format.ts` (+ tests), `r12-sidebar-width.ts`, `macos/tests/menus`.
 Required environment: Xcode 27.0, pinned Bun, the oracle build; a Korean input source for the ⌘W row.
 
 ## Progress

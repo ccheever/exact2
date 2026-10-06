@@ -99,7 +99,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | Server-triggered run | Remote client stub; fake server sending control messages | Send `requestDesktopUpdate`, then `commitDesktopUpdate`; repeat with `cancelDesktopUpdate` and with expiry | Status reports on attach and on change; at most 2 checks and 3 downloads; a prepared update expires after 5 min; outcomes `ready-to-install`, `up-to-date`, `failed` with reason | macOS | fake server log |
 | Real update (attended session) | A published test feed that the user owns | Update a real build | The app downloads, installs and relaunches on the new version | macOS | recording |
 
-Task-owned source paths: `app-update.ts`, `app-update-view.ts`, `settings-a-about.ts`, `modules/apple/{T3AppUpdate,T3Menus}.swift`, `app.json` (feed fields as the framework allows), tests under `bun test` and `apple/tests/update`, the mock feed (apparatus, approval needed).
+Task-owned source paths: `app-update.ts`, `app-update-view.ts`, `settings-a-about.ts`, `modules/apple/{T3AppUpdate,T3Menus}.swift`, `app.json` (feed fields as the framework allows), tests under `bun test` and `macos/tests/update`, the mock feed (apparatus, approval needed).
 Required environment: Xcode 27.0, pinned Bun, a lane port range 16000-16999, a packaged reference build for the oracle (user's choice), a user-owned test feed origin for the attended row (names only, no secrets).
 
 ## Progress

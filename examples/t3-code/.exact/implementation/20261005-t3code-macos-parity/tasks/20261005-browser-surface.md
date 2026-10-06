@@ -162,7 +162,7 @@ Tests to port (`bun:test`, original names; counts by `it(` at line start on 2026
 `packages/shared` `previewViewport.test.ts`, `apps/desktop` `PickedElementPayload` (11), `PreviewKeyboard` (12), `AnnotationKeyboard` (2), `RecordingInput` (5), `FaviconCapture` (22) and `BrowserImport/*` (108; the reader tests need the engine and fixtures: port the pure parts, run the rest as lane rows).
 Record each substitution in the file header. The server-side MCP tests (`tools.test.ts` 2, `handlers.test.ts` 5) stay with the server.
 
-Task-owned source paths: `shell.ts`, `settings-source-control.contract`, `settings-catalog.ts`, `keybinding-settings.ts`, new `browser-*.ts` and `browser-*.contract` with tests, `modules/apple/T3Browser*.swift`, `apple/tests/browser/**`, `r4-surfaces-panel.ts`, `r4-surfaces.contract`, `AGENT-HANDOFF.md`.
+Task-owned source paths: `shell.ts`, `settings-source-control.contract`, `settings-catalog.ts`, `keybinding-settings.ts`, new `browser-*.ts` and `browser-*.contract` with tests, `modules/apple/T3Browser*.swift`, `macos/tests/browser/**`, `r4-surfaces-panel.ts`, `r4-surfaces.contract`, `AGENT-HANDOFF.md`.
 Required environment: lane backend with the preview fixture server and the fixture browser stores, oracle build, Xcode 27.0, Bun 1.4.2, the X1 support at the pinned `main`; lane builds set `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>`.
 
 ## Progress

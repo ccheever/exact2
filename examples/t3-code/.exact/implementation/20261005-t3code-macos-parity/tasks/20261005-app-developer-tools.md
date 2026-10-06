@@ -90,7 +90,7 @@ Checked sources and time: plan issue drafts in [issues](../issues/README.md), 20
 | States | Menu open | Keyboard focus ring in the menu; reduced motion on | Standard menu focus; no animation | macOS | shots |
 | Standard gates | `git add -A` | Clone checks (bun test, strict tsc, contract build, `cargo test -p t3-code-macos --lib`, affected AppKit binaries), `bun scripts/caps.mjs`, the five repository checks | Green; every moved matrix cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
 
-Task-owned source paths: `modules/apple/T3Menus.swift`, `modules/apple/R8KeysMenus.swift`, `apple/tests/menus/**`, the web view modules for option B, `AGENT-HANDOFF.md`, `EXACT2-GAPS.md` (remove the X2 row when it lands).
+Task-owned source paths: `modules/apple/T3Menus.swift`, `modules/apple/R8KeysMenus.swift`, `macos/tests/menus/**`, the web view modules for option B, `AGENT-HANDOFF.md`, `EXACT2-GAPS.md` (remove the X2 row when it lands).
 Required environment: oracle build, Xcode 27.0, Bun 1.4.2, the X2 support at the pinned `main`; lane builds set `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>`.
 
 ## Progress

@@ -126,7 +126,7 @@ Checked sources and time: plan issue drafts in [issues](../issues/README.md), 20
 | Standard gates | `git add -A` | Clone checks, `bun scripts/caps.mjs`, five repository checks | Green; every moved matrix cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
 
 Task-owned source paths: `provider-auth-terminal.ts`, `onboarding-terminal.ts`, `pages-welcome.ts`, `pages-welcome.contract`,
-the Providers Account row files from `20261005-provider-sign-in-and-install`, `modules/apple/T3Terminal*.swift`, `apple/tests/terminal/**`, tests.
+the Providers Account row files from `20261005-provider-sign-in-and-install`, `modules/apple/T3Terminal*.swift`, `macos/tests/terminal/**`, tests.
 Required environment: lane backend with a PTY, oracle build, Xcode 27.0, Bun 1.4.2; lane builds set `T3_LOCAL_HOME=<lane>/t3-home` and
 `T3_LOCAL_PORT=<lane port 16xxx>` (dev and lane builds refuse the real `~/.t3` and port 3773).
 

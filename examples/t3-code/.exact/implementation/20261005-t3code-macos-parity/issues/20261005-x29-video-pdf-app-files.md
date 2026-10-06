@@ -37,7 +37,7 @@ All paths at `1e2ecbd975` under `apps/web/src/`:
 
 ## Why it must be resolved
 
-The goal is a clone with the reference's behavior and a build whose results an agent can prove. Today three hooks and three Swift files (`T3ComposerVideo.swift`, the PDF/audio/video parts of `R6MediaPreview.swift`, the frame cutter in `T3ComposerAttach.swift`) stand in for three elements. They carry their own tests (`apple/tests/r6-media`), and the media states inside them (loading, failed, retry) can only be checked in a real-input session. `20261005-media-actions` waits for neither (nonblocking, workaround: the native views), but its rows for the video slot and the PDF/audio previews are attended, and they would become agent rows. The cost of keeping the workaround is native code, hand-checked rows and no agent coverage of a user-visible surface.
+The goal is a clone with the reference's behavior and a build whose results an agent can prove. Today three hooks and three Swift files (`T3ComposerVideo.swift`, the PDF/audio/video parts of `R6MediaPreview.swift`, the frame cutter in `T3ComposerAttach.swift`) stand in for three elements. They carry their own tests (`macos/tests/r6-media`), and the media states inside them (loading, failed, retry) can only be checked in a real-input session. `20261005-media-actions` waits for neither (nonblocking, workaround: the native views), but its rows for the video slot and the PDF/audio previews are attended, and they would become agent rows. The cost of keeping the workaround is native code, hand-checked rows and no agent coverage of a user-visible surface.
 
 ## Requested support
 

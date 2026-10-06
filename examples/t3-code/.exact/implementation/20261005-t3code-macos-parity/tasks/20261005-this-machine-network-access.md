@@ -122,7 +122,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | Reduced motion | `prefer prefers-reduced-motion reduce` | Open the fold, the endpoint list ("+N" toggle) and the Share panel; open and close dialogs | No height or scale animation (frame sheets from `screenshot … over 300 every 30` compared with the oracle's recorded durations); content and final state identical | macOS | contact sheets |
 | Real input (attended session) | Lane build, `T3_LOCAL_HOME=<lane>/t3-home`, `T3_LOCAL_PORT=<lane port 16xxx>` | Right-click, real hover tooltips, QR scan from a phone | Matches the oracle | macOS | recording |
 
-Task-owned source paths: `server-exposure.ts`, `tailscale.ts`, `advertised-endpoint.ts`, `pairing-urls.ts`, `connections-network.contract`, `connections.ts` (+ tests), `modules/apple/T3LocalNetwork.swift`, `apple/tests/local-backend` additions, `t3-code.json` schema.
+Task-owned source paths: `server-exposure.ts`, `tailscale.ts`, `advertised-endpoint.ts`, `pairing-urls.ts`, `connections-network.contract`, `connections.ts` (+ tests), `modules/apple/T3LocalNetwork.swift`, `macos/tests/local-backend` additions, `t3-code.json` schema.
 Required environment: Xcode 27.0, pinned Bun, the staged runtime, lane ports 16000-16999; optional tailnet.
 
 ## Progress

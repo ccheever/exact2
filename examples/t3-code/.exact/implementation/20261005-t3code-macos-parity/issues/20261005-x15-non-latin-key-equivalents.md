@@ -48,7 +48,7 @@ and menu equivalents the way a browser and macOS's own apps do.
 - Bundled library (`20261005-platforms-v3`): not covered; **unknown**.
 - Observed in the clone (clone docs, attended sessions): `AGENT-HANDOFF.md` item 16 recorded "⌘B
   under Korean 2-Set (framework: does not toggle)" in round 9. The AppKit test
-  `apple/tests/r10-connect/main.swift` `testTheRemappedChordReachesAMenuEquivalent` asserts
+  `macos/tests/r10-connect/main.swift` `testTheRemappedChordReachesAMenuEquivalent` asserts
   `menu.performKeyEquivalent(with: key("ㅠ", 11))` is false without the workaround. The
   real-input check R1 ("⌘B / ⌘K under Korean 2-Set with the composer not focused") has "never run;
   AppKit 5/5" (`AGENT-HANDOFF.md:127`).

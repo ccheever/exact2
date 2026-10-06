@@ -134,7 +134,7 @@ Checked sources and time: plan issue drafts in [issues](../issues/README.md), 20
 
 Task-owned source paths: `terminal.contract`, `terminal-*.ts` and tests, `modules/apple/T3Terminal*.swift`, `keyboard-dispatch.ts`,
 `keybinding-settings.ts`, `composer-presentation.ts`, `composer-editor-intent.ts`, `shell.ts`, `r4-surfaces-panel.ts`, `r4-surfaces.contract`,
-sidebar Contract and model, `apple/tests/terminal/**`.
+sidebar Contract and model, `macos/tests/terminal/**`.
 Required environment: lane backend at the pin, oracle build, Xcode 27.0, Bun 1.4.2; lane builds set `T3_LOCAL_HOME=<lane>/t3-home` and
 `T3_LOCAL_PORT=<lane port 16xxx>` (dev and lane builds refuse the real `~/.t3` and port 3773).
 

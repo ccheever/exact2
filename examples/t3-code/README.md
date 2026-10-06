@@ -24,7 +24,7 @@ source changed in the integration pass apart from this README and `AGENT-HANDOFF
   `app.contract` 1327, `composer-controls.contract` 1010).
 - `cargo test -p t3-code-macos --lib`: 7 pass (Markdown/transcript parsing,
   table blocks and their column alignment).
-- All 26 AppKit/XCTest binaries under `apple/tests/` pass with the recipe below:
+- All 26 AppKit/XCTest binaries under `macos/tests/` pass with the recipe below:
   attach 3, composer 45, composer-files 4, contextmenu 6, fleet 8, intent 4, menus 10,
   notifications 4, r5-composer 3, r5-panels 5, r6-device 3 (loopback serve-sim peers),
   r6-media 5 (PDFKit, sandboxed WebKit; rendered HTML loads its siblings from the asset
@@ -321,7 +321,7 @@ The Apple crate is a workspace member outside the default Cargo members; a Cargo
 build alone does not compile or launch its Swift module. Use the app build above
 for an integrated check.
 
-The module AppKit/XCTest binaries under `apple/tests/<name>/` build with Exact's
+The module AppKit/XCTest binaries under `macos/tests/<name>/` build with Exact's
 module facade, the app's generated data keys, every file in `modules/apple/` (the
 `composer`, `menus` and `r5-panels` tests define their own `exactModule`, so they leave
 out `T3Module.swift`) and the test directory's sources. Run from the repository root:

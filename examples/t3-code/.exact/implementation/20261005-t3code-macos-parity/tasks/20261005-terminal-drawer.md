@@ -98,7 +98,7 @@ Checked sources and time: plan issue drafts in [issues](../issues/README.md), 20
 
 | Reference module and names | Tests (`bun:test`, original names) | Clone file |
 | --- | --- | --- |
-| `client-runtime` `terminalOutput.ts`: `appendOutput`, `resetOutput`, `readTerminalOutputUpdate`, `terminalOutputText` | cases `terminalSession.test.ts:216-494` | Swift buffer; shared vectors in `apple/tests/terminal/vectors.json`, also read by a bun test |
+| `client-runtime` `terminalOutput.ts`: `appendOutput`, `resetOutput`, `readTerminalOutputUpdate`, `terminalOutputText` | cases `terminalSession.test.ts:216-494` | Swift buffer; shared vectors in `macos/tests/terminal/vectors.json`, also read by a bun test |
 | `terminalSession.ts`: `applyTerminalAttachStreamEvent`, `applyTerminalMetadataStreamEvent`, `combineTerminalSessionState`, `selectRunningSubprocessTerminalIds`, `nextTerminalAttachSeedState` | `terminalSession.test.ts` (20) | `terminal-session.ts` (status, error, label, subprocess flag only) |
 | `state/terminalSessions.ts`: `selectKnownTerminalSessions` | `terminalSessions.test.ts` (6) | `terminal-sessions.ts` |
 | `terminalUiStateStore.ts`: all actions, `selectThreadTerminalUiState`, `migratePersistedTerminalUiStateStoreState` | `terminalUiStateStore.test.ts` (14) | `terminal-ui-state.ts`; saved in `t3-code.json` per scoped thread key (replaces Zustand and `localStorage`) |
@@ -160,7 +160,7 @@ Checked sources and time: plan issue drafts in [issues](../issues/README.md), 20
 | Standard gates | `git add -A` | Clone checks, `bun scripts/caps.mjs`, five repository checks | Green; every moved matrix cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
 
 Task-owned source paths: `terminal.contract`, `terminal-*.ts` and tests, `modules/apple/T3Terminal*.swift`,
-`modules/apple/T3Transport.swift` (stream accounting), `apple/tests/terminal/**`, `app-main.contract`, `chat.contract`,
+`modules/apple/T3Transport.swift` (stream accounting), `macos/tests/terminal/**`, `app-main.contract`, `chat.contract`,
 `r4-surfaces.contract`, `shell-panels.contract`, `app.json`, `AGENT-HANDOFF.md`.
 The embedded-server run (open, type, close with the official runtime) is checked in the plan's integrated acceptance row "Terminal".
 Required environment: lane backend at the pin, oracle build, Xcode 27.0, Bun 1.4.2; lane builds set `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (dev and lane builds refuse the real `~/.t3` and port 3773).

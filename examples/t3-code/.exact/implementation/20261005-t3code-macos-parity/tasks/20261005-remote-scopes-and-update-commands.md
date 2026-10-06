@@ -105,7 +105,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | Failure and states | Pasteboard write forced to fail; Tab to the control; hover for the tooltip | Press Space and Enter; hover | "Could not copy update command" toast; focus ring visible; tooltip text equals the label; `aria-label` as listed; no motion to reduce | macOS | tree `--ax`, screenshots |
 | Standard gates | `git add -A` | Clone checks (bun test, strict tsc, contract build, `cargo test -p t3-code-macos --lib`, `transport` AppKit binary); `bun scripts/caps.mjs`; the repository's five checks | All pass; every moved matrix cell is fixed or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
 
-Task-owned source paths: `server-installation.ts` (+ tests), `connections.ts`, `settings-b-outdated.ts`, `modules/apple/{T3Transport,T3Fleet}.swift`, `apple/tests/transport`.
+Task-owned source paths: `server-installation.ts` (+ tests), `connections.ts`, `settings-b-outdated.ts`, `modules/apple/{T3Transport,T3Fleet}.swift`, `macos/tests/transport`.
 Required environment: Xcode 27.0, pinned Bun, reference oracle runtime, lane ports 16000–16999.
 
 ## Progress

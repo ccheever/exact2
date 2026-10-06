@@ -107,7 +107,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | Design check | Lane build, oracle build | `layout` of rows, dialogs and pages at both sizes, light and dark | Values equal the oracle's within 1 px | macOS | `layout` JSON, png pairs |
 | Real sign-in (attended session) | The user's test account | Sign in through the chosen surface | Works on a real network; keys come from the approved source | macOS | recording |
 
-Task-owned source paths: `cloud-link.ts`, `cloud-connect.ts`, `cloud-account.ts`, `modules/apple/T3Cloud.swift`, `settings-catalog.ts` (flag source), `connections.ts` and the relay route code of `20261005-environment-routes`, `app.json` (scheme), matching `.contract` and test files, `apple/tests/cloud`.
+Task-owned source paths: `cloud-link.ts`, `cloud-connect.ts`, `cloud-account.ts`, `modules/apple/T3Cloud.swift`, `settings-catalog.ts` (flag source), `connections.ts` and the relay route code of `20261005-environment-routes`, `app.json` (scheme), matching `.contract` and test files, `macos/tests/cloud`.
 Required environment: Xcode 27.0, pinned Bun, the oracle build with public configuration, a T3 Connect test account and approved keys (names only, no secrets), a lane port range 16000-16999.
 
 ## Progress

@@ -221,7 +221,7 @@ approve these; approve them per item.
 | Network installs: pnpm (reference-pinned), `vp`, Electron (reference-pinned), playwright-core | desktop-oracle-and-trace | worktree `target/` |
 | Fake gh write verbs, state model, stdin logging, error injection | fake-github-fixture | `examples/t3-code/tools/fakegh/` (U23) |
 | Build-time fetch + verification of the official server runtime; its committed hash; an `app.json` command for staging | embedded-server-runtime | example directory |
-| Fake server for the local-backend AppKit tests | embedded-server-runtime | `apple/tests/local-backend/` |
+| Fake server for the local-backend AppKit tests | embedded-server-runtime | `macos/tests/local-backend/` |
 | Vendored Ghostty terminal files + `VENDOR.json` check | terminal-surface | `terminal-host/` in the example |
 | Packaging script for the downloadable archive | portable-app-download | example directory |
 | `audit-bundle.mjs`, `bundle-allowlist.json`, `sandbox-exec` profiles | portable-app-download | example directory |

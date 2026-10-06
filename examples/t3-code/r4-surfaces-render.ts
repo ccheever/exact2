@@ -1,7 +1,7 @@
 // Rendered previews in the Files surface (lane r4-surfaces; MIT reference, see LICENSE-T3:
 // components/files/FileMarkdownPreview.tsx over ChatMarkdown, DelimitedTablePreview.tsx
 // and packages/shared/src/delimitedPreview.ts): a file's Markdown as the transcript's
-// ChatDocument blocks (gaps as apple/src/markdown.rs block_gap) and CSV/TSV as rows.
+// ChatDocument blocks (gaps as macos/src/markdown.rs block_gap) and CSV/TSV as rows.
 import { fileIconToken } from './timeline-files';
 
 export type Run = { id: string; text: string; weight: number; slant: string; mono: boolean; href: string; kind: string; icon: string };

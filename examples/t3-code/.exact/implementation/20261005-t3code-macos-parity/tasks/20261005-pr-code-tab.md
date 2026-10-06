@@ -104,7 +104,7 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and `..
 | Keyboard focus, Escape, reduced motion | `prefer prefers-reduced-motion reduce` | Tab through toolbar, scope menu, headers, checkbox, draft card and thread buttons; Escape closes the scope menu and cancels a draft or reply | Focus visible and returned to the trigger; icon buttons named; nothing is sent on Escape; chevron changes without rotation | macOS | `tree --ax`, state |
 | Gates | `git add -A` | Clone checks (incl. the Swift transport test for the POST op); `bun scripts/caps.mjs`; five repository checks | Green; every moved cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
 
-Task-owned source paths: `examples/t3-code/pages-pr-detail.*`, new `pages-pr-code.*`, `pages-pr-threads.*`, `pages-pr-viewed.ts`, `modules/apple/T3Transport.swift` (POST-JSON op) with `apple/tests/transport`, `diff.ts`/`diff.contract` (shared rows), `AGENT-HANDOFF.md`.
+Task-owned source paths: `examples/t3-code/pages-pr-detail.*`, new `pages-pr-code.*`, `pages-pr-threads.*`, `pages-pr-viewed.ts`, `modules/apple/T3Transport.swift` (POST-JSON op) with `macos/tests/transport`, `diff.ts`/`diff.contract` (shared rows), `AGENT-HANDOFF.md`.
 Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, fake gh, reference oracle. Attended and normal-launch rows use a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
 
 ## Progress

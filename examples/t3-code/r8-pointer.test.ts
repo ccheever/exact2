@@ -1,6 +1,6 @@
 // Lane r8-pointer: real-input pointer/state defects D9, D14, D15, D16 and the
-// ⌘] minor, at the logic level (the AppKit halves are apple/tests/sidebar and
-// apple/tests/r8-pointer).
+// ⌘] minor, at the logic level (the AppKit halves are macos/tests/sidebar and
+// macos/tests/r8-pointer).
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from './client';
 import { epochNow } from './r8-pointer-clock';

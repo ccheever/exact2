@@ -151,10 +151,10 @@ Checked sources and time: plan issue drafts in [issues](../issues/README.md), 20
 | Render | Harness bytes: colors, wide and emoji cells, Nerd glyph, alt screen, 2,000 lines | Agent `state`, screenshot; same bytes in the oracle drawer (`target/t3-ui-parity/electron-oracle.mjs`) | Same cols×rows for the same box and font; cell size within 1 pt; screenshot pair reviewed; glyph raster difference declared | macOS 1280×840, light and dark | `state`, pair |
 | Keys and bridge | Harness focused | Agent `type`/`press` (if S5 passes) | Logged `data` equals what the vendored `core.encodeKey` returns for the same events | macOS | log |
 | Input that the agent cannot send `(attended session)` | Lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>`, normal launch | Drag select; double and triple click; ⌘-click and Shift-click on a link; wheel through 10,000 scrollback rows; scrollbar thumb drag; right-click; ⌘C, ⌘V; Korean 2-Set typing with candidate window; ⌃C under Korean 2-Set; resize drag | Matches the oracle behavior; each step is recorded | macOS, trackpad, US and Korean 2-Set | notes, shots |
-| Standard gates | `git add -A` | Clone checks (bun test, strict tsc, contract build, `cargo test -p t3-code-macos --lib`, new `apple/tests/terminal` binary and the affected AppKit binaries); `bun scripts/caps.mjs`; the five repository checks | Green; every moved matrix cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
+| Standard gates | `git add -A` | Clone checks (bun test, strict tsc, contract build, `cargo test -p t3-code-macos --lib`, new `macos/tests/terminal` binary and the affected AppKit binaries); `bun scripts/caps.mjs`; the five repository checks | Green; every moved matrix cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
 
 Task-owned source paths: `terminal-host/**`, `terminal-links.ts`, `terminal-links.test.ts`,
-`modules/apple/T3Terminal*.swift`, `apple/tests/terminal/**`, `app.json`, `.gitignore` lines,
+`modules/apple/T3Terminal*.swift`, `macos/tests/terminal/**`, `app.json`, `.gitignore` lines,
 `LICENSE-ghostty`, `LICENSE-nerd-fonts`, the Licenses list, `AGENT-HANDOFF.md`, `EXACT2-GAPS.md`.
 Required environment: Xcode 27.0, Bun 1.4.2, the oracle from `20261005-desktop-oracle-and-trace`, no T3 Code (Nightly) running; lane builds set
 `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (dev and lane builds refuse the real `~/.t3` and port 3773).

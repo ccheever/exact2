@@ -161,7 +161,7 @@ Reduced motion: dialog appears without movement.
 Task-owned source paths: `sidebar-commands.ts`, new `worktree-cleanup.ts`, `thread-reference.ts`
 (+ tests), `keyboard-dispatch.ts`, `settings-shortcuts.contract`, `keybinding-settings.ts`,
 `keybinding-view.ts`, `snapshot-shortcut.ts`, `settings-rest-commands.ts`, `palette-commands.ts`,
-`modules/apple/T3Composer.swift` hunks, `apple/tests/r8-keys`.
+`modules/apple/T3Composer.swift` hunks, `macos/tests/r8-keys`.
 Required environment: Xcode 27.0, pinned Bun 1.4.2, oracle desktop build, disposable git repo.
 
 ## Progress

@@ -106,7 +106,7 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and `..
 | Keyboard focus, Escape, reduced motion | `prefer prefers-reduced-motion reduce` | Tab through tree, headers, annotation card and Cite button (Tab reaches it from the selection); Escape cancels a draft, dismisses Cite, closes the chip popover | Focus visible and returned to the trigger; nothing is sent on Escape; chevron changes without rotation | macOS | `tree --ax`, state |
 | Gates | `git add -A` | Clone checks (incl. AppKit binary for the selection fact); `bun scripts/caps.mjs`; five repository checks | Green; every moved cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
 
-Task-owned source paths: `examples/t3-code/diff.ts`, `diff.contract`, new `diff-tree.*`, `diff-lazy.ts`, `diff-comments.*`, `r4-surfaces-files.*`, `composer-editor.ts`, `r4-timeline-chips.ts`, `modules/apple/T3TimelineTurns.swift` (selection fact), `apple/tests/`, `AGENT-HANDOFF.md`.
+Task-owned source paths: `examples/t3-code/diff.ts`, `diff.contract`, new `diff-tree.*`, `diff-lazy.ts`, `diff-comments.*`, `r4-surfaces-files.*`, `composer-editor.ts`, `r4-timeline-chips.ts`, `modules/apple/T3TimelineTurns.swift` (selection fact), `macos/tests/`, `AGENT-HANDOFF.md`.
 Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, git, reference oracle. Attended and normal-launch rows use a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
 
 ## Progress

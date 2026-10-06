@@ -109,7 +109,7 @@ final class DeviceStreamTests: XCTestCase {
 
     // Lane r7-device: iOS video is serve-sim's AVCC body now, with this MJPEG feed as its fallback,
     // and Android streams over H.264; both are covered against a full loopback hub (HTTP and
-    // WebSocket on one origin) in apple/tests/r7-device (testIosUndecodableDescriptionFallsBackToMjpeg,
+    // WebSocket on one origin) in macos/tests/r7-device (testIosUndecodableDescriptionFallsBackToMjpeg,
     // testAndroidStreamDecodesAndForwardsInput).
     func testMissingAccessSaysWhy() {
         let offline = R6DeviceScreenView(key: "k", platform: "ios", deviceId: "SIM-1", hostId: "local", access: { done in done(nil, nil) }) {}

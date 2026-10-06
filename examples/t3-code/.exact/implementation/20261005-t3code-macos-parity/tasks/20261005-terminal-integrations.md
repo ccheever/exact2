@@ -129,8 +129,8 @@ Checked sources and time: plan issue drafts in [issues](../issues/README.md), 20
 | Standard gates | `git add -A` | Clone checks (bun test, strict tsc, contract build, `cargo test -p t3-code-macos --lib`, affected AppKit binaries), `bun scripts/caps.mjs`, the five repository checks | Green; every moved matrix cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
 
 Task-owned source paths: `terminal-*.ts` and tests, `modules/apple/T3Terminal*.swift`, `modules/apple/T3ContextMenu.swift`, `composer-editor.ts`,
-`composer-editor-menu.ts`, `r4-timeline-chips.ts` and test, `r6-polish*.ts`/`.contract`, `timeline-worktree.ts`, `markdown.contract`, `apple/src/markdown.rs`,
-`apple/tests/terminal/**`.
+`composer-editor-menu.ts`, `r4-timeline-chips.ts` and test, `r6-polish*.ts`/`.contract`, `timeline-worktree.ts`, `markdown.contract`, `macos/src/markdown.rs`,
+`macos/tests/terminal/**`.
 Required environment: lane backend at the pin, oracle build, Xcode 27.0, Bun 1.4.2; lane builds set `T3_LOCAL_HOME=<lane>/t3-home` and
 `T3_LOCAL_PORT=<lane port 16xxx>` (dev and lane builds refuse the real `~/.t3` and port 3773).
 

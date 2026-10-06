@@ -103,7 +103,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | Keyboard, focus, Escape | Same menu | Open with the keyboard, arrow through items, Escape | Items reachable and activatable; Escape closes and returns focus; disabled items skipped | macOS | `tree --ax` |
 | Real prompt (attended session) | Lane build, `T3_LOCAL_HOME=<lane>/t3-home`, `T3_LOCAL_PORT=<lane port 16xxx>`; the user's test SSH host that accepts passwords | Add the host | Native `ssh` accepts the password from the dialog. Input-source behavior in the secure field (whether Korean IME composition is available or macOS disables it, as it normally does for secure fields) matches the oracle's behavior, recorded at `prepare` from the reference app before any expectation is written | macOS | recording, oracle recording |
 
-Task-owned source paths: `modules/apple/{T3Ssh,T3SshAuth,T3RemoteEditors}.swift`, `ssh-auth.ts`, `remote-open.ts`, `editors.ts`, `shell-details.ts`, `shell-details.contract` (+ tests), `apple/tests/ssh`.
+Task-owned source paths: `modules/apple/{T3Ssh,T3SshAuth,T3RemoteEditors}.swift`, `ssh-auth.ts`, `remote-open.ts`, `editors.ts`, `shell-details.ts`, `shell-details.contract` (+ tests), `macos/tests/ssh`.
 Required environment: Xcode 27.0, pinned Bun, the oracle build; a Korean input source for the input-source row.
 
 ## Progress

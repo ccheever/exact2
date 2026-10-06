@@ -108,7 +108,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | Trace | T0-style scenario on oracle (`t3 app` against the reference desktop) and clone | `target/t3-ui-parity/trace-diff.mjs` | Same `project.create` command payload fields | macOS | ndjson |
 | Look | Same directory on the oracle and the clone | Screenshot after the CLI returns | Same draft-thread route, light and dark, both sizes | macOS | png pairs |
 
-Task-owned source paths: `modules/apple/T3AppControl.swift`, `T3Module.swift` (op prefix `activation`), `desktop-activation.ts`, `project-paths.ts` (+ tests), `apple/tests/app-control/`.
+Task-owned source paths: `modules/apple/T3AppControl.swift`, `T3Module.swift` (op prefix `activation`), `desktop-activation.ts`, `project-paths.ts` (+ tests), `macos/tests/app-control/`.
 Required environment: the staged runtime (for the CLI), Xcode 27.0, pinned Bun, lane ports 16000-16999.
 
 ## Progress

@@ -35,7 +35,7 @@ Bundled library (`20261005-platforms-v3`, topic state-and-data): it says a mutat
 
 Observed by the earlier session (lane `r3-protocol`; recorded in clone code, not re-run by this plan):
 
-- `modules/apple/T3ReadGate.swift` (148 lines) header: "asking `snapshot` again while its previous answer still awaits a native reply drops that reply ("a reply for an answer not in flight") and the data resource keeps its old value." The gate holds the topics `t3.status`, `t3.events` and `t3.fleet` while a snapshot read is in flight (idle release 1.0 s, hard limit 20 s, settle 0.04 s, quiet cap 0.12 s), then replays them once. Cases are in `apple/tests/transport/r3.swift` (from line 108).
+- `modules/apple/T3ReadGate.swift` (148 lines) header: "asking `snapshot` again while its previous answer still awaits a native reply drops that reply ("a reply for an answer not in flight") and the data resource keeps its old value." The gate holds the topics `t3.status`, `t3.events` and `t3.fleet` while a snapshot read is in flight (idle release 1.0 s, hard limit 20 s, settle 0.04 s, quiet cap 0.12 s), then replays them once. Cases are in `macos/tests/transport/r3.swift` (from line 108).
 - `r3-protocol-reader.ts` (`beginRead`, `traceRpc`, `statusTicket`, `settleTraces`): every read request is tagged with a reader id and ends with `readEnd`; each RPC carries a trace id so that a call whose reply was dropped is still acknowledged, otherwise "Some requests are slow" would count it. `client.ts` `refresh()` starts every read through `beginRead` (about line 300).
 - `r6-pr-actions.ts` `readDetail`: shares resolved values only, "a superseded answer's replies never arrive" (its comment; README "Framework limits worked around").
 - `20261005-managed-codex-chatgpt` avoids a long parked reply with a start/take pair (`providerAuthStart`, `providerAuthTake`) because a parked reply can be lost.
@@ -79,7 +79,7 @@ To confirm on the pinned `main` at `issue-open` (not run by this plan):
 - AppKit or runner test: a re-ask with equal arguments while the request is pending executes one native request and both answers see a value.
 - A re-ask with different arguments discards the old reply; no value from the old arguments appears after the new one.
 - After the last answer lets go, no native request stays pending (`state`) and the reply is discarded without a log error.
-- The clone's gate tests (`apple/tests/transport/r3.swift`) still pass until the gate is removed; then the 15-turn scenario shows no stale value with the gate removed.
+- The clone's gate tests (`macos/tests/transport/r3.swift`) still pass until the gate is removed; then the 15-turn scenario shows no stale value with the gate removed.
 - Conformance or runner cases in the framework's own tests, if the upstream maintainers want them: to confirm at `issue-open`.
 
 ## App adoption after resolution

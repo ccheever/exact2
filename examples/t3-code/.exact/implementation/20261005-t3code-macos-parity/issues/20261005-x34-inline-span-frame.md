@@ -56,7 +56,7 @@ box. A link of several words has several elements and no single anchor. exact2 n
 - Bundled library (`20261005-platforms-v3`): not covered: unknown. Not reproduced.
 
 ### Where the clone hits it
-Observed by code reading (mc-orch tree, 2026-10-05). `apple/src/markdown.rs:332` `flow_tokens`
+Observed by code reading (mc-orch tree, 2026-10-05). `macos/src/markdown.rs:332` `flow_tokens`
 lays out any paragraph, item or quote that holds a code span, a link or a line break, one word per
 token. Each word keeps its run's `href`. The favicon precedes the first word (`chat_run`,
 `markdown.rs:109-113`; the `link-start` branch at `markdown.contract:358-362` draws a globe box and

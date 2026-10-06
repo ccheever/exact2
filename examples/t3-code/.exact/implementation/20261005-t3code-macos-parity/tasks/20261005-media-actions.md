@@ -139,7 +139,7 @@ Every row, attended or not, runs a lane build with `T3_LOCAL_HOME=<lane>/t3-home
 | Menu logic | — | `bun test` ports of `mediaReference.test.ts` and `mediaSource.test.ts` (original names) and a `mediaMenuItems` test | Pass | host machine | log |
 | Copy path and URL | Workspace image | Choose each | Pasteboard text equals the path / relative path / URL; toasts "Path copied" / "URL copied" | macOS | pasteboard read; screenshot |
 | Save | Image and video assets on the lane server | Save each | Loading toast then "Download started"; bytes equal the source (sha256); panel behavior equals the oracle's | macOS; save panel `(attended session)` | hashes; trace shows `assets.createUrl` at action time |
-| Copy image | PNG, JPEG, SVG, 70 000 000 px image | Copy | PNG on the pasteboard with equal pixel size; large image toast "This image is too large or has no usable dimensions. Try saving it instead." | macOS; AppKit binary `apple/tests/media-actions` | binary log |
+| Copy image | PNG, JPEG, SVG, 70 000 000 px image | Copy | PNG on the pasteboard with equal pixel size; large image toast "This image is too large or has no usable dimensions. Try saving it instead." | macOS; AppKit binary `macos/tests/media-actions` | binary log |
 | Failures | Remove the asset; expire the URL; refuse the network | Save, copy, open | Error toasts with the reference text; no menu left open | macOS | screenshots; `logs` |
 | Video failure | Message video that cannot load | Open the thread | Slot, label, Retry video re-mints (trace), "Retrying…" busy state, open link wording | macOS both sizes | pixel pair vs oracle |
 | Image failure | Expanded image with and without an original URL | Open | Both texts; Open original opens the default browser (never under the agent) | macOS | pixel pair; attended click |
@@ -155,7 +155,7 @@ panel, network), reduced motion (toasts without movement).
 Task-owned source paths: new `media-actions.contract`, `media-actions.ts`, `media-reference.ts`,
 `media-source.ts` (+ tests), `timeline-attachments.*`, `r6-media-video.contract`, `markdown.contract`,
 `r4-surfaces-files.*`, `modules/apple/T3ContextMenu.swift`, hunks for `T3Module.swift`,
-`modules/apple/R6MediaPreview.swift`, `apple/tests/media-actions/`.
+`modules/apple/R6MediaPreview.swift`, `macos/tests/media-actions/`.
 Required environment: Xcode 27.0, pinned Bun 1.4.2, oracle desktop build, Screen Recording permission
 only if the user grants it for native-menu capture.
 

@@ -99,7 +99,7 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and the
 | Ported tests | `bun test` | Original names: "fix findings handoff", "findings that cannot be attached", "one finding handed over on its own", "findings that are already on a line", "asking about a change rather than working on it", "a second ask into the same composer", "pull request panel context beside a thread", "tracks bare modifier keydown and keyup events explicitly", "ignores poisoned modifier flags on non-modifier keys", "clears a held modifier when a non-modifier key reports it released" | Pass; React-hook-only cases classified n/a-ui in the header | macOS | log |
 | Gates | `git add -A` | Clone checks (`bun test`, strict `tsc`, contract build, `cargo test -p t3-code-macos --lib`, affected AppKit binaries); `bun scripts/caps.mjs`; the five repository checks | Green; every moved cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
 
-Task-owned source paths: `examples/t3-code/pages-pr-detail.*`, new `pages-pr-handoffs.*`, `pages-pr-quick.*`, `pages-prs.*` (row), `r6-pr-actions.ts`, `r6-pr-logic.ts`, `modules/apple/T3Sidebar.swift` or a new modifier module with `apple/tests/`, `AGENT-HANDOFF.md`.
+Task-owned source paths: `examples/t3-code/pages-pr-detail.*`, new `pages-pr-handoffs.*`, `pages-pr-quick.*`, `pages-prs.*` (row), `r6-pr-actions.ts`, `r6-pr-logic.ts`, `modules/apple/T3Sidebar.swift` or a new modifier module with `macos/tests/`, `AGENT-HANDOFF.md`.
 Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, git, fake gh, reference oracle. Attended and normal-launch rows use a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
 
 ## Progress

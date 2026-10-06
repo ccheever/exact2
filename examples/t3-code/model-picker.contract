@@ -1,4 +1,4 @@
-use Snapshot from "./shapes.contract"
+use Snapshot, Control from "./shapes.contract"
 use Viewport from "./shapes.contract"
 use PickerCatalog from "./composer-shapes.contract"
 use PickerRow from "./composer-shapes.contract"

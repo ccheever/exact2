@@ -51,7 +51,7 @@ known pointer position after layout and scroll, as a browser does.
 the thread list). After the hooked list re-renders it runs passes at 30, 200 and 450 ms
 (`schedulePasses`), hit-tests the pointer (`NSEvent.mouseLocation`), walks up to the innermost view
 that has an `.mouseEnteredAndExited` tracking area, and calls `mouseEntered` on it when it differs
-from the last one. Test: `apple/tests/r10-connect/main.swift:112` `testAStillPointerHoversTheRowThatSlidesUnderIt`.
+from the last one. Test: `macos/tests/r10-connect/main.swift:112` `testAStillPointerHoversTheRowThatSlidesUnderIt`.
 Differences a user can see: only the sidebar list is covered (not diff slices, the PR list, the
 floating player or the timeline); it never sends the matching exit, so a previously hovered view
 relies on AppKit's own exit; the three fixed delays can miss a slower relayout; and nothing runs

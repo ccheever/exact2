@@ -132,7 +132,7 @@ Every row, attended or not, runs a lane build with `T3_LOCAL_HOME=<lane>/t3-home
 | Several environments | Lane backends A and B switched on | Toggle B off and on | Each report names its own `environmentId`; B gets none while off | macOS | trace |
 | Server effect | Server override of the provider refresh interval to a short value; profile Balanced | Baseline build: wait 3 intervals. New build: same | Baseline `checkedAt` stays; new build advances each interval; after 45 s deactivated plus one interval it stops | macOS | `server.getConfig` samples, both runs |
 | Silent failure | Stop backend B mid-run | Wait one cycle | No toast, no log refusal from reports | macOS | `logs` |
-| Pure logic | — | Swift test binary `apple/tests/activity` with the four tests of `backgroundActivityReporter.test.ts` under their original names ("expires interaction independently of window focus", "rejects future timestamps", "retains an observed subscription until its returned finalizer runs", "keeps delimiter-containing environment and scope values distinct") | Pass | macOS | test log |
+| Pure logic | — | Swift test binary `macos/tests/activity` with the four tests of `backgroundActivityReporter.test.ts` under their original names ("expires interaction independently of window focus", "rejects future timestamps", "retains an observed subscription until its returned finalizer runs", "keeps delimiter-containing environment and scope values distinct") | Pass | macOS | test log |
 | Workspace discovery | Draft in project P; provider without a snapshot for P's cwd | Open the draft; then return a snapshot with `slashCommandsPending` | One `server.refreshProviders{instanceId,cwd}`; none again for that key; the retry runs at `clock +10000` and not at `+9000` | macOS agent drive | trace + `--json` transcript |
 | A10 logic | — | `bun test` port of `providerSkills.test.ts:255-276` ("uses partial workspace skills and commands while keeping discovery retryable") | Pass | macOS host machine | log |
 | Clone checks | `git add -A` | `bun test examples/t3-code`, strict `tsc`, contract build, `cargo test -p t3-code-macos --lib`, affected AppKit binaries, `bun scripts/caps.mjs`, the five checks | All green; every moved matrix cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
@@ -140,7 +140,7 @@ Every row, attended or not, runs a lane build with `T3_LOCAL_HOME=<lane>/t3-home
 States: no visible UI. Disabled: a switched-off environment gets no report. Error: silent.
 Reduced motion: not applicable.
 Task-owned source paths: `examples/t3-code/modules/apple/T3ActivityReporter.swift`,
-`apple/tests/activity/`, `composer-workspace-snapshots.ts` and its test, `composer-editor.ts`,
+`macos/tests/activity/`, `composer-workspace-snapshots.ts` and its test, `composer-editor.ts`,
 hunks for `T3Transport.swift`, `T3Fleet.swift`, `T3Module.swift`.
 Required environment: Xcode 27.0, pinned Bun 1.4.2, reference runtime copy, no T3 Code (Nightly) running.
 
@@ -174,7 +174,7 @@ and passes `activity:` to the focused transport and fleet. Root Contract registe
 `composerWorkspace(data.revision)` returning `{key, needed}` and an awaited
 `refreshComposerWorkspace(key)` mutation returning `{key, retry}`. Its completion action
 sets a keyed `now() + 10000` retry deadline; existing one-second ticks dispatch only when
-needed, not pending and due. `apple/src/markdown.rs` registers both TypeScript source names.
+needed, not pending and due. `macos/src/markdown.rs` registers both TypeScript source names.
 These shared-file changes are delivered by the coordinator/timeline lane, not this commit.
 
 The native mapping used here is visible = a visible, unminimized main-capable app window with
@@ -185,7 +185,7 @@ window. Real-input/oracle parity of this mapping remains unverified. No pixel-pe
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| 2026-10-06 local implementation | round-12 `1c6b4a12a`, reference `1e2ecbd975`, Bun 1.4.2, macOS/Xcode host | Frozen install passed; 6 workspace logic tests passed; strict TypeScript passed; native activity 7/7 passed; full Swift module build plus transport 36/36 passed before final single-flight callback refinement (refined reporter compiled/tested afterward). Full Bun 1152 passed, 1 source-registration integration failure | Existing commands in README; new `apple/tests/activity/main.swift` and `composer-workspace-snapshots.test.ts`; local logs `/tmp/t3-activity-{bun,native,transport}-tests.log` (not portable proof) | Shared source registration/root/module integration; fresh integrated build; cadence/server effects/attended pointer/agent retry/oracle traces and five gates unverified |
+| 2026-10-06 local implementation | round-12 `1c6b4a12a`, reference `1e2ecbd975`, Bun 1.4.2, macOS/Xcode host | Frozen install passed; 6 workspace logic tests passed; strict TypeScript passed; native activity 7/7 passed; full Swift module build plus transport 36/36 passed before final single-flight callback refinement (refined reporter compiled/tested afterward). Full Bun 1152 passed, 1 source-registration integration failure | Existing commands in README; new `macos/tests/activity/main.swift` and `composer-workspace-snapshots.test.ts`; local logs `/tmp/t3-activity-{bun,native,transport}-tests.log` (not portable proof) | Shared source registration/root/module integration; fresh integrated build; cadence/server effects/attended pointer/agent retry/oracle traces and five gates unverified |
 
 ## Next action
 

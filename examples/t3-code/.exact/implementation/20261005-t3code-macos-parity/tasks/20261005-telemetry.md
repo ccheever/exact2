@@ -99,7 +99,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | Unknown control messages | Fake server sends `requestDesktopUpdate` and unknown types | — | Ignored; no crash; sampler continues | macOS | log |
 | Failure | Close fd 5 from the server side; fill fd 4 | — | The sampler ends or backs off without stopping the server | macOS | status timeline |
 
-Task-owned source paths: `modules/apple/{T3HostTelemetry,T3PowerSource}.swift`, `modules/apple/T3Backend*.swift` (bootstrap and spawn, shared with the runtime ticket), `settings-a-background.ts` (only if a display text changes), tests under `apple/tests/telemetry` and `bun test`, the capture listener (apparatus, approval needed).
+Task-owned source paths: `modules/apple/{T3HostTelemetry,T3PowerSource}.swift`, `modules/apple/T3Backend*.swift` (bootstrap and spawn, shared with the runtime ticket), `settings-a-background.ts` (only if a display text changes), tests under `macos/tests/telemetry` and `bun test`, the capture listener (apparatus, approval needed).
 Required environment: Xcode 27.0, pinned Bun, a lane port range 16000-16999, an attended session with the Mac's lock screen for the lock row.
 
 ## Progress

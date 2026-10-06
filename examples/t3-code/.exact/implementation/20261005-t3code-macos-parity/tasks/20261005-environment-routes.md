@@ -106,7 +106,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | Visual pairs | Same saved environment with two routes in the oracle and the clone | Collapsed and expanded | Pixel pairs within the matrix tolerance, light and dark, both sizes; every moved cell fixed or declared in `EXACT2-GAPS.md` with an issue link | macOS | png pairs |
 | Real drag (attended session) | Lane build, `T3_LOCAL_HOME=<lane>/t3-home`, `T3_LOCAL_PORT=<lane port 16xxx>` | Drag a route row with the pointer | Order persists across relaunch | macOS | recording |
 
-Task-owned source paths: `connection-routes.ts`, `host-classification.ts` (+ tests), `connections.ts`, `connections.contract`, `settings-b-fleet.ts`, `modules/apple/{T3Credentials,T3Transport,T3Fleet,T3Routes}.swift`, `apple/tests/transport`.
+Task-owned source paths: `connection-routes.ts`, `host-classification.ts` (+ tests), `connections.ts`, `connections.contract`, `settings-b-fleet.ts`, `modules/apple/{T3Credentials,T3Transport,T3Fleet,T3Routes}.swift`, `macos/tests/transport`.
 Required environment: Xcode 27.0, pinned Bun, reference oracle runtime, lane ports 16000–16999.
 
 ## Progress

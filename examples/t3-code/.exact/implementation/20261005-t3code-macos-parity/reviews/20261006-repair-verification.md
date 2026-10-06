@@ -22,7 +22,7 @@ Reviewed source SHA-256 at this checkpoint:
 | --- | --- |
 | `timeline-work.contract` | `c5823e3d46688422d7b789c46a808492861eaa9b759c49a9a07591292665935e` |
 | `shell-tip.contract` | `f99ba9a75d2191754ef60f2d9e196077f2e69307bd03920159be15a6726c2206` |
-| `apple/tests/timeline-keyboard/main.swift` | `005bbb2b5a5dd40d986c02498431b41740a4c415ff089c2f7ce4b013f43f6283` |
+| `macos/tests/timeline-keyboard/main.swift` | `005bbb2b5a5dd40d986c02498431b41740a4c415ff089c2f7ce4b013f43f6283` |
 | `modules/apple/T3ContextMenu.swift` | `a868b4534cdfac00c96b97c626a2c3472ea8033244ec268d7d2293fdfb2d6bb8` |
 
 ## Outstanding acceptance
