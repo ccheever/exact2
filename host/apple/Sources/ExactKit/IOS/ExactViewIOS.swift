@@ -142,6 +142,13 @@ public final class ExactView: UIView {
 
     #if os(iOS)
     // aria-keyshortcuts as key commands (ShortcutsIOS, gallery F18).
+    // Shortcut focus is not text entry. UIKit may reload a menu's previous
+    // responder's input views; an explicit empty view prevents its default
+    // software keyboard while preserving the hardware-key responder chain.
+    // Input views are inherited up that chain: return nil when a text field
+    // owns focus, so it still receives the system keyboard.
+    private lazy var shortcutInputView = UIView(frame: .zero)
+    public override var inputView: UIView? { isFirstResponder ? shortcutInputView : nil }
     public override var canBecomeFirstResponder: Bool { true }
     public override var keyCommands: [UIKeyCommand]? { session.presenter.shortcutCommands(#selector(exactShortcut(_:))) }
     @objc private func exactShortcut(_ command: UIKeyCommand) { session.presenter.performShortcut(command) }
