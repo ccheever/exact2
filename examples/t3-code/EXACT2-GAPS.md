@@ -54,7 +54,7 @@ Each open item was reproduced for its upstream issue on exact2 `4c893fef6`, whic
 | X4 | [#103](https://github.com/ccheever/exact2/issues/103) | Open. `assets/` is still the only bundle tree, with mode 0644 and the path-segment rule. | archive plan (embedded server not built) |
 | X5 | [#104](https://github.com/ccheever/exact2/issues/104) | Open. A scheme URL reaches only a navigation root's `navigate`. | none |
 | X6 | [#105](https://github.com/ccheever/exact2/issues/105) | Open. No module quit hook; `destroy()` does not run at ⌘Q. | none |
-| X7 | [#106](https://github.com/ccheever/exact2/issues/106) (+ #135) | Open. `app.json` writes no ATS keys. | rendered HTML loads its token directory only |
+| X7 | [#106](https://github.com/ccheever/exact2/issues/106) (+ #135) | Open. `app.json` writes no ATS keys. | none: in the bundle, rendered HTML cannot load `http://` from a named host; https, `http` IP hosts and the token directory load (media-actions, `macos/tests/media-actions`) |
 | X8 | [#107](https://github.com/ccheever/exact2/issues/107) | Open on main; fix built. | real-input sessions only |
 | X9 | [#108](https://github.com/ccheever/exact2/issues/108) | Open on main; fix built. `app.contract` holds every resource. | split views, root keeps state |
 | X10 | [#128](https://github.com/ccheever/exact2/issues/128) | Open (code-wrap breaks, placeholder colour, balance, smoothing). | none (visible difference) |
@@ -255,6 +255,14 @@ Task `20261005-settings-scoped-controls-and-theme-editor` (D15, D16).
 - **Window resize clamp (X22, [#127](https://github.com/ccheever/exact2/issues/127)).** No window resize event reaches a component; a window-sized, inert, clipped tracker inside the panel hears `resize=` instead, and its action shrinks the size, then clamps and stores the place as the reference's listener does.
 - **Inspect app colors (X30, [#116](https://github.com/ccheever/exact2/issues/116)).** Not built (plan decision U18 pending).
 - **X46** (new — record at prepare; task `20261005-terminal-surface`). The Apple build copies `assets/` as it is (`host/apple/build.mjs` `copyAppleStaticTrees`); app.json `commands` are verbs for `exact.mjs`, not build steps. Generated files are not committed (rules/RULES.md), so the terminal page and its WASM/font copies (ignored by git) exist only after `bun terminal-host/build.mjs`. A fresh checkout's bundle has no page: the terminal view stays blank and its status (`state.presentation.terminals[].error`) names the failed load. **Support needed:** a manifest-declared pre-bake command (or a bundler entry for app assets) that the Apple, web and delivery builds run.
+
+## Media actions: declared differences
+
+Task `20261005-media-actions` (`media-actions.*`, `media-views.ts`, `T3MediaActions.swift`).
+- **Copy image is never "unavailable".** The reference disables Copy image where `navigator.clipboard.write` is missing and says "Image copying is unavailable. Use a secure browser connection or save the image."; the Mac app always has a pasteboard, so the item is enabled whenever the media has a source or an asset.
+- **Tooltip style.** The media tooltip is the node's `title` (AppKit's `toolTip`), not the reference's code-style popup; it shows the same text (path, URL or name) and closes when the menu opens.
+- **An image that fails to decode (X44, [#121](https://github.com/ccheever/exact2/issues/121)).** `image` has no `error` event on macOS, so an image whose bytes are broken keeps its box instead of turning into "Image unavailable · <alt>" or "This image could not be loaded."; a URL the server refuses to sign does show the unavailable state, with the menu.
+- **Rendered HTML over `http://` to a named host (X7, [#106](https://github.com/ccheever/exact2/issues/106), side issue [#135](https://github.com/ccheever/exact2/issues/135)).** In the app bundle App Transport Security refuses it and `app.json` cannot set the keys; the agent's unbundled executable and the AppKit test have no ATS and load it (`macos/tests/media-actions`, `localtest.me` resolving to loopback). No workaround is used.
 
 ## Not exact2 asks (stay in the app module)
 
