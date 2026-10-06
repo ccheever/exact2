@@ -1209,8 +1209,14 @@ primary mouse click on web, macOS, Windows, and Linux (on macOS any node takes
 it, so a click can land on a link inside a paragraph). `{contextmenu:true, at:[x,y]}`
 sends a right-click. Coordinates are relative to the target's top-left; omit
 `at` for its center. Both refuse invalid, covered, or offscreen points and held
-contacts. The CLI forms are `tap world mouse` and `tap world contextmenu`, or use
-a JSON options object for coordinates. `tap stage wheel 0 -20 modifiers Control`
+contacts. The CLI forms are `tap world mouse [at <x> <y>]` and `tap world contextmenu
+[at <x> <y>]`. `tap <target> auxclick` is the middle button and `clicks 3` a triple
+click (each press counting 1, 2, 3); every click form and a wheel take `at <x> <y>` and
+`modifiers Shift+Meta`, and `down … modifiers Shift` or `drag … modifiers Shift` holds
+them to the lift. Chrome and macOS deliver these as a hand's (on macOS through the
+application, so its local event monitors see them); iOS, Linux, Windows, Firefox and
+WebKit answer `delivery: "unsupported"`, and a word a form does not use is refused by
+name. `tap stage wheel 0 -20 modifiers Control`
 is a pinch's wheel; `tap world drop a.board` drags a file in (web, macOS). Plain canvas taps and held contacts are
 fingers, so their platform pointer identity and retained press history can differ
 from a mouse's; use the intended physical input when comparing game saves.
