@@ -87,6 +87,16 @@ component DetailsBody
       // The content's full height, scrolled or not: the canvas keeps a floating player below it (chat-canvas-view.ts).
       column width="100%" position="relative" hook="t3-frame" data-frame="details-content"
         DetailsSection(title="Workspace", separated=false, heading=false)
+          // server-update-banner: "Client and server versions differ" (ThreadDetailsPanel.tsx), dismissed with the composer's notice.
+          when details.versionServer != ""
+            row margin-left=4 margin-right=4 margin-bottom=8 padding=12 gap=8 box-sizing="border-box" border-radius=12 border-style="solid" border-width=1 border-color="light-dark(#e171004d, #fe9a004d)" background-color="light-dark(#e171000f, #fe9a000f)" align-items="flex-start" testId="details-version-mismatch"
+              box padding-top=2 flex-shrink=0 display="flex"
+                ShellIcon(name="triangle-alert", size=14, color="light-dark(#e17100, #fe9a00)")
+              column flex=1 min-width=0 gap=4
+                text "Client and server versions differ" font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+                text `Client ${details.versionClient} · ${details.versionLabel} ${details.versionServer}` font-size=10 line-height="16px" color="light-dark(#71717b, #818181)" testId="details-version-detail"
+              button press=act("su:dismiss", "", "") aria-label="Dismiss version mismatch warning" testId="details-version-dismiss" width=24 height=24 padding=0 flex-shrink=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                ShellIcon(name="x", size=14, color="light-dark(#71717b, #818181)")
           when details.envShow
             // BranchToolbarEnvironmentSelector: a Select for a draft with somewhere else to run, else its static label (lane r4-git).
             R4EnvRow(details=details, act=act)

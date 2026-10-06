@@ -25,6 +25,7 @@ import { alertClip } from './r6-polish-measure'; // r6-polish
 import { tableMenuSnapshot } from './r8-keys-table-menu'; // lane r8-keys
 import { sidebarMinimumWidth, workspaceControlsLeft } from './r12-sidebar-width'; // lane r12-sidebar
 import { adoptHostLocale } from './timestamp-format'; // desktop-shell-details: the Mac's locale, from the status presentation (T3Locale.swift)
+import { serverUpdateView } from './server-update-notices'; // server-update-banner
 
 const modes: Record<string, string> = {
   'approval-required': 'Ask for approval', 'auto-accept-edits': 'Auto-accept edits',
@@ -167,6 +168,7 @@ export function snapshot(client: T3Client, now = 0) {
       providerId: str(provider.instanceId), selected: provider.instanceId === client.providerId && model.slug === client.modelId }))),
     ...threadErrorView(client, requestPresentation(client)),
     composer: composerSnapshot(client, now),
+    serverUpdate: serverUpdateView(client), // server-update-notices.ts: the offline timers' episodes, the details dot, the update confirmation
     look: look(client),
     ...tableMenuSnapshot(client), // lane r8-keys: a table's Copy popup over every layer
     highlightPending: highlightPending(), // shiki-residuals: last, after every code text above asked for its tokens

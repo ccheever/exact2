@@ -17,6 +17,9 @@ import { runOnEnvironment } from './r4-git-env';
 import { balanceSources, balanceSubtitle } from './r11-misc-connections';
 import { environmentRows } from './r12-sidebar-connections';
 import { withStandardScope } from './remote-scopes';
+import { CLIENT_VERSION, versionMismatch } from './version-skew';
+import { nativeUpdateDeps, updateEnvironment, updateTargetFromConfig } from './server-update';
+import { confirms } from './server-update-notices';
 import { configInstallation, desktopManagedOnly, manualUpdateCopy, serverUpdateActionLabel, DESKTOP_MANAGED_NOTE } from './server-installation';
 import { gitHubRoutingConnectionKey, savedRoutes, singleRouteKey, type ConnectionRoute } from './connection-routes';
 import { moveSavedRoute, placeRoute, removeSavedRoute, routeCountLabel, routeRows, routesTransportLabel, savedEntry, savedList } from './connection-routes-ops';
@@ -24,8 +27,7 @@ import { moveSavedRoute, placeRoute, removeSavedRoute, routeCountLabel, routeRow
 export interface ConnectionHost {
   connection: string; origin: string; environmentId: string; statusMessage: string; scopes: string[]; config: Obj;
 }
-/** This client's T3 Code release: the Nightly it mirrors (f90b77d809, apps/web 0.0.46-nightly.20261004.1). */
-export const CLIENT_VERSION = '0.0.46-nightly.20261004.1';
+export { CLIENT_VERSION, compareSemver, versionMismatch } from './version-skew';
 export const MACHINE_KINDS: [string, string][] = [['server', 'Server'], ['cloud', 'Cloud VM'], ['linux', 'Linux/WSL'], ['desktop', 'Desktop'],
   ['laptop', 'Laptop'], ['mac-mini', 'Mini PC'], ['mac-studio', 'Workstation']];
 const KIND_IDS = MACHINE_KINDS.map(([kind]) => kind);
@@ -34,39 +36,6 @@ const ROUTING = [['off', 'Off'], ['read', 'Read PRs'], ['read-write', 'Read and 
 const hostOf = (origin: string) => { try { return new URL(origin).host; } catch { return origin; } };
 const displayUrl = (origin: string) => `${trimOrigin(origin)}/`;
 const splitKey = (key: string) => { const index = key.indexOf('\n'); return index < 0 ? ['', ''] : [key.slice(0, index), key.slice(index + 1)]; };
-
-// ── versionSkew.ts ────────────────────────────────────────────────────────
-type Semver = { core: number[]; pre: string[] };
-function parseSemver(version: string): Semver | null {
-  const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(version.trim());
-  return match ? { core: [Number(match[1]), Number(match[2]), Number(match[3])], pre: match[4] ? match[4].split('.') : [] } : null;
-}
-export function compareSemver(left: string, right: string): number {
-  const a = parseSemver(left), b = parseSemver(right);
-  if (!a || !b) return left === right ? 0 : left < right ? -1 : 1;
-  for (let i = 0; i < 3; i++) if (a.core[i] !== b.core[i]) return a.core[i]! < b.core[i]! ? -1 : 1;
-  if (!a.pre.length || !b.pre.length) return a.pre.length === b.pre.length ? 0 : a.pre.length ? -1 : 1;
-  for (let i = 0; i < Math.max(a.pre.length, b.pre.length); i++) {
-    const x = a.pre[i], y = b.pre[i];
-    if (x === undefined || y === undefined) return x === undefined ? -1 : 1;
-    if (x === y) continue;
-    const nx = /^\d+$/.test(x), ny = /^\d+$/.test(y);
-    if (nx && ny) return Number(x) < Number(y) ? -1 : 1;
-    if (nx !== ny) return nx ? -1 : 1;
-    return x < y ? -1 : 1;
-  }
-  return 0;
-}
-/** resolveVersionMismatch: the server runs an older T3 Code than this client. */
-export function versionMismatch(serverVersion: string, clientVersion = CLIENT_VERSION): { serverVersion: string; clientVersion: string } | null {
-  const server = serverVersion.trim(), client = clientVersion.trim();
-  if (!server || !client) return null;
-  const core = (value: string) => value.replace(/[-+].*$/, '');
-  const nightly = parseSemver(client)?.pre[0] === 'nightly' && parseSemver(server)?.pre[0] === 'nightly';
-  const behind = parseSemver(core(client)) && parseSemver(core(server))
-    ? compareSemver(nightly ? server : core(server), nightly ? client : core(client)) < 0 : server !== client;
-  return behind ? { serverVersion: server, clientVersion: client } : null;
-}
 
 // ── Status (savedBackendStatus, connectionStatusText) ─────────────────────
 export function savedStatus(enabled: boolean, phase: FleetPhase, error: string): { text: string; tone: string } {
@@ -175,7 +144,9 @@ function savedRow(source: Source, index: number, ssh: Record<string, SshTarget> 
     : capabilities.environmentIcon !== true ? "This environment's server is too old to keep an icon. Update it to choose one."
       : source.scopes.length && !source.scopes.includes('orchestration:operate') ? 'Your session on this environment cannot change its settings.' : '';
   const showUpdate = enabled && connected && mismatch !== null;
-  const updateLabel = showUpdate && !desktopManagedOnly(capabilities) ? serverUpdateActionLabel(selfUpdate, configInstallation(source.config)) : '';
+  // server-update.ts: a running update (the banner's or this row's) shows its progress here instead of the button.
+  const updateLabel = showUpdate && !desktopManagedOnly(capabilities) && !outdated.running
+    ? serverUpdateActionLabel(selfUpdate, configInstallation(source.config)) : '';
   const kind = Object.keys(source.config).length ? machineKind(source.config) : machineKind({}, source.machine);
   const detected = str(obj(obj(source.config.environment).platform).machine);
   return {
@@ -263,7 +234,8 @@ export function updateTargets(saved: Obj[], focus: { origin: string; environment
     if (!Object.keys(config).length || !versionMismatch(str(environment.serverVersion)) || !selfUpdate) return [];
     if (selfUpdate === 'desktop-managed' && capabilities.desktopAppUpdate !== true) return [];
     const target = native ? (focused ? native : EnvironmentFleet.native(native, key)) : (undefined as unknown as Native);
-    return [{ key, label: `${str(environment.label, 'Environment')} server`, selfUpdate, native: target, generation: focused ? client!.generation : live!.generation }];
+    return [{ key, label: `${str(environment.label, 'Environment')} server`, selfUpdate, native: target, generation: focused ? client!.generation : live!.generation,
+      environmentId: str(entry.environmentId), config }];
   });
 }
 
@@ -295,7 +267,7 @@ async function abandonPairing(native: Native, before: { origin: string; environm
  * One Connections write. Returns the native status reply for T3Client to adopt
  * (the focused connection changed), or a null status.
  */
-export async function runConnectionOp(native: Native, op: string, id: string, value: string, connected: boolean, client?: T3Client): Promise<Result> {
+export async function runConnectionOp(native: Native, op: string, id: string, value: string, connected: boolean, client?: T3Client, options: { failureTitle?: string } = {}): Promise<Result> {
   if (SSH_OPS.includes(op)) {
     // Add Environment → SSH (settings-b-ssh.ts): tunnel, pair, then keep it connected beside the focus.
     // A failure is the dialog's Alert (setSavedBackendError), not a toast.
@@ -402,7 +374,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
       await native.later({ op: 'fleetStop', fleet: key }).catch(() => {});
       await fleet.sync(native, nextFocus);
       return result;
-    } catch (error) { failed(client, `Could not switch backend ${enabled ? 'on' : 'off'}`, error); throw error; }
+    } catch (error) { failed(client, options.failureTitle ?? `Could not switch backend ${enabled ? 'on' : 'off'}`, error); throw error; }
   }
   if (op === 'environment-forget') {
     try {
@@ -457,9 +429,11 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
         if (client) pushToast(client, { kind: 'success', title: manual.title, description: manual.description });
         return { status: null, generation: -1 };
       }
-      const target = focused ? native : EnvironmentFleet.native(native, key);
-      await call(target, { op: 'request', method: 'server.updateServer', payload: { targetVersion: CLIENT_VERSION }, generation: focused ? client!.generation : live!.generation });
-      if (client) pushToast(client, { kind: 'success', title: `${label} updated`, description: selfUpdate === 'desktop-managed' ? `Desktop app relaunched on ${CLIENT_VERSION}.` : `Reconnected on t3@${CLIENT_VERSION}.` });
+      // server-update.ts: the shared, single-flight update state the composer banner shows too; its
+      // result toasts once the connection reports the new version. A desktop app asks first.
+      const target = updateTargetFromConfig(config, key, environmentId, label);
+      if (target.selfUpdate === 'desktop-managed' && target.desktopAppUpdate && client) { confirms.set(client, target); return { status: null, generation: -1 }; }
+      await updateEnvironment(target, nativeUpdateDeps(native, client ?? null));
     } catch (error) { failed(client, selfUpdate ? 'Server update failed' : 'Could not copy update command', error); throw error; }
     return { status: null, generation: -1 };
   }
@@ -480,12 +454,9 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
     const focus = focusOf(client), saved = arr(obj((await call(native, { op: 'environments' })).value).saved);
     const targets = updateTargets(saved, focus, client, native);
     if (!targets.length) throw new ClientError('No saved environment can update itself right now.');
-    await Promise.all(targets.map(async target => {
-      try {
-        await call(target.native, { op: 'request', method: 'server.updateServer', payload: { targetVersion: CLIENT_VERSION }, generation: target.generation });
-        if (client) pushToast(client, { kind: 'success', title: `${target.label} updated`, description: target.selfUpdate === 'desktop-managed' ? `Desktop app relaunched on ${CLIENT_VERSION}.` : `Reconnected on t3@${CLIENT_VERSION}.` });
-      } catch (error) { failed(client, `${target.label} update failed`, error); }
-    }));
+    // Each through the shared single-flight update (server-update.ts), its failure named by its label.
+    await Promise.all(targets.map(target => updateEnvironment(updateTargetFromConfig(target.config, target.key, target.environmentId, target.label),
+      nativeUpdateDeps(native, client ?? null), `${target.label} update failed`)));
     return { status: null, generation: -1 };
   }
   if (op === 'load-balancing') {

@@ -5,6 +5,7 @@
 // (buildTraitsTriggerDisplay), ChatView.tsx (woke/parked/background banners,
 // tasks progress), threadSync.ts and ComposerTasksBadge.tsx.
 import { projectCloneBlock, projectCloneNotice } from './project-clones-live';
+import { systemComposerNotices } from './server-update-notices';
 import { arr, obj, str, num, type Obj } from './domain';
 import { activeRun, providerAvailable } from './protocol';
 import type { T3Client } from './client';
@@ -147,9 +148,12 @@ export function primaryAction(client: T3Client, phase: string) {
 export type ComposerNotice = { id: string; variant: string; icon: string; title: string; description: string;
   action: string; actionLabel: string; action2: string; action2Label: string; dismiss: string; dismissLabel: string; priority: number; lines: string[];
   /** Why the action is disabled (its tooltip), '' when it is enabled; the id the dismiss command receives. */
-  actionReason: string; dismissId: string; segments: NoticeSegment[] };
+  actionReason: string; dismissId: string; segments: NoticeSegment[];
+  /** server-update-banner: the title's and the actions' tooltips, a red icon, a "·" before the description, the title's live role. */
+  tip: string; actionTip: string; action2Tip: string; iconTone: string; sep: boolean; liveRole: string };
 const notice = (value: Partial<ComposerNotice> & { id: string; title: string }): ComposerNotice => ({ variant: 'info', icon: '', description: '',
-  action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', dismissId: '', segments: [], ...value });
+  action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', dismissId: '', segments: [],
+  tip: '', actionTip: '', action2Tip: '', iconTone: '', sep: false, liveRole: '', ...value });
 
 const BACKGROUND_KINDS: Record<string, { order: number; singular: string; plural: string }> = {
   subagent: { order: 0, singular: 'subagent', plural: 'subagents' }, command: { order: 1, singular: 'command', plural: 'commands' },
@@ -196,11 +200,13 @@ export function composerNotices(client: T3Client, now: number): ComposerNotice[]
   // ChatView projectCloneBannerItem: a project added by cloning shows its clone where its draft is (project-clones-live.ts).
   const clone = projectCloneNotice(client);
   const cloneItem = clone ? [notice({ ...clone, icon: 'download', priority: clone.variant === 'info' ? 0 : 2 })] : [];
-  if (!client.threadId) return [...usageNotices(client, now), ...cloneItem];
+  // systemComposerBannerItems (server-update-notices.ts): the environment's offline and server-version notices.
+  const system = systemComposerNotices(client).map(item => notice(item));
+  if (!client.threadId) return rankNotices([...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...system]);
   const shell = client.shell.threads.find(thread => thread.id === client.threadId) ?? {};
   const capabilities = obj(obj(client.config.environment).capabilities);
   // ChatView composerBannerItems order: limit recovery, usage limits, background work, woke, parked.
-  const items: ComposerNotice[] = [...usageNotices(client, now), ...cloneItem];
+  const items: ComposerNotice[] = [...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...system];
   const background = backgroundWork(client);
   if (background) items.push(background);
   // resumeCompactionBannerItem: an idle Claude session offers to compact before resuming.
@@ -226,8 +232,11 @@ export function composerNotices(client: T3Client, now: number): ComposerNotice[]
   if (snoozed || settled) items.push(notice({ id: `thread-${snoozed ? 'snoozed' : 'settled'}:${client.threadId}`, icon: snoozed ? 'alarm' : 'circle-check',
     title: `This thread is ${snoozed ? 'snoozed' : 'settled'}`, description: `Send a message to ${snoozed ? 'wake' : 'unsettle'}`,
     action: snoozed ? 'cc:unsnooze' : 'unsettle', actionLabel: snoozed ? 'Wake now' : 'Un-settle' }));
-  // Activity stays attached; warnings and errors order the notices behind it.
-  const rank = (item: ComposerNotice) => item.priority === 0 ? 0 : item.variant === 'error' || item.variant === 'warning' ? 1 : 2;
+  return rankNotices(items);
+}
+/** bannerPriority: activity stays attached; urgency (priority 1), warnings and errors order the notices behind it. */
+function rankNotices(items: ComposerNotice[]): ComposerNotice[] {
+  const rank = (item: ComposerNotice) => item.priority === 0 ? 0 : item.priority === 1 || item.variant === 'error' || item.variant === 'warning' ? 1 : 2;
   return items.map((item, order) => ({ item, order })).sort((a, b) => rank(a.item) - rank(b.item) || a.order - b.order).map(entry => entry.item);
 }
 

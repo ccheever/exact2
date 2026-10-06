@@ -59,6 +59,8 @@ component CcIcon
         path d="M13 7 8.7 2.7a2.41 2.41 0 0 0-3.4 0L2.7 5.3a2.41 2.41 0 0 0 0 3.4L7 13M8 6l2-2M18 16l2-2M17 11l4.3 4.3c.94.94.94 2.46 0 3.4l-2.6 2.6c-.94.94-2.46.94-3.4 0L11 17M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497zM15 5l4 4"
       when name == "download"
         path d="M12 15V3M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5"
+      when name == "wifi-off"
+        path d="M12 20h.01M8.5 16.429a5 5 0 0 1 7 0M5 12.859a10 10 0 0 1 5.17-2.69M19 12.859a10 10 0 0 0-2.007-1.523M2 8.82a15 15 0 0 1 4.177-2.643M22 8.82a15 15 0 0 0-11.288-3.764M2 2l20 20"
       when name == "search"
         path d="m21 21-4.34-4.34"
         circle cx=11 cy=11 r=8
@@ -915,7 +917,9 @@ component QueuedControl
               QueuedRow(row=row, count=count, data=data, busy=busy, command=command, keyed=keyed, drag=drag, drop=drop, dragging=(dragLive and dragRun == row.runId), insertTop=(dragLive and dragInsert == row.index), insertBottom=(dragLive and row.last and dragInsert == count), dropValue=(dragLive ? `${dragRun}|${dragInsert}` : ""), urls=urls)
 
 // ComposerBanner.Root "comfortable", attached (its last 17pt tucks under the
-// next surface) or floating (an expanded notice behind the peek).
+// next surface) or floating (an expanded notice behind the peek). A dismissed
+// notice slides out for 220 ms (translate-y-16 attached, -28 floating; with
+// reduced motion it only fades) before its dismiss command runs.
 component NoticeRow
   props
     notice: ComposerNotice
@@ -923,8 +927,11 @@ component NoticeRow
     stacked: bool
     busy: bool
     command: action
+    exiting: bool
+    still: bool
+    dismiss: action
   view
-    column margin-left=(attached ? 22 : 0) margin-right=(attached ? 22 : 0) margin-bottom=(attached ? -17 : 0) padding-left=3 padding-right=3 padding-top=5 padding-bottom=(attached ? 22 : 5) box-sizing="border-box" border-top-left-radius=(stacked ? 0 : attached ? 18 : 16) border-top-right-radius=(stacked ? 0 : attached ? 18 : 16) border-bottom-left-radius=(attached ? 0 : 16) border-bottom-right-radius=(attached ? 0 : 16) border-style="solid" border-top-width=(stacked ? 0 : 1) border-left-width=1 border-right-width=1 border-bottom-width=(attached ? 0 : 1) border-color=(notice.variant == "warning" ? "light-dark(#fe9a0047, #fe9a0047)" : notice.variant == "error" ? "light-dark(#fb2c3652, #fb414a52)" : "light-dark(#00000014, #ffffff0d)") background-color=(notice.variant == "warning" ? "light-dark(#fef6eacc, #231b0fcc)" : notice.variant == "error" ? "light-dark(#feededcc, #231415cc)" : "light-dark(#ffffffcc, #121212cc)") box-shadow="0 12px 28px -18px #00000066" role="alert" testId=`notice-${notice.id}`
+    column opacity=(exiting ? 0 : 1) translate=(exiting and not still ? (attached ? "0 64px" : "0 112px") : "0 0") transition="opacity 220ms ease-in, translate 220ms ease-in" pointer-events=(exiting ? "none" : "auto") margin-left=(attached ? 22 : 0) margin-right=(attached ? 22 : 0) margin-bottom=(attached ? -17 : 0) padding-left=3 padding-right=3 padding-top=5 padding-bottom=(attached ? 22 : 5) box-sizing="border-box" border-top-left-radius=(stacked ? 0 : attached ? 18 : 16) border-top-right-radius=(stacked ? 0 : attached ? 18 : 16) border-bottom-left-radius=(attached ? 0 : 16) border-bottom-right-radius=(attached ? 0 : 16) border-style="solid" border-top-width=(stacked ? 0 : 1) border-left-width=1 border-right-width=1 border-bottom-width=(attached ? 0 : 1) border-color=(notice.variant == "warning" ? "light-dark(#fe9a0047, #fe9a0047)" : notice.variant == "error" ? "light-dark(#fb2c3652, #fb414a52)" : "light-dark(#00000014, #ffffff0d)") background-color=(notice.variant == "warning" ? "light-dark(#fef6eacc, #231b0fcc)" : notice.variant == "error" ? "light-dark(#feededcc, #231415cc)" : "light-dark(#ffffffcc, #121212cc)") box-shadow="0 12px 28px -18px #00000066" role="alert" testId=`notice-${notice.id}`
       row width="100%" gap=4 align-items="center"
         row width=24 height=24 align-items="center" justify-content="center" flex-shrink=0 align-self="flex-start"
           when notice.icon == "dot"
@@ -933,8 +940,20 @@ component NoticeRow
             when notice.icon == "dot-static"
               box width=6 height=6 border-radius=3 background-color="light-dark(#27272a, #f5f5f5)"
             else
-              CcIcon(name=notice.icon, size=12, color="light-dark(#71717b, #818181)", weight=2)
-        text notice.title font-size=12 font-weight=500 line-height="24px" color="light-dark(#27272a, #f5f5f5)" flex-shrink=0 max-width="60%" line-clamp=1
+              // ComposerServerUpdateIcon: a spinner while an update runs; a red alert once it failed.
+              when notice.icon == "spinner"
+                box width=12 height=12 display="flex" animation=(still ? "none" : "ccSpin 1s linear infinite") testId=`notice-spinner-${notice.id}`
+                  CcIcon(name="loader", size=12, color="light-dark(#71717b, #818181)", weight=2)
+              else
+                CcIcon(name=notice.icon, size=12, color=(notice.iconTone == "error" ? "light-dark(#e7000b, #ff6467)" : "light-dark(#71717b, #818181)"), weight=2)
+        when notice.tip != ""
+          // The title's tooltip: "<server> X → Y", or the update status in full.
+          Tip(label=notice.tip, side="top", align="start", offset=28)
+            text notice.title role=(notice.liveRole == "" ? "none" : notice.liveRole) aria-label=notice.tip font-size=12 font-weight=500 line-height="24px" color="light-dark(#27272a, #f5f5f5)" flex-shrink=0 line-clamp=1 testId=`notice-title-${notice.id}`
+        else
+          text notice.title font-size=12 font-weight=500 line-height="24px" color="light-dark(#27272a, #f5f5f5)" flex-shrink=0 max-width="60%" line-clamp=1
+        when notice.sep
+          text "·" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" flex-shrink=0 aria-hidden=true
         when length(notice.segments) > 0
           // The background-work roster: a subagent with its own thread is an InlineButton (tone muted).
           row flex=1 min-width=32 align-items="center" overflow="hidden" testId=`notice-segments-${notice.id}`
@@ -952,14 +971,15 @@ component NoticeRow
           else
             box flex=1 min-width=0
         when notice.action != ""
-          Tip(label=notice.actionReason, side="top", align="center", offset=28)
+          Tip(label=(notice.actionReason != "" ? notice.actionReason : notice.actionTip), side="top", align="center", offset=28)
             button press=command(notice.action, "", "", 0) disabled=(busy or notice.actionReason != "") testId=`notice-action-${notice.id}` aria-label=notice.actionLabel height=24 padding-left=7 padding-right=7 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0 opacity=(busy or notice.actionReason != "" ? 0.64 : 1)
               text notice.actionLabel font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
         when notice.action2 != ""
-          button press=command(notice.action2, "", "", 0) disabled=busy testId=`notice-action2-${notice.id}` aria-label=notice.action2Label height=24 padding-left=7 padding-right=7 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0 opacity=(busy ? 0.64 : 1)
-            text notice.action2Label font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+          Tip(label=notice.action2Tip, side="top", align="center", offset=28)
+            button press=command(notice.action2, "", "", 0) disabled=busy testId=`notice-action2-${notice.id}` aria-label=notice.action2Label height=24 padding-left=7 padding-right=7 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0 opacity=(busy ? 0.64 : 1)
+              text notice.action2Label font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
         when notice.dismiss != ""
-          button press=command(notice.dismiss, notice.dismissId, "", 0) disabled=busy testId=`notice-dismiss-${notice.id}` aria-label=notice.dismissLabel width=24 height=24 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+          button press=dismiss(notice.id, notice.dismiss, notice.dismissId) disabled=(busy or exiting) testId=`notice-dismiss-${notice.id}` aria-label=notice.dismissLabel width=24 height=24 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
             CcIcon(name="x", size=14, color="light-dark(#71717b, #818181)", weight=2)
       when length(notice.lines) > 0
         column width="100%" padding-left=28 padding-right=8 padding-top=4 padding-bottom=6 gap=8 box-sizing="border-box" testId=`notice-body-${notice.id}`
@@ -1033,6 +1053,10 @@ component ComposerDock
     keyed: action
     drop: action
     urls: list<AttachmentUrl>
+    // server-update-banner: the notice sliding out, reduced motion, and the root's delayed dismissal.
+    exiting: string
+    still: bool
+    dismiss: action
   state open = ""
   state tasksOpen = false
   action toggleStack
@@ -1055,7 +1079,7 @@ component ComposerDock
                 when not n.front
                   row width="100%" padding-left=22 padding-right=22 box-sizing="border-box"
                     column width="100%"
-                      NoticeRow(notice=n, attached=false, stacked=false, busy=busy, command=command)
+                      NoticeRow(notice=n, attached=false, stacked=false, busy=busy, command=command, exiting=(exiting == n.id), still=still, dismiss=dismiss)
           else
             row width="100%" height=12 justify-content="center"
               button press=toggleStack testId="show-other-notices" aria-label="Show other notices" aria-expanded=false width="calc(96% - 42px)" height=12 padding=0 border-top-left-radius=16 border-top-right-radius=16 border-style="solid" border-top-width=1 border-left-width=1 border-right-width=1 border-bottom-width=0 border-color="light-dark(#00000014, #ffffff0d)" background-color="light-dark(#ffffffcc, #121212cc)" box-shadow="0 4px 6px -1px #0000001a, 0 2px 4px -2px #0000001a"
@@ -1066,7 +1090,7 @@ component ComposerDock
       else
         each n in data.composer.notices key=n.id
           when n.front
-            NoticeRow(notice=n, attached=true, stacked=(length(data.composer.queued) > 0), busy=busy, command=command)
+            NoticeRow(notice=n, attached=true, stacked=(length(data.composer.queued) > 0), busy=busy, command=command, exiting=(exiting == n.id), still=still, dismiss=dismiss)
       when data.composer.planReady and data.requestMode == ""
         row margin-left=22 margin-right=22 margin-bottom=-17 padding-left=3 padding-right=3 padding-top=4 padding-bottom=21 box-sizing="border-box" gap=4 align-items="center" border-top-left-radius=(activity or notices > 0 ? 0 : 18) border-top-right-radius=(activity or notices > 0 ? 0 : 18) border-style="solid" border-top-width=(activity or notices > 0 ? 0 : 1) border-left-width=1 border-right-width=1 border-bottom-width=0 border-color="light-dark(#00000014, #ffffff0d)" background-color="light-dark(#ffffffcc, #121212cc)" box-shadow="0 12px 28px -18px #00000066" testId="plan-ready"
           box width=24 height=24 flex-shrink=0

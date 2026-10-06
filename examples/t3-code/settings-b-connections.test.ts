@@ -30,16 +30,19 @@ test('Update all targets connected, older, self-updatable environments only (Ser
   expect(CONNECTION_OPS).toContain('environment-update-all');
 });
 
-test('Update all sends server.updateServer to each eligible environment and reports none eligible', async () => {
+test('Update all starts the shared update job for each eligible environment and reports none eligible', async () => {
   const calls: Obj[] = [];
   const native: Native = { available: true, watch() {}, later: async (input: unknown) => {
     const request = obj(input); calls.push(request);
     if (request.op === 'environments') return { ok: true, generation: 3, value: { saved: [{ origin: 'http://127.0.0.1:3773', environmentId: 'env-a', enabled: true }] } };
-    return { ok: true, generation: 3, value: { targetVersion: '0.0.45' } };
+    return { ok: true, generation: 3, value: { started: true, attempt: '1' } };
   } };
   const client = { origin: 'http://127.0.0.1:3773', environmentId: 'env-a', connection: 'connected', generation: 3, config: config('This Mac', '0.0.39', 'respawn') } as unknown as T3Client;
   await runConnectionOp(native, 'environment-update-all', '', '', true, client);
-  expect(calls.filter(call => call.op === 'request').map(call => [call.method, obj(call.payload).targetVersion, call.generation])).toEqual([['server.updateServer', CLIENT_VERSION, 3]]);
+  // server-update.ts: one T3Fleet job per environment, in the connected mode, toward this client's version.
+  expect(calls.filter(call => call.op === 'fleetOutdatedUpdate').map(call => [call.fleet, call.mode, call.targetVersion, call.label]))
+    .toEqual([['http://127.0.0.1:3773\nenv-a', 'connected', CLIENT_VERSION, 'This Mac server']]);
+  expect(calls.some(call => call.op === 'request')).toBe(false);
   const current = { ...client, config: config('This Mac', CLIENT_VERSION, 'respawn') } as unknown as T3Client;
   await expect(runConnectionOp(native, 'environment-update-all', '', '', true, current)).rejects.toThrow('No saved environment can update itself');
 });

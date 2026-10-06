@@ -88,7 +88,10 @@ startup command. Configure and authenticate at least one provider in T3 Code.
 This client implements orchestration protocol 2 and requires the server's
 `serverResolvedCommandContext` capability for writes. A server on another protocol
 is listed as outdated or newer; one that can update itself offers **Update** in
-Settings › Connections.
+Settings › Connections. A connected server older than this client shows "Server
+update available" above the composer (and a warning in the thread details card);
+its Update streams the update's progress, waits for the server to come back on the
+new version and shares that state with Settings › Connections (`server-update.ts`).
 
 1. In T3 Code, open **Settings → Connections** and create a fresh pairing link.
    A command-line installation can also use `t3 pair` for a running server.

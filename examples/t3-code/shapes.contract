@@ -255,7 +255,16 @@ shape SnapshotDraft
   contents: string
   // r4-composer: its image chip is in the prompt, so Remove asks first (removeComposerImage).
   referenced: bool
+// server-update-banner (server-update-notices.ts serverUpdateView): the offline banner's timer episodes,
+// the details toggle's warning dot and the desktop-managed update's confirmation.
+shape ServerUpdateView
+  reconnecting: string
+  unavailable: string
+  attention: bool
+  confirmTitle: string
+  confirmBody: string
 shape Snapshot
+  serverUpdate: ServerUpdateView
   timelineReadsNeeded: bool
   highlightPending: bool // shiki-residuals: a code text waits for its Shiki tokens
   markdownSkills: list<MarkdownSkill>
@@ -381,9 +390,6 @@ shape Snapshot
   requestKey: string
   clientError: string
   errorWarning: bool
-  connectionTitle: string
-  connectionVariant: string
-  connectionAction: string
   look: Look
 shape Change
   revision: number
