@@ -1,0 +1,17 @@
+{
+  "id": "e20c0585-6281-499b-a81f-f1917156a2cf",
+  "ok": false,
+  "error": {
+    "code": "window_not_focused",
+    "message": "keyboard input requires the target T3 Code (Exact) window to be focused; --restore-window was requested but the target is still not focused; bring it forward manually or check Accessibility permissions",
+    "data": {
+      "nextSteps": [
+        "Retry once with `--restore-window`.",
+        "If `--restore-window` was already used, stop retrying restore; bring the app forward manually, check permissions, or prefer `set-value` for editable fields."
+      ]
+    }
+  },
+  "_meta": {
+    "runtimeId": "defede84-9127-4520-9b9d-59e9b6cb89da"
+  }
+}

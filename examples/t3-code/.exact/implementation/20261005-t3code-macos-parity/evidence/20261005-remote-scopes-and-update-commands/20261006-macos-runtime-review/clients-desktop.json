@@ -1,0 +1,51 @@
+[
+  {
+    "sessionId": "d71414c9-b345-48ab-9329-c62f622f581e",
+    "subject": "desktop-bootstrap",
+    "scopes": [
+      "orchestration:read",
+      "orchestration:operate",
+      "terminal:operate",
+      "review:write",
+      "relay:read",
+      "access:read",
+      "access:write",
+      "relay:write"
+    ],
+    "method": "bearer-access-token",
+    "client": {
+      "ipAddress": "127.0.0.1",
+      "userAgent": "Bun/1.4.2",
+      "deviceType": "desktop"
+    },
+    "issuedAt": "2026-10-06T06:04:09.977Z",
+    "expiresAt": "2026-11-05T06:04:09.977Z",
+    "lastConnectedAt": null,
+    "connected": false,
+    "current": true
+  },
+  {
+    "sessionId": "89251c17-7760-42f7-b14d-20d41261e689",
+    "subject": "one-time-token",
+    "scopes": [
+      "orchestration:read",
+      "orchestration:operate",
+      "terminal:operate",
+      "review:write",
+      "relay:read"
+    ],
+    "method": "bearer-access-token",
+    "client": {
+      "label": "review-desktop",
+      "ipAddress": "127.0.0.1",
+      "userAgent": "ExactMac (unknown version) CFNetwork/3860.700.1 Darwin/25.6.0",
+      "deviceType": "desktop",
+      "os": "macos"
+    },
+    "issuedAt": "2026-10-06T06:04:37.738Z",
+    "expiresAt": "2026-11-05T06:04:37.738Z",
+    "lastConnectedAt": "2026-10-06T06:04:37.749Z",
+    "connected": true,
+    "current": false
+  }
+]

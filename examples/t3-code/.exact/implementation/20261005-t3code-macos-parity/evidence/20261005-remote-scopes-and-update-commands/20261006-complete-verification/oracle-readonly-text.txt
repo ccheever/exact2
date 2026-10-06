@@ -1,0 +1,59 @@
+Code
+/
+General
+Appearance
+Keybindings
+SnapShots
+Providers
+Integrations
+Scheduled Tasks
+Source Control
+Storage
+Connections
+Archive
+Back
+Settings
+/
+Connections
+Daehyeon’s MacBook Pro
+Local environment
+
+Run agents on this computer. Turn off to use T3 Code only with remote environments.
+
+Version
+
+0.0.45 · http://127.0.0.1:16155/
+
+Up to date
+Network access
+
+Limited to this machine.
+
+Tailscale HTTPS
+
+Start Tailscale to set up HTTPS access through MagicDNS.
+
+Environments
+Add environment
+No saved remote environments
+Click “Add environment” to pair another environment.
+Toggle Sidebar
+Could not add backend
+
+The environment rejected the authentication request.
+
+Add Environment
+
+Pair another environment to this client.
+
+Remote link
+Enter a backend host and pairing code.
+SSH
+Use local SSH config, agent, and tunnels for the backend.
+Host
+Pairing code
+Paste a full pairing URL here to fill both fields automatically.
+
+The environment rejected the authentication request.
+
+Add environment

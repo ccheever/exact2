@@ -1,0 +1,7 @@
+    +                   333 partial apply for closure #1 in closure #1 in T3Transport.http(path:method:raw:contentType:epoch:authorized:completion:)  (in libexact_modules.dylib) + 2444  [0x117b075c4]
+    +                     333 closure #1 in T3Transport.start(credential:)  (in libexact_modules.dylib) + 1216  [0x117af7184]
+    +                       333 T3Credentials.read(origin:environment:)  (in libexact_modules.dylib) + 444  [0x117a66554]
+    +                         333 SecItemCopyMatching  (in Security) + 344  [0x186f38a88]
+    +                           333 SecItemCopyMatching_osx(__CFDictionary const*, void const**)  (in Security) + 2120  [0x186f35d10]
+    +                                 333 Security::KeychainCore::ItemImpl::getContent(SecItemClass*, SecKeychainAttributeList*, unsigned int*, void**)  (in Security) + 744  [0x186f13e18]
+    +                                   333 Security::KeychainCore::ItemImpl::getContent(Security::CssmClient::DbAttributes*, Security::CssmDataContainer*)  (in Security) + 572  [0x186f0f2ac]

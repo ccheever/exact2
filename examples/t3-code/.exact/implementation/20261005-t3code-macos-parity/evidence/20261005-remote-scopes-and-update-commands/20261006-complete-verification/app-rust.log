@@ -1,0 +1,17 @@
+   Compiling t3-code-macos v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/examples/t3-code/macos)
+error: failed to run custom build command for `t3-code-macos v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/examples/t3-code/macos)`
+
+Caused by:
+  process didn't exit successfully: `/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/debug/build/t3-code-macos-6b453b0d3dfcc2a2/build-script-build` (exit status: 101)
+  --- stdout
+  cargo:rerun-if-changed=src/markdown.rs
+  cargo:rerun-if-env-changed=EXACT_UPDATE_TRUST
+  cargo:rerun-if-env-changed=EXACT_TYPESCRIPT_PLACEMENT
+  cargo:rerun-if-env-changed=EXACT_RUST_PLACEMENT
+  cargo:rerun-if-changed=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/bake/../scripts/app.mjs
+
+  --- stderr
+
+  thread 'main' (112135811) panicked at examples/t3-code/macos/build.rs:14:6:
+  bake T3 Code for macOS: "shader inventory: 312 | const PINNED_BUN = existsSync(resolve(ROOT, 'package.json'))\n313 |   ? JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager?.replace(/^bun@/, '') : null;\n314 | if (process.versions.bun && PINNED_BUN) {\n315 |   const [have, pin] = [process.versions.bun, PINNED_BUN].map(v => v.split('.').map(Number));\n316 |   const at = pin.findIndex((part, i) => have[i] !== part);\n317 |   if (at >= 0 && have[at] < pin[at] && !HELP) throw new Error(`Bun ${process.versions.bun} is older than ${PINNED_BUN}, the version package.json pins. Upgrade it (\\`bun upgrade\\`), or install ${PINNED_BUN} beside it and run the scripts with that one: \\`curl -fsSL https://bun.sh/install | BUN_INSTALL=~/.bun-${PINNED_BUN} bash -s bun-v${PINNED_BUN}\\`, then \\`~/.bun-${PINNED_BUN}/bin/bun scripts/…\\``);\n                                                              ^\nerror: Bun 1.3.14 is older than 1.4.2, the version package.json pins. Upgrade it (`bun upgrade`), or install 1.4.2 beside it and run the scripts with that one: `curl -fsSL https://bun.sh/install | BUN_INSTALL=~/.bun-1.4.2 bash -s bun-v1.4.2`, then `~/.bun-1.4.2/bin/bun scripts/…`\n      at /Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/scripts/app.mjs:317:57\n\nBun v1.3.14 (macOS arm64)\n"
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

@@ -1,0 +1,25 @@
+bun test v1.4.2 (744846f84)
+
+examples/t3-code/settings-b-ssh.test.ts:
+(pass) manual SSH targets parse like parseManualDesktopSshTarget [0.24ms]
+(pass) host suggestions put alias prefixes first, then substrings [0.04ms]
+(pass) the autocomplete hides saved hosts, numbers the first nine and says when nothing matches [0.48ms]
+(pass) adding over SSH tunnels, pairs beside the focused environment and toasts [0.41ms]
+(pass) an SSH environment is listed as "SSH user@host" beside the paired loopback one (r9-connect: no "This machine") [0.71ms]
+(pass) adding an SSH route requests five scopes and preserves the expected environment [0.12ms]
+
+examples/t3-code/connections.test.ts:
+(pass) adding a route requests the standard scopes while checking the existing environment [1.16ms]
+(pass) status copy follows savedBackendStatus and connectionStatusText [0.05ms]
+(pass) version skew follows versionSkew.ts: only an older server needs an update [0.10ms]
+(pass) every paired environment, a loopback one included, is a saved row under Environments in catalog order [0.38ms]
+(pass) failure tone, trace ID and unsupported clients follow the row rules [0.14ms]
+(pass) load balancing and GitHub sharing preferences decode and summarize like the reference [0.19ms]
+(pass) adding pairs beside the focused connection, connects when there is none, and toasts [1.72ms]
+(pass) the switch persists per environment and moves focus home when the focused one goes off [0.28ms]
+(pass) trace IDs copy, preferences persist on this device, and icon writes need a connection [0.19ms]
+
+ 15 pass
+ 0 fail
+ 99 expect() calls
+Ran 15 tests across 2 files. [192.00ms]

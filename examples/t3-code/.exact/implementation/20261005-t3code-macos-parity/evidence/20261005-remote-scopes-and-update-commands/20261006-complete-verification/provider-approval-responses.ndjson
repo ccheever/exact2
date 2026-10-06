@@ -1,0 +1,5 @@
+{"id":9000,"error":{"code":-32602,"message":"Invalid payload for method 'item/commandExecution/requestApproval' during 'decode-payload'","data":{"issueCount":3,"issueKinds":["Composite","Pointer","MissingKey"],"maximumPathDepth":1}}}
+{"id":9000,"error":{"code":-32602,"message":"Invalid payload for method 'item/commandExecution/requestApproval' during 'decode-payload'","data":{"issueCount":3,"issueKinds":["Composite","Pointer","MissingKey"],"maximumPathDepth":1}}}
+{"id":9000,"result":{"decision":"accept"}}
+{"id":9000,"result":{"decision":"accept"}}
+{"id":9000,"result":{"decision":"accept"}}

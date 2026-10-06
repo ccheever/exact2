@@ -1,0 +1,10 @@
+{
+  "sourceCommit": "60a28292df26bda45397934b6598e2f55d5a3053",
+  "keyboardFocusReachable": true,
+  "spaceAndReturnWork": true,
+  "visibleFocusRing": false,
+  "fullNormalizedTraceEquivalent": null,
+  "u12DecisionRecorded": false,
+  "mergedPrerequisitesResolved": false,
+  "independentReview": "blocking focus finding confirmed; no additional task-scoped implementation defect"
+}

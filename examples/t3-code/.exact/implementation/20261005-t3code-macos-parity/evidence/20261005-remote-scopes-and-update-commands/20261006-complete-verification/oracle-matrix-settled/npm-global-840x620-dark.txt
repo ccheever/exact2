@@ -1,0 +1,51 @@
+Code
+/
+General
+Appearance
+Keybindings
+SnapShots
+Providers
+Integrations
+Scheduled Tasks
+Source Control
+Storage
+Connections
+Archive
+Back
+Settings
+/
+Connections
+Daehyeon’s MacBook Pro
+Local environment
+
+Run agents on this computer. Turn off to use T3 Code only with remote environments.
+
+Version
+
+0.0.45 · http://127.0.0.1:16155/
+
+Up to date
+Network access
+
+Limited to this machine.
+
+Tailscale HTTPS
+
+Start Tailscale to set up HTTPS access through MagicDNS.
+
+Environments
+Add environment
+
+Daehyeon’s MacBook Pro
+
+http://127.0.0.1:16158/ · Connected · 0.0.44
+·
+Routes
+Load balancing
+Off
+GitHub sharing
+Off
+Toggle Sidebar
+Update command copied
+
+Run `npm install --global --prefix '/opt/scope fixture'\''s node' t3@0.0.45` on Daehyeon’s MacBook Pro server, then restart t3 with your usual options.

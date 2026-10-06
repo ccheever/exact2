@@ -148,7 +148,7 @@ final class T3OutdatedHosts: @unchecked Sendable {
                 descriptor(origin) { [self] result in
                     switch result { case .success(let value): reply(completion, value); case .failure(let failure): reply(completion, failure: failure) }
                 }
-            case "fleetOutdatedPair": pair(origin, request["credential"] as? String ?? "", completion: completion)
+            case "fleetOutdatedPair": pair(origin, request["credential"] as? String ?? "", scope: request["scope"] as? String ?? "", completion: completion)
             case "fleetOutdatedUpdate":
                 guard !environment.isEmpty else { return reply(completion, failure: T3Failure(kind: "Arguments", message: "Choose a saved environment to update.")) }
                 guard let target = (request["targetVersion"] as? String)?.trimmingCharacters(in: .whitespaces), !target.isEmpty, target.count <= 128 else {
@@ -197,7 +197,7 @@ final class T3OutdatedHosts: @unchecked Sendable {
                     let status = (response as? HTTPURLResponse)?.statusCode ?? 0, bytes = data ?? Data()
                     let decoded = bytes.count <= T3Wire.maximumBytes ? (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any] : nil
                     guard (200..<300).contains(status), let decoded else {
-                        let reason = decoded?["message"] as? String ?? (decoded?["reason"] as? String == "invalid_credential" ? "The environment credential is invalid." : "The server returned HTTP \(status).")
+                        let reason = T3RemoteAuth.failureMessage(decoded, status: status)
                         return completion(.failure(T3Failure(kind: [401, 403].contains(status) ? "Authentication" : "HTTP", message: reason)))
                     }
                     completion(.success(decoded))
@@ -216,7 +216,7 @@ final class T3OutdatedHosts: @unchecked Sendable {
 
     // MARK: Pairing (onboarding.ts preparePairingRegistration)
 
-    private func pair(_ origin: URL, _ input: String, completion: @escaping Completion) {
+    private func pair(_ origin: URL, _ input: String, scope: String, completion: @escaping Completion) {
         let credential: String
         do { credential = try T3Endpoint.credential(input, at: origin) } catch { return reply(completion, failure: error as? T3Failure ?? T3Failure(kind: "Credential", message: "Enter a pairing code.")) }
         guard !credential.isEmpty else { return reply(completion, failure: T3Failure(kind: "Credential", message: "Enter a pairing code.")) }
@@ -232,13 +232,7 @@ final class T3OutdatedHosts: @unchecked Sendable {
             }
             // Only an outdated host that can update itself is saved; anything else stays refused.
             guard blocked.serverUpdateRequired else { return reply(completion, failure: T3Failure(kind: "Protocol", message: blocked.message)) }
-            let body = T3Endpoint.form([
-                "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange", "subject_token": credential,
-                "subject_token_type": "urn:t3:params:oauth:token-type:environment-bootstrap",
-                "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
-                "scope": "orchestration:read orchestration:operate review:write",
-                "client_label": "Exact T3 for Mac", "client_device_type": "desktop", "client_os": "macos",
-            ])
+            let body = T3RemoteAuth.exchangeForm(credential: credential, scope: scope)
             http("/oauth/token", at: origin, method: "POST", body: body) { [self] grant in
                 switch grant {
                 case .failure(let failure):

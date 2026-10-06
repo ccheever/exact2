@@ -1,0 +1,22 @@
+{
+  "authenticated": true,
+  "auth": {
+    "policy": "loopback-browser",
+    "bootstrapMethods": [
+      "one-time-token"
+    ],
+    "sessionMethods": [
+      "browser-session-cookie",
+      "bearer-access-token",
+      "dpop-access-token"
+    ],
+    "sessionCookieName": "t3_session_16140_c7f0ab79d583"
+  },
+  "scopes": [
+    "orchestration:read",
+    "orchestration:operate",
+    "review:write"
+  ],
+  "sessionMethod": "bearer-access-token",
+  "expiresAt": "2026-11-05T07:39:00.882Z"
+}

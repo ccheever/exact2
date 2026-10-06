@@ -1,0 +1,111 @@
+{
+  "ticketAcceptance": "passed",
+  "fullRpcEquality": false,
+  "fullRpcDifferences": 176,
+  "allowListedDifferences": 0,
+  "t0Coverage": [
+    {
+      "client": "native",
+      "pass": true,
+      "errors": [],
+      "checks": {
+        "pairing": true,
+        "launch": true,
+        "approval": true,
+        "stream": true,
+        "assistant": true
+      }
+    },
+    {
+      "client": "oracle",
+      "pass": true,
+      "errors": [],
+      "checks": {
+        "pairing": true,
+        "launch": true,
+        "approval": true,
+        "stream": true,
+        "assistant": true
+      }
+    }
+  ],
+  "oauthComparison": {
+    "native": {
+      "requested": [
+        "orchestration:read",
+        "orchestration:operate",
+        "terminal:operate",
+        "review:write",
+        "relay:read"
+      ],
+      "granted": [
+        "orchestration:read",
+        "orchestration:operate",
+        "terminal:operate",
+        "review:write",
+        "relay:read"
+      ],
+      "httpStatus": 200,
+      "subjectToken": "[REDACTED]",
+      "accessToken": "[REDACTED]"
+    },
+    "oracle": {
+      "requested": [
+        "orchestration:read",
+        "orchestration:operate",
+        "terminal:operate",
+        "review:write",
+        "relay:read"
+      ],
+      "granted": [
+        "orchestration:read",
+        "orchestration:operate",
+        "terminal:operate",
+        "review:write",
+        "relay:read"
+      ],
+      "httpStatus": 200,
+      "subjectToken": "[REDACTED]",
+      "accessToken": "[REDACTED]"
+    }
+  },
+  "promptDifference": "Native initialMessage.text includes a trailing newline; oracle trims it. Other core launch semantic fields and accept decision match. Complete payload equality is not claimed.",
+  "checks": {
+    "typescript": {
+      "pass": 1829,
+      "skip": 1,
+      "fail": 0
+    },
+    "rootRust": {
+      "pass": 2928,
+      "fail": 0
+    },
+    "appRust": {
+      "pass": 10,
+      "fail": 0
+    },
+    "appleHostSuiteBeforeExplicitFocusType": {
+      "total": 796,
+      "skip": 2,
+      "fail": 0
+    },
+    "finalNativeButtons": {
+      "total": 4,
+      "fail": 0
+    },
+    "finalTransport": {
+      "total": 47,
+      "skip": 2,
+      "fail": 0
+    },
+    "build": "pass",
+    "clippy": "pass",
+    "fmt": "pass",
+    "caps": "pass",
+    "boot": "pass",
+    "typecheck": "pass"
+  },
+  "u12": "Keep existing three-scope sessions, no notice; permissions change on explicit user re-pairing.",
+  "earlierRuntimeMatrix": "28 install/size/theme cases on each app already passed; unchanged command helpers were not re-driven after focus-only repair and route-scope integration.",
+  "captureCorrection": "Immediate post-input image did not show the ring; both a later ScreenCaptureKit window capture and a screen-region capture do show it. Capture timing/state was not controlled enough to infer a rendering failure. The capture engine does support the ring."
+}
