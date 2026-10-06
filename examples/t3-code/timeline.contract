@@ -300,13 +300,16 @@ component TimelineContent
     command: action
     now: number
     scheme: string
+  // diff-review (Cite): a quote from this answer goes to diff-review.ts.
+  action citeQuote(id: string, value: string)
+    command("diffreview", id, value, 0)
   view
     column width="100%"
       when message.kind == "assistant"
         // r5-composer: the answer registers as a citation's jump target (T3TimelineTurns.swift, `cite:` rows).
         column hook="t3-turn" data-turn=`cite:${message.id}` width="100%" padding-left=4 padding-right=4 padding-top=2 padding-bottom=2 box-sizing="border-box"
           each document in filter(documents, (doc) => doc.id == message.id) key=document.id
-            AnswerMarkdown(document=document, local=local, code=message.code, diagrams=message.diagrams, scheme=scheme, copiedText=message.codeCopied, copiedNonce=message.codeCopyNonce, env=message.md)
+            AnswerMarkdown(document=document, local=local, code=message.code, diagrams=message.diagrams, scheme=scheme, copiedText=message.codeCopied, copiedNonce=message.codeCopyNonce, env=message.md, source=message.id, cite=citeQuote)
       else
         when message.kind == "plan"
           PlanCard(message=message, documents=documents, local=local, scheme=scheme)

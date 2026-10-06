@@ -1,4 +1,5 @@
 use WorkspaceDiscovery, WorkspaceRefresh, TimelineReadsResult, Time from "./app-shapes.contract" // first: the plan orders shapes by first use
+use HighlightStep from "./highlight.contract"
 use Snapshot from "./shapes.contract"
 use R10PairFields from "./r10-connect-shapes.contract" // lane r10-connect
 use TranscriptMarkdown from "./markdown.contract"
@@ -65,7 +66,7 @@ component T3Code
   resource attachmentUrls = timelineAttachments(data.threadId, wallTime.epochAtZero + elapsed, data.revision) as shape TimelineAttachmentUrls // Signed preview URLs for the thread's sent images (timeline-attachments.ts).
   resource home = pagesHome(data.revision) as shape PagesHome // Lane pages: the empty main view, the utility pages and the sidebar footer route.
   state utilityPage = ""
-  derive pageCover = utilityPage != "" or home.landing == "no-environment" or home.landing == "no-projects" or home.landing == "start-error"
+  derive pageCover = utilityPage != "" or home.landing == "no-environment" or home.landing == "no-projects" or home.landing == "start-error" or home.landing == "no-thread"
   action openPage(name: string)
     utilityPage = name
     sidebarHoverId = "" // r8-pointer D11: a press closes its tooltip (Base UI); the pressed footer button unmounts without a hover-out
@@ -214,6 +215,21 @@ component T3Code
       liveNow = now()
   task liveClock mount
     every(1000, liveTick)
+  // shiki-residuals: long code texts finish their Shiki tokens in background turns (highlight.contract).
+  mutation highlightSliced as shape HighlightStep then highlightStepped
+  action highlightStep
+    if not pending(highlightSliced)
+      send highlightSliced = highlightSlice(wallTime.epochAtZero + now())
+  action highlightStepped
+    match highlightSliced
+      case some(step)
+        if step.finished or not step.pending
+          refresh data
+          refresh shell
+      case none
+        refresh data
+  task highlightPump when data.highlightPending or shell.highlightPending
+    every(16, highlightStep)
   resource viewport = exactViewport() as shape Viewport
   // Command palette (⌘K), file picker (⌘P), content search (⇧⌘F), Add project: palette.contract draws, palette*.ts serves.
   state paletteOpen = false
@@ -384,6 +400,8 @@ component T3Code
   resource providerPage = providerPage(providerSelected, settingsOpen and settingsRoute == "providers", data.revision, wallTime.epochAtZero + max(elapsed, providerNow)) as shape ProviderPage
   resource providerWizard = providerWizard(providerDialog != "", providerSerial, wizardManual ? "acpRegistry" : wizardDriver, wizardLabelSet, wizardLabel, wizardIdSet, wizardId, data.revision) as shape ProviderWizard
   state connectionRemove = ""
+  state routeTarget = "" // lane environment-routes: Add environment as "Add a route to <routeLabel>"
+  state routeLabel = ""
   state connectionMenu = ""
   resource connectionsPage = connectionsPage(settingsOpen and settingsRoute == "connections", data.revision, data.status, data.connected, data.connecting) as shape ConnectionsPage
   resource acpAgents = acpRegistry(acpQuery, providerDialog == "add" and wizardStep == 0, data.revision) as shape AcpRegistry
@@ -399,7 +417,7 @@ component T3Code
   state keybindingSearch = false
   state keybindingRecording = false
   resource bindings = keybindingSettings(settingsEnvironmentId, keybindingQuery, settingsOpen and settingsRoute == "keybindings", keybindingPrevious, keybindingKey, keybindingWhen, keybindingCommand, settingsRefresh, data.revision) as shape KeybindingPage
-  resource scheduled = scheduledSettings(settingsEnvironmentId, settingsProjectId, restEditor, restSubject, settingsOpen and settingsRoute == "scheduled-tasks", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision) as shape ScheduledPage
+  resource scheduled = scheduledSettings(settingsEnvironmentId, settingsProjectId, restEditor, restSubject, settingsOpen and settingsRoute == "scheduled-tasks", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape ScheduledPage
   state licenseQuery = ""
   state licenseExpanded = ""
   state licenseSearchOpen = false
@@ -967,7 +985,7 @@ component T3Code
     if not commandPending
       draftOwner = "__unset__"
       commandPending = true
-      pendingModal = (op == "environment-add" or op == "environment-ssh-add" or op == "environment-ssh-pick") ? (data.connected ? "connect" : "connect-first") : "connection"
+      pendingModal = (op == "environment-add" or op == "environment-route-add" or op == "environment-ssh-add" or op == "environment-ssh-pick") ? (data.connected ? "connect" : "connect-first") : "connection"
       modalError = ""
       connectionRemove = ""
       send changed = command(op, id, value, 0)
@@ -981,10 +999,19 @@ component T3Code
     connecting = true
     credential = ""
     sbSshHost = ""
+    routeTarget = ""
+  action openRoute(target: string, label: string)
+    modalError = ""
+    connecting = true
+    credential = ""
+    sbSshHost = ""
+    routeTarget = target
+    routeLabel = label
   action closeConnection
     modalError = "" // lane r9-connect: closing Add Environment clears its error (setSavedBackendError(null))
     pendingModal = ""
     connecting = false
+    routeTarget = ""
     credential = ""
     origin = ""
     originEdited = false
@@ -998,6 +1025,7 @@ component T3Code
     keybindingOpen = false
     providerDialog = ""
     connectionRemove = ""
+    routeTarget = ""
     modelsOpen = false
     credential = ""
     origin = ""
@@ -1246,7 +1274,7 @@ component T3Code
     if op != "copy" and op != "dismiss" and op != "ui:settings" and not commandPending
       commandPending = true
       send changed = command(op, target, value, 0)
-      if op == "select-thread"
+      if op == "select-thread" or op == "new-thread"
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
   action panelUi(what: string, id: string) // r4-surfaces: tabs and surfaces live in the client (r4-surfaces-panel.ts, shell.panel)
@@ -1265,7 +1293,7 @@ component T3Code
   action detailsAct(op: string, target: string, value: string)
     detailsEditors = op == "editors" and not detailsEditors
     titleMenuOpen = false
-    detailsOpen = op == "toggle" ? (not detailsOpen and conversationWidth < 984) : (detailsOpen and op != "ui:project-settings" and op != "select-thread" and op != "ui:changes") // inline (>= 984): toggle remembers the thread's docked card
+    detailsOpen = op == "toggle" ? (not detailsOpen and conversationWidth < 984) : (detailsOpen and op != "ui:project-settings" and op != "ui:scheduled-tasks" and op != "select-thread" and op != "ui:changes") // inline (>= 984): toggle remembers the thread's docked card
     if op == "ui:project-settings"
       settingsEnvironmentId = settings.environmentId
       settingsProjectId = target == "" ? data.projectId : target
@@ -1274,7 +1302,18 @@ component T3Code
       settingsRoute = "projects"
       settingsOpen = true
       modalError = ""
-    if (op != "toggle" or conversationWidth >= 984) and op != "editors" and op != "ui:project-settings" and not commandPending
+    if op == "ui:scheduled-tasks" // ThreadAutomationsPanel: Manage scheduled tasks, or Edit as the page's taskId deep link (scheduled-view.ts)
+      settingsEnvironmentId = settings.environmentId
+      settingsMachine = ""
+      settingsProjectKey = ""
+      settingsCheckout = ""
+      settingsProjectId = ""
+      settingsRoute = "scheduled-tasks"
+      settingsOpen = true
+      restEditor = target == "" ? "" : "task"
+      restSubject = target == "" ? "" : `link|${value}|${target}`
+      modalError = ""
+    if (op != "toggle" or conversationWidth >= 984) and op != "editors" and op != "ui:project-settings" and op != "ui:scheduled-tasks" and not commandPending
       commandPending = true
       send changed = command(op == "toggle" ? "shelllocal:details-inline" : op == "ui:changes" ? "diff" : op == "ui:editor" ? "shell:open-editor" : op, target, value, 0)
       if op == "select-thread" or op == "shell:merge-back"
@@ -1354,7 +1393,7 @@ component T3Code
       when optionsOpen != ""
         ComposerMenus(data=data, session=popoverSession, which=optionsOpen, left=composerLeft, viewport=viewport, resting=resting, close=closeOptions, chooseTrait=menuPick("model-option"), chooseRuntime=menuPick("runtime", ""), command=menuCommand, branches=branches, branchQuery=branchQuery, searchBranches=searchBranches, local=chatLocal)
       ProjectPicker(projectsOpen=projectsOpen, viewport=viewport, paletteShow=paletteShow, data=data, closeModal=closeModal, manageProject=manageProject, commandPending=commandPending, selectProject=selectProject)
-      SettingsWindow(settingsOpen=settingsOpen, settingsCore=settingsCore, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsRestoreOpen=settingsRestoreOpen, data=data, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, sidebarWidth=sidebarWidth, viewport=viewport, settingsMenu=settingsMenu, settingsEscapeHeld=settingsEscapeHeld, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, closeModal=closeModal, toggleSidebar=toggleSidebar, commandPending=commandPending, coreRestoreOpen=coreRestoreOpen, settingsScrollTop=settingsScrollTop, coreMenuClose=coreMenuClose, settingsLegacyOpen=settingsLegacyOpen, coreLegacy=coreLegacy, coreMenu=coreMenu, coreChange=coreChange, coreSlide=coreSlide, coreNavigate=coreNavigate, coreScope=coreScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, rest=rest, restInput=restInput, restLocal=restLocal, integrations=integrations, snapshotSettings=snapshotSettings, snapshotSetupOpen=snapshotSetupOpen, toggleSnapshots=toggleSnapshots, showSnapshotSetup=showSnapshotSetup, changeSnapshot=settingsCommand("setting-snapshot"), previewSnapshotSound=previewSnapshotSound, recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), bindings=bindings, keybindingQuery=keybindingQuery, keybindingSearch=keybindingSearch, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, searchKeybindings=searchKeybindings, keybindingSearchKey=keybindingSearchKey, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, restOpen=restOpen, storageSettings=storageSettings, archives=archives, restMenu=restMenu, restRaw=restRaw, restMenuOpen=restMenuOpen, restClose=restClose, licenses=licenses, licenseQuery=licenseQuery, licenseSearchOpen=licenseSearchOpen, editLicenseQuery=editLicenseQuery, openLicenseSearch=openLicenseSearch, closeLicenseSearch=closeLicenseSearch, licenseSearchKey=licenseSearchKey, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, openConnection=openConnection, connectionOp=connectionOp, connectionAskRemove=connectionAskRemove, connectionMenu=connectionMenu, connectionToggleMenu=connectionToggleMenu, providerPage=providerPage, providerDialog=providerDialog, providerUi=providerUi, providerOp=providerOp, providerAccent=providerAccent, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreRestoreClose=coreRestoreClose, coreRestoreConfirm=coreRestoreConfirm)
+      SettingsWindow(settingsOpen=settingsOpen, settingsCore=settingsCore, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsRestoreOpen=settingsRestoreOpen, data=data, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, sidebarWidth=sidebarWidth, viewport=viewport, settingsMenu=settingsMenu, settingsEscapeHeld=settingsEscapeHeld, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, closeModal=closeModal, toggleSidebar=toggleSidebar, commandPending=commandPending, coreRestoreOpen=coreRestoreOpen, settingsScrollTop=settingsScrollTop, coreMenuClose=coreMenuClose, settingsLegacyOpen=settingsLegacyOpen, coreLegacy=coreLegacy, coreMenu=coreMenu, coreChange=coreChange, coreSlide=coreSlide, coreNavigate=coreNavigate, coreScope=coreScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, rest=rest, restInput=restInput, restLocal=restLocal, integrations=integrations, snapshotSettings=snapshotSettings, snapshotSetupOpen=snapshotSetupOpen, toggleSnapshots=toggleSnapshots, showSnapshotSetup=showSnapshotSetup, changeSnapshot=settingsCommand("setting-snapshot"), previewSnapshotSound=previewSnapshotSound, recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), bindings=bindings, keybindingQuery=keybindingQuery, keybindingSearch=keybindingSearch, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, searchKeybindings=searchKeybindings, keybindingSearchKey=keybindingSearchKey, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, restOpen=restOpen, storageSettings=storageSettings, archives=archives, restMenu=restMenu, restRaw=restRaw, restMenuOpen=restMenuOpen, restClose=restClose, licenses=licenses, licenseQuery=licenseQuery, licenseSearchOpen=licenseSearchOpen, editLicenseQuery=editLicenseQuery, openLicenseSearch=openLicenseSearch, closeLicenseSearch=closeLicenseSearch, licenseSearchKey=licenseSearchKey, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, openConnection=openConnection, connectionOp=connectionOp, connectionAskRemove=connectionAskRemove, connectionMenu=connectionMenu, connectionToggleMenu=connectionToggleMenu, openRoute=openRoute, providerPage=providerPage, providerDialog=providerDialog, providerUi=providerUi, providerOp=providerOp, providerAccent=providerAccent, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreRestoreClose=coreRestoreClose, coreRestoreConfirm=coreRestoreConfirm)
       WelcomeLayer(welcome=welcome, viewport=viewport, welcomeStep=welcomeStep, commandPending=commandPending, modalError=modalError, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeHelpOpen=welcomeHelpOpen, welcomeGo=welcomeGo, welcomeImport=welcomeImport, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, welcomeToggleHelp=welcomeToggleHelp, prCopy=prCopy, welcomeSetup=welcomeSetup, providerUi=providerUi, welcomeFinish=welcomeFinish)
       ShortcutDispatch(items=shortcuts, selectThread=selectThread, newThread=newThread, chatNew=sidebarNewThread, deviceSetting=deviceSetting, toggleDiff=panelUi("toggle", ""), openDiff=panelUi("choose", "diff"), closeDiff=panelUi("close", ""), panel=panelUi, prClose=prClose, stop=command("stop", "", "", 0), openOptions=openOptions, selectProvider=selectProvider, selectModel=selectModel, back=closeModal, copyThread=restLocal, palette=paletteShow, run=paletteRun, command=command, settings=openSettings, copy=prCopy)
       ProjectDialogs(restEditor=restEditor, restSubject=restSubject, restLabel=restLabel, scheduled=scheduled, projectsSettings=projectsSettings, commandPending=commandPending, modalError=modalError, rest=rest, restRaw=restRaw, restClose=restClose, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, viewport=viewport, sbSet=sbSet)
@@ -1362,5 +1401,5 @@ component T3Code
         SidebarOverlays(data=data, width=sidebarWidth, open=(data.sidebarOpen and not modal), busy=commandPending, local=sidebarLocal, run=sidebarRun, hoverId=sidebarHoverId, hoverLast=sidebarHoverLast, hoverY=sidebarHoverY, dragId=dragId, dragTarget=dragTarget, dragVerb=dragVerb, ghostX=dragCX, ghostY=dragCY, shell=shell, pullRequests=home.pullRequests, viewportHeight=viewport.height, hoverH=sidebarHoverH, resize=resizeSidebar, finishResize=finishResize, resetWidth=resetSidebarWidth, hoverCard=sidebarHover)
       else
         SidebarOverlays(data=data, width=sidebarWidth, open=(data.sidebarOpen and not modal), busy=commandPending, local=sidebarLocal, run=sidebarRun, hoverId=sidebarHoverId, hoverLast=sidebarHoverLast, hoverY=sidebarHoverY, dragId=dragId, dragTarget=dragTarget, dragVerb=dragVerb, ghostX=dragCX, ghostY=dragCY, shell=shell, pullRequests=home.pullRequests, viewportHeight=viewport.height, hoverH=sidebarHoverH, resize=resizeSidebar, finishResize=finishResize, resetWidth=resetSidebarWidth, hoverCard=sidebarHover)
-      SettingsModals(snapshotSetupOpen=snapshotSetupOpen, snapshotSettings=snapshotSettings, commandPending=commandPending, modalError=modalError, snapshotSetupWasEnabled=snapshotSetupWasEnabled, showSnapshotSetup=showSnapshotSetup, toggleSnapshots=toggleSnapshots, changeSnapshot=settingsCommand("setting-snapshot"), recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), connecting=connecting, origin=origin, credential=credential, pairFields=pairFields, data=data, viewport=viewport, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, editOrigin=editOrigin, editCredential=editCredential, connectionOp=connectionOp, sbSet=sbSet, closeConnection=closeConnection, providerDialog=providerDialog, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardAttempted=wizardAttempted, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerUi=providerUi, providerAdd=providerAdd, providerOp=providerOp, providerPage=providerPage, providerTarget=providerTarget, connectionRemove=connectionRemove, connectionsPage=connectionsPage, connectionAskRemove=connectionAskRemove)
+      SettingsModals(snapshotSetupOpen=snapshotSetupOpen, snapshotSettings=snapshotSettings, commandPending=commandPending, modalError=modalError, snapshotSetupWasEnabled=snapshotSetupWasEnabled, showSnapshotSetup=showSnapshotSetup, toggleSnapshots=toggleSnapshots, changeSnapshot=settingsCommand("setting-snapshot"), recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), connecting=connecting, origin=origin, credential=credential, pairFields=pairFields, data=data, viewport=viewport, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, editOrigin=editOrigin, editCredential=editCredential, connectionOp=connectionOp, sbSet=sbSet, closeConnection=closeConnection, providerDialog=providerDialog, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardAttempted=wizardAttempted, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerUi=providerUi, providerAdd=providerAdd, providerOp=providerOp, providerPage=providerPage, providerTarget=providerTarget, connectionRemove=connectionRemove, connectionsPage=connectionsPage, connectionAskRemove=connectionAskRemove, routeTarget=routeTarget, routeLabel=routeLabel)
       WindowOverlays(modelsOpen=modelsOpen, data=data, popoverSession=popoverSession, catalog=catalog, viewport=viewport, modelQuery=modelQuery, composerLeft=composerLeft, resting=resting, commandPending=commandPending, closeModels=closeModels, selectModel=selectModel, searchModels=searchModels, selectProvider=selectProvider, command=command, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteRun=paletteRun, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, detailsOpen=detailsOpen, details=details, rightPanel=(rightPanel or shell.panel.open), narrowDiff=narrowDiff, sidebarWidth=sidebarWidth, conversationWidth=conversationWidth, detailsEditors=detailsEditors, detailsAct=detailsAct, titleMenuOpen=titleMenuOpen, shell=shell, titleMenuX=titleMenuX, titleMenuY=titleMenuY, titleMenuSerial=titleMenuSerial, titleMenuPick=titleMenuPick, titleUi=titleUi, answerRevert=answerRevert, attachmentUrls=attachmentUrls, chatLocal=chatLocal, confirmOp=confirmOp, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct)

@@ -35,6 +35,7 @@ import { shellView } from './shell';
 import { shellDetails } from './shell-details';
 import { chatCanvasView } from './chat-canvas-view'; // floating-device-player
 import { sidebarLaunchWidth } from './r4-polish-sidebar-width';
+import { highlightSlice, startHighlightTurn } from './r12-render-highlight';
 
 export const appId = 'com.exact.t3code.macos';
 export const grants = '';
@@ -44,6 +45,8 @@ const client = new T3Client();
 // that the module is available, after its ordinary first-frame adoption.
 export async function answer(source: string, args: unknown[], _store: unknown, _storage: Files, native: Native | null | undefined) {
   const storage = native?.available ? nativeFiles(native) : _storage;
+  if (source === 'highlightSlice') return highlightSlice(); // shiki-residuals: a background highlight turn
+  startHighlightTurn(); // shiki-residuals: any other answer tokenizes code within one turn's budget
   if (source === 'snapshot') {
     noteNow(client, Number(args[0]) || 0);
     await client.refresh(native, storage);
@@ -80,7 +83,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'providerAdd') return client.command('provider-add', String(args[2] || ''), JSON.stringify({ driver: args[0], label: args[1], accentColor: args[3], fields: providerFieldValues(String(args[0] || ''), args.slice(4, 9).map(value => String(value ?? ''))) }), 0, native, storage);
   if (source === 'keybindingSettings') return keybindingSettings(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[3] || ''), String(args[4] || ''), String(args[5] || ''), String(args[6] || ''));
   if (source === 'saveKeybinding') return client.command('keybinding-save', String(args[0]), JSON.stringify({ previous: args[1], command: args[2], key: args[3], when: args[4] }), 0, native, storage);
-  if (source === 'scheduledSettings') return scheduledPage(client, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), args[4] === true, Number(args[5]) || 0);
+  if (source === 'scheduledSettings') return scheduledPage(client, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), args[4] === true, Number(args[5]) || 0, String(args[8] || ''), String(args[9] || ''), String(args[10] || '')); // live-automations: the scope's machine, project and checkout
   if (source === 'saveScheduledTask') return client.command('task-save', String(args[0]), JSON.stringify(taskFromArguments(args)), 0, native, storage);
   if (source === 'sourceControlPage') return sourceControlPage(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, viewState(client).rescan, viewState(client).reveal);
   if (source === 'keyboardDispatch') return keyboardDispatchSource(client, args);

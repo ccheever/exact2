@@ -163,9 +163,9 @@ component ChatColumn
             column flex=1 min-width=0 margin-right=(editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) ? -18 : 0) hook="t3-frame" data-frame="dock"
               when editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)
                 when viewport.prefersColorScheme == "dark"
-                  ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop)
+                  ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop, urls=attachmentUrls.items)
                 else
-                  ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop)
+                  ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop, urls=attachmentUrls.items)
             when editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) and data.requestMode != "approval" and not data.composer.subagent
               StashBadge(stash=editor.stash, op=editorOp)
           RequestBanner(data=data, command=command, busy=commandPending, scheme=viewport.prefersColorScheme, compact=(min(data.look.chatMax, conversationWidth - 40) - 68 <= 560), maximumHeight=min(384, viewport.height * 0.4))
@@ -179,7 +179,7 @@ component ChatColumn
                 ApprovalComposer(placeholder=data.composer.placeholder)
             else
               ComposerEditorDock(editor=editor, dark=(viewport.prefersColorScheme == "dark"), op=editorOp, openModels=openModels)
-              ComposerCard(editor=editor, data=data, viewportWidth=((data.sidebarOpen ? sidebarWidth : 0) + conversationWidth), text=composerText, resting=resting, busy=commandPending, narrow=(conversationWidth < 620), keyModels=settings.keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=stop, onFocus=composerFocus, onBlur=composerBlur, openModels=openModels, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=askRemove, interaction=interaction, command=command, openProviders=openProviderSettings, contextOver=contextOver)
+              ComposerCard(editor=editor, data=data, viewportWidth=((data.sidebarOpen ? sidebarWidth : 0) + conversationWidth), text=composerText, resting=resting, busy=commandPending, narrow=(conversationWidth < 620), keyModels=settings.keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=stop, onFocus=composerFocus, onBlur=composerBlur, openModels=openModels, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=askRemove, interaction=interaction, command=command, openProviders=openProviderSettings, contextOver=contextOver, urls=attachmentUrls.items)
               when branches.show and not resting
                 when viewport.prefersColorScheme == "dark"
                   ComposerStrip(strip=branches, open=optionsOpen, busy=commandPending, openOptions=openOptions, command=command, wide=(stackWidth >= 768))
@@ -203,9 +203,9 @@ component ChatColumn
       // resolveThreadDetailsCardLayout: the card folds to the height above a player resized into it, and leaves when
       // no readable height (160pt) is left.
       when details.inline and canvas.cardShown and viewport.prefersColorScheme == "dark"
-        ThreadDetailsInline(details=details, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal)
+        ThreadDetailsInline(details=details, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
       when details.inline and canvas.cardShown and viewport.prefersColorScheme != "dark"
-        ThreadDetailsInline(details=details, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal)
+        ThreadDetailsInline(details=details, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
 
 // The right panel beside the chat on a wide window: the diff, or the surface chooser.
 component RightPanels

@@ -13,8 +13,12 @@ import { fanoutView } from './r3-composer-controls-fanout';
 import { chordGlyphs, optionValue, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './r3-composer-controls-model';
 import { sendChords } from './composer-editor-intent';
 import { measuredLabels } from './r5-composer-measure';
-import { composerMenus, measured, probe } from './r5-composer-menus';
+import { composerMenus, effortMenuWidth, measured, probe } from './r5-composer-menus';
 import { environmentView } from './r4-git-env';
+import { ULTRATHINK_LOCKED_MESSAGE, ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state'; // composer-fidelity G9
+import { ultrathinkFrame } from './composer-ultrathink';
+import { overflowMenu } from './composer-overflow'; // composer-fidelity G11
+import type { FooterSteps } from './composer-controls-view';
 
 /** runtimeModeConfig.ts: label, description and lucide icon per mode. */
 export const runtimeModes = [
@@ -28,7 +32,9 @@ const SAVED_OPTION_LABELS: Record<string, string> = { agent: 'Agent', effort: 'E
 type ComposerSource = {
   config: Obj; projection: Obj; presentation: Obj; providerId: string; modelId: string; modelOptions: Obj[];
   runtimeMode: string; interactionMode: string; threadId: string; projectId: string; connection: string;
-  local: { deviceSettings: { planModeEnabled: boolean } };
+  local: { drafts: Record<string, string>; deviceSettings: { planModeEnabled: boolean } };
+  /** The composer's draft (T3Client.draft); the ultrathink flow reads it. */
+  draft?: string;
 };
 
 /**
@@ -63,19 +69,23 @@ export function composerPlaceholder(input: { connected: boolean; approval: boole
 }
 
 /** getProviderOptionDescriptors + TraitsMenuContent: one flat menu of headers, dividers and radio rows. */
-export function traitsMenu(descriptors: Obj[], selections: Obj[], selection: Selection | null = null, reported: Selection | null = null) {
-  const items: Array<{ key: string; kind: string; descriptor: string; value: string; label: string; description: string; selected: boolean; isDefault: boolean; index: number }> = [];
+export function traitsMenu(descriptors: Obj[], selections: Obj[], selection: Selection | null = null, reported: Selection | null = null,
+  ultra: { primaryId: string; controlled: boolean; inBody: boolean } = { primaryId: '', controlled: false, inBody: false }) {
+  const items: Array<{ key: string; kind: string; descriptor: string; value: string; label: string; description: string; selected: boolean; isDefault: boolean; index: number; disabled: boolean }> = [];
   const labels: string[] = [];
   let index = 0;
   descriptors.filter(descriptor => descriptor.type === 'select').forEach((descriptor, group) => {
     const id = str(descriptor.id), options = arr(descriptor.options);
     // getDescriptorStringValue(descriptor, selection, reported): the checked radio follows the trigger's label.
-    const current = optionValue(descriptor, resolvedCurrent(descriptor, selections), selection, reported);
-    if (group > 0) items.push({ key: `divider:${id}`, kind: 'divider', descriptor: id, value: '', label: '', description: '', selected: false, isDefault: false, index: -1 });
-    items.push({ key: `header:${id}`, kind: 'header', descriptor: id, value: '', label: str(descriptor.label, SAVED_OPTION_LABELS[id] ?? id), description: '', selected: false, isDefault: false, index: -1 });
+    // composer-fidelity G9: a prompt that controls the primary effort checks "ultrathink"; "ultrathink" in its body locks the rows.
+    const primary = id === ultra.primaryId, locked = primary && ultra.inBody;
+    const current = primary && ultra.controlled ? 'ultrathink' : optionValue(descriptor, resolvedCurrent(descriptor, selections), selection, reported);
+    if (group > 0) items.push({ key: `divider:${id}`, kind: 'divider', descriptor: id, value: '', label: '', description: '', selected: false, isDefault: false, index: -1, disabled: false });
+    items.push({ key: `header:${id}`, kind: 'header', descriptor: id, value: '', label: str(descriptor.label, SAVED_OPTION_LABELS[id] ?? id), description: '', selected: false, isDefault: false, index: -1, disabled: false });
+    if (locked) items.push({ key: `note:${id}`, kind: 'note', descriptor: id, value: '', label: ULTRATHINK_LOCKED_MESSAGE, description: '', selected: false, isDefault: false, index: -1, disabled: false });
     for (const option of options) {
       items.push({ key: `${id}:${str(option.id)}`, kind: 'option', descriptor: id, value: str(option.id), label: str(option.label, str(option.id)),
-        description: str(option.description), selected: option.id === current, isDefault: option.isDefault === true, index: index++ });
+        description: str(option.description), selected: option.id === current, isDefault: option.isDefault === true, index: index++, disabled: locked });
     }
     const label = str(options.find(option => option.id === current)?.label);
     if (label) labels.push(label);
@@ -83,10 +93,10 @@ export function traitsMenu(descriptors: Obj[], selections: Obj[], selection: Sel
   const selects = descriptors.some(descriptor => descriptor.type === 'select');
   descriptors.filter(descriptor => descriptor.type === 'boolean').forEach((descriptor, group) => {
     const id = str(descriptor.id), value = selections.find(selection => selection.id === id)?.value ?? descriptor.currentValue;
-    if (group > 0 || selects) items.push({ key: `divider:${id}`, kind: 'divider', descriptor: id, value: '', label: '', description: '', selected: false, isDefault: false, index: -1 });
-    items.push({ key: `header:${id}`, kind: 'header', descriptor: id, value: '', label: str(descriptor.label, SAVED_OPTION_LABELS[id] ?? id), description: '', selected: false, isDefault: false, index: -1 });
+    if (group > 0 || selects) items.push({ key: `divider:${id}`, kind: 'divider', descriptor: id, value: '', label: '', description: '', selected: false, isDefault: false, index: -1, disabled: false });
+    items.push({ key: `header:${id}`, kind: 'header', descriptor: id, value: '', label: str(descriptor.label, SAVED_OPTION_LABELS[id] ?? id), description: '', selected: false, isDefault: false, index: -1, disabled: false });
     for (const on of [true, false]) items.push({ key: `${id}:${on}`, kind: 'option', descriptor: id, value: String(on), label: on ? 'On' : 'Off', description: '',
-      selected: (value === true) === on, isDefault: false, index: index++ });
+      selected: (value === true) === on, isDefault: false, index: index++, disabled: false });
   });
   return { items, label: labels.join(' · '), count: index, selected: items.find(item => item.kind === 'option' && item.selected)?.index ?? 0 };
 }
@@ -127,11 +137,11 @@ export function commandChords(config: Obj, command: string, fallback: string, mo
 export function anchorsFrom(presentation: Obj) {
   const anchors = obj(presentation.anchors);
   const box = (name: string) => { const value = Array.isArray(anchors[name]) ? anchors[name] as unknown[] : []; return { x: Number(value[0]) || 0, width: Number(value[1]) || 0 }; };
-  return { traits: box('traits'), runtime: box('runtime'), controls: box('controls'), implement: box('implement'), meter: box('meter'), actions: box('actions') };
+  return { traits: box('traits'), runtime: box('runtime'), controls: box('controls'), implement: box('implement'), meter: box('meter'), actions: box('actions'), more: box('more') };
 }
 
 // r5-composer: the last footer layout per client, for resolveRestingComposerControlsLayout's promotion slack.
-const footerSteps = new WeakMap<object, { sm: number; xs: number }>();
+const footerSteps = new WeakMap<object, FooterSteps>();
 export function composerView(client: ComposerSource, requests: { approval: boolean; question: boolean; choiceOnly: boolean; planReady?: boolean }) {
   const providers = arr(client.config.providers);
   const provider = providers.find(entry => entry.instanceId === client.providerId);
@@ -140,19 +150,26 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   // The composer's selection and what the active provider thread reports it runs (display only, never dispatched).
   const selection = client.providerId && client.modelId ? { instanceId: client.providerId, model: client.modelId, options: client.modelOptions } : null;
   const reported = client.threadId ? reportedSelection(client.projection) : null;
-  const traits = traitsMenu(descriptors, client.modelOptions, selection, reported);
+  // composer-fidelity G9: the traits show the implicit Fast default (Normal) and the prompt's ultrathink (composerProviderState.tsx).
+  const shown = withImplicitFastModeDefault(descriptors, client.modelOptions) ?? [], prompt = client.draft ?? '';
+  const ultra = ultrathinkTraits(descriptors, prompt);
+  const traits = traitsMenu(descriptors, shown, selection, reported, ultra);
   const supported = Array.isArray(provider?.supportedRuntimeModes) ? (provider!.supportedRuntimeModes as unknown[]).map(value => str(value)) : [];
   const runtimes = runtimeModes.filter(option => !supported.length || supported.includes(option.mode));
   const runtime = runtimes.find(option => option.mode === client.runtimeMode) ?? runtimes[0] ?? runtimeModes[0]!;
   const planVisible = client.local.deviceSettings.planModeEnabled && !!provider && provider.showInteractionModeToggle !== false;
   const anchors = anchorsFrom(client.presentation);
-  const display = traitsDisplay(str(provider?.driver), descriptors, client.modelOptions, selection, reported);
+  const display = traitsDisplay(str(provider?.driver), descriptors, shown, selection, reported, ultra);
   // getTriggerDisplayModelName; the tooltip adds the picker's shortcut (ProviderModelPicker triggerTooltipContent).
   const modelTitle = model ? triggerModelName(model) : client.modelId || 'Choose model', modelShortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M').split(' ')[0] ?? '');
-  const layout = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: !!display.speed,
+  const { steps, ...layout } = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: !!display.speed,
     runtime: runtime.label, plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: anchors.controls.width,
     measure: measuredLabels(client.presentation), previous: footerSteps.get(client) });
-  footerSteps.set(client, { sm: layout.traitsIconOnly ? 2 : layout.runtimeIconOnly ? 1 : 0, xs: layout.restingTraitsIconOnly ? 2 : layout.restingRuntimeIconOnly ? 1 : 0 });
+  footerSteps.set(client, steps);
+  // composer-fidelity G11: the "More composer controls" rows for the expanded and the resting footer.
+  const runtimeRows = runtimes.map(option => ({ mode: option.mode, label: option.label, selected: option === runtime }));
+  const more = overflowMenu({ traits: traits.items, traitsHidden: layout.traitsOverflow, modeHidden: layout.modeOverflow, planVisible, interactionMode: client.interactionMode, runtimes: runtimeRows });
+  const restingMore = overflowMenu({ traits: traits.items, traitsHidden: layout.restingTraitsOverflow, modeHidden: layout.restingModeOverflow, planVisible, interactionMode: client.interactionMode, runtimes: runtimeRows });
   return {
     placeholder: composerPlaceholder({ connected: client.connection === 'connected', ...requests, planReady: !!requests.planReady,
       projectRequired: !client.projectId, providerUnavailable: !providers.some(entry => entry.enabled === true && entry.status !== 'disabled'),
@@ -164,7 +181,10 @@ export function composerView(client: ComposerSource, requests: { approval: boole
     runtimeSelected: Math.max(0, runtimes.indexOf(runtime)), runtimeCount: runtimes.length,
     runtimes: runtimes.map((option, index) => ({ ...option, selected: option === runtime, index })),
     planVisible, planActive: planVisible && client.interactionMode === 'plan',
-    traitsX: anchors.traits.x, traitsWidth: anchors.traits.width, runtimeX: anchors.runtime.x, runtimeWidth: anchors.runtime.width,
+    ultrathink: ultrathinkFrame(client, prompt),
+    more: more.items, moreCount: more.count, restingMore: restingMore.items, restingMoreCount: restingMore.count,
+    moreMenuWidth: effortMenuWidth(client.presentation, more.items), restingMoreMenuWidth: effortMenuWidth(client.presentation, restingMore.items), // composer-fidelity G9: the spectrum ring and the model icon's chroma
+    traitsX: anchors.traits.x, traitsWidth: anchors.traits.width, runtimeX: anchors.runtime.x, runtimeWidth: anchors.runtime.width, moreX: anchors.more.x, moreWidth: anchors.more.width,
     keyEffort: commandChords(client.config, 'composer.effort', 'Meta+Shift+E'), keyMode: commandChords(client.config, 'composer.mode', 'Meta+Shift+A'),
   };
 }

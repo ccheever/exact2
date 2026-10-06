@@ -4,6 +4,15 @@ Current as of the functional repair verification, 2026-10-06 (KST).
 
 ## Start here
 
+Live automations and tracked clones, PR #156: client implementation and partial UI
+verification only. The old `succeeded` screenshot does not prove a completed model
+response: the retained Codex provider log ends in HTTP 401 and a failed turn.
+Authenticated manual and scheduled execution remain unverified. Follow the
+[automation verification handoff](.exact/implementation/20261005-t3code-macos-parity/tasks/20261005-live-automations-and-clones.md#handoff-authenticated-automation-verification)
+for isolated backend authentication, run/turn correlation, real-time interval tests,
+failure/status investigation and cleanup. Tracked-clone runtime acceptance also remains
+open. Keep the task unverified until its required acceptance rows are satisfied.
+
 Read `rules/RULES.md`, `rules/DEFERRED.md`, then this app's `README.md` and
 `.exact/implementation/20261005-t3code-macos-parity/plan.md`.
 The round-12 source is now tracked and preserved in commit `1c6b4a12a`.
@@ -63,6 +72,92 @@ budget is about 140 lines until X9 lands. Two lists in `client.ts` `command()` s
 ops one by one: `local` (device-only ops) and `formCommand` (errors that go to their form);
 a new op in an existing prefix needs neither. The `composer`, `menus` and `r5-panels`
 XCTests define their own `exactModule` and leave out `T3Module*.swift` (README recipe).
+
+## Terminal spike
+
+**2026-10-06 theme repair and recapture:** [report and original/native screenshot pairs](.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-terminal-surface/20261006-theme-parity/attempt.md).
+The harness now passes the selected stock/preset/custom terminal colors and simple/advanced
+font preferences through `terminal-theme`, `terminal-font` and `terminal-font-size`.
+The default layer screenshot reproduced as fully transparent; use
+`bun scripts/agent.mjs macos … "screenshot out.png window"` and inspect the PNG before
+calling it evidence. The new captures show real output in light/dark and custom themes.
+The comparison is against the original renderer in Chrome, not the full Electron drawer.
+The historical spike results below do not establish drawer/session parity or physical-input coverage.
+
+Task `20261005-terminal-surface`, 2026-10-06. The question: can the reference desktop's own
+terminal (Ghostty's libghostty-vt WASM and T3 Code's Canvas 2D surface,
+`apps/web/src/terminal/ghostty/`) run in this app? **Verdict: GO, if the user accepts the S2
+budget below.** The user decides; the drawer, layout, integrations and sign-in terminal tasks
+wait for that answer.
+
+**What runs.** `t3-terminal` is a module view (app.json `modules`, `T3TerminalView.swift`), not a
+hook: a module view gets the agent's `type`/`press` (`agentInput`) and a canvas snapshot, which a
+hooked box cannot. It is a WKWebView whose only page is `terminal-host/src/entry.ts`, built by
+`terminal-host/build.mjs` into `assets/` (ignored) and served by the `t3-terminal` scheme
+(`T3TerminalAssets.swift`, five files, nothing else). The reference surface, core, renderer,
+runtime and key codes are copied unchanged under `terminal-host/vendor/ghostty/` (only imports
+change; shims in `terminal-host/src/shims/`). Output is batched to one bridge call per frame;
+a paste or mode change never overtakes queued output. Props: `terminal`, `scheme`,
+`terminal-font`, `terminal-font-size`, `active`, `chords`, `fixture`. Status:
+`state.presentation.terminals[]` (ready, grid, visible text, selection, declined chords, error).
+The development harness is `terminal.contract` (⌃⌥⇧T): fixtures `render`, `loopback`, `flood`.
+
+**Checks** (`macos/tests/terminal`, 8 tests; `T3_TERMINAL_SCALE=1` adds the cost table):
+
+| Check | Result | Evidence |
+|---|---|---|
+| S1 key path | pass (mechanism) | `chords="Meta+K"`: the page declines ⌘K (`declined ["Meta+KeyK"]`), WebKit hands the unhandled key back through `NSApp.sendEvent` (keyCode 40, ⌘); encoded keys (`ls -la`, Enter, ↑, ⌫, Tab, ⌃C, Esc) give `ls -la\r\e[A\x7f\t\x03\e` and never reach the responder above. The menu itself firing needs an active app; the test app must stay inactive, and both live drives failed before this step (below). |
+| S2 cost | numbers; budget needed | one WebContent process per view. 1 view: 39 MB footprint (83 MB RSS), ready 0.2 s. 4: 154 MB. 11: 427 MB, ready 0.4 s. 44: 1,595 MB footprint (3.6 GB RSS), ready 1.3–1.8 s. Idle CPU 0–1.6 % for all. Closing returns the process count to baseline (0 above it after 10 s). 5 MB flood: 5,242,920 bytes sent = received, 81,920 numbered lines, last line present, 0.15 s, longest main-thread gap 7 ms. |
+| S3 offline | pass | the page, script, both WASM and the font come from the scheme; `https://` navigation, `window.open` and `fetch` are refused (CSP `default-src 'none'`, navigation delegate). `build.mjs` exits 0 under `sandbox-exec` denying reads of the reference checkout and the network; the bundle and log name no reference path. |
+| S4 screenshot / text | pass | `T3TerminalView.snapshot()` shows the canvas; `t3Terminal.debug()` returns the painted rows (`wide: 界 面  한 국 어  emoji: 🙂 🚀  nerd: …`). The agent's `screenshot … window` captures the window server's picture, web view included. |
+| S5 agent input | pass (AppKit) | `agentInput` posts real key events through the app's dispatch; text and named keys arrive as Ghostty's bytes. Not shown in the app (drive failed). |
+| S6 ⌘V | host path pass; native unverified (attended) | `paste` → `pasteFromClipboard`: `echo pasted`, and bracketed `\e[200~two\nlines\e[201~` after `\e[?2004h`. Whether WebKit's `navigator.clipboard.readText()` prompts on ⌘V needs a person (the test must not write the shared pasteboard). |
+| S7 Korean 2-Set | partial pass; attended | WKWebView is an `NSTextInputClient` at run time, so `R10Connect` sees its marked text. Marked ㅎ→하→한 then commit sends `한` once (U+D55C). Real 2-Set typing, the candidate window position and ⌃C under 2-Set need a person. |
+| S8 bundle | pass | 77 KB script from 12 sources, none of `effect`, `@t3tools`, `tailwind-merge`, `zustand`; two builds give the same sha256. |
+| S9 inspectable | implemented, unverified | `isInspectable` only when `EXACT_ASSETS` (a development run or the agent) or `T3_TERMINAL_INSPECTABLE=1` is set. Not opened in Safari. |
+
+**S2 budget to accept (proposal).** One web view costs about 40 MB and one process. The
+reference keeps up to 10 hidden threads mounted (`ChatView.logic.ts:71,674-702`). Proposed: at
+most 11 live terminal views (the visible thread plus 10 hidden, about 430 MB); a thread beyond
+that drops its views and replays the server's retained output when it returns (the drawer's
+reattach path). Splits of one thread could share one page later if the number is too high.
+
+**Live drive** (`agent.mjs macos --size 1280x840`, no server: the harness is local). The first
+two drives tapped the 1-point toggle at a rounded window corner, which takes no click; it now sits
+at `left=240 bottom=6`. The after drive (ADDENDUM 7 pair, base `da40e6590`) opened the harness
+(`View#377 [terminal-harness]`, `NativeView#388 [terminal-harness-view] label="Terminal" [focused]`),
+`type … echo hello` / `key Enter` were delivered `native-module`, and `key Meta+K` came back from
+the page as a declined chord (`terminal-harness-status` "focused · 5 messages ·
+{"key":"k","code":"KeyK",…,"metaKey":true,"type":"chord"}"). The canvas never repainted after its
+first frame: the agent's window was occluded, so WebKit hid the page and stopped
+requestAnimationFrame. Under the agent the view now turns WebKit's occlusion detection off
+(`b9e4d15a8`; the AppKit test takes that path and paints); not re-driven (drive limit). The
+palette did not open from ⌘K on the welcome screen; whether the resent chord reaches the menu in
+an active app stays unverified (attended). The harness takes `scheme` from
+`viewport.prefersColorScheme`, so it drew dark while the app showed light under the agent.
+
+**Ported tests** (`bun test examples/t3-code/terminal-host examples/t3-code/terminal-links.test.ts`,
+136 pass): `surface.test.ts` 54 (every describe, the DOM-bound visibility suite too: it stubs its
+own DOM, and `src/test-assets.ts` gives Bun's `vi` the `stubGlobal`/`unstubAllGlobals`/`waitFor`
+it lacks), `selectionActions.test.ts` 32 (`resolveSelectionActionPosition` and
+`observeSelectionActions`), `terminal-links.test.ts` 19, `runtimeAbi.test.ts` 9,
+`renderer.test.ts` 8, `core.test.ts` 6 of 13 (below), `keyCodes.test.ts` 5, `entry.test.ts` 3.
+
+**Left / limits.** X46 (new): the bundle build does not run `terminal-host/build.mjs`; run it
+first. `core.test.ts`'s seven session-buffer tests move to the drawer task with
+`state/terminal.ts`. Mouse, wheel, drag selection, links, right-click, scrollbar drag and
+resize need real input (X8); render pair against the Electron oracle not run (no oracle).
+
+## Code colours (shiki-residuals)
+
+`r12-render-grammar.ts` (16 languages, with the themes) and `r12-render-grammar-more.ts` (c, java,
+kotlin, csharp, xml, diff, docker, make, ruby) are generated: edit `GROUPS` in
+`tools/grammar/gen-grammar.mjs`, run `bun install --frozen-lockfile` there, then `bun
+gen-grammar.mjs` (`--check` compares). A group has its own rule ids, so a grammar includes only
+grammars of its own group compiled before it. `tools/shiki-compare/shiki-compare.mjs` compares
+the engine with real Shiki 4.2 (Oniguruma engine) per character; keep corpora in `target/`. Long
+texts: each answer tokenizes for at most 50 ms, then `highlightSlice` turns (the root's
+`highlightPump` task) finish it; the heuristic colours show meanwhile.
 
 ## Checks on the integrated tree (round 11)
 
