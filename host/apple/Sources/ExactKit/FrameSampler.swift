@@ -24,8 +24,11 @@ final class FrameSampler: NSObject {
 
     struct Record {
         let t: Double, interval: Double, missed: Int, seq: (UInt64, UInt64)?, batches: Int, apply: Double
+        /// How long past the frame's target the main thread's turn ended,
+        /// milliseconds (0: within it): a commit that landed after it.
+        var overrun = 0.0
         var json: [String: Any] {
-            var o: [String: Any] = ["t": t, "interval": interval, "missed": missed, "batches": batches, "apply": apply]
+            var o: [String: Any] = ["t": t, "interval": interval, "missed": missed, "batches": batches, "apply": apply, "overrun": overrun]
             o["seq"] = seq.map { [$0.0, $0.1] } ?? NSNull()
             return o
         }
@@ -40,6 +43,14 @@ final class FrameSampler: NSObject {
     private var dropped = 0, presented = 0, lateCount = 0, missed = 0, segments = 0
     private var pending: (first: UInt64?, last: UInt64?, batches: Int, apply: Double) = (nil, nil, 0, 0)
     private var observers: [NSObjectProtocol] = []
+    /// The main thread's turns against the frame they serve (`watchTurns`):
+    /// the last target the link gave, when this turn began, the worst
+    /// overrun since the last sample, and how many there were.
+    private var target: CFTimeInterval?
+    private var turnBegan: CFTimeInterval?
+    private var overrun = 0.0
+    private var overruns = 0
+    private var turnObservers: [CFRunLoopObserver] = []
 
     init(session: ExactSession) {
         self.session = session
@@ -82,6 +93,7 @@ final class FrameSampler: NSObject {
         link = l
         last = nil
         segments += 1
+        watchTurns()
     }
 
     /// Forget every sample, and the link's baseline: a replaced runner
@@ -89,7 +101,7 @@ final class FrameSampler: NSObject {
     func reset() {
         stop()
         records = []; late = []
-        dropped = 0; presented = 0; lateCount = 0; missed = 0; segments = 0
+        dropped = 0; presented = 0; lateCount = 0; missed = 0; segments = 0; overruns = 0; overrun = 0
         pending = (nil, nil, 0, 0)
         period = nil
     }
@@ -98,6 +110,39 @@ final class FrameSampler: NSObject {
         link?.invalidate()
         link = nil
         last = nil
+        for o in turnObservers { CFRunLoopRemoveObserver(CFRunLoopGetMain(), o, .commonModes) }
+        turnObservers = []
+        target = nil
+    }
+
+    /// A frame the display link delivered on time can still miss the
+    /// display: the main thread's turn that commits it ends after the
+    /// frame's target, and the render server shows the last frame again
+    /// (a fling's rows built in one turn). The link's own cadence does not
+    /// see it; the turn's end against the target does. Each turn is
+    /// timed from the run loop waking to it going back to sleep, after
+    /// Core Animation's commit.
+    private func watchTurns() {
+        guard turnObservers.isEmpty else { return }
+        let woke = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.afterWaiting.rawValue, true, 0) { [weak self] _, _ in
+            self?.turnBegan(at: CACurrentMediaTime())
+        }
+        let sleeps = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { [weak self] _, _ in
+            self?.turnEnded(at: CACurrentMediaTime())
+        }
+        for o in [woke, sleeps].compactMap({ $0 }) {
+            CFRunLoopAddObserver(CFRunLoopGetMain(), o, .commonModes)
+            turnObservers.append(o)
+        }
+    }
+
+    func turnBegan(at now: CFTimeInterval) { turnBegan = now }
+
+    /// A turn that began before the frame's target and ended after it.
+    func turnEnded(at now: CFTimeInterval) {
+        defer { turnBegan = nil }
+        guard let target, let began = turnBegan, began < target, now > target else { return }
+        overrun = max(overrun, (now - target) * 1000)
     }
 
     @objc func tick(_ link: CADisplayLink) {
@@ -109,6 +154,7 @@ final class FrameSampler: NSObject {
 
     /// One display callback: its time and the next frame's target, seconds.
     func observe(now: CFTimeInterval, target: CFTimeInterval) {
+        self.target = target
         period = (target - now) * 1000
         if let last { sample(interval: (now - last) * 1000, at: now) }
         last = now
@@ -119,18 +165,22 @@ final class FrameSampler: NSObject {
         let p = period ?? interval
         let missedHere = max(0, Int((interval / p).rounded()) - 1)
         let seq = pending.first.flatMap { first in pending.last.map { (first, $0) } }
-        let record = Record(t: r2((now - ExactEnv.t0) * 1000), interval: r2(interval), missed: missedHere, seq: seq, batches: pending.batches, apply: r2(pending.apply))
+        var record = Record(t: r2((now - ExactEnv.t0) * 1000), interval: r2(interval), missed: missedHere, seq: seq, batches: pending.batches, apply: r2(pending.apply))
+        record.overrun = r2(overrun)
+        overrun = 0
         pending = (nil, nil, 0, 0)
         records.append(record)
         if records.count > Self.ring { records.removeFirst(); dropped += 1 }
         presented += 1
-        guard missedHere > 0 else { return }
+        if record.overrun > 0 { overruns += 1 }
+        guard missedHere > 0 || record.overrun > 0 else { return }
         lateCount += 1
         missed += missedHere
         late.append(record)
         if late.count > Self.lateKept { late.removeFirst() }
         let range = seq.map { " seq \($0.0)..\($0.1)" } ?? ""
-        session?.log("frame late at \(record.t): \(missedHere) missed (\(record.interval) ms / \(r2(p)) target)\(range) apply \(record.apply)")
+        let past = record.overrun > 0 ? ", main \(record.overrun) ms past the target" : ""
+        session?.log("frame late at \(record.t): \(missedHere) missed (\(record.interval) ms / \(r2(p)) target)\(past)\(range) apply \(record.apply)")
     }
 
     /// `{"op":"perf","frames":true[,"late":N]}` (D4): lifetime counters, the
@@ -141,8 +191,8 @@ final class FrameSampler: NSObject {
         let q = { (f: Double) -> Any in xs.isEmpty ? NSNull() : xs[min(xs.count - 1, Int(f * Double(xs.count)))] }
         var out: [String: Any] = [
             "period": ["ms": period.map { ($0 * 100).rounded() / 100 } ?? NSNull(), "source": "target"] as [String: Any],
-            "covers": ["batches", "frame-source"],
-            "lifetime": ["presented": presented, "late": lateCount, "missed": missed, "segments": segments],
+            "covers": ["batches", "frame-source", "turns"],
+            "lifetime": ["presented": presented, "late": lateCount, "missed": missed, "overruns": overruns, "segments": segments],
             "window": ["from": records.first?.t ?? NSNull(), "to": records.last?.t ?? NSNull(), "samples": records.count, "dropped": dropped,
                        "p50": q(0.5), "p95": q(0.95), "p99": q(0.99), "max": xs.last ?? NSNull()] as [String: Any],
             "late": late.suffix(max(0, min(Self.lateKept, n))).map(\.json),
@@ -172,7 +222,9 @@ extension ExactSession {
                          "os": ProcessInfo.processInfo.operatingSystemVersionString, "device": device,
                          "bootWall": ((Date().timeIntervalSince1970 - (CACurrentMediaTime() - ExactEnv.t0)) * 1000).rounded()],
             "proxies": ["period": "target: the sampler's own display link, targetTimestamp − timestamp",
-                        "interval": "the sampler's display-link callback gap", "covers": ["batches", "frame-source"], "loaf": "none on this host"],
+                        "interval": "the sampler's display-link callback gap", "covers": ["batches", "frame-source", "turns"],
+                        "overrun": "a main run-loop turn that began before the frame's targetTimestamp and went to sleep after it (after Core Animation's commit)",
+                        "loaf": "none on this host"],
             "plan": (perf as? [String: Any])?["plan"] ?? NSNull(),
             "journal": raw(agent("{\"op\":\"logs\",\"since\":0}")),
             "frames": sampler.reply(late: FrameSampler.lateKept, all: true),

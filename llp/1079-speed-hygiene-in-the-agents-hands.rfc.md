@@ -699,3 +699,19 @@ four times a second, a 7 ms main-thread stall under any gesture.
   same.
 - A deferred GPU module drains its queued surface work when it loads. A
   skipped tick still reports its transactions to the frame sampler.
+
+## Amendment: a turn past its frame's target is late (2026-10-05)
+
+Missed callbacks only catch the main thread when it delays the display link
+itself. A main-thread turn that began before a frame's target and ended after
+it still commits too late for that frame: the render server shows the last
+frame again, while the next callback can arrive on time. On iOS the sampler
+now watches the main run loop's turns while it runs (`afterWaiting` first,
+`beforeWaiting` last). It records how far the latest such turn ran past the
+target as each record's `overrun` (ms). A record with an overrun is late even
+when `missed` is 0, and its journal line ends with "main X ms past the
+target". `lifetime.overruns` counts them, `covers[]` adds `turns`, and Save
+Trace keeps `overrun` beside the other proxies. `agent.mjs perf frames` and
+`trace` print both. Turns are a proxy: the deadline that counts is the render
+server's, a little after the target, so an overrun of under a millisecond may
+still have made the frame. Test: `FrameSamplerTests`.
