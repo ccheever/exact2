@@ -1,6 +1,8 @@
 // Lane r6-media (MIT reference, see LICENSE-T3): sent videos in the transcript
-// (MessagesTimeline UserVideoAttachment, ExpandedImageDialog ExpandedVideo). No imports, so the
-// timeline's attachment view can use it without a cycle.
+// (MessagesTimeline UserVideoAttachment, ExpandedImageDialog ExpandedVideo). It imports only
+// media-actions.contract (which imports only icons), so the timeline's attachment view can use it
+// without a cycle.
+use MediaActions from "./media-actions.contract"
 
 // UserVideoAttachment → MediaVideoPlayer with onOpen: a 4:3 cell of the message's media grid
 // (101 × 75.75 at the grid's 210pt), the first frame muted and without controls ("aspect-auto
@@ -8,6 +10,18 @@
 // "Play {name}" button with a 32pt black/50 disc and a 16pt filled Play glyph. Before its
 // signed URL arrives the cell is the black loading panel.
 component R6VideoTile
+  props
+    id: string
+    name: string
+    url: string
+    messageId: string
+    local: action
+  // media-actions: UserVideoAttachment passes its signed attachment as actionsSource (Save video; no Copy image).
+  view
+    MediaActions(source=`attachment:${id}`, tip=name, local=local, testId=`attachment-video-actions-${id}`)
+      R6VideoFace(id=id, name=name, url=url, messageId=messageId, local=local)
+
+component R6VideoFace
   props
     id: string
     name: string
@@ -34,5 +48,7 @@ component R6ExpandedVideo
     name: string
     maxWidth: number
     maxHeight: number
+    // media-actions: the player's onError (MediaVideoPlayer failedSrc).
+    broke: action
   view
-    video url controls=true autoplay=true playsinline=true preload="metadata" aria-label=name max-width=maxWidth max-height=maxHeight box-sizing="border-box" overflow="hidden" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0d)" box-shadow="0 25px 50px -12px #00000040" background-color="#000000" object-fit="contain" testId="image-preview-video"
+    video url controls=true autoplay=true playsinline=true preload="metadata" aria-label=name error=broke max-width=maxWidth max-height=maxHeight box-sizing="border-box" overflow="hidden" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0d)" box-shadow="0 25px 50px -12px #00000040" background-color="#000000" object-fit="contain" testId="image-preview-video"
