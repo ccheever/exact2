@@ -755,7 +755,10 @@ pub(crate) mod tests {
         assert_eq!(writes.len(), 1);
         assert_eq!(writes[0].name, "color-scheme");
         assert_eq!(
-            run(writes[0].map.unwrap(), &["light", "dark", "normal", "light dark"]),
+            run(
+                writes[0].map.unwrap(),
+                &["light", "dark", "normal", "light dark"]
+            ),
             serde_json::json!(["light", "dark", null, null])
         );
     }

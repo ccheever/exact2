@@ -3,10 +3,10 @@
 
 mod backdrop;
 mod borders;
+mod color_scheme;
 mod gradients;
 mod host;
 mod materials;
-mod color_scheme;
 mod motion_paint;
 mod paint;
 mod text;

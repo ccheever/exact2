@@ -231,7 +231,9 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             // @ref LLP 1034 §8: an unset scheme follows the parent's, as
             // Apple's trait inheritance does (CSS's `normal` would mean the
             // page's schemes); the compiler admits only `light` and `dark`.
-            (StyleId::ColorScheme, RowValue::Enum("normal")) => out.push_str("color-scheme:inherit;"),
+            (StyleId::ColorScheme, RowValue::Enum("normal")) => {
+                out.push_str("color-scheme:inherit;")
+            }
             (StyleId::TextDecorationLine, RowValue::Enum("underline-line-through")) => {
                 out.push_str("text-decoration-line:underline line-through;")
             }

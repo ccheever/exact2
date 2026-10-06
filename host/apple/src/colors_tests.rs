@@ -284,14 +284,26 @@ fn the_color_scheme_reaches_every_view_below_the_node_that_sets_it() {
             .find(|op| op["id"] == serde_json::json!(id) && op.get("style").is_some())
             .map(|op| op["style"].clone())
     };
-    let (sheet, leaf, outside) = (view(&host, "sheet"), view(&host, "leaf"), view(&host, "outside"));
+    let (sheet, leaf, outside) = (
+        view(&host, "sheet"),
+        view(&host, "leaf"),
+        view(&host, "outside"),
+    );
     assert_eq!(style(&boot, sheet).unwrap()["color_scheme"], "dark");
     assert_eq!(style(&boot, leaf).unwrap()["color_scheme"], "dark");
     let plain = style(&boot, outside).unwrap();
     assert!(plain.get("color_scheme").is_none(), "{plain}");
     let batch = host.dispatch(view(&host, "flip"), exact_runner::Event::Press);
-    assert_eq!(style(&batch, sheet).expect("the sheet restyled")["color_scheme"], "light", "{batch}");
-    assert_eq!(style(&batch, leaf).expect("the leaf restyled")["color_scheme"], "light", "{batch}");
+    assert_eq!(
+        style(&batch, sheet).expect("the sheet restyled")["color_scheme"],
+        "light",
+        "{batch}"
+    );
+    assert_eq!(
+        style(&batch, leaf).expect("the leaf restyled")["color_scheme"],
+        "light",
+        "{batch}"
+    );
 }
 
 #[test]

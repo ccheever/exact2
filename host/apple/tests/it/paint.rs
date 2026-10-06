@@ -319,7 +319,10 @@ fn a_color_scheme_change_moves_and_its_report_does_not_snap_it() {
     let flipped = host.dispatch_at(flip, Event::Press, 100.0);
     assert!(flipped.contains("\"motion\":true"), "{flipped}");
     let report = host.set_view_scheme(page, true);
-    assert!(style(&report, page).is_none() || !report.contains("[0,0,0,255]"), "not snapped: {report}");
+    assert!(
+        style(&report, page).is_none() || !report.contains("[0,0,0,255]"),
+        "not snapped: {report}"
+    );
     let mid = host.tick(600.0);
     assert!(
         shows(&mid, page, "background_color", "[128,128,128,255]"),

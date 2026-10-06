@@ -213,10 +213,8 @@ impl PaintMotion {
         let seek = engine.advance(now);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
         let views = &self.views;
-        let sync = kernel.paint_resync(
-            |key| appearance(kernel, views, key, dark),
-            &mut self.owners,
-        );
+        let sync =
+            kernel.paint_resync(|key| appearance(kernel, views, key, dark), &mut self.owners);
         Some(self.apply(kernel, sync, engine, first))
     }
 
@@ -237,10 +235,8 @@ impl PaintMotion {
         let seek = engine.advance(now);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
         let views = &self.views;
-        let sync = kernel.paint_resync(
-            |key| appearance(kernel, views, key, dark),
-            &mut self.owners,
-        );
+        let sync =
+            kernel.paint_resync(|key| appearance(kernel, views, key, dark), &mut self.owners);
         Some(self.apply(kernel, sync, engine, first))
     }
 

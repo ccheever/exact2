@@ -81,7 +81,10 @@ fn a_bound_normal_follows_the_surrounding_scheme() {
 #[test]
 fn a_run_and_an_svg_element_refuse_it() {
     let run = "component App\n  view\n    text \"a \"\n      text \"b\" color-scheme=\"dark\"\n";
-    assert!(contract::compile(run).unwrap_err().to_string().contains("inline `text` run"));
+    assert!(contract::compile(run)
+        .unwrap_err()
+        .to_string()
+        .contains("inline `text` run"));
     let shape = "component App\n  view\n    svg width=10 height=10 viewBox=\"0 0 10 10\"\n      g color-scheme=\"dark\"\n        rect width=5 height=5\n";
     assert!(contract::compile(shape).is_err());
     let root = "component App\n  view\n    svg color-scheme=\"dark\" width=10 height=10 viewBox=\"0 0 10 10\"\n      rect width=5 height=5 fill=\"light-dark(#fff, #000)\"\n";

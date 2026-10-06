@@ -42,17 +42,32 @@ fn a_subtree_paints_in_its_color_scheme() {
     let mut p = boot();
     // The page: light. The sheet (y 20..120): dark. Its leaf (0..50 x
     // 20..70): dark's red. The nested light column (y 70..110): light's green.
-    assert_eq!(pixel(&mut p, 150, 200), [255, 255, 255, 255], "the page, light");
+    assert_eq!(
+        pixel(&mut p, 150, 200),
+        [255, 255, 255, 255],
+        "the page, light"
+    );
     assert_eq!(pixel(&mut p, 150, 30), [0, 0, 0, 255], "the sheet, dark");
     assert_eq!(pixel(&mut p, 10, 30), [255, 0, 0, 255], "its leaf, dark");
-    assert_eq!(pixel(&mut p, 10, 80), [0, 255, 0, 255], "a nested light subtree");
+    assert_eq!(
+        pixel(&mut p, 10, 80),
+        [0, 255, 0, 255],
+        "a nested light subtree"
+    );
     let k = p.host().kernel();
     let toggle = k.node_by_key(k.find_by_test_id("toggle")[0]).unwrap().id;
     let _ = p.tap(toggle).unwrap();
     p.tick(500.0);
     // Red to blue (the dark halves), halfway; never towards the light halves.
     let [r, g, b, _] = pixel(&mut p, 10, 30);
-    assert!(r > 100 && b > 100 && g < 20, "moving in its scheme: {r} {g} {b}");
+    assert!(
+        r > 100 && b > 100 && g < 20,
+        "moving in its scheme: {r} {g} {b}"
+    );
     p.tick(1000.0);
-    assert_eq!(pixel(&mut p, 10, 30), [0, 0, 255, 255], "arrived at dark's blue");
+    assert_eq!(
+        pixel(&mut p, 10, 30),
+        [0, 0, 255, 255],
+        "arrived at dark's blue"
+    );
 }
