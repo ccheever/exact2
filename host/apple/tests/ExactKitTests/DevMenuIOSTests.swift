@@ -78,18 +78,34 @@ final class DevMenuIOSTests: XCTestCase {
         gate.began(r, [key: .zero], down: 1)
         RunLoop.main.run(until: Date().addingTimeInterval(FourFingerGate.landing + 0.05))
         XCTAssertEqual(r.state, .failed, "a one-finger press fails it too")
-        // Four that landed together stay possible however they then move.
+        // Four that landed together (the last 60 ms after the first) stay
+        // possible however they then move.
         r = Stub(); gate = FourFingerGate()
         let four = (0..<4).map { _ in Touch() }
         gate.began(r, [ObjectIdentifier(four[0]): .zero], down: 1)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.06))
         gate.began(r, Dictionary(uniqueKeysWithValues: four.dropFirst().map { (ObjectIdentifier($0), CGPoint.zero) }), down: 4)
         gate.moved(r, [ObjectIdentifier(four[0]): CGPoint(x: 30, y: 0)], down: 4)
         RunLoop.main.run(until: Date().addingTimeInterval(FourFingerGate.landing + 0.05))
         XCTAssertEqual(r.state, .possible, "a four-finger landing is the menu's")
-        // A new attempt starts afresh: a stale moment does not fail it.
+        // A new attempt starts afresh: the last one's moment, ending while
+        // it runs, does not fail it; its own does.
+        r = Stub(); gate = FourFingerGate()
+        gate.began(r, [key: .zero], down: 1)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         gate.reset()
         gate.began(r, [key: .zero], down: 1)
-        XCTAssertEqual(r.state, .possible)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.07))
+        XCTAssertEqual(r.state, .possible, "the last attempt's moment is not this one's")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.06))
+        XCTAssertEqual(r.state, .failed, "its own moment fails it")
+        // A four-finger attempt's peak goes with it.
+        r = Stub(); gate = FourFingerGate()
+        gate.began(r, [key: .zero], down: 4)
+        gate.reset()
+        gate.began(r, [key: .zero], down: 1)
+        gate.moved(r, [key: CGPoint(x: 20, y: 0)], down: 1)
+        XCTAssertEqual(r.state, .failed)
     }
 
     func testTheWindowsFourFingerGesturesAreTheGated() throws {
