@@ -20,6 +20,8 @@ export type ComposerControlsPrefs = {
   wokeSeen: Record<string, string>;
   /** Draft key → its workspace mode and branch (composer-controls-branch.ts). */
   contexts: Record<string, { envMode: string; branch: string; worktreePath: string }>;
+  /** auto-balance: draft key → environmentSelection and loadBalancedEnvironmentId (auto-balance.ts). */
+  balance?: Record<string, { selection: '' | 'auto' | 'manual'; choice: string }>;
   /** r7-handoff: draft key → the thread id the draft launches as (a hand-off's setup terminal belongs to it). */
   draftThreads?: Record<string, string>;
 };
@@ -50,6 +52,7 @@ export function decodeComposerControls(saved: unknown): ComposerControlsPrefs {
     const context = obj(entry);
     if (context.envMode === 'local' || context.envMode === 'worktree') next.contexts[key] = { envMode: context.envMode, branch: str(context.branch).slice(0, 256), worktreePath: str(context.worktreePath).slice(0, 4096) };
   }
+  for (const [key, entry] of Object.entries(obj(value.balance)).slice(-200)) { const saved = obj(entry); if (saved.selection === 'auto' || saved.selection === 'manual') (next.balance ??= {})[key] = { selection: saved.selection, choice: str(saved.choice).slice(0, 256) }; } // auto-balance
   for (const [key, id] of Object.entries(obj(value.draftThreads)).slice(-200)) if (typeof id === 'string' && /^[\w-]{1,128}$/.test(id)) (next.draftThreads ??= {})[key] = id; // r7-handoff
   return next;
 }

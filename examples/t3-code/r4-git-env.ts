@@ -16,6 +16,7 @@ import { environmentIndicator } from './shell-details';
 import { runOnMenuWidth, workspaceLabels } from './r5-composer-menus';
 import { isScratch, openRemoteScratch, scratchChoices, scratchRootOf } from './r12-threads-scratch'; // r12-threads: No project drafts switch machine (c47f4263f9)
 import { pushToast } from './toast';
+import { AUTO_ENVIRONMENT, autoBalanceState, autoIndicator, chooseAutoEnvironment, moveDraftSelection, setDraftSelection, withAutoOption } from './auto-balance'; // auto-balance
 
 const normalize = (value: unknown) => str(value).trim().replace(/\\/g, '/').replace(/\/+$/, '');
 /** deriveLogicalProjectKey for one grouping mode. */
@@ -33,8 +34,11 @@ const groupingMode = (client: T3Client, project: Obj, environmentId: string): st
   client.local.groupingOverrides?.[`${environmentId}:${normalize(project.workspaceRoot)}`] || client.local.groupingMode || 'repository';
 
 export type EnvironmentOption = { id: string; label: string; machine: string; primary: boolean; projectId: string; selected: boolean };
-/** logicalProjectEnvironments: the focused environment first among the primaries, then by label. */
-export function environmentOptions(client: T3Client, source: EnvironmentFleet = fleet): EnvironmentOption[] {
+/**
+ * logicalProjectEnvironments: the focused environment first among the primaries, then by label.
+ * `offline` (auto-balance's update banner) keeps a switched-on machine that is not connected now, by its last config and shell.
+ */
+export function environmentOptions(client: T3Client, source: EnvironmentFleet = fleet, offline = false): EnvironmentOption[] {
   const project = client.shell.projects.find(entry => entry.id === client.projectId);
   if (!project || !client.environmentId) return [];
   const key = logicalProjectKey(project, client.environmentId, groupingMode(client, project, client.environmentId));
@@ -45,7 +49,8 @@ export function environmentOptions(client: T3Client, source: EnvironmentFleet = 
   const scratch = !client.threadId && isScratch(project, scratchRootOf(client.connection === 'connected', client.config))
     ? new Map(scratchChoices(client, source.entries.values()).map(choice => [choice.environmentId, choice.projectId])) : null;
   for (const entry of source.entries.values()) {
-    if (entry.phase !== 'connected' || entry.synchronized !== entry.generation || entry.environmentId === client.environmentId) continue;
+    if (entry.environmentId === client.environmentId || (offline ? !Object.keys(entry.config).length
+      : entry.phase !== 'connected' || entry.synchronized !== entry.generation)) continue;
     const match = scratch ? (scratch.has(entry.environmentId) ? { id: scratch.get(entry.environmentId) } : undefined)
       : entry.shell.projects.find(candidate => logicalProjectKey(candidate, entry.environmentId, groupingMode(client, candidate, entry.environmentId)) === key);
     if (!match) continue;
@@ -61,7 +66,7 @@ export function environmentView(client: T3Client) {
   const options = environmentOptions(client);
   // envLocked: a started thread (messages or a runtime) keeps its machine; the Select needs onEnvironmentChange (a draft).
   const pick = !client.threadId && options.length > 1;
-  return { envPick: pick, envOptions: pick ? options : [], envCount: Math.max(1, options.length) };
+  return { envPick: pick, envOptions: pick ? withAutoOption(client, options) : [], envCount: Math.max(1, options.length) };
 }
 
 /**
@@ -71,7 +76,9 @@ export function environmentView(client: T3Client) {
  */
 export async function runOnEnvironment(client: T3Client, native: Native, environmentId: string, source: EnvironmentFleet = fleet): Promise<{ status: Obj | null; generation: number }> {
   if (client.threadId) throw new ClientError('A started thread keeps its environment.');
-  if (environmentId === client.environmentId) return { status: null, generation: -1 };
+  // auto-balance: "Auto balance" asks every machine again; picking a machine is a manual choice that clears it.
+  if (environmentId === AUTO_ENVIRONMENT) { chooseAutoEnvironment(client, source); return { status: null, generation: -1 }; }
+  if (environmentId === client.environmentId) { setDraftSelection(client, { selection: 'manual', choice: '' }); return { status: null, generation: -1 }; }
   const target = environmentOptions(client, source).find(option => option.id === environmentId);
   const entry = [...source.entries.values()].find(candidate => candidate.environmentId === environmentId);
   if (!target || !entry) throw new ClientError('That environment is no longer connected.');
@@ -91,6 +98,7 @@ export async function runOnEnvironment(client: T3Client, native: Native, environ
   if (text) { client.local.drafts[to] = text; delete client.local.drafts[from]; }
   const contexts = (client.local.composerControls as { contexts?: Record<string, Obj> }).contexts ??= {};
   if (contexts[from]) { contexts[to] = { ...contexts[from], worktreePath: '' }; delete contexts[from]; }
+  moveDraftSelection(client, from, to, { selection: 'manual', choice: '' }); // auto-balance: a picked machine is manual
   client.local.selections[environmentId] = { projectId, threadId: '' };
   source.forget(entry.key);
   await native.later({ op: 'fleetStop', fleet: entry.key }).catch(() => {});
@@ -106,10 +114,12 @@ export async function runOnEnvironment(client: T3Client, native: Native, environ
  */
 export const NO_RUN_ON = { envShow: false, envMachine: 'server', envMachineLabel: '', envOptions: [] as EnvironmentOption[], envMenuWidth: 160, originShown: false, originOn: false };
 export function stripRunOn(client: T3Client, worktree = false): typeof NO_RUN_ON {
-  const options = environmentOptions(client), focused = options.find(option => option.selected);
+  const options = environmentOptions(client), shown = options.find(option => option.selected);
   const pick = !client.threadId && options.length > 1;
-  if (!focused || !(pick || !focused.primary)) return NO_RUN_ON;
+  if (!shown || !(pick || !shown.primary)) return NO_RUN_ON;
+  // auto-balance: "Auto balance" leads the group, and names the trigger while the draft is automatic.
+  const balance = autoBalanceState(client), listed = pick ? withAutoOption(client, options, balance) : [], focused = autoIndicator(client, shown, balance);
   // r5-composer: the menu's width from its measured labels (r5-composer-menus.ts); the window caps it in the view.
-  return { ...NO_RUN_ON, envShow: true, envMachine: focused.machine, envMachineLabel: focused.label, envOptions: pick ? options : [],
-    envMenuWidth: runOnMenuWidth(client.presentation, options.map(option => option.label), workspaceLabels(worktree)) };
+  return { ...NO_RUN_ON, envShow: true, envMachine: focused.machine, envMachineLabel: focused.label, envOptions: listed,
+    envMenuWidth: runOnMenuWidth(client.presentation, (listed.length ? listed : options).map(option => option.label), workspaceLabels(worktree)) };
 }
