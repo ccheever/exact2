@@ -154,7 +154,15 @@ private final class Presentation {
 /// unaligned.
 final class ZoomLanding {
     var rect: CGRect?
-    var interactive = false
+    private(set) var interactive = false
+    /// `interactiveDismissShouldBegin`'s answer, passed through: an accepted
+    /// dismissal lands unaligned until the route appears again.
+    func dismissal(begins: Bool) -> Bool {
+        if begins { interactive = true }
+        return begins
+    }
+    /// The route appeared: first, or again after the finger cancelled.
+    func appeared() { interactive = false }
     /// What `alignmentRectProvider` answers for a resolved rect: none while an
     /// interactive dismissal runs. UIKit follows the finger with the whole
     /// route and, given an alignment rect, re-bases the content onto it at
@@ -335,13 +343,9 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             let landing = ZoomLanding()
             options.interactiveDismissShouldBegin = { [weak self, weak route] context in
                 guard let self, let route, context.willBegin else { return false }
-                let begins = !self.refusesDismissal(of: route)
-                // Unaligned until this dismissal ends; one the finger cancels
-                // (the route appears again) aligns again.
-                if begins { landing.interactive = true }
-                return begins
+                return landing.dismissal(begins: !self.refusesDismissal(of: route))
             }
-            controller.appeared = { landing.interactive = false }
+            controller.appeared = landing.appeared
             // Where the source lands: the presented route's own element with
             // the source's id, when it has one; for an image, the image as it
             // is drawn (`object-fit`), so the zoom morphs photo into photo

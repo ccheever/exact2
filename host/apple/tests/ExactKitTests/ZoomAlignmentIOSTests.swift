@@ -77,17 +77,27 @@ final class ZoomAlignmentIOSTests: XCTestCase {
 
     /// The interactive dismissal lands unaligned: given a rect, UIKit re-bases
     /// the route that followed the finger onto it at lift-off (a held frame,
-    /// then a jump). The last rect is kept for the next aligned zoom, and an
-    /// unresolved target still answers it.
+    /// then a jump). The rect resolved meanwhile is kept for the next aligned
+    /// zoom, and an unresolved target still answers the last one.
     func testAnInteractiveDismissalLandsUnaligned() {
-        let landing = ZoomLanding(), rect = CGRect(x: 0, y: 286.25, width: 402, height: 301.5)
-        XCTAssertEqual(landing.answer(rect), rect)
-        XCTAssertEqual(landing.answer(nil), rect, "a target gone: the last answer")
-        landing.interactive = true
-        XCTAssertNil(landing.answer(rect))
+        let landing = ZoomLanding()
+        let open = CGRect(x: 0, y: 286.25, width: 402, height: 301.5), moved = CGRect(x: 0, y: 300, width: 402, height: 301.5)
+        landing.appeared()
+        XCTAssertEqual(landing.answer(open), open)
+        XCTAssertEqual(landing.answer(nil), open, "a target gone: the last answer")
+        // A refused dismissal changes nothing.
+        XCTAssertFalse(landing.dismissal(begins: false))
+        XCTAssertEqual(landing.answer(nil), open)
+        // Accepted: unaligned, the new rect kept.
+        XCTAssertTrue(landing.dismissal(begins: true))
+        XCTAssertNil(landing.answer(moved))
         XCTAssertNil(landing.answer(nil))
-        landing.interactive = false // cancelled: the route appeared again
-        XCTAssertEqual(landing.answer(nil), rect)
+        // Cancelled (the route appears again), then a Close: aligned on the newest rect.
+        landing.appeared()
+        XCTAssertEqual(landing.answer(nil), moved)
+        // A second drag is unaligned again.
+        XCTAssertTrue(landing.dismissal(begins: true))
+        XCTAssertNil(landing.answer(open))
     }
 }
 #endif
