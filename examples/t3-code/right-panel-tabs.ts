@@ -8,6 +8,8 @@ import { obj, str } from './domain';
 import { pushToast } from './toast';
 export type TabAction = 'rename' | 'copy-path' | 'toggle-mute' | 'close' | 'close-others' | 'close-to-right' | 'close-all';
 export type TabMenuItem = { id: TabAction; label: string; disabled?: boolean };
+/** A tab's menu row as the tab strip's `contextPopover` shows it (R4Tab.menu): every flag spelled out. */
+export type TabMenuRow = { id: TabAction; label: string; disabled: boolean };
 export function tabContextMenuItems(surface: Surface, surfaces: readonly Surface[]): TabMenuItem[] {
   const index = surfaces.findIndex(entry => entry.id === surface.id);
   if (index < 0) return [];
@@ -20,6 +22,14 @@ export function tabContextMenuItems(surface: Surface, surfaces: readonly Surface
     { id: 'close-all', label: 'Close all', disabled: surfaces.length === 0 },
   ];
 }
+/**
+ * The rows of the strip's one context popover (r4-surfaces.contract `r4-tab-menu`). A
+ * right-click opens it through the host (macOS: an NSMenu at the pointer; the agent: the
+ * painted popover), so no native request waits on menu tracking; each row presses
+ * `surface-<id>` for its tab, the same op the menu's choice ran before.
+ */
+export const tabMenuRows = (surface: Surface, surfaces: readonly Surface[]): TabMenuRow[] =>
+  tabContextMenuItems(surface, surfaces).map(item => ({ id: item.id, label: item.label, disabled: item.disabled === true }));
 export function closeSurface(state: PanelState, id: string): void {
   const index = state.surfaces.findIndex(entry => entry.id === id);
   if (index < 0) return;

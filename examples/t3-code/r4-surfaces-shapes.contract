@@ -20,6 +20,12 @@ shape R4Tab
   pending: bool
   renaming: bool
   renameValue: string
+  menu: list<R4TabMenuItem>
+// right-panel-tab-menu: one row of the tab's context menu (right-panel-tabs.ts tabMenuRows).
+shape R4TabMenuItem
+  id: string
+  label: string
+  disabled: bool
 shape R4TreeRow
   id: string
   path: string

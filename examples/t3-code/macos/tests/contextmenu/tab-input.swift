@@ -33,7 +33,6 @@ final class TabInputTests: XCTestCase {
         let close = NSButton(frame: NSRect(x: 0, y: 0, width: 16, height: 24))
         row.addSubview(close)
         install("tab-close:device:test", node: 2, view: close)
-        install("tab-rename:device:test", node: 3, view: nil)
         install("tab-cancel:device:test", node: 4, view: nil)
     }
     private func install(_ name: String, node: UInt32, view: NSView?) {
@@ -60,11 +59,11 @@ final class TabInputTests: XCTestCase {
         XCTAssertNil(input.handle(mouse(.otherMouseDown)))
         XCTAssertEqual(tabActions.map { $0.0 }, [2])
     }
-    func testDoubleClickRenamesButCloseGlyphDoesNotRename() {
-        XCTAssertNil(input.handle(mouse(.leftMouseDown, count: 2)))
-        XCTAssertEqual(tabActions.map { $0.0 }, [3])
-        XCTAssertNotNil(input.handle(mouse(.leftMouseDown, count: 2, x: 8)))
-        XCTAssertEqual(tabActions.map { $0.0 }, [3])
+    func testDoubleClickIsLeftToTheTitleButtonsOwnDblclick() {
+        // r4-surfaces.contract R4TabChip: the title button's `dblclick` starts rename, so the
+        // agent's `tap … dblclick` and a person's reach the same path; the monitor passes it on.
+        XCTAssertNotNil(input.handle(mouse(.leftMouseDown, count: 2)))
+        XCTAssertTrue(tabActions.isEmpty)
     }
     func testOrdinaryClickAndRemovedTabsDoNotDispatch() {
         XCTAssertNotNil(input.handle(mouse(.leftMouseDown)))

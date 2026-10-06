@@ -2,7 +2,7 @@
 // closeSurface maps to closeSurfaceIn; files/diff/devices replace Browser/terminal.
 // Host/device test port is complete; Zustand/refA plumbing becomes PanelState.
 import { describe, expect, test } from 'bun:test';
-import { closeSurface, closeOtherSurfaces, closeSurfacesToRight, closeAllSurfaces, openDeviceSurface, renameDevice, tabContextMenuItems, registerSurfaceClose, closePanelSurfaces, editTabName, tabRename, copyTabPath, showTabMenu } from './right-panel-tabs';
+import { closeSurface, closeOtherSurfaces, closeSurfacesToRight, closeAllSurfaces, openDeviceSurface, renameDevice, tabContextMenuItems, registerSurfaceClose, closePanelSurfaces, editTabName, tabRename, copyTabPath, showTabMenu, tabMenuRows } from './right-panel-tabs';
 import { panelState, surfaceLocal, type PanelState, type Surface } from './r4-surfaces-panel';
 import { savedPanel, adoptRightPanels, restoreRightPanel } from './r10-device-panels';
 import { deviceTargetOf } from './r6-media-device';
@@ -77,4 +77,38 @@ describe('close hooks and integration', () => {
 describe('Copy path', () => {
   test('copies relative path and reports success', async () => { const requests: unknown[] = [], c = client(async request => { requests.push(request); return { copied: true }; }); await copyTabPath(c, native, surface('src/app.ts')); expect(requests).toEqual([{ op: 'copyText', text: 'src/app.ts' }]); expect(toasts(c)[0]).toMatchObject({ title: 'Path copied', description: 'src/app.ts' }); });
   test('reports clipboard failures and unavailable API', async () => { for (const failure of [new Error('Denied'), null]) { const c = client(async () => { throw failure; }); await copyTabPath(c, native, surface('a')); expect(toasts(c)[0]).toMatchObject({ title: 'Failed to copy path', description: failure?.message ?? 'Clipboard API unavailable.' }); } });
+});
+describe('tab context popover (r4-tab-menu)', () => {
+  test('rows spell out every disabled flag in the menu order', () => {
+    const state = panel();
+    expect(tabMenuRows(state.surfaces[2]!, state.surfaces)).toEqual([{ id: 'copy-path', label: 'Copy path', disabled: false }, { id: 'close', label: 'Close', disabled: false }, { id: 'close-others', label: 'Close others', disabled: false }, { id: 'close-to-right', label: 'Close to the right', disabled: true }, { id: 'close-all', label: 'Close all', disabled: false }]);
+    const device = openDeviceSurface(state, android);
+    expect(tabMenuRows(device, state.surfaces).map(row => row.id)).toEqual(['rename', 'close', 'close-others', 'close-to-right', 'close-all']);
+  });
+  test('each row runs its surface op directly, with no native menu request', async () => {
+    const requests: Record<string, unknown>[] = [], c = client(async request => { requests.push(request); return { copied: true }; }), state = panelState(c);
+    state.surfaces = [surface('src/a.ts'), surface('src/b.ts'), surface('src/c.ts'), surface('src/d.ts')]; state.active = 'src/d.ts'; state.visible = true;
+    await surfaceLocal(c, native, 'copy-path', 'src/b.ts', '');
+    expect(requests).toEqual([{ op: 'copyText', text: 'src/b.ts' }]);
+    expect(toasts(c)[0]).toMatchObject({ title: 'Path copied', description: 'src/b.ts' });
+    await surfaceLocal(c, native, 'close-to-right', 'src/c.ts', '');
+    expect(state).toMatchObject({ active: 'src/c.ts', visible: true }); expect(state.surfaces.map(entry => entry.id)).toEqual(['src/a.ts', 'src/b.ts', 'src/c.ts']);
+    await surfaceLocal(c, native, 'close', 'src/c.ts', '');
+    expect(state.active).toBe('src/b.ts');
+    await surfaceLocal(c, native, 'close-others', 'src/a.ts', '');
+    expect(state).toMatchObject({ active: 'src/a.ts', visible: true }); expect(state.surfaces.map(entry => entry.id)).toEqual(['src/a.ts']);
+    await surfaceLocal(c, native, 'close-all', 'src/a.ts', '');
+    expect(state).toMatchObject({ surfaces: [], active: '', visible: false });
+    expect(requests.some(request => request.op === 'contextMenu')).toBe(false);
+  });
+  test('Rename from the popover or a double-click opens the editor on device tabs only', async () => {
+    const c = client(), state = panelState(c), device = openDeviceSurface(state, android); state.surfaces.push(surface('src/a.ts'));
+    await surfaceLocal(c, native, 'rename', 'src/a.ts', '');
+    expect(tabRename(state).id).toBe('');
+    await surfaceLocal(c, native, 'rename', device.id, '');
+    expect(tabRename(state)).toEqual({ id: device.id, value: 'Pixel' });
+    await surfaceLocal(c, native, 'rename-edit', device.id, 'Bench phone');
+    await surfaceLocal(c, native, 'rename-commit', device.id, '');
+    expect(device.title).toBe('Bench phone'); expect(tabRename(state).id).toBe('');
+  });
 });
