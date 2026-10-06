@@ -1020,6 +1020,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if presenter?.views[id] === self { firstDraw() }
     }
 
+    /// Whether the style clips the children (`overflow: hidden`; a paragraph's
+    /// any overflow but `visible`; line-clamp, LLP 1054 P3). Without a clip box
+    /// it is `clipsToBounds` (`applyStyle`; a landing flight, `FlightsMac`).
+    var overflowClips: Bool {
+        let over = [style["overflow_x"]?.string ?? "visible", style["overflow_y"]?.string ?? "visible"]
+        return kind == "text" ? over.contains { $0 != "visible" } || number("line_clamp") > 0 : over.contains("hidden")
+    }
+
     func applyStyle(_ s: NodeStyle) {
         defer { video?.update(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
         layerPaintCache = nil
@@ -1100,15 +1108,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // `overflow: hidden` clips the children, to the box's rounded corners
         // as the web and UIKit do (LLP 1054 P2). One radius rides the layer;
         // differing radii clip to the bounds, as UIKit's layer path does.
-        let clips = ox == "hidden" || oy == "hidden" || (paragraph && [s["overflow_x"]?.string, s["overflow_y"]?.string].contains { ($0 ?? "visible") != "visible" })
-        // CSS's line-clamp implies `overflow: hidden`: a clamped paragraph's
-        // one over-wide word must not paint over its neighbour (LLP 1054 P3).
-        let clamped = kind == "text" && number("line_clamp") > 0
         // On a layer-backed view this is the layer's `masksToBounds`, unless
         // the node casts a shadow that clipping would clip (`BoxShadow.swift`).
         // A paragraph paints its own text, which a box would not clip.
-        syncClipBox(clips && kind != "text" && shadowColor != nil && scroll == nil && overlay == nil && materialContent == nil)
-        let clipped = (clips || clamped) && clipBox == nil
+        syncClipBox(overflowClips && kind != "text" && shadowColor != nil && scroll == nil && overlay == nil && materialContent == nil)
+        let clipped = overflowClips && clipBox == nil
         if clipsToBounds != clipped { clipsToBounds = clipped }
         applyClipRadius()
         applyShadow()
