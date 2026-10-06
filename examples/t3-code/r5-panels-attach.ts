@@ -17,6 +17,7 @@ import { codeLines, type CodeLine } from './r4-surfaces-files';
 import { fileIconToken } from './timeline-files';
 import { mediaBody, mediaErrorMessage } from './r6-media-preview'; // lane r6-media: PDF, HTML, audio and video bodies
 import { sourceGutter } from './r9-device-crumbs'; // lane r9-device: the reference's line-number column
+import { letGo } from './let-go';
 
 export type AttachmentMeta = { id: string; name: string; mimeType: string; sizeBytes: number };
 export type AttachmentView = {
@@ -103,10 +104,10 @@ export async function attachmentView(client: T3Client, native: Native | null | u
   if (native?.available && client.ready) {
     if (!state.urlError && (!state.url || (needsText && !state.content && !state.contentError && now && now - state.urlAt > STALE_URL_MS))) {
       try { state.url = await mint(client, native, meta, 'inline'); state.urlAt = now; }
-      catch (error) { state.urlError = message(error, 'The attachment is unavailable.'); }
+      catch (error) { if (letGo(error)) throw error; state.urlError = message(error, 'The attachment is unavailable.'); }
     }
     if (needsText && state.url && !state.content && !state.contentError) {
-      const reply = obj(await client.restAccess(native).call({ op: 'attachmentText', url: state.url }).catch(error => ({ ok: false, message: message(error, 'Could not load this file.') })));
+      const reply = obj(await client.restAccess(native).call({ op: 'attachmentText', url: state.url }).catch(error => { if (letGo(error)) throw error; return { ok: false, message: message(error, 'Could not load this file.') }; }));
       if (reply.ok === true) state.content = { text: str(reply.text), truncated: reply.truncated === true };
       else state.contentError = str(reply.message, 'Could not load this file.');
     }
@@ -156,7 +157,7 @@ export async function attachmentLocal(client: T3Client, native: Native, op: stri
   if (op === 'copy') {
     if (!state.content) return '';
     try { await client.restAccess(native).call({ op: 'copyText', text: state.content.text }); state.copiedAt = now || -1; }
-    catch (error) { pushToast(client, { kind: 'error', title: 'Could not copy', description: message(error, 'Please try again.') }); }
+    catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Could not copy', description: message(error, 'Please try again.') }); }
     return '';
   }
   if (op === 'save') {
@@ -167,6 +168,7 @@ export async function attachmentLocal(client: T3Client, native: Native, op: stri
       const reply = obj(await client.restAccess(native).call({ op: 'attachmentSave', url, name: meta.name }));
       if (reply.ok !== true) throw new ClientError(str(reply.message, 'Please try again.'));
     } catch (error) {
+      if (letGo(error)) throw error;
       pushToast(client, { kind: 'error', title: 'Could not save file', description: message(error, 'Please try again.') });
     } finally { state.saving = false; }
     return '';

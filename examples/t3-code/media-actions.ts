@@ -18,10 +18,11 @@
 import type { T3Client } from './client';
 import { arr, obj, str, type Obj } from './domain';
 import type { Native } from './protocol';
-import { pushToast, updateToast } from './toast';
+import { dismissToast, pushToast, updateToast } from './toast';
 import { assetUrl } from './settings-b-icons';
 import { wakeShell } from './r10-connect-timing';
 import { mediaReferenceFileName, type MediaReference } from './media-reference';
+import { letGo } from './let-go';
 
 /** Menu action ids shared by every client so labels and handlers line up across surfaces. */
 export type MediaActionId = 'copy-full-path' | 'copy-relative-path' | 'copy-url' | 'open-file' | 'save' | 'copy-image';
@@ -186,6 +187,7 @@ export async function showMediaMenu(client: T3Client, native: Native, sourceText
     }
     return action;
   } catch (error) {
+    if (letGo(error)) { if (progress) dismissToast(client, progress); throw error; }
     const toast = { kind: 'error' as const, title: failureTitle, description: errorText(error) };
     if (progress) updateToast(client, progress, { ...toast, timeoutMs: 5000 });
     else pushToast(client, { ...toast, stacked: true });

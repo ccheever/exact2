@@ -17,6 +17,7 @@ import {
   defaultBranchCopy, formatElapsed, menuItems, menuNotes, menuReason, progressPresentation, providerMark, publishPathValid,
   quickAction, quickActionIcon, requiresDefaultBranchConfirmation, sortedPublishProviders, terminology, workingFiles,
 } from './r4-git-logic';
+import { letGo } from './let-go';
 
 export const GIT_ACTION_KEY = 'r4-git-action';
 export const SUCCESS_VISIBLE_MS = 10_000;
@@ -42,7 +43,8 @@ export function gitState(client: T3Client): GitState {
   return state;
 }
 const message = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
-const failure = (client: T3Client, title: string, error: unknown) => pushToast(client, { kind: 'error', title, description: typeof error === 'string' ? error : message(error), timeoutMs: 0, stacked: true });
+/** The failure toast; a let-go request is rethrown instead (let-go.ts). */
+const failure = (client: T3Client, title: string, error: unknown) => { if (letGo(error)) throw error; return pushToast(client, { kind: 'error', title, description: typeof error === 'string' ? error : message(error), timeoutMs: 0, stacked: true }); };
 
 /** True while the card must keep its clock running: an action's elapsed time or an inline success. */
 export function gitTicking(client: T3Client): boolean {
@@ -125,7 +127,7 @@ async function startAction(client: T3Client, native: Native, input: { action: st
     state.ends.clear();
     if (ended) finish(client, state, run, ended._transportError ? str(obj(ended._transportError).message, 'The connection ended.') : `Source control action '${run.action}' ended without a terminal result.`);
   } catch (error) {
-    finish(client, state, run, message(error));
+    finish(client, state, run, letGo(error) ? '' : message(error)); // a let-go run ends without a failure toast
   }
 }
 
@@ -218,7 +220,7 @@ async function publish(client: T3Client, native: Native, state: GitState, value:
     form.result = await client.restAccess(native).request('sourceControl.publishRepository', { cwd: state.cwd, provider: chosen.value, repository,
       visibility: form.visibility, remoteName: form.remote.trim() || 'origin', protocol: form.protocol }, true);
     form.step = 2;
-  } catch (error) { form.error = message(error); }
+  } catch (error) { if (!letGo(error)) form.error = message(error); }
   finally { form.pending = false; }
   return '';
 }

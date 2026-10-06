@@ -41,6 +41,7 @@ import { noteServerUpdateClock } from './server-update-notices'; // server-updat
 import { terminalDrawerView, terminalOpen } from './terminal-drawer-view';
 import { terminalFocused } from './terminal-focus';
 import { watchProviderAuth, providerAuthOp } from './provider-auth-terminal'; // terminal-drawer
+import { letGoAware } from './let-go'; // a let-go answer's native calls reject as 'superseded', never as an error
 
 export const appId = 'com.exact.t3code.macos';
 export const grants = '';
@@ -49,6 +50,7 @@ const client = new T3Client();
 // The disconnected answer is baked. Native work starts only when Exact reports
 // that the module is available, after its ordinary first-frame adoption.
 export async function answer(source: string, args: unknown[], _store: unknown, _storage: Files, native: Native | null | undefined) {
+  if (native?.available) native = letGoAware(native);
   const storage = native?.available ? nativeFiles(native) : _storage;
   if (source === 'highlightSlice') return highlightSlice(); // shiki-residuals: a background highlight turn
   startHighlightTurn(); // shiki-residuals: any other answer tokenizes code within one turn's budget

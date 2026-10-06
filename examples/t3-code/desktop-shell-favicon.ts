@@ -11,6 +11,7 @@ import { ClientError, type Native } from './protocol';
 import { isLoopback } from './settings-b-fleet';
 import { pushToast } from './toast';
 import type { T3Client } from './client';
+import { letGo } from './let-go';
 
 const isWindowsPlatform = (platform: string) => /^win(dows)?/i.test(platform);
 const isWindowsAbsolutePath = (value: string) => /^\\\\/.test(value) || /^[a-zA-Z]:[\\/]/.test(value);
@@ -41,6 +42,7 @@ export async function pickProjectFavicon(client: T3Client, native: Native, value
   try {
     path = str(obj(await client.restAccess(native).call({ op: 'pickProjectFavicon', path: cwd })).path);
   } catch (error) {
+    if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: 'Could not open image picker', description: error instanceof Error ? error.message : 'An error occurred.' });
     throw new ClientError('toasted:');
   }

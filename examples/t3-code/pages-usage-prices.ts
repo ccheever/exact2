@@ -10,6 +10,7 @@
 import { obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import type { T3Client } from './client';
+import { letGo } from './let-go';
 
 export const USAGE_PRICE_FIELDS = [
   { key: 'inputCostPerMillionTokens', label: 'Input', optional: false },
@@ -359,7 +360,7 @@ export async function usagePricesSave(client: T3Client, native: Native, forget: 
           // The reply is the updated ServerSettings; settingsUpdated follows on the config stream.
           const current = obj(client.config.settings);
           client.config = { ...client.config, settings: hasOwn(saved, 'usagePriceOverrides') ? saved : { ...current, ...applyPatch(current, patch.patch) } };
-        } catch { result = { status: 'failed', error: 'Could not save. Try again.' }; }
+        } catch (error) { if (letGo(error)) throw error; result = { status: 'failed', error: 'Could not save. Try again.' }; }
       }
       if (result.status === 'failed') anyFailed = true;
       state.attempt.results.set(target.environmentId, result);
