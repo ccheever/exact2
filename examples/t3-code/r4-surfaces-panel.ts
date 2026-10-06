@@ -14,7 +14,7 @@ import { selectDeviceTarget } from './r6-media-device';
 import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
 import { ClientError, type Files, type Native } from './protocol';
-import { diffRequest, adoptDiff } from './diff';
+import { diffRequest, adoptDiff, diffNotGit } from './diff';
 import { fileIconToken } from './timeline-files';
 import { visiblePullRequests } from './shell-pr';
 import { filesView, filesLocal, ensureFile, ensureTree, reconcileFiles, emptyFiles, pendingPaths, type FilesView } from './r4-surfaces-files';
@@ -113,7 +113,7 @@ export function availability(client: T3Client) {
     device: !!client.threadId,
     pullRequests: !!thread && capabilities(client).threadPullRequests === true && visiblePullRequests(thread.pullRequests).length > 0,
     pullRequest: !!threadPrTarget(client), // r5-panels: supportsPullRequests && threadPullRequestPanelTarget
-    diff: !!client.threadId && client.ready,
+    diff: !!client.threadId && client.ready && !diffNotGit(client), // ChatView: isServerThread && isGitRepo
   };
 }
 
