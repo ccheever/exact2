@@ -151,11 +151,11 @@ test('a key handler stops and prevents its event while a view transition holds t
   globalThis.requestAnimationFrame = f => setTimeout(f, 0);
   globalThis.document = { getElementById: () => ({}) };
   try {
-    const { on, act, C, pr, pieces } = await import(resolve(dir, 'rt.js'));
+    const { on, onKey, act, C, pr, pieces } = await import(resolve(dir, 'rt.js'));
     pr({}); await pieces();
     const listeners = [];
     const el = { addEventListener: (type, f) => listeners.push([type, f]) };
-    on(el, 'key', act(() => { C('preventDefault', []); C('stopPropagation', []); }));
+    on(el, 'key', act(() => { C('preventDefault', []); C('stopPropagation', []); }), onKey);
     const ev = { key: 'Enter', defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
     for (const [type, f] of listeners) if (type === 'keydown') f(ev);
     expect(typeof globalThis.heldTail).toBe('function'); // the tree update waits for the transition
@@ -408,7 +408,7 @@ test('an input runs a due then before its own action', async () => {
   // Runner::dispatch_at moves the clock first, so a focus answer's `then` runs
   // at the start of the input that follows and reads the value it landed, not
   // the one this input writes (synthetic-then: wasm " a3 T3 T2 T12").
-  const { mut, sig, W, commit, on, clock } = await import(resolve(dir, 'rt.js') + '?dispatch-at');
+  const { mut, sig, W, commit, on, onValue, clock } = await import(resolve(dir, 'rt.js') + '?dispatch-at');
   clock.agent = true;
   const slot = sig(0);
   const m = mut('quick', slot, []);
@@ -417,7 +417,7 @@ test('an input runs a due then before its own action', async () => {
   m.then = () => seen.push('T' + slot());
   m.due = clock.now;
   const el = new EventTarget();
-  on(el, 'input', () => { commit(() => W(slot, 12)); seen.push('E' + slot()); });
+  on(el, 'input', () => { commit(() => W(slot, 12)); seen.push('E' + slot()); }, onValue);
   el.dispatchEvent(new Event('input'));
   expect(seen).toEqual(['T2', 'E12']);
 });
@@ -438,7 +438,7 @@ test('an async source failure remains named when its retained value breaks a der
 // draft first and the action submitted it. The field's next key or edit now runs the pending submit first, before the
 // edit applies, so a submit that clears the field keeps the arriving text.
 test('a submit runs before the field\'s next key or edit applies; the edit lands after it', async () => {
-  const { on } = await import(resolve(dir, 'rt.js'));
+  const { on, onSubmit } = await import(resolve(dir, 'rt.js'));
   const saved = globalThis.addEventListener;
   try {
     // The handler's own field, both paths; an Enter that bubbled from a textarea inside the handler's element.
@@ -448,7 +448,7 @@ test('a submit runs before the field\'s next key or edit applies; the edit lands
       const el = { localName: tag, value: 'Buy milk', addEventListener: (type, f, capture) => field.push([type, f, capture]),
         removeEventListener: (type, f) => { const i = field.findIndex(([t, g]) => t === type && g === f); if (i >= 0) field.splice(i, 1); } };
       const added = [];
-      on(el, 'submit', () => { added.push(el.value); el.value = ''; }); // the action submits the draft and clears the bound field
+      on(el, 'submit', () => { added.push(el.value); el.value = ''; }, onSubmit); // the action submits the draft and clears the bound field
       const enter = { key: 'Enter', isComposing: false, defaultPrevented: false, target: { localName: origin, isContentEditable: false } };
       for (const [type, f] of field.slice()) if (type === 'keydown') f(enter); // the field's own listener
       for (const [type, f] of win.splice(0)) if (type === 'keydown') f(enter); // the window's, last on the path

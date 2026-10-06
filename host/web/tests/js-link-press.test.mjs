@@ -30,7 +30,7 @@ class Link {
 }
 
 test('a link press is the app navigation; a browser-owned one is the browser alone', async () => {
-  const { on } = await import(resolve(dir, 'rt.js'));
+  const { on, onPress } = await import(resolve(dir, 'rt.js'));
   const cases = [
     [{ href: '/next' }, {}, true],
     [{ href: '/next', target: '_self' }, {}, true],
@@ -42,7 +42,7 @@ test('a link press is the app navigation; a browser-owned one is the browser alo
   for (const [attrs, mods, app] of cases) {
     const a = new Link(attrs);
     let presses = 0;
-    on(a, 'press', () => presses++);
+    on(a, 'press', () => presses++, onPress); // the press family's binder, as the generated module passes it
     const ev = a.click(mods);
     expect([JSON.stringify(attrs), JSON.stringify(mods), presses, ev.defaultPrevented]).toEqual([JSON.stringify(attrs), JSON.stringify(mods), app ? 1 : 0, app]);
   }

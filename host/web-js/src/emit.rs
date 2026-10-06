@@ -150,6 +150,8 @@ struct Em<'a> {
     flow: bool,
     /// Whether a virtualized list is in the plan (`list.js` is imported).
     list: bool,
+    /// Whether a `video` or `audio` is in the plan (`media.js` is installed).
+    media: bool,
     /// Whether an image draws a symbol (`symbols.js`), and whether a
     /// binding names one (its roles are then the plan's strings).
     symbols: (bool, bool),
@@ -209,6 +211,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         editor: false,
         flow: false,
         list: false,
+        media: false,
         symbols: (false, false),
         heights: Default::default(),
         transforms: Default::default(),
@@ -520,6 +523,10 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         let painting = em.uses.rt("usePaint");
         let _ = write!(body, "{painting}($paint());");
     }
+    if em.media {
+        let media = em.uses.rt("useMedia");
+        let _ = write!(body, "{media}($media());");
+    }
     let mount = em.uses.rt("mount");
     let _ = write!(body, "{mount}($R=>{{{view}}});");
     // A plan whose actions read geometry fetches the page's reader after
@@ -690,6 +697,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         [
             (paint, "import{paintUse as $paint}from\"./paint.js\";"),
             (em.list, "import{vl as $vl}from\"./list.js\";"),
+            (em.media, "import{mediaUse as $media}from\"./media.js\";"),
             (!facts.is_empty(), facts.as_str()),
             (em.symbols.0, "import{symbols as $symbols}from\"./symbols.js\";"),
         ]
@@ -1119,6 +1127,9 @@ impl Em<'_> {
                 );
             }
         }
+        if element == "video" || element == "audio" {
+            self.media = true;
+        }
         if (element == "video" || element == "audio")
             && parts.props.get("muted").map(String::as_str) == Some("true")
         {
@@ -1309,18 +1320,7 @@ impl Em<'_> {
                 format!("a_{}.t(()=>[{}])", h.action.0, args.join(","))
             };
             // The motion and input pieces' events (rt.js), only where used.
-            let piece = match h.event {
-                EventKind::Swiperight => Some("onSwipe"),
-                EventKind::Pan => Some("onPan"),
-                EventKind::Panrelease => Some("onPanRelease"),
-                EventKind::Select => Some("onSelect"),
-                EventKind::Heightrelease => Some("onHeight"),
-                EventKind::Transformgeometry => Some("onTGeom"),
-                EventKind::Transformrelease => Some("onTRelease"),
-                EventKind::Reorderdrop => Some("onDrop"),
-                EventKind::Resize => Some("onResize"),
-                _ => None,
-            };
+            let piece = crate::events::piece(h.event);
             if let Some(piece) = piece {
                 let f = self.uses.rt(piece);
                 let owner = match (h.event, self.heights.get(&i), self.transforms.get(&i)) {
@@ -1341,7 +1341,17 @@ impl Em<'_> {
                 edges[(h.event == EventKind::Reachend) as usize] = handler;
                 continue;
             }
-            let _ = write!(self.out, "{on}({e},\"{}\",{handler});", h.event.name());
+            // The event family's binder (rt.js), imported only where a plan binds it.
+            let binder = crate::events::binder(h.event);
+            match binder {
+                Some(b) => {
+                    let b = self.uses.rt(b);
+                    let _ = write!(self.out, "{on}({e},\"{}\",{handler},{b});", h.event.name());
+                }
+                None => {
+                    let _ = write!(self.out, "{on}({e},\"{}\",{handler});", h.event.name());
+                }
+            }
         }
         if virtualized {
             let opts = self.list_options(i, scope, &edges)?;
