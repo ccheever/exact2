@@ -827,3 +827,87 @@ fn geometry_action_failure_cannot_leave_previous_pair_alive() {
         assert!(reply.contains(&format!("\"token\":\"{token}\"")), "{reply}");
     }
 }
+
+/// A drag's release and its handle's geometry arrive from the gesture, not
+/// through `dispatch_at`, after the page sat idle: nothing moved the runner's
+/// clock since boot. Their actions run at the input's time, so `now()` is
+/// that time and an `after` the release arms counts from it, not from the
+/// clock's last value (it fired at the very next advance: a flung photo's
+/// viewer closed the frame after the fling, Bluesky clone b09).
+const TIMED: &str = r#"component App
+  state away = false
+  state landed = 0
+  state releasedAt = -1
+  state measuredAt = -1
+  task fly when away
+    after(300, land)
+  action land
+    landed = landed + 1
+  action geometry(w: number, h: number, pw: number, ph: number)
+    measuredAt = now()
+  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number)
+    releasedAt = now()
+    away = true
+  view
+    column testId="clip" width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
+      column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 transition="translate spring(180, 12, 1), scale spring(180, 12, 1)"
+        column testId="handle" transformDragFor="photo" transformgeometry=geometry transformrelease=finish
+"#;
+
+#[test]
+fn release_and_geometry_actions_run_at_the_inputs_time_after_an_idle_clock() {
+    let (mut host, mut p, _) = boot_source(TIMED);
+    p.now = 4000.0;
+    accepted(&p.send(&mut host));
+    assert_eq!(
+        count(&host, "measuredAt"),
+        4000.0,
+        "the geometry action's now()"
+    );
+    p.op = 11;
+    p.values = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 5000.0;
+    let reply = p.send(&mut host);
+    accepted(&reply);
+    p.tokens = [
+        quoted(&reply, "translateToken"),
+        quoted(&reply, "scaleToken"),
+    ];
+    p.op = 13;
+    p.values = [0.0, 120.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 5010.0;
+    let reply = p.send(&mut host);
+    accepted(&reply);
+    assert!(reply.contains("\"committed\":true"), "{reply}");
+    assert_eq!(
+        count(&host, "releasedAt"),
+        5010.0,
+        "the release action's now()"
+    );
+    for token in p.tokens {
+        assert!(host
+            .end_hold(
+                token,
+                HoldEnd::Release {
+                    velocity: MotionValue::ZERO
+                },
+                5010.0
+            )
+            .unwrap()
+            .is_some());
+    }
+    host.advance(5100.0);
+    assert_eq!(
+        count(&host, "landed"),
+        0.0,
+        "armed at 5010, not at the clock's 4000"
+    );
+    host.advance(5309.0);
+    assert_eq!(count(&host, "landed"), 0.0);
+    host.advance(5310.0);
+    assert_eq!(
+        count(&host, "landed"),
+        1.0,
+        "due exactly 300 ms after the release"
+    );
+}

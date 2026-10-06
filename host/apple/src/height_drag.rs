@@ -233,20 +233,9 @@ impl<D: DataSource> Host<D> {
         }
         // Keep the pre-action frame operations: the commit mirror has already
         // observed them, so they cannot be reconstructed from the action batch.
-        match self
-            .runner
-            .dispatch(view, Event::HeightRelease { height, velocity })
-        {
-            Ok(receipt) => self.commit_into(
-                &[Timed {
-                    at_ms: now_ms,
-                    receipt,
-                }],
-                None,
-                batch,
-            ),
-            Err(error) => self.commit_into(&[], Some(format!("{error:?}")), batch),
-        }
+        let (receipts, error, _) =
+            self.deliver_at(view, Event::HeightRelease { height, velocity }, now_ms);
+        self.commit_into(&receipts, error, batch)
     }
 }
 
@@ -311,5 +300,60 @@ mod tests {
             let start = h.height_drag_begin(header, target, 0.);
             assert_eq!(start.contains("\"token\""), enabled, "{start}");
         }
+    }
+
+    /// A sheet's release arrives from the gesture after the app sat idle:
+    /// its action runs at the release's time, and an `after` it arms counts
+    /// from there, not from the runner's last advance (boot, here).
+    #[test]
+    fn release_action_runs_at_the_releases_time_after_an_idle_clock() {
+        let plan = contract::compile(
+            r#"component App
+  state at = -1
+  state open = true
+  state closed = 0
+  task close when not open
+    after(300, done)
+  action done
+    closed = closed + 1
+  action release(height: number, velocity: number)
+    at = now()
+    open = false
+  view
+    box id="sheet" testId="sheet" height=200 box-sizing="border-box"
+      box testId="header" heightDragFor="sheet" heightrelease=release
+"#,
+        )
+        .unwrap()
+        .encode();
+        let (mut h, _) = Host::boot(
+            &plan,
+            Empty,
+            Box::new(MonospaceMeasurer::default()),
+            800.,
+            900.,
+        )
+        .unwrap();
+        let header = h.runner.kernel().find_by_test_id("header")[0];
+        let target = h.runner.kernel().find_by_test_id("sheet")[0];
+        let start = h.height_drag_begin(header, target, 5000.);
+        let serial: u64 = start
+            .split("\"token\":\"")
+            .nth(1)
+            .and_then(|t| t.split('"').next())
+            .and_then(|t| t.parse().ok())
+            .unwrap_or_else(|| panic!("{start}"));
+        h.height_drag_update(serial, 180., 5005.);
+        let batch = h.dispatch_height_held(serial, 160., 0., 5010.);
+        assert!(batch.contains("\"error\":null"), "{batch}");
+        let slot = |h: &Host<Empty>, name: &str| match h.runner.slot(name) {
+            Some(DataValue::Number(n)) => *n,
+            other => panic!("{name}: {other:?}"),
+        };
+        assert_eq!(slot(&h, "at"), 5010.);
+        h.advance(5100.);
+        assert_eq!(slot(&h, "closed"), 0., "armed at 5010, not at boot");
+        h.advance(5310.);
+        assert_eq!(slot(&h, "closed"), 1.);
     }
 }

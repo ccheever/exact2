@@ -18,7 +18,7 @@ use super::transform_drag_wire::Input;
 use super::{Batch, Host, HostError};
 use exact_kernel::{motion::motion_node, Kernel, NodeKey, TransformDragBinding, ViewId};
 use exact_motion::{Engine, HoldEnd, Property, TransformHold};
-use exact_runner::{DataSource, Timed};
+use exact_runner::{DataSource, Event, Timed};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -96,6 +96,38 @@ impl TransformDrags {
 }
 
 impl<D: DataSource> Host<D> {
+    /// An event the host delivers itself, mid-gesture (a drag's release, its
+    /// handle's new geometry), at the input's time `now_ms`: the runner's
+    /// clock moves there first, as [`Host::dispatch_at`] moves it, so a timer
+    /// due by then fires at its own time and the action's `now()` — and an
+    /// `after` it arms — is the input's, not the last advance's. Idle, with
+    /// no frame or timer to move it, the runner's clock can be seconds old.
+    /// The commits in order, the event's last; the refusal, the event's or
+    /// a timer's; and whether the event committed.
+    pub(super) fn deliver_at(
+        &mut self,
+        view: ViewId,
+        event: Event,
+        now_ms: f64,
+    ) -> (Vec<Timed>, Option<String>, bool) {
+        let mut a = self.runner.advance_timed(now_ms);
+        let mut error = a.error.take().map(|e| format!("{e:?}"));
+        let committed = match self.runner.dispatch(view, event) {
+            Ok(receipt) => {
+                a.receipts.push(Timed {
+                    at_ms: now_ms.max(a.now_ms),
+                    receipt,
+                });
+                true
+            }
+            Err(e) => {
+                error.get_or_insert(format!("{e:?}"));
+                false
+            }
+        };
+        (a.receipts, error, committed)
+    }
+
     /// Consume the fixed v2 photo packet. Geometry does not prove a worker result
     /// or change Kernel layout: it is a bound native observation. Refused stale
     /// inputs never seek their incoming clock. A stale reply may include a batch
@@ -234,19 +266,8 @@ impl<D: DataSource> Host<D> {
         });
         // All six values/time passed preflight, both old holds are live, and the
         // action executes while both still own presentation. Do not lower first.
-        let (committed, batch) = match self.runner.dispatch(view, input.event()) {
-            Ok(receipt) => (
-                true,
-                self.commit(
-                    &[Timed {
-                        at_ms: input.now_ms,
-                        receipt,
-                    }],
-                    None,
-                ),
-            ),
-            Err(e) => (false, self.commit(&[], Some(format!("{e:?}")))),
-        };
+        let (receipts, error, committed) = self.deliver_at(view, input.event(), input.now_ms);
+        let batch = self.commit(&receipts, error);
         Ok(format!(
             "{{\"accepted\":true,\"dispatched\":true,\"committed\":{committed},\"velocity\":[{},{},{}],\"batch\":{batch}}}",
             input.values[3], input.values[4], input.values[5]
@@ -324,21 +345,8 @@ impl<D: DataSource> Host<D> {
             self.retire_transform_pair(serial, &mut batch);
         }
         if dispatch {
-            match self.runner.dispatch(view, input.event()) {
-                Ok(receipt) => Ok(accepted(self.commit_into(
-                    &[Timed {
-                        at_ms: input.now_ms,
-                        receipt,
-                    }],
-                    None,
-                    batch,
-                ))),
-                Err(error) => Ok(accepted(self.commit_into(
-                    &[],
-                    Some(format!("{error:?}")),
-                    batch,
-                ))),
-            }
+            let (receipts, error, _) = self.deliver_at(view, input.event(), input.now_ms);
+            Ok(accepted(self.commit_into(&receipts, error, batch)))
         } else {
             self.present(&mut batch, false);
             Ok(accepted(self.finish(batch, None)))
