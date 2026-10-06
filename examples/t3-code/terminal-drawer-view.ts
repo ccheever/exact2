@@ -21,6 +21,7 @@ import type { DispatchAdd } from './keyboard-dispatch';
 import { obj, str, type Obj } from './domain';
 import type { Files, Native } from './protocol';
 import { subscriptionSerial } from './shell-vcs';
+import { setCloseThreadTerminals } from './worktree-cleanup';
 import { commandShortcut } from './shell';
 import { terminalCloseConfirmMessage } from './terminal-close';
 import {
@@ -226,6 +227,8 @@ export async function closeThreadTerminals(client: T3Client, native: Native, thr
   catch (error) { failed(client, 'terminal close', error); }
   terminalUiStore(client).getState().clearTerminalUiState({ environmentId: client.environmentId, threadId });
 }
+// The sidebar delete (sidebar-commands.ts `remove`, thread-commands-and-keys) closes terminals through this hook.
+setCloseThreadTerminals(closeThreadTerminals);
 
 /** `terminallocal:` ops: toggle (⌘J and the layout buttons), new, close (confirmed), exited, height. */
 export async function terminalOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {

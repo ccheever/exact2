@@ -7,6 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
 import type { Files, Native } from './protocol';
+import { closeThreadTerminals as cleanupCloseThreadTerminals } from './worktree-cleanup';
 import { closeThreadTerminals, terminalRows, terminalDrawerView, terminalMetadataEvent, terminalOps, terminalAvailable, terminalOpen, TERMINAL_METADATA_KEY } from './terminal-drawer-view';
 import { adoptTerminalPrefs, terminalUiStore } from './terminal-ui-state';
 
@@ -133,6 +134,10 @@ describe('terminal drawer commands', () => {
     expect(calls[1]).toEqual({ method: 'terminal.close', payload: { threadId: 'thread-1', deleteHistory: true } });
     expect(terminalUiStore(client).getState().terminalUiStateByThreadKey['env-a:thread-1']).toBeUndefined();
   });
+});
+
+test('the sidebar delete hook (worktree-cleanup) closes terminals through the drawer', () => {
+  expect(cleanupCloseThreadTerminals).toBe(closeThreadTerminals);
 });
 
 describe('terminal drawer resource', () => {
