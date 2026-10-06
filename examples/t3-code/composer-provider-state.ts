@@ -81,7 +81,7 @@ export function currentDescriptors(descriptors: Obj[], selections: Obj[] | undef
   return descriptors.map(descriptor => {
     const value = resolvedCurrent(descriptor, selections ?? []);
     const next: Obj = { ...descriptor };
-    if (value === undefined || value === '') delete next.currentValue; else next.currentValue = value;
+    if (value === undefined || value === null || value === '') delete next.currentValue; else next.currentValue = value as Obj[string];
     return next;
   });
 }

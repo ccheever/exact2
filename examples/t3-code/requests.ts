@@ -7,6 +7,7 @@ import { arr, obj, str, type Obj } from './domain';
 import { ClientError } from './protocol';
 import type { T3Client } from './client';
 import { queuedEdit } from './composer-controls-queue';
+import { promptRewriteKey } from './composer-ultrathink';
 
 /** One draft per question (`request::question`) and one per request (its question index). */
 export type RequestDraft = { selected: string[]; custom: string; index: number };
@@ -125,7 +126,7 @@ export function requestPresentation(client: T3Client) {
   })()] : [];
   const requestMode = approvals.length ? 'approval' : questions.length ? 'question' : '';
   const edit = queuedEdit(client);
-  return { approvals, questions, requestMode, requestKey: questions[0]?.id ?? (edit ? `queued-edit:${edit.runId}` : ''),
+  return { approvals, questions, requestMode, requestKey: (questions[0]?.id ?? (edit ? `queued-edit:${edit.runId}` : '')) + promptRewriteKey(client), // composer-fidelity: a client-side prompt rewrite shows
     ...(questions.length ? { draft: active!.custom } : {}), ...connectionBanner(client), ...threadErrors(client) };
 }
 

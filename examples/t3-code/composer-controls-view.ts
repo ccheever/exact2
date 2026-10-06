@@ -72,7 +72,8 @@ export function footerLayout(input: { model: string; traits: string; traitsIcon:
 }
 
 /** buildTraitsTriggerDisplay: speed traits become a bolt (two for Ultrafast); booleans read "<label> On|Off". */
-export function traitsDisplay(driver: string, descriptors: Obj[], selections: Obj[], selection: Selection | null = null, reported: Selection | null = null) {
+export function traitsDisplay(driver: string, descriptors: Obj[], selections: Obj[], selection: Selection | null = null, reported: Selection | null = null,
+  ultra: { primaryId: string; controlled: boolean } = { primaryId: '', controlled: false }) {
   let speed = '', fallback = '';
   const labels: string[] = [];
   const current = (descriptor: Obj) => resolvedCurrent(descriptor, selections) ?? arr(descriptor.options).find(option => option.isDefault === true)?.id;
@@ -88,6 +89,8 @@ export function traitsDisplay(driver: string, descriptors: Obj[], selections: Ob
         fallback = str(options.find(option => option.id === value)?.label, 'Normal'); continue;
       }
     }
+    // composer-fidelity G9: the prompt-controlled primary effort reads "Ultrathink" (buildTraitsTriggerDisplay).
+    if (ultra.controlled && descriptor.id === ultra.primaryId) { labels.push('Ultrathink'); continue; }
     if (descriptor.type === 'boolean') { labels.push(`${str(descriptor.label, str(descriptor.id))} ${current(descriptor) === true ? 'On' : 'Off'}`); continue; }
     if (descriptor.type !== 'select') continue;
     // getProviderOptionCurrentLabel: a provider-reported value labels an option the user left unset.
