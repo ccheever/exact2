@@ -5,8 +5,9 @@
 - Upstream: `https://github.com/expo/ibex.git` at
   `ec949fef1cf4f92a8ce09bbc357ba8b150ec25a0` (2026-10-06).
 - Vendored: `crates/{ibex2,ibex2-sqlite,hermes-lean-sys,hermes-lean-sys-installer}`.
-- Minimum external inputs: `scripts/icu74-filter-root-en.json`, embedded by
-  `hermes-lean-sys`'s receipt tests, and `third_party/wpt/urltestdata.json`,
+- Minimum external inputs: `scripts/icu74-filter-{root-en,en-intl}.json`,
+  embedded by `hermes-lean-sys`'s receipt tests, and
+  `third_party/wpt/urltestdata.json`,
   read by `ibex2/tests/wpt_url.rs`. Repository engine-output directories are
   deliberately absent; consumer builds use the verified bundle cache.
 - Hermes pin: Ibex release `hermes-vanilla-d412d3bd8512-v4`, whose attested
