@@ -1410,6 +1410,16 @@ says so once per box. Refused, each saying what to write: `column-span`, page
 and region breaks, `balance-all`, dashed or dotted rules, and multi-column rows
 on `row` or `column` (CSS ignores them on flex and grid; write `view`).
 
+A bare text field (`input` of type `text`, `email`, `password`, `search`, `tel`,
+`url`, `number` or none, and `textarea`) is visible, as the browser's is: a 1px
+`light-dark(#c6c6c8, #48484a)` border, radius 6, padding 6/8, a
+`light-dark(#ffffff, #1c1c1e)` fill and its own `light-dark(#000000, #ffffff)`
+ink (it does not inherit `color`). These are rows under yours: any row or class
+you write replaces that one row and keeps the rest; `padding` and `width` stay
+content-box, so the field is 18px wider and 14px taller than its content.
+`appearance="none"` (a literal) leaves them all out for a field you draw
+yourself, such as a composer inside a pill (LLP 1104).
+
 `textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
 height and `field-sizing="content"` override it. `maxlength=80` on text inputs
 and textareas limits user edits in UTF-16 units; authored `value` updates are

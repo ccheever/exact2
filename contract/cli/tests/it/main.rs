@@ -43,6 +43,7 @@ mod format;
 mod function_graph;
 mod geometry;
 mod grouped_list;
+mod visible_fields;
 mod height_binding;
 mod inference_order;
 mod insets;

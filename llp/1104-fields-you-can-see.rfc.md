@@ -1,7 +1,7 @@
 # LLP 1104: Fields you can see — a visible text field by default
 
 **Type:** RFC
-**Status:** Draft r2, 2026-10-06. Charlie decided the direction (LLP 1102 §0, §3.15: "visible by default is right"). r2 folds in one blind pass by Astra and Grok (both READY WITH CHANGES, §5). This amends LLP 1102 §0's "the platform's field" to these default rows.
+**Status:** Built r3, 2026-10-06 (§6), except D4's focus states, which are deferred. Charlie decided the direction (LLP 1102 §0, §3.15: "visible by default is right"). r2 folded in one blind pass by Astra and Grok (both READY WITH CHANGES, §5). This amends LLP 1102 §0's "the platform's field" to these default rows.
 **Systems:** Contract lowering (`contract/lower/src/tags.rs` `input`/`textarea` `fixed_styles`, `controls.rs` for input types), the web host's control reset (`host/web/index.html`), the JS target (no change beyond the rows), the Apple and Linux hosts (they already paint authored rows; their native field chrome stays off), docs, conformance, apps in the repo that relied on a bare field
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-06
@@ -115,4 +115,18 @@ About two and a half lane-days.
   - the content-box growth;
   - Linux, placeholders and native geometry in verification;
   - the cost raised.
+- r3, 2026-10-06: built (§6).
+
+## 6. As built
+
+- **Lowering** (`contract/lower/src/fields.rs`): the D2 rows are a sheet pushed under the node's classes and attributes, as a grouped list's sheet is (LLP 1084 D7). A field is a `textarea` that is not the Markdown editor, or an `input` whose `type` is absent or one of D2's (a `shown ? "text" : "password"` choice counts when both sides do). A literal `appearance="none"` (class, then own) leaves the rows out; `"auto"` and a computed `appearance` are refused (`lower-field-appearance`).
+- **Conditional classes:** where one side of `class=(c ? A : B)` leaves a sheet row unset, that side is the sheet's value. A shorthand is written from the sheet's longhands (`padding` as `"6px 8px 6px 8px"`, `border` as `"1px solid <colour>"`). This applies to a grouped list's sheet too, which had the same gap.
+- **Tests:** `contract/cli/tests/it/visible_fields.rs` (the rows, the excluded types, overrides by shorthand and class, the content-box growth, the class switch, the refusals). The content-sized composer corpus test now expects `max-height` plus the 14px of padding and border.
+- **Screenshots**, light and dark, of a fixture covering D5's cases (bare, email, password, search, number, a class's fill, an authored border, `appearance="none"`, disabled, a textarea, a field under `color="#000000"`), on the web, macOS, iOS (iPhone 17 simulator) and Linux. All four draw the same field. Typed text is the field's own ink under a black parent in dark mode. Placeholders read on every host.
+- **The repo's apps:** the 43 fields that draw their own look (any authored border, padding or fill, including every `border-width=0` composer and search bar) now say `appearance="none"`, so they look as they did. RealWorld's classes set every row, so its fields are unchanged without it. The fields with no styling of their own (`windows-desk`, `native-fixture`'s searches, `markdown-stress`'s link URL) now get the default look.
+- **Docs:** the agents' guide (beside `textarea rows`) and the humans' guide (Input, events, and commands).
+
+**Deferred:**
+- **D4 focus states.** A field shows focus by its caret on every host, as a bare field did before. A web `:focus-visible` ring for dressed fields only needs a marker the web host can select on. Inline styles and the JS target's static classes cannot be told apart by a selector, and there is no `outline` row an author could use to turn a ring off. So the marker is a new prop, which is its own change, together with the macOS/Linux accent border.
+- **§4 Q2, a disabled field's dimming.** Not built; awaiting the decision.
 

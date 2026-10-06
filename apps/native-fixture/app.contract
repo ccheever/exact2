@@ -457,7 +457,7 @@ component NativeFixture
                 when e.name == "second"
                   scroll id="list-second" testId="list-second" flex=1 min-height=0
                     column padding=12 gap=8
-                      input value=draft input=setDraft testId="draft" aria-label="Draft" placeholder="A draft" padding=6 border-width=1 border-style="solid" border-color="#d1d5db"
+                      input appearance="none" value=draft input=setDraft testId="draft" aria-label="Draft" placeholder="A draft" padding=6 border-width=1 border-style="solid" border-color="#d1d5db"
                       button press=bump testId="bump-second" padding=6 background-color="#e5e7eb"
                         text "Bump"
                       button press=unbump testId="unbump-second" padding=6 background-color="#e5e7eb"

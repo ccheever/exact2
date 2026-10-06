@@ -26,6 +26,7 @@ mod contain;
 pub mod controls;
 pub mod dataset;
 pub mod expr;
+mod fields;
 mod fonts;
 mod grouped;
 mod handlers;
@@ -687,9 +688,17 @@ impl<'a> Lowerer<'a> {
                 {
                     grouped::native_rows(&mut sheet);
                 }
+                // @ref LLP 1104 D2, D3 — a text field's sheet, under its classes.
+                fields::sheet(
+                    tag,
+                    expanded.iter().flatten().chain(attrs),
+                    *span,
+                    &mut sheet,
+                )?;
                 let class_len = expanded.as_ref().map_or(0, Vec::len) + sheet.len();
                 let expanded = match &mut expanded {
                     Some(rows) => {
+                        fields::over_sheet(rows, &sheet);
                         rows.splice(0..0, sheet.iter().cloned());
                         rows.extend(attrs.iter().filter(|a| a.name != "class").cloned());
                         rows.as_slice()
