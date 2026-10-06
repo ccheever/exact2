@@ -57,7 +57,8 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
 
     /// DesktopWindow.ts: a held ⌘W can outlive the panel that took its first press, so its
     /// auto-repeats (no ⌥, no ⇧) never reach the menu's Close Window. Matched by key code 13 as
-    /// well, since a non-Latin source (Korean 2-Set) reports ㅈ there (X15, #110).
+    /// well, since a non-Latin source (Korean 2-Set) reports ㅈ there: this monitor reads the raw
+    /// event, which exact2 #168's physical-key matching of declared chords does not reach (X15).
     static func dropsHeldClose(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard event.type == .keyDown, event.isARepeat, flags.contains(.command), !flags.contains(.option), !flags.contains(.shift) else { return false }
@@ -361,7 +362,8 @@ final class T3QuitHold {
         }
     }
     /// The event's key; Q's key code stands in when a non-Latin source (Korean 2-Set's ㅂ) types no
-    /// Latin letter there (X15, #110), as the r10-connect chords do.
+    /// Latin letter there, as the r10-connect chords do: the quit hold reads raw key events, which
+    /// exact2 #168 (declared chords only) does not reach (X15).
     static func key(_ event: NSEvent) -> String {
         let key = (event.charactersIgnoringModifiers ?? "").lowercased()
         return event.keyCode == 12 && !key.unicodeScalars.contains(where: { $0.isASCII }) ? "q" : key

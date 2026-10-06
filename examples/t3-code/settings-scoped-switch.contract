@@ -3,7 +3,7 @@
 // track and a 14pt thumb that moves with `translate` over 150 ms (none under reduced
 // motion). Mixed centres the thumb at 70 % on the unchecked track; the caller's press
 // turns the setting on for every target, as a press on an unchecked switch would.
-// aria-checked cannot carry "mixed" (X43, #120): a mixed switch reports unchecked.
+// aria-checked cannot carry "mixed" (X43, #120, closed, not planned): a mixed switch reports unchecked.
 component ScopedSwitch
   props
     checked: bool

@@ -4,8 +4,8 @@
 // countdown (destructive "Expired"), the password field, the keys hint (the error text
 // replaces it), Cancel (Dismiss once expired) and Continue. Enter submits; Escape and an
 // outside press cancel. No close button, no motion. The field is the module's secure
-// `t3-ssh-password` (T3SshAuth.swift; X35, upstream #134): Continue asks the module to read
-// it, so the password is never Contract state.
+// `t3-ssh-password` (T3SshAuth.swift; X35): Continue asks the module to read it, so the
+// password is never Contract state, which agent `state` prints (exact2 #134 masks the tree only).
 shape SshPromptView
   open: bool
   requestId: string
