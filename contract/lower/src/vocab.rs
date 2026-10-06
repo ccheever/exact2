@@ -18,7 +18,7 @@ include!(concat!(env!("OUT_DIR"), "/vocab.rs"));
 pub const CONTEXTUAL: &[(&str, &str)] = &[
     ("sandbox", "`iframe`"),
     ("src", "`iframe` or `video`"),
-    ("load", "`iframe` or a native module"),
+    ("load", "`iframe`, `image` or a native module"),
     ("message", "`iframe`, `canvas` or a native module"),
     ("document", "`scroll`"),
     ("reachstart", "`list`"),
