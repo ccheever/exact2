@@ -221,6 +221,9 @@ pub struct Kernel {
     on_demand: bool,
     /// Keeps nothing ([`Kernel::detached`]).
     detached: bool,
+    /// List rows mounted out of their port that hold an animation waiting
+    /// for the row to show (`animation-trigger: view`, LLP 1055 D13).
+    pub(crate) awaiting: crate::id::IdSet<ViewId>,
 }
 
 /// The engine tree, which a layout path has made sure of with `mirror`.
@@ -283,6 +286,7 @@ impl Kernel {
             region_leases: Default::default(),
             on_demand: true,
             detached: false,
+            awaiting: Default::default(),
         }
     }
 
@@ -985,6 +989,7 @@ impl Kernel {
             region_leases: Default::default(),
             on_demand: self.on_demand,
             detached: self.detached,
+            awaiting: Default::default(),
         }
     }
 }

@@ -83,6 +83,11 @@ pub struct CommitReceipt {
     /// animations from their start). The kernel never fills it; the producer
     /// that rebinds does.
     pub renewed: Vec<NodeKey>,
+    /// List rows that showed in their port for the first time since they
+    /// were mounted out of it ([`crate::Kernel::reveal`]; LLP 1055 D13):
+    /// the animations below them that waited for that start now. The
+    /// producer that mounts rows fills it, as it does `renewed`.
+    pub revealed: Vec<NodeKey>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

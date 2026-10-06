@@ -493,6 +493,8 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
                 | StyleId::ScrollEdgeEffect
                 | StyleId::HoverEffect
                 | StyleId::SmartInvert
+                // The kernel holds the animations (LLP 1055 D13): no declaration.
+                | StyleId::AnimationTrigger
         ) =>
         {
             false

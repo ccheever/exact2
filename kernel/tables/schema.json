@@ -1834,6 +1834,14 @@
       ],
       "default": "auto"
     },
+    "AnimationTrigger": {
+      "_comment": "@ref LLP 1055 D13: when a node's `animation`s start. view (the default): inside a row a virtualized list mounted out of its port, when that row first shows in the port (held until then as `animation-play-state: paused` holds them); anywhere else, as none. none: when the node is inserted (CSS Animations 1 \u00a73).",
+      "values": [
+        "view",
+        "none"
+      ],
+      "default": "view"
+    },
     "BackgroundAttachment": {
       "values": [
         "scroll",
@@ -3549,6 +3557,13 @@
       "codec": "enum:ColorScheme",
       "inherited": true,
       "_comment": "@ref LLP 1034 \u00a78: CSS `color-scheme` on a subtree, `light` or `dark`: `light-dark()`, platform colours and native materials below resolve in that scheme. Initial `normal`, the surrounding scheme (the app's, or an ancestor's)."
+    },
+    {
+      "bit": 193,
+      "field": "animation_trigger",
+      "rare": true,
+      "codec": "enum:AnimationTrigger",
+      "_comment": "@ref LLP 1055 D13: `animation-trigger`, the name of CSS's scroll-triggered animations with two values of our own, `view | none`: whether the node's animations start when its list row first shows or at insertion."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

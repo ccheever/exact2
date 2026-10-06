@@ -783,3 +783,8 @@ fn first_root_bounded<'a>(
     }
     Err("collection row has no authored root")
 }
+
+/// The mounted collections as a batch's JSON, through [`super::super::LISTS`].
+pub(in crate::instance) fn collections_json(tree: &Tree) -> String {
+    super::snapshots_json(&tree.collections())
+}
