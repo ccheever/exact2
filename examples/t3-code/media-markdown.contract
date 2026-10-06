@@ -41,7 +41,7 @@ component MarkdownMedia
           MarkdownMediaBody(url=entry.url, alt=alt, kind=kind, tip=tip, source=source, original=false, local=local)
       else
         when refused
-          MediaActions(source=source, tip=tip, local=local, testId="markdown-media-failed")
+          MediaActions(source=source, tip=tip, local=local, testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))
             when kind == "video"
               column width="100%" max-width=640 aspect-ratio="16 / 9" padding=16 box-sizing="border-box" gap=12 align-items="center" justify-content="center" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff06)" background-color="light-dark(#f4f4f566, #ffffff06)" role="alert"
                 row gap=6 align-items="center"
@@ -71,7 +71,7 @@ component MarkdownMediaBody
   action retry
     failed = false
   view
-    MediaActions(source=source, tip=tip, local=local, testId="markdown-media")
+    MediaActions(source=source, tip=tip, local=local, testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))
       when kind == "video"
         when failed
           column role="alert" width="100%" max-width=640 aspect-ratio="16 / 9" min-height=112 padding=16 box-sizing="border-box" gap=12 align-items="center" justify-content="center" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff06)" background-color="light-dark(#f4f4f566, #ffffff06)" testId="markdown-video-failed"
