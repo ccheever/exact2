@@ -89,7 +89,9 @@ final class TextFlowTests: XCTestCase {
                     XCTAssertEqual(cached.width, fresh.width)
                     XCTAssertEqual(cached.height, fresh.height)
                 }
-                if mode == 0 {
+                // `break-word` takes normal's opportunities too, breaking
+                // inside a word only when none fits; `anywhere` is CoreText's.
+                if mode != 2 {
                     XCTAssertEqual(source.lineBreakBoundaries, engine.lineBoundaries(text as NSString, length: text.utf16.count))
                 } else { XCTAssertNil(source.lineBreakBoundaries, "Emergency wrapping needs no Unicode opportunity array") }
             }

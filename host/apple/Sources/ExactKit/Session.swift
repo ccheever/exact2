@@ -443,6 +443,9 @@ public final class ExactSession {
     private var canvasOwed = false
     private var canvasAsked = false
     private var landing = false
+    /// Landing slices ahead of a batch already made: their appearance
+    /// reports wait for it, so no batch made later applies before it.
+    private var holdingReports = false
     /// Slices build off main on iOS unless the agent drives the app, or
     /// `EXACT_FILL_SYNC=1` asks for the synchronous path (LLP 1072 T12).
     /// macOS follows once physical scrolling there is measured (stage 5).
@@ -980,7 +983,12 @@ public final class ExactSession {
         guard state != .destroyed else { return }
         appliedBatches += 1
         // A slice the owner committed before this batch applies first (T4).
-        if !applying, !landing, fillInFlight || tickInFlight || canvasInFlight, hasPublished { landFill() }
+        if !applying, !landing, fillInFlight || tickInFlight || canvasInFlight, hasPublished {
+            // What the landed slices leave owed is asked after this batch,
+            // which the owner made after them (T4; LLP 1034 §8).
+            holdingReports = true; landFill(); holdingReports = false
+            guard state != .destroyed else { return }
+        }
         let outermost = !applying
         applying = true
         // What applying it cost, with its transactions, for the next sampled frame (LLP 1079 D3).
@@ -1026,7 +1034,7 @@ public final class ExactSession {
                 let (name, json) = pendingSurfaceRecords.removeFirst()
                 apply(runtime.surfaceRecord(name, json))
             }
-            while !pendingViewDark.isEmpty {
+            while !holdingReports, !pendingViewDark.isEmpty {
                 let (id, dark) = pendingViewDark.removeFirst()
                 apply(runtime.viewScheme(id, dark: dark))
             }
@@ -1321,6 +1329,11 @@ public final class ExactSession {
             let early = unreported; unreported.removeAll()
             for id in early { if let v = presenter.views[id] { noteAppearance(v) } }
         }
+        // A subtree with a `color-scheme` of its own keeps its appearance
+        // when the session's changes, so no trait callback says it: said
+        // here, after the scheme. Its views' appearance is the row's, already
+        // settled, whatever the platform's walk has reached.
+        for v in presenter.views.values where v.style["color_scheme"] != nil { noteAppearance(v) }
         apply(runtime.scheme(dark: dark))
     }
     /// @ref LLP 1095 D9 — the platform's resolution of every reference the

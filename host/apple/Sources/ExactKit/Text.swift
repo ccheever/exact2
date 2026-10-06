@@ -994,20 +994,19 @@ final class TextEngine {
         var start = 0
         var clampedRange: CFRange?
         let limit = width.isFinite ? Double(width) : Double.greatestFiniteMagnitude
-        // CoreText breaks a word when it cannot fit; CSS normal instead lets
-        // that word overflow. Public Unicode line boundaries distinguish those
-        // emergency breaks from ordinary opportunities (including CJK).
-        var boundaries: [Int] = []
-        var boundaryIndex = 0
+        // CSS breaks a line at the last Unicode line-break opportunity that
+        // fits; `anywhere` keeps CoreText's breaking (TextBreaks.swift).
+        var plan = LineBreakPlan()
         let text = shape.attributed.string as NSString
         // `nowrap` takes no soft break (below), so it needs none of them.
-        if spec.overflowWrap == 0 && spec.wraps && width.isFinite && breaks == nil && ranges == nil {
-            if let cached = shape.lineBreakBoundaries { boundaries = cached }
+        if spec.overflowWrap != 2 && spec.wraps && width.isFinite && breaks == nil && ranges == nil {
+            if let cached = shape.lineBreakBoundaries { plan.boundaries = cached }
             else {
-                boundaries = lineBoundaries(shape.attributed.string as NSString, length: length)
-                shape.lineBreakBoundaries = boundaries
+                plan.boundaries = lineBoundaries(shape.attributed.string as NSString, length: length)
+                shape.lineBreakBoundaries = plan.boundaries
                 residency.refresh(shape)
             }
+            plan.prepare(text, length: length)
         }
         while start < length {
             if spec.lineClamp > 0 && lines.count == spec.lineClamp { break }
@@ -1027,27 +1026,14 @@ final class TextEngine {
                 // CSS `text-indent` takes its room from the first line only,
                 // a list item's indent from each of its lines.
                 let room = limit - Double(insets.at(start).width)
-                let from = boundaryIndex
+                plan.advance(to: start)
                 func suggest(_ room: Double) -> Int {
-                    var count = CTTypesetterSuggestLineBreak(typesetter, start, room)
-                    boundaryIndex = from
-                    while boundaryIndex < boundaries.count && boundaries[boundaryIndex] < start + count {
-                        boundaryIndex += 1
-                    }
-                    if boundaryIndex < boundaries.count {
-                        count = boundaries[boundaryIndex] - start
-                    }
-                    return count
+                    plan.suggest(typesetter, start: start, room: room, offerWidth: width, breakWord: spec.overflowWrap == 1, length: length, text: text)
                 }
                 count = suggest(room)
-                // A break at a soft hyphen shows one, which must fit too, as
-                // in Chrome (CoreText counts the invisible SHY as nothing).
-                if count > 0, start + count < length, text.character(at: start + count - 1) == 0xAD, room.isFinite {
-                    let plain = CTTypesetterCreateLine(typesetter, CFRangeMake(start, count))
-                    let inked = TextEngine.inkedSoftHyphen(plain, source: shape.attributed, range: CFRangeMake(start, count))
-                    let ink = CTLineGetTypographicBounds(inked, nil, nil, nil)
-                    if ink > room { count = suggest(room - (ink - CTLineGetTypographicBounds(plain, nil, nil, nil))) }
-                }
+                // A soft hyphen's break shows one, which must fit (TextBreaks).
+                count = Self.fitSoftHyphen(start: start, count: count, room: room, boundaries: plan.boundaries, source: shape.attributed,
+                                           typesetter: typesetter, length: length, retry: suggest)
             }
             if count <= 0 { count = length - start }
             let range = CFRangeMake(start, count)
@@ -1209,7 +1195,9 @@ final class TextEngine {
         return CTLineCreateTruncatedLine(line, width, .end, token)
     }
 
-    /// As narrow as the content can be: the longest unbreakable piece.
+    /// As narrow as the content can be: the longest unbreakable piece, cut
+    /// at the line-break opportunities layout takes (UAX #14), not only at
+    /// spaces: a URL's hyphen is one, as in the browser.
     func minContentWidth(_ spec: Spec) -> CGFloat {
         let identity = residency.identity(spec)
         if let width = residency.minimum(identity) { return width }
@@ -1243,7 +1231,7 @@ final class TextEngine {
         // piece; a list item's indent of each of its words, its marker hung.
         var indent = spec.textIndent
         for r in spec.runs where !r.hang {
-            for word in r.text.split(whereSeparator: { $0.isWhitespace }) {
+            for word in unbreakablePieces(r.text) {
                 var one = spec
                 one.runs = [Run(text: String(word), size: r.size, weight: r.weight, family: r.family, italic: r.italic, lineHeight: r.lineHeight, letterSpacing: r.letterSpacing, numeric: r.numeric)]
                 let key = one.runs[0]

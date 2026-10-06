@@ -28,30 +28,22 @@ final class RegionPreparedSource {
     }()
     /// CoreText's word-break iterator can rescan the whole prefix on every
     /// line of a giant paragraph. Cluster fitting plus the already indexed
-    /// Unicode opportunities avoids that quadratic search. Trailing whitespace
-    /// hangs at a break, just as in CTTypesetterSuggestLineBreak.
-    lazy var breakContentEnds: [Int] = {
-        let text = attributed.string as NSString
-        return lineBreakBoundaries.map { boundary in
-            var end = boundary
-            while end > 0, let scalar = UnicodeScalar(text.character(at: end - 1)),
-                  CharacterSet.whitespaces.contains(scalar) { end -= 1 }
-            return end
-        }
+    /// Unicode opportunities avoids that quadratic search; the choice is
+    /// Text.swift's (TextEngine.cssBreak), forced breaks and hanging spaces
+    /// included.
+    lazy var breakEnds: (content: [Int], hard: [Int]) = {
+        let ends = TextEngine.breakEnds(attributed.string as NSString, boundaries: lineBreakBoundaries, length: source.utf16Count)
+        return (ends.0, ends.1)
     }()
     func suggestBreak(at start: Int, width: Double, cursor: inout Int) -> Int {
-        let fitted = CTTypesetterSuggestClusterBreak(typesetter, start, width)
-        let ends = lineBreakBoundaries, content = breakContentEnds
+        let ends = lineBreakBoundaries, plan = breakEnds
         while cursor < ends.count && ends[cursor] <= start { cursor += 1 }
-        let first = cursor
-        while cursor < ends.count && content[cursor] <= start + fitted { cursor += 1 }
-        if cursor > first { return ends[cursor - 1] - start }
-        if source.overflowWrap == 0, cursor < ends.count {
-            defer { cursor += 1 }
-            return ends[cursor] - start
-        }
-        if fitted > 0 { return fitted }
-        return (attributed.string as NSString).rangeOfComposedCharacterSequence(at: start).length
+        var lo = 0, hi = plan.hard.count
+        while lo < hi { let mid = (lo + hi) / 2; if plan.hard[mid] <= start { lo = mid + 1 } else { hi = mid } }
+        let hard = (lo < plan.hard.count ? plan.hard[lo] : source.utf16Count) - start
+        let fitted = min(CTTypesetterSuggestClusterBreak(typesetter, start, width), hard)
+        return TextEngine.cssBreak(start: start, fitted: fitted, hard: hard, boundaries: ends, contentEnds: plan.content,
+                                   from: cursor, breakWord: source.overflowWrap != 0, text: attributed.string as NSString)
     }
 
     init(_ source: RegionTextSource) {
@@ -131,8 +123,18 @@ final class RegionWorkerLayout {
             var count: Int
             // Line breaking depends on source/wrap, not compact glyph retention.
             // Zero-width offers retain CoreText's degenerate newline handling.
-            if width.isFinite && width > 0 && spec.overflowWrap == 0 {
+            // `break-word` takes the same opportunities, breaking inside a
+            // word only when none fits (suggestBreak's emergency).
+            if width.isFinite && width > 0 && spec.overflowWrap != 2 {
+                let cursor = boundaryIndex
                 count = preparation.suggestBreak(at: start, width: limit, cursor: &boundaryIndex)
+                // A soft hyphen's break shows one, which must fit, as in the
+                // paragraph (TextEngine.fitSoftHyphen).
+                count = TextEngine.fitSoftHyphen(start: start, count: count, room: limit, boundaries: preparation.lineBreakBoundaries,
+                                                 source: attributed, typesetter: typesetter, length: length) { room in
+                    boundaryIndex = cursor
+                    return preparation.suggestBreak(at: start, width: room, cursor: &boundaryIndex)
+                }
             } else {
                 count = CTTypesetterSuggestLineBreak(typesetter, start, limit)
                 while boundaryIndex < boundaries.count && boundaries[boundaryIndex] < start + count {
@@ -262,8 +264,8 @@ final class RegionWorkerLayout {
         for run in source.runs {
             var words: [String: CGFloat] = [:]
             var bytes = 0
-            for slice in run.text.split(whereSeparator: { $0.isWhitespace }) {
-                let word = String(slice)
+            // UAX #14's pieces, as layout breaks (TextEngine.unbreakablePieces).
+            for word in TextEngine.unbreakablePieces(run.text) {
                 if let value = words[word] { widest = max(widest, value); continue }
                 var attrs: [NSAttributedString.Key: Any] = [NSAttributedString.Key(kCTFontAttributeName as String): run.font.value]
                 if run.letterSpacing != 0 { attrs[.kern] = run.letterSpacing }
