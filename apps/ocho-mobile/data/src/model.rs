@@ -160,7 +160,7 @@ pub struct Outgoing {
     pub text: String,
     /// How.
     pub route: SendRoute,
-    /// The idempotency key `/message` and `codex-client` take.
+    /// The idempotency key `/message` and the queue take.
     pub request_id: String,
     /// The Codex thread a queued message goes to.
     pub thread: String,
@@ -168,6 +168,8 @@ pub struct Outgoing {
     pub step: Step,
     /// Interrupt the running turn for it (`interrupt-send`) instead of waiting.
     pub interrupt: bool,
+    /// A queued message's route (`codex-client`, `session-client`).
+    pub leaf: &'static str,
 }
 
 /// A queued Codex message's requests, in order.

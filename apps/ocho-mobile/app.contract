@@ -566,7 +566,7 @@ component Conversation
           each q in model.queue key=q.id
             row testId=`queued-${q.id}` align-items="center" gap=10 padding-left=16 padding-right=6 padding-top=6 padding-bottom=6 border-radius=22 backgroundMaterial="glass"
               column flex=1 min-width=0 gap=1
-                text (q.interrupting ? "Interrupting…" : "Queued · sends when Codex finishes") font-size=12 line-height="16px" class=Secondary
+                text (q.interrupting ? "Interrupting…" : "Queued, sends when this turn ends") font-size=12 line-height="16px" class=Secondary
                 text q.text font-size=15 line-height="20px" line-clamp=2 class=Label
               when q.interrupting
                 box width=34 height=34 flex-shrink=0 display="flex" align-items="center" justify-content="center"

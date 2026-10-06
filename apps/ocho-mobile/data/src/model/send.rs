@@ -1,5 +1,6 @@
 //! The composer's messages: queued in order, each sent by its route (typed
-//! input, a message, or Codex's queue: attach, send, detach).
+//! input, a message, or the queue Codex and Claude's gateway share: attach,
+//! send, detach).
 
 use super::*;
 
@@ -15,7 +16,10 @@ impl Model {
             return;
         };
         let key = self.pending[at].key.clone();
-        let Some(thread) = self.live_session(&key).map(|s| s.native_id.clone()) else {
+        let Some((thread, leaf)) = self
+            .live_session(&key)
+            .map(|s| (s.native_id.clone(), s.queue_leaf()))
+        else {
             return;
         };
         self.pending[at].interrupting = true;
@@ -27,6 +31,7 @@ impl Model {
             thread,
             step: Step::Attach,
             interrupt: true,
+            leaf,
         });
         self.send.bump();
         self.feel("medium");
@@ -92,9 +97,18 @@ impl Model {
         if text.trim().is_empty() {
             return;
         }
-        let (route, thread) = match self.live_session(&key) {
-            Some(s) => (s.send_route(), s.native_id.clone()),
-            None => (SendRoute::None("This session is offline."), String::new()),
+        let (route, thread, leaf) = match self.live_session(&key) {
+            // Claude's gateway takes words only: a message with files goes to
+            // the terminal, where they are pasted and become images.
+            Some(s) if s.queues_claude() && s.can_type() && !split_files(&text).1.is_empty() => {
+                (SendRoute::Input, String::new(), "")
+            }
+            Some(s) => (s.send_route(), s.native_id.clone(), s.queue_leaf()),
+            None => (
+                SendRoute::None("This session is offline."),
+                String::new(),
+                "",
+            ),
         };
         if let SendRoute::None(why) = route {
             self.failed = Some((key, text, why.to_string()));
@@ -126,6 +140,7 @@ impl Model {
             thread,
             step: Step::Attach,
             interrupt: false,
+            leaf,
         });
         self.send.bump();
         self.feel("light");
@@ -170,7 +185,7 @@ impl Model {
                     body["request_id"] = out.request_id.clone().into();
                     body["text"] = out.text.clone().into();
                 }
-                ("codex-client", body)
+                (out.leaf, body)
             }
             SendRoute::Message => (
                 "message",
@@ -242,7 +257,7 @@ impl Model {
             }
             return;
         }
-        // `codex-client` answers a snapshot whose receipt is the message's.
+        // The queue answers a snapshot whose receipt is the message's.
         let result = result.map(|reply| reply.get("receipt").cloned().unwrap_or(reply));
         let failure = match result {
             Ok(reply) => match reply.get("status").and_then(|s| s.as_str()) {

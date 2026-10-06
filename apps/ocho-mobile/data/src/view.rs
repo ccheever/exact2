@@ -312,7 +312,7 @@ pub(crate) fn session(m: &Model) -> Json {
             }));
         }
     }
-    // Fleet holds a Codex message until the running turn ends: those wait in
+    // Fleet holds a queued message until the running turn ends: those wait in
     // the tray over the composer (`queue`), each with "Send now", as Codex's
     // own app shows them; the rest are bubbles at the transcript's end.
     let working = live.is_some_and(|s| s.working() && s.send_route() == SendRoute::Queue);

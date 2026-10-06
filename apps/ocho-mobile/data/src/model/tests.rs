@@ -740,3 +740,55 @@ fn only_paste_folder_paths_split_off() {
     );
     assert_eq!(split_files("plain"), ("plain".into(), String::new()));
 }
+
+fn claude_gateway_answer(state: &str) -> serde_json::Value {
+    json!({
+        "instance": "i", "version": 1, "machine": "mac",
+        "fleet": {"machines": [{"id": "mac", "name": "Mac", "last": {"sessions": [
+            {"id": "k1", "provider": "claude", "state": state, "tmux_pane": "%1",
+             "capabilities": ["attach"], "claude_socket": "/tmp/k", "native_id": "claude-1"}
+        ]}}]},
+    })
+}
+
+#[test]
+fn claude_behind_its_gateway_queues_and_sends_now_as_codex_does() {
+    let mut m = paired();
+    m.poll_request();
+    m.poll_done(Ok(claude_gateway_answer("running")));
+    m.open("mac", "k1");
+    m.send_text("then do this");
+    let op = |body: &str| serde_json::from_str::<serde_json::Value>(body).unwrap();
+    let (url, _, body) = m.send_request().unwrap();
+    assert!(url.ends_with("/machines/mac/sessions/k1/session-client"));
+    assert_eq!(op(&body)["operation"], "attach");
+    assert_eq!(op(&body)["thread_id"], "claude-1");
+    m.send_done(Ok(json!({"turns": []})));
+    let sent = op(&m.send_request().unwrap().2);
+    assert_eq!(sent["operation"], "send");
+    let id = sent["request_id"].as_str().unwrap().to_string();
+    m.send_done(Ok(json!({"receipt": {"status": "queued"}})));
+    m.send_request();
+    m.send_done(Ok(json!({"turns": []})));
+    assert_eq!(crate::view::session(&m)["queue"][0]["id"], id.as_str());
+    m.send_now(&id);
+    let (url, _, _) = m.send_request().unwrap();
+    assert!(url.ends_with("/session-client"));
+    m.send_done(Ok(json!({"turns": []})));
+    let again = op(&m.send_request().unwrap().2);
+    assert_eq!(again["operation"], "interrupt-send");
+    assert_eq!(again["request_id"], id.as_str());
+}
+
+#[test]
+fn a_claude_message_with_files_still_pastes_them_as_images() {
+    let mut m = paired();
+    m.poll_request();
+    m.poll_done(Ok(claude_gateway_answer("idle")));
+    m.open("mac", "k1");
+    let path = "/Users/me/.local/share/fleet/paste/1-IMG_1.jpg";
+    m.send_text(&format!("look\n\n{path}"));
+    let (url, _, body) = m.send_request().unwrap();
+    assert!(url.ends_with("/sessions/k1/input"));
+    assert_eq!(body, format!(r#"{{"enter":false,"text":"{path} "}}"#));
+}

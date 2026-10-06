@@ -33,7 +33,11 @@ pub struct Session {
     /// A Codex app-server session's socket.
     #[serde(default)]
     pub codex_socket: String,
-    /// The provider's own id: a Codex session's thread.
+    /// A Claude session's gateway (Fleet's mod): its messages queue as a
+    /// Codex thread's do.
+    #[serde(default)]
+    pub claude_socket: String,
+    /// The provider's own id: a Codex session's thread, a Claude session's id.
     #[serde(default)]
     pub native_id: String,
     /// A Claude Remote Control session: a worker Claude in a tmux pane,
@@ -74,8 +78,29 @@ impl Session {
         matches!(self.state.as_str(), "closed" | "exited")
     }
 
+    /// A Claude session behind Fleet's gateway: queued and sent-now
+    /// messages as with Codex (`session-client`).
+    pub fn queues_claude(&self) -> bool {
+        self.provider == "claude" && !self.claude_socket.is_empty() && !self.native_id.is_empty()
+    }
+
+    /// A terminal to paste into.
+    pub fn can_type(&self) -> bool {
+        !self.tmux_pane.is_empty() && self.capabilities.iter().any(|c| c == "attach")
+    }
+
+    /// The queue's route: Claude's gateway or Codex's app-server client.
+    pub fn queue_leaf(&self) -> &'static str {
+        if self.queues_claude() {
+            "session-client"
+        } else {
+            "codex-client"
+        }
+    }
+
     /// How a message reaches it: a Codex app-server session queues it behind
-    /// any running turn; an EAS session takes a message; anything in a
+    /// any running turn, as does a Claude session behind Fleet's gateway; an
+    /// EAS session takes a message; anything in a
     /// terminal takes the text as typed input. A
     /// Claude Remote Control worker is the latter: an interactive Claude Code
     /// in a tmux pane on its machine, whose composer takes typing as any
@@ -91,7 +116,9 @@ impl Session {
             } else {
                 SendRoute::Queue
             }
-        } else if !self.tmux_pane.is_empty() && self.capabilities.iter().any(|c| c == "attach") {
+        } else if self.queues_claude() {
+            SendRoute::Queue
+        } else if self.can_type() {
             SendRoute::Input
         } else {
             SendRoute::None(if self.claude_remote {
