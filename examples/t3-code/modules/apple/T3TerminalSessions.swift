@@ -40,6 +40,10 @@ final class T3TerminalSession {
 
 fileprivate struct WeakView { weak var view: T3TerminalView? }
 
+/// The module that owns the sessions (T3Module+Terminal.swift). A protocol, so the XCTests that leave out
+/// T3Module*.swift still compile the terminal view.
+protocol T3TerminalSessionOwner: AnyObject { var terminalSessions: T3TerminalSessions { get } }
+
 final class T3TerminalSessions {
     private static var registries: [ObjectIdentifier: T3TerminalSessions] = [:]
     /// The sessions of one transport (the focused connection; the drawer's thread is always on it).
