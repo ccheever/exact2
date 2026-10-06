@@ -1,0 +1,24 @@
+{
+  "server": "isolated oracle backend on loopback 16958",
+  "results": [
+    {
+      "method": "shell.openInEditor",
+      "at": "2026-10-06T10:08:37.046982+00:00",
+      "durationMs": 3.042458,
+      "exit": "Success"
+    },
+    {
+      "method": "shell.openInEditor",
+      "at": "2026-10-06T10:09:42.384470+00:00",
+      "durationMs": 8.699167,
+      "exit": "Success"
+    },
+    {
+      "method": "shell.openInEditor",
+      "at": "2026-10-06T10:13:21.465620+00:00",
+      "durationMs": 10.884791,
+      "exit": "Success"
+    }
+  ],
+  "limitation": "Successful RPC/spawn is not proof of a third-party editor document view."
+}

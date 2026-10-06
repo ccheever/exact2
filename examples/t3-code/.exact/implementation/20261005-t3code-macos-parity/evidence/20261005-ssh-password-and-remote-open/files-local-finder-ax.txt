@@ -1,0 +1,9 @@
+Filtered fixture-window AX after selecting Finder in the local Files editor menu; sidebar omitted.
+Window: "local-project", App: Finder.
+					98 outline row (selected) Today at 7:05 PM 88 bytes Markdown Document
+						99 cell (selected)
+							101 text field (settable), Value: README.md, Secondary Actions: open
+						102 cell (selected) Today at 7:05 PM
+						104 cell (selected) 88 bytes
+						106 cell (selected) Markdown Document
+			108 text 1 of 1 selected, 1.05 TB available

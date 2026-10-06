@@ -39,6 +39,7 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 | X28 | Notification click → app action, Dock badge, window-focus fact | Thread notifications | policy (DEFERRED refuses actions/badges) | `T3Notifications.swift` |
 | X29 | `video` from `app:/` files; a PDF viewer element | Composer video preview, PDF attachments | framework feature | AVPlayerView, PDFView natively |
 | X30 | TS can announce a topic / invalidate a resource; pixel readback; any-type file picker with bytes and image transcode | Wake reads, image accent colour, attachments | framework feature | `R10Connect`, `T3ImageAccent`, `T3ComposerAttach` |
+| X35 | A password `input` whose value stays out of the agent's tree, with `autocomplete` ([#134](https://github.com/ccheever/exact2/issues/134)) | SSH Password Required dialog | host + agent | native `t3-ssh-password` secure field (`T3SshAuth.swift`); the module reads it on Continue |
 | X43 | `aria-checked="mixed"` on a switch or checkbox ([#120](https://github.com/ccheever/exact2/issues/120)) | Scoped switches whose targets disagree (D15) | contract/host | the app draws the mixed thumb; the switch reports unchecked |
 | X46 | A build step that makes app assets before the Apple bundle copies `assets/` | The terminal page (`terminal-host/build.mjs` output) | build | run `bun terminal-host/build.mjs` (app.json `commands.terminal`) before the bundle build; without it the terminal stays blank and its status names the load error |
 

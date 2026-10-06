@@ -1,0 +1,50 @@
+bun test v1.3.14 (0d9b296a)
+
+examples/t3-code/settings-b-ssh.test.ts:
+(pass) manual SSH targets parse like parseManualDesktopSshTarget [2.23ms]
+(pass) host suggestions put alias prefixes first, then substrings [0.08ms]
+(pass) the autocomplete hides saved hosts, numbers the first nine and says when nothing matches [0.57ms]
+(pass) adding over SSH tunnels, pairs beside the focused environment and toasts [0.54ms]
+(pass) an SSH environment is listed as "SSH user@host" beside the paired loopback one (r9-connect: no "This machine") [1.41ms]
+(pass) adding an SSH route requests five scopes and preserves the expected environment [0.16ms]
+
+examples/t3-code/remote-open.test.ts:
+(pass) resolveRemoteOpenState > keeps exec behavior for a loopback primary target [0.29ms]
+(pass) resolveRemoteOpenState > uses deep links for a primary target reached over the network [0.03ms]
+(pass) resolveRemoteOpenState > keeps exec behavior for the desktop app's own primary even on a NAT URL [0.01ms]
+(pass) resolveRemoteOpenState > keeps exec behavior for desktop-local secondary backends
+(pass) resolveRemoteOpenState > prefers the desktop SSH alias over server-advertised hosts
+(pass) resolveRemoteOpenState > reports unavailable when a remote environment advertises no hosts [0.02ms]
+(pass) resolveRemoteOpenState > falls back to exec when the environment has no catalog entry
+(pass) buildRemoteOpenUrl > builds a vscode-remote deep link [0.08ms]
+(pass) buildRemoteOpenUrl > uses the fork's scheme [0.01ms]
+(pass) buildRemoteOpenUrl > roots Windows paths
+(pass) buildRemoteOpenUrl > builds Zed's ssh deep link [0.02ms]
+(pass) buildRemoteOpenUrl > drops the Windows drive letter for Zed [0.02ms]
+(pass) buildRemoteOpenUrl > returns undefined for editors without remote support
+(pass) parseSafeExternalUrl > opens safe external URLs [0.02ms]
+(pass) parseSafeExternalUrl > opens remote SSH editor URLs [0.02ms]
+(pass) parseSafeExternalUrl > opens Zed's ssh deep link [0.02ms]
+(pass) parseSafeExternalUrl > does not open editor URLs that mix up link shapes
+(pass) parseSafeExternalUrl > does not open remote editor URLs with userinfo [0.01ms]
+(pass) parseSafeExternalUrl > does not open unsafe external URLs
+(pass) parseSafeExternalUrl > does not open non-remote editor URLs
+(pass) parseSafeExternalUrl > returns false when Electron rejects openExternal [0.33ms]
+(pass) picker visibility and editors > uses the saved SSH route when the active and preferred route is a direct URL [0.43ms]
+(pass) picker visibility and editors > shouldShowOpenInPicker: the primary always, other environments only outside local-exec [0.02ms]
+(pass) picker visibility and editors > Markdown file links get editor actions only in local-exec once resolved [0.01ms]
+(pass) picker visibility and editors > lists only remote-capable editors that resolve [0.10ms]
+(pass) picker visibility and editors > falls back to VS Code when none resolve [0.04ms]
+(pass) picker visibility and editors > adding an SSH alias before the first picker preserves previously saved tunnels [0.21ms]
+(pass) picker visibility and editors > an SSH environment opens over its alias; the hint shows until the first accepted open [0.15ms]
+(pass) picker visibility and editors > a loopback primary runs the server editor; a remote one with no route opens nothing [0.12ms]
+(pass) Files and Markdown use the focused environment route > Files lists local remote-capable editors and opens the file on the SSH alias [12.21ms]
+(pass) Files and Markdown use the focused environment route > Files displays a missing SSH route instead of offering server editors [0.19ms]
+(pass) Files and Markdown use the focused environment route > Files retains the server editor list on the local environment [0.09ms]
+(pass) Files and Markdown use the focused environment route > Markdown offers local editor/reveal actions but never remote shell actions [0.46ms]
+(pass) Files and Markdown use the focused environment route > Markdown remote links can still copy a workspace-relative path [0.07ms]
+
+ 40 pass
+ 0 fail
+ 103 expect() calls
+Ran 40 tests across 2 files. [199.00ms]

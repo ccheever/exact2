@@ -1,0 +1,89 @@
+App=com.exact.t3code.ssh157 (pid 36366)
+Window: "T3 Code (Exact)", App: T3 Code (Exact).
+
+0 standard window T3 Code (Exact)
+	1 scroll area, Secondary Actions: scroll up, scroll down
+		2 button Toggle sidebar
+		3 button Go to threads
+		4 text Search
+		5 text field (disabled) Search threads
+		6 button Filter threads by project
+		7 button (disabled) Add project
+		8 button (disabled) New thread
+		9 scroll area, Secondary Actions: scroll up, scroll down
+			10 text No projects yet
+			11 button Add project
+		12 button Settings
+		13 button Usage
+		14 heading New thread
+		15 button Toggle thread details panel
+		16 button (disabled) Toggle terminal drawer
+		17 button Toggle right panel
+		18 text T3 server is reconnecting
+		19 scroll area, Secondary Actions: scroll up, scroll down
+			20 text entry area Message
+			21 scroll bar (disabled) 0
+		22 button (disabled) Choose provider and model
+		23 button (disabled) Runtime mode
+		24 button (disabled) Environment disconnected
+		25 button Toggle sidebar
+		26 button Go to threads
+		27 text Search
+		28 text field (disabled) Search settings
+		29 text /
+		30 scroll area, Secondary Actions: scroll up, scroll down
+			31 button General
+			32 button Appearance
+			33 button Keybindings
+			34 button SnapShots
+			35 button Providers
+			36 button Integrations
+			37 button Scheduled Tasks
+			38 button Source Control
+			39 button Storage
+			40 button (selected) Connections
+			41 button Archive
+		42 button Back
+		43 button Focus settings search
+		44 text Settings
+		45 text Connections
+		46 scroll area, Secondary Actions: scroll up, scroll down
+			47 heading This machine
+			48 heading Administrative access
+			49 text Pairing links and client-session management require the access:write scope for this backend.
+			50 heading Environments
+			51 button (disabled) Add environment
+			52 text 5051f024865e
+			53 text This device · Not connected
+			54 button 3 routes
+			55 switch (disabled) Switch off 5051f024865e, Value: 1
+			56 button (disabled) More actions for 5051f024865e
+		57 button Settings
+		58 heading Add Environment
+		59 text Pair another environment to this client.
+		60 radio button (disabled) Remote link Enter a backend host and pairing code., Value: 0
+		61 radio button (disabled) SSH Use local SSH config, agent, and tunnels for the backend., Value: 1
+		62 text SSH host or alias
+		63 text (disabled) SSH host or alias oracle-second, Placeholder: Search hosts or type devbox
+		64 text Username
+		65 text (disabled) Username, Placeholder: root
+		66 text Port
+		67 text (disabled) Port, Placeholder: 22
+		68 button (disabled) Adding…
+		69 button (disabled) Close
+		70 button Terminal harness
+		71 button Cancel SSH password prompt
+		72 heading SSH Password Required
+		73 text T3 needs your SSH password to connect to oracle-second. The password is passed to the local SSH process for this connection attempt and is not saved by T3 Code. [redacted]
+		74 text Enter the SSH password for oracle-second. [redacted]
+		75 text 2:59
+		76 secure text field (settable) Enter the SSH password for oracle-second., Value: [redacted]
+		77 text Use SSH keys to avoid repeated password prompts on new SSH sessions. [redacted]
+		78 button Cancel
+		79 button Continue
+	80 toolbar
+	81 close button
+	82 full screen button, Secondary Actions: zoom the window
+	83 minimize button
+
+The focused UI element is 78 button Cancel.

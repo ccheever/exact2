@@ -1,0 +1,75 @@
+App=com.exact.t3code.ssh157 (pid 38568)
+Window: "T3 Code (Exact)", App: T3 Code (Exact).
+
+0 standard window T3 Code (Exact)
+	1 scroll area, Secondary Actions: scroll up, scroll down
+		2 button Toggle sidebar
+		3 button Go to threads
+		4 text Search
+		5 text field (settable) Search threads
+		6 button Filter threads by project
+		7 button Add project
+		8 button New thread
+		9 scroll area, Secondary Actions: scroll up, scroll down
+			10 button Local route acceptance, Local route fixture
+			11 button SSH menu acceptance, SSH Acceptance
+			12 button Toggle Settled
+		13 button Settings
+		14 button Pull Requests
+		15 button Usage
+		16 button New thread in SSH Acceptance
+		17 text /
+		18 button Thread actions for SSH menu acceptance
+		19 button (expanded) Toggle thread details panel
+		20 button (disabled) Toggle terminal drawer
+		21 button Toggle right panel
+		22 scroll area, Secondary Actions: scroll up, scroll down
+			23 text Open
+			24 button /home/tester/project/README.md
+			25 text .
+			26 button Fork from this response
+			27 button Copy message
+			28 text 7:05 PM
+		29 scroll area, Secondary Actions: scroll up, scroll down
+			30 text entry area (settable) Message
+			31 scroll bar (disabled) 0
+		32 button Open provider settings
+		33 button Attach files
+		34 button (disabled) Submit message
+		35 text Codex provider status
+		36 text Could not start Codex CLI (`codex`). Check Settings → Providers → Codex → Binary path on the server. Installing ChatGPT or Codex desktop may not add codex to PATH.
+		37 button Dismiss provider warning
+		38 scroll area, Secondary Actions: scroll up, scroll down
+			39 text project
+			40 button Open in Cursor
+			41 button Choose editor
+			42 button Add project script
+			43 button Initialize Git
+		44 button Settings
+		45 button Command Palette
+		46 button Go to File
+		47 button Search Project Contents
+		48 button Change Theme
+		49 button Open Usage
+		50 button Toggle Theme Editor
+		51 button New Thread
+		52 button New Thread
+		53 button New Local Thread
+		54 button Appearance: Dark
+		55 button Previous Thread
+		56 button Next Thread
+		57 button Thread 1
+		58 button Thread 2
+		59 button New Thread Without a Project
+		60 button Settle Thread
+		61 button Pin Thread
+		62 button Toggle Right Panel
+		63 button Toggle Diff
+		64 button Copy Thread ID
+		65 button Terminal harness
+	66 toolbar
+	67 close button
+	68 full screen button, Secondary Actions: zoom the window
+	69 minimize button
+
+The focused UI element is 19 button (expanded) Toggle thread details panel.

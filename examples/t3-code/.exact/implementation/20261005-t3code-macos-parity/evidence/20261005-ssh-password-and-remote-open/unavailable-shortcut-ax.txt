@@ -1,0 +1,87 @@
+App=com.exact.t3code.ssh157 (pid 88748)
+Window: "T3 Code (Exact)", App: T3 Code (Exact).
+
+0 standard window T3 Code (Exact)
+	1 scroll area, Secondary Actions: scroll up, scroll down
+		2 button Toggle sidebar
+		3 button Go to threads
+		4 text Search
+		5 text field (settable) Search threads
+		6 button Filter threads by project
+		7 button Add project
+		8 button New thread
+		9 scroll area, Secondary Actions: scroll up, scroll down
+			10 button Unavailable route acceptance, ccheever/exact2
+			11 button Local route acceptance, ccheever/exact2
+			12 button Toggle Settled
+		13 button Settings
+		14 button Pull Requests
+		15 button Usage
+		16 button New thread in Unavailable route fixture
+		17 text /
+		18 button Thread actions for Unavailable route acceptance
+		19 button Toggle thread details panel
+		20 scroll area, Secondary Actions: scroll up, scroll down
+			21 text entry area (settable) Message
+			22 scroll bar (disabled) 0
+		23 button Choose provider and model
+		24 button Runtime mode
+		25 button Attach files
+		26 button (disabled) Submit message
+		27 scroll area, Secondary Actions: scroll up, scroll down
+			28 button Close README.md
+			29 button README.md
+			30 button Add panel surface
+			31 scroll bar 0
+				32 value indicator 0
+				33 increment arrow button
+				34 decrement arrow button
+				35 increment page button
+				36 decrement page button
+		37 button Maximize panel
+		38 button (disabled) Toggle terminal drawer
+		39 button Toggle right panel
+		40 button Browse Unavailable route fixture
+		41 text README.md
+		42 container Open in editor
+			43 button (disabled) Open file in preferred editor
+			44 button Choose editor
+		45 button Show markdown source
+		46 button Hide file explorer
+		47 scroll area, Secondary Actions: scroll up, scroll down
+			48 heading Unavailable route fixture
+			49 text Open the local README to verify local file routing.
+		50 button Refresh workspace files
+		51 text field (settable) Search Unavailable route fixture files, Placeholder: Search files
+		52 scroll area, Secondary Actions: scroll up, scroll down
+			53 button (selected) README.md
+		54 button Settings
+		55 button Command Palette
+		56 button Go to File
+		57 button Search Project Contents
+		58 button Change Theme
+		59 button Open Usage
+		60 button Toggle Theme Editor
+		61 button New Thread
+		62 button New Thread
+		63 button New Local Thread
+		64 button Appearance: Dark
+		65 button Previous Thread
+		66 button Next Thread
+		67 button Thread 1
+		68 button Thread 2
+		69 button Back
+		70 button Settle Thread
+		71 button Pin Thread
+		72 button Open in Editor
+		73 button Close Right Panel
+		74 button Toggle Right Panel
+		75 button Toggle Diff
+		76 button Copy Thread ID
+		77 button Terminal harness
+	78 toolbar
+	79 close button
+	80 full screen button, Secondary Actions: zoom the window
+	81 minimize button
+
+The focused UI element is 0 standard window T3 Code (Exact).

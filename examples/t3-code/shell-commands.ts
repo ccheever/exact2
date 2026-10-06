@@ -14,6 +14,7 @@ import { toggleInline } from './shell-prefs';
 import { markCopied } from './shell';
 import { gitShellCommand, GIT_FAILURE_TITLES } from './r4-git-route';
 import { surfaceLocal, surfaceCommand } from './r4-surfaces-panel';
+import { openInEditorHere } from './remote-open'; // remote Open (OpenInPicker)
 
 function threadOf(client: T3Client, threadId: string) {
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
@@ -56,8 +57,8 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   }
   if (op === 'open-editor') {
     if (!id) throw new ClientError('This thread does not have a workspace path to open.');
-    await access.request('shell.openInEditor', { cwd: id, editor: value });
-    rememberEditor(client, value);
+    // OpenInPicker: remotely a deep link to this Mac's editor, never an editor run on the other machine (remote-open.ts).
+    if (await openInEditorHere(client, native, id, value)) rememberEditor(client, value);
     return '';
   }
   // lane r4-git: the card's branch picker, Git actions and dialogs (r4-git-route.ts).

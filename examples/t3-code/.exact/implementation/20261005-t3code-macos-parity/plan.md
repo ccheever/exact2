@@ -7,6 +7,15 @@ Goal: re-implement the T3 Code desktop app (Electron) with exact2 as the example
 `examples/t3-code`, using T3 Code's own data/client logic and its own server, with
 every feature except the spec exclusions, and a downloadable build that runs on another Mac.
 
+## SSH feature acceptance, 2026-10-06
+
+[SSH password and remote Open](tasks/20261005-ssh-password-and-remote-open.md#final-acceptance-2026-10-06),
+PR #157: **verified / open for review**. Its durable evidence covers real SSH and
+remote editor use, secure prompt behavior, oracle/IME, FIFO, Markdown/Files and the
+last missing-route UI fixture. Implementation commit: `762f501cb`.
+The PR remains unmerged. Feature acceptance does not close the parent's separate
+generic oracle/trace infrastructure or full T0 matrix.
+
 ## Knowledge snapshot
 
 Library revision: `20261005-platforms-v3` (platforms, performance, testing-and-debugging

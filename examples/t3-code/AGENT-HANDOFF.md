@@ -4,6 +4,13 @@ Current as of the functional repair verification, 2026-10-06 (KST).
 
 ## Start here
 
+SSH password and remote Open, PR #157: **verified / open for review**.
+The [final SSH acceptance record](.exact/implementation/20261005-t3code-macos-parity/tasks/20261005-ssh-password-and-remote-open.md#final-acceptance-2026-10-06)
+links durable real SSH/editor, secure input, oracle/IME, FIFO, Markdown/Files and
+missing-route evidence. The alias-cache fix was rebuilt and driven. The temporary
+HTTPS fixture has been stopped. This does not complete the parent's separate
+generic oracle/trace infrastructure or full T0 matrix. PR #157 is not merged.
+
 Live automations and tracked clones, PR #156: client implementation and partial UI
 verification only. The old `succeeded` screenshot does not prove a completed model
 response: the retained Codex provider log ends in HTTP 401 and a failed turn.
