@@ -1,7 +1,7 @@
 # LLP 1101: Terminal apps — a terminal host for apps authored for the terminal
 
 **Type:** RFC
-**Status:** Draft (r2, exploratory). Charlie, 2026-10-05: "we're just exploring here not committing to this." Nothing moves off `rules/DEFERRED.md` on this document's account until he says so. r2 records his answers to r1's §9 and Q9 (the todo list is terminal-only to start): the consumers are a todo list and the LLP reader, not Caltrain, and the D9 rationale stands ("that rationale sounds right")
+**Status:** Draft (r3, exploratory). Charlie, 2026-10-05: "we're just exploring here not committing to this." Nothing moves off `rules/DEFERRED.md` on this document's account until he says so. r2 records his answers to r1's §9 and Q9 (the todo list is terminal-only to start); r3 names the terminal I/O layer (D9: our own output, `vte` for input, `rustix`) and rejects Ink, crossterm and termwiz (§8): the consumers are a todo list and the LLP reader, not Caltrain, and the D9 rationale stands ("that rationale sounds right")
 **Systems:** A new host (`host/terminal`, `exact-terminal`: a painter host whose backend is a grid of character cells), Contract (a `terminal` compile profile and the `exact:terminal` module), the schema (`kernel/tables/schema.json` gains a per-row terminal admission), the kernel (the `ch` and `lh` units), the app manifest (`app.json` `host.terminal`), the agent API (`scripts/agent.mjs terminal`; no new operation), `rules/DEFERRED.md` (§Tooling "no TUI host"; §Authoring models)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-05
@@ -316,9 +316,24 @@ OS. Also, half the work is in-tree no matter where the host lives: the schema
 column, the compile profile, the `ch`/`lh` units and the agent driver.
 
 It depends on the kernel, runner, plan, data and route crates, and on a
-terminal I/O layer: hand-rolled escape output (small, and the writer must own
-every byte anyway, D7) plus `rustix` for termios and signals. That keeps it
-pure Rust and buildable on any Unix with no system packages. The Linux host's
+terminal I/O layer of three parts (Charlie, 2026-10-05: "rec seems
+reasonable"):
+
+- **Output is ours.** SGR, cursor movement, the synchronized-update brackets,
+  OSC 8, the kitty, iTerm2 and sixel image encoders, and the cell diff. That
+  is a few hundred lines, and the writer must construct every byte itself for
+  D7's escaping to be a property rather than an audit of someone else's code.
+- **Input is parsed by `vte`**, Alacritty's escape-sequence state machine. It
+  turns bytes into "CSI with these parameters" or "OSC with this payload" and
+  has no opinions beyond that. The host maps those to keys (the kitty protocol
+  and the legacy fallbacks), SGR mouse events, bracketed paste and, the reason
+  for choosing it, the replies to D5's capability queries, which arrive mixed
+  in with keystrokes. That is about 500 lines of mapping, and the host sees
+  every reply the terminal sends.
+- **`rustix`** for termios (raw mode), signals and `TIOCGWINSZ`.
+
+That keeps it pure Rust, light on dependencies, and buildable on any Unix with
+no system packages. The Linux host's
 executor (requests over rustls) and its orchestration are extracted into a
 shared crate only where code would otherwise be copied, and only when that
 copy actually exists. Windows (ConPTY and Windows Terminal's VT support) is
@@ -508,7 +523,19 @@ a row's implementation"), not a fork. The web already draws them.
 - **A Rust TUI framework (ratatui) as the renderer.** It brings its own layout
   and widgets, which is a second layout engine beside Taffy, the
   disagreeing-layers class this repo exists to avoid. The host needs a
-  terminal writer, not a framework.
+  terminal writer, not a framework. Its cell buffer and diff are the only parts
+  the host would use, and both are small. **Ink** is rejected for the same
+  reason (Yoga is the second layout engine) and another: it is React in Node,
+  and nothing runs JavaScript above the data seam (DEFERRED §Authoring models).
+  Its inline rendering is still the model for D10's inline form.
+- **crossterm for input.** It decodes keys and the mouse well, but it is built
+  to deliver events, so replies to queries it doesn't know (OSC 11, the kitty
+  graphics probe, the cell size, DECRQM) are awkward to get at. Those replies
+  are D5's whole job.
+- **termwiz** (WezTerm's terminal library) for input and output. It is the
+  most complete, with a full parser, capability probing and image cells. It
+  is also the heaviest, and it is a framework-shaped layer of its own between
+  the painter and the bytes D7 needs to own.
 - **A guardian process** (exact1). Deferred to Q5, not adopted.
 
 ## 9. What Charlie decides
