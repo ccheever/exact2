@@ -600,7 +600,14 @@ impl<D: DataSource> Host<D> {
             .get(&id)
             .copied()
             .unwrap_or_else(|| Presented::from_style(node.style));
-        shown.dark = Some(self.paint.dark(node.key));
+        // The node's own appearance, if it has one: a `color-scheme` it sets
+        // (LLP 1034 §8), else a report for its view (LLP 1062 D4). The
+        // painter carries it to the subtree, and the session's to the rest.
+        shown.dark = match node.style.mask.has(exact_kernel::StyleId::ColorScheme) {
+            true => node.color_scheme_dark(),
+            false => None,
+        }
+        .or_else(|| self.paint.view_dark(node.key));
         shown.lowered = self.lowered_mask(node.key);
         shown.press = self
             .presses

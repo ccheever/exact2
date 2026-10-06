@@ -536,6 +536,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             node.paragraphOwner.invalidateText()
             node.paragraphOwner.setNeedsDisplay()
             node.applyStyle(node.style)
+            // Its paint motion resolves in its own appearance (LLP 1062 D4),
+            // a `color-scheme` above it included (LLP 1034 §8).
+            node.presenter?.session?.noteAppearance(node)
             // An `svg`'s paints are resolved into its scene's layers.
             node.presenter?.svg.reappear(node.id, dark: node.drawsDark, clock: node.presenter?.session?.clock)
             node.presenter?.requestTextPublication()
@@ -1194,6 +1197,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let old = style
         style = s
         if old["display"] != s["display"] || old["visibility"] != s["visibility"] { isHidden = hostHidden }
+        if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
         updateSymbol(); syncDynamicRange(from: old)
         (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
         applyBoxMask()

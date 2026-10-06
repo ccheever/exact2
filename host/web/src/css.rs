@@ -228,6 +228,10 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     });
                 }
             }
+            // @ref LLP 1034 §8: an unset scheme follows the parent's, as
+            // Apple's trait inheritance does (CSS's `normal` would mean the
+            // page's schemes); the compiler admits only `light` and `dark`.
+            (StyleId::ColorScheme, RowValue::Enum("normal")) => out.push_str("color-scheme:inherit;"),
             (StyleId::TextDecorationLine, RowValue::Enum("underline-line-through")) => {
                 out.push_str("text-decoration-line:underline line-through;")
             }
@@ -847,6 +851,27 @@ mod flow_tests {
         assert!(css.contains("shape-margin:8px;"));
         assert!(css.contains("wrap-flow:both;"));
         assert!(skipped.is_empty());
+    }
+
+    /// LLP 1034 §8: the browser resolves `light-dark()` by the inherited
+    /// `color-scheme`; an unset (`normal`) row follows the parent's.
+    #[test]
+    fn color_scheme_is_passed_through() {
+        for (value, want) in [
+            ("dark", "color-scheme:dark;"),
+            ("light", "color-scheme:light;"),
+            ("normal", "color-scheme:inherit;"),
+        ] {
+            let mut s = StyleProps::default();
+            s.set_dynamic(
+                StyleId::ColorScheme,
+                &exact_kernel::StyleValue::Text(value.into()),
+            )
+            .unwrap();
+            let (css, skipped) = css_text(&s, &[]);
+            assert!(css.contains(want), "{value}: {css}");
+            assert!(skipped.is_empty());
+        }
     }
 }
 

@@ -1289,6 +1289,9 @@ or choices of literals, so unsupported runtime values cannot bypass the check.
 A colour is any CSS colour the browser paints: hex, `rgb()`, `hsl()`, `hwb()`,
 a named colour, `transparent`, `lab()`/`oklch()`/`color()` (clipped to sRGB
 natively), or `light-dark(a, b)`; the kernel parses it once for every host.
+`color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve
+`light-dark()`, platform colours and glass in that scheme, as a sheet that is
+always dark does; leave it off to follow the surrounding scheme (LLP 1034 §8).
 `currentcolor` takes the node's `color` on borders, `background-color`,
 `tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
 an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not

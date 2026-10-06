@@ -706,6 +706,17 @@ impl<'a> Lowerer<'a> {
                     svg::coerce_lengths(tag, svg::in_svg(self.svg_depth > 0, parent_tag), expanded);
                 let expanded = lengths.as_deref().unwrap_or(expanded);
                 self.check_svg(tag, parent_tag, expanded, *span)?;
+                // @ref LLP 1034 §8 — an inline run paints in its paragraph's
+                // scheme: no host gives a run an appearance of its own.
+                if tag == "text" && parent_tag == Some("text") {
+                    if let Some(a) = expanded.iter().find(|a| a.name == "color-scheme") {
+                        return Err(LowerError {
+                            id: "lower-attr-tag",
+                            message: "`color-scheme` on an inline `text` run: a run paints in its paragraph's scheme (LLP 1034 §8); set it on the paragraph or a box above".into(),
+                            span: a.span,
+                        });
+                    }
+                }
                 // @ref LLP 1055.000 D4 — an `svg` inside an `svg` is a viewport.
                 // Inside an `svg`, `svg` is a viewport and `text` is SVG text
                 // (LLP 1055.000 D4, D11).

@@ -1077,6 +1077,7 @@ mod tests {
             (StyleId::TextColor, text("light-dark(#112233, #ffffff)")),
             (StyleId::WhiteSpace, text("pre-wrap")),
             (StyleId::DynamicRangeLimit, text("constrained")),
+            (StyleId::ColorScheme, text("dark")),
             (StyleId::OverflowWrap, text("anywhere")),
             (StyleId::InterpolateSize, text("allow-keywords")),
             (StyleId::TextTransform, text("uppercase")),

@@ -804,7 +804,7 @@ public final class ExactSession {
             // replaced its host.
             routerOp = nil
             generation += 1
-            if booted { presenter.reset() }
+            if booted { presenter.reset(); forgetAppearances() }
             booted = true
             text.commitFonts()
             AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
@@ -887,6 +887,7 @@ public final class ExactSession {
         let restart = booted, kept = keptFocus
         keptFocus = nil
         presenter.reset()
+        forgetAppearances()
         booted = true
         app.lifecycle?.generationStarted(app, token: updateToken)
         autofocusHeld = restart
@@ -1278,7 +1279,20 @@ public final class ExactSession {
     /// The platform's colours are reported first: before the first scheme
     /// that fills the kernel's table without motion, so nothing eases from a
     /// fallback to the platform's colour at startup (LLP 1095 D9).
-    public func scheme(dark: Bool) { guard booted, state != .destroyed else { return }; schemeDark = dark; reportColors(); apply(runtime.scheme(dark: dark)) }
+    public func scheme(dark: Bool) {
+        guard booted, state != .destroyed else { return }
+        let first = schemeDark == nil
+        schemeDark = dark
+        reportColors()
+        // Views found painting in an appearance of their own before the
+        // session had a scheme (a `color-scheme` subtree at boot, LLP 1034
+        // §8): queued now, and said in the scheme's own batch, after it.
+        if first {
+            let early = unreported; unreported.removeAll()
+            for id in early { if let v = presenter.views[id] { noteAppearance(v) } }
+        }
+        apply(runtime.scheme(dark: dark))
+    }
     /// @ref LLP 1095 D9 — the platform's resolution of every reference the
     /// kernel paints itself, with the app's tint read here, on main: one
     /// for every session (`SystemColor.appTint`), since the table is the
@@ -1301,11 +1315,21 @@ public final class ExactSession {
     /// A view painting motion: when its own appearance is not the one its
     /// node's colours resolve by, say so after the batch (LLP 1062 D4).
     func noteAppearance(_ view: NodeView) {
-        guard let session = schemeDark else { return }
+        guard let session = schemeDark else { unreported.insert(view.id); return }
         let dark = view.drawsDark
         guard dark != viewDark[view.id] ?? session else { return }
         viewDark[view.id] = dark == session ? nil : dark
         pendingViewDark.append((view.id, dark))
+    }
+    /// Views noted before the session had a scheme.
+    private var unreported = Set<UInt32>()
+    /// A new runtime has heard no view's appearance: forget what was said,
+    /// and say it again after its first scheme (LLP 1062 D4, LLP 1034 §8).
+    private func forgetAppearances() {
+        schemeDark = nil
+        viewDark = [:]
+        pendingViewDark = []
+        unreported = []
     }
     /// The agent API's runner half (LLP 1012): `tree`, `state`, `logs`, `settle`.
     public func agent(_ request: String) -> String { runtime.agent(request) }

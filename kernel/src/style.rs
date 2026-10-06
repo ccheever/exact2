@@ -365,6 +365,10 @@ impl StyleValue {
         t.eq_ignore_ascii_case("unset")
             || (t.eq_ignore_ascii_case("inherit") && StyleMask::INHERITED.has(style))
             || (t.eq_ignore_ascii_case("currentcolor") && style == StyleId::TextColor)
+            // @ref LLP 1034 §8: a bound `normal` follows the surrounding
+            // scheme, as leaving the row off does (CSS's own `normal` means
+            // the page's schemes, which no host here has).
+            || (t.eq_ignore_ascii_case("normal") && style == StyleId::ColorScheme)
     }
 
     pub(crate) fn line_height(&self, style: StyleId) -> Result<LineHeight, StyleValueError> {
