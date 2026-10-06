@@ -1303,6 +1303,18 @@
       "params": ["string", "string", "\"years\" | \"months\""],
       "returns": "option<number>",
       "_comment": "@ref LLP 1102 §0, §3.4: the whole calendar years or months from the first ISO date (`YYYY-MM-DD`, proleptic Gregorian, years 0 through 9999) to the second, counted as an age is: a period completes when the later date's month and day reach the earlier date's (years compare month then day, months compare the day), so a Feb 29 start completes a year on Mar 1 of a common year and a Jan 31 start completes a month on Mar 1, as the web's `Temporal.PlainDate.prototype.until` counts with `largestUnit` `\"years\"` or `\"months\"` (date-fns' `differenceInMonths` differs: it lets a month's last day complete a month). When the second date is earlier, the count from it to the first, negated. `none` when either is not a valid `YYYY-MM-DD` date."
+    },
+    {
+      "name": "toFixed",
+      "params": ["number", "0..=100"],
+      "returns": "string",
+      "_comment": "@ref LLP 1102 §0, §3.2 (decided (c)): JavaScript's `Number.prototype.toFixed(digits)`, the binary value rounded (`toFixed(1.005, 2)` is `\"1.00\"`, a tie away from zero on the exact value), `-0.001` at 2 is `\"-0.00\"`, a magnitude of `1e21` or more printed as `toString` prints it. One declared difference: a non-finite number prints `\"\"` (LLP 1054.000.003 D7), where JavaScript prints `NaN` or `Infinity`. `digits` is a whole-number literal from 0 to 100, JavaScript's range. A linked `format` entry."
+    },
+    {
+      "name": "formatDecimal",
+      "params": ["number", "0..=20"],
+      "returns": "string",
+      "_comment": "@ref LLP 1102 §0, §3.2 (decided (c)): an integer count of a smallest unit as a decimal with `digits` places, exactly (`formatDecimal(1234, 2)` is `\"12.34\"`, `formatDecimal(-5, 2)` is `\"-0.05\"`, `formatDecimal(7, 0)` is `\"7\"`); `-0` prints as `0`. A count that is not an integer, or not finite, prints `\"\"`: money is `formatDecimal(round(price * 100), 2)`. `digits` is a whole-number literal from 0 to 20. A linked `format` entry."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

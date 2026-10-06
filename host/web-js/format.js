@@ -1,4 +1,4 @@
-// `formatTime`, `formatDate` and `formatNumber` on the JS target: the runner's
+// `formatTime`, `formatDate`, `formatNumber`, `toFixed` and `formatDecimal` on the JS target: the runner's
 // `en-US` strings (runner/src/stdlib.rs `format_time`, runner/src/format.rs),
 // checked against the same Intl oracle rows (runner/tests/it/format.rs).
 /** `wall_ms` (runner/src/stdlib.rs): the instant clipped, then shifted by the
@@ -54,4 +54,13 @@ export function x_formatNumber(n) {
   kept = kept.replace(/0+$/, "");
   const grouped = !int ? "0" : int.length >= 5 ? int.replace(/\B(?=(\d{3})+$)/g, ",") : int;
   return (n < 0 ? "-" : "") + grouped + (kept ? "." + kept : "") + (scale ? "KMBT"[scale - 1] : "");
+}
+/** `toFixed(n, digits)` (LLP 1102 §3.2): JavaScript's own, except a non-finite `n` prints "" (D7), not `NaN`/`Infinity`. */
+export const x_toFixed = (n, d) => Number.isFinite(n) ? n.toFixed(d) : "";
+/** `formatDecimal(units, digits)`: an integer count of a smallest unit with `digits` places, exactly (a BigInt of it);
+ * `-0` is `0`, and a count that is not an integer, or not finite, is "". */
+export function x_formatDecimal(u, d) {
+  if (!Number.isInteger(u)) return "";
+  const s = BigInt(Math.abs(u)).toString().padStart(d + 1, "0");
+  return (u < 0 ? "-" : "") + (d ? s.slice(0, -d) + "." + s.slice(-d) : s);
 }

@@ -41,5 +41,5 @@ export const x_calendarDiff = (from, to, unit) => {
     : b[0] - a[0] - (b[1] < a[1] || b[1] === a[1] && b[2] < a[2] ? 1 : 0);
   return n && sign * n;
 };
-export { x_formatTime, x_formatDate, x_formatNumber } from "./format.js";
+export { x_formatTime, x_formatDate, x_formatNumber, x_toFixed, x_formatDecimal } from "./format.js";
 

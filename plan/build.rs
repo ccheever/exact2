@@ -227,8 +227,16 @@ fn validate(schema: &Schema) {
                         && l.ends_with('"')
                         && !l[1..l.len() - 1].contains('"')
                 });
+            // A whole-number literal in a range, `0..=100` (LLP 1102 §3.2:
+            // `toFixed`'s digits), likewise written at the call.
+            let range = param
+                && t.split_once("..=").is_some_and(|(a, b)| {
+                    a.parse::<u32>()
+                        .is_ok_and(|a| b.parse::<u32>().is_ok_and(|b| a <= b))
+                });
             assert!(
                 literals
+                    || range
                     || matches!(
                         t.as_str(),
                         "number"

@@ -1,6 +1,6 @@
 //! What the web's list idioms become in Contract, for the refusals that meet
 //! them (LLP 1017.003 §Diagnostics): an agent or a web developer writes
-//! `xs.map(f)`, `xs.length`, `reduce`, `Math.min(...xs)` or `toFixed` first,
+//! `xs.map(f)`, `xs.length`, `reduce`, `Math.min(...xs)` or `toPrecision` first,
 //! and each refusal names the spelling that works or says what to do instead.
 
 /// The fix for `recv.name(…)`, or for `recv.name` read as a field of a value
@@ -23,6 +23,7 @@ pub fn method_fix(name: &str) -> String {
         "split" => "write `split(s, sep)`: the web's `split` with a string separator; Contract has no regular expressions".into(),
         "replace" | "replaceAll" => "write `replaceAll(s, find, with)`: the web's `replaceAll` with a string `find`; Contract has no regular expressions".into(),
         "at" => "write `at(xs, i)`: Contract spells the web's `xs.at(i)` as a roster function, `some` of the item or `none`".into(),
+        "toFixed" => "write `toFixed(x, digits)`, `digits` a whole-number literal from 0 to 100: the web's `x.toFixed(digits)` as a roster function; for money, `formatDecimal(round(price * 100), 2)` is exact (LLP 1102 §3.2)".into(),
         _ => match refusal(name) {
             Some(why) => why,
             None => format!(
@@ -62,8 +63,8 @@ pub fn refusal(name: &str) -> Option<String> {
         // The roster's substring search under the web's name since
         // 2026-09-28; a hint, not a second spelling: `contains` does not compile.
         "contains" => "write `includes(s, t)`, or `includes(xs, x)` for a list: the roster's search wears the web's name, `String.prototype.includes` and `Array.prototype.includes` (LLP 1006 §Expressions, renamed from `contains` 2026-09-28); `startsWith(s, t)` and `endsWith(s, t)` are the web's too".into(),
-        "toFixed" | "toPrecision" => format!(
-            "`{name}` is refused (LLP 1017.003; a fixed-decimal format is still open, LLP 1102 §3.2): round with `round(v * 100) / 100` and print it with `toString` (or a template), which drops trailing zeros (`1.5`, not `1.50`), so pad cents yourself or format in the data module; for a count, `formatNumber(n, \"compact\")` prints `1.2K` (LLP 1054.000.003)"
+        "toPrecision" | "toExponential" => format!(
+            "`{name}` is not in Contract: `toFixed(x, digits)` is the web's fixed-decimal format (`toFixed(2.5, 1)` is `\"2.5\"`), `formatDecimal(round(price * 100), 2)` prints money exactly, and `formatNumber(n, \"compact\")` prints a count as `1.2K` (LLP 1102 §3.2)"
         ),
         _ => return None,
     })

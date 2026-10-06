@@ -17,7 +17,7 @@ for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
 for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'settleRadios', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'],
   'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
-  'svg-transform.js': ['svgTransform'], 'dataset.js': ['ds'], 'hooks.js': ['hk'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber'] }))
+  'svg-transform.js': ['svgTransform'], 'dataset.js': ['ds'], 'hooks.js': ['hk'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] }))
   writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n') + (file === 'media.js' ? '\nexport const MEDIA_EVENTS = new Set();' : ''));
 // A view transition that holds every tree update (shared.js's commit returns before its callback).
 writeFileSync(resolve(dir, 'shared.js'), 'export const commit = (tail) => { globalThis.heldTail = tail; return true; };');
@@ -208,6 +208,18 @@ test('parseNumber, round, ceil and calendarDiff are the runner\'s', async () => 
     expect(Object.is(x_calendarDiff(from, to, 'years'), years)).toBe(true);
     expect(Object.is(x_calendarDiff(from, to, 'months'), months)).toBe(true);
   }
+});
+
+// LLP 1102 §3.2 (decided (c)): format.js's `toFixed` is JavaScript's but "" for a non-finite number (D7), and its
+// `formatDecimal` is runner/src/format.rs's exact count (runner/tests/it/format.rs has the same rows).
+test('toFixed and formatDecimal are the runner\'s', async () => {
+  const { x_toFixed, x_formatDecimal } = await import(webJs('format.js'));
+  expect([[1.005, 2], [-0.001, 2], [-0, 2], [2.5, 0], [-2.5, 0], [1e21, 2], [NaN, 2], [Infinity, 0], [-Infinity, 100]].map(([x, d]) => x_toFixed(x, d)))
+    .toEqual(['1.00', '-0.00', '0.00', '3', '-3', '1e+21', '', '', '']);
+  expect([[1234, 2], [-5, 2], [7, 0], [-0, 2], [0, 0], [5, 20], [-1234567, 3], [9007199254740993, 2], [1e21, 0], [12.5, 2], [NaN, 2], [Infinity, 2], [5e-324, 2]]
+    .map(([x, d]) => x_formatDecimal(x, d)))
+    .toEqual(['12.34', '-0.05', '7', '0.00', '0', '0.00000000000000000005', '-1234.567', '90071992547409.92', '1000000000000000000000', '', '', '', '']);
+  expect(x_formatDecimal(Number.MAX_VALUE, 0)).toBe(BigInt(Number.MAX_VALUE).toString());
 });
 
 // LLP 1088 §9.1: `concat`, and `slice` and `includes` over a list, are the web's array methods (`includes` by

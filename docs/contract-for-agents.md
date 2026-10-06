@@ -289,10 +289,28 @@ at CSS.
   the web (`end > start` for `"HH:MM"` times). `slice(s, 0, -1)`,
   `replaceAll(s, find, with)` and `toLowerCase(s)` are the web's string methods.
 - Numbers have `floor`, `ceil`, `round` (JavaScript's `Math.round`: `round(-2.5)` is
-  -2), `min`, `max`, `%` and `formatNumber`. A field's text is a number through
-  `match parseNumber(s) { case some(n) => …, case none => … }`: a decimal numeral,
-  trimmed, or `none` (`"12px"`, `""`). There is no fixed-decimal format:
-  `round(v * 100) / 100` prints `1.5`, not `1.50`, so money is formatted in a source.
+  -2), `min`, `max`, `%`, `formatNumber` (`1.2K`), `toFixed` and `formatDecimal`. A
+  field's text is a number through `match parseNumber(s) { case some(n) => …, case
+  none => … }`: a decimal numeral, trimmed, or `none` (`"12px"`, `""`).
+- Money is `formatDecimal(round(price * 100), 2)`: an integer count of cents
+  printed exactly (`1234` is `"12.34"`, `-5` is `"-0.05"`), so `19.995` shows
+  `20.00`. Keep money as a count of cents where you can; `formatDecimal` of a
+  number that is not an integer prints `""`, so round first. `toFixed(x, 2)` is
+  the web's `x.toFixed(2)`, for a measured number (`toFixed(km, 1)`): it rounds
+  the binary value, so `toFixed(1.005, 2)` is `"1.00"`, which is why money does
+  not use it. Both take the digits as a whole-number literal (`toFixed` 0–100,
+  `formatDecimal` 0–20), never a variable, and print `""` for `NaN` or
+  `Infinity` (JavaScript's `toFixed` prints `"NaN"`).
+
+```contract
+component Cart
+  state price = 19.995
+  state km = 12.34
+  view
+    column
+      text `Total $${formatDecimal(round(price * 100), 2)}` testId="total"
+      text `${toFixed(km, 1)} km` testId="distance"
+```
 - Dates: `formatDate(ms, offset, "iso")` is `YYYY-MM-DD`, and `calendarDiff(from, to,
   "years")` (or `"months"`) is the whole periods between two such dates as an
   `option<number>`, counted as an age is (a Feb 29 birthday has its year on Mar 1).

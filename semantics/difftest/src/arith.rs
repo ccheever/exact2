@@ -11,15 +11,18 @@
 //! `f64::trunc`, `f64::ceil`, `stdlib::js_round`). Results are compared by
 //! bits, every NaN one. Each case also carries a numeral and two dates:
 //! `parseNumber` of the numeral and `calendarDiff` of the dates in years and
-//! in months (LLP 1102 §3.1, §3.4), as `exact_runner::stdlib` reads them.
+//! in months (LLP 1102 §3.1, §3.4), as `exact_runner::stdlib` reads them;
+//! and two digit counts: `toFixed(a, d)`, `formatDecimal(a, g)` and
+//! `formatDecimal(trunc(a), g)` (§3.2), as the `format` capability prints.
 
 use crate::leanrun;
 use crate::rng::Rng;
-use exact_runner::stdlib;
+use exact_plan::{Stdlib, Value};
+use exact_runner::{formatting, stdlib};
 use std::path::Path;
 use std::process::Command;
 
-const OPS: [&str; 19] = [
+const OPS: [&str; 22] = [
     "+",
     "-",
     "*",
@@ -39,6 +42,9 @@ const OPS: [&str; 19] = [
     "parseNumber",
     "years",
     "months",
+    "toFixed",
+    "formatDecimal",
+    "formatDecimal∘trunc",
 ];
 /// The fields printed in hex, then one of three comparison bits, then the
 /// text reads.
@@ -61,6 +67,9 @@ struct Case {
     numeral: String,
     from: String,
     to: String,
+    /// `toFixed`'s digits (0–100) and `formatDecimal`'s (0–20).
+    d: u32,
+    g: u32,
 }
 
 /// The runner's side of one line, in the Lean module's format.
@@ -69,8 +78,13 @@ fn expected(c: &Case) -> String {
     let bit = |p: bool| if p { '1' } else { '0' };
     let opt = |v: Option<String>| v.unwrap_or_else(|| "none".into());
     let diff = |months| opt(stdlib::calendar_diff(&c.from, &c.to, months).map(|n| n.to_string()));
+    let fmt =
+        |f, x: f64, d: u32| match formatting(f, &[Value::Number(x), Value::Number(f64::from(d))]) {
+            Some(v) => format!("[{}]", v.as_str().unwrap_or("?")),
+            None => "refused".into(),
+        };
     format!(
-        "{:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {}{}{} {} {} {}",
+        "{:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {}{}{} {} {} {} {} {} {}",
         canon(a + b),
         canon(a - b),
         canon(a * b),
@@ -90,6 +104,9 @@ fn expected(c: &Case) -> String {
         opt(stdlib::parse_number(&c.numeral).map(|x| format!("{:016x}", canon(x)))),
         diff(false),
         diff(true),
+        fmt(Stdlib::ToFixed, a, c.d),
+        fmt(Stdlib::FormatDecimal, a, c.g),
+        fmt(Stdlib::FormatDecimal, a.trunc(), c.g),
     )
 }
 
@@ -326,19 +343,19 @@ fn date(rng: &mut Rng) -> String {
 
 fn module(data: &Path) -> String {
     format!(
-        "import Contract.Number\nimport Contract.Value\nimport Contract.OracleText\nopen Contract\n\n\
+        "import Contract.Number\nimport Contract.Value\nimport Contract.Format\nimport Contract.OracleText\nopen Contract\n\n\
 def hex16 (x : UInt64) : String :=\n  String.ofList ((List.range 16).reverse.map fun i => Nat.digitChar ((x.toNat >>> (4 * i)) % 16))\n\
 def cb (x : F64) : String := hex16 (Number.canonicalBits x)\n\
 def bit (p : Bool) : String := if p then \"1\" else \"0\"\n\
 def opt {{α}} (f : α → String) : Option α → String\n  | some x => f x\n  | none => \"none\"\n\n\
 def main : IO Unit := do\n  let out ← IO.getStdout\n  for line in (← IO.FS.lines {data:?}) do\n    \
 match line.splitOn \" \" with\n    \
-| [sa, sb, sn, num, d1, d2] =>\n      \
-match OracleText.hexN 16 0 sa.toList, OracleText.hexN 16 0 sb.toList, sn.toNat? with\n      \
-| some (x, _), some (y, _), some n =>\n        \
+| [sa, sb, sn, num, d1, d2, sd, sg] =>\n      \
+match OracleText.hexN 16 0 sa.toList, OracleText.hexN 16 0 sb.toList, sn.toNat?, sd.toNat?, sg.toNat? with\n      \
+| some (x, _), some (y, _), some n, some fd, some fg =>\n        \
 let a := F64.ofBits (UInt64.ofNat x)\n        let b := F64.ofBits (UInt64.ofNat y)\n        \
-out.putStrLn s!\"{{cb (a + b)}} {{cb (a - b)}} {{cb (a * b)}} {{cb (a / b)}} {{cb (Number.fmod a b)}} {{cb a.floor}} {{cb (Number.fmax a b)}} {{cb (Number.fmin a b)}} {{cb (Number.trunc a)}} {{cb (-a)}} {{cb (F64.ofNat n)}} {{cb a.ceil}} {{cb a.jsRound}} {{bit (decide (a < b))}}{{bit (decide (a ≤ b))}}{{bit (a == b)}} {{opt cb (Str.parseNumber num)}} {{opt toString (Str.calendarDiff d1 d2 false)}} {{opt toString (Str.calendarDiff d1 d2 true)}}\"\n      \
-| _, _, _ => out.putStrLn \"?\"\n    \
+out.putStrLn s!\"{{cb (a + b)}} {{cb (a - b)}} {{cb (a * b)}} {{cb (a / b)}} {{cb (Number.fmod a b)}} {{cb a.floor}} {{cb (Number.fmax a b)}} {{cb (Number.fmin a b)}} {{cb (Number.trunc a)}} {{cb (-a)}} {{cb (F64.ofNat n)}} {{cb a.ceil}} {{cb a.jsRound}} {{bit (decide (a < b))}}{{bit (decide (a ≤ b))}}{{bit (a == b)}} {{opt cb (Str.parseNumber num)}} {{opt toString (Str.calendarDiff d1 d2 false)}} {{opt toString (Str.calendarDiff d1 d2 true)}} [{{Format.toFixed a fd}}] [{{Format.formatDecimal a fg}}] [{{Format.formatDecimal (Number.trunc a) fg}}]\"\n      \
+| _, _, _, _, _ => out.putStrLn \"?\"\n    \
 | _ => out.putStrLn \"?\"\n",
         data = data.display().to_string()
     )
@@ -383,6 +400,7 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
             let n = natural(&mut rng);
             let numeral = numeral(&mut rng, b);
             let (from, to) = (date(&mut rng), date(&mut rng));
+            let (d, g) = (rng.below(101) as u32, rng.below(21) as u32);
             Case {
                 a,
                 b,
@@ -390,6 +408,8 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
                 numeral,
                 from,
                 to,
+                d,
+                g,
             }
         })
         .collect();
@@ -397,7 +417,10 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
         .iter()
         .map(|c| {
             let (a, b, n) = (c.a.to_bits(), c.b.to_bits(), c.n);
-            format!("{a:016x} {b:016x} {n} {} {} {}", c.numeral, c.from, c.to)
+            format!(
+                "{a:016x} {b:016x} {n} {} {} {} {} {}",
+                c.numeral, c.from, c.to, c.d, c.g
+            )
         })
         .collect();
     let jobs = std::env::var("DIFFTEST_JOBS")
