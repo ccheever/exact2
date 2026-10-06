@@ -5,6 +5,7 @@
 // right panel's surface chooser and the thread title's action menu.
 import type { T3Client } from './client';
 import { terminalAvailable, terminalOpen } from './terminal-drawer-view'; // terminal-drawer
+import type { DispatchContext } from './keyboard-dispatch'; // terminal-layout: terminal labels resolve with terminalFocus
 import { highlightPending } from './r12-render-highlight';
 import { toasts, dismissToast, type Toast, type ToastKind } from './toast';
 import { arr, obj, str, type Obj } from './domain';
@@ -141,8 +142,8 @@ export function toastViews(queue: Toast[], copied: ReadonlySet<number> = new Set
 }
 
 /** The last binding for a command, as formatShortcutLabel prints it (⌥⌘B). */
-export function commandShortcut(config: Obj, command: string): string {
-  const shortcut = effectiveShortcut(config, command); // r4-polish-shortcuts.ts: findEffectiveShortcutForCommand
+export function commandShortcut(config: Obj, command: string, context: Partial<DispatchContext> = {}): string {
+  const shortcut = effectiveShortcut(config, command, context); // r4-polish-shortcuts.ts: findEffectiveShortcutForCommand
   return shortcut ? shortcutLabel(shortcutInput(shortcut)) : '';
 }
 
