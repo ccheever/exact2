@@ -399,7 +399,8 @@ impl ShapedSource {
                 });
                 if ellipsis {
                     if let (Some(w), Some(catalog)) = (
-                        width.filter(|w| out.lines.last().is_some_and(|l| l.w > w + 0.01)),
+                        // Overflow as Blink decides fit: past one 1/64 px unit.
+                        width.filter(|w| out.lines.last().is_some_and(|l| l.w > w + 1.0 / 64.0)),
                         catalog.as_deref_mut(),
                     ) {
                         self.ellipsize(&mut out, w, catalog);

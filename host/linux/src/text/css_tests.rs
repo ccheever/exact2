@@ -171,6 +171,25 @@ fn pre_keeps_spaces_and_tabs_and_breaks_only_at_line_feeds() {
 }
 
 #[test]
+fn content_ending_within_a_64th_of_a_pixel_past_the_width_fits() {
+    // Blink decides fit in LayoutUnits (1/64 px), and content may end one
+    // unit past the available width: Chrome keeps a message line it measures
+    // at exactly 200.00 px on one line where the float advances sum a few
+    // thousandths over (LLP 1085.000 host parity).
+    let mut e = engine(INTER, "Inter");
+    let s = spec("fits within a unit", WhiteSpace::Normal);
+    let full = e
+        .paragraph(&s, None)
+        .layout_runs()
+        .map(|r| r.line_w)
+        .fold(0.0, f32::max);
+    let mut lines = |w: f32| e.paragraph(&s, Some(w)).layout_runs().count();
+    assert_eq!(lines(full), 1);
+    assert_eq!(lines(full - 0.005), 1, "within one unit of {full}");
+    assert_eq!(lines(full - 0.03), 2, "past one unit of {full}");
+}
+
+#[test]
 fn ellipsis_ends_an_over_wide_nowrap_line_in_paint_only() {
     let mut e = engine(INTER, "Inter");
     let s = spec(

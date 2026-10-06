@@ -64,6 +64,17 @@ named here pass.
 11. **Host accessors.** `Run::bidi_level` (the text-flow walker reorders
     clusters by level) and `Layout::capacity_bytes` (the host's residency
     accounting). The unused `LineItemData::is_rtl` is removed.
+12. **Blink's fit rule.** `break_next` decides whether content fits as
+    Blink's line breaker does: the available width and the indent rounded
+    to LayoutUnits (1/64 px), content allowed to end one unit past it
+    (`AvailableWidthToFit`, `LayoutUnit::AddEpsilon`). Parley compared
+    float advances with the float width, so a line Chrome lays out at
+    exactly 200.00 px broke before its last word when its advances summed
+    a few thousandths over. Host parity: messages line starts @200
+    830 -> 832 of 835, Markdown @200 and @500 +1 each, one message line
+    lost to an emoji advance 0.05 px narrower than Chrome's. Tests:
+    `css_tests.rs`
+    (`content_ending_within_a_64th_of_a_pixel_past_the_width_fits`).
 
 All other archive files are byte-for-byte upstream. The upstream test suite
 (not in the archive) passed with patches 1–4 applied; with 4–7, five tests
