@@ -7,7 +7,7 @@ delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-thread-commands-and-keys
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/165
 verified_commit: null
 ---
 
