@@ -1,0 +1,25 @@
+// Tab panels inside a tab's route (runner/src/instance/tabs.rs, host/web-js/tabs.js):
+// the inner panel's root is the outer route, so building that route opens the inner
+// panel in the same commit, at launch and at a tab's first selection.
+routes nav
+  tab home "/"
+  tab saved "/saved"
+
+component Nested
+  action pick(name: string)
+    nav = select(nav, name)
+  view
+    main testId="navigation" navigationKey=`${top(nav).id}` width="100%" height="100%" display="flex" flex-direction="column"
+      column testId="panels" flex=1 min-height=0 position="relative"
+        each t in nav.tabs key=t.name
+          column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" inset=0
+            each e in t.stack key=e.id
+              column navigationKey=`${e.id}` testId=`route-${e.name}` position="absolute" inset=0
+                column role="tabpanel" testId=`inner-${e.name}`
+                  column navigationKey=`${e.id}` testId=`inner-route-${e.name}`
+                    text `inner ${e.name}` testId=`inner-title-${e.name}`
+      row role="tablist"
+        button role="tab" aria-controls="panel-home" press=pick("home") testId="tab-home"
+          text "Home"
+        button role="tab" aria-controls="panel-saved" press=pick("saved") testId="tab-saved"
+          text "Saved"

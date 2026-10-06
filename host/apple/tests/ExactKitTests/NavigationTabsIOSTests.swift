@@ -355,7 +355,10 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
         spin(0.3)
         let navigation = session.presenter.navigation
-        let route = try XCTUnwrap(navigation.tabPanels.last.flatMap { navigation.tabNavigations[$0] }?.viewControllers.first)
+        // A tab is built when it is first selected (LLP 1075.003 §3.7).
+        let stack = try XCTUnwrap(navigation.tabPanels.last.flatMap { navigation.tabNavigations[$0] })
+        navigation.selectTab(stack)
+        let route = try XCTUnwrap(stack.viewControllers.first)
         until("the screen is contained") { route.children.count == 1 }
         XCTAssertTrue(route.children.first?.view.isDescendant(of: route.view) == true)
     }

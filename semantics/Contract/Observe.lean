@@ -12,9 +12,10 @@ state in exactly this form; the two texts are compared line by line.
   `queued <name> <count>`   each `queue` mutation's waiting sends
   `command <name> <value>…` each command the step's commit issued
   `view <testId> <text>`   each element with a `testId`, in preorder, but
-                           none inside a virtualized `list`: the runner
-                           shows the rows its window lays out (a layout
-                           fact), the semantics every row
+                           none inside a virtualized `list` or a literal
+                           `role="tabpanel"`: the runner builds only the
+                           rows a list's window lays out and the routes of
+                           selected tabs, the semantics all of them
 
 Values: a number is `n` and its 16 hex digits of IEEE bits (every NaN is
 `7ff8000000000000`); a string is quoted with `\"`, `\\`, `\n`, `\r`, `\t`

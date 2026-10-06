@@ -306,8 +306,10 @@ structure VNode where
   `input` whose literal `type` is `checkbox`, `radio`, `range`, `date`, …): its
   payloads follow HTML's rules, which the semantics leaves out. -/
   control : Option String := .none
-  /-- A `list` whose `virtualized` is literally `true`: the runner shows
-  the rows its window lays out, which the observation leaves out. -/
+  /-- A `list` whose `virtualized` is literally `true`, or a literal
+  `role="tabpanel"`: the runner shows the rows its window lays out and
+  builds a panel's routes once its tab is selected, so the observation
+  leaves their contents out. -/
   windowed : Bool := false
   /-- The rows this element stands in, innermost first. -/
   rows : List RowId
@@ -376,7 +378,8 @@ def render : Nat → RenderCx → Locals → List Node → RowStore → Result (
         let (kids, live) ← render fuel cx ls children live
         pure ([{ tag, testId, text, handlers := hs, locals := ls, rows := cx.rows,
                  control := elementControl tag props,
-                 windowed := tag == "list" && (lookupField "virtualized" props matches .some (.bool true)),
+                 windowed := (tag == "list" && (lookupField "virtualized" props matches .some (.bool true)))
+                   || (lookupField "role" props matches .some (.str "tabpanel")),
                  children := kids : VNode }], live)
       | .when tag c thn els => do
         match ← eval fuel cx.env false ls c with

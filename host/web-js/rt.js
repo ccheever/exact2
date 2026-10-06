@@ -133,9 +133,8 @@ function endAll(rows) {
   for (const r of rows.values()) if (r.s) { r.item.n.dead = r.index.n.dead = 1; dispose(r.s); up = r.s.up; }
   if (up?.kids) up.kids = up.kids.filter(k => !k.gone);
 }
-// For loaded pieces (list.js): scopes, untracked reads, writes, the owner in
-// force, and a count of what commits changed (an edge's no-op, runner/collection.rs).
-export { scope, end, untracked, write, onEnd };
+// For loaded pieces (list.js, tabs.js): scopes, untracked reads, writes, the owner in force, an adopted element's next child, and a count of what commits changed (an edge's no-op, runner/collection.rs).
+export { scope, end, untracked, write, onEnd, at };
 export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTicket = () => ++Ticket;
 
 // ---------------------------------------------------------------- commits
@@ -143,9 +142,9 @@ export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTi
 export class Refusal extends Error {}
 /** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
 class Failed extends Refusal {}
-let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null, Sched = null;
+let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null, Sched = null, Tabs = null;
 /** Queued sends and gated tasks (schedule.js, LLP 1092), installed by a plan that declares them; the last commit's refusal. */
-export const useSchedule = s => { Sched = s; }, refused = () => Refused;
+export const useSchedule = s => { Sched = s; }, refused = () => Refused, useTabs = f => { Tabs = f; }; // Tabs: tabs.js's builder of the panels a commit opened. It runs after the served page's remaining rows are adopted, since one may hold a selected route.
 export const journal = Object.assign([], { start: 0, push(...l) { const over = Array.prototype.push.apply(this, l) - 4096; if (over > 0) this.start += this.splice(0, over).length; return this.length; } }); // the runner's ring (JOURNAL_RING): `start` is the oldest line's index
 const say = line => journal.push(`t=${clock.now} ${line}`);
 /** A write inside an action: collected, applied at commit. */
@@ -203,7 +202,7 @@ export function commit(f, what = "commit") {
   const tail = () => { // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
     for (const f of Before) f();
     Pres?.before({ ops: [] }, Views); // presence measures what it tracks before the tree changes (LLP 1063)
-    try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
+    try { flush(); if (Tabs) { if (!Booting) adoptAll(); Tabs(); } } catch (e) { Poisoned = true; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
     settled(); if (!ok) return Sched?.scan(false), false;
     clock.epoch++; Store.persist();
     for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds);
@@ -1355,6 +1354,7 @@ function adoptLazy(x) {
     else { r.start = document.createComment(""); r.end = document.createComment(""); frag.prepend(r.start); frag.append(r.end); }
     old.replaceWith(frag);
   } finally { Adopt = a; p.$n = save; }
+  if (!Flushing) Tabs?.(); // a row adopted outside a commit may hold a tab's selected route. Inside a commit, tabs open after the flush.
 }
 function adoptAll() { while (LazyAt < Lazy.length) adoptLazy(Lazy[LazyAt++]); lazyDone(); }
 function lazyDone() {

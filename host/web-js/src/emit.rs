@@ -12,7 +12,7 @@
 use crate::code::{self, Scope, Uses};
 use crate::style;
 use exact_kernel::{NodeType, PropId, StyleId};
-use exact_plan::{BindingKind, EventKind, Plan, RegionKind, Value};
+use exact_plan::{BindingKind, EventKind, NodesId, Plan, RegionKind, Value};
 use exact_web::host::template::Parts;
 use std::fmt::Write as _;
 
@@ -170,6 +170,8 @@ struct Em<'a> {
     site_attrs: bool,
     /// The JS dev loop's state checkpoint. Ordinary builds emit none of it.
     dev_reload: bool,
+    /// The routes built when their tab is first selected (tabs.js `dl`).
+    tabs: Option<exact_runner::instance::Tabs>,
 }
 
 /// The runner's reserved sources the JS runtime answers itself: the page's
@@ -217,6 +219,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         refs: rows::can_refer(plan),
         site_attrs,
         dev_reload,
+        tabs: exact_runner::instance::Tabs::of(plan),
     };
     em.heights = em.height_targets();
     em.transforms = em.transform_targets();
@@ -690,6 +693,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         [
             (paint, "import{paintUse as $paint}from\"./paint.js\";"),
             (em.list, "import{vl as $vl}from\"./list.js\";"),
+            (em.tabs.is_some(), "import{dl as $dl}from\"./tabs.js\";"),
             (!facts.is_empty(), facts.as_str()),
             (em.symbols.0, "import{symbols as $symbols}from\"./symbols.js\";"),
         ]
@@ -1040,6 +1044,9 @@ impl Em<'_> {
             self.out,
             "const {e}={h}({parent},\"{element}\",{class},{attrs_js},{text});"
         );
+        if exact_runner::instance::is_panel(plan, NodesId(i)) {
+            let _ = write!(self.out, "{e}.$tabpanel=1;"); // a literal tab panel: the difftest observation leaves its contents out
+        }
         if !presence.is_empty() {
             let pr = self.uses.rt("pr");
             let _ = write!(self.out, "{pr}({e});");
@@ -1351,7 +1358,10 @@ impl Em<'_> {
             self.list = true;
             return self.each(r, &e, scope, Some(opts));
         }
+        let tab = self.tabs.as_ref().and_then(|t| t.route(NodesId(i)));
+        let _ = tab.map(|(p, r)| write!(self.out, "$dl({e},e{},e{},()=>{{", p.0, r.0));
         self.children(self.sites.of_node(i), &e, scope)?;
+        self.out.push_str(if tab.is_some() { "});" } else { "" });
         Ok(())
     }
 

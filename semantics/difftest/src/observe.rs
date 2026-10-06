@@ -77,8 +77,9 @@ fn preorder(r: &Runner<Oracle>) -> Vec<ViewId> {
 }
 
 /// The elements an observation shows, in preorder: every live element but
-/// a virtualized list's descendants, which are the rows its window lays out
-/// (`Contract.Observe.viewLines` leaves them out too).
+/// a virtualized list's descendants, which are the rows its window lays out,
+/// and a literal `role="tabpanel"`'s, whose routes are built once its tab is
+/// selected (`Contract.Observe.viewLines` leaves them out too).
 fn observed(r: &Runner<Oracle>) -> Vec<ViewId> {
     fn walk(r: &Runner<Oracle>, windowed: &[ViewId], id: ViewId, out: &mut Vec<ViewId>) {
         out.push(id);
@@ -91,7 +92,11 @@ fn observed(r: &Runner<Oracle>) -> Vec<ViewId> {
             }
         }
     }
-    let windowed: Vec<ViewId> = r.collections().iter().map(|c| c.view).collect();
+    let mut windowed: Vec<ViewId> = r.collections().iter().map(|c| c.view).collect();
+    windowed.extend(preorder(r).into_iter().filter(|v| {
+        r.site_of(*v)
+            .is_some_and(|(n, _)| exact_runner::instance::is_panel(r.plan(), n))
+    }));
     let mut out = Vec::new();
     for root in r.roots() {
         walk(r, &windowed, root, &mut out);

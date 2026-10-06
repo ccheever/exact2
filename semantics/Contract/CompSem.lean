@@ -499,7 +499,8 @@ def crender : Nat → RCx → Locals → List CNode → Store → Result (List C
         let (kids, live) ← crender fuel cx ls kids live
         pure ([{ tag, testId, text, handlers,
                  control := elementControl tag props,
-                 windowed := tag == "list" && (lookupField "virtualized" props matches .some (.bool true)),
+                 windowed := (tag == "list" && (lookupField "virtualized" props matches .some (.bool true)))
+                   || (lookupField "role" props matches .some (.str "tabpanel")),
                  children := kids : CVNode }], live)
       | .when id c thn els => do
         match ← ceval fuel cx.env cx.frame ls c with

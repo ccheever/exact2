@@ -1,0 +1,4 @@
+# The inner tab panel of the launch tab's route is built at launch, and the other
+# tab's at its first selection, each in the commit that builds the outer route.
+tap tab-saved
+tap tab-home

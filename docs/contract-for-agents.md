@@ -980,10 +980,13 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
     button position="absolute" … // a root overlay: after the tablist, over everything
 ```
 
-- Each tab names its panel with `aria-controls`; the panels are the stacks, and every
-  tab's stack stays mounted, so a pushed screen, a draft and a scroll offset survive
-  a visit to another tab. A tab is `select(nav, name)`; selecting the shown tab
-  again pops it to its root.
+- Each tab names its panel with `aria-controls`; the panels are the stacks. A panel's
+  screens are built the first time its tab is selected (at launch, only the launch
+  tab's are), then stay mounted, so a pushed screen, a draft and a scroll offset
+  survive a visit to another tab. A component's `state` in a tab not yet selected
+  may start from its props at launch or at the tab's first selection, so don't
+  start state from a value that changes before then.
+  A tab is `select(nav, name)`; selecting the shown tab again pops it to its root.
 - On iOS the panels become a `UITabBarController`: a tab of one symbol over its label
   is its bar item, a filled box holding a text is the item's badge, and the
   tablist's `accent-color` (inherited, as in CSS) tints the selected item. Under the
@@ -1007,7 +1010,8 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   the browser's back button does with `tap <root> history -1`, `<root>` being the
   navigation root (the node with `navigationBack`) by its `testId`, the simplest
   handle, or its view number from `tree`; native hosts refuse it, and a
-  test file has no such step yet.
+  test file has no such step yet. An element in a tab never selected is not built:
+  select its tab before `tap`ping it.
 
 A `head` node supplies document metadata. The innermost active value wins for
 each field. `head edited=dirty` marks a document with unsaved changes (the dot in

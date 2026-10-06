@@ -660,7 +660,8 @@ Each with the trigger that would earn it back:
   tab's stack, and every tab's rows stay mounted. The web and AppKit hide and
   inert the unselected panels (D6); UIKit gives each tab its own navigation
   controller under a tab bar controller, or under the app's own container
-  through the module's `tabContainer` hook.
+  through the module's `tabContainer` hook. A tab's rows are built the first
+  time it is selected, then kept (LLP 1075.003 §3.7, Lifetime).
 - Restoring the pre-reload stack or the last session's location: a host
   could pass the last `router` op's url as the launch location under a
   manifest key, with no router change. An app that asks. Ruled no for v1

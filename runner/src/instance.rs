@@ -22,6 +22,7 @@ mod deps;
 mod document;
 mod find;
 mod region;
+mod tabs;
 mod text;
 
 use crate::bridge;
@@ -35,6 +36,7 @@ use exact_plan::{ArmsId, BindingKind, Items, NodesId, Plan, RegionKind, RegionsI
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
+pub use tabs::{is_panel, Tabs};
 
 /// The list engine's entries (LLP 1047 D3; LLP 1047.000 §9): the core
 /// reaches virtualized collections only through this table, and only
@@ -141,6 +143,10 @@ pub struct NodeInst {
     /// Last emitted child list.
     last_children: Vec<ViewId>,
     collection: Option<Box<collection::Collection>>,
+    /// A panel route whose children wait for its panel's first selection.
+    deferred: bool,
+    /// A panel that has held its root's selected route.
+    opened: bool,
 }
 
 #[derive(Debug)]
@@ -521,6 +527,7 @@ pub struct SiteIndex {
     /// template) has one value for the plan's life: evaluated once, by
     /// binding index, instead of once per instance.
     constants: Vec<std::cell::OnceCell<Value>>,
+    tabs: Option<Tabs>,
 }
 
 impl SiteIndex {
@@ -563,6 +570,7 @@ impl SiteIndex {
             constants: (0..plan.bindings.len())
                 .map(|_| Default::default())
                 .collect(),
+            tabs: Tabs::of(plan),
         };
         index.deps = Deps::new(plan, &index);
         index
@@ -766,6 +774,8 @@ impl NodeInst {
             children: Vec::new(),
             last_children: Vec::new(),
             collection: None,
+            deferred: false,
+            opened: false,
         };
         inst.emit_bindings(u, frames, true)?;
         let lists = u.env.lists;
@@ -773,7 +783,13 @@ impl NodeInst {
             Some(lists) => (lists.create)(u, node, view, frames)?,
             None => None,
         };
-        if inst.collection.is_none() {
+        if u.sites
+            .tabs
+            .as_ref()
+            .is_some_and(|t| t.route(node).is_some())
+        {
+            inst.deferred = true;
+        } else if inst.collection.is_none() {
             inst.children = realize(u, Some(node), row.arm, frames)?;
             inst.emit_children(u);
         }
@@ -1085,7 +1101,8 @@ pub struct Tree {
 impl Tree {
     /// Realize the plan's root sites.
     pub fn create(u: &mut Update<'_>) -> Result<Tree, InstanceError> {
-        let children = realize(u, None, None, &[])?;
+        let mut children = realize(u, None, None, &[])?;
+        tabs::open(&mut children, u)?;
         let mut tree = Tree {
             has_collections: u.env.plan.bindings.iter().any(|b| {
                 b.kind == BindingKind::Prop
@@ -1112,7 +1129,9 @@ impl Tree {
         u.changed = Some(u.sites.deps.changed(&self.seen, &u.env));
         let roots = update_all(u, &mut self.children, &[]);
         u.changed = None;
-        if roots? {
+        let roots = roots?;
+        tabs::open(&mut self.children, u)?;
+        if roots {
             self.emit_roots(u);
         }
         if self.has_collections && (u.text_styled || u.ops.iter().any(|op| matches!(op, Op::SetStyle { patch, .. } if patch.mask.intersects(exact_kernel::StyleMask::TEXT)))) {

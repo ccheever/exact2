@@ -80,6 +80,9 @@ export function targetsIn(nodes, limit = 12) {
   return named.length ? `; targets here: ${named.slice(0, limit).join(', ')}${named.length > limit ? ', …' : ''}` : '';
 }
 
+/** A missed target's hint when the tree has tab panels, whose screens are built the first time their tab is selected (LLP 1075.003 §3.7). */
+export const unbuiltTabs = (nodes) => (nodes.some((n) => n.props.accessibilityRole === 'tabpanel') ? "; a tab's screens are built the first time it is selected: tap its tab first" : '');
+
 /** Where a native host keeps a drive's scratch stores (host/apple and host/linux `configure_storage`), or
  * null where the driver cannot reach them: an iOS simulator's are in its app container and go with the app. */
 export function storeBase(appId, host, env = process.env, home = homedir()) {

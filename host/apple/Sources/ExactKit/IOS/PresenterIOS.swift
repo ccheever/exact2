@@ -675,7 +675,7 @@ final class Presenter {
     }
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
     /// What native containers cover of boxes (LLP 1075.003 §3.5).
-    var onCovers: (([(UInt32, HostCover?)]) -> Void)?
+    var onCovers: (([(UInt32, HostCover?)], _ applied: @escaping () -> Void) -> Void)?
     /// Work for after the batch being applied, or now: a hook's act on an
     /// authored element never lands inside a batch (LLP 1075.003 §3.4).
     func afterBatch(_ work: @escaping () -> Void) { if applying { waiting.append((nil, work)) } else { work() } }

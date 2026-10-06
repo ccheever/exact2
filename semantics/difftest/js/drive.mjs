@@ -168,9 +168,9 @@ async function drive(code, c, hostSources) {
   out.push(`outcome ${booted}`);
   if (booted === 'poisoned') return [...out, ...notes];
   const root = document.root;
-  // Elements in preorder; a virtualized list's rows are its window's (left out).
+  // Elements in preorder, leaving out a virtualized list's rows and a literal tab panel's contents.
   const walk = (e, f, windowed) => { for (const k of e.childNodes) if (k.nodeType === 1) { f(k); if (!(windowed && windowedList(k))) walk(k, f, windowed); } };
-  const windowedList = e => e.getAttribute('role') === 'list' && e.hasAttribute('data-scroll');
+  const windowedList = e => (e.getAttribute('role') === 'list' && e.hasAttribute('data-scroll')) || e.$tabpanel; // a literal role="tabpanel", as observe.rs and Lean read it
   const find = id => { let hit = null; walk(root, e => { if (!hit && e.getAttribute('data-testid') === id) hit = e; }, false); return hit; };
   const observe = () => {
     names.forEach((group, g) => group.forEach((name, i) => {

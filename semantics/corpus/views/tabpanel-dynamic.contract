@@ -1,0 +1,17 @@
+// The observation leaves out the contents of a literal role="tabpanel" only
+// (Contract.Observe): a role that evaluates to "tabpanel" is observed whole on
+// every side.
+component App
+  state panel = true
+  action flip
+    panel = not panel
+  view
+    column
+      column role=(panel ? "tabpanel" : "group") testId="box"
+        text "inside" testId="inside"
+      button "flip" press=flip testId="flip"
+
+test "a dynamic panel role"
+  tap "flip"
+  tap "flip"
+  expect state panel == true

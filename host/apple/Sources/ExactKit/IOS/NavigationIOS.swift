@@ -124,6 +124,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var stacks: [ObjectIdentifier: NavigationStack] = [:]
     var stackCount = 0
     var covers: [UInt32: HostCover] = [:]
+    /// `covers` as the session last applied them to layout.
+    var appliedCovers: [UInt32: HostCover] = [:]
     var ownedReported: Set<String> = []
     var replayingHooks = false
     private var coversPending = false
@@ -797,10 +799,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         for c in controllers.values { end(c) }
         retireTabs()
         if let primaryNavigation { retireStack(primaryNavigation) }
+        appliedCovers = [:]
         if !covers.isEmpty {
             let cleared = covers.keys.filter { presenter.views[$0] != nil }
             covers = [:]
-            if !cleared.isEmpty { presenter.onCovers?(cleared.map { ($0, nil) }) }
+            if !cleared.isEmpty { presenter.onCovers?(cleared.map { ($0, nil) }) {} }
         }
         primaryNavigation?.delegate = nil
         primaryNavigation?.willMove(toParent: nil)
