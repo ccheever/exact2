@@ -969,7 +969,7 @@ component T3Code
     if not commandPending
       draftOwner = "__unset__"
       commandPending = true
-      pendingModal = (op == "environment-add" or op == "environment-ssh-add" or op == "environment-ssh-pick") ? (data.connected ? "connect" : "connect-first") : "connection"
+      pendingModal = (op == "environment-add" or op == "environment-route-add" or op == "environment-ssh-add" or op == "environment-ssh-pick") ? (data.connected ? "connect" : "connect-first") : "connection"
       modalError = ""
       connectionRemove = ""
       send changed = command(op, id, value, 0)
