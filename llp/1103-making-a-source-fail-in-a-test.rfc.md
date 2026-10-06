@@ -1,101 +1,117 @@
-# LLP 1103: Making a source fail (or wait) in a test or a drive
+# LLP 1103: Making a fetch fail in a test or a drive
 
 **Type:** RFC
-**Status:** Draft r1, 2026-10-06. Accepted in principle by Charlie (LLP 1102 §0, §3.3); this document is the design he asked for before building.
-**Systems:** the runner's request path (`runner/src/request.rs`, `runner/src/runner/commit.rs`), the native data executor (`js/src/prelude.js`, the Hermes host request path), the JS target's data layer (`host/web-js/ts-data.js`, `ts-fetch.js`, `rt.js`), the agent's carriers (`host/web-js/agent.js`, the Apple and Linux agents, `scripts/agent.mjs`), the authored-test grammar and runner (`contract/syntax/src/parser/steps.rs`, `scripts/agent-test.mjs`), docs
+**Status:** Draft r2, 2026-10-06. Charlie accepted the direction (LLP 1102 §0, §3.3). r1 was reviewed blind by Astra (`gpt-6-astra`, xhigh) and Grok 4.7 (xhigh); both found it not ready (§6). r2 narrows the first version to what every executor can do exactly.
+**Systems:** the grant check every fetch passes (`grants/` and each executor's fetch path: `js/src/prelude.js` on Hermes, `host/web-js/ts-fetch.js` and `rt.js` `data.fetch` on the JS target, the native HTTP executor for a Rust source's declarative request), the authored-test grammar and runner (`contract/syntax/src/parser/steps.rs`, `scripts/agent-test.mjs`), the agent's open options and operations (`scripts/agent.mjs`, the web, Apple and Linux carriers), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-06
 **Implementer:** Claude (Opus 5.5) lanes, after review
-**Related:** LLP 1102 §3.3 (the finding: 64% of recipe-app trials, the bench's largest time sink) and §3.5 (timeouts); LLP 1016 D4 (a failure the app catches is still journaled); LLP 1027.001 (storage outcomes); LLP 1012 (the agent's operations); LLP 1092 (gated tasks: a deadline needs a request that does not answer)
+**Related:** LLP 1102 §3.3 (the finding: 64% of recipe-app trials; the bench's largest time sink) and §3.5 (timeouts); LLP 1016 D4 and D6 (a failure the app catches is journaled; a fetch outside the grant is refused); LLP 1027.002 (module workers); reviews of r1 (§6)
 
 ## 1. Summary
 
-An app's error and retry paths cannot be tested today. A test that wants "the recipes API is down" has no step for it. Builders read the driver's source to find raw CDP (`Network.setBlockedURLs`, web only), wrote fault proxies, or rebuilt against a dead port.
+An app's error and retry paths cannot be tested today. Builders read the driver's source to find raw CDP (`Network.setBlockedURLs`, web only), wrote fault proxies, or rebuilt against a dead port.
 
-This RFC adds two faults, as a drive operation and a test step:
+This RFC adds one fault, on every host:
 
 ```text
-fail "recipes"               # the next host request made while answering `recipes` fails
-fail "recipes" times 3       # the next three
-hold "recipes"               # the next such request stays in flight until released
-release "recipes"            # release every held request of `recipes` (answers it normally)
+fail fetch "https://api.example.com/recipes"           # every later fetch whose URL starts with this fails
+fail fetch "https://api.example.com/recipes" times 1   # only the next one
+pass fetch "https://api.example.com/recipes"           # stop failing
 ```
 
-A fault acts on a **host request** (a `fetch`, a storage operation) made while a source answers, not on the resource's `failed()` flag. The source's own code runs and sees the failure exactly as it would see a real network error: its `catch` runs, it may return an error record, or it may throw. So the test checks the app's actual error handling (LLP 1102 §3.3, the reviewers' finding).
+It is both a test step and a drive operation. In a test it may also be a launch line, so it is armed before the app's first data load.
+
+A matching fetch fails exactly as a real network failure does on that executor. The source's own code runs: its `catch`, its error record, its retry. So the test checks the app's actual error handling.
 
 ## 2. Decisions
 
-### D1 — A fault is a failed host request, attributed to the source being answered
+### D1 — Match by URL prefix, at the grant check
 
-**The fault.** `fail "name"` arms a fault for the next host request issued while the source `name` is answering. That request does not go out. Its outcome is `Outcome::Failed { kind: Network, message: "injected by the driver" }`:
-- in a TypeScript source, the `fetch` promise rejects with a `TypeError` (the web's network-error shape) and a storage call rejects with its coded error;
-- in a Rust source, its request's reply is that outcome.
+**Why a URL and not a source name.** r1 matched "the next host request made while answering source X". The reviews showed that this attribution does not exist reliably:
+- the JS target's `answering.call` is cleared when a source returns its promise, before the `await`s that fetch;
+- Hermes interleaves answers;
+- a Rust request carries its resource or mutation, not its source;
+- a module worker answers off the runner's thread.
 
-**Attribution.** A request is attributed to the source whose answer issued it:
-- on the JS target, `ts-fetch.js`'s `answering.call` already names it;
-- on native, the Hermes executor runs one answer at a time per instance and knows the source it was asked for;
-- a Rust source's requests carry its ticket.
+**Where.** Every fetch on every executor already passes one choke point that knows its URL: the grant check (LLP 1016 D6). That is where the fault table lives. A fetch whose URL starts with an armed prefix does not go out; it fails at that point.
 
-A request issued outside any answer is never matched: a mutation's `then` action, a stream already open.
+Matching by URL is also what the builders reached for (CDP's `setBlockedURLs` is URL-shaped), and it is executor-agnostic.
 
-**Mutations.** `name` may name a mutation's source too (`fail "saveRecipe"`), for testing a failed save. The first version covers resources and mutations that answer once. Streams are out of scope (D5).
+### D2 — The failure is each executor's real network failure
 
-### D2 — `hold` keeps a request in flight, and the driver does not wait for it
+A matched fetch fails through the same path a refused connection takes on that executor:
+- **Hermes:** the `fetch` promise rejects with the prelude's `FetchError`;
+- **the JS target:** `fetch` rejects as the browser's does (`TypeError: Failed to fetch`);
+- **a Rust source's declarative request:** its outcome is `Outcome::Failed { kind: Network }`.
 
-`hold "name"` arms a hold: the next attributed request is issued to no one, and stays in flight.
+No new error shape is invented. A source that catches the failure and returns a record lands as it would after a real failure. One that throws sets `failed(resource)` as it would.
 
-The drive must not wait on it:
-- `clock settle` and `clock data` count held requests out, as they count the auth and file-picker device holds (`holds()` in `host/web-js/agent.js`);
-- a held request otherwise behaves as a real slow request (`pending(r)` stays true; a gated task's deadline fires under `clock +N`).
+The journal records each injected failure ("fetch failed (driver fault): https://…/recipes/3"), so a test author can see that the fault fired.
 
-**Release.**
-- `release "name"` sends every held request of `name` out for real, in the order it was held, and its real answer lands.
-- A held request still open when the drive or test ends is aborted (`Outcome::Failed { kind: Aborted }`) and journaled.
+### D3 — Arming
 
-r1 of LLP 1102 proposed release by ticket. Release by source name is simpler for a test to write, and a source rarely has more than one request in flight at once. A ticket form can be added if a test needs to release one of several.
+- **A launch line in a test,** before the first step, as `locale` and `epoch` are: `fail fetch "…"`. It is armed before the app boots, so the first data load fails. This covers the most common case, "the API is down when the screen opens".
+- **A step later in a test,** affecting every later matching fetch: `fail fetch "…"`, `pass fetch "…"`. With `times N` it fails the next N matching fetches, then passes.
+- **A drive:** `--fail-fetch <prefix>` at open (repeatable), and `"fail fetch <prefix>"` and `"pass fetch <prefix>"` as operations on every carrier.
 
-### D3 — The test steps and the drive operation share one grammar
+An armed fault lasts until `pass`, its count runs out, or the test or drive ends. A fault with a count that never fired is a test failure ("fail fetch … times 1 matched no fetch"), so a test cannot pass by testing nothing.
 
-- **In a test file:** `fail "name"`, `fail "name" times N`, `hold "name"` and `release "name"` are steps. A fault armed in a test ends with the test: an unconsumed fault is reported as a failure of the test ("fail \"recipes\" was armed and no request was made").
-- **In a drive:** the same words are an operation on every carrier (`agent web …`, `agent ios …`). The reply names what was armed, and the journal records each consumed fault.
+`fail` and `pass` are new step words. `hold` stays the drag modifier it already is.
 
-### D4 — Every host, in the runner or beside it
+### D4 — Interaction with the runner's request handling
 
-The fault table lives where the host request is decided:
-- **Native (Apple, Linux, Windows):** in the runner's request path, before the executor (`request.rs`).
-- **The JS target:** in its data layer, before `fetch` and the storage adapters (`ts-data.js`).
+A failed fetch is an ordinary failed request:
+- **Deduplication** and **refresh** see a request that ended, as with a real failure. Nothing is left in flight.
+- **`clock settle`** and **`clock data`** count it as settled once it has failed.
+- **A queued mutation** whose request fails behaves as after a real failure: its reply lands, the queue moves on.
 
-The agent operation on each carrier writes the table. CDP is not used: it is web-only, and it fails a URL, not a source.
+There are no tickets to manage and no held state to retire. That is the reason r2 defers holding (D5).
 
-### D5 — What is out of scope for the first version
+### D5 — Deferred: holding a request, delays, storage faults
 
-- **Streams** (`exactStream`, Rust streamed requests): a failed stream open is a later decision, because a stream's messages and its end are separate outcomes.
-- **Delays by a given time** (`delay "name" 2000`): `hold` plus `clock +N` covers a timeout test.
-- **A failed answer without a request:** a synchronous source that issues no request is never matched; a test makes it fail by the data it reads.
+- **`hold`** (a request that stays in flight until released) would make a timeout testable, but the reviews found it interacts with deduplication, `forced` refreshes, `clock settle`'s device-hold rule and session teardown in ways that need their own design. Until then, a timeout is tested against a stand-in that never answers, as the bench's t8-library does.
+- **Storage faults** on Hermes start the adapter operation before the runner sees the continuation, so they need a separate interception point. Storage failures are rarer in the bench.
+- **A staged status** (`fail fetch "…" with 500`, a response instead of a network failure) is a small extension of D2 if a test needs to exercise HTTP-status handling.
 
 ## 3. What it enables
 
-- An authored test of a recipe app's error state and retry, on the web and iOS, in four lines.
-- LLP 1102 §3.5's timeout recipe, demonstrated: `hold "recipes"`, `clock +10000`, expect the deadline's state, `release "recipes"`, expect the late answer's policy.
-- A failed save (`fail "saveRecipe"`) and the app's message for it.
+```text
+test "the recipes list shows an error and retries"
+  fail fetch "https://api.example.com/recipes"
+  expect text "error" == "Couldn't load recipes."
+  pass fetch "https://api.example.com/recipes"
+  tap "retry"
+  clock data
+  expect text "count" == "12 recipes"
+```
+
+The same test runs on the web, iOS, macOS and Linux.
 
 ## 4. Cost
 
 | Part | Estimate |
 |---|---|
-| Native fault table and attribution in the runner's request path; abort at session end | about a lane-day |
-| The JS target's data layer (fetch and storage), and `holds()` counting | half a lane-day |
-| The agent operation on the web, Apple and Linux carriers; replies and journal lines | half a lane-day |
-| Test grammar, the test runner, unconsumed-fault reporting | half a lane-day |
-| Docs (the guide's testing section, the grammar, a recipe for an error state and a timeout) and fixtures | a few hours |
+| The fault table beside the grant check on each fetch path (Hermes prelude, the JS target's fetch and `data.fetch`, the native HTTP executor), with the executor's real failure | about a lane-day |
+| The launch option through each carrier's launch facts, the drive operations, journal lines | half a lane-day |
+| Test grammar (launch line and steps), the test runner, the unfired-fault failure | half a lane-day |
+| Tests on each executor; docs (the guide's testing section, the grammar, an error-state recipe) | half a lane-day |
 
-About three lane-days, within LLP 1102's estimate for resources and once-answering mutations.
+About two and a half lane-days.
 
 ## 5. Open questions
 
-1. Is `Network` the right injected kind for storage too? Storage errors are coded (`ENOENT`, …). The alternative is a storage-shaped error (`EIO`) for storage requests.
-2. Should `release` accept an optional answer (`release "recipes" with 500`) to stage a server error rather than the real answer? That would test HTTP-status handling without a server. It would make D2 a small fixture system. Defer unless a test needs it.
+1. Prefix or glob? A prefix is enough for the bench's apps. CDP's patterns allow `*`. Proposed: prefix now, `*` later if asked.
+2. Should a fault also match a WebSocket or SSE open (`exactStream`)? Proposed: yes for the open, which is a fetch; a stream's later messages are out of scope.
 
 ## 6. Revisions
 
-- r1, 2026-10-06: first draft.
+- r1, 2026-10-06: first draft (fail and hold a source's host request, by source name).
+- r2, 2026-10-06: Astra and Grok found r1 not ready:
+  - source attribution does not survive `await`s, Hermes interleaving, Rust targets or workers;
+  - native storage dispatches before the runner sees it;
+  - a hold breaks against deduplication, refresh, `clock settle` and teardown;
+  - the failure shapes were wrong (`FetchError`, not `TypeError`, on Hermes);
+  - a fault could not be armed before the first data load.
+
+  r2 matches by URL prefix at the grant check, uses each executor's real failure, arms on a launch line, and defers `hold` and storage faults.
