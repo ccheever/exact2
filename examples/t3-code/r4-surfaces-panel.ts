@@ -6,7 +6,7 @@
 // this model lists it as a tab and keeps it in step. Every op here is a
 // `shelllocal:surface-*` (or `shell:surface-*` for writes) routed from
 // shell-commands.ts, so the window's root state only learns `shell.panel.open`.
-import { closeSurface, closePanelSurfaces, openDeviceSurface, editTabName, tabRename, copyTabPath, showTabMenu } from './right-panel-tabs';
+import { closeSurface, closePanelSurfaces, openDeviceSurface, editTabName, tabRename, copyTabPath, showTabMenu, tabMenuRows, type TabMenuRow } from './right-panel-tabs';
 import { selectDeviceTarget } from './r6-media-device';
 import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
@@ -34,7 +34,7 @@ import type { PrTarget } from './r5-panels-pr';
 export type SurfaceKind = 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment';
 export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number; pr?: PrTarget; attachment?: AttachmentMeta; device?: DeviceTarget; title?: string };
 export type PanelState = { surfaces: Surface[]; active: string; visible: boolean; userRevision: number };
-export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean; renaming: boolean; renameValue: string };
+export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean; renaming: boolean; renameValue: string; menu: TabMenuRow[] };
 export type PanelView = {
   open: boolean; kind: string; active: string; count: number; tabs: PanelTab[];
   files: FilesView; prs: PrsView; device: DeviceView; deviceSetup: boolean; pr: PrSurfaceView; attachment: AttachmentView; deviceMini: R6DeviceMini; tabStrip: TabStrip;
@@ -235,7 +235,8 @@ export async function surfaceCommand(client: T3Client, native: Native, storage: 
 }
 
 function tabOf(client: T3Client, surface: Surface, active: string, pending: ReadonlySet<string>): PanelTab {
-  const editor = tabRename(panelState(client)), rename = { renaming: editor.id === surface.id, renameValue: editor.id === surface.id ? editor.value : '' };
+  const state = panelState(client), editor = tabRename(state);
+  const rename = { renaming: editor.id === surface.id, renameValue: editor.id === surface.id ? editor.value : '', menu: tabMenuRows(surface, state.surfaces) };
   const r5 = r5Tab(client, surface);
   if (r5) return { id: surface.id, kind: surface.kind, ...r5, ...rename, active: surface.id === active, pending: false };
   const name = surface.path.slice(Math.max(surface.path.lastIndexOf('/'), surface.path.lastIndexOf('\\')) + 1);
