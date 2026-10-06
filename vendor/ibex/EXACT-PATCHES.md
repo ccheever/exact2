@@ -81,14 +81,17 @@ paths never enter guest errors; rename/copy/realpath remain refused.
 `src/stdlib/fetch.rs` returns it before sending an ungranted redirected hop.
 The origin is diagnostic only and the tests pin the one-hop refusal.
 
-### 7. one deadline across a fetch
+### 7. caller deadline across a fetch
 
 From Exact `f0f7bc865`, `366a8e636`, and `d6019439c`:
 `src/stdlib/fetch.rs` carries `Request::timeout`; `src/transport/darwin.rs` and
 `darwin_http.mm` carry the Objective-C bridge's `exactTimeout`; and
-`src/transport/rustls_http.rs` applies the same `Timeout` to connect, TLS,
-headers, and body. Exact's executor sets the remaining per-call budget, so
-redirects cannot reset it.
+`src/transport/rustls_http.rs` applies that timeout to each transport attempt;
+redirect following reuses it per hop, so `Request::timeout` alone is not a
+whole-exchange deadline. Exact's executor arms one deadline and passes one
+caller AbortSignal across every redirect hop, bounding connect, TLS, headers,
+body, and the redirect chain as a whole. The executor redirect-chain test pins
+that distinction.
 
 ### Windows chosen-document EISDIR
 
