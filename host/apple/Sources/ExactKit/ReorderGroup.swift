@@ -139,6 +139,7 @@ final class ReorderGroupHold {
 
     /// Pin the grip, snapshot its row (before the runner hides it), and lift.
     init?(_ handle: NodeView, point: CGPoint, ghost drawn: Bool) {
+        handle.presenter?.reorderGroup?.landNow()
         guard let presenter = handle.presenter, SwipeInput.allows(handle),
               presenter.reorderGroup == nil, presenter.reorder == nil,
               presenter.session?.isApplyingPresentation != true,
@@ -268,6 +269,12 @@ final class ReorderGroupHold {
         let row = state.ending == "gone" ? nil : presenter.views[state.row]
         ghost.land(on: row) { [weak self] in self?.finishSession() }
     }
+
+    /// Whether the ghost is springing home: the move has shown, so a new drag may end it.
+    var isLanding: Bool { landing }
+
+    /// A new drag ends a landing at once (LLP 1102 §3.18); a session that holds is untouched (D8).
+    func landNow() { if landing { finishSession() } }
 
     private func finishSession() {
         guard let presenter, state.phase != "finished" else { end(); return }
