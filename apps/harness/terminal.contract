@@ -274,7 +274,7 @@ component Harness
                 text q white-space="nowrap" text-overflow="ellipsis" min-width=0
         row margin-top="1lh" border="thin solid #585858" border-radius="1ch" padding="0 1ch"
           text "› " white-space="pre" color="#87afff" font-weight=700 flex-shrink=0
-          textarea value=draft input=write key=onKey disabled=(session.approval.id != "") autofocus=true placeholder=(session.busy ? "Type ahead — it runs when this turn ends" : "Ask anything, or / for commands") flex-grow=1 rows=min(8, length(split(draft, "\n"))) testId="prompt"
+          textarea value=draft appearance="none" input=write key=onKey disabled=(session.approval.id != "") autofocus=true placeholder=(session.busy ? "Type ahead — it runs when this turn ends" : "Ask anything, or / for commands") flex-grow=1 rows=min(8, length(split(draft, "\n"))) testId="prompt"
         row padding="0 1ch" color="#6c6c6c" gap="2ch"
           button commandfor="models" command="show-modal" aria-keyshortcuts="Control+o" testId="model-button" white-space="nowrap" flex-shrink=0
             text `${session.model} (${session.provider})` color="#87afff"
@@ -308,7 +308,7 @@ component Harness
             text (keyFor == "openai" ? "● OpenAI" : "○ OpenAI")
         row margin-top="1lh"
           text "key › " white-space="pre" color="#5fd75f" flex-shrink=0
-          input type="password" value=keyDraft input=writeKey submit=saveKey autofocus=true placeholder="paste your key, then Enter" flex-grow=1 testId="key-input"
+          input type="password" appearance="none" value=keyDraft input=writeKey submit=saveKey autofocus=true placeholder="paste your key, then Enter" flex-grow=1 testId="key-input"
         text "shift+tab or click for the provider · enter to save · esc to cancel" color="#6c6c6c"
 
 // The transcript: one log child per entry, each known by its `id` (which

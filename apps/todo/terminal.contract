@@ -74,6 +74,7 @@ component Todos
       row height="1lh" padding="0 1ch" gap="1ch" margin-top="1lh"
         text "+" font-weight=700 color="#5fa85f"
         input value=draft
+          appearance="none"
           input=write
           submit=add
           placeholder="New task, then Enter"
