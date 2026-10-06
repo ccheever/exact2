@@ -395,6 +395,8 @@ extension Agent {
             let b = box(v)
             let p = CGPoint(x: req["x"] as? Double ?? b.midX, y: req["y"] as? Double ?? b.midY)
             contactClock = ProcessInfo.processInfo.systemUptime
+            // The button is down: the pointer no longer rests where it hovered.
+            presenter.agentPointer = nil
             send(.leftMouseDown, p)
             contact = p
             return ["contact": Int(v.id), "phase": "down", "at": at(p), "delivery": "platform"]
@@ -501,6 +503,9 @@ extension Agent {
             return ["error": "tap #\(v.id): its middle is outside the viewport; scroll it into view first"]
         }
         if req["hover"] as? Bool == true {
+            // The pointer rests here until the next hover: a layout that moves
+            // other content under it is hit-tested again (`followPointer`).
+            presenter.agentPointer = p
             if let node = win.contentView?.hitTest(p) as? NodeView, node.canvasInput != nil,
                let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
                 node.mouseMoved(with: event)
@@ -541,6 +546,8 @@ extension Agent {
             // and outside the session clock; `layout` reports the overscroll
             // it leaves behind.
             guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
+            // A wheel is the mouse's, where it then rests (CDP's `mouseWheel` moves it there too).
+            presenter.agentPointer = p
             let gesture = req["gesture"] as? Bool == true
             // The modifiers held (studio diary R3: ⌘-scroll; a pinch is Control's).
             var flags: NSEvent.ModifierFlags = []

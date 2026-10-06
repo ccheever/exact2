@@ -715,6 +715,43 @@ fn a_hover_never_presses_and_a_key_is_never_text() {
     );
 }
 
+/// #139: the pointer rests while a timer removes the row above the hovered
+/// one; the next frame's hover follows the layout, as the web's does —
+/// `hover` out of the row that slid away, into the one that slid under it.
+#[test]
+fn a_resting_pointer_hovers_what_the_layout_moves_under_it() {
+    let plan = contract::compile("component App\n  state rows = [\"a\", \"b\", \"c\"]\n  state hovered = \"\"\n  state armed = false\n  task drop when armed\n    after(3000, removeFirst)\n  action hov(id: string, on: bool)\n    hovered = on ? id : (hovered == id ? \"\" : hovered)\n  action arm\n    armed = true\n  action removeFirst\n    rows = slice(rows, 1)\n    armed = false\n  view\n    column width=300 height=300\n      text `${hovered}` testId=\"log\" height=20\n      each r in rows key=r\n        box hover=hov(r) press=arm testId=`row-${r}` width=200 height=60\n").unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let id = |p: &Presenter<NoData>, test_id: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+    };
+    let log = |p: &Presenter<NoData>| {
+        let k = p.host().kernel();
+        let node = k.node_by_key(k.find_by_test_id("log")[0]).unwrap();
+        node.props
+            .str(exact_kernel::PropId::Text)
+            .unwrap()
+            .to_string()
+    };
+    let b = id(&p, "row-b");
+    handle(&mut p, &format!(r#"{{"op":"tap","id":{b}}}"#));
+    handle(&mut p, &format!(r#"{{"op":"tap","id":{b},"hover":true}}"#));
+    assert_eq!(log(&p), "b");
+    // The clock's commit removes row a; the frame after it is hit-tested.
+    handle(&mut p, r#"{"op":"clock","to":3100}"#);
+    assert_eq!(log(&p), "c", "row c slid under the resting pointer");
+}
+
 #[test]
 fn a_target_out_of_view_is_revealed_and_a_control_takes_a_value() {
     // ledger F7, shop F11: a scroller's row and a row below the fold

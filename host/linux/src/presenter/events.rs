@@ -190,6 +190,7 @@ impl<D: DataSource> Presenter<D> {
     /// handler it left and into every one it entered, outermost first, each
     /// on its own — the web's `mouseleave`/`mouseenter`.
     pub(crate) fn hover_at(&mut self, at: Option<(f32, f32)>, now_ms: f64) -> Option<String> {
+        self.hover_point = at;
         let mut under = Vec::new();
         let mut node = at.and_then(|(x, y)| self.hit(x, y));
         while let Some(id) = node {
@@ -230,6 +231,23 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         error.or(self.after_commit())
+    }
+
+    /// After a painted frame: what the layout, a scroll or the tree moved
+    /// under a resting pointer is hovered, as a browser's hover follows
+    /// layout and scrolling without a move (a synthetic mouse move's
+    /// boundary events; #139). Only a pointer that has moved (a display's
+    /// boot-time cursor hovers nothing), and nothing while a button or a
+    /// contact is down. Never inside `frame()`: its pixels and witness are
+    /// the tree it painted.
+    pub fn follow_pointer(&mut self) {
+        if self.contact.is_some() || self.pointer_held.is_some() || self.pointer_buttons != 0 {
+            return;
+        }
+        let Some(at) = self.hover_point else { return };
+        if let Some(error) = self.hover_at(Some(at), self.host.now()) {
+            self.host.log(error);
+        }
     }
 
     /// The agent's hover (`tap … hover`, LLP 1012): the pointer to the node's
