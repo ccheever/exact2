@@ -102,8 +102,9 @@ fn align_impl<B: Brush, const UNDO_JUSTIFICATION: bool>(
     alignment: Alignment,
     options: AlignmentOptions,
 ) {
-    // Whether the text base direction is right-to-left.
-    let is_rtl = layout.base_level & 1 == 1;
+    // Whether the line box's direction is right-to-left (the text's base
+    // direction unless the builder set a line direction).
+    let is_rtl = layout.line_level & 1 == 1;
 
     // Apply alignment to line items
     for line in &mut layout.lines {

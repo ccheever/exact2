@@ -106,6 +106,7 @@ impl<B: Brush> LayoutContext<B> {
             fcx,
             line_break_override: None,
             base_direction: Default::default(),
+            line_direction: Default::default(),
         }
     }
 
@@ -137,6 +138,7 @@ impl<B: Brush> LayoutContext<B> {
             cursor: 0,
             line_break_override: None,
             base_direction: Default::default(),
+            line_direction: Default::default(),
         }
     }
 
@@ -180,6 +182,7 @@ impl<B: Brush> LayoutContext<B> {
             fcx,
             line_break_override: None,
             base_direction: Default::default(),
+            line_direction: Default::default(),
         }
     }
 

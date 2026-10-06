@@ -75,6 +75,21 @@ named here pass.
     lost to an emoji advance 0.05 px narrower than Chrome's. Tests:
     `css_tests.rs`
     (`content_ending_within_a_64th_of_a_pixel_past_the_width_fits`).
+13. **Line box direction.** `set_line_direction` on the three builders
+    (`LayoutData::line_level`): a host that resolves bidi levels by the
+    first strong character (`BaseDirection::Auto`) inside a box whose CSS
+    `direction` it knows gives the box's direction here. Patch 7's L1 level
+    for a line's trailing whitespace, which edge that whitespace is
+    measured and hangs at, and alignment's start, end and overflow edges
+    follow it; the bidi levels of the text itself do not. Without it, an
+    `ltr` paragraph whose first strong character is Hebrew hung each
+    wrapped line's trailing space at the left, before the visible text in
+    visual order (cosmic-text drew no glyph for that space; Chrome, whose
+    base is `ltr` there, hangs it at the right). Host parity:
+    `bidi-ltr-starts-hebrew`@120 5 -> 2 visual-order inversions (main 2;
+    the 2 left are the first-strong base itself), `bidi-arabic-digits`@120
+    1 -> 0. Tests: `sharing_tests.rs`
+    (`ltr_text_that_starts_rtl_hangs_its_trailing_spaces_at_the_right`).
 
 All other archive files are byte-for-byte upstream. The upstream test suite
 (not in the archive) passed with patches 1–4 applied; with 4–7, five tests

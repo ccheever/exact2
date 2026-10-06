@@ -257,6 +257,9 @@ pub(crate) struct LayoutData<B: Brush> {
     pub(crate) quantize: bool,
     /// The `BiDi` base level
     pub(crate) base_level: u8,
+    /// The line box's level: the base level unless the builder set a line
+    /// direction (trailing whitespace and alignment follow it).
+    pub(crate) line_level: u8,
     /// The length of the text in the layout
     pub(crate) text_len: usize,
 
@@ -318,6 +321,7 @@ impl<B: Brush> Default for LayoutData<B> {
             scale: 1.,
             quantize: true,
             base_level: 0,
+            line_level: 0,
             text_len: 0,
             width: 0.,
             full_width: 0.,
@@ -351,6 +355,7 @@ impl<B: Brush> LayoutData<B> {
         self.scale = 1.;
         self.quantize = true;
         self.base_level = 0;
+        self.line_level = 0;
         self.text_len = 0;
         self.width = 0.;
         self.full_width = 0.;
