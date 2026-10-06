@@ -30,6 +30,19 @@ final class ContextMenuTests: XCTestCase {
         XCTAssertTrue(menu.items[4].isEnabled)
     }
 
+    func testUnderTheAgentTheMenuAnswersDismissedWithoutTracking() {
+        // right-panel-tab-menu repro: popping the menu in the agent's never-key window tracked
+        // until real input, leaving the request pending past `clock settle`'s 20 s bound.
+        _ = NSApplication.shared
+        var reply: [String: Any]?
+        T3ContextMenu.perform(["op": "contextMenu", "generation": 7, "items": [["id": "close", "label": "Close"]]], agent: true) { reply = $0 }
+        XCTAssertEqual(reply?["ok"] as? Bool, true)
+        XCTAssertEqual(reply?["generation"] as? Int, 7)
+        let value = reply?["value"] as? [String: Any]
+        XCTAssertTrue(value?["clicked"] is NSNull)
+        XCTAssertEqual(value?["shown"] as? Bool, false)
+    }
+
     func testChoosingAnItemReportsItsId() {
         _ = NSApplication.shared
         let owner = T3ContextMenu()
