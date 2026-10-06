@@ -8,6 +8,7 @@ import { message } from './client-shared';
 import { adoptDiff, diffPaths, diffRequest, diffView, selectCheckpoint, selectScope } from './diff';
 import { rememberDiffLayout } from './settings-appearance-look';
 import { requestDiff } from './r11-device-diff';
+import { diffReview, loadDiffFiles } from './diff-review';
 import { type Native, type Files } from './protocol';
 
 /** The changes panel: open (a turn's checkpoint, a scope), refresh, whitespace, view options, copy a path, close. */
@@ -17,6 +18,7 @@ export async function diffOps(this: T3Client, op: string, id: string, value: str
     if (op === 'close-diff') { this.diffOpen = false; this.diffLoading = false; }
     else if (op === 'diff-view' && id === 'copy') { await this.call(native, { op: 'copyText', text: value }); resultMessage = 'Copied file path'; }
     else if (op === 'diff-view') { diffView(this, id, value, diffPaths(this)); if (id === 'layout') rememberDiffLayout(this, value); }
+    else if (op === 'diffreview') resultMessage = await diffReview(this, native, id, value, n); // diff-review.ts: tree reveal, large diffs, hidden lines, line comments
     else if (['diff', 'checkpoint-diff', 'diff-scope', 'diff-refresh', 'diff-whitespace'].includes(op)) await diff.call(this, native, op, id, value, n);
     else return false;
     return true;
@@ -46,6 +48,7 @@ async function diff(this: T3Client, native: Native, op: string, id: string, valu
     if (epoch === this.threadEpoch && threadId === this.threadId && this.diffOpen && JSON.stringify(diffRequest(this)) === asked) {
       // A named file stays collapsed, as in the reference (onOpenTurnDiff leaves 'Expand <file>' false).
       this.diffText = adoptDiff(this, request, result);
+      await loadDiffFiles(this, native); // diff-review.ts: a large preview's first four files
     }
   } catch (error) { if (epoch === this.threadEpoch) this.diffError = message(error); }
   finally { if (epoch === this.threadEpoch) this.diffLoading = false; }
