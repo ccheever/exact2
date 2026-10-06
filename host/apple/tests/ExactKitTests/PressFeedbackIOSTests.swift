@@ -185,22 +185,25 @@ final class PressFeedbackIOSTests: XCTestCase {
     }
 
     /// A box turned out of the screen's plane scales inside its rotation:
-    /// the ease takes the target matrix to what shows, at every sample.
+    /// the ease's scale about the origin, composed before the model, is the
+    /// model at the shown factor, at every factor.
     func testAPressInSpaceEasesInsideItsRotation() throws {
-        let (p, v) = try fixture(style: ["press_scale": 0.5, "rotate_axis": [1.0, 0.0, 0.0]])
+        let (p, v) = try fixture(style: ["press_scale": 0.5, "rotate_axis": [1.0, 0.0, 0.0], "transform_origin": [["pct": 0], ["pct": 0]]])
         p.apply(wireBatch([["op": "present", "id": 1, "property": "rotate", "x": 60.0]]))
         let unpressed = v.layer.transform
         v.pressed = true
-        let ease = try XCTUnwrap(v.layer.animation(forKey: "press") as? CAKeyframeAnimation)
-        XCTAssertTrue(ease.isAdditive)
-        let values = try XCTUnwrap(ease.values as? [NSValue]).map(\.caTransform3DValue)
-        let first = CATransform3DConcat(try XCTUnwrap(values.first), v.layer.transform)
-        let last = try XCTUnwrap(values.last)
-        for (a, b) in [(first.m11, unpressed.m11), (first.m22, unpressed.m22), (first.m23, unpressed.m23), (first.m32, unpressed.m32),
-                       (first.m33, unpressed.m33), (first.m41, unpressed.m41), (first.m42, unpressed.m42), (first.m43, unpressed.m43)] {
-            XCTAssertEqual(a, b, accuracy: 1e-9, "touch-down shows the unpressed box")
-        }
-        XCTAssertTrue(CATransform3DIsIdentity(last) || abs(last.m11 - 1) < 1e-9 && abs(last.m22 - 1) < 1e-9 && abs(last.m42) < 1e-9, "it ends on the model")
+        let ease = try XCTUnwrap(v.layer.animation(forKey: "press") as? CABasicAnimation)
+        let from = try XCTUnwrap(ease.fromValue as? CATransform3D)
+        let shown = CATransform3DConcat(from, v.layer.transform)
+        let pressed = v.layer.transform
+        func entries(_ m: CATransform3D) -> [CGFloat] { [m.m11, m.m12, m.m13, m.m14, m.m21, m.m22, m.m23, m.m24, m.m31, m.m32, m.m33, m.m34, m.m41, m.m42, m.m43, m.m44] }
+        for (a, b) in zip(entries(shown), entries(unpressed)) { XCTAssertEqual(a, b, accuracy: 1e-9, "touch-down shows the unpressed box") }
+        // Part way: the scale at 0.75 of the target's, before the pressed
+        // model, is the model pressed to 0.75.
+        let k: CGFloat = 0.75 / 0.5, o = v.transformOriginPoint, d = CGPoint(x: o.x - v.bounds.midX, y: o.y - v.bounds.midY)
+        let mid = CATransform3DConcat(CATransform3DMakeAffineTransform(CGAffineTransform(translationX: d.x, y: d.y).scaledBy(x: k, y: k).translatedBy(x: -d.x, y: -d.y)), pressed)
+        let model = CATransform3DConcat(try XCTUnwrap(v.spaceTransform(origin: d, scale: 0.75)), CATransform3DIdentity)
+        for (a, b) in zip(entries(mid), entries(model)) { XCTAssertEqual(a, b, accuracy: 1e-9, "inside the rotation part way too") }
     }
 
     /// A view that flies shows the flight alone: a press, or a held

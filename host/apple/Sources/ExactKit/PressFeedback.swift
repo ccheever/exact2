@@ -155,32 +155,19 @@ extension NodeView {
     private func addPressEase() {
         // A flying view shows the flight's geometry alone.
         guard flightLook == nil else { return }
-        let o = transformOriginPoint, d = CGPoint(x: o.x - bounds.midX, y: o.y - bounds.midY)
-        let ease: CAAnimation
-        if let target = spaceTransform(origin: d, scale: scale * press.to), scale != 0 {
-            // A box in space scales inside its rotation, which no one scale
-            // composed onto the whole matrix is: the ease is the matrix that
-            // takes the target to what shows, sampled along the curve.
-            let back = CATransform3DInvert(target), steps = 12
-            let k = CAKeyframeAnimation(keyPath: "transform")
-            k.values = (0...steps).map { i -> NSValue in
-                let f = press.from + (press.to - press.from) * CGFloat(PressFeedback.ease(Double(i) / Double(steps)))
-                return NSValue(caTransform3D: CATransform3DConcat(spaceTransform(origin: d, scale: scale * f) ?? target, back))
-            }
-            k.keyTimes = (0...steps).map { NSNumber(value: Double($0) / Double(steps)) }
-            ease = k
-        } else {
-            let b = CABasicAnimation(keyPath: "transform")
-            b.fromValue = CATransform3DMakeAffineTransform(pressScale(press.from / press.to))
-            b.toValue = CATransform3DIdentity
-            b.timingFunction = PressFeedback.timing
-            ease = b
-        }
-        (ease as? CAPropertyAnimation)?.isAdditive = true
+        // Composed before the model, the scale about the origin is inside a
+        // box's rotation too, out of the screen's plane or not: it commutes
+        // with the model's own scale there.
+        let o = transformOriginPoint
+        let ease = CABasicAnimation(keyPath: "transform")
+        ease.isAdditive = true
+        ease.fromValue = CATransform3DMakeAffineTransform(pressScale(press.from / press.to))
+        ease.toValue = CATransform3DIdentity
         ease.beginTime = layer.convertTime(press.start, from: nil)
         ease.duration = PressFeedback.duration
+        ease.timingFunction = PressFeedback.timing
         layer.add(ease, forKey: "press")
-        press.easedAbout = d
+        press.easedAbout = CGPoint(x: o.x - bounds.midX, y: o.y - bounds.midY)
     }
     /// No ease of the press on the render server: a view taken for another
     /// node, or one a flight carries, shows its own transform alone.
