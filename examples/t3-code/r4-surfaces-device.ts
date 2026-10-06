@@ -22,6 +22,8 @@ export type DeviceView = {
   hubStatus: string; hubReady: boolean; platforms: PlatformStatus[]; agentEnabled: boolean; agentStatus: string; agentReady: boolean;
   failure: string; canContinue: boolean; doneLabel: string; notices: HostNotice[]; groups: DeviceGroup[]; empty: string; hint: string;
   panelStatus: string; refreshable: boolean; r6: R6DeviceView;
+  /** 5318d054a5: a local host with no available platform; wizard step 0 also shows the platform check. */
+  localPlatformsUnavailable: boolean;
 };
 type DeviceStore = { generation: number; id: string; floor: number; maxSeen: number; state: Obj | null; step: number; pending: string; tried: boolean };
 const stores = new WeakMap<T3Client, DeviceStore>();
@@ -66,6 +68,13 @@ export function deviceReady(client: T3Client): boolean {
 }
 
 const platformName = (platform: string) => platform === 'ios' ? 'iOS' : 'Android';
+/**
+ * DeviceSetup.tsx / IntegrationsSettings.tsx localPlatformsUnavailable (1e2ecbd975,
+ * 5318d054a5): some local host has no available platform.
+ */
+export function localPlatformsUnavailable(state: Obj | null | undefined): boolean {
+  return arr(state?.hosts).some(host => host.kind === 'local' && !arr(host.platforms).some(platform => platform.available === true));
+}
 /** platformSetupStatus. */
 export function platformSetupStatus(state: Obj, platform: string): { ready: boolean; message: string } {
   const availability = arr(state.hosts).flatMap(host => arr(host.platforms)).find(candidate => candidate.platform === platform);
@@ -123,11 +132,11 @@ export async function deviceView(client: T3Client, native: Native): Promise<Devi
     hint: hostReady && !arr(state.devices).some(device => device.platform === 'android') && !unavailable.some(platform => platform.platform === 'android')
       ? "No Android virtual devices found. Create one in Android Studio's Device Manager, then refresh." : '',
     panelStatus: value.state === null ? 'Finding devices…' : hostStatus === 'installing' ? str(state.hostStatusDetail, 'Installing device support…') : busy ? 'Finding devices…' : '',
-    refreshable: value.state !== null && !busy, r6: emptyR6Device(),
+    refreshable: value.state !== null && !busy, r6: emptyR6Device(), localPlatformsUnavailable: localPlatformsUnavailable(state),
   };
 }
 export const emptyDevice = (): DeviceView => ({ loaded: false, step: 0, enabled: false, busy: false, pending: '', hostStatus: 'disabled', hubStatus: '', hubReady: false, platforms: [],
-  agentEnabled: false, agentStatus: '', agentReady: false, failure: '', canContinue: false, doneLabel: 'Done', notices: [], groups: [], empty: '', hint: '', panelStatus: '', refreshable: false, r6: emptyR6Device() });
+  agentEnabled: false, agentStatus: '', agentReady: false, failure: '', canContinue: false, doneLabel: 'Done', notices: [], groups: [], empty: '', hint: '', panelStatus: '', refreshable: false, r6: emptyR6Device(), localPlatformsUnavailable: false });
 
 /** `shelllocal:surface-device-*`: wizard navigation (earlier steps only, never while busy). */
 export async function deviceLocal(client: T3Client, _native: Native, op: string, _id: string, value: string): Promise<string> {
