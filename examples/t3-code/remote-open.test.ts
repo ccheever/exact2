@@ -4,7 +4,8 @@ import { resolveRemoteOpenState, shouldShowOpenInPicker, canUseMarkdownFileShell
 import { buildRemoteOpenUrl, REMOTE_CAPABLE_EDITOR_IDS } from './editors';
 import { obj, type Obj } from './domain';
 import type { Native } from './protocol';
-import type { T3Client } from './client';
+import { T3Client } from './client';
+import { filesView, filesLocal, filesState, markdownFileMenu } from './r4-surfaces-files';
 
 const TAILSCALE_TARGETS = [{ kind: 'tailscale', host: 'sol.tail1234.ts.net' }, { kind: 'mdns', host: 'sol.local' }];
 const primary = (httpBaseUrl: string) => ({ kind: 'primary' as const, httpBaseUrl });
@@ -151,5 +152,79 @@ describe('picker visibility and editors', () => {
     rememberSshAlias('https://far.example.com', 'farbox');
     expect(remoteOpenFor(advertised).state).toEqual({ mode: 'remote-links', host: { kind: 'ssh-alias', host: 'farbox' } });
     expect(openFavoriteEnabled(local, '')).toBe(false);
+  });
+});
+
+
+describe('Files and Markdown use the focused environment route', () => {
+  beforeEach(() => { resetRemoteEditorsForTests(); rest.length = 0; });
+  function fixture(origin: string, remote = true) {
+    const owner = new T3Client();
+    owner.origin = origin; owner.generation = 0; owner.environmentId = 'env'; owner.projectId = 'p';
+    owner.shell.projects = [{ id: 'p', title: 'project', workspaceRoot: '/srv/project' }];
+    owner.config = { availableEditors: ['idea', 'cursor', 'file-manager'], shellRevealInFileManager: true };
+    const calls: Obj[] = [];
+    let picked = '';
+    const native: Native = { available: true, watch() {}, later: async (input: unknown) => {
+      const request = obj(input); calls.push(request);
+      let value: Obj = {};
+      if (request.op === 'sshHosts') value = { targets: remote ? { [origin]: { alias: 'devbox' } } : {} };
+      if (request.op === 'remoteEditorsProbe') value = { editors: ['zed', 'vscode'] };
+      if (request.op === 'remoteEditorsOpen') value = { opened: true };
+      if (request.op === 'contextMenu') value = { clicked: picked };
+      return { ok: true, generation: 0, value };
+    } };
+    const state = filesState(owner);
+    state.dirs.set('', []);
+    state.reads.set('README.md', { contents: '# test', byteLength: 6, truncated: false, error: '', notFile: false });
+    return { owner, native, calls, pick: (value: string) => { picked = value; } };
+  }
+  const file = { id: 'file:README.md', kind: 'file' as const, path: 'README.md', line: 0, reveal: 1 };
+  test('Files lists local remote-capable editors and opens the file on the SSH alias', async () => {
+    const { owner, native, calls } = fixture('http://127.0.0.1:41857');
+    const view = await filesView(owner, native, file);
+    expect(view.editors.map(editor => editor.id)).toEqual(['zed', 'vscode']);
+    expect(view.editorId).toBe('vscode');
+    expect(view.editorShow).toBe(true);
+    expect(view.editorHint).toContain('Opens over SSH');
+    await filesLocal(owner, native, 'open-editor', view.absolutePath, 'zed');
+    expect(calls.find(call => call.op === 'remoteEditorsOpen')?.url).toBe('zed://ssh/devbox/srv/project/README.md');
+    expect((await filesView(owner, native, file)).editorHint).toBe('');
+    const count = calls.length;
+    await filesLocal(owner, native, 'open-editor', view.absolutePath, 'idea');
+    expect(calls.slice(count).some(call => call.op === 'remoteEditorsOpen')).toBe(false);
+  });
+  test('Files displays a missing SSH route instead of offering server editors', async () => {
+    const { owner, native, calls } = fixture('https://remote.example', false);
+    const view = await filesView(owner, native, file);
+    expect(view.editorShow).toBe(true);
+    expect(view.editors).toEqual([]);
+    expect(view.editorUnavailable).toContain('No SSH route');
+    await filesLocal(owner, native, 'open-editor', view.absolutePath, 'cursor');
+    expect(calls.some(call => call.op === 'remoteEditorsOpen')).toBe(false);
+  });
+  test('Files retains the server editor list on the local environment', async () => {
+    const { owner, native } = fixture('http://127.0.0.1:41857', false);
+    const view = await filesView(owner, native, file);
+    expect(view.editors.map(editor => editor.id)).toEqual(['idea', 'cursor', 'file-manager']);
+    expect(view.editorHint).toBe('');
+  });
+  test('Markdown offers local editor/reveal actions but never remote shell actions', async () => {
+    for (const remote of [false, true]) {
+      resetRemoteEditorsForTests();
+      const { owner, native, calls } = fixture('http://127.0.0.1:41857', remote);
+      await markdownFileMenu(owner, native, '/srv/project/README.md');
+      const items = obj(calls.find(call => call.op === 'contextMenu')).items;
+      expect(items).toEqual([
+        ...(!remote ? [{ id: 'open', label: 'Open in Cursor' }, { id: 'reveal', label: 'Reveal in Finder' }] : []),
+        { id: 'copy-relative', label: 'Copy relative path' }, { id: 'copy-full', label: 'Copy full path' },
+      ]);
+    }
+  });
+  test('Markdown remote links can still copy a workspace-relative path', async () => {
+    const { owner, native, calls, pick } = fixture('http://127.0.0.1:41857');
+    pick('copy-relative');
+    await markdownFileMenu(owner, native, '/srv/project/README.md');
+    expect(calls.find(call => call.op === 'copyText')?.text).toBe('README.md');
   });
 });

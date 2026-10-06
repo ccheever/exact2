@@ -87,6 +87,9 @@ shape R4Files
   pending: bool
   editorId: string
   editorLabel: string
+  editorShow: bool
+  editorHint: string
+  editorUnavailable: string
   editors: list<R4Editor>
   absolutePath: string
   markdown: ChatDocument

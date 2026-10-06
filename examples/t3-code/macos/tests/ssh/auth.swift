@@ -158,6 +158,13 @@ final class SshAuthTests: XCTestCase {
         XCTAssertEqual(long.request(destination: "late", username: nil, prompt: "late", attempt: 1), .windowClosed)
     }
 
+    func testApplicationTerminationClosesPromptsWithoutWindowTeardown() {
+        let ssh = T3Ssh(agent: true, promptsAvailable: true)
+        NotificationCenter.default.post(name: NSApplication.willTerminateNotification, object: nil)
+        XCTAssertEqual(ssh.prompts.request(destination: "late", username: nil, prompt: "late", attempt: 1), .windowClosed)
+        ssh.destroy() // Session teardown may still follow the notification.
+    }
+
     func testSecureFieldMasksForgetsAndRefusesCopy() throws {
         let events = ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 0)
         let instance = T3SshPasswordField(props: ["request": "req-1", "prompt": "Enter the SSH password for box."], events: events)
@@ -173,6 +180,10 @@ final class SshAuthTests: XCTestCase {
         XCTAssertFalse(editor.validateMenuItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")), "cut refused")
         XCTAssertEqual(T3SshPasswordFields.take("req-1"), "typed-secret")
         XCTAssertEqual(view.stringValue, "", "the field forgets the password once read")
+        XCTAssertEqual(editor.string, "", "the active field editor must forget it too")
+        try instance.setProps(["request": "req-2", "prompt": "Try again."])
+        editor.insertText("replacement", replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertEqual(T3SshPasswordFields.take("req-2"), "replacement", "a retry must not append to the previous password")
         try instance.agentInput(.text("again"))
         instance.destroy()
         XCTAssertEqual(view.stringValue, ""); XCTAssertNil(T3SshPasswordFields.take("req-1"))

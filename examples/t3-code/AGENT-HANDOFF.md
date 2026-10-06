@@ -6,8 +6,10 @@ Current as of the functional repair verification, 2026-10-06 (KST).
 
 SSH password and remote Open, PR #157, remain **in progress / unverified**.
 Resume the [SSH follow-up checklist](.exact/implementation/20261005-t3code-macos-parity/tasks/20261005-ssh-password-and-remote-open.md#follow-up-handoff-incomplete-acceptance-2026-10-06).
-It tracks real SSH authentication and actual editor opening, missing Markdown/Files
-integration, native input and prompt lifecycle checks, and remaining acceptance evidence.
+The attended follow-up now records real password/key SSH and VS Code Remote SSH,
+Markdown/Files implementation, secure input and real expiry, size/theme checks, and an
+app workaround for skipped teardown at termination. Remaining oracle/IME, live FIFO,
+Files/Markdown native interaction and route-UI rows are still open.
 Fixture success is not end-to-end acceptance. Keep this task active until its checklist
 and required acceptance rows are closed with evidence or an explicit user scope decision.
 
