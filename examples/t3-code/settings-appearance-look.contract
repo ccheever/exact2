@@ -29,6 +29,10 @@ shape Look
   diffDelSurface: string
   diffAddLine: string
   diffDelLine: string
+  terminalLight: string
+  terminalDark: string
+  terminalFont: string
+  terminalSize: number
   fontSans: string
   fontSize: number
   codeFont: string

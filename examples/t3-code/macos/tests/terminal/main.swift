@@ -250,6 +250,44 @@ final class TerminalSurfaceTests: XCTestCase {
         save(try loop.snapshot(), "terminal-loopback.png")
     }
 
+    /// Theme/font changes repaint existing output, including changes made during page load.
+    func testThemeChangesPreserveOutputAndResizeFont() throws {
+        let view = mount(["terminal": "themes", "fixture": "render"])
+        let themes: [(String, Bool, [Int], [Int], [Int], String)] = [
+            ("light", false, [252,252,252], [39,39,42], [38,56,78], "rgba(37,63,99,0.2)"),
+            ("dark", true, [10,10,10], [245,245,245], [180,203,255], "rgba(180,203,255,0.25)"),
+            ("grove", false, [243,247,244], [36,21,35], [27,125,80], "#cce1d7"),
+            ("custom", true, [18,52,86], [171,205,239], [254,220,186], "#11223380"),
+        ]
+        var originalCols = 0
+        for (name, dark, bg, fg, cursor, selection) in themes {
+            func rgb(_ v: [Int]) -> [String: Int] { ["r": v[0], "g": v[1], "b": v[2]] }
+            let theme: [String: Any] = ["background": rgb(bg), "foreground": rgb(fg), "cursor": rgb(cursor), "selectionBackground": selection]
+            try view.setProps(["terminal": "themes", "fixture": "render", "scheme": dark ? "dark" : "light",
+                               "terminal-theme": T3TerminalView.json(theme), "terminal-font-size": "13"])
+            waitReady(view)
+            spin(until: { (self.debug(view)["text"] as? [String])?.contains { $0.hasPrefix("wide:") } == true })
+            let expected = "rgb(\(bg[0]), \(bg[1]), \(bg[2]))"
+            spin(until: { self.evaluate(view, "return getComputedStyle(document.body).backgroundColor") == expected })
+            XCTAssertEqual(evaluate(view, "return getComputedStyle(document.body).backgroundColor"), expected)
+            // Sample a canvas pixel well away from text, not just the surrounding DOM background.
+            let pixel = evaluate(view, "const c=document.querySelector('canvas'); return Array.from(c.getContext('2d').getImageData(c.width-20,c.height-10,1,1).data).slice(0,3).join(',')")
+            XCTAssertEqual(pixel, bg.map(String.init).joined(separator: ","))
+            XCTAssertTrue((debug(view)["text"] as? [String] ?? []).contains { $0.hasPrefix("wide:") })
+            save(try view.snapshot(), "theme-\(name).png")
+            print("terminal theme \(name) background \(pixel) grid \(view.cols)x\(view.rows) text retained")
+            originalCols = view.cols
+        }
+        var props = view.props
+        props["terminal-font"] = "Menlo"; props["terminal-font-size"] = "18"
+        try view.setProps(props)
+        spin(until: { view.cols < originalCols })
+        XCTAssertLessThan(view.cols, originalCols)
+        XCTAssertTrue((debug(view)["text"] as? [String] ?? []).contains { $0.hasPrefix("wide:") })
+        save(try view.snapshot(), "theme-custom-font18.png")
+        print("terminal font resize \(originalCols) -> \(view.cols) cols")
+    }
+
     /// Hidden: paint stops, output still parses; shown again it repaints what arrived.
     func testHiddenKeepsParsing() {
         let view = mount(["terminal": "hidden"])

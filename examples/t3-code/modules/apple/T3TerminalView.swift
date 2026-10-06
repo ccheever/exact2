@@ -7,7 +7,7 @@ import WebKit
 /// and Canvas 2D renderer) running unchanged in a WKWebView whose page is terminal-host/src/entry.ts.
 ///
 /// Props (strings; unknown Contract attributes pass through): `terminal` (identity, for status),
-/// `scheme` ("light" | "dark"), `terminal-font` and `terminal-font-size`, `active` ("false" stops
+/// `terminal-theme` (JSON background/foreground/cursor/selection), `scheme` ("light" | "dark"), `terminal-font` and `terminal-font-size`, `active` ("false" stops
 /// paint; bytes still parse, surface.ts setVisible), `chords` (space-separated web-named chords the
 /// page leaves to the app, ThreadTerminalDrawer.tsx beforeKey), `fixture` (development harness bytes:
 /// "render", "loopback", "flood").
@@ -120,8 +120,15 @@ final class T3TerminalView: ExactNativeInstance {
         var font: [String: Any] = [:]
         if let family = props["terminal-font"], !family.isEmpty { font["family"] = family }
         if let size = props["terminal-font-size"].flatMap(Double.init) { font["size"] = size }
-        return ["theme": ["dark": props["scheme"] == "dark"], "font": font, "visible": props["active"] != "false",
+        return ["theme": theme(props), "font": font, "visible": props["active"] != "false",
                 "chords": chords(props["chords"])]
+    }
+
+    static func theme(_ props: [String: String]) -> [String: Any] {
+        var theme = props["terminal-theme"].flatMap { $0.data(using: .utf8) }
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        theme["dark"] = props["scheme"] == "dark"
+        return theme
     }
 
     static func chords(_ raw: String?) -> [String] { (raw ?? "").split(whereSeparator: { $0 == " " || $0 == "," }).map(String.init) }
@@ -129,7 +136,7 @@ final class T3TerminalView: ExactNativeInstance {
     override func setProps(_ next: [String: String]) throws {
         let previous = props
         props = next
-        if previous["scheme"] != next["scheme"] { send(["type": "theme", "theme": ["dark": next["scheme"] == "dark"]]) }
+        if previous["scheme"] != next["scheme"] || previous["terminal-theme"] != next["terminal-theme"] { send(["type": "theme", "theme": Self.theme(next)]) }
         if previous["terminal-font"] != next["terminal-font"] || previous["terminal-font-size"] != next["terminal-font-size"] {
             send(["type": "font", "font": Self.initial(next)["font"] ?? [:]])
         }
@@ -236,6 +243,12 @@ final class T3TerminalView: ExactNativeInstance {
 
     fileprivate func pageLoaded() {
         loaded = true
+        // Props can change while WebKit loads. The document-start script has the old values.
+        let current = Self.initial(props)
+        send(["type": "theme", "theme": current["theme"] ?? [:]])
+        send(["type": "font", "font": current["font"] ?? [:]])
+        send(["type": "visible", "visible": current["visible"] ?? true])
+        send(["type": "chords", "chords": current["chords"] ?? []])
         if !pending.isEmpty || pendingReset { flush() }
     }
 

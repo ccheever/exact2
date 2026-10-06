@@ -193,4 +193,4 @@ component WindowOverlays
     // lane r8-keys: a Markdown table's Copy menu over every layer (r8-keys-table-menu.contract).
     each menu in data.tableMenu key=menu.id
       R8TableMenu(menu=menu, dark=(viewport.prefersColorScheme == "dark"), local=chatLocal)
-    TerminalHarness(dark=(viewport.prefersColorScheme == "dark")) // terminal-surface spike harness
+    TerminalHarness(dark=(data.look.mode == "dark" or (data.look.mode == "system" and viewport.prefersColorScheme == "dark")), look=data.look) // terminal-surface spike harness
