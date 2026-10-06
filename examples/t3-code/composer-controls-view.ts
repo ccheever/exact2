@@ -20,6 +20,7 @@ import { threadWorktreeSetup } from './timeline-worktree';
 import { machineChanging } from './r12-threads-scratch'; // r12-threads: isEnvironmentChanging (c47f4263f9)
 import { labelWidth, type Measure, type ProbeKind } from './r5-composer-measure';
 import { resolveRestingComposerControlsLayout } from './composer-resting-layout'; // composer-fidelity G11
+import { terminalOpen } from './terminal-drawer-view'; // terminal-layout: the real terminalOpen
 
 // SF Pro advances (AppKit, ASCII 32–126) for the toolbar's two label styles:
 // 14pt medium ("sm" controls) and 12pt regular (the resting "xs" controls).
@@ -131,7 +132,7 @@ export function primaryAction(client: T3Client, phase: string) {
   const plan = planFollowUp(client);
   const alternate = followUp === 'queue' ? 'steer' : 'queue';
   // alternateShortcutLabel: composer.sendAlternate's effective binding, as formatShortcutLabel prints it (⌘Enter).
-  const alternateKey = chordGlyphs(commandChords(client.config, 'composer.sendAlternate', 'Meta+Enter', false, { turnRunning: true }).split(' ')[0] ?? '');
+  const alternateKey = chordGlyphs(commandChords(client.config, 'composer.sendAlternate', 'Meta+Enter', false, { turnRunning: true, terminalOpen: terminalOpen(client) }).split(' ')[0] ?? '');
   return {
     sendRunning: running,
     sendLabel: queueing ? 'Queue message' : running ? 'Steer message' : 'Submit message',
