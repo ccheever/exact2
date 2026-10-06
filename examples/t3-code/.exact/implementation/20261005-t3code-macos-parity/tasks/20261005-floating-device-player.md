@@ -1,12 +1,12 @@
 ---
 name: 20261005-floating-device-player
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
-branch: null
+branch: feat(example)/t3-code-floating-device-player
 pr_url: null
 verified_commit: null
 ---
@@ -138,14 +138,43 @@ Required environment: lane backend with the device fixture hub, oracle build, Xc
 
 ## Progress
 
-Planned. No branch.
+Implemented on `feat(example)/t3-code-floating-device-player` (2026-10-06); verification: unverified.
+
+- Ported with tests: `previewMiniPlayerLayout.ts` (33 of 35 tests), `previewMiniPlayerStore.ts` (6),
+  `chat-canvas-layout.ts` (21, all of `chatCanvasLayout.test.ts`), `thread-details-card-layout.ts` (10). Headers record
+  the dropped browser source and `resolvePreviewMiniPlayerSourceSize`.
+- `chat-canvas-view.ts` is the `chatCanvas` source (registered in `app.contract`, `app.ts`, `macos/src/markdown.rs`):
+  container from the `chat` frame below the 52 pt header, composer height from `overlay`, the inline card from the new
+  `details-content` frame (its full content height), lane metrics from `chatLaneMetrics` (TN5). It answers the lane
+  (`left`, `width`, `insetEnd`), `overlapsChat`, `overlapsDetailsCard`, the card's fold and the player's frame,
+  radius (Android formula) and pill inset. While a player or the card shows it watches `t3.status` and reads fresh
+  frames and stream reports (orientation-aware source size).
+- Gestures (`R6DeviceMiniPlayer`, `r6-device.contract`): the handle and the pill drag; eight zones (edges 8 pt, corners
+  16 pt, siblings of the clipped frame) resize with `ns/ew/nwse/nesw-resize` cursors; `grab`/`grabbing` on the handle.
+  A gesture is the canvas resource's argument `serial|sourceKey|direction|dx|dy` (the pan total); the first answer of a
+  serial takes the frame on screen as the start, so a re-ask is idempotent; a gesture on another source is dropped
+  (stale-source guard). The store keeps the stored width and position; the layout pass never writes its clamp back.
+- Lane: `laneInset`, `stackWidth`, `stackLeft` and `composerLeft` come from the canvas answer (centred until the first
+  answer). The card's `maxHeight` is the canvas's fold; it leaves when no 160 pt placement is left.
+- Float on panel close: `surface-hide` (⌘⌥B, the header and panel toggle, the sheet backdrop, Escape) floats the active
+  device (`closePreviewPanel`); tab close, ⌘W and "Close device panel" do not.
+- Pill: shows on handle/pill hover, pill-button focus (buttons stay focusable at opacity 0 and refuse the pointer) and
+  during a gesture; opacity fade 150 ms, instant under reduced motion.
+
+Remaining differences: the card has one density (the reference's compact/essential rows are not built; it scrolls);
+when no placement is left the inline card hides instead of becoming the popover; a window resize lays the lane out one
+answer late (layout facts reach TypeScript through `t3-frame`, [#127](https://github.com/ccheever/exact2/issues/127));
+drags over the native stream and real-trackpad capture are unverified (attended,
+[#107](https://github.com/ccheever/exact2/issues/107)); hover under a still pointer after the lane moves is
+[#139](https://github.com/ccheever/exact2/issues/139). Not run: oracle pairs, 840 pt and dark cells, Android rotation
+live, relaunch, window shrink/grow live, `tree --ax` focus check.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (2026-10-06) | branch head | `bun test examples/t3-code` 1280 pass / 0 fail (base 1200); strict tsc clean; `contract build` 2164 slots, 43 resources; `cargo test -p t3-code-macos --lib` 10 pass; macOS bundle build pass; no Swift changed (no AppKit binary touched) | One live drive (macOS 1280×840, lane server 16170, booted iPhone 17 Pro): floated on panel close at canvas (772, 254) 240×522 beside the card; drag (−320, −160) stopped at canvas x 672 with the composer lane 680→640; NW resize to 276×600 at (561, 12), card folded away, composer clear; 93 `chatCanvas` answers, no errors | real input attended; oracle pairs not run |
 
 ## Next action
 
-`prepare` after both dependencies merge.
+Review of the PR into `feat(example)/t3-code`; attended real-input rows; oracle pairs.
