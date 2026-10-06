@@ -1,0 +1,1 @@
+{"lastSize":[120,40],"serverGrid":[100,30],"expectedGrid":[120,40],"pass":false,"calls":[{"method":"terminal.resize","payload":{"cols":100,"threadId":"thread","terminalId":"term-1","rows":30},"connected":true},{"method":"terminal.resize","connected":false,"payload":{"terminalId":"term-1","threadId":"thread","cols":120,"rows":40}}],"attaches":2}

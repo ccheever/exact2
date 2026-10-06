@@ -1,0 +1,15 @@
+Compiling terminal
+Running terminal
+terminal S7 web view is NSTextInputClient: true; responds to setMarkedText: true
+terminal S7 composed ["d55c"]
+terminal loopback rows ["T3 terminal harness (loopback)", "$ echo hello", "$"]
+terminal S2 flood sent 5242920 received 5242920 chunks 5 seconds 0.15 max-main-gap-ms 6 last ["flood 0081920 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "flood done 81920 lines 5242880 bytes"]
+terminal S1 resent k code 40 flags 1048576
+terminal S1 delivery window declined ["Meta+KeyK"] palette 1 container [] resent-before 0 after 1
+terminal S4 visibility visible grid 98x25 received 43757 last rows ["████████████████████████ truecolor", "wide: 界 面  한 국 어  emoji: 🙂 🚀  nerd: ", "link path: src/main.ts:12:3", "$"]
+terminal theme light background 252,252,252 grid 90x22 text retained
+terminal theme dark background 10,10,10 grid 90x22 text retained
+terminal theme grove background 243,247,244 grid 90x22 text retained
+terminal theme custom background 18,52,86 grid 90x22 text retained
+terminal font resize 90 -> 65 cols
+Executed 16 tests, with 0 failures

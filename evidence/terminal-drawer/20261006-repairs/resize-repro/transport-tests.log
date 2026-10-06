@@ -1,0 +1,123 @@
+Test Suite 'TransportTests' started at 2026-10-06 22:42:05.515.
+Test Case '-[T3TransportTests.TransportTests testAgentCredentialsSurviveDisconnectButNeverAnotherInstance]' started.
+Test Case '-[T3TransportTests.TransportTests testAgentCredentialsSurviveDisconnectButNeverAnotherInstance]' passed (0.000 seconds).
+Test Case '-[T3TransportTests.TransportTests testAgentStorageHonorsExplicitScratchWithoutChangingLiveRoots]' started.
+Test Case '-[T3TransportTests.TransportTests testAgentStorageHonorsExplicitScratchWithoutChangingLiveRoots]' passed (0.000 seconds).
+Test Case '-[T3TransportTests.TransportTests testDisconnectedWritesFailWithoutSendingAndDestroyClosesBridge]' started.
+Test Case '-[T3TransportTests.TransportTests testDisconnectedWritesFailWithoutSendingAndDestroyClosesBridge]' passed (0.004 seconds).
+Test Case '-[T3TransportTests.TransportTests testEffectWireUsesTaggedFramesAndPreservesEveryChunkValue]' started.
+Test Case '-[T3TransportTests.TransportTests testEffectWireUsesTaggedFramesAndPreservesEveryChunkValue]' passed (0.000 seconds).
+Test Case '-[T3TransportTests.TransportTests testEndpointBoundaryAndPairingURL]' started.
+Test Case '-[T3TransportTests.TransportTests testEndpointBoundaryAndPairingURL]' passed (0.000 seconds).
+Test Case '-[T3TransportTests.TransportTests testInboxNotifiesOnceUntilAllRetainedWorkIsAcknowledged]' started.
+Test Case '-[T3TransportTests.TransportTests testInboxNotifiesOnceUntilAllRetainedWorkIsAcknowledged]' passed (0.000 seconds).
+Test Case '-[T3TransportTests.TransportTests testInboxOverflowAndReplacementRequireResnapshot]' started.
+Test Case '-[T3TransportTests.TransportTests testInboxOverflowAndReplacementRequireResnapshot]' passed (0.000 seconds).
+Test Case '-[T3TransportTests.TransportTests testInboxReadIsReplayableAndACKIsExplicit]' started.
+Test Case '-[T3TransportTests.TransportTests testInboxReadIsReplayableAndACKIsExplicit]' passed (0.001 seconds).
+Test Case '-[T3TransportTests.TransportTests testLiveT3AuthSocketHTTPAndSubscriptions]' started.
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/macos/tests/transport/main.swift:349: -[T3TransportTests.TransportTests testLiveT3AuthSocketHTTPAndSubscriptions] : Test skipped - Set T3_TRANSPORT_PAIRING_FILE to a disposable isolated server credential.
+Test Case '-[T3TransportTests.TransportTests testLiveT3AuthSocketHTTPAndSubscriptions]' skipped (0.000 seconds).
+Test Case '-[T3TransportTests.TransportTests testNoNetworkBeforeExplicitConnectAndUUIDsAreNative]' started.
+Test Case '-[T3TransportTests.TransportTests testNoNetworkBeforeExplicitConnectAndUUIDsAreNative]' passed (0.000 seconds).
+Test Case '-[T3TransportTests.TransportTests testOAuthIsFormEncodedAndTokensNeverReturnToTheApp]' started.
+Test Case '-[T3TransportTests.TransportTests testOAuthIsFormEncodedAndTokensNeverReturnToTheApp]' passed (0.003 seconds).
+Test Case '-[T3TransportTests.TransportTests testPagesAndLargeValuesStayBelowNativeReplyLimitWithoutLosingUnicode]' started.
+Test Case '-[T3TransportTests.TransportTests testPagesAndLargeValuesStayBelowNativeReplyLimitWithoutLosingUnicode]' passed (0.067 seconds).
+Test Case '-[T3TransportTests.TransportTests testPairingAnotherEnvironmentKeepsTheActiveConnectionAndSavesItsToken]' started.
+Test Case '-[T3TransportTests.TransportTests testPairingAnotherEnvironmentKeepsTheActiveConnectionAndSavesItsToken]' passed (0.002 seconds).
+Test Case '-[T3TransportTests.TransportTests testPreferencesAreLazyAtomicAndSurviveANewModule]' started.
+Test Case '-[T3TransportTests.TransportTests testPreferencesAreLazyAtomicAndSurviveANewModule]' passed (0.135 seconds).
+Test Case '-[T3TransportTests.TransportTests testProtocolMismatchStopsBeforeExchangingCredential]' started.
+Test Case '-[T3TransportTests.TransportTests testProtocolMismatchStopsBeforeExchangingCredential]' passed (0.001 seconds).
+Test Case '-[T3TransportTests.TransportTests testSavedEnvironmentsRememberForgetAndStayPerInstance]' started.
+Test Case '-[T3TransportTests.TransportTests testSavedEnvironmentsRememberForgetAndStayPerInstance]' passed (0.001 seconds).
+Test Case '-[T3TransportTests.TransportTests testTypedFailuresKeepTheirTagMessageReasonAndDetail]' started.
+Test Case '-[T3TransportTests.TransportTests testTypedFailuresKeepTheirTagMessageReasonAndDetail]' passed (0.000 seconds).
+Test Suite 'TransportTests' passed at 2026-10-06 22:42:05.731.
+	 Executed 17 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.215 (0.217) seconds
+Test Suite 'R3TransportTests' started at 2026-10-06 22:42:05.731.
+Test Case '-[T3TransportTests.R3TransportTests testAFailedStreamIsRetriedOnTheSameSessionWithADoublingDelay]' started.
+Test Case '-[T3TransportTests.R3TransportTests testAFailedStreamIsRetriedOnTheSameSessionWithADoublingDelay]' passed (1.486 seconds).
+Test Case '-[T3TransportTests.R3TransportTests testALostSocketBacksOffWithJitterAndAnExplicitRetryRunsNowFromTheFirstRung]' started.
+Test Case '-[T3TransportTests.R3TransportTests testALostSocketBacksOffWithJitterAndAnExplicitRetryRunsNowFromTheFirstRung]' passed (1.021 seconds).
+Test Case '-[T3TransportTests.R3TransportTests testANewerReadSupersedesAndStragglersNeverRelease]' started.
+Test Case '-[T3TransportTests.R3TransportTests testANewerReadSupersedesAndStragglersNeverRelease]' passed (0.108 seconds).
+Test Case '-[T3TransportTests.R3TransportTests testAnExplicitRetryProbesTheLiveSocketInsteadOfReplacingIt]' started.
+Test Case '-[T3TransportTests.R3TransportTests testAnExplicitRetryProbesTheLiveSocketInsteadOfReplacingIt]' passed (0.005 seconds).
+Test Case '-[T3TransportTests.R3TransportTests testAnIdleBurstAsksOnceAtOnceAndOnceAfter]' started.
+Test Case '-[T3TransportTests.R3TransportTests testAnIdleBurstAsksOnceAtOnceAndOnceAfter]' passed (0.757 seconds).
+Test Case '-[T3TransportTests.R3TransportTests testANormalSocketCarriesTheProtocolGate]' started.
+Test Case '-[T3TransportTests.R3TransportTests testANormalSocketCarriesTheProtocolGate]' passed (0.003 seconds).
+Test Case '-[T3TransportTests.R3TransportTests testAnUnansweredProbeReconnectsWithoutTheBackoffWait]' started.
+Test Case '-[T3TransportTests.R3TransportTests testAnUnansweredProbeReconnectsWithoutTheBackoffWait]' passed (3.030 seconds).
+Test Case '-[T3TransportTests.R3TransportTests testAReadExactLetGoIsReleasedAndAskedAgain]' started.
+Test Case '-[T3TransportTests.R3TransportTests testAReadExactLetGoIsReleasedAndAskedAgain]' passed (1.408 seconds).
+Test Case '-[T3TransportTests.R3TransportTests testForegroundAndNetworkSignalsProbeInsteadOfTearingDown]' started.
+Test Case '-[T3TransportTests.R3TransportTests testForegroundAndNetworkSignalsProbeInsteadOfTearingDown]' passed (0.304 seconds).
+Test Case '-[T3TransportTests.R3TransportTests testGateHoldsTheReadsTopicsUntilItsLastReplyThenReplaysOnce]' started.
+Test Case '-[T3TransportTests.R3TransportTests testGateHoldsTheReadsTopicsUntilItsLastReplyThenReplaysOnce]' passed (0.137 seconds).
+Test Case '-[T3TransportTests.R3TransportTests testLiveRetryProbesAHeadServerAndKeepsTheSession]' started.
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/macos/tests/transport/r3.swift:330: -[T3TransportTests.R3TransportTests testLiveRetryProbesAHeadServerAndKeepsTheSession] : Test skipped - Set R3_LIVE_PAIRING_FILE to a disposable credential.
+Test Case '-[T3TransportTests.R3TransportTests testLiveRetryProbesAHeadServerAndKeepsTheSession]' skipped (0.000 seconds).
+Test Case '-[T3TransportTests.R3TransportTests testPairingAndConnectingNameTheProtocolDirection]' started.
+Test Case '-[T3TransportTests.R3TransportTests testPairingAndConnectingNameTheProtocolDirection]' passed (0.001 seconds).
+Test Case '-[T3TransportTests.R3TransportTests testRetryDelayIsAJitteredUpperHalfCappedAtFiveMinutes]' started.
+Test Case '-[T3TransportTests.R3TransportTests testRetryDelayIsAJitteredUpperHalfCappedAtFiveMinutes]' passed (0.000 seconds).
+Test Case '-[T3TransportTests.R3TransportTests testTheDrawAfterAReadIsCoalescedIntoOneReplay]' started.
+Test Case '-[T3TransportTests.R3TransportTests testTheDrawAfterAReadIsCoalescedIntoOneReplay]' passed (0.607 seconds).
+Test Suite 'R3TransportTests' passed at 2026-10-06 22:42:14.600.
+	 Executed 14 tests, with 1 test skipped and 0 failures (0 unexpected) in 8.868 (8.869) seconds
+Test Suite 'ForgetOriginTests' started at 2026-10-06 22:42:14.600.
+Test Case '-[T3TransportTests.ForgetOriginTests testAKeyLeftByAnEarlierBuildForARemovedEnvironmentIsDroppedNotRestored]' started.
+Test Case '-[T3TransportTests.ForgetOriginTests testAKeyLeftByAnEarlierBuildForARemovedEnvironmentIsDroppedNotRestored]' passed (0.004 seconds).
+Test Case '-[T3TransportTests.ForgetOriginTests testAnAgentRunKeepsNoOriginButStillNamesNothingAfterRemoval]' started.
+Test Case '-[T3TransportTests.ForgetOriginTests testAnAgentRunKeepsNoOriginButStillNamesNothingAfterRemoval]' passed (0.004 seconds).
+Test Case '-[T3TransportTests.ForgetOriginTests testDisconnectWithForgetOnTheFocusedBClearsTheSameThings]' started.
+Test Case '-[T3TransportTests.ForgetOriginTests testDisconnectWithForgetOnTheFocusedBClearsTheSameThings]' passed (0.009 seconds).
+Test Case '-[T3TransportTests.ForgetOriginTests testPairedBothThenFocusedBRemembersBAndRemovingItLeavesNothingNamingB]' started.
+Test Case '-[T3TransportTests.ForgetOriginTests testPairedBothThenFocusedBRemembersBAndRemovingItLeavesNothingNamingB]' passed (0.004 seconds).
+Test Case '-[T3TransportTests.ForgetOriginTests testRemovingTheUnfocusedBKeepsTheFocusAndItsRememberedOrigin]' started.
+Test Case '-[T3TransportTests.ForgetOriginTests testRemovingTheUnfocusedBKeepsTheFocusAndItsRememberedOrigin]' passed (0.004 seconds).
+Test Suite 'ForgetOriginTests' passed at 2026-10-06 22:42:14.627.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.027 (0.027) seconds
+Test Suite 'RemoteScopeTests' started at 2026-10-06 22:42:14.627.
+Test Case '-[T3TransportTests.RemoteScopeTests testANarrowLinkIsRefusedWithTheReferenceTextAndNothingIsSaved]' started.
+Test Case '-[T3TransportTests.RemoteScopeTests testANarrowLinkIsRefusedWithTheReferenceTextAndNothingIsSaved]' passed (0.001 seconds).
+Test Case '-[T3TransportTests.RemoteScopeTests testConnectSendsTheScopeItIsGivenAndNoneWhenAbsent]' started.
+Test Case '-[T3TransportTests.RemoteScopeTests testConnectSendsTheScopeItIsGivenAndNoneWhenAbsent]' passed (0.001 seconds).
+Test Case '-[T3TransportTests.RemoteScopeTests testFailureTextKeepsTheServerMessageAndTheCredentialRule]' started.
+Test Case '-[T3TransportTests.RemoteScopeTests testFailureTextKeepsTheServerMessageAndTheCredentialRule]' passed (0.000 seconds).
+Test Case '-[T3TransportTests.RemoteScopeTests testPairingSendsTheScopeItIsGiven]' started.
+Test Case '-[T3TransportTests.RemoteScopeTests testPairingSendsTheScopeItIsGiven]' passed (0.001 seconds).
+Test Suite 'RemoteScopeTests' passed at 2026-10-06 22:42:14.631.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'RouteTests' started at 2026-10-06 22:42:14.631.
+Test Case '-[T3TransportTests.RouteTests testAddingARouteToAnotherMachineIsRefusedBeforeTheCodeIsSpent]' started.
+Test Case '-[T3TransportTests.RouteTests testAddingARouteToAnotherMachineIsRefusedBeforeTheCodeIsSpent]' passed (0.001 seconds).
+Test Case '-[T3TransportTests.RouteTests testAFallbackRouteConnectsAndTheBetterRouteTakesOverOnceItAnswers]' started.
+Test Case '-[T3TransportTests.RouteTests testAFallbackRouteConnectsAndTheBetterRouteTakesOverOnceItAnswers]' passed (0.056 seconds).
+Test Case '-[T3TransportTests.RouteTests testATransientFailureIsReportedOverABlockedRoute]' started.
+Test Case '-[T3TransportTests.RouteTests testATransientFailureIsReportedOverABlockedRoute]' passed (0.056 seconds).
+Test Case '-[T3TransportTests.RouteTests testEntriesSavedBeforeRoutesJoinOneEnvironmentWithOneRouteEach]' started.
+Test Case '-[T3TransportTests.RouteTests testEntriesSavedBeforeRoutesJoinOneEnvironmentWithOneRouteEach]' passed (0.000 seconds).
+Test Case '-[T3TransportTests.RouteTests testPairingTheSameMachineAtASecondAddressAddsARouteNotARow]' started.
+Test Case '-[T3TransportTests.RouteTests testPairingTheSameMachineAtASecondAddressAddsARouteNotARow]' passed (0.000 seconds).
+Test Case '-[T3TransportTests.RouteTests testRouteEditsKeepTheHomeAndForgetARemovedRoutesTokenUnlessBorrowed]' started.
+Test Case '-[T3TransportTests.RouteTests testRouteEditsKeepTheHomeAndForgetARemovedRoutesTokenUnlessBorrowed]' passed (0.000 seconds).
+Test Case '-[T3TransportTests.RouteTests testTheWalkSkipsAnotherMachineAtASavedAddressAndNeverSendsItACredential]' started.
+Test Case '-[T3TransportTests.RouteTests testTheWalkSkipsAnotherMachineAtASavedAddressAndNeverSendsItACredential]' passed (0.003 seconds).
+Test Suite 'RouteTests' passed at 2026-10-06 22:42:14.747.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.116 (0.117) seconds
+Test Suite 'TerminalStreamTests' started at 2026-10-06 22:42:14.747.
+Test Case '-[T3TransportTests.TerminalStreamTests testDisconnectedResizeIsAppliedOnAttachWithoutAnotherFit]' started.
+Test Case '-[T3TransportTests.TerminalStreamTests testDisconnectedResizeIsAppliedOnAttachWithoutAnotherFit]' passed (0.130 seconds).
+Test Case '-[T3TransportTests.TerminalStreamTests testOutputSkipsTheInboxAndIsAcknowledgedOnlyOnceHeld]' started.
+Test Case '-[T3TransportTests.TerminalStreamTests testOutputSkipsTheInboxAndIsAcknowledgedOnlyOnceHeld]' passed (0.710 seconds).
+Test Case '-[T3TransportTests.TerminalStreamTests testResizeFailureCanRetryAndInflightChangesKeepOnlyTheLatestGrid]' started.
+Test Case '-[T3TransportTests.TerminalStreamTests testResizeFailureCanRetryAndInflightChangesKeepOnlyTheLatestGrid]' passed (0.200 seconds).
+Test Case '-[T3TransportTests.TerminalStreamTests testTerminalStreamsDoNotCountTowardTheSixteenAppStreamsAndEndWithTheSocket]' started.
+Test Case '-[T3TransportTests.TerminalStreamTests testTerminalStreamsDoNotCountTowardTheSixteenAppStreamsAndEndWithTheSocket]' passed (0.050 seconds).
+Test Suite 'TerminalStreamTests' passed at 2026-10-06 22:42:15.838.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 1.090 (1.091) seconds
+T3 transport: 51 tests, 0 failures

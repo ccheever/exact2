@@ -1,0 +1,37 @@
+Compiling terminal
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/modules/apple/R8KeysMenus.swift:98:45: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 96 | 
+ 97 |     @objc func undo(_ sender: Any?) {
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+    |                                             `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/modules/apple/R8KeysMenus.swift:100:26: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+    |                          `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+101 |     }
+102 |     @objc func closeWindow(_ sender: Any?) {
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/macos/tests/terminal/main.swift:220:130: warning: use '#selector' instead of explicitly constructing a 'Selector'
+218 |         spin(until: { view.focused }, timeout: 5)
+219 |         let conforms = (view.web as AnyObject) as? NSTextInputClient
+220 |         print("terminal S7 web view is NSTextInputClient: \(conforms != nil); responds to setMarkedText: \(view.web.responds(to: Selector(("setMarkedText:selectedRange:replacementRange:"))))")
+    |                                                                                                                                  `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+221 |         let client = try XCTUnwrap(conforms, "WKWebView is not an NSTextInputClient at run time")
+222 |         client.setMarkedText("ㅎ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+Running terminal
+Test Suite 'testLoadingTerminalDoesNotStealComposerFocus' started at 2026-10-06 22:46:01.832.
+Test Case '-[TerminalVerificationterminal.TerminalDrawerTests testLoadingTerminalDoesNotStealComposerFocus]' started.
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/macos/tests/terminal/drawer.swift:62: error: -[TerminalVerificationterminal.TerminalDrawerTests testLoadingTerminalDoesNotStealComposerFocus] : XCTAssertTrue failed
+Test Case '-[TerminalVerificationterminal.TerminalDrawerTests testLoadingTerminalDoesNotStealComposerFocus]' failed (0.452 seconds).
+Test Suite 'testLoadingTerminalDoesNotStealComposerFocus' failed at 2026-10-06 22:46:02.284.
+	 Executed 1 test, with 1 failure (0 unexpected) in 0.452 (0.452) seconds
+Executed 1 tests, with 1 failures
+Traceback (most recent call last):
+  File "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/fixes/baseline-focus.py", line 9, in <module>
+    print('Running',name,flush=True); subprocess.run([str(dest/'tests')],env=dict(env,T3_TERMINAL_TEST_DIR=str(dest),T3_TERMINAL_ONLY='testLoadingTerminalDoesNotStealComposerFocus'),check=True)
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/subprocess.py", line 528, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/target/terminal-verification/fixes/baseline-swift/terminal/tests']' returned non-zero exit status 1.

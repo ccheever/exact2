@@ -1,0 +1,137 @@
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/modules/apple/R8KeysMenus.swift:98:45: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 96 | 
+ 97 |     @objc func undo(_ sender: Any?) {
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+    |                                             `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/modules/apple/R8KeysMenus.swift:100:26: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+    |                          `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+101 |     }
+102 |     @objc func closeWindow(_ sender: Any?) {
+Test Suite 'TransportTests' started at 2026-10-06 22:46:50.937.
+Test Case '-[TerminalVerificationtransport.TransportTests testAgentCredentialsSurviveDisconnectButNeverAnotherInstance]' started.
+Test Case '-[TerminalVerificationtransport.TransportTests testAgentCredentialsSurviveDisconnectButNeverAnotherInstance]' passed (0.001 seconds).
+Test Case '-[TerminalVerificationtransport.TransportTests testAgentStorageHonorsExplicitScratchWithoutChangingLiveRoots]' started.
+Test Case '-[TerminalVerificationtransport.TransportTests testAgentStorageHonorsExplicitScratchWithoutChangingLiveRoots]' passed (0.000 seconds).
+Test Case '-[TerminalVerificationtransport.TransportTests testDisconnectedWritesFailWithoutSendingAndDestroyClosesBridge]' started.
+Test Case '-[TerminalVerificationtransport.TransportTests testDisconnectedWritesFailWithoutSendingAndDestroyClosesBridge]' passed (0.005 seconds).
+Test Case '-[TerminalVerificationtransport.TransportTests testEffectWireUsesTaggedFramesAndPreservesEveryChunkValue]' started.
+Test Case '-[TerminalVerificationtransport.TransportTests testEffectWireUsesTaggedFramesAndPreservesEveryChunkValue]' passed (0.000 seconds).
+Test Case '-[TerminalVerificationtransport.TransportTests testEndpointBoundaryAndPairingURL]' started.
+Test Case '-[TerminalVerificationtransport.TransportTests testEndpointBoundaryAndPairingURL]' passed (0.000 seconds).
+Test Case '-[TerminalVerificationtransport.TransportTests testInboxNotifiesOnceUntilAllRetainedWorkIsAcknowledged]' started.
+Test Case '-[TerminalVerificationtransport.TransportTests testInboxNotifiesOnceUntilAllRetainedWorkIsAcknowledged]' passed (0.000 seconds).
+Test Case '-[TerminalVerificationtransport.TransportTests testInboxOverflowAndReplacementRequireResnapshot]' started.
+Test Case '-[TerminalVerificationtransport.TransportTests testInboxOverflowAndReplacementRequireResnapshot]' passed (0.000 seconds).
+Test Case '-[TerminalVerificationtransport.TransportTests testInboxReadIsReplayableAndACKIsExplicit]' started.
+Test Case '-[TerminalVerificationtransport.TransportTests testInboxReadIsReplayableAndACKIsExplicit]' passed (0.001 seconds).
+Test Case '-[TerminalVerificationtransport.TransportTests testLiveT3AuthSocketHTTPAndSubscriptions]' started.
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/macos/tests/transport/main.swift:349: -[TerminalVerificationtransport.TransportTests testLiveT3AuthSocketHTTPAndSubscriptions] : Test skipped - Set T3_TRANSPORT_PAIRING_FILE to a disposable isolated server credential.
+Test Case '-[TerminalVerificationtransport.TransportTests testLiveT3AuthSocketHTTPAndSubscriptions]' skipped (0.000 seconds).
+Test Case '-[TerminalVerificationtransport.TransportTests testNoNetworkBeforeExplicitConnectAndUUIDsAreNative]' started.
+Test Case '-[TerminalVerificationtransport.TransportTests testNoNetworkBeforeExplicitConnectAndUUIDsAreNative]' passed (0.000 seconds).
+Test Case '-[TerminalVerificationtransport.TransportTests testOAuthIsFormEncodedAndTokensNeverReturnToTheApp]' started.
+Test Case '-[TerminalVerificationtransport.TransportTests testOAuthIsFormEncodedAndTokensNeverReturnToTheApp]' passed (0.003 seconds).
+Test Case '-[TerminalVerificationtransport.TransportTests testPagesAndLargeValuesStayBelowNativeReplyLimitWithoutLosingUnicode]' started.
+Test Case '-[TerminalVerificationtransport.TransportTests testPagesAndLargeValuesStayBelowNativeReplyLimitWithoutLosingUnicode]' passed (0.070 seconds).
+Test Case '-[TerminalVerificationtransport.TransportTests testPairingAnotherEnvironmentKeepsTheActiveConnectionAndSavesItsToken]' started.
+Test Case '-[TerminalVerificationtransport.TransportTests testPairingAnotherEnvironmentKeepsTheActiveConnectionAndSavesItsToken]' passed (0.003 seconds).
+Test Case '-[TerminalVerificationtransport.TransportTests testPreferencesAreLazyAtomicAndSurviveANewModule]' started.
+Test Case '-[TerminalVerificationtransport.TransportTests testPreferencesAreLazyAtomicAndSurviveANewModule]' passed (0.127 seconds).
+Test Case '-[TerminalVerificationtransport.TransportTests testProtocolMismatchStopsBeforeExchangingCredential]' started.
+Test Case '-[TerminalVerificationtransport.TransportTests testProtocolMismatchStopsBeforeExchangingCredential]' passed (0.001 seconds).
+Test Case '-[TerminalVerificationtransport.TransportTests testSavedEnvironmentsRememberForgetAndStayPerInstance]' started.
+Test Case '-[TerminalVerificationtransport.TransportTests testSavedEnvironmentsRememberForgetAndStayPerInstance]' passed (0.001 seconds).
+Test Case '-[TerminalVerificationtransport.TransportTests testTypedFailuresKeepTheirTagMessageReasonAndDetail]' started.
+Test Case '-[TerminalVerificationtransport.TransportTests testTypedFailuresKeepTheirTagMessageReasonAndDetail]' passed (0.000 seconds).
+Test Suite 'TransportTests' passed at 2026-10-06 22:46:51.151.
+	 Executed 17 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.212 (0.214) seconds
+Test Suite 'R3TransportTests' started at 2026-10-06 22:46:51.151.
+Test Case '-[TerminalVerificationtransport.R3TransportTests testAFailedStreamIsRetriedOnTheSameSessionWithADoublingDelay]' started.
+Test Case '-[TerminalVerificationtransport.R3TransportTests testAFailedStreamIsRetriedOnTheSameSessionWithADoublingDelay]' passed (1.487 seconds).
+Test Case '-[TerminalVerificationtransport.R3TransportTests testALostSocketBacksOffWithJitterAndAnExplicitRetryRunsNowFromTheFirstRung]' started.
+Test Case '-[TerminalVerificationtransport.R3TransportTests testALostSocketBacksOffWithJitterAndAnExplicitRetryRunsNowFromTheFirstRung]' passed (1.025 seconds).
+Test Case '-[TerminalVerificationtransport.R3TransportTests testANewerReadSupersedesAndStragglersNeverRelease]' started.
+Test Case '-[TerminalVerificationtransport.R3TransportTests testANewerReadSupersedesAndStragglersNeverRelease]' passed (0.108 seconds).
+Test Case '-[TerminalVerificationtransport.R3TransportTests testAnExplicitRetryProbesTheLiveSocketInsteadOfReplacingIt]' started.
+Test Case '-[TerminalVerificationtransport.R3TransportTests testAnExplicitRetryProbesTheLiveSocketInsteadOfReplacingIt]' passed (0.008 seconds).
+Test Case '-[TerminalVerificationtransport.R3TransportTests testAnIdleBurstAsksOnceAtOnceAndOnceAfter]' started.
+Test Case '-[TerminalVerificationtransport.R3TransportTests testAnIdleBurstAsksOnceAtOnceAndOnceAfter]' passed (0.759 seconds).
+Test Case '-[TerminalVerificationtransport.R3TransportTests testANormalSocketCarriesTheProtocolGate]' started.
+Test Case '-[TerminalVerificationtransport.R3TransportTests testANormalSocketCarriesTheProtocolGate]' passed (0.004 seconds).
+Test Case '-[TerminalVerificationtransport.R3TransportTests testAnUnansweredProbeReconnectsWithoutTheBackoffWait]' started.
+Test Case '-[TerminalVerificationtransport.R3TransportTests testAnUnansweredProbeReconnectsWithoutTheBackoffWait]' passed (3.029 seconds).
+Test Case '-[TerminalVerificationtransport.R3TransportTests testAReadExactLetGoIsReleasedAndAskedAgain]' started.
+Test Case '-[TerminalVerificationtransport.R3TransportTests testAReadExactLetGoIsReleasedAndAskedAgain]' passed (1.408 seconds).
+Test Case '-[TerminalVerificationtransport.R3TransportTests testForegroundAndNetworkSignalsProbeInsteadOfTearingDown]' started.
+Test Case '-[TerminalVerificationtransport.R3TransportTests testForegroundAndNetworkSignalsProbeInsteadOfTearingDown]' passed (0.312 seconds).
+Test Case '-[TerminalVerificationtransport.R3TransportTests testGateHoldsTheReadsTopicsUntilItsLastReplyThenReplaysOnce]' started.
+Test Case '-[TerminalVerificationtransport.R3TransportTests testGateHoldsTheReadsTopicsUntilItsLastReplyThenReplaysOnce]' passed (0.137 seconds).
+Test Case '-[TerminalVerificationtransport.R3TransportTests testLiveRetryProbesAHeadServerAndKeepsTheSession]' started.
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-terminal-drawer/examples/t3-code/macos/tests/transport/r3.swift:330: -[TerminalVerificationtransport.R3TransportTests testLiveRetryProbesAHeadServerAndKeepsTheSession] : Test skipped - Set R3_LIVE_PAIRING_FILE to a disposable credential.
+Test Case '-[TerminalVerificationtransport.R3TransportTests testLiveRetryProbesAHeadServerAndKeepsTheSession]' skipped (0.000 seconds).
+Test Case '-[TerminalVerificationtransport.R3TransportTests testPairingAndConnectingNameTheProtocolDirection]' started.
+Test Case '-[TerminalVerificationtransport.R3TransportTests testPairingAndConnectingNameTheProtocolDirection]' passed (0.002 seconds).
+Test Case '-[TerminalVerificationtransport.R3TransportTests testRetryDelayIsAJitteredUpperHalfCappedAtFiveMinutes]' started.
+Test Case '-[TerminalVerificationtransport.R3TransportTests testRetryDelayIsAJitteredUpperHalfCappedAtFiveMinutes]' passed (0.000 seconds).
+Test Case '-[TerminalVerificationtransport.R3TransportTests testTheDrawAfterAReadIsCoalescedIntoOneReplay]' started.
+Test Case '-[TerminalVerificationtransport.R3TransportTests testTheDrawAfterAReadIsCoalescedIntoOneReplay]' passed (0.609 seconds).
+Test Suite 'R3TransportTests' passed at 2026-10-06 22:47:00.042.
+	 Executed 14 tests, with 1 test skipped and 0 failures (0 unexpected) in 8.888 (8.891) seconds
+Test Suite 'ForgetOriginTests' started at 2026-10-06 22:47:00.042.
+Test Case '-[TerminalVerificationtransport.ForgetOriginTests testAKeyLeftByAnEarlierBuildForARemovedEnvironmentIsDroppedNotRestored]' started.
+Test Case '-[TerminalVerificationtransport.ForgetOriginTests testAKeyLeftByAnEarlierBuildForARemovedEnvironmentIsDroppedNotRestored]' passed (0.007 seconds).
+Test Case '-[TerminalVerificationtransport.ForgetOriginTests testAnAgentRunKeepsNoOriginButStillNamesNothingAfterRemoval]' started.
+Test Case '-[TerminalVerificationtransport.ForgetOriginTests testAnAgentRunKeepsNoOriginButStillNamesNothingAfterRemoval]' passed (0.005 seconds).
+Test Case '-[TerminalVerificationtransport.ForgetOriginTests testDisconnectWithForgetOnTheFocusedBClearsTheSameThings]' started.
+Test Case '-[TerminalVerificationtransport.ForgetOriginTests testDisconnectWithForgetOnTheFocusedBClearsTheSameThings]' passed (0.010 seconds).
+Test Case '-[TerminalVerificationtransport.ForgetOriginTests testPairedBothThenFocusedBRemembersBAndRemovingItLeavesNothingNamingB]' started.
+Test Case '-[TerminalVerificationtransport.ForgetOriginTests testPairedBothThenFocusedBRemembersBAndRemovingItLeavesNothingNamingB]' passed (0.005 seconds).
+Test Case '-[TerminalVerificationtransport.ForgetOriginTests testRemovingTheUnfocusedBKeepsTheFocusAndItsRememberedOrigin]' started.
+Test Case '-[TerminalVerificationtransport.ForgetOriginTests testRemovingTheUnfocusedBKeepsTheFocusAndItsRememberedOrigin]' passed (0.005 seconds).
+Test Suite 'ForgetOriginTests' passed at 2026-10-06 22:47:00.075.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.032 (0.033) seconds
+Test Suite 'RemoteScopeTests' started at 2026-10-06 22:47:00.075.
+Test Case '-[TerminalVerificationtransport.RemoteScopeTests testANarrowLinkIsRefusedWithTheReferenceTextAndNothingIsSaved]' started.
+Test Case '-[TerminalVerificationtransport.RemoteScopeTests testANarrowLinkIsRefusedWithTheReferenceTextAndNothingIsSaved]' passed (0.001 seconds).
+Test Case '-[TerminalVerificationtransport.RemoteScopeTests testConnectSendsTheScopeItIsGivenAndNoneWhenAbsent]' started.
+Test Case '-[TerminalVerificationtransport.RemoteScopeTests testConnectSendsTheScopeItIsGivenAndNoneWhenAbsent]' passed (0.002 seconds).
+Test Case '-[TerminalVerificationtransport.RemoteScopeTests testFailureTextKeepsTheServerMessageAndTheCredentialRule]' started.
+Test Case '-[TerminalVerificationtransport.RemoteScopeTests testFailureTextKeepsTheServerMessageAndTheCredentialRule]' passed (0.000 seconds).
+Test Case '-[TerminalVerificationtransport.RemoteScopeTests testPairingSendsTheScopeItIsGiven]' started.
+Test Case '-[TerminalVerificationtransport.RemoteScopeTests testPairingSendsTheScopeItIsGiven]' passed (0.001 seconds).
+Test Suite 'RemoteScopeTests' passed at 2026-10-06 22:47:00.078.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.003 (0.004) seconds
+Test Suite 'RouteTests' started at 2026-10-06 22:47:00.078.
+Test Case '-[TerminalVerificationtransport.RouteTests testAddingARouteToAnotherMachineIsRefusedBeforeTheCodeIsSpent]' started.
+Test Case '-[TerminalVerificationtransport.RouteTests testAddingARouteToAnotherMachineIsRefusedBeforeTheCodeIsSpent]' passed (0.001 seconds).
+Test Case '-[TerminalVerificationtransport.RouteTests testAFallbackRouteConnectsAndTheBetterRouteTakesOverOnceItAnswers]' started.
+Test Case '-[TerminalVerificationtransport.RouteTests testAFallbackRouteConnectsAndTheBetterRouteTakesOverOnceItAnswers]' passed (0.054 seconds).
+Test Case '-[TerminalVerificationtransport.RouteTests testATransientFailureIsReportedOverABlockedRoute]' started.
+Test Case '-[TerminalVerificationtransport.RouteTests testATransientFailureIsReportedOverABlockedRoute]' passed (0.056 seconds).
+Test Case '-[TerminalVerificationtransport.RouteTests testEntriesSavedBeforeRoutesJoinOneEnvironmentWithOneRouteEach]' started.
+Test Case '-[TerminalVerificationtransport.RouteTests testEntriesSavedBeforeRoutesJoinOneEnvironmentWithOneRouteEach]' passed (0.000 seconds).
+Test Case '-[TerminalVerificationtransport.RouteTests testPairingTheSameMachineAtASecondAddressAddsARouteNotARow]' started.
+Test Case '-[TerminalVerificationtransport.RouteTests testPairingTheSameMachineAtASecondAddressAddsARouteNotARow]' passed (0.000 seconds).
+Test Case '-[TerminalVerificationtransport.RouteTests testRouteEditsKeepTheHomeAndForgetARemovedRoutesTokenUnlessBorrowed]' started.
+Test Case '-[TerminalVerificationtransport.RouteTests testRouteEditsKeepTheHomeAndForgetARemovedRoutesTokenUnlessBorrowed]' passed (0.001 seconds).
+Test Case '-[TerminalVerificationtransport.RouteTests testTheWalkSkipsAnotherMachineAtASavedAddressAndNeverSendsItACredential]' started.
+Test Case '-[TerminalVerificationtransport.RouteTests testTheWalkSkipsAnotherMachineAtASavedAddressAndNeverSendsItACredential]' passed (0.003 seconds).
+Test Suite 'RouteTests' passed at 2026-10-06 22:47:00.195.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.116 (0.116) seconds
+Test Suite 'TerminalStreamTests' started at 2026-10-06 22:47:00.195.
+Test Case '-[TerminalVerificationtransport.TerminalStreamTests testDisconnectedResizeIsAppliedOnAttachWithoutAnotherFit]' started.
+Test Case '-[TerminalVerificationtransport.TerminalStreamTests testDisconnectedResizeIsAppliedOnAttachWithoutAnotherFit]' passed (0.131 seconds).
+Test Case '-[TerminalVerificationtransport.TerminalStreamTests testOutputSkipsTheInboxAndIsAcknowledgedOnlyOnceHeld]' started.
+Test Case '-[TerminalVerificationtransport.TerminalStreamTests testOutputSkipsTheInboxAndIsAcknowledgedOnlyOnceHeld]' passed (0.712 seconds).
+Test Case '-[TerminalVerificationtransport.TerminalStreamTests testResizeFailureCanRetryAndInflightChangesKeepOnlyTheLatestGrid]' started.
+Test Case '-[TerminalVerificationtransport.TerminalStreamTests testResizeFailureCanRetryAndInflightChangesKeepOnlyTheLatestGrid]' passed (0.204 seconds).
+Test Case '-[TerminalVerificationtransport.TerminalStreamTests testTerminalStreamsDoNotCountTowardTheSixteenAppStreamsAndEndWithTheSocket]' started.
+Test Case '-[TerminalVerificationtransport.TerminalStreamTests testTerminalStreamsDoNotCountTowardTheSixteenAppStreamsAndEndWithTheSocket]' passed (0.058 seconds).
+Test Suite 'TerminalStreamTests' passed at 2026-10-06 22:47:01.300.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 1.105 (1.106) seconds
