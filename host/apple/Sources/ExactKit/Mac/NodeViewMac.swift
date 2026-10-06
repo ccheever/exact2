@@ -226,13 +226,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func becomeFirstResponder() -> Bool {
         guard !formDisabled else { return false }
         let ok = super.becomeFirstResponder()
-        if ok { presenter?.collections.pinsChanged() }
+        if ok { presenter?.collections.pinsChanged(); presenter?.selection.focusEntered(self) }
         if ok, handlers.contains("focus") { presenter?.focus(id) }
         return ok
     }
     override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
-        if ok { presenter?.selection.clear() }
+        if ok { presenter?.selection.focusLeft() }
         if ok { presenter?.collections.pinsChanged() }
         if ok && !isSurfaceControl { inputCanvas?.canvasInput?.blur() }
         if ok, handlers.contains("blur") { presenter?.blur(id) }
@@ -1417,7 +1417,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var hasPressableAncestor: Bool {
         var next = superview
         while let view = next {
-            if let node = view as? NodeView, (node.pressable || node.isSurfaceControl) { return true }
+            if let node = view as? NodeView, (node.pressable || node.isSurfaceControl || node.isButton) { return true }
             next = view.superview
         }
         return false
