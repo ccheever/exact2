@@ -34,6 +34,19 @@ impl Parser {
         } else {
             None
         };
+        // A clause out of order (r32 t4 wrote `refreshes cards queue`).
+        if let Some(word) = ["queue", "refreshes", "then"]
+            .into_iter()
+            .find(|w| self.at_ident(w))
+        {
+            return self.err(
+                "syntax-expected-newline",
+                format!(
+                    "`{word}` is out of place: a mutation's clauses go `as shape T`, then \
+                     `queue`, then `refreshes a, b`, then `then action`, each at most once"
+                ),
+            );
+        }
         self.newline()?;
         Ok(MutationDecl {
             name,

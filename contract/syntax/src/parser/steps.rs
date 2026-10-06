@@ -634,10 +634,16 @@ impl Parser {
                         Step::ExpectState { name, value, span }
                     }
                     other => {
+                        // r32 t1 tried `expect value` for a field.
+                        let hint = if other == "value" || other == "checked" {
+                            "; `expect text` reads a control's value too (a checkbox's is `true` or `false`)"
+                        } else {
+                            ""
+                        };
                         return self.err(
                             "syntax-expected-step",
-                            format!("`expect` reads `tree`, `text`, or `state`, not `{other}`"),
-                        )
+                            format!("`expect` reads `tree`, `text`, or `state`, not `{other}`{hint}"),
+                        );
                     }
                 }
             }
