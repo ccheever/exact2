@@ -472,7 +472,29 @@ fn tree_rows<D: DataSource>(
     s
 }
 
-/// A node's own props by their schema names, as JSON object members.
+/// What agent output shows for a non-empty password field's value (#134):
+/// a fixed mark, whatever its length, as no reply, log or transcript should
+/// carry a secret. The app's own state still holds the value.
+pub const MASKED: &str = "•••";
+
+/// A field's value as agent output shows it: an `input type="password"`'s,
+/// when not empty, is [`MASKED`]; any other is itself (a `textarea` has no
+/// password type in HTML, and shows its text). Every host's tree and `type`
+/// reply passes its value through this.
+pub fn shown_value<'a>(props: &exact_kernel::PropList, value: &'a str) -> &'a str {
+    use exact_kernel::PropId;
+    if !value.is_empty()
+        && props.str(PropId::Type) == Some("password")
+        && props.str(PropId::SemanticTag) != Some("textarea")
+    {
+        MASKED
+    } else {
+        value
+    }
+}
+
+/// A node's own props by their schema names, as JSON object members; a
+/// password field's value is [`shown_value`]'s.
 fn props_json(node: &NodeRef<'_>, s: &mut String) {
     for (i, (id, value)) in node.props.iter().enumerate() {
         if i > 0 {
@@ -481,6 +503,9 @@ fn props_json(node: &NodeRef<'_>, s: &mut String) {
         quote(id.name(), s);
         s.push(':');
         match value {
+            PropValue::Str(t) if id == exact_kernel::PropId::Value => {
+                quote(shown_value(node.props, t), s)
+            }
             PropValue::Str(t) => quote(t, s),
             PropValue::Bool(b) => s.push_str(if *b { "true" } else { "false" }),
             PropValue::Int(i) => {

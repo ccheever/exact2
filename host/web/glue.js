@@ -983,12 +983,14 @@ const INHERITED_CSS = {
   font_style: "font-style", line_height: "line-height", letter_spacing: "letter-spacing",
   font_variant_numeric: "font-variant-numeric", direction: "direction", white_space: "white-space", overflow_wrap: "overflow-wrap", text_align: "text-align", widows: "widows", orphans: "orphans",
 };
+// A field's value as agent output shows it: a password's is the runner's fixed mark, whatever its length (#134).
+const shownValue = (el) => el.type === "password" && el.value ? "•••" : el.value;
 function nodeDetail(id, plan = false) {
   const el = views.get(id);
   if (!el || !el.isConnected) return { error: `stale node #${id}` };
   const node = ask({ op: "node", id, ...(plan ? { plan: true } : {}) });
   if (node.error) return node;
-  if (node.type === "TextInput" && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) node.props = { ...node.props, value: el.value };
+  if (node.type === "TextInput" && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) node.props = { ...node.props, value: shownValue(el) };
   delete node.frame;
   delete node.absolute;
   delete node.content;
@@ -1036,7 +1038,7 @@ function tree(request) {
   const reply = ask(request);
   for (const node of reply.nodes ?? []) {
     const el = views.get(node.id);
-    if (node.type === "TextInput" && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) node.props = { ...node.props, value: el.value };
+    if (node.type === "TextInput" && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) node.props = { ...node.props, value: shownValue(el) };
     node.focused = el === document.activeElement;
     if (el?.exactNative) node.module = el.exactNative.status();
     if (!(el instanceof HTMLIFrameElement)) continue;

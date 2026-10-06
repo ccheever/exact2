@@ -218,6 +218,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               if (st.append) {
                 const { nodes } = await s.tree(), field = nodes.find((n) => n.props.testId === st.target && !n.inactive) ?? nodes.find((n) => n.props.testId === st.target);
                 if (field && typeof field.props.value !== 'string') throw new Error(`type … append: "${st.target}" shows no text value to append to`);
+                if (field?.props.type === 'password' && field.props.value !== '') throw new Error(`type … append: "${st.target}" is a password field, whose value the tree does not show`);
                 text = (field?.props.value ?? '') + text;
               }
               delivered(await s.type(st.target, text)); input = st.line; break;

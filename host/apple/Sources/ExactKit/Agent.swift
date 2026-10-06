@@ -306,6 +306,13 @@ public final class Agent {
         return out
     }
 
+    /// A field's value as a reply shows it (#134): a password's, when not
+    /// empty, is a fixed mark whatever its length — the runner's
+    /// `agent::MASKED`, which its tree already shows.
+    static func shownValue(_ value: String, of v: NodeView) -> String {
+        v.props["type"] == "password" && !value.isEmpty ? "•••" : value
+    }
+
     public static func reply(_ obj: [String: Any]) {
         guard let d = try? JSONSerialization.data(withJSONObject: obj) else { raw("{\"error\":\"unencodable reply\"}"); return }
         raw(String(decoding: d, as: UTF8.self))

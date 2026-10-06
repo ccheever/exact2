@@ -1481,6 +1481,14 @@ list HTML's grammar refuses (the web's default) leaves `type`'s, and so does
 a name the platform has no type for (`country`, `impp`, `sex`), which only the
 web can act on.
 
+An `input type="password"`'s value is never agent output, on any host: `tree`,
+`layout <field>` and the `type` reply show `value="•••"` for any value that is
+not empty, whatever its length (an `expect text` on the field reads `•••`), and
+`tree --ax` marks the field `protected` where the host has one (the web's
+accessibility tree still shows one bullet a character, as Chrome exposes it).
+What the app stores (`state.slots`, its data module) is the app's own; an
+`app.test.contract` `type … append` into a filled password field is refused.
+
 `border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
 resetting omitted components to medium/none/currentcolor. Widths are px/pt,
 unitless zero, or thin/medium/thick (1/3/5 px); styles are none/hidden/solid.

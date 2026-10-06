@@ -792,7 +792,7 @@ extension Agent {
                         return ["phase": "up", "delivery": "recognized"]
                     }
                 }
-                return ["typed": Int(v.id), "key": chord, "value": v.textArea?.string ?? v.field?.stringValue ?? ""]
+                return ["typed": Int(v.id), "key": chord, "value": Agent.shownValue(v.textArea?.string ?? v.field?.stringValue ?? "", of: v)]
             }
             if v.kind == "native" { return nativeType(v, req, token: nativeToken) }
             // Accessory test windows may have a first responder before
@@ -815,7 +815,7 @@ extension Agent {
                     return ["typed": Int(v?.id ?? 0), "phase": "up", "delivery": "platform"]
                 }
             }
-            return ["typed": Int(v.id), "key": key, "value": v.textArea?.string ?? v.field?.stringValue ?? ""]
+            return ["typed": Int(v.id), "key": key, "value": Agent.shownValue(v.textArea?.string ?? v.field?.stringValue ?? "", of: v)]
         }
         if let f = v.textArea {
             if !win.isKeyWindow { win.makeKey() }
@@ -836,7 +836,7 @@ extension Agent {
         guard let editor = f.currentEditor() as? NSTextView else { return ["error": "the field has no editor"] }
         editor.selectAll(nil)
         editor.insertText(text, replacementRange: editor.selectedRange())
-        return ["typed": Int(v.id), "value": f.stringValue]
+        return ["typed": Int(v.id), "value": Agent.shownValue(f.stringValue, of: v)]
     }
 
     /// `CGWindowListCreateImage` of one window of this process, without its

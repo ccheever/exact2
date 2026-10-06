@@ -39,6 +39,8 @@ export function install(exact) {
     if (/^(Text|SvgText|SvgTSpan)$/.test(type(el)) && (el.$source != null || !kids(el).length)) props.text = el.$source ?? (flowed(el) ? el.$flow.text : el.textContent);
     // An option's, a checkbox's and a radio's value is its authored `value` (the DOM's falls back to its label, or `on`), as the runner's tree gives it.
     if ('value' in el && el.tagName !== 'BUTTON' && (!(el.tagName === 'OPTION' || el.type === 'checkbox' || el.type === 'radio') || el.hasAttribute('value'))) props.value = el.value;
+    // A password field's value is never agent output (#134): a fixed mark, whatever its length, and its `type` as the runner's tree gives it.
+    if (el.tagName === 'INPUT' && el.type === 'password') { props.type = 'password'; if (props.value) props.value = '•••'; }
     // A checkbox's or radio's model value, as the runner's tree gives its `checked` row.
     if (el.$checked !== undefined) props.checked = el.$checked;
     // The runner's props that element.rs writes as attributes, by its names.
