@@ -118,3 +118,17 @@ describe('diff review engine', () => {
     expect(snapshot(client).diffItems.some(item => item.kind === 'note')).toBe(false);
   });
 });
+
+describe('Cite', () => {
+  test('a selection across two answer blocks becomes an Assistant quote chip whose href parses back', async () => {
+    const { client, command, calls } = harness(false);
+    const stream = 'First paragraph of the answer.\nSecond block with more words.';
+    // Block 2 starts after the line break at 31; the reader selected "answer." and "Second".
+    await command('diffreview', 'cite:["t1","turn-item:provider:codex:native-item:a1"]', `23-30,31-37|${stream}`);
+    const insert = calls.filter(call => call.op === 'editorInsert').at(-1)!;
+    const href = /^\[Assistant quote\]\((t3-citation:\/\/v1\/[^\s)]+)\)$/.exec(String(insert.text))![1]!;
+    const { parseAssistantCitationHref } = await import('./diff-citations');
+    expect(parseAssistantCitationHref(href)).toEqual({ version: 1, environmentId: 'env', threadId: 't1', messageId: 'message:provider:codex:native-item:a1',
+      text: 'answer.\nSecond', start: 23, end: 37, prefix: 'First paragraph of the ', suffix: ' block with more words.' });
+  });
+});
