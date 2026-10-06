@@ -1150,6 +1150,10 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         if !quick {
             p.poll_images();
+            // The pump may have drained the wake of a data source that finished loading.
+            if p.module_pending() {
+                p.first_pixel();
+            }
         }
         if let Some(shift) = self.shift(now) {
             return Some(shift);
@@ -1231,6 +1235,10 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         self.p.run_commands(D::default);
         self.p.poll_images();
+        // The executor fd also wakes when a data source finishes loading.
+        if self.p.module_pending() {
+            self.p.first_pixel();
+        }
         self.animating()
     }
 

@@ -21,6 +21,9 @@ struct Retained {
     modules: HashMap<String, Image>,
 }
 static RETAINED: LazyLock<Mutex<Retained>> = LazyLock::new(|| Mutex::new(Retained::default()));
+/// Wakes waiting for an image's load to finish, by digest.
+type Waiter = (String, Box<dyn FnOnce() + Send>);
+static WAITERS: LazyLock<Mutex<Vec<Waiter>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 const MAX_LOADS: usize = 64;
 const MAX_RETAINED: usize = 128 << 20;
 type Alloc = unsafe extern "C" fn(u32) -> usize;
@@ -108,12 +111,13 @@ fn prepare(bytes: &[u8], idle_only: bool) -> Result<bool, String> {
                 .name("exact-rust-loader".into())
                 .spawn(move || {
                     for (bytes, entry, queued) in receiver {
+                        let digest = format!("{:x}", Sha256::digest(&bytes));
                         eprintln!(
-                            "exact rust: native {:x}: queue {:.1} ms",
-                            Sha256::digest(&bytes),
+                            "exact rust: native {digest}: queue {:.1} ms",
                             queued.elapsed().as_secs_f64() * 1000.0
                         );
                         entry.get_or_init(|| load_symbols(&bytes));
+                        loaded(&digest);
                     }
                 })
                 .map(|_| sender)
@@ -127,6 +131,7 @@ fn prepare(bytes: &[u8], idle_only: bool) -> Result<bool, String> {
         if let Err(error) = sent {
             if entry.set(Err(error)).is_ok() {
                 finished();
+                loaded(&format!("{:x}", Sha256::digest(bytes)));
             }
         }
     }
@@ -140,6 +145,38 @@ fn load_symbols(bytes: &[u8]) -> Result<Symbols, String> {
     let result = map_symbols(bytes);
     finished();
     result
+}
+
+/// Call `wake` once this image's load has finished (at once, if it has).
+pub(crate) fn when_loaded(bytes: &[u8], wake: Box<dyn FnOnce() + Send>) {
+    let digest = format!("{:x}", Sha256::digest(bytes));
+    let mut waiters = WAITERS.lock().unwrap_or_else(|e| e.into_inner());
+    let loaded = RETAINED
+        .lock()
+        .ok()
+        .and_then(|r| r.modules.get(&digest).map(|e| e.get().is_some()))
+        .unwrap_or(true);
+    if loaded {
+        drop(waiters);
+        wake();
+    } else {
+        waiters.push((digest, wake));
+    }
+}
+
+/// The image with `digest` finished loading: wake whoever waits for it.
+fn loaded(digest: &str) {
+    let ready: Vec<Waiter> = {
+        let mut waiters = WAITERS.lock().unwrap_or_else(|e| e.into_inner());
+        let (ready, rest) = std::mem::take(&mut *waiters)
+            .into_iter()
+            .partition(|(d, _)| d == digest);
+        *waiters = rest;
+        ready
+    };
+    for (_, wake) in ready {
+        wake();
+    }
 }
 
 fn finished() {

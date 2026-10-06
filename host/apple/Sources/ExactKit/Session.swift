@@ -367,6 +367,7 @@ public final class ExactSession {
     /// agent's `clock data` waits for it before a test's first step.
     private var dataGeneration: Int?
     var dataActivated: Bool { dataGeneration == generation }
+    private var pendingActivation: (generation: Int, token: UInt64)? // retried on the session's wake
     private var updateToken: UInt64 = 0
 
     let runtime: Runtime
@@ -567,7 +568,9 @@ public final class ExactSession {
         let rt = ExactRuntime(UInt(bitPattern: ctx))
         DispatchQueue.main.async {
             guard let s = ExactSession.live[rt]?.session else { return }
-            s.whenIdle { [weak s] in guard let s else { return }; s.apply(s.runtime.pump(now: s.now())) }
+            s.whenIdle { [weak s] in guard let s else { return }; s.apply(s.runtime.pump(now: s.now()))
+                if let p = s.pendingActivation { s.pendingActivation = nil; s.firstDrawn(generation: p.generation, token: p.token) }
+            }
         }
     }
 
@@ -1171,11 +1174,8 @@ public final class ExactSession {
             natives.prepareAppModule()
             let batch = runtime.dataReady()
             if batch.pending {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                    guard let self, generation == drawnGeneration, state != .destroyed else { return }
-                    activatedGeneration = nil
-                    firstDrawn(generation: drawnGeneration, token: token)
-                }
+                activatedGeneration = nil
+                pendingActivation = (drawnGeneration, token) // the source wakes the session when ready
                 return
             }
             AppFiles.learn(runtime) // the roots storage configured
