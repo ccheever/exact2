@@ -244,6 +244,7 @@ extension NodeView {
         f.autocapitalizationType = inputCapitalization
         f.autocorrectionType = inputCorrection
         f.spellCheckingType = inputSpellChecking
+        f.textContentType = Autofill.contentType(props["autocomplete"], fallback: nil)
         if traitsChanged, f.isFirstResponder { f.reloadInputViews() }
         f.accessibilityLabel = props["accessibilityLabel"]
         f.accessibilityIdentifier = props["testId"]

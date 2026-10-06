@@ -777,6 +777,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Type => "type",
             PropId::InputMode => "inputmode",
             PropId::EnterKeyHint => "enterkeyhint",
+            PropId::Autocomplete => "autocomplete",
             PropId::Autocapitalize => "autocapitalize",
             PropId::Autocorrect => "autocorrect",
             PropId::Spellcheck => "spellcheck",

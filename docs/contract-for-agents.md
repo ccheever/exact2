@@ -1460,6 +1460,22 @@ CSS's spellings too (`font-size="14px"`, `letter-spacing="-0.5px"`,
 `none` for either. A number field's (`input type="number"`, written so)
 `min`, `max` and `step` take numbers, as a range's do; its `value` is its text.
 
+`autocomplete` on an `input` or `textarea` is HTML's attribute, written as
+HTML writes it (`autocomplete="username"`, `"section-login current-password"`,
+`"shipping postal-code"`). The web sets it as written. iOS and macOS read its
+last field name (a trailing `webauthn` aside) as the field's AutoFill content
+type, over the one `type` implies (iOS: `password`, `email`): `username`,
+`current-password`, `new-password`, `one-time-code`, `email`, `tel`, `url`,
+`name`, `given-name`, `additional-name`, `family-name`, `honorific-prefix`,
+`honorific-suffix`, `nickname`, `organization`, `organization-title`,
+`street-address`, `address-line1`, `address-line2`, `address-level1`…`3`,
+`postal-code`, `country-name`, `cc-name`, `cc-given-name`,
+`cc-additional-name`, `cc-family-name`, `cc-number`, `cc-exp`, `cc-exp-month`,
+`cc-exp-year`, `cc-csc`, `cc-type`, `bday`, `bday-day`, `bday-month` and
+`bday-year`.
+`off` clears the content type (the web's `autocomplete="off"`); `on`, or a
+name the platform has no type for (`country`, `impp`, `sex`), leaves `type`'s.
+
 `border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
 resetting omitted components to medium/none/currentcolor. Widths are px/pt,
 unitless zero, or thin/medium/thick (1/3/5 px); styles are none/hidden/solid.

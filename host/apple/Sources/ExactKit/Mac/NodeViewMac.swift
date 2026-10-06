@@ -952,6 +952,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 if let editor = f.currentEditor() as? NSTextView { writeValue(v, into: editor) } else if f.stringValue != v { f.stringValue = v }
             }
             applyPlaceholder(f)
+            f.contentType = Autofill.contentType(props["autocomplete"], fallback: nil) // LLP 1102 §3.6
             f.isEnabled = !disabled
             f.isEditable = !disabled && props["editable"] != "false"
             (f.currentEditor() as? NSTextView)?.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection

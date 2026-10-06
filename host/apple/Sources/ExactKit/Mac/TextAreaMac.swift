@@ -171,6 +171,7 @@ extension NodeView {
         f.isSelectable = !disabled
         f.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
         f.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
+        f.contentType = Autofill.contentType(props["autocomplete"], fallback: nil)
         f.setAccessibilityLabel(props["accessibilityLabel"])
         f.setAccessibilityIdentifier(props["testId"])
         (f as? TextArea)?.placeholder = props["placeholder"] ?? ""

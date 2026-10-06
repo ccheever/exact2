@@ -449,6 +449,35 @@ fn option_and_select_keep_htmls_content_model() {
 }
 
 #[test]
+fn autocomplete_names_a_field_to_autofill() {
+    // LLP 1102 §3.6: HTML's attribute, kept as written; each host reads its last field token.
+    let r = boot(
+        r#"component App
+  state kind = "one-time-code"
+  view
+    column
+      input type="email" autocomplete="username" testId="user" aria-label="User"
+      input autocomplete=kind testId="code" aria-label="Code"
+      textarea autocomplete="shipping street-address" testId="addr" aria-label="Address"
+"#,
+    );
+    for (id, want) in [
+        ("user", "username"),
+        ("code", "one-time-code"),
+        ("addr", "shipping street-address"),
+    ] {
+        let node = r.kernel().node(view_of(&r, id)).unwrap();
+        assert_eq!(node.props.str(PropId::Autocomplete), Some(want), "{id}");
+    }
+    // React Native's names point at it.
+    for name in ["textContentType", "autoComplete"] {
+        let src = format!("component App\n  view\n    input {name}=\"email\"\n");
+        let e = format!("{:?}", contract::compile(&src).unwrap_err());
+        assert!(e.contains("autocomplete"), "{name}: {e}");
+    }
+}
+
+#[test]
 fn a_number_fields_bounds_take_numbers_as_a_ranges_do() {
     // LLP 1102 §3.12: `min`, `max` and `step` as numbers; the field's value stays its text.
     let mut r = boot(

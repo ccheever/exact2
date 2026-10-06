@@ -545,6 +545,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // property's spelling, as the schema does for every prop.
         "inputmode" => AttrTarget::Prop(p("inputMode")),
         "enterkeyhint" => AttrTarget::Prop(p("enterKeyHint")),
+        "autocomplete" => AttrTarget::Prop(p("autocomplete")),
         // An image's accessible name by HTML's spelling (feed F1).
         "alt" => AttrTarget::Prop(p("accessibilityLabel")),
         "autocapitalize" => AttrTarget::Prop(p("autocapitalize")),
@@ -1067,6 +1068,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "headingLevel" => "aria-level",
         "inputMode" | "keyboardType" => "inputmode",
         "enterKeyHint" | "returnKeyType" => "enterkeyhint",
+        "autoComplete" | "textContentType" | "autoCompleteType" => "autocomplete",
         "viewportFit" | "safeArea" | "safeAreaView" => "viewport-fit",
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",
