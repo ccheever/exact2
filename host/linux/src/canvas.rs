@@ -133,6 +133,8 @@ mod layer;
 pub use jni_sys;
 #[path = "canvas/picture.rs"]
 mod picture;
+#[path = "canvas/refine.rs"]
+mod refine;
 #[path = "canvas/shadow.rs"]
 mod shadow;
 #[path = "canvas/stream.rs"]
@@ -712,10 +714,16 @@ impl Backend for Recorder {
             return 0;
         };
         // The reader's node reaches from the origin to the far edge of what
-        // the row covers.
+        // the row covers; a row that recorded nothing (a list's spacer for
+        // the rows it has not mounted, a million px tall) covers nothing.
         let s = self.scale;
-        self.ops[at + 3] = ((bounds.0 + bounds.2 + ROW_PAD).max(1.0) * s).to_bits();
-        self.ops[at + 4] = ((bounds.1 + bounds.3 + ROW_PAD).max(1.0) * s).to_bits();
+        let (w, h) = if self.ops.len() == at + 6 {
+            (1.0, 1.0)
+        } else {
+            (bounds.0 + bounds.2 + ROW_PAD, bounds.1 + bounds.3 + ROW_PAD)
+        };
+        self.ops[at + 3] = (w.max(1.0) * s).to_bits();
+        self.ops[at + 4] = (h.max(1.0) * s).to_bits();
         self.ops.push(ROW_END);
         self.ops[at + 5] = (self.ops.len() - at - 6) as u32;
         self.clips = clips;
@@ -1228,104 +1236,6 @@ impl<D: DataSource + Default> CanvasHost<D> {
             || self.p.needs_animation_frame()
             || self.p.host().wants_frames()
             || self.surfaces
-    }
-
-    /// When only scrollers whose rows the last paint drew moved since it,
-    /// and nothing else it showed changed: the move, instead of a paint.
-    /// The collection pass a scroll left for after its frame (rows mount and
-    /// retire there, not inside the next frame's scroll); from now on scrolls
-    /// leave it. Whether a frame is wanted after it.
-    pub fn refine(&mut self) -> bool {
-        self.refine_slice(None, 0.0)
-    }
-
-    /// [`CanvasHost::refine`], building at most `limit` rows past what shows
-    /// per list (a slice; `None`: whole windows), the scrolled list leading
-    /// toward `velocity` (logical px/s). Whether a paint is wanted; the
-    /// rest a slice left is [`CanvasHost::refine_pending`].
-    pub fn refine_slice(&mut self, limit: Option<u32>, velocity: f64) -> bool {
-        let _s = Section::begin(c"exact refine");
-        self.p.slice_collections(limit, velocity);
-        let wanted = self.refine_inner();
-        self.p.slice_collections(None, 0.0);
-        wanted
-    }
-
-    /// The scroller [`CanvasHost::scroll`] moves, once a scroll found it.
-    pub fn feed(&self) -> Option<ViewId> {
-        self.feed
-    }
-
-    /// Device pixels per logical pixel.
-    pub fn scale(&self) -> f32 {
-        self.scale
-    }
-
-    /// Whether a slice left rows to build.
-    pub fn refine_pending(&self) -> bool {
-        self.p.collections_pending()
-    }
-
-    fn refine_inner(&mut self) -> bool {
-        self.scrolled = false;
-        self.prefetching = true;
-        // Pictures coming into view while frames move: requested now, where
-        // their rows are, not at the next paint.
-        if self.moved > 0 {
-            if let Some(painted) = &self.painted {
-                let now = self.p.scroll_offsets();
-                let moved: std::collections::BTreeMap<ViewId, (f32, f32)> = painted
-                    .groups
-                    .iter()
-                    .map(|(id, at)| {
-                        let to = now.get(id).copied().unwrap_or((0.0, 0.0));
-                        (*id, (at.0 - to.0, at.1 - to.1))
-                    })
-                    .collect();
-                if let Some(e) = self.p.sync_images_moved(&moved) {
-                    eprintln!("exact: {e}");
-                }
-            }
-        }
-        // How soon what this pass mounts past the view can scroll in: it
-        // reaches the feed's viewport past it (the window's lead).
-        let lead = self
-            .feed
-            .and_then(|id| self.p.host().kernel().node(id))
-            .map_or(self.viewport.1, |n| n.frame.height);
-        let soon = self.moves.min(MOVES_MOUNTED).saturating_sub(self.moved);
-        let due = self.travel.passed(lead, soon);
-        let before = self.p.still();
-        let wanted = self.p.refine_deferred(true);
-        // Only the pass changed the kernel (rows out of view): no paint now.
-        let after = self.p.still();
-        let painted = self.painted.as_ref().map(|p| &p.still);
-        match (before, after, painted) {
-            (Some(b), Some(a), Some(p))
-                if (b == *p || self.quiet.is_some_and(|e| p.same_at(&b, e))) && b != a =>
-            {
-                let epoch = self.p.host().kernel().epoch();
-                if p.same_at(&a, epoch) {
-                    self.quiet = Some(epoch);
-                    // Rows the scroll brings in before the paint that shows
-                    // them would: that paint comes sooner, or now.
-                    match due {
-                        Some(0) if self.moved > 0 => {
-                            self.force = true;
-                            return true;
-                        }
-                        Some(frames) => {
-                            let by = self.moved + frames;
-                            self.paint_by = Some(self.paint_by.map_or(by, |b| b.min(by)));
-                        }
-                        None => {}
-                    }
-                    return false;
-                }
-                wanted
-            }
-            _ => wanted,
-        }
     }
 
     /// Whether a moved paint owes a paint: once moves pause (a frame
