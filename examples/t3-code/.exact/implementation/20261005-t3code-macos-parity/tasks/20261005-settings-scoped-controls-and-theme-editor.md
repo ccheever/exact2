@@ -1,12 +1,12 @@
 ---
 name: 20261005-settings-scoped-controls-and-theme-editor
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-settings-scoped-controls-and-theme-editor
 pr_url: null
 verified_commit: null
 ---
@@ -97,14 +97,68 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, oracle build, two isola
 
 ## Progress
 
-Planned. No branch.
+Implemented on `feat(example)/t3-code-settings-scoped-controls-and-theme-editor` (2026-10-06), rebased on
+`feat(example)/t3-code` `da40e6590` (after hot-file-split #147). Verification: unverified (no independent review;
+attended rows not run).
+
+- `settings-scope.ts`: ports of `validateSettingsScopeSearch`, `resolveSettingsScope` and the axis helpers
+  (`settingsScopeEnvironmentLabel`, `environmentAxisValue`, `projectAxisValue`, `selectEnvironmentAxis`,
+  `selectProjectAxis`, `selectSingleEnvironmentScope`). A member's `physicalProjectKey` is the clone's checkout id
+  (the project id `settingsCheckout` carries).
+- `scoped-settings-plan.ts`: ports of `selectScopedSettingsEnvironments`, `resolveScopedSettingsTargets`,
+  `scopedSettingsAreMixed`, `scopedSettingsSource`, `planScopedSettingsPatch`, `planScopedSettingsClear`,
+  `listProjectOverrides`, `planProjectOverridesClear`, `persistScopedSettingsPatch`, the `projectSettings.ts` helpers
+  they call, and useRunScopedPlan's toasts (`scopedPlanNotice`).
+- `settings-scope-sources.ts`: the scope's environments (the focused client plus every fleet entry, offline ones kept
+  and marked), project groups joined across environments, one `server.updateSettings` per environment through its own
+  transport (`EnvironmentFleet.native`), and t3.json reads per member through its environment.
+- `settings-core.ts`: `resolveScope` returns the ported resolution; `serverState` reads every connected target
+  (mixed, source); `settingPatch` is replaced by `settingPlan`; `applyCoreSetting` plans, writes all targets and toasts
+  "Setting not saved" (warning) or "Setting saved on some environments" / "Setting not saved" (error naming the
+  environments). "Continue threads after restarts" needs every selected connected environment's capability; Advanced
+  background activity needs one selected environment.
+- D15: `mixed` on `CoreRow` and `ScopedRow`; `settings-scoped-switch.contract` `ScopedSwitch` (thumb `translate`
+  150 ms, none under reduced motion; mixed thumb at 6 pt, 70 %, unchecked track; a press on mixed sends "true") for the
+  seven General switches and the two Integrations device rows. The Integrations page still resolves one environment
+  and one checkout, so its rows are never mixed today.
+- D16: `theme-editor-session.ts` (store, `toggleThemeEditorForTheme`, session themes read fresh by id),
+  `theme-editor-notices.ts` (handleSaved), `settings-appearance-editor.ts` (the draft belongs to the session; a removed
+  theme saves as a create; a create named like a light- or dark-only theme adds the missing palette),
+  `ThemeEditorHost` at the window root (`app.contract` one view line), the palette row and `themeEditor.toggle` toggle
+  the editor without opening Settings, opening Settings keeps the session; the panel drags by its header, resizes from
+  its corner grip (280x220 minimum, toward right and bottom), clamps to margin 8 with the header reachable, and is
+  pulled back into view after a window resize.
+- Not done: Inspect (X30 / U18); same-session reseed when Create is pressed while a create session is open (the
+  window state names the session by kind and subject only); the Integrations scope axis; a create still saves both
+  palettes (the clone's earlier behavior), where the reference saves the active appearance only.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 | see PR | `bun test examples/t3-code` 1383 pass / 0 fail (base `da40e6590`: 1321); strict tsc clean; `contract build` 2195 slots, 43 resources, 48348 nodes; `cargo test -p t3-code-macos --lib` 10 pass; no Swift changed (no AppKit binary touched); `git add -A && bun scripts/caps.mjs` within caps; five checks green (`cargo test` 2926 pass, 0 fail, 18 ignored; clippy, fmt, caps, boot exit 0); macOS bundle built | Before/after agent drives, see below | attended rows (real drag and resize, VoiceOver mixed state X43); Inspect (X30, U18); oracle and trace-diff not run (desktop-oracle-and-trace not built) |
+
+Live drives (2026-10-06, `scripts/agent.mjs macos --size 1280x840`, one call each, lane servers `1e2ecbd975` on
+127.0.0.1:16100-16103 with isolated homes, telemetry off; the app paired to server A in the welcome wizard and added
+server B in Settings › Connections). BEFORE = `t3-code-evidence-base` at `da40e6590`, AFTER = this branch at `c0e31d9`.
+
+- Scope menu: before lists All environments and one environment; after lists All environments and both, disambiguated
+  by address (`… · http://127.0.0.1:16102`, `… · http://127.0.0.1:16103`).
+- Mixed: after, B selected (`settings-scope-choice-environment-<B>`), Auto-resume limited threads toggled on B only,
+  then All environments: the row's track is `light-dark(#d4d4d8, #ffffff14)` (unchecked) with the thumb centred; one
+  press turned it on. Server files after the press: A `"autoResumeLimitedThreads": true`, B `true`. Before, the same
+  All-environments press wrote A only (B has no `settings.json`).
+- Theme editor: Settings › Appearance › Create theme, then Close settings: before the editor closes with Settings;
+  after it stays over the app. Header drag -420,-260: `left = 428`, `top = 216` (from 848,476); window 840x620:
+  `left = 416` (= 840 - 416 - 8), `max_height = 524` (620 - 96); back at 1280x840 `max_height = 672`; minimized
+  `max_height = 840`; reopening Settings keeps it (`layout theme-editor` answered); `Meta+Alt+Shift+t` closed it
+  (final `tree` has no `theme-editor` and no `settings-dialog`).
+- A first AFTER run showed the drag starting at the window origin (`left = 8`, `top = 8`): `frame()` reads by view
+  id and the panel had only a testId; fixed in `c0e31d9`, the second run above.
+- Not run: real-pointer drag and corner grip (attended), VoiceOver on a mixed switch (X43), oracle and trace-diff
+  pairs (desktop-oracle-and-trace not built), two-checkout mixed state live (the lane server shows "No projects yet";
+  covered by `settings-scope-sources.test.ts`), partial failure live (covered by tests).
 
 ## Next action
 
-`prepare` after the prerequisites merge; check tri-state support first and record the new gap.
+Review the PR; run the attended rows (real header drag, corner grip, VoiceOver on a mixed switch).
