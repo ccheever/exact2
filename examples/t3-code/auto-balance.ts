@@ -14,10 +14,13 @@
 //   X21: each machine's request goes over its own transport, the focused connection or
 //   its T3Fleet transport, with a 5 s deadline). The task hands the window's wall time
 //   in; it stands for the client receipt time of that load's samples.
-// - The reference retargets the draft's project reference when the choice resolves.
-//   Here a draft belongs to the focused connection, and moving it refocuses the client,
-//   so a choice that resolves while the user types records only the machine; the draft
-//   moves there when it is sent (`autoBalanceSend`), then sends.
+// - The reference retargets the draft's project reference when the choice resolves
+//   (setDraftThreadContext). Here a draft belongs to the focused connection, so the
+//   resolution moves it as the Run on menu does (`runOnEnvironment`), with its auto
+//   selection: text, workspace context, model and modes go with it, a keystroke that
+//   lands on the old key meanwhile follows it, and the composer keeps its owner
+//   (auto-balance-owner.ts), so the field keeps its text, caret and focus. A send waits
+//   for a move in flight.
 import type { T3Client } from './client';
 import { arr, obj, str, type Obj } from './domain';
 import { bridgeReply, providerAvailable, type Native } from './protocol';
@@ -29,6 +32,7 @@ import { composerNow } from './composer-controls';
 import { referencedFiles } from './composer-editor-files';
 import { isScratch, scratchRootOf } from './r12-threads-scratch';
 import { pushToast } from './toast';
+import { composerOwner, keepComposerOwner } from './auto-balance-owner';
 import { chooseLoadBalancedEnvironment, decodeHostResources, type HostResourcesSnapshot } from './load-balancing';
 
 export const AUTO_ENVIRONMENT = 'auto';
@@ -60,6 +64,7 @@ export const balancePrefs = (client: T3Client): ConnectionPrefs =>
 export function noteBalancePrefs(client: T3Client, prefs: ConnectionPrefs): void { prefsByClient.set(client, prefs); }
 /** The snapshot's read of the device preferences (app.ts, before the snapshot is built). */
 export async function autoBalancePrepare(client: T3Client, native: Native | null | undefined): Promise<void> {
+  applyKeptSelection(client); // a moved draft's model and modes, once its new machine is synchronized
   if (!native?.available) return;
   try {
     const reply = await bridgeReply(native, { op: 'connectionPreferences' });
@@ -173,6 +178,7 @@ async function fetchOne(client: T3Client, native: Native, machine: BalanceMachin
 }
 
 const sending = new WeakSet<T3Client>();
+const moving = new WeakMap<T3Client, Promise<void>>();
 /**
  * `cclocal:balance-load`: ask each candidate whose sample is missing, refreshed or older
  * than the 5 s stale time, then resolve the draft once nothing is pending (the reference's
@@ -180,7 +186,7 @@ const sending = new WeakSet<T3Client>();
  */
 export async function loadHostResources(client: T3Client, native: Native, fetch: string, now: number, source: EnvironmentFleet = fleet): Promise<string> {
   const before = autoBalanceState(client, now, source);
-  if (!before.needs || !fetch || before.fetch !== fetch) return '';
+  if (!before.needs || !fetch || before.fetch !== fetch || moving.has(client)) return '';
   const key = client.draftKey;
   await Promise.all(before.logical.filter(machine => before.candidates.includes(machine.id)).map(machine => {
     const entry = resources.get(machine.id);
@@ -195,11 +201,53 @@ export async function loadHostResources(client: T3Client, native: Native, fetch:
     return running;
   }));
   const after = autoBalanceState(client, now, source);
-  if (!after.needs || after.pending || !after.choice || sending.has(client) || client.draftKey !== key) return '';
+  if (!after.needs || after.pending || !after.choice || sending.has(client) || moving.has(client) || client.draftKey !== key) return '';
   const target = after.logical.find(machine => machine.id === after.choice);
   if (!target?.projectId) return '';
-  setDraftSelection(client, { selection: 'auto', choice: after.choice });
+  if (after.choice === client.environmentId) setDraftSelection(client, { selection: 'auto', choice: after.choice });
+  else await retargetDraft(client, native, after.choice, source);
   return '';
+}
+
+// ── The retarget (ChatView's setDraftThreadContext with the chosen projectRef) ──
+type Kept = { key: string; providerId: string; modelId: string; modelOptions: Obj[]; runtimeMode: string; interactionMode: string };
+const kept = new WeakMap<T3Client, Kept>();
+/** The moved draft keeps its model and modes once its new machine advertises them (synchronize chose that machine's defaults). */
+export function applyKeptSelection(client: T3Client): void {
+  const keep = kept.get(client);
+  if (!keep) return;
+  if (keep.key !== client.draftKey || client.threadId) { kept.delete(client); return; }
+  if (!client.ready) return;
+  kept.delete(client);
+  const provider = arr(client.config.providers).find(entry => entry.instanceId === keep.providerId);
+  if (!provider || !arr(provider.models).some(model => model.slug === keep.modelId)) return;
+  Object.assign(client, { providerId: keep.providerId, modelId: keep.modelId, modelOptions: keep.modelOptions, runtimeMode: keep.runtimeMode, interactionMode: keep.interactionMode });
+}
+
+/**
+ * Moves the open draft to the machine Auto balance chose, through the Run on menu's move
+ * with the auto selection. The client focuses that machine; the composer keeps its owner,
+ * so what the window shows as typed stays as it is.
+ */
+async function retargetDraft(client: T3Client, native: Native, environmentId: string, source: EnvironmentFleet): Promise<void> {
+  const from = client.draftKey, owner = composerOwner(client);
+  const keep = { providerId: client.providerId, modelId: client.modelId, modelOptions: client.modelOptions, runtimeMode: client.runtimeMode, interactionMode: client.interactionMode };
+  let finish = () => {};
+  moving.set(client, new Promise<void>(resolve => { finish = resolve; }));
+  try {
+    const moved = await runOnEnvironment(client, native, environmentId, source, { selection: 'auto', choice: environmentId });
+    if (moved.status) client.adoptStatus(moved.status, moved.generation);
+    if (client.environmentId !== environmentId || client.threadId) return;
+    // A keystroke that reached the old key while the connection moved is the newest text.
+    const late = client.local.drafts[from];
+    if (late !== undefined) { client.local.drafts[client.draftKey] = late; delete client.local.drafts[from]; }
+    keepComposerOwner(client, owner);
+    kept.set(client, { key: client.draftKey, ...keep });
+    await client.synchronize(native).catch(() => {}); // a newer read may take the synchronization over; it lands at the next snapshot
+    applyKeptSelection(client);
+  } catch (error) {
+    pushToast(client, { kind: 'error', title: 'Could not switch machine', description: error instanceof Error && error.message ? error.message : 'An error occurred.' });
+  } finally { moving.delete(client); finish(); }
 }
 
 // ── The Run on menu ───────────────────────────────────────────────────────
@@ -228,14 +276,14 @@ export function autoIndicator<T extends { machine: string; label: string }>(clie
   return state.automatic ? { ...focused, machine: 'scale', label: state.label } : focused;
 }
 
-// ── Send (onSend's guard, then the retarget the reference made at resolution) ──
+// ── Send (onSend's guard) ─────────────────────────────────────────────────
 /**
- * Sends the draft where auto balance chose: an unresolved draft waits with the reference's
- * toast; a draft resolved to another machine moves there first (its text, workspace
- * context, selection and model), and the send runs on that connection. A draft with
- * attachments stays on the machine that holds them.
+ * onSend's load-balancing guard: an unresolved draft waits with the reference's toast. A
+ * move in flight finishes first, so the draft sends from the machine it moved to; while
+ * the send runs, no resolution retargets the draft.
  */
 export async function autoBalanceSend(client: T3Client, native: Native, send: () => Promise<void>, source: EnvironmentFleet = fleet): Promise<void> {
+  await moving.get(client);
   const state = autoBalanceState(client, composerNow(client), source);
   if (state.needs) {
     pushToast(client, { kind: 'warning', title: state.pending ? 'Checking machine resources' : 'Choose a machine to continue',
@@ -243,20 +291,7 @@ export async function autoBalanceSend(client: T3Client, native: Native, send: ()
         : 'No eligible machine has available resources. Choose a machine in the composer to override.' });
     return;
   }
+  void native;
   sending.add(client);
-  try {
-    if (state.automatic && state.chosen && state.chosen !== client.environmentId && !hasComposerAttachments(client)) {
-      const keep = { providerId: client.providerId, modelId: client.modelId, modelOptions: client.modelOptions, runtimeMode: client.runtimeMode, interactionMode: client.interactionMode };
-      const selection = draftSelection(client);
-      const moved = await runOnEnvironment(client, native, state.chosen, source);
-      if (moved.status) client.adoptStatus(moved.status, moved.generation);
-      if (client.environmentId !== state.chosen) return;
-      setDraftSelection(client, selection);
-      await client.synchronize(native);
-      // The candidate filter asked for this provider instance there; keep the draft's model.
-      const provider = arr(client.config.providers).find(entry => entry.instanceId === keep.providerId);
-      if (provider && arr(provider.models).some(model => model.slug === keep.modelId)) Object.assign(client, keep);
-    }
-    await send();
-  } finally { sending.delete(client); }
+  try { await send(); } finally { sending.delete(client); }
 }

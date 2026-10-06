@@ -64,7 +64,7 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
   try {
     if (op === 'send' && pendingRequests(this.projection).approvals.length) throw new ClientError('Resolve this approval request to continue.');
     else if (op === 'send' && activeInput(this)) await submitAnswers.call(this, native, storage, '', value);
-    else if (op === 'send') await autoBalanceSend(this, native, () => send.call(this, native, storage, value)); // auto-balance: onSend's guard and the retarget
+    else if (op === 'send') await autoBalanceSend(this, native, () => send.call(this, native, storage, value)); // auto-balance: onSend's guard (a move in flight finishes first)
     else if (op === 'provider' || op === 'model') await changeModel.call(this, native, storage, op, id, value);
     else if (op === 'model-option') await changeModelOption.call(this, native, storage, id, value);
     else if (op === 'runtime' || op === 'interaction') await changeMode.call(this, native, storage, op, value);

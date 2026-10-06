@@ -16,7 +16,8 @@ import { environmentIndicator } from './shell-details';
 import { runOnMenuWidth, workspaceLabels } from './r5-composer-menus';
 import { isScratch, openRemoteScratch, scratchChoices, scratchRootOf } from './r12-threads-scratch'; // r12-threads: No project drafts switch machine (c47f4263f9)
 import { pushToast } from './toast';
-import { AUTO_ENVIRONMENT, autoBalanceState, autoIndicator, chooseAutoEnvironment, moveDraftSelection, setDraftSelection, withAutoOption } from './auto-balance'; // auto-balance
+import { AUTO_ENVIRONMENT, autoBalanceState, autoIndicator, chooseAutoEnvironment, draftSelection, moveDraftSelection, setDraftSelection, withAutoOption,
+  type BalanceSelection } from './auto-balance'; // auto-balance
 
 const normalize = (value: unknown) => str(value).trim().replace(/\\/g, '/').replace(/\/+$/, '');
 /** deriveLogicalProjectKey for one grouping mode. */
@@ -74,7 +75,8 @@ export function environmentView(client: T3Client) {
  * moves to the target environment's copy of the project, and the client focuses
  * that environment. Returns the connection status to adopt.
  */
-export async function runOnEnvironment(client: T3Client, native: Native, environmentId: string, source: EnvironmentFleet = fleet): Promise<{ status: Obj | null; generation: number }> {
+export async function runOnEnvironment(client: T3Client, native: Native, environmentId: string, source: EnvironmentFleet = fleet,
+  selection: BalanceSelection = { selection: 'manual', choice: '' }): Promise<{ status: Obj | null; generation: number }> {
   if (client.threadId) throw new ClientError('A started thread keeps its environment.');
   // auto-balance: "Auto balance" asks every machine again; picking a machine is a manual choice that clears it.
   if (environmentId === AUTO_ENVIRONMENT) { chooseAutoEnvironment(client, source); return { status: null, generation: -1 }; }
@@ -98,12 +100,24 @@ export async function runOnEnvironment(client: T3Client, native: Native, environ
   if (text) { client.local.drafts[to] = text; delete client.local.drafts[from]; }
   const contexts = (client.local.composerControls as { contexts?: Record<string, Obj> }).contexts ??= {};
   if (contexts[from]) { contexts[to] = { ...contexts[from], worktreePath: '' }; delete contexts[from]; }
-  moveDraftSelection(client, from, to, { selection: 'manual', choice: '' }); // auto-balance: a picked machine is manual
+  // auto-balance: a picked machine is manual; Auto balance's resolution moves the draft with its auto selection.
+  const previous = draftSelection(client, from);
+  moveDraftSelection(client, from, to, selection);
+  const before = client.local.selections[environmentId];
   client.local.selections[environmentId] = { projectId, threadId: '' };
   source.forget(entry.key);
   await native.later({ op: 'fleetStop', fleet: entry.key }).catch(() => {});
   const reply = await bridgeReply(native, { op: 'connect', origin: entry.origin, credential: '' });
-  if (!reply.ok) throw new ClientError(reply.error!.message);
+  if (!reply.ok) {
+    // The focus stays where it was, so the draft goes back to it (text, workspace and selection).
+    if (client.draftKey === from) {
+      if (client.local.drafts[to] !== undefined && client.local.drafts[from] === undefined) { client.local.drafts[from] = client.local.drafts[to]!; delete client.local.drafts[to]; }
+      if (contexts[to] && !contexts[from]) { contexts[from] = contexts[to]; delete contexts[to]; }
+      moveDraftSelection(client, to, from, previous);
+      if (before) client.local.selections[environmentId] = before; else delete client.local.selections[environmentId];
+    }
+    throw new ClientError(reply.error!.message);
+  }
   return { status: obj(reply.value), generation: reply.generation };
 }
 
