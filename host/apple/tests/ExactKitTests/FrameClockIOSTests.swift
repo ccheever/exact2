@@ -62,5 +62,27 @@ final class FrameClockIOSTests: XCTestCase {
         XCTAssertEqual(ticks, 0)
         XCTAssertFalse(clock.running)
     }
+
+    /// A list's smooth correction takes the app's frames, not a link of its
+    /// own, and gives them back when it ends or is cancelled.
+    func testASmoothCorrectionRunsOnTheAppsClock() throws {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 300, height: 400))
+        let scroll = UIScrollView(frame: window.bounds)
+        scroll.contentSize = CGSize(width: 300, height: 2000)
+        window.addSubview(scroll)
+        window.makeKeyAndVisible()
+        let made = FrameClock.shared.linksMade
+        var ended: Bool?
+        let driver = OffsetDriver(scroll: scroll, to: CGPoint(x: 0, y: 600), duration: 0.3, serial: 1,
+                                  done: { _, finished in ended = finished }, reclamp: { _ in })
+        driver.start()
+        XCTAssertTrue(FrameClock.shared.wants(driver))
+        XCTAssertLessThanOrEqual(FrameClock.shared.linksMade, max(made, 1))
+        let link = try XCTUnwrap(FrameClock.shared.link)
+        FrameClock.shared.fire(link)
+        XCTAssertNil(ended)
+        driver.cancel()
+        XCTAssertFalse(FrameClock.shared.wants(driver))
+    }
 }
 #endif

@@ -344,7 +344,6 @@ final class OffsetDriver: NSObject {
     private var from: CGPoint, to: CGPoint, began: CFTimeInterval = 0
     private let duration: TimeInterval
     private var serial: Int
-    private var link: CADisplayLink?
     private let done: (Int, Bool) -> Void
     private let reclamp: (CGPoint) -> Void
     init(scroll: UIScrollView, to: CGPoint, duration: TimeInterval, serial: Int, done: @escaping (Int, Bool) -> Void,
@@ -354,16 +353,14 @@ final class OffsetDriver: NSObject {
     }
     func start() {
         began = CACurrentMediaTime()
-        let link = CADisplayLink(target: self, selector: #selector(frame(_:)))
-        link.add(to: .main, forMode: .common)
-        self.link = link
+        FrameClock.shared.want(self, .offsetDriver) { [weak self] in self?.frame($0) }
     }
     func retarget(_ target: CGPoint, serial: Int) {
         guard let scroll else { return }
         from = scroll.contentOffset; to = target; self.serial = serial
         began = CACurrentMediaTime()
     }
-    func cancel() { link?.invalidate(); link = nil }
+    func cancel() { FrameClock.shared.drop(self) }
     /// CSS `ease-in-out`, cubic-bezier(0.42, 0, 0.58, 1), as UIKit's.
     static func ease(_ x: Double) -> Double {
         let bez = { (a: Double, b: Double, s: Double) in 3 * a * s * (1 - s) * (1 - s) + 3 * b * s * s * (1 - s) + s * s * s }
@@ -371,7 +368,7 @@ final class OffsetDriver: NSObject {
         for _ in 0..<32 { let m = (lo + hi) / 2; if bez(0.42, 0.58, m) < x { lo = m } else { hi = m } }
         return bez(0, 1, (lo + hi) / 2)
     }
-    @objc private func frame(_ link: CADisplayLink) {
+    private func frame(_ link: CADisplayLink) {
         guard let scroll, scroll.window != nil else { cancel(); done(serial, false); return }
         // Content that shrank under it: from where the port can be now,
         // toward the edge it can reach; every frame stays inside the range.

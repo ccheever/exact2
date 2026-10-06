@@ -6,15 +6,20 @@ import UIKit
 /// The app's one `CADisplayLink`. A user asks for frames with the rate it
 /// needs and gives them up when it is done; the link is made once and paused
 /// while no one asks, so an idle app gets no callbacks. Users: the session's
-/// motion, timers and canvases (`Frames`), the scroll pump's owed work,
-/// deferred heavy leaves, live SVG filters. Press feedback eases on the
-/// render server and needs none.
+/// motion, timers and canvases (`Frames`), a list's smooth correction
+/// (`OffsetDriver`), a navigation transition's reveal, the scroll pump's
+/// owed work, deferred heavy leaves, live SVG filters. Press feedback eases
+/// on the render server and needs none. A development session's
+/// `FrameSampler` (LLP 1079) keeps its own link: it measures the cadence
+/// the display delivers, which must not be the clock's own callbacks or
+/// change with the rate the clock asks for.
 /// It asks for the highest rate any user is asking for. Users tick in the
 /// order they gave (`Order`), the session's frame first.
 final class FrameClock: NSObject {
     static let shared = FrameClock()
 
-    enum Order: Int { case session, scroll, heavyLeaves, svgFilter }
+    /// A correction moves the port before the reveal and the pump read it.
+    enum Order: Int { case session, offsetDriver, navigationReveal, scroll, heavyLeaves, svgFilter }
 
     private struct User {
         weak var owner: AnyObject?

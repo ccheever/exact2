@@ -118,7 +118,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var unanimated = false
     var activeKey: String? { container?.props["navigationKey"] }
     /// While a push or pop runs: paints what each frame newly reveals.
-    private var revealLink: CADisplayLink?
     /// LLP 1075.003: each stack Exact built, by controller; what each shown
     /// bar covers of its route; the ownership changes already journaled;
     /// whether the hooks are being replayed for a cold launch's objects.
@@ -694,20 +693,17 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     private func startRevealing() {
-        guard revealLink == nil else { return }
-        let link = CADisplayLink(target: RevealTick(self), selector: #selector(RevealTick.tick))
-        link.add(to: .main, forMode: .common)
-        revealLink = link
+        guard !FrameClock.shared.wants(self) else { return }
+        FrameClock.shared.want(self, .navigationReveal) { [weak self] _ in self?.revealTick() }
     }
 
-    fileprivate func revealTick() {
+    private func revealTick() {
         guard changing else { stopRevealing(); return }
         presenter.paintVisibleText()
     }
 
     private func stopRevealing() {
-        revealLink?.invalidate()
-        revealLink = nil
+        FrameClock.shared.drop(self)
     }
 
     func navigationController(_ navigationController: UINavigationController, didShow viewController: UIViewController, animated: Bool) {
@@ -798,12 +794,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         lastTransition = "idle"
         if clearFocus { presenter.cancelPendingFocus() }
     }
-}
-/// The reveal link's target, so the link doesn't keep its host alive.
-private final class RevealTick: NSObject {
-    private weak var host: NavigationHost?
-    init(_ host: NavigationHost) { self.host = host }
-    @objc func tick() { if let host { host.revealTick() } }
 }
 #if os(tvOS)
 extension NavigationHost {
